@@ -1119,3 +1119,283 @@ async def test_a_legacy_plain_string_summary_loads_instead_of_crashing_the_read_
         response = await get_profile(session)
     assert response.profile.professional_summary.de == "Erfahrene Entwicklerin."
     assert response.profile.professional_summary.en is None
+
+
+# ── #595 — "" clears an object-section field exactly like an explicit null ────
+#
+# Adversarial finding 2026-08-26 (attack 1a, US293 pass): a raw agent payload
+# `{"phone": ""}` used to merge-patch the literal "" while the enrichment-trail
+# receipt already read `removed` (`_diff_object_section` via `_is_empty`) — the
+# receipt disagreed with the vault it describes. The fix sits in the one pure
+# adapter every door shares (`build_replace_section_op`), so it is pinned here
+# through all THREE doors this file's own docstring names for `patch_profile_section`.
+
+
+@pytest.mark.asyncio
+async def test_a_blank_string_through_the_rest_door_clears_like_an_explicit_null(durable_db):
+    """Same assertion shape as `test_object_section_merge_patch_survives_the_new_path`
+    (explicit null) — proving "" is now the same act, not a second, laxer one."""
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    await _patch(factory, "personal_info", {"phone": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["personal_info"]["phone"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["phone"]["action"] == "removed"
+    assert changes["phone"]["new_value"] is None  # not "" — the bug's exact symptom
+
+
+@pytest.mark.asyncio
+async def test_a_blank_string_through_the_agent_door_clears_the_same_way(
+    durable_db, monkeypatch
+):
+    """The #595 acceptance criterion verbatim:
+    `update_profile(section="personal_info", data={"phone": ""})` stores
+    `null`, receipt `removed` with `new_value: null`."""
+    import applire.mcp.server as server
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    await server.update_profile(section="personal_info", data={"phone": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["personal_info"]["phone"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["phone"]["action"] == "removed"
+    assert changes["phone"]["new_value"] is None
+
+
+@pytest.mark.asyncio
+async def test_professional_summary_blank_slot_through_the_rest_door_clears_to_null(durable_db):
+    """Acceptance: "Same for `professional_summary` slots." — the other
+    language slot must survive untouched (#178 merge-patch semantics)."""
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": "English summary."}
+    profile_id = await _seed_profile(factory, seed)
+
+    await _patch(factory, "professional_summary", {"de": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    assert stored["professional_summary"]["en"] == "English summary."
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["de"]["action"] == "removed"
+    assert changes["de"]["new_value"] is None
+
+
+@pytest.mark.asyncio
+async def test_professional_summary_blank_slot_through_the_agent_door_clears_to_null(
+    durable_db, monkeypatch
+):
+    import applire.mcp.server as server
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": "English summary."}
+    profile_id = await _seed_profile(factory, seed)
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    await server.update_profile(section="professional_summary", data={"de": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    assert stored["professional_summary"]["en"] == "English summary."
+
+
+@pytest.mark.asyncio
+async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_not_blanks_it(
+    durable_db,
+):
+    """The THIRD door this pure adapter transitively fixes, beyond the two
+    #595 names: `build_section_field_edit` maps a cleared CV "introduction"
+    textarea to `professional_summary.{lang}` with the raw (possibly "")
+    content (services/cv_section_editor.py) — no blank-content guard sits in
+    front of it, so this is reachable in production: clear the CV's summary
+    box and save to profile. `document_language` is pinned directly (E054
+    clause 3b — a generated CV always carries it), so the slot is deterministic
+    regardless of the fixture JD text's detected language."""
+    from applire.services.cv_section_editor import patch_cv_section
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": None}
+    profile_id = await _seed_profile(factory, seed)
+    rows, cv_id, _position_uuid = _cv_fixture_rows(profile_id)
+    rows[2].document_language = "de"
+
+    async with factory() as session:
+        session.add_all(rows)
+        await session.commit()
+
+    async with factory() as request_session:
+        await patch_cv_section(cv_id, "introduction", "", True, request_session)
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["de"]["action"] == "removed"
+    assert changes["de"]["new_value"] is None
+
+
+# ── #597 (ADR-063 amended 2026-08-28) — door-level translation of a reverted ──
+# write. `patch_profile_section` and "the remaining REST doors" are explicitly
+# UNCHANGED by the amendment (propagate uncaught — FastAPI's own default
+# 500 in a real deployment); `submit_testimony` and MCP `import_cv` DO
+# translate, mirroring the LLMTruncatedError idiom each already had. All four
+# tests force the SAME inner gate (apply.py's own `_ensure_loadable`) via the
+# technique test_commit_ops.py's #597 tests use — the deep mechanism (which
+# op appliers can/can't trip it) is that file's job; this file's job is
+# proving every door reaches the same outcome the mechanism guarantees.
+
+
+class _FixedOpsProvider:
+    """A minimal fake LLMProvider returning one queued reconcile payload — no
+    live LLM call. Mirrors backend/tests/unit/test_testimony_bridge.py's
+    `_QueueProvider`, defined locally (that file lives in the OTHER unit test
+    tree) rather than imported across trees."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def aparse_json(self, prompt, *, system=None, **kwargs):
+        return self._payload
+
+
+def _always_reverts_gate(candidate, *, stage, op_types, source):
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
+
+    raise VaultWriteRevertedError(
+        stage=stage, op_types=op_types, source=source, detail="forced by test"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rest_patch_door_propagates_a_reverted_write_and_the_vault_never_moves(
+    durable_db, monkeypatch
+):
+    """`patch_profile_section` is explicitly NOT translated BY NAME by the
+    amendment — but `patch_section` (the route) already carries a blanket
+    `except Exception as exc: raise HTTPException(500, ...)` past its named
+    StaleEditError/ValueError/LookupError branches (found while writing this
+    test — corrected from the assumption that this door has no catch-all at
+    all), so a reverted write already surfaces as a real 500 at THIS door,
+    no separate translation needed. `update_profile` below has no such
+    catch-all and genuinely propagates raw."""
+    from fastapi import HTTPException
+
+    import applire.services.profile.reconcile.apply as apply_module
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stored_before = await _read_back(engine, profile_id)
+    monkeypatch.setattr(apply_module, "_ensure_loadable", _always_reverts_gate)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _patch(factory, "personal_info", {"phone": "+49 1"})
+
+    assert excinfo.value.status_code == 500
+    assert "vault_write_reverted" in str(excinfo.value.detail)
+    stored_after = await _read_back(engine, profile_id)
+    assert stored_after == stored_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_profile_door_propagates_a_reverted_write_and_the_vault_never_moves(
+    durable_db, monkeypatch
+):
+    """The agent-door sibling of the REST test above — same "no change"
+    treatment, same propagation, same vault-immutability proof."""
+    import applire.mcp.server as server
+    import applire.services.profile.reconcile.apply as apply_module
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stored_before = await _read_back(engine, profile_id)
+    monkeypatch.setattr(apply_module, "_ensure_loadable", _always_reverts_gate)
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    with pytest.raises(VaultWriteRevertedError):
+        await server.update_profile(section="personal_info", data={"phone": "+49 1"})
+
+    stored_after = await _read_back(engine, profile_id)
+    assert stored_after == stored_before
+
+
+@pytest.mark.asyncio
+async def test_submit_testimony_door_reports_a_reverted_write_as_status_error(
+    durable_db, monkeypatch
+):
+    """Unlike the two doors above, `submit_testimony` DOES translate — the
+    same "fail only this submission, honestly, nothing raised past this
+    door" idiom its pre-existing `LLMTruncatedError` branch already used."""
+    import applire.services.profile.reconcile.apply as apply_module
+    from applire.services.profile.reconcile.testimony_bridge import submit_testimony
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stored_before = await _read_back(engine, profile_id)
+    monkeypatch.setattr(apply_module, "_ensure_loadable", _always_reverts_gate)
+    provider = _FixedOpsProvider(
+        {
+            "ops": [{"op": "upsert_skill", "name": "Kafka", "category": "technical"}],
+            "ambiguities": [],
+            "denials": [],
+        }
+    )
+
+    async with factory() as session:
+        result = await submit_testimony("I ran Kafka in production.", session, provider)
+
+    assert result.status == "error"
+    assert "revert" in result.detail.lower()
+    stored_after = await _read_back(engine, profile_id)
+    assert stored_after == stored_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_import_cv_door_reports_a_reverted_write_as_a_non_2xx_error(
+    durable_db, monkeypatch
+):
+    """`import_cv`'s existing idiom (#597 reachability study finding: unlike
+    `send_message`/`resolve_gap`, it never had a NAMED `LLMTruncatedError`
+    clause — only a blanket `except Exception`) got a dedicated
+    `VaultWriteRevertedError` clause anyway, for a clearer retry message.
+    Exercised at the seam `import_cv` itself calls
+    (`profile_svc.import_from_text`) rather than by driving a real reconcile
+    — the deep gate mechanism is proven elsewhere; this test's job is the
+    door's own translation wiring, non-2xx (`McpError`) included."""
+    from unittest.mock import AsyncMock
+
+    from mcp.shared.exceptions import McpError
+
+    import applire.mcp.server as server
+    from applire.services import profile as profile_svc
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    stored_before = await _read_back(engine, profile_id)
+
+    async def _reverted(*args, **kwargs):
+        raise VaultWriteRevertedError(
+            stage="commit", op_types=["ApplyImportMerge"], source="cv_upload", detail="forced"
+        )
+
+    monkeypatch.setattr(profile_svc, "import_from_text", AsyncMock(side_effect=_reverted))
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    with pytest.raises(McpError):
+        await server.import_cv(text="Some CV text long enough to attempt an import.")
+
+    stored_after = await _read_back(engine, profile_id)
+    assert stored_after == stored_before

@@ -44,7 +44,11 @@ by each of the eleven writers the 2026-07 inventory found.
    receipted into the `EnrichmentRecord` but NEVER enter `bool(changes)`. A
    retraction must not read as "gap addressed" or request a ledger upgrade
    (#231/#352);
-8. the `_ensure_loadable` round-trip is the last gate before assignment.
+8. the `_ensure_loadable` round-trip is the last gate before assignment —
+   it RAISES `VaultWriteRevertedError` (ADR-063 amended 2026-08-28) rather
+   than silently reverting, so nothing after it (the ADR-042 snapshot, the
+   `profile_json` assignment, the flush, the fact-pin sweep) can ever run
+   for a turn whose write was discarded.
 
 **Flush, not commit** (ADR-063 amended 2026-08-09 clause 6). `commit_ops` ends
 with `await db.flush()` and never calls `commit()`/`rollback()`/`refresh()`:
@@ -347,6 +351,15 @@ def _refloor_persisted_denials(profile: MasterProfileData) -> list[FieldChange]:
     return refloored
 
 
+# Re-exported so a caller already importing this module's exception
+# vocabulary (StaleEditError) gets both without reaching into
+# reconcile.apply directly (ADR-063 amended 2026-08-28, #597). Defined in
+# apply.py, not here — apply.py must not import commit.py, and commit.py
+# already imports FROM apply.py (apply_ops, _ensure_loadable), so this is
+# the cycle-free direction.
+from applire.services.profile.reconcile.apply import VaultWriteRevertedError  # noqa: F401
+
+
 class StaleEditError(Exception):
     """ADR-063 amended 2026-08-25 (E055 / JF-F-H1.6): an op carried the
     `updated_at` it was composed against and the profile has moved since.
@@ -643,22 +656,23 @@ async def commit_ops(
 
     # ── Invariant 8 — the last gate before assignment ────────────────────────
     # `apply_ops` already round-trips its own output; everything above mutates
-    # metadata afterwards, so the guarantee is re-established here.
-    final = _ensure_loadable(profile, fallback=applied.profile)
-    if final is applied.profile:
-        # `_ensure_loadable` hands back a freshly re-validated object on success,
-        # so getting the fallback object back IS the failure signal — and
-        # `applied.profile` shares the very metadata object that just failed to
-        # load, so it is not a safe fallback either. Reload the untouched
-        # persisted state: persist NOTHING rather than half a turn. Reaching
-        # here is a bug, hence ERROR.
-        logger.error(
-            "commit_ops: the committed profile failed its load round-trip; the "
-            "vault is left UNCHANGED for this turn (source=%s intake=%s)",
-            provenance.source,
-            provenance.intake,
-        )
-        final = MasterProfileData.model_validate(record.profile_json)
+    # metadata afterwards, so the guarantee is re-established here. ADR-063
+    # amended 2026-08-28 (#597): this now RAISES `VaultWriteRevertedError`
+    # rather than silently falling back to `applied.profile` — the silent
+    # fallback was itself the defect (the enrichment record two blocks up,
+    # the denial re-floor, the receipt lists were all already built from the
+    # ops this gate is about to discard, and nothing downstream re-checked
+    # them). A raise here — like `apply_ops`'s own inner gate one stage
+    # down — GUARANTEES the snapshot below, the `record.profile_json`
+    # assignment, the flush and the fact-pin sweep can never run for a
+    # reverted turn; a caller re-deriving "did this actually revert?" from a
+    # sentinel comparison could not offer that guarantee.
+    final = _ensure_loadable(
+        profile,
+        stage="commit",
+        op_types=[type(op).__name__ for op in ops],
+        source=provenance.source,
+    )
 
     # ── The ADR-042 pre-merge snapshot (import intakes only) ─────────────────
     # Captured BEFORE the row is overwritten and keyed to THIS write's
