@@ -1,0 +1,714 @@
+{
+ "incoming": {
+  "personal_info": {
+   "name": "KATRIN HOFFMANN",
+   "email": "katrin.hoffmann@example.com",
+   "phone": "+49 711 0000000",
+   "location": "Stuttgart",
+   "address": null,
+   "nationality": null,
+   "date_of_birth": null,
+   "linkedin_url": null,
+   "xing_url": null,
+   "website_url": null
+  },
+  "professional_summary": {
+   "de": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss, Planung und Werkscontrolling; überzeugt davon, dass gutes Controlling erklärt statt nur berichtet.",
+   "en": null
+  },
+  "work_experience": [
+   {
+    "company": "Schwarzwald Präzision GmbH",
+    "role": "Financial Controller",
+    "role_aliases": [],
+    "location": "Stuttgart",
+    "start_date": "2019-02",
+    "end_date": null,
+    "is_current": true,
+    "responsibilities": [
+     "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.",
+     "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+     "Werkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.",
+     "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+     "Weiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+     "Fachliche Anleitung von zwei Werkstudierenden."
+    ],
+    "achievements": [],
+    "technologies": [
+     "SAP CO",
+     "SAP FI"
+    ],
+    "industry_context": "Industrieller Mittelstand und Produktion",
+    "team_size": null,
+    "budget_managed": null
+   },
+   {
+    "company": "Brauner & Söhne Maschinenbau GmbH",
+    "role": "Junior Controllerin",
+    "role_aliases": [],
+    "location": "Esslingen",
+    "start_date": "2016-09",
+    "end_date": "2019-01",
+    "is_current": false,
+    "responsibilities": [
+     "Mitarbeit im Monatsabschluss; Pflege der Kostenstellen- und Kostenträgerrechnung.",
+     "Aufbau des monatlichen Vertriebsreportings in Excel.",
+     "Investitionsrechnungen für Maschinenbeschaffungen."
+    ],
+    "achievements": [],
+    "technologies": [
+     "Excel"
+    ],
+    "industry_context": "Maschinenbau",
+    "team_size": null,
+    "budget_managed": null
+   },
+   {
+    "company": "Diehl-Gruppe",
+    "role": "Praktikum & Werkstudententätigkeit Controlling",
+    "role_aliases": [],
+    "location": "Nürnberg",
+    "start_date": "2014",
+    "end_date": "2016",
+    "is_current": false,
+    "responsibilities": [],
+    "achievements": [],
+    "technologies": [],
+    "industry_context": null,
+    "team_size": null,
+    "budget_managed": null
+   }
+  ],
+  "education": [
+   {
+    "institution": "Universität Stuttgart",
+    "degree": "M.Sc.",
+    "field": "Betriebswirtschaftslehre (Schwerpunkt Controlling)",
+    "start_date": null,
+    "end_date": "2016",
+    "grade": null,
+    "thesis_title": null,
+    "relevant_coursework": []
+   },
+   {
+    "institution": "DHBW Stuttgart",
+    "degree": "B.A.",
+    "field": "Betriebswirtschaft",
+    "start_date": null,
+    "end_date": "2014",
+    "grade": null,
+    "thesis_title": null,
+    "relevant_coursework": []
+   }
+  ],
+  "certifications": [],
+  "skills": [
+   {
+    "name": "SAP CO/FI",
+    "category": "technical",
+    "proficiency": "advanced",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "HGB-Abschluss",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Budgetierung & Forecast",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Werkscontrolling",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Herstellkostenrechnung",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Excel",
+    "category": "technical",
+    "proficiency": "advanced",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Abweichungsanalyse",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   },
+   {
+    "name": "Investitionsrechnung",
+    "category": "domain",
+    "proficiency": "intermediate",
+    "years_experience": null,
+    "last_used": null
+   }
+  ],
+  "languages": [
+   {
+    "language": "Deutsch",
+    "level": "Muttersprache"
+   },
+   {
+    "language": "Englisch",
+    "level": "verhandlungssicher, C1"
+   }
+  ],
+  "publications": [],
+  "volunteer_activities": [],
+  "projects": []
+ },
+ "existing_empty": {
+  "personal_info": {
+   "name": "",
+   "email": null,
+   "phone": null,
+   "location": null,
+   "address": null,
+   "nationality": null,
+   "date_of_birth": null,
+   "photo_url": null,
+   "linkedin_url": null,
+   "xing_url": null,
+   "website_url": null
+  },
+  "professional_summary": {
+   "de": null,
+   "en": null
+  },
+  "work_experience": [],
+  "education": [],
+  "certifications": [],
+  "skills": [],
+  "languages": [],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": {
+   "denied_concepts": []
+  }
+ },
+ "backend6_ops": [
+  {
+   "op": "set_personal_info",
+   "field": "name",
+   "value": "KATRIN HOFFMANN"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "email",
+   "value": "katrin.hoffmann@example.com"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "phone",
+   "value": "+49 711 0000000"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "location",
+   "value": "Stuttgart"
+  },
+  {
+   "op": "set_summary",
+   "lang": "de",
+   "text": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss, Planung und Werkscontrolling; überzeugt davon, dass gutes Controlling erklärt statt nur berichtet."
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w1",
+   "target": "4aa64278-35d4-4615-9dd8-15a18bb9de03",
+   "company": "Schwarzwald Präzision GmbH",
+   "role": "Financial Controller",
+   "start_date": "2019-02",
+   "end_date": null,
+   "is_current": true,
+   "location": "Stuttgart",
+   "team_size": null,
+   "industry_context": "Industrieller Mittelstand und Produktion",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w1",
+   "responsibilities": [
+    "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.",
+    "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+    "Werkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.",
+    "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+    "Weiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+    "Fachliche Anleitung von zwei Werkstudierenden."
+   ],
+   "achievements": [],
+   "technologies": [
+    "SAP CO",
+    "SAP FI"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w2",
+   "target": "a58decfc-48e5-40dc-8635-fc2fbc327b14",
+   "company": "Brauner & Söhne Maschinenbau GmbH",
+   "role": "Junior Controllerin",
+   "start_date": "2016-09",
+   "end_date": "2019-01",
+   "is_current": false,
+   "location": "Esslingen",
+   "team_size": null,
+   "industry_context": "Maschinenbau",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w2",
+   "responsibilities": [
+    "Mitarbeit im Monatsabschluss; Pflege der Kostenstellen- und Kostenträgerrechnung.",
+    "Aufbau des monatlichen Vertriebsreportings in Excel.",
+    "Investitionsrechnungen für Maschinenbeschaffungen."
+   ],
+   "achievements": [],
+   "technologies": [
+    "Excel"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w3",
+   "target": "e673ef48-156b-48ae-b3ce6be38753ec",
+   "company": "Diehl-Gruppe",
+   "role": "Praktikum & Werkstudententätigkeit Controlling",
+   "start_date": "2014",
+   "end_date": "2016",
+   "is_current": false,
+   "location": "Nürnberg",
+   "team_size": null,
+   "industry_context": null,
+   "budget_managed": null
+  }
+ ],
+ "local11_ops": [
+  {
+   "op": "set_personal_info",
+   "field": "name",
+   "value": "KATRIN HOFFMANN"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "email",
+   "value": "katrin.hoffmann@example.com"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "phone",
+   "value": "+49 711 0000000"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "location",
+   "value": "Stuttgart"
+  },
+  {
+   "op": "set_summary",
+   "lang": "de",
+   "text": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss, Planung und Werkscontrolling; überzeugt davon, dass gutes Controlling erklärt statt nur berichtet."
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w1",
+   "target": "185b4506-45a8-44ff-9d4f-7f52f2bc9a46",
+   "company": "Schwarzwald Präzision GmbH",
+   "role": "Financial Controller",
+   "start_date": "2019-02",
+   "end_date": null,
+   "is_current": true,
+   "location": "Stuttgart",
+   "team_size": null,
+   "industry_context": "Industrieller Mittelstand und Produktion",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w1",
+   "responsibilities": [
+    "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.",
+    "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+    "Werkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.",
+    "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+    "Weiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+    "Fachliche Anleitung von zwei Werkstudierenden."
+   ],
+   "achievements": [],
+   "technologies": [
+    "SAP CO",
+    "SAP FI"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w2",
+   "target": "1e11a1d3-9866-408b-b406-96a504e8cf5c",
+   "company": "Brauner & Söhne Maschinenbau GmbH",
+   "role": "Junior Controllerin",
+   "start_date": "2016-09",
+   "end_date": "2019-01",
+   "is_current": false,
+   "location": "Esslingen",
+   "team_size": null,
+   "industry_context": "Maschinenbau",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w2",
+   "responsibilities": [
+    "Mitarbeit im Monatsabschluss; Pflege der Kostenstellen- und Kostenträgerrechnung.",
+    "Aufbau des monatlichen Vertriebsreportings in Excel.",
+    "Investitionsrechnungen für Maschinenbeschaffungen."
+   ],
+   "achievements": [],
+   "technologies": [
+    "Excel"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w3",
+   "target": "1ce3f8cf-4c17-4b04-b76a-ec903e667798",
+   "company": "Diehl-Gruppe",
+   "role": "Praktikum & Werkstudententätigkeit Controlling",
+   "start_date": "2014",
+   "end_date": "2016",
+   "is_current": false,
+   "location": "Nürnberg",
+   "team_size": null,
+   "industry_context": null,
+   "budget_managed": null
+  },
+  {
+   "op": "upsert_skill",
+   "name": "SAP CO",
+   "category": "technical",
+   "proficiency": "advanced",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "SAP FI",
+   "category": "technical",
+   "proficiency": "advanced",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "HGB-Abschluss",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Budgetierung & Forecast",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Werkscontrolling",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Herstellkostenrechnung",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Abweichungsanalyse",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Excel",
+   "category": "technical",
+   "proficiency": "advanced",
+   "evidence": [
+    "w2"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Investitionsrechnung",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w2"
+   ]
+  },
+  {
+   "op": "upsert_language",
+   "language": "Deutsch",
+   "level": "Muttersprache"
+  },
+  {
+   "op": "upsert_language",
+   "language": "Englisch",
+   "level": "verhandlungssicher, C1"
+  },
+  {
+   "op": "upsert_education",
+   "institution": "Universität Stuttgart",
+   "degree": "M.Sc.",
+   "field": "Betriebswirtschaftslehre (Schwerpunkt Controlling)",
+   "start_date": null,
+   "end_date": "2016",
+   "grade": null
+  },
+  {
+   "op": "upsert_education",
+   "institution": "DHBW Stuttgart",
+   "degree": "B.A.",
+   "field": "Betriebswirtschaft",
+   "start_date": null,
+   "end_date": "2014",
+   "grade": null
+  }
+ ],
+ "replay_noid_00_ops": [
+  {
+   "op": "set_personal_info",
+   "field": "name",
+   "value": "KATRIN HOFFMANN"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "email",
+   "value": "katrin.hoffmann@example.com"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "phone",
+   "value": "+49 711 0000000"
+  },
+  {
+   "op": "set_personal_info",
+   "field": "location",
+   "value": "Stuttgart"
+  },
+  {
+   "op": "set_summary",
+   "lang": "de",
+   "text": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss, Planung und Werkscontrolling; überzeugt davon, dass gutes Controlling erklärt statt nur berichtet."
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w1",
+   "target": null,
+   "company": "Schwarzwald Präzision GmbH",
+   "role": "Financial Controller",
+   "start_date": "2019-02",
+   "end_date": null,
+   "is_current": true,
+   "location": "Stuttgart",
+   "team_size": null,
+   "industry_context": "Industrieller Mittelstand und Produktion",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w1",
+   "responsibilities": [
+    "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.",
+    "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+    "Werkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.",
+    "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+    "Weiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+    "Fachliche Anleitung von zwei Werkstudierenden."
+   ],
+   "achievements": [],
+   "technologies": [
+    "SAP CO",
+    "SAP FI"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w2",
+   "target": null,
+   "company": "Brauner & Söhne Maschinenbau GmbH",
+   "role": "Junior Controllerin",
+   "start_date": "2016-09",
+   "end_date": "2019-01",
+   "is_current": false,
+   "location": "Esslingen",
+   "team_size": null,
+   "industry_context": "Maschinenbau",
+   "budget_managed": null
+  },
+  {
+   "op": "add_bullets",
+   "target": "w2",
+   "responsibilities": [
+    "Mitarbeit im Monatsabschluss; Pflege der Kostenstellen- und Kostenträgerrechnung.",
+    "Aufbau des monatlichen Vertriebsreportings in Excel.",
+    "Investitionsrechnungen für Maschinenbeschaffungen."
+   ],
+   "achievements": [],
+   "technologies": [
+    "Excel"
+   ]
+  },
+  {
+   "op": "upsert_work",
+   "ref": "w3",
+   "target": null,
+   "company": "Diehl-Gruppe",
+   "role": "Praktikum & Werkstudententätigkeit Controlling",
+   "start_date": "2014",
+   "end_date": "2016",
+   "is_current": false,
+   "location": "Nürnberg",
+   "team_size": null,
+   "industry_context": null,
+   "budget_managed": null
+  },
+  {
+   "op": "upsert_education",
+   "institution": "Universität Stuttgart",
+   "degree": "M.Sc.",
+   "field": "Betriebswirtschaftslehre (Schwerpunkt Controlling)",
+   "start_date": null,
+   "end_date": "2016",
+   "grade": null
+  },
+  {
+   "op": "upsert_education",
+   "institution": "DHBW Stuttgart",
+   "degree": "B.A.",
+   "field": "Betriebswirtschaft",
+   "start_date": null,
+   "end_date": "2014",
+   "grade": null
+  },
+  {
+   "op": "upsert_skill",
+   "name": "SAP CO/FI",
+   "category": "technical",
+   "proficiency": "advanced",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "HGB-Abschluss",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Budgetierung & Forecast",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Werkscontrolling",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Herstellkostenrechnung",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Excel",
+   "category": "technical",
+   "proficiency": "advanced",
+   "evidence": [
+    "w2"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Abweichungsanalyse",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w1"
+   ]
+  },
+  {
+   "op": "upsert_skill",
+   "name": "Investitionsrechnung",
+   "category": "domain",
+   "proficiency": "intermediate",
+   "evidence": [
+    "w2"
+   ]
+  },
+  {
+   "op": "upsert_language",
+   "language": "Deutsch",
+   "level": "Muttersprache"
+  },
+  {
+   "op": "upsert_language",
+   "language": "Englisch",
+   "level": "verhandlungssicher, C1"
+  }
+ ]
+}
