@@ -168,6 +168,20 @@ export function TestimonyIntake({ onSubmitted }: Props) {
           {statusMessage(result)}
         </p>
       )}
+      {result && result.not_applied && result.not_applied.length > 0 && (
+        // #370 — the witness's spans are NOT persisted anywhere (the Health
+        // hub cannot show them), so the only honest place to surface them is
+        // right here, next to the status that names them.
+        <ul data-testid="testimony-not-applied" className="text-sm mt-1 list-disc pl-5 text-gray-700">
+          {result.not_applied.map((item, i) => (
+            <li key={`${item.kind}-${i}`} data-kind={item.kind}>
+              {item.kind === "op"
+                ? t("testimony.notAppliedOp", { op: item.span })
+                : t("testimony.notAppliedFigure", { span: item.span })}
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

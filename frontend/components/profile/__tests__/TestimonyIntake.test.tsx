@@ -98,6 +98,12 @@ describe("TestimonyIntake", () => {
       "testimony.statusPartial",
     );
     expect(screen.getByTestId("testimony-result").textContent).toContain('"count":1');
+    // The witness's spans are not persisted anywhere, so the result itself
+    // must show them — one list item per not_applied entry, span included.
+    const list = screen.getByTestId("testimony-not-applied");
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    expect(list.textContent).toContain("testimony.notAppliedFigure");
+    expect(list.textContent).toContain("1350000");
   });
 
   it("reports a denial as denial_recorded, not a silent no-op", async () => {
