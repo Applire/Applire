@@ -127,6 +127,64 @@ def test_duplicate_missing_figure_is_reported_once():
     assert len(figures) == 1
 
 
+# ── vault fold (false-positive shape 1, closed) ──────────────────────────
+
+
+def test_figure_in_vault_text_but_no_op_is_not_reported():
+    # The model correctly emits NOTHING — the figure is already a fact in
+    # the pre-turn vault, unchanged. Simulates a resubmission of an
+    # already-landed figure (the real-provider control case, 2026-08-28).
+    text = "Mein Budget liegt bei 1350000 EUR."
+    ops: list = []
+    vault_text = '{"work_experience": [{"budget_managed": "1350000"}]}'
+
+    result = compute_not_applied(text, ops, vault_text=vault_text)
+
+    assert not any(item.kind == "figure" for item in result)
+
+
+def test_figure_absent_from_both_ops_and_vault_is_reported():
+    text = "Mein Budget liegt bei 1350000 EUR."
+    ops: list = []
+    vault_text = '{"work_experience": [{"budget_managed": "999999"}]}'  # a different figure
+
+    result = compute_not_applied(text, ops, vault_text=vault_text)
+
+    figures = [item for item in result if item.kind == "figure"]
+    assert len(figures) == 1
+    assert "1350000" in figures[0].span
+
+
+def test_figure_only_in_metadata_denial_statement_is_still_reported():
+    # Real-provider replay finding (2026-08-28): `metadata.denied_
+    # concepts[*].statement` echoes a PRIOR turn's entire raw testimony
+    # verbatim. A figure that only ever appeared inside that echoed
+    # statement — never written to any content field, because the model
+    # correctly dropped it — must still be reported on a resubmission. This
+    # pins the CALLER contract (`testimony_bridge.py` passes
+    # `prompt_profile_view(profile_json, keep=frozenset())`): `vault_text`
+    # here is what a CORRECTLY content-only view looks like (metadata
+    # stripped), never the naive full-profile dump a caller must not pass.
+    full_profile_with_metadata = (
+        '{"work_experience": [{"company": "ACME", "role": "Engineer"}], '
+        '"metadata": {"denied_concepts": [{"concept": "budget", '
+        '"statement": "Ich habe nie ein Budget von 480.000 EUR verantwortet."}]}}'
+    )
+    content_only_vault_text = (
+        '{"work_experience": [{"company": "ACME", "role": "Engineer"}]}'
+    )
+    assert "480.000" in full_profile_with_metadata  # sanity: the figure IS in there
+    assert "480.000" not in content_only_vault_text  # …but not in the filtered view
+
+    text = "Mein Budget lag bei 480.000 EUR."
+    ops: list = []
+
+    result = compute_not_applied(text, ops, vault_text=content_only_vault_text)
+
+    figures = [item for item in result if item.kind == "figure"]
+    assert len(figures) == 1
+
+
 def test_span_is_truncated_to_200_chars():
     # A figure span can only ever exceed 200 chars via a pathologically long
     # digit run (the magnitude-word tail this module reads is capped at 14
