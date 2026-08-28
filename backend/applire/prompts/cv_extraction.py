@@ -15,6 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#562 — TEAM_SIZE SEMANTICS rule added; Ship-Gate blind-run evidence
+#   2026-08-19: 3 of 4 panel_review_case CVs had team_size populated from a DIFFERENT quantity
+#   in the same sentence — company headcount ("480 Mitarbeitenden"), facility capacity
+#   ("28-bed ward"), mentee count ("Mentor two mid-level engineers") — because no rule ever
+#   defined what team_size counts. NEEDS REAL-PROVIDER RUN EVIDENCE per ADR-062 clause 7 —
+#   not yet run.)
 # Prompt version: v5 (#548 — EDUCATION FIELD rule added; 2026-08-14 edge model comparison
 #   evidence: two models (qwen3.7-max, gpt-5.6-luna) extracted degree="Industriemeister Metall"
 #   AND field="Metall" for the same source line — the schema never told the model "field" means
@@ -229,6 +235,17 @@ Rules:
   Role titles mentioned within bullet points or as sub-roles belong in role_aliases, not as new entries.
 - COUNT CHECK: Before emitting work_experience, count the distinct employer positions in the source.
   Your output must contain exactly that many entries — no shell entries, no duplicates.
+- TEAM_SIZE SEMANTICS (#562): `team_size` counts ONLY the people the candidate PERSONALLY
+  led or managed in THAT role (direct reports, or a team/shift they were responsible for) —
+  never another quantity that happens to sit near a headcount word in the same sentence. It
+  is NOT the employer's total headcount, a facility's capacity (beds, seats, machines),
+  mentees/trainees coached WITHOUT line/disciplinary responsibility, or any other people-count
+  that is not the candidate's own led team. When the source states only such a figure, leave
+  `team_size` null for that entry — the figure still belongs in the bullet text, just not in
+  this typed field. Examples: "der GmbH mit 480 Mitarbeitenden" (employer headcount) → null;
+  "a 28-bed ward" (facility capacity) → null; "Mentor two mid-level engineers" (mentees, no
+  line responsibility) → null; "mit 38 Mitarbeitenden im Dreischichtbetrieb" (people the
+  candidate led) → 38.
 - QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context are DERIVED PROJECTIONS
   of a figure the source ALSO states in prose — never the only place that figure lives. When you
   populate one of these fields for a work_experience entry, the responsibility or achievement

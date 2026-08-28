@@ -670,11 +670,14 @@
       "emptyError": "Please enter some text first.",
       "submitFailed": "We couldn't add your notes.",
       "statusApplied": "{count, plural, one {# change} other {# changes}} saved to your profile.",
+      "statusPartial": "Saved, but {count, plural, one {# item} other {# items}} could not be matched to any entry in your profile:",
       "statusNoChange": "Nothing new found — this is already in your profile.",
       "statusDenialRecorded": "Noted — this limit is now on record and won't be assumed later.",
       "statusNeedsConfirmation": "A few details need your confirmation — check the profile Health hub.",
       "statusConflict": "This conflicts with something already in your profile — check the profile Health hub.",
-      "statusError": "Couldn't process this: {detail}"
+      "statusError": "Couldn't process this: {detail}",
+      "notAppliedFigure": "Figure “{span}” appears in no entry that was saved.",
+      "notAppliedOp": "One part of the response ({op}) had an invalid shape and was dropped."
     },
     "completeness": "Profile Completeness",
     "enrichProfile": "Enrich Profile",

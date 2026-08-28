@@ -670,11 +670,14 @@
       "emptyError": "Bitte zuerst etwas Text eingeben.",
       "submitFailed": "Deine Notizen konnten nicht übernommen werden.",
       "statusApplied": "{count, plural, one {# Änderung} other {# Änderungen}} in deinem Profil gespeichert.",
+      "statusPartial": "Gespeichert — aber {count, plural, one {# Angabe konnte} other {# Angaben konnten}} keinem Eintrag in deinem Profil zugeordnet werden:",
       "statusNoChange": "Nichts Neues gefunden — das steht schon in deinem Profil.",
       "statusDenialRecorded": "Notiert — diese Einschränkung ist jetzt vermerkt und wird nicht mehr angenommen.",
       "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",
       "statusConflict": "Das widerspricht etwas, das schon in deinem Profil steht — im Profilzustand-Hub zu finden.",
-      "statusError": "Konnte nicht verarbeitet werden: {detail}"
+      "statusError": "Konnte nicht verarbeitet werden: {detail}",
+      "notAppliedFigure": "Zahl „{span}“ steht in keinem übernommenen Eintrag.",
+      "notAppliedOp": "Ein Teil der Antwort ({op}) hatte ein ungültiges Format und wurde verworfen."
     },
     "completeness": "Profilvollständigkeit",
     "enrichProfile": "Profil ergänzen",

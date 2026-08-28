@@ -25,10 +25,14 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from applire.models.profile import MasterProfile
+from applire.schemas.testimony import NotApplied, TestimonyResult
 from tests.support.profile_factory import make_master_profile
 
 
@@ -232,7 +236,13 @@ async def test_both_doors_produce_equivalent_receipts_for_identical_testimony(as
     await engine.dispose()
 
     # Same status, same shape of receipted change, same provenance.
-    assert ui_result.status == mcp_result["status"] == "applied"
+    #
+    # #370: the stub op batch carries the Kubernetes skill and the blockchain
+    # denial, but NOT the "45"/"8 minutes" deploy-time figures the testimony
+    # also states — so the honest status is `partial`, not an unqualified
+    # `applied`, on BOTH doors identically (ADR-058 door parity extends to
+    # the new `not_applied` channel, not just to `status`/`changes`).
+    assert ui_result.status == mcp_result["status"] == "partial"
     assert len(ui_result.changes) == len(mcp_result["changes"]) == 2  # skill + denial
     ui_sections = sorted(c.section for c in ui_result.changes)
     mcp_sections = sorted(c["section"] for c in mcp_result["changes"])
@@ -240,3 +250,68 @@ async def test_both_doors_produce_equivalent_receipts_for_identical_testimony(as
 
     assert any(c.section == "skills" for c in ui_result.changes)
     assert any(c["section"] == "skills" for c in mcp_result["changes"])
+
+    # #370 — `not_applied` itself must agree across doors: same count, same
+    # (kind, reason, span) shape, regardless of whether the caller reads a
+    # `NotApplied` pydantic object (UI/service door) or its `model_dump`
+    # dict (MCP tool's `result.model_dump(mode="json")` wire shape).
+    assert len(ui_result.not_applied) == len(mcp_result["not_applied"]) == 1
+    ui_missing = ui_result.not_applied[0]
+    mcp_missing = mcp_result["not_applied"][0]
+    assert ui_missing.kind == mcp_missing["kind"] == "figure"
+    assert ui_missing.reason == mcp_missing["reason"] == "figure_not_in_any_op"
+    assert ui_missing.span == mcp_missing["span"]
+    assert "45" in ui_missing.span
+
+
+def test_rest_door_serialises_not_applied_over_the_wire():
+    """#370 — a genuine HTTP-level proof for the REST door (`POST /api/profile
+    /testimony`, `response_model=TestimonyResult`): FastAPI's response-model
+    serialisation must not hand-pick fields and drop `not_applied`. The
+    router's OWN `submit_testimony` import is patched with a canned result
+    (this is a serialisation test, not a reconcile-behaviour one — that is
+    `test_both_doors_produce_equivalent_receipts_for_identical_testimony`
+    above), following the same `app.dependency_overrides` + patched-service
+    pattern `test_iter23_section_editor.py` already uses for this codebase's
+    other profile-adjacent routers."""
+    import applire.routers.profile as profile_router
+    from applire.auth import get_auth_provider
+    from applire.db.session import get_db
+
+    canned = TestimonyResult(
+        submission_id="11111111-1111-1111-1111-111111111111",
+        status="partial",
+        changes=[],
+        confirmations=[],
+        conflicts=[],
+        not_applied=[
+            NotApplied(span="1350000", kind="figure", reason="figure_not_in_any_op"),
+            NotApplied(span="upsert_work", kind="op", reason="op_rejected"),
+        ],
+    )
+
+    async def _stub_db():
+        yield None
+
+    app = FastAPI()
+    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_db] = _stub_db
+    app.dependency_overrides[profile_router._get_provider] = lambda: None
+    app.include_router(profile_router.router)
+    client = TestClient(app, raise_server_exceptions=True)
+
+    from unittest.mock import patch
+
+    with patch.object(profile_router, "submit_testimony", AsyncMock(return_value=canned)):
+        response = client.post("/api/profile/testimony", json={"text": "I lead a team of 12."})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "partial"
+    assert len(data["not_applied"]) == 2
+    assert data["not_applied"][0] == {
+        "span": "1350000", "kind": "figure", "reason": "figure_not_in_any_op",
+    }
+    assert data["not_applied"][1] == {
+        "span": "upsert_work", "kind": "op", "reason": "op_rejected",
+    }

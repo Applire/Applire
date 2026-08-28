@@ -65,7 +65,7 @@ from applire.services.profile.import_jobs import (
     run_import_job_background,
 )
 from applire.services.profile.snapshots import undo_last_merge
-from applire.services.profile.commit import StaleEditError
+from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.services.profile import (
     get_enrichment_history,
     get_profile_changes,
@@ -189,6 +189,17 @@ async def upload_cv_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=_TRUNCATION_USER_MESSAGE,
+        )
+    except VaultWriteRevertedError as exc:
+        # ADR-063 amended 2026-08-28 (#597) — a defence-in-depth reload gate
+        # caught a schema-rejecting profile after the ops were already
+        # applied; nothing was persisted (same "fail this file cleanly, no
+        # half-merge" guarantee LLMTruncatedError gives above, one layer
+        # deeper — the write itself, not the LLM call, is what reverted).
+        logger.error("upload_cv: vault write reverted (%s); failing this file cleanly", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
         )
     except json.JSONDecodeError:
         # Must come before ValueError — JSONDecodeError is a ValueError subclass
@@ -441,6 +452,14 @@ async def import_profile(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=_TRUNCATION_USER_MESSAGE,
+        )
+    except VaultWriteRevertedError as exc:
+        # See upload_cv_endpoint — same translation, one layer deeper (the
+        # write itself reverted, not the LLM call).
+        logger.error("import_profile: vault write reverted (%s); failing this import cleanly", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
         )
     except json.JSONDecodeError:
         # Must come before ValueError — JSONDecodeError is a ValueError subclass

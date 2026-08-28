@@ -48,6 +48,7 @@ from applire.services.keyword_ledger import (
 from applire.services.profile.commit import (
     CommitProvenance,
     TurnGrounding,
+    VaultWriteRevertedError,
     commit_ops,
 )
 from applire.services.profile.reconcile.engine import reconcile
@@ -198,27 +199,47 @@ async def submit_agent_claims(
         # conditional — a claim that changed nothing used to leave no trace).
         # Per claim, as before: later claims see earlier claims' profile state,
         # and each claim keeps its own receipt.
-        committed = await commit_ops(
-            db,
-            rc.ops,
-            CommitProvenance(
-                source=_SOURCE,
-                intake="agent_claims",
-                session_id=submission_id,
-                actor="agent",
-            ),
-            record=record,
-            # §7.4 — the claim's own statement is this turn's grounding.
-            grounding=TurnGrounding(
-                text=claim.statement,
-                question=claim.question,
-                gap=claim.gap,
-                denials=list(rc.denials),
-            ),
-            ambiguities=list(rc.ambiguities),
-            snapshot=None,
-            embedding_provider=None,
-        )
+        try:
+            committed = await commit_ops(
+                db,
+                rc.ops,
+                CommitProvenance(
+                    source=_SOURCE,
+                    intake="agent_claims",
+                    session_id=submission_id,
+                    actor="agent",
+                ),
+                record=record,
+                # §7.4 — the claim's own statement is this turn's grounding.
+                grounding=TurnGrounding(
+                    text=claim.statement,
+                    question=claim.question,
+                    gap=claim.gap,
+                    denials=list(rc.denials),
+                ),
+                ambiguities=list(rc.ambiguities),
+                snapshot=None,
+                embedding_provider=None,
+            )
+        except VaultWriteRevertedError as exc:
+            # ADR-063 amended 2026-08-28 (#597) — same "fail only THIS claim,
+            # keep the batch going" idiom as the LLMTruncatedError branch
+            # above: nothing was persisted for this one claim, `current`
+            # stays at its pre-claim state for the next claim in the batch,
+            # and the batch's eventual `db.commit()` below never sees this
+            # claim's (discarded) write.
+            results.append(
+                ClaimResult(
+                    index=index,
+                    status="error",
+                    detail=(
+                        "This claim could not be saved — the vault write was "
+                        f"reverted ({exc.detail}). Please restate the claim."
+                    ),
+                )
+            )
+            continue
+
         current = committed.profile
         confirmations = committed.pending_confirmations
         denial_changes = committed.denials

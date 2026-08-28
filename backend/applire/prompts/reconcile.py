@@ -246,6 +246,19 @@ Operations:
     genuinely DIFFERENT achievement is not a conflict either — that is an
     ordinary add_bullets. Never settle such a contradiction yourself by quietly
     dropping one of the two versions.
+
+14. TEAM_SIZE SEMANTICS (#562). `team_size` on `upsert_work` (or via `set_field`) counts
+    ONLY the people the candidate PERSONALLY led or managed in THAT role (direct reports, or
+    a team/shift they were responsible for) — never another quantity that happens to sit near
+    a headcount word in the same sentence. It is NOT the employer's total headcount, a
+    facility's capacity (beds, seats, machines), mentees/trainees coached WITHOUT
+    line/disciplinary responsibility, or any other people-count that is not the candidate's
+    own led team. When the new information states only such a figure, leave `team_size` null
+    (or omit the field) for that entity — the figure still belongs in the bullet text via
+    `add_bullets`, just not in this typed field. Examples: "der GmbH mit 480 Mitarbeitenden"
+    (employer headcount) → null; "a 28-bed ward" (facility capacity) → null; "Mentor two
+    mid-level engineers" (mentees, no line responsibility) → null; "mit 38 Mitarbeitenden im
+    Dreischichtbetrieb" (people the candidate led) → 38.
 """
 
 

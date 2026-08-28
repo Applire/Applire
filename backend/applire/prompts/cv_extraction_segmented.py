@@ -15,6 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (#562 — TEAM_SIZE SEMANTICS rule added to the outline-pass prompt (the
+#   only segmented call that populates team_size); Ship-Gate blind-run evidence 2026-08-19:
+#   3 of 4 panel_review_case CVs had team_size populated from a DIFFERENT quantity in the same
+#   sentence — company headcount, facility capacity, mentee count — because no rule ever
+#   defined what team_size counts. NEEDS REAL-PROVIDER RUN EVIDENCE per ADR-062 clause 7 —
+#   not yet run.)
 # Prompt version: v4 (#548 — EDUCATION FIELD rule added to the core-pass prompt; 2026-08-14 edge
 #   model comparison evidence: two models (qwen3.7-max, gpt-5.6-luna) extracted
 #   degree="Industriemeister Metall" AND field="Metall" for the same source line — the schema
@@ -87,6 +93,17 @@ Rules:
   in role_aliases, never as a new entry.
 - Every entry MUST have a non-empty company. Do not invent positions.
 - Praktikum/Werkstudent are work positions. Ausbildung is education — exclude it here.
+- TEAM_SIZE SEMANTICS (#562): `team_size` counts ONLY the people the candidate PERSONALLY
+  led or managed in THAT role (direct reports, or a team/shift they were responsible for) —
+  never another quantity that happens to sit near a headcount word in the same sentence. It
+  is NOT the employer's total headcount, a facility's capacity (beds, seats, machines),
+  mentees/trainees coached WITHOUT line/disciplinary responsibility, or any other people-count
+  that is not the candidate's own led team. When the source states only such a figure, leave
+  `team_size` null for that entry — the figure still belongs in the bullet text the DETAIL
+  pass extracts for this position, just not in this field. Examples: "der GmbH mit 480
+  Mitarbeitenden" (employer headcount) → null; "a 28-bed ward" (facility capacity) → null;
+  "Mentor two mid-level engineers" (mentees, no line responsibility) → null; "mit 38
+  Mitarbeitenden im Dreischichtbetrieb" (people the candidate led) → 38.
 - QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context here are DERIVED
   PROJECTIONS of a figure the source ALSO states in prose — never the only place that figure
   lives. A later pass extracts this position's responsibility/achievement bullets from the SAME

@@ -566,34 +566,78 @@ async def test_applying_the_same_section_op_twice_is_one_edit_with_one_receipt(d
 
 
 @pytest.mark.asyncio
-async def test_h0_4_a_failed_reload_gate_answers_a_normal_200_with_the_untouched_vault(durable_db, monkeypatch, caplog):
+async def test_h0_4_a_failed_reload_gate_now_raises_instead_of_a_disguised_200(durable_db, monkeypatch, caplog):
     """The committer's invariant-8 gate: if the post-op profile fails its
-    load round-trip, `commit_ops` persists NOTHING and returns the untouched
-    profile — and `patch_profile_section` then answers with a normal
-    `MasterProfileResponse`. Provoked here for the first time by making
-    `_ensure_loadable` hand back its fallback. The facts this pins are the
-    ones the frontend's H0.4 mismatch detector (`sectionSave.ts`) relies on:
-    the response is a success, and the sent entry is NOT in it."""
+    load round-trip, `commit_ops` persists NOTHING. Until ADR-063's
+    2026-08-28 amendment (#597), it then RETURNED the untouched profile and
+    `patch_profile_section` answered a normal `MasterProfileResponse` — a
+    200 the frontend's H0.4 mismatch detector (`sectionSave.ts`) existed
+    specifically to see through (comparing the sent entry against the
+    response; absent/mismatched -> `mismatch: true`).
+
+    The amendment replaces that disguised-200 shape with a raise —
+    `patch_profile_section` is one of the doors the amendment explicitly
+    leaves UNTRANSLATED, so this propagates uncaught out of `patch_section`
+    (a real deployment's FastAPI default turns an uncaught exception into a
+    500). On the frontend, `sectionSave.ts`'s own `if (!res.ok) return {
+    kind: "error" }` already has a distinct, existing `status: "error"`
+    outcome for exactly a non-2xx response — so THIS cause of a lost write
+    no longer needs the H0.4 heuristic to be caught; H0.4 remains the
+    backstop for any OTHER cause of a 200 that doesn't match what was sent.
+    (Frontend code and tests are out of this fix's scope — not verified
+    here; flagged for separate review.)
+
+    Provoked exactly as before: making `_ensure_loadable` hand back its
+    fallback — now, that means calling through to the real
+    `VaultWriteRevertedError`.
+    """
     import applire.services.profile.commit as commit
+    import applire.services.profile.reconcile.apply as apply_module
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
 
     engine, factory = durable_db
     profile_id = await rec._seed(factory)
     before = await rec._read_back(engine, profile_id)
     case = rec.CASE_BY_ID["languages.add"]
-    monkeypatch.setattr(commit, "_ensure_loadable", lambda candidate, fallback: fallback)
+
+    def _always_reverts(candidate, *, stage, op_types, source):
+        # Mirrors the real `_ensure_loadable`'s two effects (log, then raise)
+        # — this test replaces the whole function, so it must reproduce both.
+        apply_module._commit_logger.error(
+            "vault write reverted at stage=%s: op(s) %s from source=%s failed "
+            "their load round-trip — %s",
+            stage, op_types, source, "forced by test",
+        )
+        raise VaultWriteRevertedError(
+            stage=stage, op_types=op_types, source=source, detail="forced by test"
+        )
+
+    monkeypatch.setattr(commit, "_ensure_loadable", _always_reverts)
     caplog.set_level(logging.ERROR, logger="applire.services.profile.commit")
 
-    response = await _patch(factory, "languages", _editor_body(case))
+    # `patch_section` carries a blanket `except Exception as exc: raise
+    # HTTPException(500, ...)` past its named StaleEditError/ValueError/
+    # LookupError branches, so the raise surfaces as that, not as the raw
+    # `VaultWriteRevertedError` (corrected while writing this test — see
+    # test_commit_ops_pr3_door_writes.py's #597 door tests for the same
+    # correction, made first).
+    from fastapi import HTTPException
 
-    # A success, by every signal the HTTP layer offers…
-    assert [lang.language for lang in response.profile.languages] == ["German", "English"]
-    assert "French" not in [lang.language for lang in response.profile.languages]
-    # …and the vault did not move: no entry, no receipt.
+    with pytest.raises(HTTPException) as excinfo:
+        await _patch(factory, "languages", _editor_body(case))
+    assert excinfo.value.status_code == 500
+
+    # The vault did not move — not just the section, the WHOLE row: raising
+    # means `record.profile_json` is never reassigned at all (the old
+    # fallback path used to re-validate-and-reassign, which is how the row
+    # used to gain schema defaults like `enrichment_history` even on this
+    # "failure" path; a raise skips that entirely, so this checks byte
+    # identity against the raw seed rather than a specific key).
     stored = await rec._read_back(engine, profile_id)
+    assert stored == before
     assert [lang["language"] for lang in stored["languages"]] == [lang["language"] for lang in before["languages"]]
-    assert stored["metadata"]["enrichment_history"] == []
-    # The only signal is operator-side.
-    assert any("failed its load round-trip" in r.getMessage() for r in caplog.records)
+    # Still visible operator-side, exactly as before the amendment.
+    assert any("failed their load round-trip" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio

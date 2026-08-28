@@ -41,9 +41,20 @@ type TestimonyStatus =
   | "error"
   | "needs_confirmation"
   | "conflict"
+  | "partial"
   | "applied"
   | "denial_recorded"
   | "no_change";
+
+interface NotAppliedItem {
+  span: string;
+  // #370 — figure/op only, no sentence-level channel (ADR-063 amendment:
+  // token-overlap against an op's field value inherits the reconciler's own
+  // paraphrase/translation/id-merge judgement, a judgement wearing a fact's
+  // label — see backend `witness.py`'s module docstring).
+  kind: "figure" | "op";
+  reason: "figure_not_in_any_op" | "op_rejected";
+}
 
 interface TestimonyResult {
   submission_id: string;
@@ -51,6 +62,8 @@ interface TestimonyResult {
   changes: Array<{ section: string; field: string; action: string }>;
   confirmations: unknown[];
   conflicts: unknown[];
+  /** #370 — which spans of the submission did not literally land, and why. */
+  not_applied?: NotAppliedItem[];
   detail?: string | null;
 }
 
@@ -70,6 +83,11 @@ export function TestimonyIntake({ onSubmitted }: Props) {
     switch (r.status) {
       case "applied":
         return t("testimony.statusApplied", { count: r.changes.length });
+      case "partial":
+        // #370 — `applied` no longer means "applied some of it"; a
+        // submission with visibly missing content gets its own honest
+        // message instead of silently reading as a full success.
+        return t("testimony.statusPartial", { count: r.not_applied?.length ?? 0 });
       case "no_change":
         return t("testimony.statusNoChange");
       case "denial_recorded":
@@ -149,6 +167,20 @@ export function TestimonyIntake({ onSubmitted }: Props) {
         >
           {statusMessage(result)}
         </p>
+      )}
+      {result && result.not_applied && result.not_applied.length > 0 && (
+        // #370 — the witness's spans are NOT persisted anywhere (the Health
+        // hub cannot show them), so the only honest place to surface them is
+        // right here, next to the status that names them.
+        <ul data-testid="testimony-not-applied" className="text-sm mt-1 list-disc pl-5 text-gray-700">
+          {result.not_applied.map((item, i) => (
+            <li key={`${item.kind}-${i}`} data-kind={item.kind}>
+              {item.kind === "op"
+                ? t("testimony.notAppliedOp", { op: item.span })
+                : t("testimony.notAppliedFigure", { span: item.span })}
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   );

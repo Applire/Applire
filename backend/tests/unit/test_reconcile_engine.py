@@ -127,6 +127,11 @@ async def test_reconcile_drops_malformed_op_keeps_valid() -> None:
     assert len(result.ops) == 1
     assert isinstance(result.ops[0], UpsertWork)
     assert result.ops[0].company == "ACME"
+    # #370 — the two dropped raw ops are now COUNTABLE, not just DEBUG-logged
+    # (consumed by the testimony write-loss witness downstream). One carries
+    # a real (if incomplete) "op" field; the other's discriminator itself is
+    # unknown to the union, so both still surface by their own declared type.
+    assert result.rejected_ops == ["upsert_work", "not_a_real_op"]
 
 
 @pytest.mark.asyncio

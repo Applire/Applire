@@ -75,7 +75,19 @@ _ATTESTED_PROSE_FIELDS = ("responsibilities", "achievements")
 # the mismatch between these and what a JD figure measures is exactly why the
 # status is a judgement, not a >= (ADR-069 clause 2).
 _KIND_SEMANTICS = {
-    "team_size": "direct reports in that one role (not total organisational span)",
+    # #562 (re-PQ 2026-08-28): the vault records the size of the team the
+    # candidate LED in that role — the extraction/reconcile rule counts a team
+    # they were responsible for, functional OR disciplinary — and nothing in
+    # the vault says which. The previous wording ("direct reports") told the
+    # writer more than the data holds: a dossier stating "fachlich ein Team
+    # von 7 Personen" (and "Disziplinarische Führung hatte ich noch nicht")
+    # became "meine direkte Führungsspanne umfasst sieben Personen" in the
+    # delivered letter (gpt-5.6-luna, n=1). Say exactly what the vault knows.
+    "team_size": (
+        "size of the team the candidate led in that one role — functional or "
+        "disciplinary leadership, the vault does not record which; never the "
+        "organisation's total headcount, and not to be upgraded to 'direct reports'"
+    ),
     "budget": "budget managed in that one role, as the candidate stated it (free text)",
 }
 
@@ -485,9 +497,12 @@ def render_scope_positioning_block(
         "NEVER state or imply the posting's own figure as something the candidate has",
         "done, led, or held — the posting's number is the employer's question; the",
         "values below are the candidate's answer.",
-        "For a CV: a bullet grounded in the attested statement belongs in its matching",
-        "role, its figure kept verbatim. For a cover letter: fold ONE honest, specific",
-        "statement of this scale into the positioning/motivation content.",
+        "Each line below is labelled exactly what it is (#562): \"typed vault value\" is the",
+        "candidate's own recorded figure, NOT independently verified; only \"attested in the",
+        "vault\" is a verified quote — never call a typed value \"attested\".",
+        "For a CV: a bullet grounded in a value below belongs in its matching role, its",
+        "figure kept verbatim. For a cover letter: fold ONE honest, specific statement of",
+        "this scale into the positioning/motivation content.",
         "",
     ]
     return "\n".join(header + items)

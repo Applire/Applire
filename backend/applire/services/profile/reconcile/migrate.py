@@ -117,9 +117,17 @@ async def reshape_profile(
 ) -> ReshapeOutcome:
     """Reshape one profile's flat duplicates into the typed model via the engine.
 
-    PURE: operates on the engine's deep copy, never persists. Never raises — the
-    engine degrades to empty ops on LLM noise and ``apply_ops`` is pure, so a
-    provider failure yields a no-op ``ReshapeOutcome`` (``changed=False``).
+    PURE: operates on the engine's deep copy, never persists. The engine
+    degrades to empty ops on LLM noise, so a provider failure alone still
+    yields a no-op ``ReshapeOutcome`` (``changed=False``) — but this is no
+    longer guaranteed non-raising end to end (ADR-063 amended 2026-08-28,
+    #597): ``apply_ops`` now raises ``VaultWriteRevertedError`` instead of
+    silently reverting when its own defence-in-depth reload gate trips on a
+    schema-rejecting op result. Not translated here, unlike the doors named
+    in the amendment (testimony/claims/import) — this function has no
+    production caller today (only this module's own unit tests), so the
+    contract change has no live blast radius; a future caller inherits the
+    same propagate-uncaught default every other undecided door gets.
     """
     entries_before = _count_entries(profile)
 
