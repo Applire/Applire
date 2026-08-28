@@ -64,13 +64,28 @@ this witness for a total loss-coverage guarantee.
     own declared `"op"` type string (`rejected_ops`, an optional out-of-band
     list the caller threads through from `ReconcileResult.rejected_ops`).
 
-A `denials` parameter (`ReconcileResult.denials`) is folded into the
-"carried" corpus for (a) alongside the ops — see `_ops_haystack`'s docstring
-for why this stays needed even with the figure-only scope below: a denied
-STATEMENT can still name a FIGURE ("nie ein Budget von 2,5 Mio verantwortet"),
-and that figure is carried by the denial receipt, not by an op — without the
-fold, every denial-bearing submission containing a number reads as `partial`
-for the wrong reason (a receipted denial is a landed outcome, not a loss).
+Two more corpora fold into the "carried" haystack for (a), alongside the
+ops (`_ops_haystack`'s docstring has the full detail on both):
+
+* `denials` (`ReconcileResult.denials`) — a denied STATEMENT can still name a
+  FIGURE ("nie ein Budget von 2,5 Mio verantwortet"), carried by the denial
+  receipt, not by an op. Without the fold, every denial-bearing submission
+  containing a number reads as `partial` for the wrong reason (a receipted
+  denial is a landed outcome, not a loss).
+* `vault_text` — the serialised PRE-TURN profile, CONTENT sections only —
+  `metadata` excluded ENTIRELY, not merely filtered to the prompt's usual
+  allowlist (see `_ops_haystack`, non-negotiable: `metadata.denied_
+  concepts[*].statement` echoes a prior turn's raw testimony verbatim, so
+  including it would rescue exactly the figures this fold exists to catch).
+  A figure the testimony restates that the model correctly emitted NO op
+  for, because the vault already held it unchanged, otherwise reads
+  identically to a genuinely dropped figure — this was false-positive shape
+  1 until `vault_text` closed it (real-provider replay, 2026-08-28: a
+  2-sentence control resubmission of an already-landed "1,35 Mio EUR" came
+  back `no_change` with the figure still flagged). The reason literal stays
+  `figure_not_in_any_op` — the ADR-063 amendment fixes the two-reason
+  vocabulary — but now means "in no op, no denial, AND no pre-turn vault
+  content".
 
 **Sentence-level loss is deliberately NOT reported — ADR-063 amendment
 (item 7), dropped after a refutation pass.** An earlier version of this
@@ -113,23 +128,43 @@ sentence-level fallback any more — see the ADR-063 amendment above).
 **False-positive shapes of the figure channel** (read before treating a
 `not_applied` item as proof of loss):
 
-1. **A figure the vault already held.** This witness sees only `ops` (the
-   CURRENT batch) and `denials` — never the profile/vault state. A figure the
-   testimony restates but the model correctly emitted NO op for (because the
-   vault already has it, unchanged) reads identically to a genuinely dropped
-   figure.
-2. **A figure folded into prose under another form** this module's narrow,
+1. **A figure folded into prose under another form** this module's narrow,
    independent digit-variant generation (`_canonical_digit_variants`,
    `_expand_with_magnitude`) does not anticipate — a rounding, a different
    currency conversion, a magnitude word outside the small DE/EN table below,
    or any other restatement the model produced that is not one of the
    variants this module generates.
-3. **The UUID-substring haystack imprecision** (`_figure_variant_pool`'s own
+2. **The UUID-substring haystack imprecision** (`_figure_variant_pool`'s own
    docstring, kept in full below) — the haystack's figure-variant pool is
-   built from EVERY digit run in the ops' serialised JSON, including entity
-   `id`/`ref`/`target` values, so a testimony figure can coincidentally
+   built from EVERY digit run in the ops'/vault's serialised JSON, including
+   entity `id`/`ref`/`target` values, so a testimony figure can coincidentally
    "match" an unrelated id. This can only ever cause a MISSED report, never a
-   spurious one — the opposite direction from shapes 1 and 2 above.
+   spurious one — the opposite direction from shape 1 above.
+
+**Closed: "a figure the vault already held."** This witness used to see only
+`ops` (the CURRENT batch) and `denials` — never the profile/vault state — so
+a figure the testimony restated, for which the model correctly emitted NO op
+because the vault already held it unchanged, read identically to a genuinely
+dropped figure. `vault_text` (folded into the haystack alongside `denials`,
+see above and `_ops_haystack`) closes this: the pre-turn profile's own
+model-facing CONTENT is now part of the "carried" corpus, so a figure
+already attested there is no longer reported. Still narrower than a full fix
+would need in principle — `vault_text` is a snapshot of the profile as
+loaded BEFORE this turn's ops are applied, so it cannot see a figure this
+SAME batch's ops are about to newly write (that case is already covered by
+the `ops` haystack itself, so the two together are exhaustive for "was this
+figure a fact anywhere at the end of this turn").
+
+**CONTENT, not bookkeeping — `metadata` is excluded from `vault_text`.**
+`metadata.denied_concepts[*].statement` is the RAW TEXT of a prior turn's
+testimony, verbatim — including every figure the model read and correctly
+DID NOT turn into a fact. Folding that in would rescue exactly the figures
+this witness exists to catch (a real-provider replay, 2026-08-28, found this
+live: five denial statements each echoing the whole prior ~10.5 KB dossier).
+`vault_text` must be built via `prompt_profile_view(profile_json,
+keep=frozenset())` — content sections only, no allowlisted metadata keys —
+never the prompt's own default view. See `_ops_haystack`'s docstring for the
+full reasoning and the `prompts/gap_analysis` precedent this mirrors.
 
 **Independent, narrow implementation — not imported from `services.oracle`.**
 The Oracle's figure extractor (`services.oracle.matchers.figures.extract_
@@ -258,15 +293,17 @@ def _extract_figures(text: str) -> list[_FigureOccurrence]:
     return occurrences
 
 
-def _ops_haystack(ops: Sequence[CommitOp], denials: Sequence[str]) -> str:
-    """The ops' own serialised JSON PLUS the engine's denial list, as ONE
-    normalised text — the corpus the figure check searches. Deliberately
-    per-BATCH, not per-op: the contract asks whether ANY op carries the
-    content, not which one (#370's Part B design).
+def _ops_haystack(
+    ops: Sequence[CommitOp], denials: Sequence[str], vault_text: str
+) -> str:
+    """The ops' own serialised JSON, PLUS the engine's denial list, PLUS the
+    pre-turn vault text, as ONE normalised corpus the figure check searches.
+    Deliberately per-BATCH, not per-op: the contract asks whether ANY op
+    carries the content, not which one (#370's Part B design).
 
-    **Why `denials` still folds in, even with the sentence channel gone:** a
-    denied STATEMENT can itself name a FIGURE — "Ich habe nie ein Budget von
-    2,5 Mio verantwortet" — and that figure is carried by the denial receipt
+    **Why `denials` folds in, even with the sentence channel gone:** a denied
+    STATEMENT can itself name a FIGURE — "Ich habe nie ein Budget von 2,5
+    Mio verantwortet" — and that figure is carried by the denial receipt
     (`ReconcileResult.denials`, written by `commit_ops` via `record_denials`
     into `metadata.denied_concepts`), not by any op. Without this fold, the
     figure channel would flag "2,5 Mio" as `figure_not_in_any_op` on every
@@ -277,6 +314,31 @@ def _ops_haystack(ops: Sequence[CommitOp], denials: Sequence[str]) -> str:
     itself the paraphrase/translation/id-merge problem that check had; the
     fold here is just making sure the "carried" corpus is complete, not
     working around a judgement smuggled into the comparison.)
+
+    **Why `vault_text` folds in:** a figure the testimony restates that the
+    model correctly emitted NO op for — because the vault ALREADY held it,
+    unchanged — must not read as lost either (module docstring, "Closed: a
+    figure the vault already held"). The caller passes an already-serialised
+    STRING (this module stays profile-schema-agnostic, matching `CommitOp`
+    being the only vault-shaped type it otherwise knows about) — the
+    PRE-TURN profile, as a model-facing view with bookkeeping excluded
+    (`services.prompt_view.prompt_profile_view`).
+
+    **`metadata` MUST be excluded from `vault_text` — not merely filtered to
+    the prompt's usual allowlist** (real-provider replay, 2026-08-28):
+    `metadata.denied_concepts[*].statement` stores the PRIOR turn's entire
+    raw testimony text verbatim, so a figure the model correctly DROPPED on
+    an earlier turn — never written to any content field — still echoes
+    inside that statement string. Folding an allowlisted `metadata` in (the
+    prompt's own default) would make every such figure read as "already
+    held" on a later resubmission, exactly the false positive this fold
+    exists to close, reintroduced through a different door. Callers MUST
+    pass `prompt_profile_view(profile_json, keep=frozenset())` — `prompts/
+    gap_analysis` set this precedent first, for the identical shape (a
+    denial's own text token-matches FOR the thing it denies). Bookkeeping is
+    never content, however plainly it repeats one. An empty `vault_text` is
+    a no-op fold, so callers with no profile in scope (the unit tests below)
+    are unaffected.
     """
     payloads = []
     for op in ops:
@@ -287,6 +349,8 @@ def _ops_haystack(ops: Sequence[CommitOp], denials: Sequence[str]) -> str:
     haystack = json.dumps(payloads, ensure_ascii=False)
     if denials:
         haystack += " " + " ".join(str(d) for d in denials)
+    if vault_text:
+        haystack += " " + vault_text
     return _norm_text(haystack)
 
 
@@ -324,14 +388,18 @@ def compute_not_applied(
     *,
     rejected_ops: Sequence[str] = (),
     denials: Sequence[str] = (),
+    vault_text: str = "",
 ) -> list[NotApplied]:
-    """Every figure of ``text`` the ``ops``/``denials`` do not literally
-    carry, plus every raw op ``rejected_ops`` names as parse-dropped.
+    """Every figure of ``text`` the ``ops``/``denials``/``vault_text`` do not
+    literally carry, plus every raw op ``rejected_ops`` names as parse-dropped.
 
-    ``denials`` — ``ReconcileResult.denials`` — is folded into the "carried"
-    corpus alongside the ops (see ``_ops_haystack``'s docstring: a denied
-    STATEMENT can itself name a figure, carried by the denial receipt rather
-    than by an op).
+    ``denials`` (``ReconcileResult.denials``) and ``vault_text`` (the
+    serialised PRE-TURN profile, CONTENT sections only — callers MUST exclude
+    ``metadata`` entirely, see ``_ops_haystack``) both fold into the
+    "carried" corpus alongside the ops — see ``_ops_haystack``'s docstring
+    for why each is needed: a denied STATEMENT can itself name a figure, and
+    a figure the vault already held needs no op to still count
+    as carried.
 
     Pure and side-effect-free: no DB, no LLM, no mutation of its arguments.
     See the module docstring for the exact algorithm, its FACT-only scope
@@ -346,7 +414,7 @@ def compute_not_applied(
             NotApplied(span=label[:_SPAN_MAX_CHARS], kind="op", reason="op_rejected")
         )
 
-    haystack = _ops_haystack(ops, denials)
+    haystack = _ops_haystack(ops, denials, vault_text)
     haystack_figures = _figure_variant_pool(haystack)
 
     seen_figures: set[frozenset[str]] = set()

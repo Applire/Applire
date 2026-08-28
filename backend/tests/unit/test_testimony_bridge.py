@@ -405,6 +405,51 @@ async def test_no_change_with_populated_not_applied_distinguishes_370_371(async_
 
 
 @pytest.mark.asyncio
+async def test_resubmitting_an_already_held_figure_yields_clean_no_change(async_db):
+    """#370 vault-fold control case (real-provider replay, 2026-08-28): the
+    2-sentence control resubmission of a figure the FIRST submission already
+    landed must not read as loss on the SECOND submission. The vault already
+    holds `budget_managed`; the model correctly emits no ops; `not_applied`
+    must be EMPTY — not just `status == "no_change"` (which #371's test above
+    shows is not sufficient on its own to prove nothing was missed)."""
+    record = make_master_profile(
+        profile_json={
+            "personal_info": {"full_name": "Katrin Hoffmann"},
+            "work_experience": [
+                {
+                    "id": "w1",
+                    "company": "Schwarzwald Präzision GmbH",
+                    "role": "Financial Controller",
+                    "budget_managed": "rund 1,35 Mio EUR jährlich",
+                }
+            ],
+            "metadata": {
+                "completeness_score": 0.5,
+                "created_via": "cv_upload",
+                "created_at": "2026-01-01T00:00:00Z",
+                "last_updated": "2026-01-01T00:00:00Z",
+            },
+        }
+    )
+    async_db.add(record)
+    await async_db.commit()
+    await async_db.refresh(record)
+
+    provider = _QueueProvider([{"ops": [], "ambiguities": [], "denials": []}])
+
+    result = await submit_testimony(
+        "Ich leite fachlich ein Team von 7 Personen und trage die "
+        "Budgetverantwortung für unser Berichtswesen von rund 1,35 Mio EUR "
+        "pro Jahr.",
+        async_db,
+        provider,
+    )
+
+    assert result.status == "no_change"
+    assert result.not_applied == []
+
+
+@pytest.mark.asyncio
 async def test_genuine_no_change_still_reports_empty_not_applied_list(async_db):
     """Companion to the #371 test above: contentless testimony ("Just saying
     hello") has nothing for the witness to find missing either — `not_applied`
@@ -415,8 +460,8 @@ async def test_genuine_no_change_still_reports_empty_not_applied_list(async_db):
     result = await submit_testimony("Hi there.", async_db, provider)
 
     assert result.status == "no_change"
-    # "Hi there." has no figure and no content token >= 5 chars outside the
-    # stopword set, so the witness genuinely finds nothing to report.
+    # "Hi there." has no digit run at/above the figure floor (>= 2 digits, or
+    # a decimal), so the witness genuinely finds nothing to report.
     assert result.not_applied == []
 
 

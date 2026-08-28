@@ -32,6 +32,7 @@ function, so the vault effect never depends on which door submitted the text.
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -132,12 +133,36 @@ async def submit_testimony(
     # #370 — the deterministic witness, computed over exactly what the
     # ENGINE produced (post-parse/stance/attribution, pre-commit): does every
     # numeric figure of the submitted text literally show up in an op's own
-    # payload (or a denial), and which raw ops did the model emit that never
-    # even passed schema validation. No sentence-level channel — ADR-063
-    # amendment, see `witness.py`'s module docstring. Pure and DB-free — safe
-    # to run before `commit_ops`.
+    # payload, a denial, or the PRE-TURN vault content, and which raw ops did
+    # the model emit that never even passed schema validation. No
+    # sentence-level channel — ADR-063 amendment, see `witness.py`'s module
+    # docstring. `current` is the same pre-turn profile `reconcile()` above
+    # was just handed.
+    #
+    # `keep=frozenset()` — `metadata` MUST be excluded, not just filtered to
+    # the prompt's usual allowlist (real-provider replay, 2026-08-28):
+    # `metadata.denied_concepts[*].statement` stores the PRIOR turn's entire
+    # raw testimony text verbatim (5 denials x ~10.5 KB in that replay), so a
+    # figure the model correctly DROPPED last turn — never written to any
+    # content field — still echoes inside that statement text. Folding it in
+    # would make every such figure read as "already held" on a resubmission,
+    # the opposite of what the vault fold exists to fix. `prompts/gap_
+    # analysis` hit the identical shape first (a denial's own text
+    # token-matches FOR the thing it denies, the F4 fix) and set the
+    # precedent of passing `keep=frozenset()` for exactly this reason.
+    # Bookkeeping is never content, however plainly it repeats one.
+    from applire.services.prompt_view import prompt_profile_view
+
+    vault_text = json.dumps(
+        prompt_profile_view(current.model_dump(mode="json"), keep=frozenset()),
+        ensure_ascii=False,
+    )
     not_applied: list[NotApplied] = compute_not_applied(
-        text, rc.ops, rejected_ops=rc.rejected_ops, denials=rc.denials
+        text,
+        rc.ops,
+        rejected_ops=rc.rejected_ops,
+        denials=rc.denials,
+        vault_text=vault_text,
     )
 
     # ADR-063 — the ONE write path. Everything this door used to do inline

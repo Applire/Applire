@@ -71,11 +71,12 @@ class NotApplied(BaseModel):
     (`services.profile.reconcile.witness.compute_not_applied`), never a
     judgement about whether the content "really" landed: a span is listed
     because its normalised digit string is not LITERALLY present in any op's
-    payload (or, for `kind="op"`, because the model's own raw op failed
-    schema validation at parse time). No item here is proof of loss — see
-    `witness`'s module docstring, "False-positive shapes of the figure
-    channel", for the three named ways this over-reports; the caller (or a
-    human) still makes the call on what a listed span means.
+    payload, any denial, or the pre-turn vault content (or, for `kind="op"`,
+    because the model's own raw op failed schema validation at parse time).
+    No item here is proof of loss — see `witness`'s module docstring,
+    "False-positive shapes of the figure channel", for the named ways this
+    still over-reports; the caller (or a human) still makes the call on what
+    a listed span means.
 
     **Deliberately figure/op only — no sentence-level channel.** An earlier
     version also reported a testimony SENTENCE sharing no content token with
@@ -99,8 +100,11 @@ class NotApplied(BaseModel):
     span: str
     kind: Literal["figure", "op"]
     #: `figure_not_in_any_op` — a numeric figure in the testimony whose
-    #: normalised digit string appears in no op's serialised payload (and no
-    #: denial — see `witness._ops_haystack`).
+    #: normalised digit string appears in no op's serialised payload, no
+    #: denial, AND not already present in the vault before the turn (see
+    #: `witness._ops_haystack`). The literal name predates the vault fold and
+    #: is kept — the ADR-063 amendment pins the two-reason vocabulary — but
+    #: covers all three sources now.
     #: `op_rejected` — a raw op the model emitted failed schema validation at
     #: `engine._parse_ops` and was dropped before ever reaching the applier.
     reason: Literal["figure_not_in_any_op", "op_rejected"]
