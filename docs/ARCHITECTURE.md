@@ -513,6 +513,8 @@ Keyword coverage itself is unchanged and stays status-blind: a denied requiremen
 
 ### ADR-041 — Master Profile Health (Integrity Tiering & Standalone Review)
 
+**Amended 2026-08-28.** The merge count-reconciliation behind the Health hub's accuracy thread counts every list section (languages, publications, volunteering and signature stories included) on the vault's own natural keys, and derives its "stored" count from the same rule the import doors use for `not_applied` (ADR-063) — the hub and the door can no longer disagree about one merge.
+
 **Decision:** The Master Profile gains a deterministic **health assessment** that classifies issues — merge *conflicts*, *accuracy / merge-loss* (an extracted-vs-stored data-point reconciliation), and *completeness* gaps — each at a **severity** of `info`, `review`, or `critical`. A standalone **"profile review"** interview (no job description required) and a Master Profile **Health panel** let the user resolve them, reusing the existing interview engine (guided Mode B, conflict questions, Mode C enrichment) and the ADR-040 correction routing.
 
 - **`review` / `info`** issues stay optional (a dismissible nudge), preserving the friction-free happy path (ADR-037).
@@ -688,7 +690,9 @@ The general lesson for contributors: a check that runs last is a check nothing e
 
 ---
 
-### ADR-063 — One Write Path: Every Vault Mutation Is a Typed Op (accepted 2026-07-28)
+### ADR-063 — One Write Path: Every Vault Mutation Is a Typed Op (accepted 2026-07-28, amended through 2026-08-28)
+
+**Amended 2026-08-28 — honest import status.** A CV import that merges into an existing profile now reports what did *not* land: every import door (sync upload, async import job, staged resolve, text/LinkedIn import, the MCP `import_cv` tool) returns `merge_status: applied | partial` plus a `not_applied` list of incoming entries the merge carried into no op and no vault entry — computed once, persisted on the merge receipt, shown in the import overlay. Facts only (a renamed or split entry is listed, the user judges); no automatic repair or retry — the cause was fixed at the prompt (ADR-078).
 
 **Decision:** There is exactly one piece of code permitted to write the Master Profile. Everything that wants to change the vault produces a list of typed reconciliation ops and hands them to that committer, which owns the transaction and every invariant: pre-merge snapshot, stance and attribution guards, denial ledger, skill enrichment, the enrichment trail, and the completeness recompute.
 
@@ -1002,7 +1006,9 @@ A constraint and an obligation are not the same thing. "Never contradict a state
 
 **Why:** Which facts survive the page-budget trade was decided entirely by the writer and the ranking machinery — and a real evaluation run showed the machine cutting exactly the fact both blind reviewers considered decisive. Every system-side protection guesses what matters; a pin is the user's own judgement, carried as data. The design was adversarially reviewed before acceptance; the review reshaped the cut-immunity mechanism and added the visibility guarantees for user edits and truthfulness interventions.
 
-### ADR-078 — The Model Sees the Vault's Content, Not Its Bookkeeping (accepted 2026-08-26)
+### ADR-078 — The Model Sees the Vault's Content, Not Its Bookkeeping (accepted 2026-08-26, amended 2026-08-28)
+
+**Amended 2026-08-28 — the second face.** The same rule applies to the *incoming* document: the CV-import merge prompt used to receive the freshly extracted profile as a raw object dump, including the ids the extractor had just minted — and the prompt reads an id as "this entity already exists", so the model skipped whole sections (skills, languages, education) on most merges. A real-provider replay showed 10 of 11 merges losing sections with the ids present and 0 of 5 without them. The incoming document is now rendered as content only (no ids, statuses or annotations), inside the prompt builder so no caller can bypass it.
 
 **Decision:** A master profile carries two different kinds of thing under one key: the candidate's **content** (work history, education, skills, publications, signature stories) and the vault's **bookkeeping** (the enrichment history — a full old/new receipt for every edit ever made — reconciler parks awaiting a user choice, completeness scores, creation stamps, and the candidate's own "not applicable" suppressions). Only the content is any use to a language model, but the whole JSON was being serialised into every prompt the profile feeds. One function, `services/prompt_view.prompt_profile_view`, is now the single place that decides what a prompt may carry, and it is an **allowlist**: `metadata` is reduced to the keys explicitly named as prompt-facing (today just the candidate's persisted denials, which the truthfulness floor reasons about), and a key may be added only with the prompt that reads it named alongside it. It is applied where profile data becomes prompt text — the CV writer and its review loops, both cover-letter seams, and the CV-import reconcile prompt — and deliberately **not** to anything that legitimately serves the trail: the API's profile responses, the MCP `get_profile` tool, the health and completeness surfaces, the retention worker, or the keyword ledger's evidence corpus, which reads the enrichment history on purpose. A test asserts every field of the profile-metadata model is classified as either prompt-facing or bookkeeping, so a field added later fails the suite until somebody decides which it is.
 
