@@ -485,9 +485,12 @@ def render_scope_positioning_block(
         "NEVER state or imply the posting's own figure as something the candidate has",
         "done, led, or held — the posting's number is the employer's question; the",
         "values below are the candidate's answer.",
-        "For a CV: a bullet grounded in the attested statement belongs in its matching",
-        "role, its figure kept verbatim. For a cover letter: fold ONE honest, specific",
-        "statement of this scale into the positioning/motivation content.",
+        "Each line below is labelled exactly what it is (#562): \"typed vault value\" is the",
+        "candidate's own recorded figure, NOT independently verified; only \"attested in the",
+        "vault\" is a verified quote — never call a typed value \"attested\".",
+        "For a CV: a bullet grounded in a value below belongs in its matching role, its",
+        "figure kept verbatim. For a cover letter: fold ONE honest, specific statement of",
+        "this scale into the positioning/motivation content.",
         "",
     ]
     return "\n".join(header + items)

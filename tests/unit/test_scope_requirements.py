@@ -642,6 +642,42 @@ class TestScopePositioningBlock:
         assert "38" in block
         assert "120" not in block
 
+    def test_typed_value_without_attestation_is_never_called_attested(self):
+        """#562 — the testimony layer itself is honest: a merely-typed candidate
+        value (no ADR-070 verified attestation) renders as "typed vault value",
+        never as an "attested" claim about THAT figure. This is what let the actual
+        defect be traced to the CONSUMER prompt (review_cover_letter.py), not to
+        this builder: a real run (2026-08-19) had the letter reviewer demand "the
+        candidate's attested Führungsspanne of 480" for exactly this shape — no
+        attested_evidence was ever classified for that entry, per this fixture's
+        own bar.attested. The block's shared legend explains the two labels in
+        general terms (so the word "attested" appears once, defining the term) —
+        the per-item concrete marker is what must never fire on an unattested value.
+        """
+        e = _scope_entry("partial")
+        assert e["bar"].get("attested") is None  # sanity: genuinely unattested
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        block = render_scope_positioning_block([e], "de")
+        assert "38" in block
+        assert "typed vault value" in block
+        # The concrete per-item marker (with its opening quote) is the FALSE claim
+        # this defect produced — it must never render for an unattested value.
+        assert 'attested in the vault: "' not in block
+        assert "the attested statement" not in block  # the old, unconditional phrasing
+
+    def test_attested_entry_is_labelled_distinctly_from_a_typed_value(self):
+        """The companion case: when a verified attestation DOES exist, the block
+        marks that line "attested in the vault" — distinct wording from "typed
+        vault value" on the same block, never conflated into one label."""
+        from applire.services.scope_requirements import render_scope_positioning_block
+
+        e = self._partial_with_attested()
+        assert e["bar"]["attested"] is not None
+        block = render_scope_positioning_block([e], "de")
+        assert "typed vault value" in block
+        assert "attested in the vault" in block
+
     def test_empty_ledger_renders_empty(self):
         from applire.services.scope_requirements import render_scope_positioning_block
 
