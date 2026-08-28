@@ -30,7 +30,13 @@ import {
 } from "@/components/profile/MergeGateDialog";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { ProgressWidget, type ProgressStep } from "@/components/ui/progress-widget";
-import { startCvImport, pollCvImport, CVImportError, type CVUploadResult } from "@/lib/import-cv";
+import {
+  startCvImport,
+  pollCvImport,
+  CVImportError,
+  type CVUploadResult,
+  type ImportNotAppliedItem,
+} from "@/lib/import-cv";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
@@ -84,6 +90,8 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   const [flowError, setFlowError] = useState("");
   const [completenessScore, setCompletenessScore] = useState<number | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  // #615 — the merge's own carried-predicate fact for the strip below.
+  const [notApplied, setNotApplied] = useState<ImportNotAppliedItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
@@ -129,6 +137,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     setFlowError("");
     setUploadSuccess(false);
     setCompletenessScore(null);
+    setNotApplied([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
@@ -175,7 +184,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
         return;
       }
 
-      await proceedAfterUpdate(data.completeness_score ?? null);
+      await proceedAfterUpdate(data.completeness_score ?? null, data.not_applied);
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
       if (e instanceof CVImportError) {
@@ -195,8 +204,12 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   }
 
   /** Shared post-merge path: surface the success strip, refresh history, advance. */
-  async function proceedAfterUpdate(completeness: number | null) {
+  async function proceedAfterUpdate(
+    completeness: number | null,
+    notAppliedItems?: ImportNotAppliedItem[],
+  ) {
     setCompletenessScore(completeness);
+    setNotApplied(notAppliedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
 
@@ -219,7 +232,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
     setGateInfo(null);
     if (action === "merge") {
-      await proceedAfterUpdate(_data.completeness_score ?? null);
+      await proceedAfterUpdate(_data.completeness_score ?? null, _data.not_applied);
     } else {
       refreshHistory();
     }
@@ -427,6 +440,28 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
                 <span aria-hidden="true" className="material-symbols-outlined text-[16px]">arrow_forward</span>
               </button>
             </div>
+          )}
+
+          {/* #615 — the merge's own carried-predicate fact: some entries did
+              not merge automatically. The CTA above already routes into the
+              import log where the full per-entry detail lives. */}
+          {uploadSuccess && !error && notApplied.length > 0 && (
+            <p
+              data-testid="upload-not-applied-note"
+              className="mt-2 text-[12px] text-on-surface-variant"
+            >
+              {tproc("notAppliedNote", {
+                count: notApplied.length,
+                labels:
+                  notApplied
+                    .slice(0, 3)
+                    .map((item) => item.label)
+                    .join(", ") +
+                  (notApplied.length > 3
+                    ? " " + tproc("notAppliedMore", { count: notApplied.length - 3 })
+                    : ""),
+              })}
+            </p>
           )}
 
           {/* Upload error strip */}

@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ProgressWidget, ProgressStep } from "@/components/ui/progress-widget";
 import { extractApiError, translateApiError } from "@/lib/api/errors";
-import { startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
+import { startCvImport, pollCvImport, CVImportError, type ImportNotAppliedItem } from "@/lib/import-cv";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -103,6 +103,9 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // Keyed by the file's upload-step index; value is the clean backend detail.
   const [fileErrors, setFileErrors] = useState<Record<number, string>>({});
   const [retrying, setRetrying] = useState<number | null>(null);
+  // #615 — entries the merge's own ops did not carry, aggregated across every
+  // uploaded file (like undated_positions), rendered as one localised note.
+  const [notAppliedItems, setNotAppliedItems] = useState<ImportNotAppliedItem[]>([]);
   // F8 (run3): real-LLM steps take minutes; an elapsed/"still working" heartbeat
   // keeps an active step from ever reading as a silent hang.
   const [elapsed, setElapsed] = useState(0);
@@ -138,6 +141,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     name_mismatch?: boolean;
     looks_like_cv?: boolean;
     undated_positions?: number;
+    not_applied?: ImportNotAppliedItem[];
   }
 
   // Mark a file's step failed with a clean, localized message (FMEA JF-M-2.2).
@@ -190,6 +194,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         name_mismatch: body.name_mismatch,
         looks_like_cv: body.looks_like_cv,
         undated_positions: body.undated_positions,
+        not_applied: body.not_applied,
       };
     } catch (e) {
       markFileFailed(i, e);
@@ -350,6 +355,7 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
         let anyNameMismatch = false;
         let anyNotCv = false;
         let totalUndated = 0;
+        const allNotApplied: ImportNotAppliedItem[] = [];
         for (let i = 0; i < files.length; i++) {
           const uploadIdx = jdOffset + i;
           const importId = importIds[i];
@@ -360,9 +366,11 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             if (ok.name_mismatch) anyNameMismatch = true;
             if (ok.looks_like_cv === false) anyNotCv = true;
             if (typeof ok.undated_positions === "number") totalUndated += ok.undated_positions;
+            if (ok.not_applied?.length) allNotApplied.push(...ok.not_applied);
             parsedCount += 1;
           }
         }
+        if (allNotApplied.length) setNotAppliedItems(allNotApplied);
         if (parsedCount === 0) {
           // Hard stop, but recoverable: the failed-file Retry can resume the
           // pipeline (FMEA JF-M-2.2) — pipelineCtx is already captured.
@@ -429,6 +437,9 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     setStepStatus(uploadIdx, "active");
     const ok = await uploadOne(uploadIdx - jdOffset);
     setRetrying(null);
+    if (ok?.not_applied?.length) {
+      setNotAppliedItems((prev) => [...prev, ...ok.not_applied!]);
+    }
     if (ok && error && pipelineCtx.current.flowId) {
       // Recovery: at least one CV now parsed. Clear the hard error and resume.
       setError(null);
@@ -646,6 +657,27 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
             )}
             {jdNote && (
               <p className="text-xs text-on-surface-variant mt-3 text-center">{jdNote}</p>
+            )}
+            {/* #615 — entries the merge's own ops did not carry, named once
+                the batch (or a retry) has reported them. Truncated to the
+                first 3 labels; the rest fold into a localised "+N more". */}
+            {notAppliedItems.length > 0 && (
+              <p
+                data-testid="processing-not-applied"
+                className="text-xs text-on-surface-variant mt-3 text-center"
+              >
+                {t("notAppliedNote", {
+                  count: notAppliedItems.length,
+                  labels:
+                    notAppliedItems
+                      .slice(0, 3)
+                      .map((item) => item.label)
+                      .join(", ") +
+                    (notAppliedItems.length > 3
+                      ? " " + t("notAppliedMore", { count: notAppliedItems.length - 3 })
+                      : ""),
+                })}
+              </p>
             )}
             {/* #151 pause-and-paste: the scrape was blocked (or the URL invalid).
                 The pipeline is PAUSED — the user pastes the JD text to continue

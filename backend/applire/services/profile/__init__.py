@@ -21,6 +21,7 @@ import logging
 import uuid
 
 logger = logging.getLogger(__name__)
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -80,11 +81,14 @@ from applire.schemas.profile import (
     CVUploadResponse,
     EnrichmentRecord,
     FieldChange,
+    ImportMergeStatus,
+    ImportNotApplied,
     MasterProfileData,
     MasterProfileResponse,
     PendingConfirmation,
     ProfileChangesResponse,
     ProfileHealthResponse,
+    ProfileImportResponse,
     ProfileMetadata,
     StagedResolveResponse,
     OBJECT_SECTIONS,
@@ -180,6 +184,34 @@ def _to_response(record: MasterProfile) -> MasterProfileResponse:
     )
 
 
+def _to_import_response(
+    record: MasterProfile,
+    *,
+    merge_status: ImportMergeStatus = "applied",
+    not_applied: list[ImportNotApplied] | None = None,
+) -> ProfileImportResponse:
+    """Same construction as :func:`_to_response`, plus the import fact (#615,
+    ADR-063 amended 2026-08-28). A SEPARATE builder, not a parameter on
+    ``_to_response``: that function also serves ``GET /api/profile`` (a plain
+    read, no merge in scope) and ``PATCH /{section}`` (a manual field edit,
+    not a merge) — refuter B, MAJOR 1. Neither of those doors can honestly
+    say ``merge_status``, so only the import call sites in
+    ``_import_from_text`` build this. Reuses ``_to_response``'s already-
+    validated fields (never re-dumps/re-parses the profile)."""
+    base = _to_response(record)
+    return ProfileImportResponse(
+        id=base.id,
+        profile=base.profile,
+        completeness=base.completeness,
+        stats=base.stats,
+        merge_conflicts=base.merge_conflicts,
+        created_at=base.created_at,
+        updated_at=base.updated_at,
+        merge_status=merge_status,
+        not_applied=list(not_applied or []),
+    )
+
+
 async def _get_latest(db: AsyncSession) -> MasterProfile | None:
     result = await db.execute(
         select(MasterProfile)
@@ -234,6 +266,9 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
         source_session_id=session_id,
         changes=changes,
         reconciliation=merge_result.reconciliation or None,
+        # #615 (ADR-063 amended 2026-08-28, second entry) — the merge's own
+        # carried-predicate facts, persisted beside `reconciliation`.
+        not_applied=list(merge_result.not_applied),
     )
 
 
@@ -350,7 +385,7 @@ async def import_from_pdf(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     raw_text = extract_pdf_text(file_bytes)
     if not raw_text:
         raise ValueError("Could not extract text from PDF")
@@ -362,7 +397,7 @@ async def import_from_text(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     """Public wrapper to seed/merge a profile from already-extracted CV text."""
     if not raw_text or not raw_text.strip():
         raise ValueError("text must not be empty")
@@ -376,7 +411,7 @@ async def import_from_linkedin(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     raw_text = _linkedin_to_text(linkedin_json)
     return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
 
@@ -386,7 +421,7 @@ async def import_from_linkedin_zip(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     raw_text = parse_linkedin_zip(zip_bytes)
     return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
 
@@ -396,7 +431,7 @@ async def import_from_linkedin_pdf(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     raw_text = parse_linkedin_pdf(pdf_bytes)
     return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
 
@@ -407,7 +442,7 @@ async def _import_from_text(
     provider: LLMProvider,
     created_via: str = "cv_upload",
     embedding_provider: EmbeddingProvider | None = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
     # Cap-safe extraction: single call on the fast path, segmented (outline-then-expand)
     # on truncation/timeout or a known-small cap (ADR-047 / US195) — so a dense CV is
@@ -472,6 +507,7 @@ async def _import_from_text(
                     merged=merged,
                     changes=enrichment.changes,
                     reconciliation=enrichment.reconciliation,
+                    not_applied=enrichment.not_applied,
                 )
             ],
             CommitProvenance(source=created_via, intake="import", actor="candidate"),
@@ -488,7 +524,13 @@ async def _import_from_text(
         # transaction — dropping this line is a silent no-write.
         await db.commit()
         await db.refresh(existing)
-        return _to_response(existing)
+        # #615 (ADR-063 amended 2026-08-28) — a SEPARATE builder from
+        # `_to_response`, which also serves GET /api/profile and PATCH
+        # /{section} (neither is a merge; refuter B MAJOR 1).
+        merge_status: ImportMergeStatus = "partial" if merge_result.not_applied else "applied"
+        return _to_import_response(
+            existing, merge_status=merge_status, not_applied=merge_result.not_applied
+        )
 
     # First import — the vault does not exist yet, so the committer creates it
     # (#480 PR 8 / ADR-063 clause 6). This branch used to build the row with
@@ -529,7 +571,9 @@ async def _import_from_text(
     # no-PROFILE.
     await db.commit()
     await db.refresh(committed.record)
-    return _to_response(committed.record)
+    # #615 — a first import has nothing to reconcile against: "applied", []
+    # (the defaults) is the honest fact, not a special case.
+    return _to_import_response(committed.record)
 
 
 async def get_profile(db: AsyncSession) -> MasterProfileResponse | None:
@@ -1007,9 +1051,13 @@ async def upload_cv(
         )
 
     # 5. Clean CV — additive merge commits (or first profile is created).
-    profile_id, completeness, conflicts, enrichment_id = await _apply_merge(
+    merge_outcome = await _apply_merge(
         db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider, now=now
     )
+    profile_id = merge_outcome.profile_id
+    completeness = merge_outcome.completeness
+    conflicts = merge_outcome.conflicts
+    enrichment_id = merge_outcome.enrichment_id
 
     # 6. Persist file + cost metadata
     content_hash = hashlib.sha256(file_bytes).hexdigest()
@@ -1051,7 +1099,29 @@ async def upload_cv(
         name_mismatch=False,  # a clean merge by definition had no name divergence
         undated_positions=undated_positions,
         gate="none",
+        # #615 (ADR-063 amended 2026-08-28) — the SAME fact on every import
+        # door; the async job's result inherits it via CVImportStatusResponse
+        # wrapping this class unchanged (import_jobs.py — no adapter needed).
+        merge_status=merge_outcome.merge_status,
+        not_applied=merge_outcome.not_applied,
     )
+
+
+@dataclass
+class ApplyMergeOutcome:
+    """#615 (ADR-063 amended 2026-08-28, refuter B MAJOR 1) — ``_apply_merge``
+    returns the merge's FACT, not a positional tuple that silently discarded
+    it. The old ``(profile_id, completeness, conflicts, enrichment_id)`` tuple
+    is why ``not_applied``/``reconciliation`` never reached either of this
+    function's two callers — both now read ``not_applied``/``merge_status``
+    off this object instead of unpacking a wider tuple by position."""
+
+    profile_id: uuid.UUID
+    completeness: float
+    conflicts: list
+    enrichment_id: uuid.UUID
+    not_applied: list[ImportNotApplied] = field(default_factory=list)
+    merge_status: ImportMergeStatus = "applied"
 
 
 async def _apply_merge(
@@ -1062,9 +1132,9 @@ async def _apply_merge(
     emb_provider: EmbeddingProvider,
     provider: LLMProvider,
     now: datetime | None = None,
-) -> tuple[uuid.UUID, float, list, uuid.UUID]:
+) -> ApplyMergeOutcome:
     """Additively merge ``incoming`` into the latest profile (or create the first),
-    commit, and return ``(profile_id, completeness, conflicts, enrichment_id)``.
+    commit, and return the outcome as an :class:`ApplyMergeOutcome`.
 
     The pre-merge gate (US167) is the caller's responsibility — by the time this
     runs the merge is authorised (clean upload, or a user-resolved staged merge).
@@ -1106,6 +1176,7 @@ async def _apply_merge(
                     merged=merged,
                     changes=enrichment.changes,
                     reconciliation=enrichment.reconciliation,
+                    not_applied=enrichment.not_applied,
                 )
             ],
             CommitProvenance(source=source, intake="import", actor="candidate"),
@@ -1116,11 +1187,13 @@ async def _apply_merge(
         )
         await db.commit()
         await db.refresh(existing)
-        return (
-            existing.id,
-            committed.completeness,
-            merge_result.conflicts,
-            uuid.UUID(committed.enrichment_record.id),
+        return ApplyMergeOutcome(
+            profile_id=existing.id,
+            completeness=committed.completeness,
+            conflicts=merge_result.conflicts,
+            enrichment_id=uuid.UUID(committed.enrichment_record.id),
+            not_applied=merge_result.not_applied,
+            merge_status=("partial" if merge_result.not_applied else "applied"),
         )
 
     # First upload — the committer creates the profile (#480 PR 8), through the
@@ -1153,11 +1226,14 @@ async def _apply_merge(
     # return a `uuid4()` minted at the top of this function that referred to
     # nothing, so `CVUploadResponse.enrichment_record_id` was unresolvable for
     # exactly the upload that created the profile.
-    return (
-        committed.record.id,
-        committed.completeness,
-        [],
-        uuid.UUID(committed.enrichment_record.id),
+    return ApplyMergeOutcome(
+        profile_id=committed.record.id,
+        completeness=committed.completeness,
+        conflicts=[],
+        enrichment_id=uuid.UUID(committed.enrichment_record.id),
+        # #615 — a first import has nothing to reconcile against.
+        not_applied=[],
+        merge_status="applied",
     )
 
 
@@ -1255,7 +1331,7 @@ async def resolve_staged_extraction(
             from applire.providers import get_provider
 
             provider = get_provider()
-        profile_id, completeness, conflicts, _ = await _apply_merge(
+        merge_outcome = await _apply_merge(
             db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider
         )
         rec.gate_status = "resolved_merged"
@@ -1263,8 +1339,8 @@ async def resolve_staged_extraction(
         return StagedResolveResponse(
             staged_id=staged_id,
             action="merge",
-            profile_id=profile_id,
-            completeness_score=completeness,
+            profile_id=merge_outcome.profile_id,
+            completeness_score=merge_outcome.completeness,
             conflicts=[
                 ConflictSummary(
                     conflict_id=c.conflict_id,
@@ -1272,8 +1348,13 @@ async def resolve_staged_extraction(
                     field=c.field,
                     source=c.source,
                 )
-                for c in conflicts
+                for c in merge_outcome.conflicts
             ],
+            # #615 (ADR-063 amended 2026-08-28) — the same fact every import
+            # door carries; a "discard" resolve above never reaches here, so
+            # the "applied, []" defaults on that branch stay honest.
+            merge_status=merge_outcome.merge_status,
+            not_applied=merge_outcome.not_applied,
         )
 
     raise ValueError(f"unknown resolve action: {action!r}")

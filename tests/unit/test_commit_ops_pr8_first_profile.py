@@ -234,7 +234,7 @@ async def test_first_upload_creates_a_profile_that_survives_the_request(durable_
     engine, factory = durable_db
 
     async with factory() as request_session:
-        returned_id, completeness, conflicts, enrichment_id = await _apply_merge(
+        outcome = await _apply_merge(
             request_session,
             MasterProfileData.model_validate(
                 {"skills": [{"name": "Terraform", "category": "technical"}]}
@@ -243,6 +243,10 @@ async def test_first_upload_creates_a_profile_that_survives_the_request(durable_
             emb_provider=NoopEmbeddingProvider(),
             provider=AsyncMock(),
         )
+    returned_id = outcome.profile_id
+    completeness = outcome.completeness
+    conflicts = outcome.conflicts
+    enrichment_id = outcome.enrichment_id
 
     stored = await _read_back_the_only_profile(engine)
     assert [s["name"] for s in stored["skills"]] == ["Terraform"]

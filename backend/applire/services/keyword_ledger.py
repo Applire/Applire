@@ -827,6 +827,14 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
                     f"{concept} itself; the profile's adjacent capability is "
                     f"{adjacent}. Give {adjacent} prominence in its own right and "
                     f"NEVER present {concept} as something the candidate has. "
+                    # #391 (adversarial pass 2026-08-28, M1): the prominence
+                    # instruction must not re-open rule 7 — an adjacent
+                    # capability that is itself a requirement phrase takes
+                    # the summary or a bullet, never a skills-list position.
+                    f"If {adjacent} is itself a requirement phrase (a duration, an "
+                    f"industry or sector name, a degree requirement), it belongs in "
+                    f"the summary or in the bullet that states it, never in the "
+                    f"skills list. "
                     f"evidence: {evidence}"
                 )
             else:

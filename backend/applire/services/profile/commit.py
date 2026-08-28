@@ -646,6 +646,10 @@ async def commit_ops(
         # because only an import intake can compute them (`ApplyImportMerge`);
         # `None` for every other batch, which is what the field already means.
         reconciliation=applied.reconciliation,
+        # #615 (ADR-063 amended 2026-08-28, second entry) — the SAME merge's
+        # carried-predicate facts, riding the identical path as `reconciliation`
+        # above; empty for every non-import batch.
+        not_applied=applied.not_applied,
     )
     profile.metadata.enrichment_history.append(enrichment_record)
 

@@ -259,7 +259,12 @@ def build_summary_prompt(
 SKILLS_SECTION_SYSTEM_PROMPT = f"""\
 You are a DACH cv skills writer. Filter and order the candidate's skills to lead with those
 the job requires, following the directive's skills focus. Include a keyword-gap skill ONLY if
-the profile explicitly demonstrates it.
+the profile explicitly demonstrates it. A requirement phrase — a duration
+("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is
+not a skill: a skill is a named competence, tool or method the candidate holds in the
+vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of
+experience are the SETTING of the work — they belong in the summary or in the bullet that
+states them, never in the skills list.
 
 {_CORE_RULES}
 

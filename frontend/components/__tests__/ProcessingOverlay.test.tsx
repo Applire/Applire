@@ -510,6 +510,92 @@ describe("ProcessingOverlay — up-front import queue (blind PQ F1)", () => {
   });
 });
 
+describe("ProcessingOverlay — #615 not_applied note", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  it("renders one localised note naming the count and labels when the merge is partial", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-partial-import" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "ready",
+            error_code: null,
+            result: {
+              merge_status: "partial",
+              not_applied: [
+                { section: "skills", label: "Kubernetes", reason: "no_op_carried_entry" },
+                { section: "languages", label: "Englisch", reason: "no_op_carried_entry" },
+              ],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    await waitFor(
+      () => expect(screen.getByTestId("processing-not-applied")).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    const note = screen.getByTestId("processing-not-applied");
+    expect(note).toHaveTextContent("2");
+    expect(note).toHaveTextContent("Kubernetes");
+    expect(note).toHaveTextContent("Englisch");
+
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-partial-import/gaps")),
+      { timeout: 5000 },
+    );
+  });
+
+  it("renders nothing when the merge is fully applied", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/flow") && !url.includes("state") && !url.includes("advance")) {
+        return { ok: true, status: 200, json: async () => ({ flow_id: "flow-clean-import" }) } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "ready", error_code: null,
+            result: { merge_status: "applied", not_applied: [] },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/profile/import-jobs")) {
+        return { ok: true, status: 202, json: async () => ({ import_id: "imp-1", status: "pending" }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    const f1 = new File(["cv1"], "cv1.pdf", { type: "application/pdf" });
+    render(withIntl(<ProcessingOverlay files={[f1]} jdMode="text" jdUrl="" jdText="" onCancel={vi.fn()} />));
+
+    await waitFor(
+      () => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("/flow/flow-clean-import/gaps")),
+      { timeout: 5000 },
+    );
+    expect(screen.queryByTestId("processing-not-applied")).toBeNull();
+  });
+});
+
 describe("ProcessingOverlay — happy path navigation", () => {
   afterEach(() => {
     vi.restoreAllMocks();

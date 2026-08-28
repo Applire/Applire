@@ -47,7 +47,8 @@ from applire.services.profile.reconcile.apply import (
 )
 from applire.services.profile.reconcile.dedupe import classify_dupe
 from applire.services.profile.reconcile.engine import reconcile
-from applire.services.profile.reconcile.ops import RequestConfirmation
+from applire.services.profile.reconcile.import_witness import compute_import_not_applied
+from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
 from applire.services.profile.reconciliation import compute_merge_reconciliation
 from applire.services.skill_enrichment import enrich_skills_deterministic
 
@@ -126,15 +127,20 @@ async def _reconcile_import_batched(
     source: str,
     provider: LLMProvider,
     lang: str,
-) -> tuple[ApplyResult, list[RequestConfirmation]]:
+) -> tuple[ApplyResult, list[RequestConfirmation], list[CommitOp], list[str]]:
     """Segmented fallback for a reconcile that truncated as one big call (ADR-047).
 
     Reconciles ``incoming`` one dependency-ordered slice at a time — ONE
     ``aparse_json`` per slice — applying each before the next so the evolving
     profile (with the just-created experiences' ids) conditions later slices.
     These are N independent single-shot calls, not a multi-turn tool loop
-    (ADR-046 §3's rejection stands). Returns an accumulated ``ApplyResult`` plus
-    the folded ambiguities, matching the single-call path's tail.
+    (ADR-046 §3's rejection stands). Returns an accumulated ``ApplyResult``,
+    the folded ambiguities (matching the single-call path's tail), and —
+    #615 (ADR-063 amended 2026-08-28) — every slice's own emitted ops and
+    parse-rejected raw ops, ACCUMULATED across the whole batch: "the ops of
+    all slices are the emitted ops" is what the carried-predicate
+    (``import_witness.compute_import_not_applied``) needs to see the same
+    evidence on the segmented path that it sees on the fast path.
 
     A slice that *itself* truncates re-raises ``LLMTruncatedError`` — segmentation
     is the floor, not an infinite recursion; the upload then fails that file
@@ -144,6 +150,8 @@ async def _reconcile_import_batched(
     conflicts: list[Conflict] = []
     demotions: list = []
     ambiguities: list[RequestConfirmation] = []
+    all_ops: list[CommitOp] = []
+    all_rejected_ops: list[str] = []
     for slice_info in _slice_incoming(incoming):
         result = await reconcile(current, slice_info, source, provider, lang)
         applied = apply_ops(current, result.ops, source)
@@ -157,10 +165,12 @@ async def _reconcile_import_batched(
         demotions.extend(applied.demotions)
         ambiguities.extend(result.ambiguities)
         ambiguities.extend(applied.pending_confirmations)
+        all_ops.extend(result.ops)
+        all_rejected_ops.extend(result.rejected_ops)
     accumulated = ApplyResult(
         profile=current, changes=changes, conflicts=conflicts, demotions=demotions
     )
-    return accumulated, ambiguities
+    return accumulated, ambiguities, all_ops, all_rejected_ops
 
 
 def _union_certifications(
@@ -274,12 +284,14 @@ async def reconcile_import(
         result = await reconcile(existing, incoming, source, provider, lang)
         applied = apply_ops(existing, result.ops, source)
         ambiguities = list(result.ambiguities) + list(applied.pending_confirmations)
+        emitted_ops: list = list(result.ops)
+        rejected_ops: list[str] = list(result.rejected_ops)
     except LLMTruncatedError:
         logger.warning(
             "reconcile: single-call merge hit the output cap; switching to segmented "
             "batched fallback instead of failing the import (ADR-047)"
         )
-        applied, ambiguities = await _reconcile_import_batched(
+        applied, ambiguities, emitted_ops, rejected_ops = await _reconcile_import_batched(
             existing, incoming, source, provider, lang
         )
     # #190 — deterministic certification passthrough (defense in depth). Runs on
@@ -308,6 +320,14 @@ async def reconcile_import(
         (c.new_value if isinstance(c.new_value, str) else f"{c.section}.{c.field}")
         for c in applied.changes
     ]
+    # #615 (ADR-063 amended 2026-08-28, second entry) — ONE computation feeds
+    # both the door-level fact and the count-reconciliation delta (ADR-041
+    # amended the same day): `emitted_ops` is the fast path's `result.ops` OR
+    # the segmented path's ops accumulated across every slice, so the
+    # carried-predicate sees the identical evidence either way.
+    not_applied = compute_import_not_applied(
+        incoming, applied.profile, emitted_ops, rejected_ops=rejected_ops
+    )
     return MergeResult(
         merged_profile=applied.profile,
         added=added,
@@ -316,6 +336,7 @@ async def reconcile_import(
         # clause 1) but stay out of `added` above, which is the "what did this
         # document contribute" summary.
         changes=applied.changes + applied.demotions,
-        reconciliation=compute_merge_reconciliation(incoming, applied.profile),
+        reconciliation=compute_merge_reconciliation(incoming, applied.profile, not_applied),
         pending_confirmations=pending_confirmations,
+        not_applied=not_applied,
     )

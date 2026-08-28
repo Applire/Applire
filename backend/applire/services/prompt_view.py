@@ -92,6 +92,72 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
 PROMPT_EXCLUDED_TOP_LEVEL_KEYS: frozenset[str] = frozenset({"_meta"})
 
 
+#: Keys stripped from EVERY level of an INCOMING (not-yet-vault) document view
+#: (#615, ADR-078 amended 2026-08-28, second face). These are extraction-minted
+#: identity/bookkeeping — a fresh ``id``, a merge ``status``, an ``experience_refs``/
+#: ``evidence_refs`` back-link, an ``expected_fields`` completeness hint, a
+#: ``source`` label — that mean something to the VAULT (rule 1 of
+#: ``RECONCILE_SYSTEM_PROMPT``: "an id means an EXISTING entity") but nothing to
+#: the document the incoming data came FROM. Rendering them alongside declared
+#: CV content made the model read the incoming profile's own entries as
+#: already-existing vault entities: no upsert, or gap-fill ops against the
+#: incoming's own phantom ids that ``apply_ops`` cannot resolve (real-provider
+#: replay, ``scratchpad/w1/replay_evidence.md``: 10/11 lossy with these keys
+#: present, 0/5 with them stripped).
+INCOMING_STRIPPED_KEYS: frozenset[str] = frozenset(
+    {"id", "status", "experience_refs", "evidence_refs", "expected_fields", "source"}
+)
+
+
+def _is_empty_incoming_value(value: Any) -> bool:
+    # Deliberately NOT `{}` — see `prompt_incoming_view`'s docstring: the
+    # validated replay recipe this pins against keeps a bare empty dict (e.g.
+    # `role_fact_projections: {}` on every incoming WorkEntry).
+    return value is None or value == [] or value == ""
+
+
+def _strip_incoming(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: _strip_incoming(v)
+            for k, v in value.items()
+            if k not in INCOMING_STRIPPED_KEYS and not _is_empty_incoming_value(v)
+        }
+    if isinstance(value, list):
+        return [_strip_incoming(v) for v in value]
+    return value
+
+
+def prompt_incoming_view(dump: Any) -> Any:
+    """The incoming DOCUMENT's content, not the extraction's bookkeeping.
+
+    #615, ADR-078 amended 2026-08-28 (the second face — ``prompt_profile_view``
+    above is the first, for the CURRENT profile block of the same prompt).
+    ``build_reconcile_prompt`` (``prompts/reconcile.py``) renders a
+    ``pydantic.BaseModel`` ``new_info`` (a whole incoming ``MasterProfileData``,
+    on both the fast import path and every ADR-047 segmented slice) through
+    this function before ``json.dumps``-ing it into the NEW INFORMATION block.
+
+    Composition: :func:`prompt_profile_view` first (drops ``_meta`` and every
+    ``metadata`` key outside the prompt-facing allowlist — a no-op for a fresh
+    extraction, which carries neither, but keeps this function correct for any
+    future caller that hands it an already-persisted profile), THEN a
+    recursive removal of :data:`INCOMING_STRIPPED_KEYS` plus empty values
+    (``None``, ``[]``, ``""`` — see ``_is_empty_incoming_value`` for why a bare
+    ``{}`` is deliberately excluded from that set) at every level.
+
+    A dict/list/str ``new_info`` (the testimony/interview/agent bridges' free-
+    text or ``{"answer": ...}`` shapes) never reaches this function —
+    ``build_reconcile_prompt`` calls it ONLY for a ``BaseModel``.
+
+    Byte-identity pin: ``tests/unit/test_615_...`` regenerates this recipe
+    independently against the captured incoming extraction that produced the
+    #615 loss and asserts equality — this is not a description, it is the
+    exact rendering that measured 0/5 lossy real-provider replays.
+    """
+    return _strip_incoming(prompt_profile_view(dump))
+
+
 def prompt_profile_view(
     profile_json: Any,
     *,
