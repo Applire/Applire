@@ -82,7 +82,7 @@ from applire.constants import MAX_TARGET_PAGES
 from applire.exceptions import LLMTruncatedError
 from applire.mcp.deps import get_db
 from applire.mcp.errors import internal, invalid_input, not_found
-from applire.services.profile.commit import StaleEditError
+from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.models.application import UserStatus
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
@@ -258,6 +258,11 @@ async def import_cv(
                 result = await profile_svc.import_from_pdf(raw, db, provider)
             except ValueError as exc:
                 raise invalid_input(str(exc))
+            except VaultWriteRevertedError as exc:
+                # ADR-063 amended 2026-08-28 (#597) — mirrors the
+                # LLMTruncatedError idiom `send_message`/`resolve_gap` use
+                # below: nothing was stored, name the retry.
+                raise internal(f"{exc} Nothing was stored — retry the import.")
             except Exception as exc:
                 raise internal(str(exc))
     elif text and text.strip():
@@ -266,6 +271,8 @@ async def import_cv(
                 result = await profile_svc.import_from_text(text.strip(), db, provider)
             except ValueError as exc:
                 raise invalid_input(str(exc))
+            except VaultWriteRevertedError as exc:
+                raise internal(f"{exc} Nothing was stored — retry the import.")
             except Exception as exc:
                 raise internal(str(exc))
     else:

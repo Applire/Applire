@@ -530,9 +530,24 @@ def apply_ops(
     # Defense in depth (ADR-046): the write-time coercion above is the real fix,
     # but apply_ops must NEVER hand back a profile that won't re-load. Round-trip
     # the result through model_validate; if some future op path still slips a
-    # schema-rejecting value through, fall back to the untouched input rather than
-    # persisting (and later 500-ing on) a corrupt profile.
-    new_profile = _ensure_loadable(new_profile, fallback=profile)
+    # schema-rejecting value through, RAISE rather than persisting (and later
+    # 500-ing on) a corrupt profile — or, before ADR-063's 2026-08-28
+    # amendment, silently reverting to the untouched input. #597: the silent
+    # revert was itself the defect. `changes`/`demotions`/`denials`/
+    # `conflicts` above are already populated from the ops this gate is about
+    # to discard, and a caller that got the untouched profile back with no
+    # other signal could not tell "nothing changed" from "something changed
+    # and was silently thrown away" — `commit_ops` used to mint a receipt
+    # from them regardless (a phantom "Added French in languages" for a turn
+    # whose vault state never moved). Raising makes that structural: no
+    # `ApplyResult` can exist for a reverted batch, so no receipt can be
+    # built from one either.
+    new_profile = _ensure_loadable(
+        new_profile,
+        stage="apply",
+        op_types=[type(op).__name__ for op in ops],
+        source=source,
+    )
 
     return ApplyResult(
         profile=new_profile,
@@ -545,18 +560,87 @@ def apply_ops(
     )
 
 
+# The operator-facing channel every vault-write-failure log and test already
+# watches (commit_ops IS "the vault's one write path" — see commit.py's own
+# module docstring) — used here explicitly, not apply.py's own `logger`
+# (`applire.services.profile.reconcile.apply`), so the inner gate's failure
+# (stage="apply") and the outer gate's failure (stage="commit", raised from
+# THIS SAME function via commit_ops's call one layer up) surface on the one
+# channel regardless of which of the two call sites tripped it.
+_commit_logger = logging.getLogger("applire.services.profile.commit")
+
+
+class VaultWriteRevertedError(Exception):
+    """ADR-063 amended 2026-08-28 (#597): a defence-in-depth reload gate
+    (`_ensure_loadable`) caught a schema-rejecting profile and reverted the
+    write instead of silently persisting (or returning) something no reader
+    asked for. Previously absorbed silently — see the amendment's own
+    reproduction: `changes`/`demotions`/`denials`/`conflicts` collected
+    before the gate tripped stayed populated even though the profile they
+    describe was discarded, so `commit_ops` minted a receipt for a turn
+    whose vault state never moved (a phantom "Added French in languages").
+
+    `stage` names WHICH of the two gates tripped — `"apply"` is `apply_ops`'s
+    own inner gate, the last line before it would have returned an
+    `ApplyResult`; `"commit"` is `commit_ops`'s outer gate, one layer up,
+    which re-validates AFTER the enrichment record, skill enrichment and
+    denial re-floor have all mutated the profile further. Both raise through
+    this ONE exception type from this ONE function, so a caller need not
+    know which stage it was to react correctly: nothing was written, full
+    stop — defined here (not in `commit.py`) so `apply.py` never has to
+    import `commit.py` to raise it; `commit.py` re-exports it next to its
+    sibling `StaleEditError`.
+    """
+
+    def __init__(
+        self,
+        *,
+        stage: Literal["apply", "commit"],
+        op_types: list[str],
+        source: str,
+        detail: str,
+    ) -> None:
+        self.stage = stage
+        self.op_types = op_types
+        self.source = source
+        self.detail = detail
+        super().__init__(
+            f"vault_write_reverted at stage={stage}: op(s) {op_types} from "
+            f"source={source!r} failed their load round-trip and were "
+            f"discarded — {detail}"
+        )
+
+
 def _ensure_loadable(
-    candidate: MasterProfileData, fallback: MasterProfileData
+    candidate: MasterProfileData,
+    *,
+    stage: Literal["apply", "commit"],
+    op_types: list[str],
+    source: str,
 ) -> MasterProfileData:
-    """Return ``candidate`` re-validated through the load path, or ``fallback``.
+    """Return ``candidate`` re-validated through the load path, or raise.
 
     Mirrors how the profile is reloaded from JSONB (``model_dump(mode="json")`` →
-    ``model_validate``). Guarantees the returned profile loads cleanly.
+    ``model_validate``). Guarantees the returned profile loads cleanly — or
+    that nothing downstream ever mistakes a reverted turn for a successful
+    one (ADR-063 amended 2026-08-28, #597: see ``VaultWriteRevertedError``).
+    The ONE ``logger.error`` line for both this function's call sites.
     """
     try:
         return MasterProfileData.model_validate(candidate.model_dump(mode="json"))
-    except ValidationError:
-        return fallback
+    except ValidationError as exc:
+        detail = str(exc)[:300]
+        _commit_logger.error(
+            "vault write reverted at stage=%s: op(s) %s from source=%s failed "
+            "their load round-trip — %s",
+            stage,
+            op_types,
+            source,
+            detail,
+        )
+        raise VaultWriteRevertedError(
+            stage=stage, op_types=op_types, source=source, detail=detail
+        ) from exc
 
 
 # ── Per-op handlers ───────────────────────────────────────────────────────────

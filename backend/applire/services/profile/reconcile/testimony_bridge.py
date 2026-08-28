@@ -43,6 +43,7 @@ from applire.schemas.testimony import TestimonyResult
 from applire.services.profile.commit import (
     CommitProvenance,
     TurnGrounding,
+    VaultWriteRevertedError,
     commit_ops,
 )
 from applire.services.profile.reconcile.engine import reconcile
@@ -117,23 +118,39 @@ async def submit_testimony(
     # shape. The trail in particular is no longer conditional: the old
     # `if receipt_changes:` meant a testimony that changed nothing left no
     # trace that it was ever submitted.
-    committed = await commit_ops(
-        db,
-        rc.ops,
-        CommitProvenance(
-            source=_SOURCE,
-            intake="testimony",
-            session_id=submission_id,
-            actor="candidate",
-        ),
-        record=record,
-        # §7.4 — a turn-based intake passes its turn text; stance/attribution
-        # already ran over it inside `reconcile()` above.
-        grounding=TurnGrounding(text=text, denials=list(rc.denials)),
-        ambiguities=list(rc.ambiguities),
-        snapshot=None,
-        embedding_provider=None,
-    )
+    try:
+        committed = await commit_ops(
+            db,
+            rc.ops,
+            CommitProvenance(
+                source=_SOURCE,
+                intake="testimony",
+                session_id=submission_id,
+                actor="candidate",
+            ),
+            record=record,
+            # §7.4 — a turn-based intake passes its turn text; stance/attribution
+            # already ran over it inside `reconcile()` above.
+            grounding=TurnGrounding(text=text, denials=list(rc.denials)),
+            ambiguities=list(rc.ambiguities),
+            snapshot=None,
+            embedding_provider=None,
+        )
+    except VaultWriteRevertedError as exc:
+        # ADR-063 amended 2026-08-28 (#597) — same data-loss-guard idiom as
+        # the LLMTruncatedError branch above: nothing was persisted for this
+        # submission, reported as an honest `status: "error"` result rather
+        # than raised past this door. `db.commit()` below is skipped, so the
+        # session's own rollback-on-close handles anything else the caller
+        # may have flushed this request.
+        return TestimonyResult(
+            submission_id=submission_id,
+            status="error",
+            detail=(
+                "Your testimony could not be saved — the vault write was "
+                f"reverted ({exc.detail}). Please try submitting it again."
+            ),
+        )
     # Flush-not-commit (ADR-063 amended clause 6): this door owns its
     # transaction exactly as before — dropping this line is a silent no-write.
     await db.commit()

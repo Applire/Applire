@@ -410,103 +410,196 @@ async def test_what_is_assigned_always_re_loads(db_session, seeded):
 
 
 @pytest.mark.asyncio
-async def test_an_unloadable_metadata_write_never_reaches_the_column(
+async def test_an_unloadable_metadata_write_raises_instead_of_reaching_the_column(
     db_session, seeded, monkeypatch, caplog
 ):
     """`apply_ops` round-trips its own output, but everything the committer does
     afterwards touches metadata — so the gate is re-run as the LAST step before
     assignment. Forced here by widening `EnrichmentRecord.source` so the
-    committer writes a receipt the load path rejects.
+    committer writes a receipt the load path rejects — organically, not by
+    mocking the gate itself (see the #597 tests below for the forced form).
+
+    ADR-063 amended 2026-08-28 (#597): the gate now RAISES
+    `VaultWriteRevertedError` instead of silently falling back to the
+    untouched profile — this test used to assert the silent fallback; it now
+    asserts the raise, keeping the one property that never changed: half a
+    turn is never persisted.
     """
     import applire.services.profile.commit as commit_module
     from applire.schemas.profile import EnrichmentRecord, MasterProfileData
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
 
     class _WidenedRecord(EnrichmentRecord):
         source: str  # the real field is a closed Literal
 
     monkeypatch.setattr(commit_module, "EnrichmentRecord", _WidenedRecord)
     caplog.clear()
+    profile_json_before = dict(seeded.profile_json)
+    updated_at_before = seeded.updated_at
 
     with caplog.at_level("ERROR", logger="applire.services.profile.commit"):
-        await commit_ops(
-            db_session,
-            [UpsertSkill(name="Kafka", category="technical")],
-            CommitProvenance(
-                source="not_a_declared_source", intake="test", session_id="s"
-            ),
-        )
+        with pytest.raises(VaultWriteRevertedError) as excinfo:
+            await commit_ops(
+                db_session,
+                [UpsertSkill(name="Kafka", category="technical")],
+                CommitProvenance(
+                    source="not_a_declared_source", intake="test", session_id="s"
+                ),
+            )
 
-    # What landed still loads — that is the whole point of the gate — and it is
-    # the untouched previous state: half a turn is never persisted.
+    assert excinfo.value.stage == "commit"
+    assert excinfo.value.op_types == ["UpsertSkill"]
+    # What landed still loads — that is the whole point of the gate — and the
+    # row itself never moved: this gate trips AFTER the enrichment record
+    # would have been minted, so raising (instead of the old silent
+    # re-validate-and-reassign fallback) means `record.profile_json` is never
+    # reassigned at all, byte-identical to before the call, clock included.
     MasterProfileData.model_validate(seeded.profile_json)
-    assert seeded.profile_json["metadata"]["enrichment_history"] == []
+    assert seeded.profile_json == profile_json_before
+    assert seeded.updated_at == updated_at_before
     assert [s["name"] for s in seeded.profile_json["skills"]] == ["Kubernetes"]
     assert any("round-trip" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.asyncio
+async def test_a_forced_outer_gate_raises_and_captures_no_merge_snapshot(
+    db_session, seeded, monkeypatch
+):
+    """The forced-mock sibling of the organic test above (patches
+    `commit._ensure_loadable` directly, the same technique
+    `test_us293_receipt_parity.py`'s pre-amendment `test_h0_4_...` used for
+    the old silent-fallback behaviour) — so this property does not depend on
+    any particular op path organically tripping the gate.
+
+    Also proves item 5 of the ADR-063 2026-08-28 amendment: the raise
+    happens BEFORE `capture_pre_merge_snapshot`. A merge-flagged commit that
+    reverts must not leave an orphan `ProfileSnapshot` row keyed to an
+    `EnrichmentRecord` id that was never actually persisted — `undo_last_merge`
+    resolves a snapshot against the profile's HEAD record, and a phantom
+    snapshot for a record that doesn't exist there is a stuck, unusable undo
+    point forever.
+    """
+    import applire.services.profile.commit as commit_module
+    from applire.models.profile import ProfileSnapshot
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
+
+    def _always_reverts(candidate, *, stage, op_types, source):
+        raise VaultWriteRevertedError(
+            stage=stage, op_types=op_types, source=source, detail="forced by test (outer)"
+        )
+
+    monkeypatch.setattr(commit_module, "_ensure_loadable", _always_reverts)
+    profile_json_before = dict(seeded.profile_json)
+    updated_at_before = seeded.updated_at
+
+    with pytest.raises(VaultWriteRevertedError) as excinfo:
+        await commit_ops(
+            db_session,
+            [UpsertSkill(name="Terraform", category="technical")],
+            _provenance(),
+            snapshot=SnapshotClass.MERGE,
+        )
+    await db_session.commit()
+
+    assert excinfo.value.stage == "commit"
+    assert excinfo.value.op_types == ["UpsertSkill"]
+    # The vault row never moved — clock included. Mocking `_ensure_loadable`
+    # only replaces the CHECK, not the surrounding `commit_ops` code that
+    # runs before it in real source order — a mutation that moved the clock
+    # write to BEFORE this call (#597 mutation M2) still runs it, mock or
+    # not, so this assertion must check `updated_at` explicitly rather than
+    # relying on the organic outer-gate test above alone.
+    assert seeded.updated_at == updated_at_before
+    assert seeded.profile_json == profile_json_before
+    # … and neither did the snapshot table: no orphan undo point for a merge
+    # that was itself discarded.
+    rows = (await db_session.execute(select(ProfileSnapshot))).scalars().all()
+    assert rows == []
+
+
 # ── #597 — apply_ops's OWN inner gate must not leave a phantom receipt ────────
+# ADR-063 amended 2026-08-28: both gates now RAISE `VaultWriteRevertedError`
+# instead of silently reverting — see the outer-gate test above (organic
+# trigger) and the two below (forced, matching the original #597 reachability
+# note that no op applier organically trips the INNER gate today).
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, reason="#597 — fix pending ADR-063 amendment")
-async def test_a_reverted_inner_gate_must_not_mint_a_phantom_receipt(
+async def test_a_reverted_inner_gate_raises_before_any_receipt_is_minted(
     db_session, seeded, monkeypatch, caplog
 ):
-    """#597 — `apply_ops` ends with its OWN defence-in-depth reload gate
-    (`new_profile = _ensure_loadable(new_profile, fallback=profile)`), one
-    layer below the committer's outer invariant-8 gate this file's previous
-    test (`test_an_unloadable_metadata_write_never_reaches_the_column`) pins.
-    When the INNER gate falls back, the returned `ApplyResult` still carries
-    every `changes`/`demotions`/`denials`/`conflicts` entry collected while the
-    (rejected) ops were applied — and `commit_ops` mints an `EnrichmentRecord`
-    from them regardless, because its OWN outer gate re-validates the
-    ALREADY-reverted profile, which loads cleanly and so never trips. Result:
-    a receipt claiming "Added French in languages" / "Added Rust in skills"
-    for a turn whose vault state never moved, and — unlike the outer gate,
-    which logs ERROR — no operator-side signal at all.
+    """#597 — `apply_ops` ends with its OWN defence-in-depth reload gate, one
+    layer below the committer's outer invariant-8 gate the test above pins.
+    Before the amendment, a failure here fell back SILENTLY: the returned
+    `ApplyResult` still carried every `changes`/`demotions`/`denials`/
+    `conflicts` entry collected while the (rejected) ops were applied, and
+    `commit_ops` minted an `EnrichmentRecord` from them regardless — a
+    receipt claiming "Added French in languages" / "Added Rust in skills"
+    for a turn whose vault state never moved, with NO operator-side signal
+    (unlike the outer gate, which always logged ERROR). The amendment closes
+    this by raising instead: no `ApplyResult` can exist for a reverted
+    batch, so `commit_ops` never reaches the enrichment-record/flush code
+    that used to mint the phantom receipt.
 
-    Reproduced exactly as the US293 adversarial pass did (attack 6a,
-    2026-08-26): force apply.py's OWN `_ensure_loadable` binding to always
-    hand back its fallback, regardless of whether the candidate is actually
+    Forced exactly as the US293 adversarial pass first reproduced this
+    (attack 6a, 2026-08-26): patch apply.py's OWN `_ensure_loadable` binding
+    to always raise, regardless of whether the candidate is actually
     loadable — the inner-gate sibling of the outer-gate forcing technique
-    `test_an_unloadable_metadata_write_never_reaches_the_column` uses one test
-    up. A genuine MULTI-op batch (two upserts), matching the issue's own
-    "backstop for multi-op batches" reachability note.
-
-    Marked xfail(strict=True): pins the fix's contract ahead of the fix
-    itself, which is gated behind an ADR-063 amendment (see #597). A
-    currently-passing green here would mean the fix landed and this xfail
-    should be promoted to a real assertion.
+    the next test uses. A genuine MULTI-op batch (two upserts), matching the
+    issue's own "backstop for multi-op batches" reachability note (no
+    current op applier organically trips this gate — see the #597
+    reachability study).
     """
     import applire.services.profile.reconcile.apply as apply_module
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
     from applire.services.profile.reconcile.ops import UpsertLanguage
     from applire.schemas.profile import MasterProfileData
 
-    monkeypatch.setattr(apply_module, "_ensure_loadable", lambda candidate, fallback: fallback)
-    caplog.clear()
-
-    with caplog.at_level("ERROR", logger="applire.services.profile.commit"):
-        result = await commit_ops(
-            db_session,
-            [
-                UpsertSkill(name="Rust", category="technical"),
-                UpsertLanguage(language="French", level="B1"),
-            ],
-            _provenance(),
+    def _always_reverts(candidate, *, stage, op_types, source):
+        # Mirrors the real `_ensure_loadable`'s two effects (the ERROR log,
+        # then the raise) — this test replaces the WHOLE function, so it must
+        # reproduce both, not just the raise, or the log-line assertion below
+        # would be pinning this fake's behaviour instead of the real gate's.
+        apply_module._commit_logger.error(
+            "vault write reverted at stage=%s: op(s) %s from source=%s failed "
+            "their load round-trip — %s",
+            stage, op_types, source, "forced by test",
+        )
+        raise VaultWriteRevertedError(
+            stage=stage, op_types=op_types, source=source, detail="forced by test"
         )
 
-    # The vault genuinely did not move …
+    monkeypatch.setattr(apply_module, "_ensure_loadable", _always_reverts)
+    caplog.clear()
+    profile_json_before = dict(seeded.profile_json)
+    updated_at_before = seeded.updated_at
+
+    with caplog.at_level("ERROR", logger="applire.services.profile.commit"):
+        with pytest.raises(VaultWriteRevertedError) as excinfo:
+            await commit_ops(
+                db_session,
+                [
+                    UpsertSkill(name="Rust", category="technical"),
+                    UpsertLanguage(language="French", level="B1"),
+                ],
+                _provenance(),
+            )
+
+    assert excinfo.value.stage == "apply"
+    assert excinfo.value.op_types == ["UpsertSkill", "UpsertLanguage"]
+    # The vault genuinely did not move — not even the clock, and the row is
+    # byte-identical to before the call (the raise happens at `apply_ops`'s
+    # very first step, well before `commit_ops` ever mutates the ORM object).
+    assert seeded.updated_at == updated_at_before
+    assert seeded.profile_json == profile_json_before
     MasterProfileData.model_validate(seeded.profile_json)
     assert [s["name"] for s in seeded.profile_json["skills"]] == ["Kubernetes"]
-    assert seeded.profile_json["languages"] == []
-    # … so nothing may claim otherwise: no phantom receipt, on either the
-    # persisted trail or the value handed back to the door.
-    assert seeded.profile_json["metadata"]["enrichment_history"] == []
-    assert result.changes == []
-    # And — the outer gate is silent here (this reload never reaches it) — the
-    # failure must still be visible operator-side, naming what was lost.
+    # … nothing was even flushed, let alone committed.
+    assert seeded not in db_session.dirty
+    assert not db_session.new
+    # … and the failure is visible operator-side, naming the op types.
     assert any(
-        "upsert_skill" in r.getMessage() and "upsert_language" in r.getMessage()
+        "UpsertSkill" in r.getMessage() and "UpsertLanguage" in r.getMessage()
         for r in caplog.records
     )
 
