@@ -90,6 +90,26 @@ def build_replace_section_op(
             f"(an explicit null clears a field)."
         )
 
+    if section in OBJECT_SECTIONS:
+        # #595 (ADR-058 clause 2 — channel parity) — on a merge-patched OBJECT
+        # section, "" and whitespace-only mean exactly what an explicit null
+        # means: clear this field. Without this, `_apply_replace_section`
+        # merge-patches the literal "" into the section while the diff
+        # (`_diff_object_section`, via `_is_empty`) reports the key as
+        # `removed` — a receipt that disagrees with the vault it describes
+        # (bookkeeping is not testimony). The profile-page editors
+        # (PersonalInfoEditor, SummaryEditor) already coerce an emptied field
+        # to null client-side, so this is a no-op through the UI door; it
+        # closes the gap for a raw agent payload
+        # (`update_profile(data={"phone": ""})`) and for the CV section
+        # editor's introduction save, the other two doors this pure adapter
+        # transitively fixes. `decoded` is a dict here — the check above
+        # already refused anything else.
+        decoded = {
+            key: (None if isinstance(val, str) and val.strip() == "" else val)
+            for key, val in decoded.items()
+        }
+
     # `photo_url` is owned by the photo endpoints (services/photo.py: upload
     # records GDPR consent, delete removes the stored file). Through the
     # section door a null would orphan the file and a foreign URL would end

@@ -1119,3 +1119,126 @@ async def test_a_legacy_plain_string_summary_loads_instead_of_crashing_the_read_
         response = await get_profile(session)
     assert response.profile.professional_summary.de == "Erfahrene Entwicklerin."
     assert response.profile.professional_summary.en is None
+
+
+# ── #595 — "" clears an object-section field exactly like an explicit null ────
+#
+# Adversarial finding 2026-08-26 (attack 1a, US293 pass): a raw agent payload
+# `{"phone": ""}` used to merge-patch the literal "" while the enrichment-trail
+# receipt already read `removed` (`_diff_object_section` via `_is_empty`) — the
+# receipt disagreed with the vault it describes. The fix sits in the one pure
+# adapter every door shares (`build_replace_section_op`), so it is pinned here
+# through all THREE doors this file's own docstring names for `patch_profile_section`.
+
+
+@pytest.mark.asyncio
+async def test_a_blank_string_through_the_rest_door_clears_like_an_explicit_null(durable_db):
+    """Same assertion shape as `test_object_section_merge_patch_survives_the_new_path`
+    (explicit null) — proving "" is now the same act, not a second, laxer one."""
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+
+    await _patch(factory, "personal_info", {"phone": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["personal_info"]["phone"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["phone"]["action"] == "removed"
+    assert changes["phone"]["new_value"] is None  # not "" — the bug's exact symptom
+
+
+@pytest.mark.asyncio
+async def test_a_blank_string_through_the_agent_door_clears_the_same_way(
+    durable_db, monkeypatch
+):
+    """The #595 acceptance criterion verbatim:
+    `update_profile(section="personal_info", data={"phone": ""})` stores
+    `null`, receipt `removed` with `new_value: null`."""
+    import applire.mcp.server as server
+
+    engine, factory = durable_db
+    profile_id = await _seed_profile(factory)
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    await server.update_profile(section="personal_info", data={"phone": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["personal_info"]["phone"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["phone"]["action"] == "removed"
+    assert changes["phone"]["new_value"] is None
+
+
+@pytest.mark.asyncio
+async def test_professional_summary_blank_slot_through_the_rest_door_clears_to_null(durable_db):
+    """Acceptance: "Same for `professional_summary` slots." — the other
+    language slot must survive untouched (#178 merge-patch semantics)."""
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": "English summary."}
+    profile_id = await _seed_profile(factory, seed)
+
+    await _patch(factory, "professional_summary", {"de": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    assert stored["professional_summary"]["en"] == "English summary."
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["de"]["action"] == "removed"
+    assert changes["de"]["new_value"] is None
+
+
+@pytest.mark.asyncio
+async def test_professional_summary_blank_slot_through_the_agent_door_clears_to_null(
+    durable_db, monkeypatch
+):
+    import applire.mcp.server as server
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": "English summary."}
+    profile_id = await _seed_profile(factory, seed)
+    monkeypatch.setattr(server, "get_db", _mcp_db(factory))
+    monkeypatch.setattr(server, "get_provider", lambda: None)
+
+    await server.update_profile(section="professional_summary", data={"de": ""})
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    assert stored["professional_summary"]["en"] == "English summary."
+
+
+@pytest.mark.asyncio
+async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_not_blanks_it(
+    durable_db,
+):
+    """The THIRD door this pure adapter transitively fixes, beyond the two
+    #595 names: `build_section_field_edit` maps a cleared CV "introduction"
+    textarea to `professional_summary.{lang}` with the raw (possibly "")
+    content (services/cv_section_editor.py) — no blank-content guard sits in
+    front of it, so this is reachable in production: clear the CV's summary
+    box and save to profile. `document_language` is pinned directly (E054
+    clause 3b — a generated CV always carries it), so the slot is deterministic
+    regardless of the fixture JD text's detected language."""
+    from applire.services.cv_section_editor import patch_cv_section
+
+    engine, factory = durable_db
+    seed = dict(_SEED_PROFILE)
+    seed["professional_summary"] = {"de": "Deutsche Zusammenfassung.", "en": None}
+    profile_id = await _seed_profile(factory, seed)
+    rows, cv_id, _position_uuid = _cv_fixture_rows(profile_id)
+    rows[2].document_language = "de"
+
+    async with factory() as session:
+        session.add_all(rows)
+        await session.commit()
+
+    async with factory() as request_session:
+        await patch_cv_section(cv_id, "introduction", "", True, request_session)
+
+    stored = await _read_back(engine, profile_id)
+    assert stored["professional_summary"]["de"] is None
+    changes = {c["field"]: c for c in _latest_changes(stored)}
+    assert changes["de"]["action"] == "removed"
+    assert changes["de"]["new_value"] is None

@@ -186,6 +186,83 @@ def test_professional_summary_other_language_slot_survives():
     assert result.profile.professional_summary.de == "Deutsche Zusammenfassung."
 
 
+# ── #595 — "" and whitespace-only clear an object-section field like null ────
+
+
+def test_object_section_empty_string_clears_like_explicit_null():
+    """The defect: `_apply_replace_section` used to merge-patch the literal
+    "" while `_diff_object_section` (via `_is_empty`) already read it as a
+    removal — a receipt disagreeing with the vault it describes. Coercing at
+    the adapter makes "cleared" mean `null` on every door (ADR-058 cl. 2)."""
+    profile = _profile()
+    op = build_replace_section_op("personal_info", {"phone": ""})
+
+    result = apply_ops(profile, [op], "manual_edit")
+
+    assert result.profile.personal_info.phone is None
+    assert result.profile.personal_info.name == "Anna Bauer"
+    cleared = [c for c in result.changes if c.field == "phone"]
+    assert [c.action for c in cleared] == ["removed"]
+    assert cleared[0].old_value == "+49 30 000000"
+    assert cleared[0].new_value is None  # not "" — the bug's exact symptom
+
+
+def test_object_section_whitespace_only_value_clears_like_explicit_null():
+    profile = _profile()
+    op = build_replace_section_op("personal_info", {"phone": "   "})
+
+    result = apply_ops(profile, [op], "manual_edit")
+
+    assert result.profile.personal_info.phone is None
+    cleared = [c for c in result.changes if c.field == "phone"]
+    assert [c.action for c in cleared] == ["removed"]
+    assert cleared[0].new_value is None
+
+
+def test_professional_summary_empty_string_slot_clears_and_other_slot_survives():
+    profile = _profile(
+        professional_summary={"de": "Deutsche Zusammenfassung.", "en": "English summary."}
+    )
+    op = build_replace_section_op("professional_summary", {"de": ""})
+
+    result = apply_ops(profile, [op], "manual_edit")
+
+    assert result.profile.professional_summary.de is None
+    assert result.profile.professional_summary.en == "English summary."
+    cleared = [c for c in result.changes if c.field == "de"]
+    assert [c.action for c in cleared] == ["removed"]
+    assert cleared[0].new_value is None
+
+
+def test_non_nullable_name_field_self_heals_after_empty_string_coercion():
+    """`personal_info.name` is `str = ""`, not `str | None` — coercing "" to
+    None here does not make the vault hold `null` for it. `PersonalInfo`'s own
+    `_coerce_name` validator (mode="before") turns the coerced None back into
+    "" on the `model_validate` round-trip, exactly as it already did for a
+    genuinely null name (an LLM-extracted nameless document). No crash, no
+    behaviour change for this one field — it was never possible to store
+    `null` for `name` and still isn't."""
+    profile = _profile()
+    op = build_replace_section_op("personal_info", {"name": ""})
+
+    result = apply_ops(profile, [op], "manual_edit")
+
+    assert result.profile.personal_info.name == ""
+
+
+def test_list_section_payload_values_are_never_coerced():
+    """The coercion is scoped to OBJECT_SECTIONS merge-patches — a list-section
+    entry's own "" fields (e.g. a blank `role` pending a rewrite) are the list
+    applier's concern, not this adapter's; both OBJECT_SECTIONS (personal_info,
+    professional_summary) hold only scalar fields, so there is no nested
+    dict/list case to decide here."""
+    op = build_replace_section_op(
+        "work_experience", [{"company": "Acme GmbH", "role": ""}]
+    )
+
+    assert op.value == [{"company": "Acme GmbH", "role": ""}]
+
+
 def test_object_section_refuses_a_list_payload():
     with pytest.raises(ValueError, match="expects an object"):
         build_replace_section_op("personal_info", ["not", "a", "dict"])
