@@ -809,6 +809,71 @@ async def test_letter_signature_orphans_less_often_547():
 
 
 # ---------------------------------------------------------------------------
+# #431 — academic_letter.html.j2 could not hold a budget-length body on one
+# page: 11pt / line-height 1.7 / 28mm side padding, the airiest typography of
+# the family, overflowed A4 by ~32mm on LETTER_DE_BUDGET when reported
+# (2026-08-02) and still by ~24mm after #547's shared signature-air reduction
+# landed (measured 2026-08-28: signature bottom 300.93mm + 20mm bottom
+# padding = 320.93mm vs 297mm — a real-render scratch probe, not committed,
+# per this suite's rule against new absolute page-count gates).
+#
+# PO decision 2026-08-28: densify — a visible typography change, not a CSS
+# margin shave, because #431 was routed to the founder for exactly that
+# reason (making a budget letter fit on this template requires a look
+# change). Target ~10.5pt / line-height 1.55 / 24mm side padding, tried
+# first and kept as-is: measured on the real render path (LETTER_DE_BUDGET,
+# same scratch probe) at 1 page, signature bottom 263.94mm, 13.06mm reserve
+# below the signature before the bottom padding starts — comfortably over
+# the PO's >=10mm target without being drastically loose. Font family,
+# color, structure and every other template untouched.
+#
+# The gate below is the font-independent half — modelled on
+# `test_letter_signature_air_stays_under_547_budget` above: it reads the
+# template source and pins the typography as an upper-bound BUDGET (not an
+# exact-value pin), so any further tightening still passes and only a
+# regression back toward the pre-#431 airiness fails it.
+# ---------------------------------------------------------------------------
+
+_ACADEMIC_FONT_SIZE_BUDGET_PT = 10.5
+_ACADEMIC_LINE_HEIGHT_BUDGET = 1.55
+_ACADEMIC_SIDE_PADDING_BUDGET_MM = 24.0
+
+
+def test_academic_letter_typography_stays_under_431_budget():
+    """#431 (PO decision 2026-08-28): the academic template's body typography
+    must not creep back toward the pre-fix airiness (11pt / 1.7 / 28mm side
+    padding) that made a budget-length DE letter overflow A4. Deterministic
+    and font-independent — reads the raw template source, renders nothing.
+    Loosen any one of the three values past its budget and this fails.
+    """
+    import re
+
+    source = (LETTER_TEMPLATES_DIR / LETTER_TEMPLATES["academic"]).read_text(encoding="utf-8")
+    font_size = re.search(r"\bbody\s*\{[^}]*font-size:\s*([\d.]+)pt", source)
+    line_height = re.search(r"\bbody\s*\{[^}]*line-height:\s*([\d.]+)", source)
+    side_padding = re.search(r"\.page\s*\{[^}]*padding:\s*[\d.]+mm\s+([\d.]+)mm", source)
+    assert font_size, "academic: no body font-size found — template shape changed"
+    assert line_height, "academic: no body line-height found — template shape changed"
+    assert side_padding, "academic: no .page side padding found — template shape changed"
+
+    assert float(font_size.group(1)) <= _ACADEMIC_FONT_SIZE_BUDGET_PT, (
+        f"academic: body font-size is {font_size.group(1)}pt, over the #431 budget of "
+        f"{_ACADEMIC_FONT_SIZE_BUDGET_PT}pt — this is the exact regression #431 fixed: "
+        f"typography airy enough to push a budget-length letter onto a second page."
+    )
+    assert float(line_height.group(1)) <= _ACADEMIC_LINE_HEIGHT_BUDGET, (
+        f"academic: body line-height is {line_height.group(1)}, over the #431 budget of "
+        f"{_ACADEMIC_LINE_HEIGHT_BUDGET} — this is the exact regression #431 fixed: "
+        f"typography airy enough to push a budget-length letter onto a second page."
+    )
+    assert float(side_padding.group(1)) <= _ACADEMIC_SIDE_PADDING_BUDGET_MM, (
+        f"academic: .page side padding is {side_padding.group(1)}mm, over the #431 budget "
+        f"of {_ACADEMIC_SIDE_PADDING_BUDGET_MM}mm — this is the exact regression #431 "
+        f"fixed: typography airy enough to push a budget-length letter onto a second page."
+    )
+
+
+# ---------------------------------------------------------------------------
 # #357 — a position block is atomic across the page break. The reported defect:
 # a 3-page Lebenslauf split one position so 3 of its 5 bullets sat on page 1
 # and 2 on page 2, with no visual link back to the heading; the worst shape is
