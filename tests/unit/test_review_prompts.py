@@ -784,6 +784,50 @@ class TestCoverLetterReviewPrompts:
         low = p.lower()
         assert "invent" in low or "fabricat" in low
 
+    def test_review_system_prompt_never_calls_a_typed_value_attested(self):
+        """#562 — REQUIRED CONTENT check 4 used to call the WHOLE scope_positioning
+        block "the candidate's own attested scale evidence" unconditionally, even
+        though render_scope_positioning_block (services/scope_requirements.py) can
+        render ONLY an unverified "typed vault value" line, with no "attested in the
+        vault" line at all. A real run (2026-08-19, letter_terminal_review log)
+        parroted that framing verbatim: "does not state the candidate's attested
+        Führungsspanne of 480" — for a figure that was never an ADR-070 attestation.
+
+        The corrected wording here is deliberately MINIMAL (this prompt sits on a
+        hard size ratchet — test_prompt_stays_within_its_size_budget, 12_500 chars,
+        already only ~25 chars of headroom after this fix): it just stops asserting
+        the false blanket claim and tags #562 for traceability. The fuller "typed
+        vault value" vs "attested in the vault" distinction is taught where there is
+        room for it and where it is authoritative — the DATA itself
+        (render_scope_positioning_block's own per-line labels and shared legend,
+        pinned in tests/unit/test_scope_requirements.py::TestScopePositioningBlock)
+        and the corrector's prompt (test_refinement_prompt_never_calls_a_typed_value_
+        attested, below) — never a token/keyword heuristic invented for this fix.
+        TERMINAL_REVIEW_SYSTEM_PROMPT shares _AUTHORITY_AND_CHECKS with this one, so
+        asserting on REVIEW_SYSTEM_PROMPT pins both shape doors (ADR-066) at once."""
+        from applire.prompts.review_cover_letter import (
+            REVIEW_SYSTEM_PROMPT as p,
+            TERMINAL_REVIEW_SYSTEM_PROMPT as terminal_p,
+        )
+
+        for prompt in (p, terminal_p):
+            assert "is the candidate's own attested scale evidence" not in prompt
+            assert "candidate's own attested" not in prompt
+            assert "scope_positioning`` (ADR-070) is the candidate's own scale evidence" in prompt
+            assert "#562" in prompt
+
+    def test_refinement_prompt_never_calls_a_typed_value_attested(self):
+        """Same #562 mislabelling, in the corrector's own prompt (a SEPARATE
+        constant from REVIEW_SYSTEM_PROMPT — ADR-066's dual-prompt trap applies
+        here too: fixing only the reviewer's wording would leave the corrector
+        free to reintroduce the "attested" overclaim while patching a scope
+        paragraph)."""
+        from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
+
+        assert "the candidate's own attested scale" not in p
+        assert "typed vault value" in p
+        assert "attested in the vault" in p
+
     def test_build_retry_prompt_includes_feedback_and_previous_draft(self):
         from applire.prompts.review_cover_letter import build_retry_prompt
 

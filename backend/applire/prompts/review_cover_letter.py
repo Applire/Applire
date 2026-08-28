@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v4 (#562, 2026-08-28 — REQUIRED CONTENT check 4 and the refinement
+#   prompt no longer call the WHOLE scope_positioning block "the candidate's own attested
+#   scale evidence": render_scope_positioning_block (services/scope_requirements.py) can
+#   emit a "typed vault value" line with NO verified attestation at all, yet a real run
+#   (2026-08-19, letter_terminal_review log) had this reviewer demand "the candidate's
+#   attested Führungsspanne of 480" for exactly such an unverified, extraction-derived
+#   figure — parroting this prompt's own prior wording. NEEDS REAL-PROVIDER RUN EVIDENCE
+#   per ADR-062 clause 7 — not yet run.)
 # Prompt version: v3 (#539 / ADR-076 clause 3, 2026-08-16 — the TERMINAL round
 #   variant is added: TERMINAL_REVIEW_SYSTEM_PROMPT + build_terminal_review_prompt
 #   review the COMPOSED letter (the delivered artifact — date stamped, sign-off
@@ -203,7 +211,7 @@ or incomplete; anything you notice outside them is `minor` by definition.
    candidate claim a later round must then flag. ``closing`` is always required: a
    genuine paragraph (interest + call to action, availability folded in), never a bare
    terminal line.
-   ``scope_positioning`` (ADR-070) is the candidate's own attested scale evidence:
+   ``scope_positioning`` (ADR-070) is the candidate's own scale evidence (#562):
    delivering it with the candidate's values is not overclaiming; stating the posting's
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
@@ -378,10 +386,12 @@ Rules:
   unrelated issue. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in
   substance) and never extend it beyond what the quote says. A
-  ``scope_positioning`` statement (ADR-070) quotes the candidate's own attested scale
-  values with their stated unit — it is grounded by that entry's own ``testimony``, never
-  a fabrication; when patching it, keep the candidate's figures verbatim and never
-  substitute the posting's own figure. A DO-NOT-CLAIM term used honestly
+  ``scope_positioning`` statement (ADR-070) states the candidate's own scale evidence — a
+  "typed vault value" is the candidate's recorded profile figure, NOT independently
+  verified; only a line marked "attested in the vault" is a verified quote with its stated
+  unit (#562 — never upgrade the former into the word "attested"). Either shape is grounded
+  by that entry's own ``testimony``, never a fabrication; when patching it, keep the
+  candidate's figures verbatim and never substitute the posting's own figure. A DO-NOT-CLAIM term used honestly
   there (naming an employer-domain fact from ``job_description``, or naming the candidate's
   OWN absence of it before pivoting to real, grounded experience) is NOT the fabrication the
   reviewer means — only remove/rewrite a term the reviewer actually flagged as a candidate
