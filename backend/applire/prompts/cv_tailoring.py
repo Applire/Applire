@@ -15,6 +15,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v11 (#391, 2026-08-28 — rule 7 gains A REQUIREMENT PHRASE IS NOT A
+#   SKILL. Charter runs 11-13 (2026-07-31…08-01): the writer put JD-requirement phrases
+#   into the skills list with no vault basis — "5 Jahre Controlling-Erfahrung" (a JD
+#   requirement string, not a skill) and "Verpackungsindustrie"/"Fertigungsausführungssystem"
+#   (an industry name and a Germanized MES expansion). Emma's case had user-visible cost:
+#   the CV carried "5 Jahre" while the letter truthfully said "neun Jahren", and the blind
+#   HR reviewer flagged the inconsistency as the application's top risk signal. Category B
+#   (applire-prompt-first): the schema lets the model emit any string as a skill, and rule
+#   7's existing sentence — "a skill with no basis in the profile is omitted, however loudly
+#   the JD asks for it" — governs GROUNDING but never named the SHAPE that still fails even
+#   when grounded: a duration, an industry/sector name or a degree requirement is not a
+#   competence at all. PO ruling 2026-08-15 (ADR-076 amendment 4, issue #391): the
+#   predicate-side fix (tightening the deterministic vault-tie threshold) is explicitly
+#   clause-4-illegal — string comparison adjudicating equivalence — and rides the A3–A7
+#   unit migration instead; this prompt-side half ships now, per the prompt-first ordering
+#   the same ruling states. No deterministic guard: telling a REQUIREMENT-PHRASE shape
+#   (duration/industry/degree) apart from a competence is exactly the kind of judgement
+#   ADR-062 clause 1 reserves for the model, not a fact a rule can compute. ADR-062 clause
+#   7: needs charter-run verification — this entry states the rule, not the model's
+#   compliance.)
 # Prompt version: v10 (#375, 2026-08-07 — rule 6 gains A FIGURE KEEPS ITS OWN SUBJECT,
 #   folded with v9's #289 clause: both landed on rule 6 in the same flavour and are one
 #   policy, so they are stated as one — "a true figure can still be written untruthfully,
@@ -131,7 +151,7 @@ Your job is to make true things read well, and land for THIS job.
    AGENCY, NOT PROXIMITY. A bullet may claim only as much agency as the profile statement it is drawn from actually gives the candidate — being on the team, in the unit or in the room while something happened is not having done it. This bites hardest on an ORGANISATION-SCALE figure: the employer's or the unit's revenue, headcount, portfolio or user base, as opposed to a result the candidate's own work produced. Such a figure is the SETTING the work happened in, and must be written as one — either name the relationship the profile itself states (ran it, contributed to it, worked within it), or say plainly that this was the scale of the operation ("for a production line carrying €X in revenue", "in a business unit of that scale"). Never fuse the candidate's own action verb to an organisation-scale figure and leave the causation to the reader: "supporting €X revenue" lands on a hiring manager as a vague causal association rather than a measured contribution, and costs more credibility than the figure earns even though every word of it is true.
    Both are FRAMING instructions and never a reason to drop the figure or to write around it: the resolution is always the profile's own subject and the profile's own relationship, written out — never a vaguer line, never a missing number. A bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
-7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it.
+7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it. A requirement phrase — a duration ("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is not a skill: a skill is a named competence, tool or method the candidate holds in the vault.
    - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect.
    - Every skill you name in a bullet must also appear in the skills list.
 
