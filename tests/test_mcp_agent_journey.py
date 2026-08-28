@@ -79,6 +79,15 @@ _ALLOWED_SUMMARY_KEYS = {
     "skills_count",
     "completeness",
     "merge_conflicts",
+    # #615 (ADR-063 amended 2026-08-28, second entry; ADR-058 door parity): the
+    # merge's own honesty fact — `merge_status: applied | partial` and the
+    # `not_applied` list of entries of the document the caller JUST submitted
+    # that the merge carried into no op and no vault entry (section + label +
+    # reason). These are facts about the caller's own input, never the stored
+    # vault, so the black-box property below (no names, contact, work history)
+    # still holds — the PII sweep runs over the whole summary regardless.
+    "merge_status",
+    "not_applied",
 }
 
 
