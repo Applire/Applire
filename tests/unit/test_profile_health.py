@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from applire.schemas.profile import (
     Conflict,
     EnrichmentRecord,
+    ImportNotApplied,
     MasterProfileData,
     PersonalInfo,
     ProfessionalSummary,
@@ -166,6 +167,42 @@ class TestAccuracyThread:
         )
         assert [i for i in assess_health(_profile(enrichments=[rec])).issues
                 if i.thread == "accuracy"] == []
+
+    def test_wider_nine_section_reconciliation_and_not_applied_do_not_change_the_mechanism(self):
+        """#615 (ADR-041 amended 2026-08-28) — `_accuracy_issue`/
+        `classify_reconciliation` are UNCHANGED in mechanism; only their input
+        widened (5 -> 9 entities) and `EnrichmentRecord` gained a sibling
+        `not_applied` field this thread never reads. A record shaped like the
+        captured #615 loss (8 skills + 2 languages + 2 education, delta 12,
+        above MERGE_DATALOSS_CRITICAL_THRESHOLD=3) is still a SINGLE
+        `critical` accuracy issue naming the affected sections — exactly the
+        pre-existing contract, just fed by the richer computation."""
+        rec = EnrichmentRecord(
+            timestamp=datetime.now(timezone.utc),
+            source="cv_upload",
+            reconciliation={
+                "skills": {"extracted": 8, "stored": 0, "delta": 8},
+                "languages": {"extracted": 2, "stored": 0, "delta": 2},
+                "education": {"extracted": 2, "stored": 0, "delta": 2},
+                "work_experience": {"extracted": 3, "stored": 3, "delta": 0},
+                "certifications": {"extracted": 0, "stored": 0, "delta": 0},
+                "projects": {"extracted": 0, "stored": 0, "delta": 0},
+                "publications": {"extracted": 0, "stored": 0, "delta": 0},
+                "volunteer_activities": {"extracted": 0, "stored": 0, "delta": 0},
+                "signature_stories": {"extracted": 0, "stored": 0, "delta": 0},
+            },
+            not_applied=[
+                ImportNotApplied(section="skills", label="SAP CO/FI", reason="no_op_carried_entry"),
+            ],
+        )
+        issues = [i for i in assess_health(_profile(enrichments=[rec])).issues
+                  if i.thread == "accuracy"]
+        assert len(issues) == 1
+        assert issues[0].profile_mismatch_severity == "critical"
+        assert "education" in issues[0].summary
+        assert "languages" in issues[0].summary
+        assert "skills" in issues[0].summary
+        assert "work_experience" not in issues[0].summary  # delta 0 — not affected
 
 
 class TestCompleteness:

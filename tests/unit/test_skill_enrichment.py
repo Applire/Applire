@@ -1523,6 +1523,7 @@ async def test_merged_profile_is_re_enriched_so_no_skill_loses_its_provenance():
     class _Result:
         ops = [UpsertSkill(name="ISO 9001", category="domain", evidence=["w-existing"])]
         ambiguities: list = []
+        rejected_ops: list = []
 
     async def _fake_reconcile(*args, **kwargs):
         return _Result()
@@ -1573,6 +1574,7 @@ async def test_merge_does_not_blank_a_duration_the_first_import_already_showed()
     class _Result:
         ops = [UpsertSkill(name="Kubernetes", category="technical")]
         ambiguities: list = []
+        rejected_ops: list = []
 
     async def _fake_reconcile(*args, **kwargs):
         return _Result()

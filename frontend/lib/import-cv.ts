@@ -26,6 +26,18 @@
  * CVUploadResponse the old synchronous /upload returned.
  */
 
+/**
+ * One incoming CV-import entry the merge's own ops did not carry (#615,
+ * ADR-063 amended 2026-08-28). FACTS only — no item here is proof of loss
+ * (see the backend's `import_witness.compute_import_not_applied` docstring
+ * for the carried-predicate and its named false-positive shapes).
+ */
+export interface ImportNotAppliedItem {
+  section: string | null;
+  label: string;
+  reason: "no_op_carried_entry" | "op_rejected";
+}
+
 /** Subset of the backend CVUploadResponse that callers read; extra fields pass through. */
 export interface CVUploadResult {
   profile_id: string | null;
@@ -38,6 +50,10 @@ export interface CVUploadResult {
   account_name?: string | null;
   cv_name?: string | null;
   staged_id?: string | null;
+  /** #615 — "the merge ran AND nothing is known to be missing" vs "the merge
+   * ran but the carried-predicate names entries it did not carry". */
+  merge_status?: "applied" | "partial";
+  not_applied?: ImportNotAppliedItem[];
   [key: string]: unknown;
 }
 

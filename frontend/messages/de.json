@@ -80,7 +80,9 @@
     "jdNoDescription": "Keine Stellenbeschreibung — übersprungen",
     "cvUploaded": "{count, plural, one {1 Lebenslauf hochgeladen} other {# Lebensläufe hochgeladen}}",
     "profileUpdated": "{count, plural, one {Master-Profil mit 1 neuem Lebenslauf aktualisiert} other {Master-Profil mit # neuen Lebensläufen aktualisiert}}",
-    "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut."
+    "uploadTryAgain": "Wir konnten diesen Lebenslauf nicht rechtzeitig fertig einlesen — es wurde nichts geändert. Bitte versuche es erneut.",
+    "notAppliedNote": "{count, plural, one {1 Eintrag aus deinem Lebenslauf wurde nicht automatisch übernommen} other {# Einträge aus deinem Lebenslauf wurden nicht automatisch übernommen}}: {labels}",
+    "notAppliedMore": "+{count} weitere"
   },
   "flow": {
     "stepProfile": "1 Profil",

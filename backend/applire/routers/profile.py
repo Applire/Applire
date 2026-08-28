@@ -51,6 +51,7 @@ from applire.schemas.profile import (
     MasterProfileResponse,
     ProfileChangesResponse,
     ProfileHealthResponse,
+    ProfileImportResponse,
     StagedResolveRequest,
     StagedResolveResponse,
     UndoLastMergeResponse,
@@ -389,14 +390,14 @@ async def undo_last_merge_endpoint(
     )
 
 
-@router.post("/import", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)
+@router.post("/import", response_model=ProfileImportResponse, status_code=status.HTTP_200_OK)
 async def import_profile(
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
     _auth: AuthProvider = Depends(get_auth_provider),
     file: Annotated[UploadFile | None, File(description="LinkedIn export ZIP")] = None,
     linkedin_json: Annotated[str | None, Form(description="LinkedIn export JSON string")] = None,
-) -> MasterProfileResponse:
+) -> ProfileImportResponse:
     """Structured data ingestor for LinkedIn/XING exports (ZIP or JSON).
 
     For CV file uploads (PDF, DOCX, images), use POST /api/profile/upload instead.

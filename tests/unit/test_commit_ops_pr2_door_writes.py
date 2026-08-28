@@ -290,7 +290,7 @@ async def test_upload_door_write_survives_the_request(durable_db):
                 new=AsyncMock(return_value=_merge_of("Terraform")),
             ),
         ):
-            returned_id, completeness, conflicts, enrichment_id = await _apply_merge(
+            outcome = await _apply_merge(
                 request_session,
                 MasterProfileData.model_validate(
                     {"skills": [{"name": "Terraform", "category": "technical"}]}
@@ -299,6 +299,10 @@ async def test_upload_door_write_survives_the_request(durable_db):
                 emb_provider=NoopEmbeddingProvider(),
                 provider=AsyncMock(),
             )
+    returned_id = outcome.profile_id
+    completeness = outcome.completeness
+    conflicts = outcome.conflicts
+    enrichment_id = outcome.enrichment_id
 
     assert returned_id == profile_id
     stored = await _read_back(engine, profile_id)

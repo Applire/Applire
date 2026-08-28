@@ -259,3 +259,8 @@ async def test_reconcile_import_batched_directly_prompts_carry_no_ids():
     for prompt in provider.prompts:
         new_info_block = prompt.split("NEW INFORMATION")[-1]
         assert '"id"' not in new_info_block, prompt
+        # The repr form ("id='...'", no double quotes) is what a Python str()
+        # of a BaseModel actually produces — check for it explicitly so this
+        # test does not pass by accident against the OLD rendering.
+        assert "id=" not in new_info_block, prompt
+        assert "WorkEntry(" not in new_info_block, prompt

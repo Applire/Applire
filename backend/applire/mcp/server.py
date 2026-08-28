@@ -202,7 +202,15 @@ def _parse_uuid(value: str, param: str) -> uuid.UUID:
 
 
 def _profile_summary(profile_response) -> dict:
-    """Non-sensitive extraction summary for agents — never the raw profile."""
+    """Non-sensitive extraction summary for agents — never the raw profile.
+
+    #615 (ADR-063 amended 2026-08-28, second entry / ADR-058 note) —
+    ``import_cv``'s only caller always hands this a ``ProfileImportResponse``
+    (`import_from_pdf`/`import_from_text`, both routed through
+    ``_import_from_text``), so ``merge_status``/``not_applied`` are always
+    present on ``data`` here — the same import-door fact every other adapter
+    carries, added to the existing five fields rather than replacing them.
+    """
     data = profile_response.model_dump(mode="json")
     profile = data.get("profile") or {}
     stats = data.get("stats") or {}
@@ -212,6 +220,8 @@ def _profile_summary(profile_response) -> dict:
         "skills_count": len(profile.get("skills") or []),
         "completeness": data.get("completeness"),
         "merge_conflicts": len(data.get("merge_conflicts") or []),
+        "merge_status": data.get("merge_status"),
+        "not_applied": data.get("not_applied") or [],
     }
 
 

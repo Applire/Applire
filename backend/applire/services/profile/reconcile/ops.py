@@ -40,6 +40,7 @@ from applire.schemas.profile import (
     OBJECT_SECTIONS,
     VAULT_SECTIONS,
     FieldChange,
+    ImportNotApplied,
     MasterProfileData,
 )
 
@@ -758,6 +759,12 @@ class ApplyImportMerge(BaseModel):
     #: profile-health surface. Merge records only; the committer copies it onto
     #: the ``EnrichmentRecord`` it mints because no other intake can compute it.
     reconciliation: dict[str, dict[str, int]] | None = None
+    #: #615 (ADR-063 amended 2026-08-28, second entry) — the carried-predicate
+    #: facts ``reconciliation`` above is derived from, riding the identical
+    #: path (``MergeResult.not_applied`` -> here -> ``ApplyResult.not_applied``
+    #: -> the committer's ``EnrichmentRecord.not_applied``) so the doors' fact
+    #: and the hub's count can never disagree about the same merge.
+    not_applied: list[ImportNotApplied] = Field(default_factory=list)
 
 
 # ── Discriminated unions, split by EMITTER ────────────────────────────────────

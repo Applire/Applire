@@ -80,7 +80,9 @@
     "jdNoDescription": "No job description — skipped",
     "cvUploaded": "{count, plural, one {1 CV uploaded} other {# CVs uploaded}}",
     "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
-    "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again."
+    "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
+    "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
+    "notAppliedMore": "+{count} more"
   },
   "flow": {
     "stepProfile": "1 Profile",
