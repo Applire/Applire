@@ -41,9 +41,16 @@ type TestimonyStatus =
   | "error"
   | "needs_confirmation"
   | "conflict"
+  | "partial"
   | "applied"
   | "denial_recorded"
   | "no_change";
+
+interface NotAppliedItem {
+  span: string;
+  kind: "figure" | "sentence" | "op";
+  reason: "figure_not_in_any_op" | "no_op_carried_it" | "op_rejected";
+}
 
 interface TestimonyResult {
   submission_id: string;
@@ -51,6 +58,8 @@ interface TestimonyResult {
   changes: Array<{ section: string; field: string; action: string }>;
   confirmations: unknown[];
   conflicts: unknown[];
+  /** #370 — which spans of the submission did not literally land, and why. */
+  not_applied?: NotAppliedItem[];
   detail?: string | null;
 }
 
@@ -70,6 +79,11 @@ export function TestimonyIntake({ onSubmitted }: Props) {
     switch (r.status) {
       case "applied":
         return t("testimony.statusApplied", { count: r.changes.length });
+      case "partial":
+        // #370 — `applied` no longer means "applied some of it"; a
+        // submission with visibly missing content gets its own honest
+        // message instead of silently reading as a full success.
+        return t("testimony.statusPartial", { count: r.not_applied?.length ?? 0 });
       case "no_change":
         return t("testimony.statusNoChange");
       case "denial_recorded":

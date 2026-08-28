@@ -670,6 +670,7 @@
       "emptyError": "Bitte zuerst etwas Text eingeben.",
       "submitFailed": "Deine Notizen konnten nicht übernommen werden.",
       "statusApplied": "{count, plural, one {# Änderung} other {# Änderungen}} in deinem Profil gespeichert.",
+      "statusPartial": "Gespeichert — aber {count, plural, one {# Teil konnte} other {# Teile konnten}} nicht deinem Profil zugeordnet werden. Im Profilzustand-Hub nachsehen.",
       "statusNoChange": "Nichts Neues gefunden — das steht schon in deinem Profil.",
       "statusDenialRecorded": "Notiert — diese Einschränkung ist jetzt vermerkt und wird nicht mehr angenommen.",
       "statusNeedsConfirmation": "Ein paar Details brauchen deine Bestätigung — im Profilzustand-Hub zu finden.",

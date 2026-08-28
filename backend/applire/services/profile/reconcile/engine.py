@@ -106,7 +106,11 @@ async def reconcile(
     if not isinstance(data, dict):
         return ReconcileResult()
 
-    ops = _parse_ops(data.get("ops"))
+    # #370 — capture WHICH raw ops failed schema validation (not just drop
+    # them), so the testimony write-loss witness can report an `op_rejected`
+    # item instead of the loss being visible only at DEBUG log level.
+    rejected_ops: list[str] = []
+    ops = _parse_ops(data.get("ops"), rejected=rejected_ops)
     ambiguities = _parse_ambiguities(data.get("ambiguities"))
     denials = _parse_denials(data.get("denials"))
     # Stance guard (#127, ADR-061): the model's own denials outrank its ops;
@@ -135,11 +139,22 @@ async def reconcile(
     # Appended LAST so a mixed turn ("Docker ja, Kubernetes nie angefasst")
     # resolves in the retraction's favour — never-claim beats claim (ADR-040).
     ops = list(ops) + demote_ops_for_denials(profile, denials)
-    return ReconcileResult(ops=ops, ambiguities=ambiguities, denials=denials)
+    return ReconcileResult(
+        ops=ops, ambiguities=ambiguities, denials=denials, rejected_ops=rejected_ops
+    )
 
 
-def _parse_ops(raw: Any) -> list[ReconcileOp]:
-    """Validate each op independently; drop the ones that fail, keep the rest."""
+def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[ReconcileOp]:
+    """Validate each op independently; drop the ones that fail, keep the rest.
+
+    ``rejected``, when supplied, is APPENDED the raw ``op`` field of every
+    dropped item (``"<unknown>"`` when the item carries no string ``op`` key
+    at all), in encounter order — an OPT-IN out-parameter (#370) so every
+    existing direct caller of this function (a dozen op-family unit tests
+    call it directly) keeps its exact pre-#370 signature and return shape;
+    only ``reconcile()`` passes it, to populate ``ReconcileResult.
+    rejected_ops`` for the testimony write-loss witness.
+    """
     if not isinstance(raw, list):
         return []
     ops: list[ReconcileOp] = []
@@ -148,6 +163,9 @@ def _parse_ops(raw: Any) -> list[ReconcileOp]:
             ops.append(_OP_ADAPTER.validate_python(item))
         except ValidationError:
             logger.debug("reconcile: dropped malformed op %r", item)
+            if rejected is not None:
+                label = item.get("op") if isinstance(item, dict) else None
+                rejected.append(label if isinstance(label, str) and label else "<unknown>")
     return ops
 
 
