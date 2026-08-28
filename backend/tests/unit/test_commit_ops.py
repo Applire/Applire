@@ -444,6 +444,73 @@ async def test_an_unloadable_metadata_write_never_reaches_the_column(
     assert any("round-trip" in r.getMessage() for r in caplog.records)
 
 
+# ── #597 — apply_ops's OWN inner gate must not leave a phantom receipt ────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(strict=True, reason="#597 — fix pending ADR-063 amendment")
+async def test_a_reverted_inner_gate_must_not_mint_a_phantom_receipt(
+    db_session, seeded, monkeypatch, caplog
+):
+    """#597 — `apply_ops` ends with its OWN defence-in-depth reload gate
+    (`new_profile = _ensure_loadable(new_profile, fallback=profile)`), one
+    layer below the committer's outer invariant-8 gate this file's previous
+    test (`test_an_unloadable_metadata_write_never_reaches_the_column`) pins.
+    When the INNER gate falls back, the returned `ApplyResult` still carries
+    every `changes`/`demotions`/`denials`/`conflicts` entry collected while the
+    (rejected) ops were applied — and `commit_ops` mints an `EnrichmentRecord`
+    from them regardless, because its OWN outer gate re-validates the
+    ALREADY-reverted profile, which loads cleanly and so never trips. Result:
+    a receipt claiming "Added French in languages" / "Added Rust in skills"
+    for a turn whose vault state never moved, and — unlike the outer gate,
+    which logs ERROR — no operator-side signal at all.
+
+    Reproduced exactly as the US293 adversarial pass did (attack 6a,
+    2026-08-26): force apply.py's OWN `_ensure_loadable` binding to always
+    hand back its fallback, regardless of whether the candidate is actually
+    loadable — the inner-gate sibling of the outer-gate forcing technique
+    `test_an_unloadable_metadata_write_never_reaches_the_column` uses one test
+    up. A genuine MULTI-op batch (two upserts), matching the issue's own
+    "backstop for multi-op batches" reachability note.
+
+    Marked xfail(strict=True): pins the fix's contract ahead of the fix
+    itself, which is gated behind an ADR-063 amendment (see #597). A
+    currently-passing green here would mean the fix landed and this xfail
+    should be promoted to a real assertion.
+    """
+    import applire.services.profile.reconcile.apply as apply_module
+    from applire.services.profile.reconcile.ops import UpsertLanguage
+    from applire.schemas.profile import MasterProfileData
+
+    monkeypatch.setattr(apply_module, "_ensure_loadable", lambda candidate, fallback: fallback)
+    caplog.clear()
+
+    with caplog.at_level("ERROR", logger="applire.services.profile.commit"):
+        result = await commit_ops(
+            db_session,
+            [
+                UpsertSkill(name="Rust", category="technical"),
+                UpsertLanguage(language="French", level="B1"),
+            ],
+            _provenance(),
+        )
+
+    # The vault genuinely did not move …
+    MasterProfileData.model_validate(seeded.profile_json)
+    assert [s["name"] for s in seeded.profile_json["skills"]] == ["Kubernetes"]
+    assert seeded.profile_json["languages"] == []
+    # … so nothing may claim otherwise: no phantom receipt, on either the
+    # persisted trail or the value handed back to the door.
+    assert seeded.profile_json["metadata"]["enrichment_history"] == []
+    assert result.changes == []
+    # And — the outer gate is silent here (this reload never reaches it) — the
+    # failure must still be visible operator-side, naming what was lost.
+    assert any(
+        "upsert_skill" in r.getMessage() and "upsert_language" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 # ── Flush, not commit (amendment (3)) ─────────────────────────────────────────
 
 
