@@ -323,6 +323,42 @@ describe("ProfileImportView", () => {
       expect(calls.some((u) => /\/api\/profile\/upload$/.test(u))).toBe(false);
     });
 
+    it("#615 shows a not-applied note when the merge is partial, and none when clean", async () => {
+      global.fetch = urlMock({
+        status: "ready",
+        error_code: null,
+        result: {
+          completeness_score: 0.9,
+          merge_status: "partial",
+          not_applied: [{ section: "skills", label: "Kubernetes", reason: "no_op_carried_entry" }],
+        },
+      });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+      expect(screen.getByTestId("upload-not-applied-note")).toBeInTheDocument();
+    });
+
+    it("#615 renders no not-applied note for a clean merge", async () => {
+      global.fetch = urlMock({
+        status: "ready",
+        error_code: null,
+        result: { completeness_score: 0.9, merge_status: "applied", not_applied: [] },
+      });
+
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["c"], "resume.pdf", { type: "application/pdf" })] },
+      });
+
+      await waitFor(() => expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument());
+      expect(screen.queryByTestId("upload-not-applied-note")).toBeNull();
+    });
+
     it("shows the merge phase as active while the import job is processing", async () => {
       // Job never finishes in this test — we only assert the honest phase labels.
       global.fetch = urlMock({ status: "processing", error_code: null, result: null });

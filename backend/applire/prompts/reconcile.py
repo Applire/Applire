@@ -284,8 +284,20 @@ def build_reconcile_prompt(
     `metadata`: rule 9's STANCE is about denials in the NEW INFORMATION and
     `"denials"` is an OUTPUT array, and the allowlisted `denied_concepts` survives
     the view regardless.
+
+    ADR-078 amended 2026-08-28 (#615, the second face): the SAME filter placement
+    argument applies to `new_info` when it is a `BaseModel` (the import bridge's
+    whole incoming `MasterProfileData`, on both the fast path and every ADR-047
+    segmented slice) — it used to render via `str()`, a Python repr carrying every
+    entry's extraction-minted `id`/`status`/`experience_refs`/`expected_fields`/
+    `source`, which rule 1 below reads as "these are EXISTING vault entities".
+    `prompt_incoming_view` strips those keys (recursively) before the JSON dump.
+    Text/dict `new_info` (interview, testimony, agent bridges) are unaffected —
+    only a `BaseModel` goes through the incoming view.
     """
-    from applire.services.prompt_view import prompt_profile_view
+    from pydantic import BaseModel as _BaseModel
+
+    from applire.services.prompt_view import prompt_incoming_view, prompt_profile_view
 
     profile_json = json.dumps(
         prompt_profile_view(profile.model_dump(mode="json")),
@@ -293,7 +305,13 @@ def build_reconcile_prompt(
         indent=2,
     )
 
-    if isinstance(new_info, (dict, list)):
+    if isinstance(new_info, _BaseModel):
+        new_info_text = json.dumps(
+            prompt_incoming_view(new_info.model_dump(mode="json")),
+            ensure_ascii=False,
+            indent=2,
+        )
+    elif isinstance(new_info, (dict, list)):
         new_info_text = json.dumps(new_info, ensure_ascii=False, indent=2)
     else:
         new_info_text = str(new_info)

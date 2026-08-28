@@ -615,6 +615,43 @@ class FieldChange(BaseModel):
     rationale_key: str | None = None
 
 
+class ImportNotApplied(BaseModel):
+    """One incoming CV-import entry the merge's own ops do not carry (#615,
+    ADR-063 amended 2026-08-28, second entry of the day).
+
+    Sibling of :class:`applire.schemas.testimony.NotApplied` (#370) for the
+    import doors — same doctrine (ADR-062 clause 1: FACTS only, never a
+    judgement about whether the entry "really" landed), same shape family
+    (an identifying label + a reason), a separate class rather than a shared
+    base because the identifying information differs: testimony's witness
+    quotes a SPAN of submitted text; the import door names a SECTION and the
+    incoming entry's own natural-key LABEL (``services.profile.reconcile.
+    import_witness.compute_import_not_applied`` — see its module docstring
+    for the carried-predicate and the SAP CO/FI split named as the known
+    false-positive shape, not a bug).
+
+    Computed by :func:`compute_import_not_applied`, never by the model. No
+    item here is proof of loss: an AMBIGUOUS near-dupe verdict, a compound
+    entry the reconciler split in two on merge, or an op that legitimately
+    merges into an existing entity without restating its identity fields all
+    list an entry that is not actually missing from the vault.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: One of the nine list-valued content sections (``work_experience``,
+    #: ``education``, …). ``None`` for a ``reason="op_rejected"`` item — a raw
+    #: op that failed schema validation before ever having a determinable
+    #: section (mirrors ``NotApplied``'s ``kind="op"`` items, which carry no
+    #: testimony span for the identical reason).
+    section: str | None = None
+    #: The incoming entry's own natural-key fields, human-readable (e.g.
+    #: ``"Universität Stuttgart / M.Sc."``), or — for ``reason="op_rejected"``
+    #: — the rejected raw op's own declared ``"op"`` type string.
+    label: str
+    reason: Literal["no_op_carried_entry", "op_rejected"]
+
+
 class EnrichmentRecord(BaseModel):
     # Stable id so a pre-merge snapshot (US168 / ADR-042) can key to the merge
     # this record represents, and undo can detect whether it is still the head.
@@ -627,6 +664,11 @@ class EnrichmentRecord(BaseModel):
     # US161 (ADR-041 amended) — per-entity {extracted, stored, delta} captured at
     # merge time so silent data-loss (FMEA JF-M-3.3) is detectable. Merge records only.
     reconciliation: dict[str, dict[str, int]] | None = None
+    # #615 (ADR-063 amended 2026-08-28, second entry) — the same merge's carried-
+    # predicate facts, beside the counts they are derived from. Optional and
+    # default-empty so a receipt persisted before this field existed loads
+    # unchanged (no `extra="forbid"` on this class — see refuter A's C2/(ii)).
+    not_applied: list[ImportNotApplied] = Field(default_factory=list)
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────
@@ -1026,6 +1068,29 @@ class MasterProfileResponse(BaseModel):
     updated_at: datetime
 
 
+#: #615 (ADR-063 amended 2026-08-28, second entry) — "the merge ran AND
+#: nothing is known to be missing" vs "the merge ran but the carried-predicate
+#: names entries it did not carry". Shared across every import door's response
+#: shape so the vocabulary cannot drift per adapter (ADR-058 cl. 2 parity).
+ImportMergeStatus = Literal["applied", "partial"]
+
+
+class ProfileImportResponse(MasterProfileResponse):
+    """`POST /api/profile/import` (LinkedIn/XING/text) response — #615.
+
+    A SEPARATE subclass, not a field added to :class:`MasterProfileResponse`
+    itself: that class is also `GET /api/profile` (a plain read, no merge in
+    scope) and `PATCH /{section}` (a manual field edit, not a merge) —
+    refuter B, MAJOR 1. Neither of those doors can honestly say
+    ``merge_status``, so the field lives only where an import call site
+    builds this subclass directly (never derived from persisted history,
+    which would echo a stale import status on an unrelated later read).
+    """
+
+    merge_status: ImportMergeStatus = "applied"
+    not_applied: list[ImportNotApplied] = Field(default_factory=list)
+
+
 class LinkedInImportRequest(BaseModel):
     linkedin_json: dict
 
@@ -1075,6 +1140,12 @@ class CVUploadResponse(BaseModel):
     account_name: str | None = None     # existing profile's name (divergence prompt)
     cv_name: str | None = None          # uploaded CV's name (divergence prompt)
     staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)
+    # #615 (ADR-063 amended 2026-08-28) — the carried-predicate fact, on both
+    # the sync door and the async job's `result` (CVImportStatusResponse wraps
+    # this same class, so no separate adapter is needed there). Defaults keep
+    # a GATED response (nothing committed) honestly "applied, []".
+    merge_status: ImportMergeStatus = "applied"
+    not_applied: list[ImportNotApplied] = Field(default_factory=list)
 
 
 _IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
@@ -1136,6 +1207,10 @@ class StagedResolveResponse(BaseModel):
     profile_id: uuid.UUID | None = None         # set when action == "merge"
     completeness_score: float | None = None     # set when action == "merge"
     conflicts: list[ConflictSummary] = Field(default_factory=list)
+    # #615 (ADR-063 amended 2026-08-28) — set only when action == "merge"; a
+    # "discard" resolves nothing, so "applied, []" (the defaults) is honest.
+    merge_status: ImportMergeStatus = "applied"
+    not_applied: list[ImportNotApplied] = Field(default_factory=list)
 
 
 class UndoLastMergeResponse(BaseModel):

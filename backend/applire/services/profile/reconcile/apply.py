@@ -44,6 +44,7 @@ from applire.schemas.profile import (
     EducationEntry,
     ExperienceBase,
     FieldChange,
+    ImportNotApplied,
     Language,
     MasterProfileData,
     ProfileMetaBlock,
@@ -199,6 +200,11 @@ class ApplyResult(BaseModel):
     # ADR-041 amended); `None` for every other batch, which is what
     # `EnrichmentRecord.reconciliation` already means ("merge records only").
     reconciliation: dict[str, dict[str, int]] | None = None
+    # #615 (ADR-063 amended 2026-08-28, second entry) — the SAME carried-
+    # predicate facts `reconciliation` above is derived from, riding the
+    # identical path onto the committer's `EnrichmentRecord`. Set exclusively
+    # by `ApplyImportMerge`; empty for every other batch.
+    not_applied: list[ImportNotApplied] = []
 
 
 @dataclass(frozen=True)
@@ -406,6 +412,7 @@ def apply_ops(
     demotions: list[FieldChange] = []  # #485 — see ApplyResult.demotions
     denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
+    not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -518,6 +525,7 @@ def apply_ops(
             new_profile = op.merged.model_copy(deep=True)
             changes.extend(op.changes)
             reconciliation = op.reconciliation
+            not_applied = list(op.not_applied)
 
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
@@ -557,6 +565,7 @@ def apply_ops(
         demotions=demotions,
         denials=denials,
         reconciliation=reconciliation,
+        not_applied=not_applied,
     )
 
 
