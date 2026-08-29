@@ -512,6 +512,32 @@ def build_cover_letter_prompt(
     return "\n".join(lines)
 
 
+# ADR-076 amended 2026-08-29 (3-L1, #547 residual): the letter's REQUIRED
+# CONTENT list — the positioning content that must SURVIVE any shortening
+# pass — extracted into ONE module constant so build_condense_prompt and
+# render_measure_block (below) render the SAME vocabulary (ADR-066: one
+# capability, one wording, never two independently-maintained copies).
+# Text unchanged from the pre-2026-08-29 inline list (wave-6 follow-up,
+# charter run #6) — only its ownership moved.
+LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
+    "The closing paragraph: a genuine call-to-action / interest statement, not a "
+    "bare availability stub. Never end the letter on a standalone line like "
+    "\"Notice period can be discussed.\" with nothing else in that paragraph.",
+    "The honest-gap / transfer argument, if the current letter makes one: the "
+    "candidate's own grounded reasoning for why their experience transfers despite "
+    "a gap in the job description.",
+    "The company/domain engagement: any concrete reference to this employer or "
+    "its domain, not a generic sentence that could apply to any company.",
+    "The availability / notice-period line, if present.",
+    "Every employer anchor attached to a position-owned achievement or figure "
+    "(e.g. \"At Northwind Labs,\") — never compress a sentence in a way that drops the "
+    "employer name while keeping the achievement or figure. An unanchored figure "
+    "is silently stripped by a downstream guard, which makes the letter vaguer, "
+    "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
+    "sentence as the achievement/figure it belongs to.",
+)
+
+
 def build_condense_prompt(
     letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
     pinned_quotes: list[str] | None = None,
@@ -520,8 +546,10 @@ def build_condense_prompt(
     same facts, fewer words. Omission-only in spirit — nothing new is claimed.
 
     Letters have no deterministic bullet-cut model the way CVs do (ADR-051 §4), so
-    this is a scoped LLM rewrite — an ADR-approved deviation, bounded to exactly one
-    pass by the caller (never a loop).
+    this is a scoped LLM rewrite — an ADR-approved deviation, bounded to at most two
+    per delivery by the caller (never a loop): the pre-verdict condense (this
+    function's original caller) and, since the 2026-08-29 amendment, at most one
+    further call from ``_final_length_floor`` on the FINAL composition.
 
     letter_pages: the region's page norm (REGION_NORMS[region].letter_pages) — ADR-051
         §1 forbids hard-coding a page number in the prompt text; the caller always
@@ -549,21 +577,7 @@ def build_condense_prompt(
         "",
         "REQUIRED CONTENT THAT MUST SURVIVE THE SHORTENING (shorten these, never drop "
         "them entirely):",
-        "- The closing paragraph: a genuine call-to-action / interest statement, not a "
-        "bare availability stub. Never end the letter on a standalone line like "
-        "\"Notice period can be discussed.\" with nothing else in that paragraph.",
-        "- The honest-gap / transfer argument, if the current letter makes one: the "
-        "candidate's own grounded reasoning for why their experience transfers despite "
-        "a gap in the job description.",
-        "- The company/domain engagement: any concrete reference to this employer or "
-        "its domain, not a generic sentence that could apply to any company.",
-        "- The availability / notice-period line, if present.",
-        "- Every employer anchor attached to a position-owned achievement or figure "
-        "(e.g. \"At Northwind Labs,\") — never compress a sentence in a way that drops the "
-        "employer name while keeping the achievement or figure. An unanchored figure "
-        "is silently stripped by a downstream guard, which makes the letter vaguer, "
-        "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
-        "sentence as the achievement/figure it belongs to.",
+        *(f"- {item}" for item in LETTER_REQUIRED_CONTENT),
         # E056/ADR-077 clause 3: the user's pinned facts survive the
         # shortening by instruction here and by measurement afterwards (the
         # condense-regenerate has no deterministic backstop — a miss is
@@ -579,3 +593,61 @@ def build_condense_prompt(
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),
     ])
+
+
+def render_measure_block(
+    word_count: int,
+    word_budget: int,
+    page_count: int | None,
+    letter_pages: int,
+) -> str:
+    """ADR-076 amended 2026-08-29 (3-L1, #547 residual): the RENDER MEASURE
+    block — a per-round, code-computed FACT (ADR-062 clause 1), wired into
+    every corrector round of BOTH letter loops via a prompt WRAPPER (never
+    into ``source`` — ADR-021 2026-08-13 precedent), naming the SAME
+    ``LETTER_REQUIRED_CONTENT`` list ``build_condense_prompt`` protects, so a
+    corrector chasing this ceiling cannot legally buy it by dropping
+    required positioning content.
+
+    ``page_count=None`` on the drafting mount (no render exists yet — the
+    ceiling is the word budget alone, read from the draft being patched);
+    a real page count on the terminal mount, read from the loop's measure
+    cell at CALL time. When the page is already full or over
+    (``page_count >= letter_pages``), the ceiling tightens to the CURRENT
+    word count — the page, not the budget, is the binding constraint; when
+    strictly over, an explicit SHORTEN instruction is added.
+
+    Replay evidence (record 39, gpt-5.6-luna n=5+5, captured 2026-08-28):
+    this block alone roughly halves post-condense growth (+19 -> +12 words)
+    but does not stop it — a prompt block commands, it cannot enforce, which
+    is exactly why 3-L2 (``_final_length_floor``) exists as the enforcement
+    half."""
+    header = (
+        "RENDER MEASURE (computed by code on the letter you are patching — "
+        f"a fact, not an opinion): body words {word_count} · word budget {word_budget}"
+    )
+    if page_count is not None:
+        header += f" · rendered pages {page_count} · page norm {letter_pages}"
+
+    lines = [header]
+    if page_count is not None and page_count >= letter_pages:
+        lines.append(
+            f"This letter's page is full at {word_count} words — do not exceed "
+            f"{word_count}."
+        )
+        if page_count > letter_pages:
+            lines.append(
+                "This letter ALREADY exceeds its page norm: every patch must "
+                "SHORTEN the body."
+            )
+    else:
+        lines.append(
+            "Your patch must not lengthen the body — replace, never append, "
+            f"never add a paragraph; keep the body at or under {word_budget} words."
+        )
+    lines.append("")
+    lines.append(
+        "Meet the ceiling by tightening wording, never by dropping one of these:"
+    )
+    lines.extend(f"- {item}" for item in LETTER_REQUIRED_CONTENT)
+    return "\n".join(lines)

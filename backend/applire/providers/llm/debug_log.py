@@ -371,6 +371,54 @@ def log_letter_over_budget(chain_id: str, word_count: int, word_budget: int) -> 
     )
 
 
+def log_letter_final_floor(
+    cl_id: object,
+    fired: bool,
+    pages_before: int | None,
+    pages_after: int | None,
+    target_words: int | None,
+    selection: str,
+) -> None:
+    """ADR-076 amended 2026-08-29 (3-L2, #547 residual): the letter's FINAL
+    length floor — the post-terminal-loop tail
+    (``services/cover_letter.py::_terminal_review_letter``) that gives the
+    page-overrun DETECTION a LEVER after a terminal-corrector regrowth
+    (2026-08-28 delivery ``d1cdc53f``: 235 -> 258 -> 293 words -> 2 pages,
+    delivered with the ATS audit's ``page-length-letter`` check already
+    failing and nothing left to act on it).
+
+    Always-on (not gated by the dev-only debug log), emitted once per
+    ``_terminal_review_letter`` invocation that runs with
+    ``final_floor=True`` — never on the subject-identity re-entry path,
+    which keeps ``condense_spent=True`` and passes ``final_floor=False`` so
+    the floor structurally cannot fire there (an accepted, logged residual).
+    ``fired=False`` records that the trigger did not match (already in
+    norm, the per-delivery condense unspent, or user ``section_overrides``
+    present) — INFO. ``fired=True`` is a WARNING regardless of
+    ``selection`` — a countable event even when the floor's own second
+    condense still leaves the letter over norm (Option B was rejected; this
+    line is how that residual stays visible).
+
+    ``selection`` is a closed vocabulary: ``none`` (not fired, or the
+    floor's own condense call itself failed — fail-open, the pre-floor
+    composition ships unchanged), ``kept_corrector`` (the post-condense
+    review round's own result ships, whether or not the corrector actually
+    changed the draft), or ``reverted_to_condensed`` (a post-condense
+    corrector regrowth was discarded; the condensed composition ships
+    instead — logged separately, with both subject hashes, at WARNING).
+
+    Stable ``LETTER_FINAL_FLOOR`` prefix, PII-free (an id, counts, a closed
+    selection vocabulary only) — safe to leave on in production and grep
+    for after the fact, mirroring ``LETTER_OVER_BUDGET`` above."""
+    level = logging.WARNING if fired else logging.INFO
+    _review_logger.log(
+        level,
+        "LETTER_FINAL_FLOOR cl_id=%s fired=%s pages_before=%s pages_after=%s "
+        "target_words=%s selection=%s",
+        cl_id, fired, pages_before, pages_after, target_words, selection,
+    )
+
+
 @contextmanager
 def llm_log_stage(label: str) -> Iterator[None]:
     """Label every LLM call made within the block (restores the prior label on exit)."""
