@@ -35,7 +35,34 @@
        guarantee fit without content-aware sizing. */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 4mm; font-size: 10.5pt; }
     .signature .closing { margin-bottom: 6mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* #621 — the visual margin now lives in @page (Chromium's paged-media
+       engine re-applies it on every page); .page's own padding/size, which
+       used to BE the margin on the print path, is neutralised in print so it
+       doesn't double up with @page. Kept for the on-screen HTML preview
+       above (width/min-height/padding), which never goes through @page. */
+    @page {
+      size: A4;
+      margin: 20mm 22mm 20mm 25mm;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
+      /* #621 finding (measured, not in the brief's explicit bleed list): .header's
+         negative margin was sized to exactly CANCEL .page's own padding, so the
+         coloured band reached the paper edge under the old margin:0 renderer
+         model. Measured against a real @page margin box: a negative margin that
+         reaches INTO the @page margin area is not painted there at all (proven
+         with a minimal repro — a bled test div and its text both vanished from
+         the render and from pdftotext output). Left uncorrected, this would make
+         the header band (and the candidate's name inside it) disappear. Zeroing
+         the top/right/left legs here makes the band sit flush with the new
+         @page-margined content area instead of bleeding past it — "a printable
+         margin beats bleed" (#621 design point 3), applied here too even though
+         only creative_sidebar/executive were named. margin-bottom (16mm) is
+         unrelated to the page margin (it is the gap to .accent-rule) and is
+         left untouched. */
+      .header { margin: 0 0 16mm 0; }
+    }
   </style>
 </head>
 <body>

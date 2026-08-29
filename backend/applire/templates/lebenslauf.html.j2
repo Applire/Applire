@@ -194,10 +194,20 @@
     .lang-name { font-weight: bold; }
     .lang-level { color: #444; }
 
+    /* #621 — the visual margin now lives in @page (Chromium's paged-media
+       engine re-applies it on every page); .page's own padding/size, which
+       used to BE the margin on the print path, is neutralised in print so it
+       doesn't double up with @page. Kept for the on-screen HTML preview
+       above (width/min-height/padding), which never goes through @page. */
+    @page {
+      size: A4;
+      margin: 15mm 18mm 15mm 20mm;
+    }
+
     /* Print */
     @media print {
       body { background: #fff; }
-      .page { padding: 15mm 18mm 15mm 20mm; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
     }
   </style>
 </head>

@@ -191,6 +191,35 @@
       line-height: 1.55;
       color: var(--text);
     }
+
+    /* #621 — .page carries no padding of its own here: the coloured .header
+       band's own top/left/right padding (18mm/20mm/20mm) was doing double
+       duty as both the band's internal text inset AND the page's outer
+       margin (the band sits flush at the paper edge with nothing else
+       providing an outer margin); .header's bottom padding (14mm) is
+       unrelated — it is the gap AFTER the band, before .body, and is kept.
+       Likewise .body's own left/right padding (20mm/20mm) doubles as the
+       page's side margin for every page after the header, and its bottom
+       padding (16mm) is the page's bottom margin; .body's top padding
+       (14mm) is unrelated (the gap after the band on page 1) and is kept.
+       The uniform @page margin below is derived from those outer-facing
+       values (top 18mm from .header / right+left 20mm, consistent between
+       .header and .body / bottom 16mm from .body). Measured (minimal
+       repro): a negative margin that reaches into the @page margin area is
+       not painted there — so unlike the old margin:0 renderer, the header
+       band can no longer bleed to the paper edge under a real @page margin.
+       Design point 3 accepts this ("a printable margin beats bleed") — see
+       the report for before/after screenshots. */
+    @page {
+      size: A4;
+      margin: 18mm 20mm 16mm 20mm;
+    }
+
+    @media print {
+      .page { width: auto; min-height: auto; margin: 0; }
+      .header { padding: 0 0 14mm 0; }
+      .body { padding: 14mm 0 0 0; }
+    }
   </style>
 </head>
 <body>

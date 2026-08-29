@@ -185,6 +185,32 @@
       font-size: 10pt;
       line-height: 1.55;
     }
+
+    /* #621 — .page carries no padding of its own here: the sidebar/main
+       columns' OWN padding was doing double duty as both "gap between the two
+       columns" and "the page's outer margin" (sidebar left 12mm + top 20mm +
+       bottom 16mm; main right 18mm + top 20mm + bottom 16mm — outer edges,
+       consistent between the two columns on every side they share). The
+       uniform @page margin below is derived from those outer-facing values
+       (top 20mm / right 18mm / bottom 16mm / left 12mm). Measured (minimal
+       repro): a negative margin that reaches into the @page margin area is
+       not painted there — so unlike the old margin:0 renderer, the sidebar's
+       colour can no longer bleed to the paper edge under a real @page margin.
+       Design point 3 accepts this ("a printable margin beats bleed") — see
+       the report for before/after screenshots. Only the OUTER-facing padding
+       (the leg that used to face the paper edge) is zeroed in print; the
+       INNER-facing padding — sidebar's right / main's left, the visual gap
+       between the two columns — is untouched. */
+    @page {
+      size: A4;
+      margin: 20mm 18mm 16mm 12mm;
+    }
+
+    @media print {
+      .page { width: auto; min-height: auto; margin: 0; }
+      .sidebar { padding: 0 12mm 0 0; }
+      .main { padding: 0 0 0 16mm; }
+    }
   </style>
 </head>
 <body>
