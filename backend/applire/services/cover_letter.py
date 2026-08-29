@@ -1552,13 +1552,23 @@ def _compose_letter(
     today: date | None = None,
 ) -> dict:
     """ADR-076 clause 3 (#539): the letter's ENTIRE deterministic tail as one
-    pure, re-runnable function — the SEVEN guards, in the exact pre-#539 inline
-    order. Extracted verbatim so the terminal review closes over the COMPOSED
-    letter and any re-entry (a condense rewrite, a terminal corrector change, a
-    detected post-verdict mutation) is re-composed identically. Reordering,
-    never rerouting: no guard changes mechanism or pen here, and the duplicated
-    post-condense copy (#189/#307's retrofitted twins at the old ~:1345–:1360)
-    is gone because the topology no longer needs it.
+    pure, re-runnable function — the EIGHT guards, in the exact pre-#539 inline
+    order plus the #564 Anrede floor. Extracted verbatim so the terminal review
+    closes over the COMPOSED letter and any re-entry (a condense rewrite, a
+    terminal corrector change, a detected post-verdict mutation) is re-composed
+    identically. Reordering, never rerouting: no guard changes mechanism or pen
+    here, and the duplicated post-condense copy (#189/#307's retrofitted twins
+    at the old ~:1345–:1360) is gone because the topology no longer needs it.
+
+    #564: ``_inject_salutation`` is chrome exactly like the date stamp
+    (``_inject_letter_date``) and the sign-off label
+    (``_normalize_signature_closing``) below — a deterministic, always-correct
+    floor value the system supplies when the writer's own content is silent,
+    never a judgement call about what the letter should say. Placed
+    immediately before ``_split_inline_salutation`` (inject, then split) so an
+    author-supplied INLINE Anrede — which ``_has_salutation`` already
+    recognises — is left untouched for that guard, and only a genuinely
+    missing salutation is filled first.
 
     Per-pass fates stay with the #540 dispositioning table (canonical per
     ADR-076 amendment 3). When a pass migrates, it leaves this function.
@@ -1584,6 +1594,19 @@ def _compose_letter(
     # backfill from the candidate's real name, so the letter is never unsigned.
     letter_data = _normalize_signature_closing(letter_data, language)
     letter_data = _backfill_sender_name(letter_data, cv_data, profile)
+    # #564: the #224 floor was scoped to the agent door only — the pipeline's
+    # writer can omit the Anrede entirely (2026-08-28 run: it did, on every
+    # drafting and terminal round), and nothing downstream ever supplied one.
+    # Run BEFORE the #307 split so an author-supplied INLINE Anrede (which
+    # _has_salutation already recognises) is left for that guard untouched,
+    # and only a genuinely missing salutation is filled. This is the single
+    # composition site every recomposition (condense, terminal corrector,
+    # subject-identity re-entry) runs through, so the floor runs AFTER the
+    # last corrector/condense and BEFORE persist/render by construction — the
+    # #547 class ("a control outrun by a later stage of the same pipeline")
+    # cannot occur here, because a later stage re-enters this SAME function
+    # rather than bypassing it.
+    letter_data = _inject_salutation(letter_data, language)
     # #307: the Anrede gets its own paragraph — the writer runs it into the
     # opening sentence, the DACH letter's most visible formal defect.
     letter_data = _split_inline_salutation(letter_data)
@@ -2363,9 +2386,15 @@ async def render_agent_letter(
         letter_data = _inject_letter_date(letter_data, language)
     if not letter_data["signature"].get("closing"):
         letter_data = _normalize_signature_closing(letter_data, language)
-    # #224: a missing Anrede is a formal defect — inject the generic floor when
-    # the author didn't open with a salutation. Scoped to the agent door; the
-    # generation pipeline's LLM reliably writes its own salutation.
+    # #224/#564: a missing Anrede is a formal defect — inject the generic
+    # floor when the author didn't open with a salutation. BOTH doors run
+    # this floor: the pipeline via _compose_letter's single composition site,
+    # this door directly (agent-authored content is never routed through
+    # _compose_letter). #564 (2026-08-28 run, controlling_emma_de): the
+    # pipeline writer's first draft omitted the Anrede and no drafting or
+    # terminal round ever supplied one — the prior comment here assumed the
+    # pipeline's LLM reliably wrote its own salutation and restricted the
+    # floor to this door alone. It did not.
     letter_data = _inject_salutation(letter_data, language)
     # #307: an agent may write the Anrede inline just as the pipeline writer does.
     letter_data = _split_inline_salutation(letter_data)

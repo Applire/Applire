@@ -939,9 +939,19 @@ async def test_letter_condense_llm_failure_keeps_original_letter_ready(db_with_c
         f"Finding 2: a transient condense-pass LLM error must not fail the whole "
         f"letter — got status {cl.status!r}"
     )
-    assert cl.letter_data["body"]["paragraphs"] == letter_raw["body"]["paragraphs"], (
-        "condense failure must leave the ORIGINAL letter_data untouched"
-    )
+    # #564: _stub_letter_data()'s body.paragraphs carries no recognisable
+    # Anrede (its salutation lives in a legacy top-level "salutation" key
+    # this schema no longer uses), so the FIRST successful compose — before
+    # the condense pass ever runs — now injects the generic floor as
+    # paragraphs[0]. "The ORIGINAL letter_data" is that composed state, not
+    # the raw pre-compose draft; letter_raw itself is untouched (a deep copy
+    # is made inside _compose_letter before any guard mutates it).
+    from applire.templates.labels import cover_letter_labels
+
+    assert cl.letter_data["body"]["paragraphs"] == [
+        cover_letter_labels("de")["salutation"],
+        *letter_raw["body"]["paragraphs"],
+    ], "condense failure must leave the ORIGINAL (composed) letter_data untouched"
     assert cl.ats_report is not None and cl.ats_report["document"] == "cover_letter", (
         "the original (pre-condense) PDF audit must still be persisted, not discarded"
     )
@@ -1005,9 +1015,19 @@ async def test_letter_condense_commit_failure_rolls_back_to_original_not_half_st
     assert cl.status == "ready", (
         f"a condense-commit failure must still flip the letter to ready, got {cl.status!r}"
     )
-    assert cl.letter_data["body"]["paragraphs"] == letter_raw["body"]["paragraphs"], (
-        "the condensed half-state must be rolled back — the ORIGINAL letter_data must "
-        f"be persisted, got {cl.letter_data['body']['paragraphs']!r}"
+    # #564: see test_letter_condense_llm_failure_keeps_original_letter_ready's
+    # comment — the FIRST successful compose (before the condense pass ever
+    # runs) injects the generic Anrede floor, since _stub_letter_data()'s
+    # body.paragraphs carries none. That composed state, not the raw
+    # pre-compose draft, is "the ORIGINAL letter_data" this rollback restores.
+    from applire.templates.labels import cover_letter_labels
+
+    assert cl.letter_data["body"]["paragraphs"] == [
+        cover_letter_labels("de")["salutation"],
+        *letter_raw["body"]["paragraphs"],
+    ], (
+        "the condensed half-state must be rolled back — the ORIGINAL (composed) "
+        f"letter_data must be persisted, got {cl.letter_data['body']['paragraphs']!r}"
     )
 
 

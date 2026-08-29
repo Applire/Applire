@@ -25,8 +25,9 @@ What is under test here is the TOPOLOGY — the skeleton #539 builds:
 * the terminal round's review subject is the composed letter: content a
   composition-site guard AUTHORED (the #261 outcome reframe) lies IN the
   subject, with the real render measure attached;
-* a terminal corrector change re-composes (all seven guards re-applied by the
-  single composition site) and RE-ENTERS review;
+* a terminal corrector change re-composes (all eight guards re-applied by the
+  single composition site, #564 added the Anrede floor as the eighth) and
+  RE-ENTERS review;
 * the condense rewrite re-enters the SAME chain (``letter_terminal_review``)
   inside the shared budget — the ``cover_letter_condense`` chain is retired,
   and with the review layer disabled the page-budget condense STILL applies;
@@ -328,7 +329,7 @@ async def test_terminal_review_subject_is_composed_letter(db, caplog):
 @pytest.mark.asyncio
 async def test_terminal_corrector_change_recomposes_and_reenters(db, caplog):
     """Clause 3's re-entry rule, corrector direction: a changed draft is
-    re-composed (all seven guards re-applied by the single composition site)
+    re-composed (all eight guards re-applied by the single composition site)
     and re-reviewed."""
     caplog.set_level(logging.INFO, logger="applire.services.cover_letter")
     ids = await _seed(db)
@@ -769,12 +770,13 @@ async def test_run_a_525_replay_weld_lies_in_the_terminal_subject(db, caplog):
 # --- the tail collapse: exactly ONE composition site (#539 evidence 2b) ------
 
 def test_exactly_one_composition_site():
-    """The #539 absence test: every one of the seven guards is called exactly
-    once in the module, inside ``_compose_letter`` — the duplicated
-    post-condense tail (the old ~:1345–:1360) does not exist, and neither the
-    render pipeline nor the terminal loop calls a guard directly. A future
-    pass added to only one place fails this test's counterpart run (the
-    composed-subject tests above) rather than shipping a forgotten twin."""
+    """The #539 absence test (#564 added the eighth): every one of the eight
+    guards is called exactly once in the module, inside ``_compose_letter``
+    — the duplicated post-condense tail (the old ~:1345–:1360) does not
+    exist, and neither the render pipeline nor the terminal loop calls a
+    guard directly. A future pass added to only one place fails this test's
+    counterpart run (the composed-subject tests above) rather than shipping
+    a forgotten twin."""
     import inspect
 
     import applire.services.cover_letter as mod
@@ -786,6 +788,10 @@ def test_exactly_one_composition_site():
         "_inject_letter_date",
         "_normalize_signature_closing",
         "_backfill_sender_name",
+        # #564: the Anrede floor — chrome like the date/closing guards above,
+        # added to _compose_letter (never render_agent_letter's separate,
+        # deliberate second call site — see its own module docstring note).
+        "_inject_salutation",
         "_split_inline_salutation",
     ]
     compose_src = inspect.getsource(mod._compose_letter)
