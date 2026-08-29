@@ -121,8 +121,56 @@
 
     .entry {
       margin-bottom: 9pt;
-      /* #357 — a position block (role, employer, dates, bullets) is one unit
-         in DACH convention; splitting it reads as an assembly error. */
+      /* #357/#622 — a SHORT entry (<=3 bullets, class .entry-atomic below)
+         stays one unit. A LONG entry (>3 bullets) may now break. */
+    }
+
+    /* #622 — break policy. SHORT entries (<=3 bullets, and every education/
+       certification entry, which never carries bullets) stay atomic, same as
+       #357. LONG entries (>3 bullets) may break, but the head (title/company/
+       dates) + first 2 bullets is one keep-together group (.entry-lead), the
+       last 2 bullets are another (.entry-tail), and every remaining bullet is
+       itself atomic (.section li) — never mid-sentence. List sections
+       (certifications/education/...) follow the same shape at the item
+       level via .section-atomic/.section-lead/.section-tail below, so a
+       heading or a single stranded item never sits alone at a page foot. */
+    .entry-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead,
+    .entry-tail {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section li {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead ~ .entry-bullets,
+    .entry-tail .entry-bullets {
+      margin-top: 0;
+    }
+    .project-item {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-lead,
+    .section-tail {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    /* Sidebar list sections use .sidebar-section, not .section (Part 1 kept
+       these separate namespaces) — .section-atomic/-lead/-tail above already
+       apply regardless of the container class. Sidebar items still need
+       their own atomicity rule (there is no .entry-atomic-equivalent class
+       on them, and .section li doesn't reach .sidebar-section). */
+    .sidebar-section .sidebar-item,
+    .sidebar-section .sidebar-skill {
       break-inside: avoid;
       page-break-inside: avoid;
     }
@@ -185,6 +233,32 @@
       font-size: 10pt;
       line-height: 1.55;
     }
+
+    /* #621 — .page carries no padding of its own here: the sidebar/main
+       columns' OWN padding was doing double duty as both "gap between the two
+       columns" and "the page's outer margin" (sidebar left 12mm + top 20mm +
+       bottom 16mm; main right 18mm + top 20mm + bottom 16mm — outer edges,
+       consistent between the two columns on every side they share). The
+       uniform @page margin below is derived from those outer-facing values
+       (top 20mm / right 18mm / bottom 16mm / left 12mm). Measured (minimal
+       repro): a negative margin that reaches into the @page margin area is
+       not painted there — so unlike the old margin:0 renderer, the sidebar's
+       colour can no longer bleed to the paper edge under a real @page margin.
+       Design point 3 accepts this ("a printable margin beats bleed") — see
+       the report for before/after screenshots. Only the OUTER-facing padding
+       (the leg that used to face the paper edge) is zeroed in print; the
+       INNER-facing padding — sidebar's right / main's left, the visual gap
+       between the two columns — is untouched. */
+    @page {
+      size: A4;
+      margin: 20mm 18mm 16mm 12mm;
+    }
+
+    @media print {
+      .page { width: auto; min-height: auto; margin: 0; }
+      .sidebar { padding: 0 12mm 0 0; }
+      .main { padding: 0 0 0 16mm; }
+    }
   </style>
 </head>
 <body>
@@ -215,20 +289,30 @@
     </div>
 
     {% if cv.skills %}
-    <div class="sidebar-section">
+    {% set n_skills = cv.skills | length %}
+    <div class="sidebar-section{{ ' section-atomic' if n_skills <= 6 else '' }}">
+      {% if n_skills > 6 %}<div class="section-lead">{% endif %}
       <div class="sidebar-section-title">{{ labels.skills }}</div>
       {% for skill in cv.skills %}
+      {% if n_skills > 6 and loop.index == 3 %}</div>{% endif %}
+      {% if n_skills > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
       <div class="sidebar-skill">{{ skill }}</div>
       {% endfor %}
+      {% if n_skills > 6 %}</div>{% endif %}
     </div>
     {% endif %}
 
     {% if cv.languages %}
-    <div class="sidebar-section">
+    {% set n_langs = cv.languages | length %}
+    <div class="sidebar-section{{ ' section-atomic' if n_langs <= 6 else '' }}">
+      {% if n_langs > 6 %}<div class="section-lead">{% endif %}
       <div class="sidebar-section-title">{{ labels.languages }}</div>
       {% for lang in cv.languages %}
+      {% if n_langs > 6 and loop.index == 3 %}</div>{% endif %}
+      {% if n_langs > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
       <div class="sidebar-item">{{ lang.language }} · {{ lang.level }}</div>
       {% endfor %}
+      {% if n_langs > 6 %}</div>{% endif %}
     </div>
     {% endif %}
   </aside>
@@ -245,7 +329,9 @@
     <div class="section">
       <div class="section-title">{{ labels.experience }}</div>
       {% for job in cv.work_history %}
-      <div class="entry">
+      {% set n_bullets = job.bullets | length %}
+      <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+        {% set head %}
         <div class="entry-header">
           <div class="entry-title">{{ job.role }}</div>
           <div class="entry-dates">{{ job.start_date | month_year }} – {{ job.end_date | month_year if job.end_date else labels.present }}</div>
@@ -258,12 +344,39 @@
         {% if role_facts %}
         <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
         {% endif %}
+        {% endset %}
+        {% if n_bullets > 3 %}
+        <div class="entry-lead">
+          {{ head }}
+          <ul class="entry-bullets">
+            {% for bullet in job.bullets[:2] %}
+            <li>{{ bullet }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% if n_bullets > 4 %}
+        <ul class="entry-bullets">
+          {% for bullet in job.bullets[2:-2] %}
+          <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="entry-tail">
+          <ul class="entry-bullets">
+            {% for bullet in job.bullets[-2:] %}
+            <li>{{ bullet }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% else %}
+        {{ head }}
         {% if job.bullets %}
         <ul class="entry-bullets">
           {% for bullet in job.bullets %}
           <li>{{ bullet }}</li>
           {% endfor %}
         </ul>
+        {% endif %}
         {% endif %}
         {% if job.projects %}
         <div class="entry-projects">
@@ -289,7 +402,28 @@
     <div class="section">
       <div class="section-title">{{ labels.projects }}</div>
       {% for project in cv.projects %}
-      <div class="entry">
+      {% set n_bullets = project.bullets | length %}
+      <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+        {% if n_bullets > 3 %}
+        <div class="entry-lead">
+          <div class="entry-header">
+            <div class="entry-title">{{ project.name }}</div>
+          </div>
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% if n_bullets > 4 %}
+        <ul class="entry-bullets">
+          {% for bullet in project.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="entry-tail">
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% else %}
         <div class="entry-header">
           <div class="entry-title">{{ project.name }}</div>
         </div>
@@ -298,16 +432,21 @@
           {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
         </ul>
         {% endif %}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
     {% endif %}
 
     {% if cv.education %}
-    <div class="section">
+    {% set n_edu = cv.education | length %}
+    <div class="section{{ ' section-atomic' if n_edu <= 6 else '' }}">
+      {% if n_edu > 6 %}<div class="section-lead">{% endif %}
       <div class="section-title">{{ labels.education }}</div>
       {% for edu in cv.education %}
-      <div class="entry">
+      {% if n_edu > 6 and loop.index == 3 %}</div>{% endif %}
+      {% if n_edu > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+      <div class="entry entry-atomic">
         <div class="entry-header">
           <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
           <div class="entry-dates">{{ edu.start_date | month_year }}{% if edu.start_date %} – {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
@@ -315,14 +454,19 @@
         <div class="entry-subtitle">{{ edu.institution }}</div>
       </div>
       {% endfor %}
+      {% if n_edu > 6 %}</div>{% endif %}
     </div>
     {% endif %}
 
     {% if cv.certifications %}
-    <div class="section">
+    {% set n_certs = cv.certifications | length %}
+    <div class="section{{ ' section-atomic' if n_certs <= 6 else '' }}">
+      {% if n_certs > 6 %}<div class="section-lead">{% endif %}
       <div class="section-title">{{ labels.certifications }}</div>
       {% for cert in cv.certifications %}
-      <div class="entry">
+      {% if n_certs > 6 and loop.index == 3 %}</div>{% endif %}
+      {% if n_certs > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+      <div class="entry entry-atomic">
         <div class="entry-header">
           <div class="entry-title">{{ cert.name }}</div>
           <div class="entry-dates">{{ cert.date_obtained | month_year }}</div>
@@ -330,6 +474,7 @@
         {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}
       </div>
       {% endfor %}
+      {% if n_certs > 6 %}</div>{% endif %}
     </div>
     {% endif %}
   </main>

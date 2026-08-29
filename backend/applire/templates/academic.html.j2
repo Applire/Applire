@@ -70,8 +70,46 @@
       grid-template-columns: 28mm 1fr;
       gap: 0 8pt;
       margin-bottom: 8pt;
-      /* #357 — a position block (role, employer, dates, bullets) is one unit
-         in DACH convention; splitting it reads as an assembly error. */
+      /* #357/#622 — a SHORT entry (<=3 bullets, class .entry-atomic below)
+         stays one unit. A LONG entry (>3 bullets) may now break. */
+    }
+
+    /* #622 — break policy. SHORT entries (<=3 bullets, and every education/
+       certification entry, which never carries bullets) stay atomic, same as
+       #357. LONG entries (>3 bullets) may break, but the head (title/company/
+       dates) + first 2 bullets is one keep-together group (.entry-lead), the
+       last 2 bullets are another (.entry-tail), and every remaining bullet is
+       itself atomic (.section li) — never mid-sentence. List sections
+       (certifications/education/...) follow the same shape at the item
+       level via .section-atomic/.section-lead/.section-tail below, so a
+       heading or a single stranded item never sits alone at a page foot. */
+    .entry-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead,
+    .entry-tail {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section li {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead ~ .entry-bullets,
+    .entry-tail .entry-bullets {
+      margin-top: 0;
+    }
+    .project-item {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-lead,
+    .section-tail {
       break-inside: avoid;
       page-break-inside: avoid;
     }
@@ -138,6 +176,21 @@
     .lang-level { color: var(--muted); }
 
     .summary-text { font-size: 11pt; line-height: 1.55; }
+
+    /* #621 — the visual margin now lives in @page (Chromium's paged-media
+       engine re-applies it on every page); .page's own padding/size, which
+       used to BE the margin on the print path, is neutralised in print so it
+       doesn't double up with @page. Kept for the on-screen HTML preview
+       above (width/min-height/padding), which never goes through @page. */
+    @page {
+      size: A4;
+      margin: 22mm 22mm 20mm 22mm;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
+    }
   </style>
 </head>
 <body>
@@ -164,9 +217,11 @@
   <div class="section">
     <div class="section-title">{{ labels.experience }}</div>
     {% for job in cv.work_history %}
-    <div class="entry">
+    {% set n_bullets = job.bullets | length %}
+    <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
       <div class="entry-date">{{ job.start_date | month_year }}<br/>– {{ job.end_date | month_year if job.end_date else labels.present }}</div>
       <div class="entry-content">
+        {% set head %}
         <div class="entry-title">{{ job.role }}</div>
         <div class="entry-subtitle">{{ job.company }}</div>
         {% set role_facts = [] %}
@@ -176,10 +231,31 @@
         {% if role_facts %}
         <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
         {% endif %}
+        {% endset %}
+        {% if n_bullets > 3 %}
+        <div class="entry-lead">
+          {{ head }}
+          <ul class="entry-bullets">
+            {% for bullet in job.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% if n_bullets > 4 %}
+        <ul class="entry-bullets">
+          {% for bullet in job.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="entry-tail">
+          <ul class="entry-bullets">
+            {% for bullet in job.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% else %}
+        {{ head }}
         {% if job.bullets %}
         <ul class="entry-bullets">
           {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
         </ul>
+        {% endif %}
         {% endif %}
         {% if job.projects %}
         <div class="entry-projects">
@@ -206,14 +282,34 @@
   <div class="section">
     <div class="section-title">{{ labels.projects }}</div>
     {% for project in cv.projects %}
-    <div class="entry">
+    {% set n_bullets = project.bullets | length %}
+    <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
       <div class="entry-date"></div>
       <div class="entry-content">
+        {% if n_bullets > 3 %}
+        <div class="entry-lead">
+          <div class="entry-title">{{ project.name }}</div>
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% if n_bullets > 4 %}
+        <ul class="entry-bullets">
+          {% for bullet in project.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="entry-tail">
+          <ul class="entry-bullets">
+            {% for bullet in project.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% else %}
         <div class="entry-title">{{ project.name }}</div>
         {% if project.bullets %}
         <ul class="entry-bullets">
           {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
         </ul>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -222,10 +318,14 @@
   {% endif %}
 
   {% if cv.education %}
-  <div class="section">
+  {% set n_edu = cv.education | length %}
+  <div class="section{{ ' section-atomic' if n_edu <= 6 else '' }}">
+    {% if n_edu > 6 %}<div class="section-lead">{% endif %}
     <div class="section-title">{{ labels.education }}</div>
     {% for edu in cv.education %}
-    <div class="entry">
+    {% if n_edu > 6 and loop.index == 3 %}</div>{% endif %}
+    {% if n_edu > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+    <div class="entry entry-atomic">
       <div class="entry-date">{{ edu.start_date | month_year }}<br/>{% if edu.start_date %}– {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
       <div class="entry-content">
         <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
@@ -233,14 +333,19 @@
       </div>
     </div>
     {% endfor %}
+    {% if n_edu > 6 %}</div>{% endif %}
   </div>
   {% endif %}
 
   {% if cv.certifications %}
-  <div class="section">
+  {% set n_certs = cv.certifications | length %}
+  <div class="section{{ ' section-atomic' if n_certs <= 6 else '' }}">
+    {% if n_certs > 6 %}<div class="section-lead">{% endif %}
     <div class="section-title">{{ labels.certifications }}</div>
     {% for cert in cv.certifications %}
-    <div class="entry">
+    {% if n_certs > 6 and loop.index == 3 %}</div>{% endif %}
+    {% if n_certs > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+    <div class="entry entry-atomic">
       <div class="entry-date">{{ cert.date_obtained | month_year }}</div>
       <div class="entry-content">
         <div class="entry-title">{{ cert.name }}</div>
@@ -248,18 +353,22 @@
       </div>
     </div>
     {% endfor %}
+    {% if n_certs > 6 %}</div>{% endif %}
   </div>
   {% endif %}
 
+  {# #622 scope note: skills is a single joined text blob here (no per-item
+     element to split), languages is a bare span-pair grid (same issue) — both
+     fall back to whole-section atomicity for any item count. See the report. #}
   {% if cv.skills %}
-  <div class="section">
+  <div class="section section-atomic">
     <div class="section-title">{{ labels.skills }}</div>
     <div class="skill-block">{{ cv.skills | join(" · ") }}</div>
   </div>
   {% endif %}
 
   {% if cv.languages %}
-  <div class="section">
+  <div class="section section-atomic">
     <div class="section-title">{{ labels.languages }}</div>
     <div class="lang-table">
       {% for lang in cv.languages %}

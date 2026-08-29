@@ -25,7 +25,19 @@
        CSS pagination cannot guarantee fit without content-aware sizing. */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 5mm; }
     .signature .closing { margin-bottom: 7mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* #621 — the visual margin now lives in @page (Chromium's paged-media
+       engine re-applies it on every page); .page's own padding/size, which
+       used to BE the margin on the print path, is neutralised in print so it
+       doesn't double up with @page. Kept for the on-screen HTML preview
+       above (width/min-height/padding), which never goes through @page. */
+    @page {
+      size: A4;
+      margin: 20mm 24mm 20mm 24mm;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
+    }
   </style>
 </head>
 <body>

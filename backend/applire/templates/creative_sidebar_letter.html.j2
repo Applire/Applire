@@ -28,7 +28,30 @@
        for the full rationale; same fix, N templates — ADR-066). */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
     .signature .closing { margin-bottom: 8mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* #621 — .page carries no padding of its own here: the sidebar/main
+       columns' OWN padding was doing double duty as both "gap between the two
+       columns" and "the page's outer margin" (sidebar top 16mm / left 10mm /
+       bottom 16mm; main top 16mm / right 14mm / bottom 16mm — outer edges,
+       consistent between the two columns on every side they share). The
+       uniform @page margin below is derived from those outer-facing values.
+       Measured (minimal repro): a negative margin that reaches into the
+       @page margin area is not painted there — so unlike the old margin:0
+       renderer, the sidebar's colour can no longer bleed to the paper edge
+       under a real @page margin. Design point 3 accepts this ("a printable
+       margin beats bleed") — see the report for before/after screenshots.
+       Only the OUTER-facing padding (the leg that used to face the paper
+       edge) is zeroed in print; the INNER-facing padding — sidebar's right /
+       main's left, the visual gap between the two columns — is untouched. */
+    @page {
+      size: A4;
+      margin: 16mm 14mm 16mm 10mm;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { width: auto; min-height: auto; margin: 0; }
+      .sidebar { padding: 0 8mm 0 0; }
+      .main { padding: 0 0 0 12mm; }
+    }
   </style>
 </head>
 <body>
