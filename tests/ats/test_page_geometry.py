@@ -48,6 +48,7 @@ from applire.services.cover_letter import _TEMPLATES_DIR as LETTER_TEMPLATES_DIR
 from applire.services.cover_letter import _default_color_context
 from applire.services.cv import _TEMPLATE_FILES as CV_TEMPLATES
 from applire.services.cv import _TEMPLATES_DIR as CV_TEMPLATES_DIR
+from applire.services.ats_audit import _norm as _ats_norm
 from applire.services.cv import _html_to_pdf, _jinja_env
 from applire.templates.labels import cover_letter_labels, cv_labels
 
@@ -291,3 +292,382 @@ def test_all_14_templates_declare_an_page_rule():
         f for f in all_files if "@page" not in (CV_TEMPLATES_DIR / f).read_text(encoding="utf-8")
     ]
     assert not missing, f"templates missing an @page rule: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Part 2 (#622) — break policy: SHORT entries (<=3 bullets) stay atomic (#357
+# behaviour, unchanged); LONG entries (>3 bullets) may break, but head +
+# first-2-bullets is one keep-together group, last-2-bullets another, and
+# every remaining bullet is itself atomic. List sections (certifications
+# etc.) follow the same shape at the item level. CV templates only (7) — the
+# letter templates' .signature rules from #547/#429 are untouched.
+# ---------------------------------------------------------------------------
+
+
+def _pdf_pages_text(pdf_bytes: bytes) -> list[str]:
+    """Per-page extracted text, ATS-normalised (lowercased, hyphen-folded,
+    whitespace-collapsed) — mirrors test_roundtrip.py's own pattern for
+    locating a probe string on a specific rendered page.
+    """
+    import io
+
+    from pypdf import PdfReader
+
+    return [_ats_norm(p.extract_text() or "") for p in PdfReader(io.BytesIO(pdf_bytes)).pages]
+
+
+def _short_probe_bullets(i: int) -> list[str]:
+    tag = f"{i:02d}"
+    return [f"P{tag}B1 Kurzpunkt Randtest", f"P{tag}B2 Kurzpunkt Randtest", f"P{tag}B3 Kurzpunkt Randtest"]
+
+
+CV_SHORT_ENTRIES_PROBE = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Short Entries Probe",
+            "email": "short.entries@example.de",
+            "phone": "+49 30 0000002",
+            "location": "Berlin",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        "work_history": [
+            {
+                "company": f"Firma P{i:02d} GmbH",
+                "role": f"Rolle P{i:02d}",
+                "start_date": f"{2030 - i:04d}-01",
+                "end_date": f"{2031 - i:04d}-01",
+                "bullets": _short_probe_bullets(i),
+            }
+            for i in range(1, 31)  # 30 positions x 3 bullets (brief's suggested shape)
+        ],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_short_entries_never_split(template):
+    """30 positions x 3 bullets (every entry SHORT by #622's own threshold) —
+    every position's title and all 3 bullets land on the same page. Not
+    vacuous: asserts the render spans >=3 pages, so several page boundaries
+    exist for a naive (pre-#357) renderer to fall inside an entry.
+    """
+    html_out = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_SHORT_ENTRIES_PROBE, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html_out)
+    pages = _pdf_pages_text(pdf)
+    assert len(pages) >= 3, (
+        f"{template}: fixture rendered {len(pages)} page(s) — need >=3 for this "
+        f"invariant to mean anything"
+    )
+
+    for i in range(1, 31):
+        tag = f"{i:02d}"
+        probes = [f"Rolle P{tag}", *_short_probe_bullets(i)]
+        located = {}
+        for probe in probes:
+            needle = _ats_norm(probe)
+            hits = [p for p, text in enumerate(pages) if needle in text]
+            assert hits, f"{template}: '{probe}' dropped from the rendered PDF"
+            located[probe] = hits[0]
+        distinct = sorted(set(located.values()))
+        assert len(distinct) == 1, (
+            f"{template}: SHORT position P{tag} (3 bullets) is split across pages "
+            f"{[p + 1 for p in distinct]}: "
+            + "; ".join(f"'{probe}' on page {page + 1}" for probe, page in located.items())
+        )
+
+
+def _long_probe_bullets(i: int) -> list[str]:
+    tag = f"{i:02d}"
+    return [
+        f"L{tag}BULLET{j:02d} Textinhalt Randtest Aufzaehlungspunkt mit ausreichend "
+        f"Laenge damit die Seite zuverlaessig ueberlaeuft und der Umbruch greift."
+        for j in range(1, 13)
+    ]
+
+
+CV_LONG_ENTRIES_PROBE = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Long Entries Probe",
+            "email": "long.entries@example.de",
+            "phone": "+49 30 0000003",
+            "location": "Berlin",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        "work_history": [
+            {
+                "company": f"Firma L{i:02d} GmbH",
+                "role": f"Rolle L{i:02d}",
+                "start_date": f"{2030 - i:04d}-01",
+                "end_date": f"{2031 - i:04d}-01",
+                "bullets": _long_probe_bullets(i),
+            }
+            for i in range(1, 9)  # 8 positions x 12 bullets (brief's suggested shape)
+        ],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_long_entries_break_after_head_plus_two_bullets(template):
+    """8 positions x 12 bullets (every entry LONG). For every position that
+    spans >1 page: the title's page also holds bullets 1 and 2 (the
+    .entry-lead group); the entry's last page holds >=2 of its bullets (the
+    .entry-tail group); every bullet's own text is intact on a single page
+    (no bullet split mid-sentence).
+    """
+    html_out = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_LONG_ENTRIES_PROBE, color=_default_context(), lang="de", labels=cv_labels("de")
+    )
+    pdf = await _html_to_pdf(html_out)
+    pages = _pdf_pages_text(pdf)
+    assert len(pages) >= 2, f"{template}: fixture rendered {len(pages)} page(s), need >=2"
+
+    spanning_found = False
+    for i in range(1, 9):
+        tag = f"{i:02d}"
+        title_needle = _ats_norm(f"Rolle L{tag}")
+        title_hits = [p for p, text in enumerate(pages) if title_needle in text]
+        assert title_hits, f"{template}: position L{tag} title dropped from the rendered PDF"
+        title_page = title_hits[0]
+
+        bullet_pages = []
+        for j in range(1, 13):
+            needle = _ats_norm(f"L{tag}BULLET{j:02d}")
+            hits = [p for p, text in enumerate(pages) if needle in text]
+            assert hits, (
+                f"{template}: position L{tag} bullet {j:02d} not found intact on any "
+                f"single page — it split mid-bullet"
+            )
+            bullet_pages.append(hits[0])
+
+        touched_pages = set(bullet_pages) | {title_page}
+        if len(touched_pages) <= 1:
+            continue  # this position fit entirely on one page — not under test here
+        spanning_found = True
+
+        assert bullet_pages[0] == title_page and bullet_pages[1] == title_page, (
+            f"{template}: LONG position L{tag} spans pages {[p + 1 for p in sorted(touched_pages)]} "
+            f"but its title is on page {title_page + 1} while bullets 1/2 are on pages "
+            f"{bullet_pages[0] + 1}/{bullet_pages[1] + 1} — the .entry-lead group split (#622)."
+        )
+        last_page = max(touched_pages)
+        count_on_last = sum(1 for p in bullet_pages if p == last_page)
+        assert count_on_last >= 2, (
+            f"{template}: LONG position L{tag}'s last page ({last_page + 1}) holds only "
+            f"{count_on_last} of its bullets — the .entry-tail group (>=2 bullets) split (#622)."
+        )
+
+    assert spanning_found, (
+        f"{template}: no position in the 8x12-bullet fixture spans two pages on this "
+        f"template — fixture not calibrated here, the break-after-lead invariant went untested"
+    )
+
+
+def _cert5_fixture(n_filler: int) -> TailoredCVData:
+    """5 certifications (<=6, section-atomic) preceded by *n_filler* short
+    filler BULLET LINES (packed 3 per position so every filler position stays
+    SHORT/atomic itself), to shift the section's vertical start position.
+    Bullet-line granularity (~5-6mm/step), not whole-position granularity
+    (~15-20mm/step): measured (scratch probe, classic_german and compact_pro)
+    that a 5-item certifications section's own height is ~35-40% of a page,
+    so the section is forced to reset to the top of a fresh page once
+    remaining space drops below that — capping the reachable start fraction
+    at ~0.60-0.66 on every template tried, well under a naive 3-4-position
+    step's resolution. Fine bullet-line steps are needed to land inside the
+    narrow reachable window at all (see the module-level threshold below).
+    """
+    positions = []
+    remaining = n_filler
+    k = 0
+    while remaining > 0:
+        k += 1
+        take = min(3, remaining)
+        positions.append(
+            {
+                "company": f"Fuellfirma {k:02d} GmbH",
+                "role": f"Fuellrolle {k:02d}",
+                "start_date": f"{2020 - k:04d}-01",
+                "end_date": f"{2021 - k:04d}-01",
+                "bullets": [f"F{k:02d}B{b} Fuelltext" for b in range(1, take + 1)],
+            }
+        )
+        remaining -= take
+    return TailoredCVData.model_validate(
+        {
+            "contact": {
+                "name": "Cert Filler Probe",
+                "email": "cert.filler@example.de",
+                "phone": "+49 30 0000004",
+                "location": "Berlin",
+                "photo_url": None,
+            },
+            "show_photo": False,
+            "work_history": positions,
+            "certifications": [
+                {
+                    "name": f"Zert{c:02d}CERT5PROBE",
+                    "issuing_organization": f"Stelle{c:02d}",
+                    "date_obtained": f"{2020 + c:04d}-01-01",
+                }
+                for c in range(1, 6)
+            ],
+        }
+    )
+
+
+CV_CERT12_PROBE = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Cert Twelve Probe",
+            "email": "cert.twelve@example.de",
+            "phone": "+49 30 0000005",
+            "location": "Berlin",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        "certifications": [
+            {
+                "name": f"Zert{c:02d}CERT12PROBE",
+                "issuing_organization": f"Stelle{c:02d}",
+                "date_obtained": f"{2020 + c:04d}-01-01",
+            }
+            for c in range(1, 13)
+        ],
+    }
+)
+
+
+#: Scenario A's "near a page end" floor. The brief's own suggestion ("bottom
+#: 25% of a page", i.e. y_frac >= 0.75) is UNREACHABLE for this fixture on
+#: every template measured: a 5-item certifications section (heading + 5
+#: entries) occupies roughly 35-40% of a page's usable height, so
+#: section-atomic's own "doesn't fit -> bump whole to next page, starting at
+#: its top" rule caps the reachable start fraction well below 0.75 — measured
+#: (scratch probe, bullet-line-granularity filler): classic_german maxes out
+#: at y_frac~0.61, compact_pro at ~0.66, both asymptoting from below and
+#: never crossing. 0.55 sits under both measured ceilings with margin, so the
+#: scenario can actually fire instead of skipping on every template — this is
+#: a deviation from the brief's literal number, kept honest by the comment
+#: instead of silently tuned; see the report for the measured numbers.
+_SCENARIO_A_NEAR_PAGE_END_FRAC = 0.55
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_list_sections_keep_together_or_leave_two(template):
+    """Certifications (a list section, per #622 design point 2).
+
+    Scenario A (<=6 items, section-atomic): a 5-item certifications section
+    is rendered behind a growing amount of filler so its heading lands near
+    the bottom of a page (see _SCENARIO_A_NEAR_PAGE_END_FRAC) for at least
+    one filler count — the section (heading + all 5 items) must still land
+    wholly on ONE page whenever that happens. Filler counts that don't
+    produce a near-page-end start are skipped (not asserted on); if NONE do,
+    the scenario skips with a reason instead of passing vacuously.
+
+    Scenario B (>6 items): a 12-item certifications section — no page holds
+    exactly 1 of its items, and the heading's own page holds >=2 items.
+    """
+    labels_de = cv_labels("de")
+    cert_heading = _ats_norm(labels_de["certifications"])
+
+    # --- Scenario A: 5 items, near a page end, for at least one filler count.
+    qualifying_renders = []
+    for n_filler in range(0, 24, 2):
+        fixture = _cert5_fixture(n_filler)
+        html_out = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+            cv=fixture, color=_default_context(), lang="de", labels=labels_de
+        )
+        pdf = await _html_to_pdf(html_out)
+        bbox_pages = _bbox_pages(pdf)
+        heading_page = None
+        heading_y_frac = None
+        for pidx, page in enumerate(bbox_pages):
+            hits = [w for w in page["words"] if cert_heading.split()[0].lower() in w[4].lower()]
+            if hits:
+                y_min = min(w[1] for w in hits)
+                heading_page = pidx
+                heading_y_frac = y_min / page["height"]
+                break
+        if heading_page is None:
+            continue  # heading not found as its own word run — try another filler count
+        if heading_y_frac >= _SCENARIO_A_NEAR_PAGE_END_FRAC:
+            qualifying_renders.append((n_filler, pdf))
+
+    if not qualifying_renders:
+        pytest.skip(
+            f"{template}: no filler count in range(0, 24, 2) placed the certifications "
+            f"heading past y_frac={_SCENARIO_A_NEAR_PAGE_END_FRAC} of a page — scenario A "
+            f"untested for this template"
+        )
+
+    for n_filler, pdf in qualifying_renders:
+        pages = _pdf_pages_text(pdf)
+        cert_probes = [f"Zert{c:02d}CERT5PROBE" for c in range(1, 6)]
+        located = {}
+        for probe in cert_probes:
+            needle = _ats_norm(probe)
+            hits = [p for p, text in enumerate(pages) if needle in text]
+            assert hits, f"{template} (filler={n_filler}): '{probe}' dropped from the rendered PDF"
+            located[probe] = hits[0]
+        distinct = sorted(set(located.values()))
+        assert len(distinct) == 1, (
+            f"{template} (filler={n_filler}): 5-item certifications section (<=6, "
+            f"section-atomic) split across pages {[p + 1 for p in distinct]}: "
+            + "; ".join(f"'{p}' on page {pg + 1}" for p, pg in located.items())
+        )
+
+    # --- Scenario B: 12 items — no page holds exactly 1 item; heading's page holds >=2.
+    html_out = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_CERT12_PROBE, color=_default_context(), lang="de", labels=labels_de
+    )
+    pdf = await _html_to_pdf(html_out)
+    pages = _pdf_pages_text(pdf)
+
+    item_pages: dict[int, int] = {}
+    for c in range(1, 13):
+        needle = _ats_norm(f"Zert{c:02d}CERT12PROBE")
+        hits = [p for p, text in enumerate(pages) if needle in text]
+        assert hits, f"{template}: certification {c:02d}/12 dropped from the rendered PDF"
+        item_pages[c] = hits[0]
+
+    # Locate the heading via bbox word search, not pypdf's joined page text:
+    # academic.html.j2's .section-title has letter-spacing (like every other
+    # template's section heading — 0.06-0.15em, pre-existing, untouched by
+    # #621/#622) which Chromium/pypdf sometimes extracts as "Z E R T I F I..."
+    # (one <word> per LETTER) rather than one word — reproduced on academic
+    # specifically with this exact fixture; a plain _ats_norm substring
+    # search on the pypdf-joined page text then never matches. poppler's
+    # -bbox-layout word segmentation is robust to it (used successfully for
+    # the same heading in Scenario A above), so reuse that here too.
+    bbox_pages = _bbox_pages(pdf)
+    heading_first_word = cert_heading.split()[0]
+    heading_page = None
+    for pidx, page in enumerate(bbox_pages):
+        if any(heading_first_word in w[4].lower() for w in page["words"]):
+            heading_page = pidx
+            break
+    assert heading_page is not None, f"{template}: certifications heading dropped from the rendered PDF"
+
+    counts_per_page: dict[int, int] = {}
+    for page in item_pages.values():
+        counts_per_page[page] = counts_per_page.get(page, 0) + 1
+
+    lonely = [p for p, n in counts_per_page.items() if n == 1]
+    assert not lonely, (
+        f"{template}: 12-item certifications section leaves exactly 1 item alone on "
+        f"page(s) {[p + 1 for p in lonely]} — item->page map: "
+        f"{ {c: p + 1 for c, p in item_pages.items()} }"
+    )
+    heading_page_count = counts_per_page.get(heading_page, 0)
+    assert heading_page_count >= 2, (
+        f"{template}: certifications heading is on page {heading_page + 1}, which holds "
+        f"only {heading_page_count} item(s) — need >=2 (the .section-lead group)."
+    )

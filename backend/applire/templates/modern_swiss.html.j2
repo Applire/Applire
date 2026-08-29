@@ -117,8 +117,46 @@
     .entry {
       margin-bottom: 10pt;
       padding-left: 2pt;
-      /* #357 — a position block (role, employer, dates, bullets) is one unit
-         in DACH convention; splitting it reads as an assembly error. */
+      /* #357/#622 — a SHORT entry (<=3 bullets, class .entry-atomic below)
+         stays one unit. A LONG entry (>3 bullets) may now break. */
+    }
+
+    /* #622 — break policy. SHORT entries (<=3 bullets, and every education/
+       certification entry, which never carries bullets) stay atomic, same as
+       #357. LONG entries (>3 bullets) may break, but the head (title/company/
+       dates) + first 2 bullets is one keep-together group (.entry-lead), the
+       last 2 bullets are another (.entry-tail), and every remaining bullet is
+       itself atomic (.section li) — never mid-sentence. List sections
+       (certifications/education/...) follow the same shape at the item
+       level via .section-atomic/.section-lead/.section-tail below, so a
+       heading or a single stranded item never sits alone at a page foot. */
+    .entry-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead,
+    .entry-tail {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section li {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .entry-lead ~ .entry-bullets,
+    .entry-tail .entry-bullets {
+      margin-top: 0;
+    }
+    .project-item {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-atomic {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .section-lead,
+    .section-tail {
       break-inside: avoid;
       page-break-inside: avoid;
     }
@@ -273,7 +311,9 @@
       <div class="section-rule"></div>
     </div>
     {% for job in cv.work_history %}
-    <div class="entry">
+    {% set n_bullets = job.bullets | length %}
+    <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+      {% set head %}
       <div class="entry-meta">
         <div class="entry-title">{{ job.role }}</div>
         <div class="entry-dates">{{ job.start_date | month_year }} – {{ job.end_date | month_year if job.end_date else labels.present }}</div>
@@ -286,12 +326,39 @@
       {% if role_facts %}
       <div class="entry-facts">{{ role_facts | join(' · ') }}</div>
       {% endif %}
+      {% endset %}
+      {% if n_bullets > 3 %}
+      <div class="entry-lead">
+        {{ head }}
+        <ul class="entry-bullets">
+          {% for bullet in job.bullets[:2] %}
+          <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% if n_bullets > 4 %}
+      <ul class="entry-bullets">
+        {% for bullet in job.bullets[2:-2] %}
+        <li>{{ bullet }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="entry-tail">
+        <ul class="entry-bullets">
+          {% for bullet in job.bullets[-2:] %}
+          <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% else %}
+      {{ head }}
       {% if job.bullets %}
       <ul class="entry-bullets">
         {% for bullet in job.bullets %}
         <li>{{ bullet }}</li>
         {% endfor %}
       </ul>
+      {% endif %}
       {% endif %}
       {% if job.projects %}
       <div class="entry-projects">
@@ -321,7 +388,28 @@
       <div class="section-rule"></div>
     </div>
     {% for project in cv.projects %}
-    <div class="entry">
+    {% set n_bullets = project.bullets | length %}
+    <div class="entry{{ ' entry-atomic' if n_bullets <= 3 else '' }}">
+      {% if n_bullets > 3 %}
+      <div class="entry-lead">
+        <div class="entry-meta">
+          <div class="entry-title">{{ project.name }}</div>
+        </div>
+        <ul class="entry-bullets">
+          {% for bullet in project.bullets[:2] %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% if n_bullets > 4 %}
+      <ul class="entry-bullets">
+        {% for bullet in project.bullets[2:-2] %}<li>{{ bullet }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      <div class="entry-tail">
+        <ul class="entry-bullets">
+          {% for bullet in project.bullets[-2:] %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% else %}
       <div class="entry-meta">
         <div class="entry-title">{{ project.name }}</div>
       </div>
@@ -330,6 +418,7 @@
         {% for bullet in project.bullets %}<li>{{ bullet }}</li>{% endfor %}
       </ul>
       {% endif %}
+      {% endif %}
     </div>
     {% endfor %}
   </section>
@@ -337,13 +426,17 @@
 
   <!-- ===== EDUCATION / AUSBILDUNG ===== -->
   {% if cv.education %}
-  <section class="section">
+  {% set n_edu = cv.education | length %}
+  <section class="section{{ ' section-atomic' if n_edu <= 6 else '' }}">
+    {% if n_edu > 6 %}<div class="section-lead">{% endif %}
     <div class="section-header">
       <span class="section-title-en">{{ labels.education }}</span>
       <div class="section-rule"></div>
     </div>
     {% for edu in cv.education %}
-    <div class="entry">
+    {% if n_edu > 6 and loop.index == 3 %}</div>{% endif %}
+    {% if n_edu > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+    <div class="entry entry-atomic">
       <div class="entry-meta">
         <div class="entry-title">{{ edu.degree | education_title(edu.field) }}</div>
         <div class="entry-dates">{{ edu.start_date | month_year }}{% if edu.start_date %} – {% endif %}{{ edu.end_date | month_year if edu.end_date else (labels.present if edu.start_date else "") }}</div>
@@ -351,18 +444,23 @@
       <div class="entry-subtitle">{{ edu.institution }}</div>
     </div>
     {% endfor %}
+    {% if n_edu > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 
   <!-- ===== CERTIFICATIONS / ZERTIFIZIERUNGEN ===== -->
   {% if cv.certifications %}
-  <section class="section">
+  {% set n_certs = cv.certifications | length %}
+  <section class="section{{ ' section-atomic' if n_certs <= 6 else '' }}">
+    {% if n_certs > 6 %}<div class="section-lead">{% endif %}
     <div class="section-header">
       <span class="section-title-en">{{ labels.certifications }}</span>
       <div class="section-rule"></div>
     </div>
     {% for cert in cv.certifications %}
-    <div class="entry">
+    {% if n_certs > 6 and loop.index == 3 %}</div>{% endif %}
+    {% if n_certs > 6 and loop.revindex == 2 %}<div class="section-tail">{% endif %}
+    <div class="entry entry-atomic">
       <div class="entry-meta">
         <div class="entry-title">{{ cert.name }}</div>
         <div class="entry-dates">{{ cert.date_obtained | month_year }}</div>
@@ -370,27 +468,40 @@
       {% if cert.issuing_organization %}<div class="entry-subtitle">{{ cert.issuing_organization }}</div>{% endif %}
     </div>
     {% endfor %}
+    {% if n_certs > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 
   <!-- ===== SKILLS / KENNTNISSE ===== -->
   {% if cv.skills %}
-  <section class="section">
+  {% set n_skills = cv.skills | length %}
+  <section class="section{{ ' section-atomic' if n_skills <= 6 else '' }}">
+    {% if n_skills > 6 %}<div class="section-lead">{% endif %}
     <div class="section-header">
       <span class="section-title-en">{{ labels.skills }}</span>
       <div class="section-rule"></div>
     </div>
     <ul class="skills-grid">
       {% for skill in cv.skills %}
+      {% if n_skills > 6 and loop.index == 3 %}</ul></div><ul class="skills-grid">{% endif %}
+      {% if n_skills > 6 and loop.revindex == 2 %}</ul><div class="section-tail"><ul class="skills-grid">{% endif %}
       <li>{{ skill }}</li>
       {% endfor %}
     </ul>
+    {% if n_skills > 6 %}</div>{% endif %}
   </section>
   {% endif %}
 
-  <!-- ===== LANGUAGES / SPRACHEN ===== -->
+  <!-- ===== LANGUAGES / SPRACHEN =====
+       #622 scope note: this template renders each language as two bare
+       <span> siblings inside a CSS grid (.lang-table), not one element per
+       item — there is no single node to wrap for a per-item .entry-atomic
+       or a >6 lead/tail split without breaking the grid's auto-placement.
+       Falls back to whole-section atomicity for any item count (still
+       strictly better than #622's "before": no protection at all). See the
+       report. -->
   {% if cv.languages %}
-  <section class="section">
+  <section class="section section-atomic">
     <div class="section-header">
       <span class="section-title-en">{{ labels.languages }}</span>
       <div class="section-rule"></div>
