@@ -60,6 +60,7 @@ from applire.prompts.cover_letter import (
     SYSTEM_PROMPT,
     build_condense_prompt,
     build_cover_letter_prompt,
+    render_measure_block,
 )
 from applire.prompts.review_cover_letter import (
     COVER_LETTER_REFINEMENT_PROMPT,
@@ -71,7 +72,7 @@ from applire.prompts.review_cover_letter import (
 )
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
-from applire.providers.llm.debug_log import log_letter_over_budget
+from applire.providers.llm.debug_log import log_letter_final_floor, log_letter_over_budget
 from applire.services.letter_figure_guard import (
     figure_ownership_reviewer_prompt_fn,
     guard_letter_figures,
@@ -1315,9 +1316,35 @@ async def _render_cover_letter_background(
             # pass (ADR-058 freeze); literal presence is a FACT (ADR-062
             # clause 1) and the block states the SAME grounding-outranks-
             # coverage precedence the reviewer block does (ADR-062 clause 4).
-            corrector_prompt_fn = coverage_corrector_prompt_fn(
+            _ledger_corrector_prompt_fn = coverage_corrector_prompt_fn(
                 build_retry_prompt, keyword_ledger
             )
+
+            # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the DRAFTING
+            # mount's RENDER MEASURE wrapper — a per-round, code-computed
+            # FACT (body words vs the region budget) appended AFTER the
+            # coverage-retention block above, wired the SAME way
+            # (per-round facts live in the wrapper, never in the constant
+            # ``source`` — ADR-021 2026-08-13). No render exists yet at
+            # this mount, so page_count=None; the ceiling is the word
+            # budget alone. This SAME corrector_prompt_fn is handed to
+            # _terminal_review_letter below, which wraps it ONCE MORE with
+            # the real page measure for the terminal mount — replay
+            # evidence (record 39, gpt-5.6-luna n=5+5): the block alone
+            # roughly halves post-condense growth but does not stop it; a
+            # prompt block commands, it cannot enforce (3-L2 is the
+            # enforcement half, see _terminal_review_letter's tail).
+            def corrector_prompt_fn(
+                previous_draft: dict, feedback: str, source: str
+            ) -> str:
+                prompt = _ledger_corrector_prompt_fn(previous_draft, feedback, source)
+                block = render_measure_block(
+                    word_count=body_word_count(previous_draft),
+                    word_budget=norm.letter_body_word_budget,
+                    page_count=None,
+                    letter_pages=norm.letter_pages,
+                )
+                return f"{prompt}\n\n{block}"
 
             letter_data = await review_and_refine(
                 source=grounding_source,
@@ -1391,16 +1418,24 @@ async def _render_cover_letter_background(
             # works; PDF download fails gracefully).
             pdf_bytes, measured = await _persist_and_measure(cl, db, letter_data, norm)
 
-            # TERMINAL REVIEW (ADR-076 clause 3, #539): the terminal verdict is
-            # rendered over the COMPOSED letter with the real render measure
-            # (pages + body words). The bounded condense rewrite (#177 / ADR-051
-            # §6: letters have no bullet model, so condense is a scoped LLM
-            # rewrite) now RE-ENTERS this same review inside the shared retry
-            # budget — the retired ``cover_letter_condense`` chain ran as its
-            # own 5-round loop with its own verbatim copy of the guard tail
-            # (5/5 exhaustion measured on three runs; #525's welded coverage
-            # re-insert lived in exactly that seam). LLM_REVIEW_MAX_RETRIES=0
-            # disables the terminal round with the rest of the review layer.
+            # TERMINAL REVIEW (ADR-076 clause 3, #539; amended 2026-08-29 for
+            # the #547 residual): the terminal verdict is rendered over the
+            # COMPOSED letter with the real render measure (pages + body
+            # words). The bounded pre-verdict condense rewrite (#177 /
+            # ADR-051 §6: letters have no bullet model, so condense is a
+            # scoped LLM rewrite) RE-ENTERS this same review inside the
+            # shared retry budget — the retired ``cover_letter_condense``
+            # chain ran as its own 5-round loop with its own verbatim copy of
+            # the guard tail (5/5 exhaustion measured on three runs; #525's
+            # welded coverage re-insert lived in exactly that seam).
+            # LLM_REVIEW_MAX_RETRIES=0 disables the terminal round with the
+            # rest of the review layer. Since 2026-08-29, ``_terminal_review_
+            # letter`` also runs the FINAL length floor (3-L2) in its own
+            # POST-LOOP tail, on this FIRST invocation only (``final_floor``
+            # defaults True here; the re-entry call site below passes
+            # ``final_floor=False``) — bounds per delivery: <= 2 condenses
+            # total (ADR-051 §6 amended), <= 5 terminal ``review_and_refine``
+            # invocations (was <= 4), exactly <= 1 final-floor step.
             _reviews_enabled = (
                 LLM_REVIEW_MAX_RETRIES > 0 and LETTER_TERMINAL_REVIEW_MAX_RETRIES > 0
             )
@@ -1503,6 +1538,14 @@ async def _render_cover_letter_background(
                     # ADR-051 §6: the ONE bounded condense is a per-DELIVERY
                     # budget — a re-entry must not mint a second rewrite.
                     condense_spent=condense_used,
+                    # ADR-076 amended 2026-08-29 (3-L2, #547 residual): the
+                    # final length floor cannot fire on the identity
+                    # re-entry path — condense_spent=True already blocks its
+                    # OWN pre-verdict condense head, and final_floor=False
+                    # blocks the post-loop floor tail too, so a still-over-
+                    # norm re-entry stays an accepted, logged residual
+                    # rather than minting a THIRD condense generation.
+                    final_floor=False,
                 )
                 pdf_bytes, measured = tr.pdf_bytes, tr.measured
                 terminal_rounds += tr.rounds
@@ -1716,6 +1759,12 @@ class LetterTerminalReviewResult:
     # ADR-077 clause 2 / SF-PIN.6: pins whose carrier a compose-tail truth
     # floor deleted during THIS invocation's re-compositions.
     pin_floor_hits: set = dataclass_field(default_factory=set)
+    # ADR-076 amended 2026-08-29 (3-L2, #547 residual): whether the POST-LOOP
+    # final length floor fired this invocation, and which composition it
+    # selected — see _terminal_review_letter's tail. Defaults reproduce
+    # "the floor did not run" for the one construction site that predates it.
+    final_floor_fired: bool = False
+    final_floor_selection: str = "none"
 
 
 async def _terminal_review_letter(
@@ -1740,22 +1789,25 @@ async def _terminal_review_letter(
     reviews_enabled: bool = True,
     condense_spent: bool = False,
     pins: list = (),
+    final_floor: bool = True,
 ) -> LetterTerminalReviewResult:
-    """ADR-076 clause 3 (#539): the letter's TERMINAL review — the verdict that
-    closes over the COMPOSED letter (the delivered artifact) with the real
-    render measure attached (pages + body words).
+    """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
+    letter's TERMINAL review — the verdict that closes over the COMPOSED
+    letter (the delivered artifact) with the real render measure attached
+    (pages + body words), followed by the FINAL length floor's POST-LOOP tail.
 
     Topology (the #538 shape, letter mount): the reviewer's subject is built
     per round by COMPOSING the current draft through the single composition
     site (``_compose_letter``); the corrector only ever patches the raw draft,
-    and every change is re-composed by code. The bounded condense rewrite
-    (page overrun) fires AT MOST ONCE per delivery, BEFORE a verdict round, and
-    its output re-enters THIS same review — chain ``letter_terminal_review``,
-    shared retry budget — instead of the retired ``cover_letter_condense``
-    chain's own 5-round loop with its own guard-tail copy. A corrector change
-    re-composes, re-renders, re-measures and re-enters, bounded by
-    ``LETTER_TERMINAL_REENTRY_MAX``; on bound exhaustion the letter ships with
-    the gap loudly logged (ship-and-report — never a delivery gate).
+    and every change is re-composed by code. The bounded pre-verdict condense
+    rewrite (page overrun) fires AT MOST ONCE per delivery, BEFORE a verdict
+    round, and its output re-enters THIS same review — chain
+    ``letter_terminal_review``, shared retry budget — instead of the retired
+    ``cover_letter_condense`` chain's own 5-round loop with its own guard-tail
+    copy. A corrector change re-composes, re-renders, re-measures and
+    re-enters, bounded by ``LETTER_TERMINAL_REENTRY_MAX``; on bound
+    exhaustion the letter ships with the gap loudly logged (ship-and-report —
+    never a delivery gate).
 
     Reviewer stack: the SAME five deterministic wrappers as the drafting loop
     (``wrap_reviewer``), over the terminal base prompt — so the clause-6
@@ -1764,12 +1816,33 @@ async def _terminal_review_letter(
     exhaustion. ``retain_if``/``load_bearing_fn`` guard every terminal
     invocation; ``prefer_if`` (the word-budget tie-break) is wired ONLY into
     the round that reviews a condense rewrite, preserving #420's boundary
-    (never a preference for shorter drafts on a content round).
+    (never a preference for shorter drafts on a content round). The
+    corrector prompt itself carries a RENDER MEASURE block (3-L1) — see
+    ``_terminal_corrector_prompt_fn`` below.
 
     The subject cache is seeded with ``cl.letter_data`` AS IS: on the normal
     path that equals ``_compose_letter(draft)``; on a subject-identity re-entry
     it is the mutated content itself — the CHANGE re-enters review, it is not
-    silently reverted."""
+    silently reverted.
+
+    After the ``while True`` loop above settles, exhausts, or is skipped
+    (``reviews_enabled=False``), and BEFORE this function returns — i.e.
+    still before the caller computes ``verdict_hash`` — the FINAL length
+    floor (3-L2, #547 residual) runs when ``final_floor`` is True: if the
+    render STILL exceeds the page norm, the per-delivery condense was
+    already spent, and no ``section_overrides`` exist, one further
+    calibrated condense of the FINAL composition plus one direct review
+    round gives the terminal loop's own regrowth a lever the loop itself no
+    longer has (its condense head is not re-visited after the re-entry
+    break). ``final_floor=False`` on the subject-identity re-entry call site
+    (the caller already threads ``condense_spent=True`` there) means the
+    floor structurally cannot fire twice per delivery. Bounds per delivery,
+    unchanged by this addition except where noted: <= 2 condenses total
+    (ADR-051 §6 amended 2026-08-29, was <= 1), <= 5 terminal
+    ``review_and_refine`` invocations (was <= 4: up to 2 per
+    ``_terminal_review_letter`` invocation from the loop, x2 invocations,
+    +1 from the floor on the first invocation only), exactly <= 1
+    final-floor step per invocation."""
 
     def _canon(d: dict) -> str:
         return json.dumps(d, sort_keys=True, default=str)
@@ -1801,6 +1874,12 @@ async def _terminal_review_letter(
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
+    # ADR-076 amended 2026-08-29 (3-L2, #547 residual): every MeasuredLetter
+    # THIS invocation produces (the seed + every _apply() below) — the final
+    # length floor's calibrated target is the largest body word count among
+    # the ones that measured in-norm, so it needs the full history, not just
+    # the latest cell.
+    all_measures: list[MeasuredLetter] = [measured]
     # ADR-051 §6's bound is PER DELIVERY, not per invocation: the caller passes
     # ``condense_spent=True`` on a subject-identity re-entry so the second
     # terminal invocation cannot mint a second condense generation (adversarial
@@ -1824,6 +1903,7 @@ async def _terminal_review_letter(
         pdf, m = await _persist_and_measure(cl, db, composed, norm)
         pdf_cell["pdf"] = pdf
         measure_cell["measured"] = m
+        all_measures.append(m)
         subject_by_draft[_canon(d)] = cl.letter_data
 
     def _terminal_base(source: str, composed: dict) -> str:
@@ -1847,6 +1927,27 @@ async def _terminal_review_letter(
 
     def _reviewer_prompt(source: str, d: dict) -> str:
         return _wrapped(source, _subject_of(d))
+
+    # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
+    # RENDER MEASURE wrapper — wraps the ALREADY drafting-wrapped
+    # corrector_prompt_fn (words vs budget) once more with the REAL page
+    # measure, read from the loop's measure cell at CALL time (not closed
+    # over at wrap time — the cell updates after every _apply()). Used by
+    # BOTH the while-loop's review_and_refine call below AND the final
+    # length floor's own review round (3-L2) — the SAME corrector view for
+    # every terminal-mount round, loop or floor.
+    def _terminal_corrector_prompt_fn(
+        previous_draft: dict, feedback: str, source: str
+    ) -> str:
+        prompt = corrector_prompt_fn(previous_draft, feedback, source)
+        m = measure_cell["measured"]
+        block = render_measure_block(
+            word_count=m.word_count,
+            word_budget=norm.letter_body_word_budget,
+            page_count=m.page_count,
+            letter_pages=norm.letter_pages,
+        )
+        return f"{prompt}\n\n{block}"
 
     current = draft
     rounds = 0
@@ -1916,7 +2017,7 @@ async def _terminal_review_letter(
         settled = await review_and_refine(
             source=grounding_source,
             draft=current,
-            generator_prompt_fn=corrector_prompt_fn,
+            generator_prompt_fn=_terminal_corrector_prompt_fn,
             generator_system=COVER_LETTER_REFINEMENT_PROMPT,
             reviewer_prompt_fn=_reviewer_prompt,
             reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
@@ -1952,6 +2053,155 @@ async def _terminal_review_letter(
                 cl.id, rounds,
             )
             break
+
+    # ADR-076 amended 2026-08-29 (3-L2, #547 residual) / ADR-051 §6 amended
+    # the same day: the FINAL length floor. Placement satisfies the ADR's
+    # ordering — it runs AFTER the terminal loop above settles/exhausts and
+    # BEFORE the caller (``_render_cover_letter_background``) computes
+    # ``verdict_hash``, so the identity gate's meaning ("did a LATER write
+    # change the delivered content?") stays intact: this IS the terminal
+    # verdict's own tail, not a later write. It is the POST-LOOP tail of
+    # THIS function (not a separate top-level ``_final_length_floor``)
+    # because it needs the closures above (``_subject_of``, ``_apply``,
+    # ``_reviewer_prompt``, ``_terminal_corrector_prompt_fn``, the condense
+    # call shape, ``floor_hits``) — extracting it would mean passing all of
+    # those out, i.e. a second implementation of the same machinery
+    # (ADR-066). ``final_floor=False`` (the subject-identity re-entry call
+    # site, which already threads ``condense_spent=True``) skips this
+    # entire block — the floor cannot fire twice per delivery, and a
+    # still-over-norm re-entry stays an accepted, logged residual.
+    final_floor_fired = False
+    final_floor_selection = "none"
+    if final_floor:
+        m = measure_cell["measured"]
+        pages_before = m.page_count
+        trigger = (
+            m.page_count is not None
+            and m.page_count > norm.letter_pages
+            and condense_state["used"]
+            and not (cl.section_overrides or {})
+        )
+        if trigger:
+            final_floor_fired = True
+            # Calibrated target: the largest body word count THIS invocation
+            # measured in-norm (a measured fact, ADR-062 clause 1) — falling
+            # back to the region's feedforward budget when nothing fit yet.
+            in_norm_words = [
+                mm.word_count for mm in all_measures
+                if mm.page_count is not None and mm.page_count <= norm.letter_pages
+            ]
+            target = (
+                max(in_norm_words) if in_norm_words else norm.letter_body_word_budget
+            )
+            previous = current
+            condensed = None
+            try:
+                condensed = await provider.aparse_json(
+                    build_condense_prompt(
+                        _subject_of(current),
+                        target,
+                        m.page_count,
+                        letter_pages=norm.letter_pages,
+                        # ADR-077 clause 3: the pins survive the shortening —
+                        # by instruction here, by measurement on the report.
+                        pinned_quotes=[pn.quote for pn in pins] or None,
+                    ),
+                    system=SYSTEM_PROMPT,
+                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                )
+                current = condensed
+                await _apply(current)
+            except Exception as floor_err:
+                # Fail-OPEN, exactly like the pre-verdict condense above: on
+                # exception keep the pre-floor composition, log, and let the
+                # invocation return normally (never fails generation).
+                logger.warning(
+                    "Final length floor condense failed for CL %s — keeping "
+                    "the terminal composition: %s", cl.id, floor_err,
+                )
+                try:
+                    await db.rollback()
+                    await db.refresh(cl)
+                except Exception as restore_err:  # pragma: no cover - defensive
+                    logger.warning(
+                        "Final length floor rollback/restore failed for CL "
+                        "%s: %s", cl.id, restore_err,
+                    )
+                current = previous
+                condensed = None
+
+            if condensed is not None:
+                # ONE direct review round — NOT a fresh _terminal_review_letter
+                # (which would reset the round budget and re-open the
+                # condense head above). Exactly the terminal round's own
+                # arguments; prefer_if always rides this round (#420 — it is
+                # a condense-descendant round by construction).
+                condensed_draft = current
+                rounds += 1
+                settled = await review_and_refine(
+                    source=grounding_source,
+                    draft=current,
+                    generator_prompt_fn=_terminal_corrector_prompt_fn,
+                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                    reviewer_prompt_fn=_reviewer_prompt,
+                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                    provider=provider,
+                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+                    chain_id="letter_terminal_review",
+                    retain_if=retain_if_fn,
+                    load_bearing_fn=load_bearing_fn,
+                    prefer_if=within_budget_fn,
+                )
+                if _canon(settled) != _canon(current):
+                    current = settled
+                    await _apply(current)
+                    m2 = measure_cell["measured"]
+                    if m2.page_count is not None and m2.page_count > norm.letter_pages:
+                        # SELECTION: the post-condense review round re-grew
+                        # the letter past the norm again — discard it and
+                        # restore the condensed composition (the last
+                        # measured in-norm-or-best-effort state this floor
+                        # produced). A deterministic choice among
+                        # compositions the loop already produced, keyed on a
+                        # measured fact (the #420 prefer_if precedent, as new
+                        # code — Option B survives only here, scoped to this
+                        # one round, per the ADR).
+                        corrector_hash = subject_hash(cl.letter_data)
+                        corrector_pages = m2.page_count
+                        current = condensed_draft
+                        await _apply(current)
+                        final_floor_selection = "reverted_to_condensed"
+                        logger.warning(
+                            "LETTER_FINAL_FLOOR selection reverted CL %s: "
+                            "corrector_hash=%s corrector_pages=%s "
+                            "condensed_hash=%s condensed_pages=%s",
+                            cl.id, corrector_hash, corrector_pages,
+                            subject_hash(cl.letter_data),
+                            measure_cell["measured"].page_count,
+                        )
+                    else:
+                        final_floor_selection = "kept_corrector"
+                else:
+                    # The review round settled on the condensed draft
+                    # unchanged (approved, or every settle path returned it
+                    # untouched) — it ships as this floor's result either way.
+                    final_floor_selection = "kept_corrector"
+                log_letter_final_floor(
+                    cl.id, True, pages_before,
+                    measure_cell["measured"].page_count, target,
+                    final_floor_selection,
+                )
+            else:
+                # The floor's own condense call failed — fail-open, nothing
+                # to select between.
+                log_letter_final_floor(
+                    cl.id, True, pages_before, pages_before, target, "none"
+                )
+        else:
+            log_letter_final_floor(
+                cl.id, False, pages_before, pages_before, None, "none"
+            )
+
     return LetterTerminalReviewResult(
         draft=current,
         pdf_bytes=pdf_cell["pdf"],
@@ -1960,6 +2210,8 @@ async def _terminal_review_letter(
         reentry_exhausted=reentry_exhausted,
         condense_used=condense_state["used"],
         pin_floor_hits=floor_hits,
+        final_floor_fired=final_floor_fired,
+        final_floor_selection=final_floor_selection,
     )
 
 
