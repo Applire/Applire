@@ -305,6 +305,32 @@ async def test_render_agent_letter_chrome_injected_when_absent(seeded):
 
 
 @pytest.mark.asyncio
+async def test_render_agent_letter_missing_anrede_gets_the_generic_floor_564(seeded):
+    """#564: the agent door has run the #224 floor since #224 — this pins it
+    against the omission case, which no prior test in this file drove (every
+    existing AGENT_LETTER_CONTENT fixture already opens with an author-
+    written salutation, so the injection branch was never actually
+    exercised here). Content without an Anrede at all must gain the generic
+    DE floor as its own first paragraph on the PERSISTED row, with the
+    agent's own opening pushed down — the same contract test 1 pins for the
+    pipeline door (tests/unit/test_letter_salutation_floor_564.py)."""
+    from applire.services.cover_letter import render_agent_letter
+
+    content = {
+        **AGENT_LETTER_CONTENT,
+        "body": {"paragraphs": ["Hauptteil ohne Anrede.", "Schluss."]},
+    }
+    p1, p2 = _letter_patches()
+    with p1, p2:
+        cl = await render_agent_letter(content, seeded["job_id"], seeded["db"])
+
+    assert cl.status == "ready"
+    paragraphs = cl.letter_data["body"]["paragraphs"]
+    assert paragraphs[0] == "Sehr geehrte Damen und Herren,"
+    assert paragraphs[1:] == ["Hauptteil ohne Anrede.", "Schluss."]
+
+
+@pytest.mark.asyncio
 async def test_render_agent_letter_keeps_caller_chrome_verbatim(seeded):
     """Deviation from the pipeline (which OVERWRITES date+closing): the agent
     is the author — supplied chrome is kept (ADR-054 §4)."""

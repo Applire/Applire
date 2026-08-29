@@ -15,6 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v2 (#564, 2026-08-29 — SALUTATION rule + schema example
+#   added: body.paragraphs[0] is now the Anrede on its own paragraph. The
+#   writer was never asked for a salutation at all before this — the schema
+#   example started straight at "opening paragraph" and the only mentions
+#   were the recipient line's "(extract from JD or use generic salutation)"
+#   and the tone rule's "formal=sehr geehrte/r". A deterministic floor
+#   (_inject_salutation, cover_letter.py _compose_letter) now backstops a
+#   still-missing Anrede, but this rule closes the prompt-side gap that let
+#   it go missing on every round in the first place.)
 """LLM prompt builder for cover letter generation.
 
 The system prompt instructs the model to output strictly valid JSON
@@ -44,7 +53,7 @@ The JSON must match this schema exactly:
     "date": "null — the system inserts the letter date after generation; always output null"
   },
   "body": {
-    "paragraphs": ["opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
+    "paragraphs": ["salutation line (Anrede) — this paragraph alone, ending with a comma", "opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
   },
   "signature": {
     "closing": "null — the system overwrites the sign-off with a language-routed label after generation; always output null",
@@ -148,7 +157,15 @@ Rules:
   "Mein Budgetverantwortung" (#401: a delivered Anschreiben shipped exactly this slip).
 - Include Gehaltswunsch in body only if salary is provided.
 - Include Eintrittstermin in body only if availability is provided.
-- Body should have 3-4 paragraphs: opening (interest + role), why-me (key achievements), company-fit, closing.
+- SALUTATION (Anrede, #564): body.paragraphs[0] is the salutation on its own, ending with
+  a comma, never merged into the opening sentence. When the user message gives a Recipient
+  name, address that person by name in the letter language's norm form (DE "Sehr geehrte
+  Frau <Nachname>," / "Sehr geehrter Herr <Nachname>,", EN "Dear Ms <Surname>," / "Dear Mr
+  <Surname>,"); if the gender cannot be read from the name or title, use the generic form.
+  When no recipient is known, use the generic form ("Sehr geehrte Damen und Herren," /
+  "Dear Sir or Madam,"). The 3-4 body paragraphs below are counted AFTER the salutation.
+- Body should have 3-4 paragraphs AFTER the salutation (see SALUTATION above): opening
+  (interest + role), why-me (key achievements), company-fit, closing.
 - REQUIRED CLOSING PARAGRAPH (#272): the letter's LAST paragraph must be a genuine closing —
   expressing interest and a call to action (e.g. inviting further discussion or an interview) —
   never a bare, standalone availability/notice-period line. When availability/commitment content

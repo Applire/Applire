@@ -2507,3 +2507,103 @@ class TestCorrectorAnchorRuleMotivation:
     def test_the_anchor_rule_still_forbids_deleting_the_achievement(self):
         low = _flat(self._p())
         assert "never quietly delete it" in low
+
+
+# ---------------------------------------------------------------------------
+# #564 — the writer prompt never asked for a salutation at all (category B
+# per applire-prompt-first: never asked, but possible). The deterministic
+# floor (_inject_salutation, services/cover_letter.py _compose_letter) is the
+# parity backstop; this class pins the WRITTEN rule that closes the
+# prompt-side gap, plus the terminal SHAPE NOTE extension that keeps a
+# system-supplied generic Anrede from being flagged as impersonal.
+# ---------------------------------------------------------------------------
+
+
+class TestSalutationRule564:
+    def test_writer_prompt_schema_example_includes_the_salutation(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert '"paragraphs": ["salutation line (anrede)' in low
+
+    def test_writer_prompt_states_the_rule(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert "salutation (anrede, #564)" in low
+        assert "body.paragraphs[0] is the salutation on its own" in low
+        assert "never merged into the opening sentence" in low
+
+    def test_writer_prompt_rule_names_both_norm_forms_and_the_generic_fallback(self):
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert "sehr geehrte frau <nachname>" in low
+        assert "sehr geehrter herr <nachname>" in low
+        assert "dear ms <surname>" in low
+        assert "dear mr <surname>" in low
+        assert "sehr geehrte damen und herren" in low
+        assert "dear sir or madam" in low
+        assert "if the gender cannot be read from the name or title, use the generic form" in low
+
+    def test_writer_prompt_paragraph_count_rule_does_not_contradict_the_salutation(self):
+        """The pre-#564 '3-4 paragraphs' rule counted the WHOLE body,
+        including the new salutation paragraph — a literal reading would now
+        conflict with the schema example's 5-entry list. Both rules must
+        agree the count excludes the salutation."""
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert "the 3-4 body paragraphs below are counted after the salutation" in low
+        assert "body should have 3-4 paragraphs after the salutation" in low
+
+    def test_terminal_shape_note_never_flags_a_supplied_generic_salutation(self):
+        """_SHAPE_NOTE_TERMINAL already protected the #307 split of an
+        AUTHOR-written Anrede from being flagged for placement; #564 extends
+        it so a MISSING one the floor supplied (impersonal wording, even
+        against a known recipient) is equally protected."""
+        from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert "#564" in p
+        assert "supplied as the generic, impersonal form" in low
+        assert "sehr geehrte damen und herren" in low
+        assert "dear sir or madam" in low
+        assert "or its generic/impersonal wording" in low
+        assert "even when a named recipient is known" in low
+
+    def test_drafting_round_reviewer_prompt_is_untouched(self):
+        """v3's invariant (both shape doors share one definition, only the
+        SHAPE NOTE differs) must survive the #564 extension: the drafting
+        round's REVIEW_SYSTEM_PROMPT carries none of the terminal-only
+        salutation wording."""
+        from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        low = _flat(p)
+        assert "supplied as the generic, impersonal form" not in low
+
+    def test_condense_prompt_does_not_instruct_dropping_the_salutation(self):
+        """Design C's check: build_condense_prompt says 'keep the same JSON
+        structure' and never states a hard paragraph-count cap — so it
+        cannot be read as telling the model to drop or re-merge the
+        salutation paragraph while shortening."""
+        from applire.prompts.cover_letter import build_condense_prompt
+
+        prompt = build_condense_prompt(
+            {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "x"]}},
+            word_budget=100, page_count=2, letter_pages=1,
+        )
+        low = _flat(prompt)
+        assert "keep the same json structure" in low
+        assert "3-4 paragraph" not in low
+        assert "drop the salutation" not in low
+
+    def test_refinement_and_retry_prompts_do_not_cap_paragraphs(self):
+        """Same check for the corrector/refinement prompt and the retry
+        prompt builder (design C): neither states a hard paragraph-count cap
+        that would contradict body.paragraphs[0] being the salutation."""
+        from applire.prompts.review_cover_letter import (
+            COVER_LETTER_REFINEMENT_PROMPT,
+            build_retry_prompt,
+        )
+
+        low = _flat(COVER_LETTER_REFINEMENT_PROMPT)
+        assert "3-4 paragraph" not in low
+        assert "drop the salutation" not in low
+
+        retry = build_retry_prompt({"body": {"paragraphs": ["x"]}}, "feedback", "source")
+        assert "3-4 paragraph" not in _flat(retry)

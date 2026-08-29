@@ -69,6 +69,13 @@ COURTESY_SENTENCES = [
     "Thank you for your time and consideration.",
     # #309's own phrasing, the word-order twin the retired phrase list missed.
     "Gerne stehe ich für ein persönliches Gespräch zur Verfügung.",
+    # #564: the deterministic Anrede floor's OWN generic output
+    # (_inject_salutation, services/cover_letter.py) — this exact string
+    # reaches body.paragraphs[0] of every composed letter that had no
+    # author-written salutation. It is a courtesy/form sentence like any
+    # other above, never a candidate claim.
+    "Sehr geehrte Damen und Herren,",
+    "Dear Sir or Madam,",
 ]
 
 
@@ -224,3 +231,103 @@ def test_courtesy_prefix_is_still_trimmed_from_the_stored_claim_text():
 def test_prefix_trim_leaves_a_sentence_with_no_recognized_prefix_alone():
     text = "At Contoso GmbH, I led the migration of production databases."
     assert _strip_formula_prefix(text) == text
+
+
+# ── 5. #564 — the deterministic Anrede floor's generic salutation ───────────
+#
+# The #564 W1 brief pointed at ``_is_pure_formula_clause`` as the "fix site"
+# for keeping the floor's generic salutation out of the Oracle's claim set.
+# That function is gone (retired 2026-08-08, module docstring above) — deletion,
+# not tuning, and nothing on this path drops a claim any more (contract point
+# 1 above). So the brief's premise does not hold against the CURRENT code, and
+# the tests below verify what the code actually does instead: the generic
+# salutation is extracted like any other courtesy sentence (point 1), and the
+# ONE existing safety net is this file's point-2 mechanism — the sentence-
+# triage seam already classifies it as ``epistolary-form`` BY NAME (the
+# ORACLE_TRIAGE_SYSTEM_PROMPT text below lists "a salutation" as its own
+# example), exempting it from grounding verification with a visible, quoted
+# ``not_applicable`` verdict rather than a silent, deterministic drop.
+
+
+def test_564_generic_salutation_is_a_single_courtesy_claim_not_an_employer_fact():
+    """Real predicates, not the retired phrase list: extract_claims_from_letter
+    keeps the floor's exact output string as ONE unsplit claim (no comma-clause
+    boundary fires — the trailing comma has nothing after it), and it is
+    neither an employer fact nor a denial — an ordinary courtesy claim,
+    dispatched to sentence_triage like COURTESY_SENTENCES[0:3] above."""
+    for salutation in ("Sehr geehrte Damen und Herren,", "Dear Sir or Madam,"):
+        claims = extract_claims_from_letter(
+            {"body": {"paragraphs": [salutation]}}, PROFILE
+        )
+        assert len(claims) == 1, (salutation, claims)
+        claim = claims[0]
+        assert claim.text == salutation
+        assert claim.kind == "sentence"
+        assert claim.is_employer_fact is False
+        assert claim.is_denial is False
+        assert claim.source_experience_id is None
+
+
+def test_564_triage_prompt_names_a_salutation_as_its_own_epistolary_form_example():
+    """The mechanism that actually protects #564's injected Anrede from
+    becoming a false "ungrounded claim" finding: not a deterministic drop (the
+    brief's named fix site, retired), but this classifier prompt explicitly
+    listing a salutation as epistolary-form. Deterministic prompt pin —
+    classification correctness under a real provider stays charter-run
+    evidence (ADR-062 clause 7), per this module's own docstring."""
+    from applire.prompts.oracle_triage import ORACLE_TRIAGE_SYSTEM_PROMPT
+
+    low = ORACLE_TRIAGE_SYSTEM_PROMPT.lower()
+    assert "epistolary-form" in low
+    epistolary_bullet = low[low.index("- epistolary-form"):]
+    epistolary_bullet = epistolary_bullet[: epistolary_bullet.index("\n\n")]
+    assert "salutation" in epistolary_bullet
+
+
+@pytest.mark.asyncio
+async def test_564_generic_de_salutation_becomes_a_visible_not_applicable_verdict():
+    """End-to-end wiring pin (mirrors
+    test_courtesy_paragraph_becomes_a_visible_not_applicable_verdict above)
+    for the EXACT string _inject_salutation supplies: with the triage seam
+    available, the floor's Anrede is exempted with a visible, quoted verdict
+    rather than silently graded (or silently dropped, the retired behaviour)."""
+    salutation = "Sehr geehrte Damen und Herren,"
+    letter = {
+        "body": {
+            "paragraphs": [
+                salutation,
+                "At Contoso GmbH, I automated workflows using Git, GitHub "
+                "Actions.",
+            ]
+        }
+    }
+    report = await audit_document(
+        "cover_letter", PROFILE, letter_data=letter, provider=_EpistolaryStub()
+    )
+    exempted = [
+        r for r in report.claims
+        if r.claim.text == salutation and r.verdict.checker == "sentence_triage"
+    ]
+    assert exempted, [(r.claim.text, r.verdict.checker) for r in report.claims]
+    verdict = exempted[0].verdict
+    assert verdict.verdict == "not_applicable", verdict
+    assert "epistolary-form" in (verdict.detail or "")
+    assert salutation in (verdict.detail or ""), verdict.detail
+    # the substantive sentence alongside it is never swept in by the exemption
+    substantive = [r for r in report.claims if r.claim.text != salutation]
+    assert substantive and all(r.verdict.verdict != "not_applicable" for r in substantive)
+
+
+# ── 6. the ADR-060 outcome critic — no sentence-filter mechanism to pin ─────
+#
+# The brief's check ("grep services/critic*") finds nothing: the module is
+# named services/outcome_critic.py, not services/critic*.py. Read directly
+# (not grepped) instead: it is a keyword-LEDGER CONCEPT presence/coherence
+# diff between the CV and the letter (ADR-060 module docstring — "for every
+# claimable Keyword-Ledger concept, whether it is present in the CV's own
+# text, whether it is present in the letter's own text..."), never a
+# per-SENTENCE classifier over the whole document the way extract.py's
+# sentence-triage seam is. A generic salutation carries no keyword-ledger
+# concept and no tenure/depth figure, so it is structurally never a candidate
+# for this critic's judgement at all — there is no sentence-filter mechanism
+# here to add the salutation to, and no separate fix site.
