@@ -671,3 +671,41 @@ async def test_cv_list_sections_keep_together_or_leave_two(template):
         f"{template}: certifications heading is on page {heading_page + 1}, which holds "
         f"only {heading_page_count} item(s) — need >=2 (the .section-lead group)."
     )
+
+
+# ---------------------------------------------------------------------------
+# #621 follow-up (bug-batch 3, main session): page 1 of a LETTER keeps its capacity.
+#
+# Moving the margin from `.page` padding to `@page` is neutral for page 1 — unless
+# a template's header used to bleed INTO the padding (classic_german's did: its
+# negative margin cancelled `.page`'s padding, so the band reached the paper edge
+# and page 1's content started at ~5 mm). Insetting that band into a full 20 mm
+# `@page` top margin moved the first text to 25 mm and cost ~20 mm of page-1
+# capacity: the calibrated LETTER_DE_BUDGET fixture and every captured 235–258-word
+# letter flipped 1 → 2 pages on classic_german. A letter is a one-page document,
+# so page 1 must not lose capacity to a margin fix; classic_german now carries a
+# `@page :first` inset (executive_letter's precedent). This pin renders the
+# calibrated fixture — 1 page on every letter template before #621 (W2 Part-3
+# table) — and asserts it still is. A single calibrated Chromium render, same
+# class as test_letter_signature_orphans_less_often_547.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
+async def test_letter_page1_capacity_holds_621(template):
+    from test_roundtrip import LETTER_DE_BUDGET
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+        letter=LETTER_DE_BUDGET,
+        color=_default_color_context(),
+        lang="de",
+        labels=cover_letter_labels("de"),
+    )
+    pdf = await _html_to_pdf(html)
+    pages = _bbox_pages(pdf)
+    assert len(pages) == 1, (
+        f"{template}: the calibrated LETTER_DE_BUDGET letter rendered to {len(pages)} pages — "
+        "it was 1 page on every letter template before #621; a margin fix must not eat "
+        "page-1 capacity (classic_german lost ~20 mm to an inset header until @page :first)"
+    )

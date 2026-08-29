@@ -44,6 +44,21 @@
       size: A4;
       margin: 20mm 22mm 20mm 25mm;
     }
+    /* #621 follow-up (main session, measured): before #621 the header band bled
+       into the 20mm top padding (its negative margin cancelled .page's padding), so
+       page 1's content effectively started at the paper edge — the letter's whole
+       vertical budget was calibrated on that. Insetting the band into a 20mm @page
+       top margin moved the first text from 5.1mm to 25.2mm and cost ~20mm of
+       page-1 capacity: the calibrated LETTER_DE_BUDGET fixture and every captured
+       235–258-word letter flipped 1 → 2 pages on this template (the #547 residual's
+       calibration was made on the pre-#621 render). A letter is a one-page
+       document, so page 1 must keep its capacity: the `@page :first` precedent from
+       executive_letter — page 1 keeps a small print-safe top inset, continuation
+       pages (rare) get the full 20mm. Measured after the change: LETTER_DE_BUDGET
+       back to 1 page; see tests/ats/test_page_geometry.py::test_letter_page1_capacity_holds_621. */
+    @page :first {
+      margin-top: 5mm;
+    }
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .page { padding: 0; width: auto; min-height: auto; margin: 0; }
