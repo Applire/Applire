@@ -15,6 +15,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (ADR-069 clause 4b/4d/4e amended 2026-08-29, #617): the
+# reviewer's input is now a prompt-facing VIEW (services/jd_grounding.py) with a
+# code-computed GROUNDING FACTS block — replay evidence showed the captured 21->5
+# erosion was 14/16 verbatim-grounded terms flagged for reasons this rule now
+# forecloses, and rewording alone left ~45 flags across five calls (the facts
+# block converged the same replay to 0/5, one stable verdict). The old
+# never-reverse-a-prior-round rule is struck (unobeyable by the memoryless
+# reviewer ADR-021 2026-07-26 clause 6 keeps — the facts block is the loop's
+# memory now); new check 1b MISREAD POLARITY
+# (verbatim presence is polarity-blind by design, so a negated mention needs its
+# own check); checks 1/3/5 reworded (normalising transform, section-agnostic
+# requirements, job-board metadata, English-implies-English); corrector gains a
+# schema-keys-are-names rule (4d) after the captured run mangled
+# leadership_emphasis.emphasis into a literal key. 4c (a settle-time restore of
+# removed verbatim terms) was REFUTED and is NOT built — see ADR-069.
+#
 # Prompt version: v3 (ADR-069, 2026-08-01 — charter run 12 #397): QUALIFIED
 # REQUIREMENT DISPOSITION for reviewer AND corrector (decomposition, never
 # demotion/deletion — run 12's reviewer correctly flagged "SAP PP"/"SAP MM" as
@@ -72,6 +88,12 @@ not a quality finding. This rule only shields values actually present in the sou
 it never protects a value that appears NOWHERE in the posting — those remain exactly as
 flaggable as before under the FABRICATED / INVENTED checks below.
 
+GROUNDING FACTS BLOCK (read before flagging anything as unsupported): the user message
+below carries a GROUNDING FACTS block computed by CODE, not by a model — treat a
+"verbatim yes" fact there as settled for every field it covers. Do not re-derive or
+second-guess it, and do not repeat the VERBATIM GROUNDING RULE's own check by hand where
+the block already answered it.
+
 CONCEPT-TERM SHAPE RULE (required_skills / nice_to_have_skills / keywords ONLY — read
 before flagging any of these three fields as unsupported): entries in these three lists
 are a controlled vocabulary of short CONCEPT TERMS (typically 1-4 words — a technology,
@@ -91,14 +113,6 @@ flag one of these three fields when the CONCEPT ITSELF — not its exact wording
 basis anywhere in the posting; that case remains fully covered by FABRICATED REQUIREMENT
 / FABRICATED KEYWORDS below.
 
-ANTI-OSCILLATION RULE: never raise an issue that reverses a correction you (the reviewer,
-across review rounds of this same extraction) previously asked the corrector to make. If
-you find yourself about to flag a field for being absent/null after an earlier round of
-this same review asked for it to be removed or nulled — or flag a field as present/wrong
-after an earlier round asked for it to be added back — do not raise that issue; the
-corrector already did what a prior round of your own critique asked for, and asking for
-the opposite now only flips the field back and forth without ever converging.
-
 QUALIFIED REQUIREMENT DISPOSITION (read before flagging a decomposed requirement): a
 posting requirement with an explicitly-optional qualifier — "Sicherer Umgang mit SAP
 (idealerweise PP/MM)" — is CORRECTLY extracted as the base concept at its stated level
@@ -116,6 +130,18 @@ Check for these defects:
 1. FABRICATED REQUIREMENT: a required_skill or nice_to_have_skill not stated or clearly
    implied anywhere in the source posting (e.g. adding "Kubernetes" to a posting that
    never mentions containers/orchestration, just because the role sounds technical).
+   Paraphrase, nominalisation, capitalisation, hyphenation, and sub-phrase presence are
+   the NORMALISING TRANSFORM extraction is allowed to perform — never fabrication; do
+   not flag a term for any of these reasons alone. The posting's role description,
+   responsibilities, and what-we-look-for sections all STATE requirements exactly as
+   much as a section literally titled "Requirements" does — a requirement is not
+   ungrounded merely because of which section names it.
+1b. MISREAD POLARITY: a concept the posting names only to EXCLUDE or NEGATE it ("no
+   Kubernetes experience needed", "Docker not required") is fabricated if it is listed
+   as a requirement anyway — the concept's own words are present, but the posting states
+   the candidate does NOT need it. Instruct its removal. This is the one legitimate
+   finding against a term the GROUNDING FACTS block marks "verbatim yes" — never use any
+   of the reasons check 1 forecloses to remove such a term.
 2. REQUIRED/NICE-TO-HAVE MISCLASSIFICATION: a skill the posting explicitly marks as
    optional/preferred/"a plus" listed under required_skills, or vice versa. When you ask
    for a level move, name the concept and the target level explicitly — the corrector
@@ -145,14 +171,21 @@ Check for these defects:
    dominance the posting never states is an overreach. Never flag a NULL
    leadership_emphasis: omission is the correct handling for a posting that does not
    mention leading people.
-3. FABRICATED KEYWORDS: an ATS keyword with no textual basis in the posting.
+3. FABRICATED KEYWORDS: an ATS keyword with no textual basis in the posting. The same
+   NORMALISING TRANSFORM named in check 1 applies here too — paraphrase, nominalisation,
+   capitalisation, hyphenation, and sub-phrase presence are not fabrication.
 4. INVENTED TITLE OR COMPANY: a role_title or company_name not present in the source
    text. If the posting genuinely does not name a company, company_name must be null —
    never a guess. A role_title that lightly normalises the source wording (e.g. dropping
    a decorative subtitle) is fine; inventing a title the posting never uses is not.
 5. SENIORITY/LANGUAGE OVERREACH: a seniority_level or language_requirement asserting
    something (e.g. a language, a CEFR level, a seniority tier) not stated or clearly
-   implied by the posting's own wording.
+   implied by the posting's own wording. A job board's own METADATA LINE ("Seniority
+   level: Mid-Senior level") states a seniority tier just as much as a sentence of prose
+   does — do not flag seniority_level for being grounded only in a metadata line. An
+   English-language posting IMPLIES English as the language_requirement; only an
+   INVENTED CEFR level — a proficiency tier the posting's own wording never states — is
+   an overreach.
 
 WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
 requirement, keyword, title, or company name with no basis in the source text. Nothing else.
@@ -176,15 +209,31 @@ def build_job_analysis_review_prompt(jd_text: str, extracted_json: dict) -> str:
 
     Args:
         jd_text:        The original job-description text.
-        extracted_json: The structured JobAnalysis fields produced by analyze_jd().
+        extracted_json: The structured JobAnalysis fields produced by analyze_jd()
+                         (or a corrector round's output — the SAME object
+                         services/reviewer.py::review_and_refine appends to
+                         draft_history).
+
+    ADR-069 clause 4b (amended 2026-08-29, #617; ADR-078's third instance):
+    the reviewer never sees ``extracted_json`` itself. It sees a deep-copied
+    prompt-facing VIEW (``services.jd_grounding.reviewer_view`` — schema
+    keys only, ``level_changes`` and any other bookkeeping stripped) plus a
+    code-computed GROUNDING FACTS block. Local import mirrors the existing
+    ``services.prompt_view`` call convention in this package (e.g.
+    ``prompts/gap_analysis.py``, ``prompts/reconcile.py``).
     """
+    from applire.services.jd_grounding import grounding_facts, reviewer_view
+
+    view = reviewer_view(extracted_json)
+    facts = grounding_facts(view, jd_text)
     return (
         "Audit this extracted job-description analysis against the source posting. "
         "Apply the approval bar: approve unless a requirement, keyword, title, or "
         "company name lacks a basis in the source text. Reasonable normalisation and "
         "translation are NOT defects.\n\n"
         f"SOURCE JOB POSTING:\n{jd_text}\n\n"
-        f"EXTRACTED ANALYSIS:\n{json.dumps(extracted_json, ensure_ascii=False, indent=2)}\n\n"
+        f"EXTRACTED ANALYSIS:\n{json.dumps(view, ensure_ascii=False, indent=2)}\n\n"
+        f"{facts}\n\n"
         "Return your review JSON."
     )
 
@@ -221,6 +270,15 @@ Rules:
   remove, or correct a concept term in these fields — but never reformat an existing
   concept term into a sentence or a quotation from the source text, and never merge
   several concept terms into one prose phrase.
+- SCHEMA KEYS ARE NAMES, NEVER CONTENT: never rename, nest, or restructure a schema
+  key — the output schema's field names are fixed. In particular, "leadership_emphasis"
+  is always the object {"emphasis": ..., "quote": ...}; when the reviewer asks you to
+  change the WEIGHTING (e.g. "'leadership_led' overreaches — use 'balanced' instead"),
+  change the VALUE of "emphasis" — never rename the "emphasis" key itself to the new
+  value (do NOT emit {"leadership_led": "balanced", "quote": ...} or
+  {"balanced": ..., "quote": ...}). "level_changes" is transport for the moves you
+  declare THIS round only — never a place to park other content, and never a copy of an
+  earlier round's declarations.
 - Output ONLY the corrected JSON in the same schema as the input — no markdown, no
   commentary."""
 
