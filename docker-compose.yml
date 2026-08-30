@@ -17,9 +17,12 @@
 
 # Self-hosted Applire — pulls pre-built images from GHCR.
 #
-# Quick start (no git clone required — every service is a pre-built image):
-#   curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
-#   curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
+# Quick start (no git clone required — every service is a pre-built image).
+# Fetch both files from the newest RELEASE, not from main: the images below are
+# :latest, and main runs ahead of the released image for most of a flavour, so a
+# compose file taken from main can reference settings the running image rejects.
+#   curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml
+#   curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/download/env.example
 #   cp .env.example .env        # set LLM_PROVIDER and matching API key
 #   docker compose up -d        # migrations run automatically on backend startup
 #

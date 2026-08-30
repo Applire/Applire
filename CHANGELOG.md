@@ -6,15 +6,79 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.40.0-beta] – 2026-08-30
+
+An interim release inside Stracciatella: the vault gets structured editors
+instead of a JSON field, the user gets the language and the facts of their
+documents in hand, and three defect classes that hit every submitted application
+are closed. 19 commits, two database migrations (0057, 0058).
+
 ### Added
-- **Choose the leading document language (E054/US288)** — detection is the
-  default, not the law: a DE/EN control on the gap view lets the user decide
-  the language of all generated documents per application
-  (`applications.language_override`; migration 0057). Every generated document
-  pins its own language, so switching later never repaints an existing CV or
-  letter — it applies to the next generation. Agent channel:
-  `update_application(language_override="de"/"en"/"auto")`, `analyze_jd` now
-  reports the detected `jd_language` (ADR-038 amendment 2026-08-23).
+- **The document language is a decision, not a detection (E054)** — a DE/EN
+  control on the gap view governs the language of every document generated for an
+  application; each document pins its own language, so switching later never
+  repaints an existing CV or letter. After generation the language can be
+  switched, and every document carries a language badge. Agent channel:
+  `update_application(language_override=…)`, and `analyze_jd` reports the detected
+  `jd_language` (US288, US289; ADR-038 amendment; migration 0057).
+- **Structured profile editors replace the text field (E055)** — work experience
+  and education are edited in their own forms, skills, languages and
+  certifications through chip editors, projects through a write door of their own.
+  The JSON textarea is retired. An edit made on stale data can be refused instead
+  of silently overwriting (US290–US293; ADR-063 amended).
+- **Fact pins (E056)** — the user can mark a fact as required for one
+  application; pinned facts keep their place in the document's budget and are
+  attributed as such in the review report (US294, US295; ADR-077; migration 0058).
+
+### Changed
+- **The CV reviewer respects pinned facts** — a backstop with a precedence rule
+  and attribution stops the review loop from working a pin back out (#580;
+  ADR-077 amended).
+- **The model sees the vault's content, not its bookkeeping** — a dedicated
+  prompt-facing profile view replaces the raw dump: −89.4 % prompt volume on a
+  real profile, with no loss of content (#593; ADR-078).
+- **Team-size statements mean what they say** — a managed span is no longer
+  inferred upward from an aside (#562).
+- **The import says what it did not apply** — every import returns a merge status
+  and a list of what was not applied, on both doors (#615; ADR-063 amended).
+- **The install instructions and the running image agree again** — the documented
+  commands fetch `docker-compose.yml` and `env.example` from the newest release
+  rather than from `main`, which can run a whole flavour ahead of it — including
+  the quick-start comment inside the shipped `docker-compose.yml` itself, which
+  still pointed readers back at `main`. A post-publish check fails if either file
+  is missing from the release.
+
+### Fixed
+- **Importing a second source silently lost whole sections** — the cause was in
+  the prompt: the extraction's ids read as "an entity that already exists" at the
+  reconcile stage, and 10 of 11 merges lost content with them, 0 of 5 without. The
+  prompt's input view no longer carries those fields (#615).
+- **Cover letters without a salutation** — the salutation is now a control of its
+  own on both doors, alongside the rule in the prompt (#564).
+- **Continuation pages had no margin** — the visual margin now lives in `@page`,
+  which Chromium re-applies on every page; text on page 2 previously began at
+  0.5 mm. Page 1 of the letter keeps its capacity through `@page :first` (#621,
+  all 14 templates).
+- **Page breaks cut entries in half** — the break policy now works over
+  keep-together groups instead of `break-before/after: avoid`, which was measured
+  to have no effect here (#622).
+- **Cover letters grew back to two pages after being condensed** — a final length
+  floor now sits between the terminal loop and the identity gate, measuring the
+  delivered version rather than the one repaired in between (#547).
+- **The job analysis eroded its own requirements** — 5 of 21 survived, because the
+  reviewer discarded verbatim-grounded terms as fabricated. It is now handed the
+  grounded terms as facts (#617).
+- **Vault receipts** — a revert makes the receipt fail rather than pass silently;
+  an empty string clears like a missing value (#597, #595).
+- **Partially covered testimony** — a statement only partly applied is reported as
+  such instead of being dropped (#370, #371).
+- **Academic cover letters** were too thin and are densified (#431).
+- **Rule 7 addressed the wrong target** in the cover-letter review (#391).
+
+### Security
+- `next` to 15.5.24, `sharp` to 0.35.4, `postcss` to 8.5.26 — closing eight
+  reported advisories on the web surface and one in the image processing of
+  uploaded photos. Also `pypdf` 6.15.0, `nanoid` 3.3.18, `js-yaml` 4.3.1.
 
 ## [0.39.0-beta] – 2026-08-19
 

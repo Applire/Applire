@@ -608,8 +608,11 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.39.0-beta)
+### ✅ Current Release (v0.40.0-beta)
 
+- [x] The document language is your decision, not a detection: a per-application DE/EN control governs every generated document, each document pins its own language, and switching later never repaints an existing one
+- [x] Structured profile editors for work experience, education, skills, languages, certifications and projects — the JSON text field is gone, and an edit made on stale data can be refused instead of silently overwriting
+- [x] Fact pins: mark a fact as required for one application and it keeps its place in the document's budget, with attribution in the review report
 - [x] One vault write path: every writer — interview, import, section editor, conflict resolution, role lifecycle — commits through `commit_ops` with per-entry receipts; no ad-hoc profile writes remain
 - [x] Terminal document review closes over the CV and cover letter **as composed**, with bounded re-entry and ship-and-report semantics
 - [x] Letter review treats presence as a fact it is told, not a question it asks — false demands and false-presence findings driven to near zero
