@@ -890,6 +890,22 @@ def test_academic_letter_typography_stays_under_431_budget():
 # structurally for any font (`break-inside: avoid` on `.entry`); pre-fix it
 # fails because a boundary falling inside an entry is near-certain once the
 # document is several pages long.
+#
+# #622 amendment: CV_357's positions carry 4 bullets each — LONG by #622's own
+# threshold (>3), so they are now DESIGNED to be allowed to break (head +
+# first 2 bullets keep together, last 2 bullets keep together; #622 replaced
+# the blanket per-entry `break-inside: avoid` with that shape for long
+# entries specifically). Re-measured on the fixed templates: several
+# templates' positions do now split at this shape, which is the intended
+# fix's own effect, not a regression — a lone bullet no longer gets pushed
+# whole onto a near-empty next page. Asserting the ORIGINAL whole-atomicity
+# invariant unconditionally would fail on correct #622 output, so it now
+# applies per #622's own short/long rule: education entries (0 bullets, ALWAYS
+# short) keep the original whole-atomicity check unchanged; work_history
+# entries check the #622 contract that applies to their own bullet count —
+# whole-atomicity if <=3, the lead/tail shape if >3 (mirrors
+# tests/ats/test_page_geometry.py's long-entries test, same fixture shape,
+# different fixture data).
 # ---------------------------------------------------------------------------
 
 _WORK_357 = [
@@ -981,7 +997,12 @@ def _pdf_pages_norm(pdf: bytes) -> list[str]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
 async def test_cv_position_block_never_splits_across_pages(template):
-    """#357 — every work and education entry renders wholly on one page."""
+    """#357 (amended for #622, see banner above) — a SHORT entry (<=3 bullets,
+    every education entry included since those never carry bullets) renders
+    wholly on one page, unchanged since #357. A LONG entry (CV_357's
+    positions: 4 bullets each) follows #622's contract instead: the title's
+    page also holds bullets 1-2, and the entry's last page holds >=2 bullets.
+    """
     html = _jinja_env.get_template(CV_TEMPLATES[template]).render(
         cv=CV_357, color=_default_context(), lang="de", labels=cv_labels("de")
     )
@@ -993,13 +1014,17 @@ async def test_cv_position_block_never_splits_across_pages(template):
         f"break for this invariant to mean anything"
     )
 
-    entries: list[tuple[str, list[str]]] = []
+    short_entries: list[tuple[str, list[str]]] = []
+    long_entries: list[tuple[str, str, list[str]]] = []
     for job in CV_357.work_history:
-        entries.append((job.role, [job.role, *job.bullets]))
+        if len(job.bullets) <= 3:
+            short_entries.append((job.role, [job.role, *job.bullets]))
+        else:
+            long_entries.append((job.role, job.role, job.bullets))
     for edu in CV_357.education:
-        entries.append((edu.degree, [edu.degree, edu.institution]))
+        short_entries.append((edu.degree, [edu.degree, edu.institution]))
 
-    for label, probes in entries:
+    for label, probes in short_entries:
         located = {}
         for probe in probes:
             needle = _norm_probe(probe)
@@ -1009,10 +1034,41 @@ async def test_cv_position_block_never_splits_across_pages(template):
 
         distinct = sorted(set(located.values()))
         assert len(distinct) == 1, (
-            f"{template}: the position block '{label}' is split across pages "
+            f"{template}: the SHORT position block '{label}' is split across pages "
             f"{[p + 1 for p in distinct]} — "
             + "; ".join(
                 f"'{probe[:40]}' on page {page + 1}" for probe, page in located.items()
             )
-            + ". This is #357: the entry must be atomic (break-inside: avoid)."
+            + ". This is #357: a SHORT entry (<=3 bullets) must be atomic."
+        )
+
+    for label, title, bullets in long_entries:
+        title_needle = _norm_probe(title)
+        title_hits = [i for i, page in enumerate(pages) if title_needle in page]
+        assert title_hits, f"{template}: '{title}' dropped from the rendered PDF"
+        title_page = title_hits[0]
+
+        bullet_pages = []
+        for bullet in bullets:
+            needle = _norm_probe(bullet)
+            hits = [i for i, page in enumerate(pages) if needle in page]
+            assert hits, f"{template}: '{bullet[:40]}' dropped from the rendered PDF"
+            bullet_pages.append(hits[0])
+
+        touched = set(bullet_pages) | {title_page}
+        if len(touched) <= 1:
+            continue  # this LONG entry fit on one page anyway — nothing to check
+
+        assert bullet_pages[0] == title_page and bullet_pages[1] == title_page, (
+            f"{template}: LONG position '{label}' spans pages {[p + 1 for p in sorted(touched)]} "
+            f"but its title is on page {title_page + 1} while bullets 1/2 are on pages "
+            f"{bullet_pages[0] + 1}/{bullet_pages[1] + 1}. This is #622: head + first 2 "
+            f"bullets must be one keep-together group (.entry-lead)."
+        )
+        last_page = max(touched)
+        count_on_last = sum(1 for p in bullet_pages if p == last_page)
+        assert count_on_last >= 2, (
+            f"{template}: LONG position '{label}''s last page ({last_page + 1}) holds only "
+            f"{count_on_last} of its bullets. This is #622: the last 2 bullets must be one "
+            f"keep-together group (.entry-tail)."
         )

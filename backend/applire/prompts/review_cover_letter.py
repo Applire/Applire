@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (#564, 2026-08-29 — TERMINAL round only: _SHAPE_NOTE_TERMINAL now
+#   also covers a system-SUPPLIED generic salutation (the #564 floor, _inject_salutation),
+#   not just the #307 split of an author-written one — never flag its placement or its
+#   generic/impersonal wording, even against a known recipient name. REVIEW_SYSTEM_PROMPT
+#   (the drafting round) is untouched; only the terminal door's SHAPE NOTE differs, per v3.)
 # Prompt version: v4 (#562, 2026-08-28 — REQUIRED CONTENT check 4 and the refinement
 #   prompt no longer call the WHOLE scope_positioning block "the candidate's own attested
 #   scale evidence": render_scope_positioning_block (services/scope_requirements.py) can
@@ -109,13 +114,16 @@ artifact, exactly as it will be delivered. After the writer, a fixed sequence of
 deterministic guards ran over it by code: the letter DATE was stamped by the system; the
 sign-off closing was normalized to the language-routed label and the sender name
 backfilled from the candidate's own profile; the salutation was split into its own
-paragraph; the recipient fields were overlaid with the user's own typed inputs; an
-unanchored borrowed figure may have been stripped, and a bare target/projection may have
-been re-framed to its measured outcome from the profile. These effects are ground truth
-BY CONSTRUCTION — never flag the date, the sign-off wording, the salutation placement,
-the recipient identity, or the sender name as an issue of any kind, and never ask for a
-guard-stripped or guard-re-framed sentence to be restored. Your checks apply to the
-authored content of the letter body.
+paragraph or, when the writer omitted one entirely (#564), supplied as the generic,
+impersonal form ("Sehr geehrte Damen und Herren," / "Dear Sir or Madam,"); the recipient
+fields were overlaid with the user's own typed inputs; an unanchored borrowed figure may
+have been stripped, and a bare target/projection may have been re-framed to its measured
+outcome from the profile. These effects are ground truth BY CONSTRUCTION — never flag the
+date, the sign-off wording, the salutation's placement or its generic/impersonal wording
+(even when a named recipient is known), the recipient identity, or the sender name as an
+issue of any kind, and never ask for a guard-stripped, guard-re-framed, or guard-supplied
+sentence to be restored or personalised. Your checks apply to the authored content of the
+letter body.
 
 A RENDER MEASURE block accompanies the letter as context only. Length is enforced by a
 bounded condense mechanism that has already run — NEVER raise a length, word-count,

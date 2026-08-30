@@ -24,7 +24,41 @@
        for the full rationale; same fix, N templates — ADR-066). */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
     .signature .closing { margin-bottom: 8mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* #621 deviation from design point 1, measured and then measured again
+       (not a silent guess): .page's own top padding is 0 BY DESIGN, so the
+       coloured .header band bleeds flush to the paper's top edge on page 1;
+       left/right/bottom (22mm/25mm/20mm) are normal margin, already
+       supplied by .page's own padding today, and carry over unchanged.
+       "Use the value in force" literally would mean an @page top margin of
+       0mm — but @page applies to EVERY page, so that would leave page 2+
+       with no top margin at all, reproducing #621 on this one template.
+       First attempt: a uniform 20mm top margin on every page (matching this
+       template's own bottom margin and the ~20mm convention shared by every
+       other letter template) — implemented, then measured against the full
+       suite: it pushed `test_letter_signature_orphans_less_often_547`
+       (executive, budget-length + 1 sentence) from 1 page to 2, because
+       page 1 never had a real top margin to begin with — the ~20mm now
+       "reused" from the other templates was ~20mm of NEW vertical space,
+       not a relocation of an existing value. Reverted. Fix instead with
+       `@page :first`, verified honoured by this Chromium version with a
+       minimal repro (page 1 text stayed flush at the :first override, page
+       2 landed at exactly the outer rule's margin): page 1 keeps its
+       existing 0mm top (band still bleeds, #547 fixture unaffected) and
+       only page 2+ gets a real top margin, which is exactly what #621
+       needs. Net: zero visual change to this template — the only one of
+       the four bleed templates without a before/after screenshot pair for
+       that reason (nothing to show; see the report). */
+    @page {
+      size: A4;
+      margin: 20mm 22mm 20mm 25mm;
+    }
+    @page :first {
+      margin-top: 0mm;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
+    }
   </style>
 </head>
 <body>

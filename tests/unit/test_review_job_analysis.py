@@ -106,19 +106,6 @@ class TestJobAnalysisReviewPromptWave6Wording:
         # mode it forecloses.
         assert "explicitly stated" in prompt
 
-    def test_anti_oscillation_rule_present_and_memoryless(self):
-        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT.lower()
-        # A rule about the reviewer's own output reversing a prior request.
-        assert "reverse" in prompt or "reversing" in prompt
-        assert "earlier round" in prompt or "previous round" in prompt or "prior round" in prompt
-        # The rule must NOT be implemented by feeding the reviewer any history —
-        # the prompt stays memoryless. build_job_analysis_review_prompt only ever
-        # takes (jd_text, extracted_json); no history/previous-issues parameter.
-        import inspect
-
-        sig = inspect.signature(build_job_analysis_review_prompt)
-        assert list(sig.parameters) == ["jd_text", "extracted_json"]
-
     def test_genuine_checks_are_not_weakened(self):
         """The original defect classes must still be flagged after the wording
         change — fabrication, misclassification, invented title/company, and
@@ -149,6 +136,97 @@ class TestJobAnalysisReviewPromptWave6Wording:
         # to actual presence in the posting text (so absence is still flaggable).
         window = lowered[max(0, verbatim_idx - 300) : verbatim_idx + 300]
         assert "source" in window
+
+
+# ---------------------------------------------------------------------------
+# #617 — ADR-069 clause 4b/4d/4e (amended 2026-08-29): the ANTI-OSCILLATION
+# rule is struck (unobeyable by a memoryless reviewer, ADR-021 2026-07-26
+# clause 6), a new check 1b polices polarity instead, checks 1/3/5 are
+# reworded, and the corrector gains a schema-keys-are-names rule. The
+# GROUNDING FACTS block itself (the view + the fact computation) is pinned in
+# tests/unit/test_jd_grounding_617.py, not here — this class pins only the
+# static prompt text.
+# ---------------------------------------------------------------------------
+
+
+class TestJobAnalysisReviewPrompt617GroundingFacts:
+    def test_anti_oscillation_rule_struck_and_reviewer_stays_memoryless_617(self):
+        """Captured evidence (#617): seniority oscillated round to round
+        ("Senior overreaches" -> "not stated" -> "missing but explicitly
+        stated" -> "not stated") — the ANTI-OSCILLATION rule asked a
+        reviewer ADR-021 deliberately keeps memoryless to remember its own
+        prior rounds, which it structurally cannot do. Struck outright
+        rather than reworded (ADR-069's 2026-08-29 amendment): the GROUNDING
+        FACTS block is the loop's memory now, rendered fresh each round from
+        the posting, never from a literal review-history parameter."""
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        assert "ANTI-OSCILLATION" not in prompt
+
+        import inspect
+
+        sig = inspect.signature(build_job_analysis_review_prompt)
+        assert list(sig.parameters) == ["jd_text", "extracted_json"]
+
+    def test_check_1b_misread_polarity_present_617(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        assert "1b. MISREAD POLARITY" in prompt
+        lowered = prompt.lower()
+        assert "exclude" in lowered or "negate" in lowered
+
+    def test_checks_1_3_5_reworded_wording_present_617(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        lowered = prompt.lower()
+        # Checks 1 and 3 share the normalising-transform vocabulary — the
+        # replay evidence's own false-positive reasons ("not standalone",
+        # "only part of a larger phrase", "capitalisation differs") named
+        # as NOT fabrication.
+        for marker in (
+            "normalising transform",
+            "paraphrase",
+            "nominalisation",
+            "hyphenation",
+            "sub-phrase",
+        ):
+            assert marker in lowered, f"{marker!r} missing from the reworded checks"
+        # Check 1: the posting's role description / responsibilities /
+        # what-we-look-for sections all state requirements, not only a
+        # section literally titled "Requirements".
+        assert "responsibilities" in lowered
+        # Check 5: a job board's metadata line states a seniority tier, and
+        # an English posting implies English — only an invented CEFR level
+        # is an overreach.
+        assert "metadata line" in lowered
+        assert "CEFR" in prompt
+        # The original defect NAMES must still be present verbatim — the
+        # rewording extends these checks, it never renames them (also
+        # covered by test_genuine_checks_are_not_weakened above).
+        assert "FABRICATED REQUIREMENT" in prompt
+        assert "FABRICATED KEYWORDS" in prompt
+        assert "SENIORITY/LANGUAGE OVERREACH" in prompt
+
+    def test_corrector_schema_key_rule_present_617(self):
+        """4d: the corrector must treat schema keys as NAMES, never content
+        — the captured evidence shows it renaming `leadership_emphasis.emphasis`
+        to the mangled key `leadership_led` after round-1 feedback phrased as
+        "'leadership_led' overreaches -> 'balanced'"."""
+        prompt = JOB_ANALYSIS_REFINEMENT_PROMPT
+        lowered = prompt.lower()
+        assert "schema key" in lowered
+        assert "never rename" in lowered
+        assert "leadership_emphasis" in prompt
+        assert '"emphasis"' in prompt
+
+    def test_system_prompt_still_recognised_by_mock_617(self):
+        """providers/llm/mock.py keys the whole job_analysis reviewer chain
+        off this exact substring (case-insensitive, see mock.py's
+        `"job-description data quality auditor" in system_lower`). The live
+        behavioural half of this guarantee is
+        test_mock_reviewer_chain_recognition.py; this is its static-text
+        companion, in the same file as the wording it protects."""
+        assert (
+            "job-description data quality auditor"
+            in JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT.lower()
+        )
 
 
 # ---------------------------------------------------------------------------

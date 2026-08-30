@@ -35,7 +35,49 @@
        guarantee fit without content-aware sizing. */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 4mm; font-size: 10.5pt; }
     .signature .closing { margin-bottom: 6mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* #621 — the visual margin now lives in @page (Chromium's paged-media
+       engine re-applies it on every page); .page's own padding/size, which
+       used to BE the margin on the print path, is neutralised in print so it
+       doesn't double up with @page. Kept for the on-screen HTML preview
+       above (width/min-height/padding), which never goes through @page. */
+    @page {
+      size: A4;
+      margin: 20mm 22mm 20mm 25mm;
+    }
+    /* #621 follow-up (main session, measured): before #621 the header band bled
+       into the 20mm top padding (its negative margin cancelled .page's padding), so
+       page 1's content effectively started at the paper edge — the letter's whole
+       vertical budget was calibrated on that. Insetting the band into a 20mm @page
+       top margin moved the first text from 5.1mm to 25.2mm and cost ~20mm of
+       page-1 capacity: the calibrated LETTER_DE_BUDGET fixture and every captured
+       235–258-word letter flipped 1 → 2 pages on this template (the #547 residual's
+       calibration was made on the pre-#621 render). A letter is a one-page
+       document, so page 1 must keep its capacity: the `@page :first` precedent from
+       executive_letter — page 1 keeps a small print-safe top inset, continuation
+       pages (rare) get the full 20mm. Measured after the change: LETTER_DE_BUDGET
+       back to 1 page; see tests/ats/test_page_geometry.py::test_letter_page1_capacity_holds_621. */
+    @page :first {
+      margin-top: 5mm;
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 0; width: auto; min-height: auto; margin: 0; }
+      /* #621 finding (measured, not in the brief's explicit bleed list): .header's
+         negative margin was sized to exactly CANCEL .page's own padding, so the
+         coloured band reached the paper edge under the old margin:0 renderer
+         model. Measured against a real @page margin box: a negative margin that
+         reaches INTO the @page margin area is not painted there at all (proven
+         with a minimal repro — a bled test div and its text both vanished from
+         the render and from pdftotext output). Left uncorrected, this would make
+         the header band (and the candidate's name inside it) disappear. Zeroing
+         the top/right/left legs here makes the band sit flush with the new
+         @page-margined content area instead of bleeding past it — "a printable
+         margin beats bleed" (#621 design point 3), applied here too even though
+         only creative_sidebar/executive were named. margin-bottom (16mm) is
+         unrelated to the page margin (it is the gap to .accent-rule) and is
+         left untouched. */
+      .header { margin: 0 0 16mm 0; }
+    }
   </style>
 </head>
 <body>
