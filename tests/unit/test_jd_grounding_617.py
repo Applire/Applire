@@ -51,6 +51,7 @@ from applire.services.jd_grounding import (
     is_verbatim,
     normalise,
     reviewer_view,
+    strip_locators,
 )
 
 
@@ -383,3 +384,97 @@ def test_schema_keys_constant_matches_extraction_prompt_617():
 
     assert top_level_keys, "the regex found nothing — the schema block's shape changed"
     assert JD_SCHEMA_KEYS == top_level_keys
+
+
+# ---------------------------------------------------------------------------
+# 8. The FALSE-POSITIVE direction (adversarial pass, 2026-08-30).
+#
+# A "verbatim yes" fact forecloses every FABRICATED finding against that term
+# (the block says so in as many words), so a fact that is wrong in the
+# POSITIVE direction is strictly worse than no fact at all. Two mechanisms
+# produced one each, both demonstrated on realistic postings before the fix:
+#
+#   * stripping "+", "#" and "." collapsed a name to a bare word — "C++" and
+#     "C#" both became "c" and matched "a Grade C in Mathematics"; ".NET"
+#     became "net" and matched "own net margin targets";
+#   * the hyphen-to-space rule isolated a matchable word inside a link —
+#     "AI" matched a posting whose only "ai" was in "ai-solutions.de".
+#
+# Both are now closed at the normalisation, and the safe direction is
+# preserved: a term the posting spells differently ("Node.js" vs "Node JS")
+# reads "verbatim no" and stays the reviewer's judgement.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "term,posting_text,expected",
+    [
+        # symbol names must not collapse into an unrelated short word
+        ("C++", "We need a Grade C in Mathematics and strong fundamentals.", False),
+        ("C#", "A Grade C in Maths is required.", False),
+        (".NET", "You own net margin targets for the whole portfolio.", False),
+        # ... while still matching when the posting really names them
+        ("C++", "Production experience with C++ and Rust.", True),
+        ("C#", "Deep C# expertise in a .NET shop.", True),
+        (".NET", "Experience with .NET Core services.", True),
+        ("Node.js", "Node.js in production since 2019.", True),
+    ],
+    ids=[
+        "cpp-not-grade-c",
+        "csharp-not-grade-c",
+        "dotnet-not-net-margin",
+        "cpp-real",
+        "csharp-real",
+        "dotnet-real",
+        "nodejs-real",
+    ],
+)
+def test_is_verbatim_symbol_names_do_not_collapse_617(term, posting_text, expected):
+    assert is_verbatim(term, normalise(strip_locators(posting_text))) is expected
+
+
+@pytest.mark.parametrize(
+    "posting_text,expected",
+    [
+        ("Find us at ai-solutions.de or write to careers@ai-solutions.de.", False),
+        ("More at https://example.com/ai-team — apply today.", False),
+        ("We build AI products for European SMEs.", True),
+    ],
+    ids=["bare-domain-and-email", "url", "real-mention"],
+)
+def test_is_verbatim_ignores_links_and_addresses_617(posting_text, expected):
+    """A concept named only inside a link or an e-mail address is not a stated
+    requirement — and must never be reported as a settled verbatim fact."""
+    assert is_verbatim("AI", normalise(strip_locators(posting_text))) is expected
+
+
+@pytest.mark.parametrize(
+    "term,posting_text",
+    [
+        ("Großkunden", "Betreuung von Grosskunden in der Schweiz."),
+        ("Grosskunden", "Betreuung von Großkunden im DACH-Raum."),
+        ("Maßnahmen", "Ableitung von Massnahmen aus dem Reporting."),
+    ],
+    ids=["ss-in-posting", "eszett-in-posting", "measures"],
+)
+def test_normalise_folds_eszett_617(term, posting_text):
+    """DACH-native: Swiss German never writes ß, so the same word spelled
+    either way must compare equal (NFKC does not fold it)."""
+    assert is_verbatim(term, normalise(strip_locators(posting_text))) is True
+
+
+def test_grounding_facts_normalises_the_posting_through_strip_locators_617():
+    """The block's posting side goes through strip_locators — pinning the CALL
+    SITE, not just the helper (a helper nobody calls is not a control).
+
+    The probe is a BARE DOMAIN on purpose: an e-mail address would pass this
+    test even with the call site removed, because stripping "@" glues its
+    neighbours into one token ("careersai") and nothing matches "ai" anyway.
+    A bare "ai-solutions.de" is the case that genuinely needs the stripping —
+    the hyphen rule isolates "ai" as its own word. Verified by mutation: with
+    the call site removed this assertion fails, with the e-mail probe it did
+    not (adversarial pass follow-up, 2026-08-30).
+    """
+    view = {"required_skills": ["AI"], "keywords": []}
+    facts = grounding_facts(view, "Mehr zu uns finden Sie auf ai-solutions.de.")
+    assert '"AI": verbatim no' in facts

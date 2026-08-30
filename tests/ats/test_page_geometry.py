@@ -674,29 +674,69 @@ async def test_cv_list_sections_keep_together_or_leave_two(template):
 
 
 # ---------------------------------------------------------------------------
-# #621 follow-up (bug-batch 3, main session): page 1 of a LETTER keeps its capacity.
+# #621 follow-up (bug-batch 3): page 1 of a LETTER keeps its capacity.
 #
-# Moving the margin from `.page` padding to `@page` is neutral for page 1 — unless
-# a template's header used to bleed INTO the padding (classic_german's did: its
-# negative margin cancelled `.page`'s padding, so the band reached the paper edge
-# and page 1's content started at ~5 mm). Insetting that band into a full 20 mm
-# `@page` top margin moved the first text to 25 mm and cost ~20 mm of page-1
-# capacity: the calibrated LETTER_DE_BUDGET fixture and every captured 235–258-word
-# letter flipped 1 → 2 pages on classic_german. A letter is a one-page document,
-# so page 1 must not lose capacity to a margin fix; classic_german now carries a
-# `@page :first` inset (executive_letter's precedent). This pin renders the
-# calibrated fixture — 1 page on every letter template before #621 (W2 Part-3
-# table) — and asserts it still is. A single calibrated Chromium render, same
-# class as test_letter_signature_orphans_less_often_547.
+# Moving the margin from `.page` padding to `@page` is neutral for page 1 —
+# unless a template's header used to bleed INTO the padding (lebenslauf_letter's
+# did: its negative margin cancelled `.page`'s padding, so the band reached the
+# paper edge and page 1's content started at ~5 mm). Insetting that band into a
+# full 20 mm `@page` top margin moved the first text to 25 mm and cost ~20 mm of
+# page-1 height: the calibrated LETTER_DE_BUDGET fixture and every captured
+# 235-258-word letter flipped 1 -> 2 pages. A letter is a one-page document, so
+# page 1 must not lose capacity to a margin fix; lebenslauf_letter now carries a
+# `@page :first` inset (executive_letter's precedent).
+#
+# TWO tests, deliberately split — the first is the durable gate, the second the
+# calibrated witness. An earlier version of this pin asserted `== 1 page` across
+# ALL SEVEN letter templates; that is exactly the absolute, font-metric-sensitive
+# page-count gate this suite's own rule forbids (test_roundtrip.py's #547 notes:
+# 3 of the 7 templates ask for Georgia/Palatino/Times New Roman, absent here and
+# on a bare CI runner, so they are already font-substituted). Narrowed to the one
+# template that actually regressed, mirroring
+# test_letter_signature_orphans_less_often_547's own scoping (adversarial pass,
+# 2026-08-30).
 # ---------------------------------------------------------------------------
+
+_PAGE1_TOP_INSET_CEILING_MM = 6.0
+
+
+def test_lebenslauf_letter_keeps_a_page1_top_inset_621():
+    """The durable, font-independent gate: the CSS budget read from source.
+
+    `@page :first` must keep page 1's top inset small (the header band sat at
+    ~5 mm before #621), while the outer `@page` rule keeps the real margin for
+    continuation pages — that is the whole point of #621 and must not be
+    traded away to fix page 1.
+    """
+    source = (LETTER_TEMPLATES_DIR / LETTER_TEMPLATES["classic_german"]).read_text()
+    first_top = _read_first_page_top_override_mm(source)
+    assert first_top is not None, (
+        "lebenslauf_letter must declare @page :first — without it the inset header "
+        "band costs ~20 mm of page-1 capacity and one-page letters run to two pages"
+    )
+    assert first_top <= _PAGE1_TOP_INSET_CEILING_MM, (
+        f"@page :first margin-top is {first_top}mm — page 1 loses capacity above "
+        f"{_PAGE1_TOP_INSET_CEILING_MM}mm"
+    )
+    top, _right, _bottom, _left = _read_page_margin_mm(source)
+    assert top > first_top, (
+        f"the outer @page top margin ({top}mm) must stay larger than the :first "
+        f"override ({first_top}mm) — continuation pages are what #621 is about"
+    )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("template", sorted(LETTER_TEMPLATES))
-async def test_letter_page1_capacity_holds_621(template):
+async def test_letter_page1_capacity_holds_621():
+    """One calibrated Chromium render on the ONE template that regressed.
+
+    Same class as test_letter_signature_orphans_less_often_547: a single
+    template/fixture pair, NOT a claim about every letter. LETTER_DE_BUDGET
+    rendered to 1 page on every letter template before #621 (W2 Part-3 table);
+    on this template it flipped to 2 until the `@page :first` inset.
+    """
     from test_roundtrip import LETTER_DE_BUDGET
 
-    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+    html = _jinja_env.get_template(LETTER_TEMPLATES["classic_german"]).render(
         letter=LETTER_DE_BUDGET,
         color=_default_color_context(),
         lang="de",
@@ -705,7 +745,112 @@ async def test_letter_page1_capacity_holds_621(template):
     pdf = await _html_to_pdf(html)
     pages = _bbox_pages(pdf)
     assert len(pages) == 1, (
-        f"{template}: the calibrated LETTER_DE_BUDGET letter rendered to {len(pages)} pages — "
-        "it was 1 page on every letter template before #621; a margin fix must not eat "
-        "page-1 capacity (classic_german lost ~20 mm to an inset header until @page :first)"
+        f"lebenslauf_letter: the calibrated LETTER_DE_BUDGET letter rendered to "
+        f"{len(pages)} pages — it was 1 page before #621; a margin fix must not eat "
+        "page-1 capacity (~20 mm was lost to the inset header until @page :first)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #622 — STANDALONE projects (cv.projects, US187) get the same break policy as
+# work_history entries. Shipped in all 7 templates but pinned by nothing until
+# now: the W2 report itself described them as "unconditional atomicity", which
+# the diff contradicts (only the NESTED job.projects case stayed atomic). An
+# implemented-but-unpinned path is one refactor away from silently reverting —
+# and an incorrect report claim is how it stays unnoticed (adversarial pass,
+# 2026-08-30, MINOR #3).
+# ---------------------------------------------------------------------------
+
+
+def _project_probe_bullets(i: int) -> list[str]:
+    tag = f"{i:02d}"
+    return [
+        f"P{tag}BULLET{j:02d} Projektinhalt Randtest Aufzaehlungspunkt mit ausreichend "
+        f"Laenge damit die Seite zuverlaessig ueberlaeuft und der Umbruch greift."
+        for j in range(1, 13)
+    ]
+
+
+CV_STANDALONE_PROJECTS_PROBE = TailoredCVData.model_validate(
+    {
+        "contact": {
+            "name": "Standalone Projects Probe",
+            "email": "standalone.projects@example.de",
+            "phone": "+49 30 0000004",
+            "location": "Berlin",
+            "photo_url": None,
+        },
+        "show_photo": False,
+        "work_history": [
+            {
+                "company": "Firma S01 GmbH",
+                "role": "Rolle S01",
+                "start_date": "2029-01",
+                "end_date": "2030-01",
+                "bullets": ["S01BULLET01 Kurzer Eintrag als Vorspann fuer die Projektsektion."],
+            }
+        ],
+        "projects": [
+            {"name": f"Projekt PJ{i:02d}", "bullets": _project_probe_bullets(i)}
+            for i in range(1, 5)  # 4 standalone projects x 12 bullets — all LONG
+        ],
+    }
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template", sorted(CV_TEMPLATES))
+async def test_cv_standalone_long_projects_break_after_head_plus_two_bullets(template):
+    """The work_history invariant, asserted on `cv.projects`: a standalone
+    project that spans a page boundary keeps its heading with bullets 1-2 and
+    leaves >= 2 bullets on its last page, and no bullet splits mid-sentence."""
+    html_out = _jinja_env.get_template(CV_TEMPLATES[template]).render(
+        cv=CV_STANDALONE_PROJECTS_PROBE,
+        color=_default_context(),
+        lang="de",
+        labels=cv_labels("de"),
+    )
+    pdf = await _html_to_pdf(html_out)
+    pages = _pdf_pages_text(pdf)
+    assert len(pages) >= 2, f"{template}: fixture rendered {len(pages)} page(s), need >=2"
+
+    spanning_found = False
+    for i in range(1, 5):
+        tag = f"{i:02d}"
+        head_needle = _ats_norm(f"Projekt PJ{tag}")
+        head_hits = [p for p, text in enumerate(pages) if head_needle in text]
+        assert head_hits, f"{template}: standalone project PJ{tag} dropped from the PDF"
+        head_page = head_hits[0]
+
+        bullet_pages = []
+        for j in range(1, 13):
+            needle = _ats_norm(f"P{tag}BULLET{j:02d}")
+            hits = [p for p, text in enumerate(pages) if needle in text]
+            assert hits, (
+                f"{template}: standalone project PJ{tag} bullet {j:02d} not found intact "
+                f"on any single page — it split mid-bullet"
+            )
+            bullet_pages.append(hits[0])
+
+        touched = set(bullet_pages) | {head_page}
+        if len(touched) <= 1:
+            continue
+        spanning_found = True
+
+        assert bullet_pages[0] == head_page and bullet_pages[1] == head_page, (
+            f"{template}: LONG standalone project PJ{tag} spans pages "
+            f"{[p + 1 for p in sorted(touched)]} but its heading is on page {head_page + 1} "
+            f"while bullets 1/2 are on pages {bullet_pages[0] + 1}/{bullet_pages[1] + 1} — "
+            f"the .entry-lead group split (#622)."
+        )
+        last_page = max(touched)
+        count_on_last = sum(1 for p in bullet_pages if p == last_page)
+        assert count_on_last >= 2, (
+            f"{template}: LONG standalone project PJ{tag}'s last page ({last_page + 1}) holds "
+            f"only {count_on_last} of its bullets — the .entry-tail group split (#622)."
+        )
+
+    assert spanning_found, (
+        f"{template}: no standalone project in the 4x12-bullet fixture spans two pages — "
+        f"fixture not calibrated here, the invariant went untested"
     )

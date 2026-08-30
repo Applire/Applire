@@ -114,7 +114,27 @@ _HYPHEN_FAMILY = str.maketrans(
         "_": " ",
     }
 )
-_NON_WORD_RE = re.compile(r"[^\w\s]", re.UNICODE)
+# Punctuation is stripped — EXCEPT the three characters that ARE the name:
+# "C++", "C#", ".NET", "Node.js". Deleting them collapses a term to a bare
+# one- or two-letter word ("c", "net") which then whole-word-matches an
+# unrelated sentence ("a Grade C in Mathematics", "own net margin targets")
+# and would be reported as a settled verbatim fact — the false-positive
+# direction this module must never take (adversarial pass, 2026-08-30).
+# Keeping them costs only false NEGATIVES ("Node.js" vs a posting's
+# "Node JS"), which fall back to the reviewer's judgement.
+_NON_WORD_RE = re.compile(r"[^\w\s+#.]", re.UNICODE)
+# URLs, e-mail addresses and bare domains are stripped from the POSTING
+# before normalisation: a concept named only inside "ai-solutions.de" or
+# "careers@acme.io" is not a stated requirement, and the hyphen-to-space
+# rule would otherwise isolate "ai" as a matchable word. Terms are never
+# passed through this — only the posting text is.
+_LOCATOR_RE = re.compile(
+    r"https?://\S+"
+    r"|www\.\S+"
+    r"|[\w.+-]+@[\w-]+\.[\w.-]+"
+    r"|(?<![\w.])[\w-]+(?:\.[\w-]+)*\.(?:com|de|net|org|io|ai|eu|ch|at|co|uk|dev|app|me)(?![\w])",
+    re.IGNORECASE,
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 # A SIMPLE, deliberately crude suffix stripper for the "words found: k/n"
@@ -132,11 +152,25 @@ def _stem(token: str) -> str:
     return token
 
 
+def strip_locators(text: str) -> str:
+    """Remove URLs, e-mail addresses and bare domains from POSTING text.
+
+    A concept that appears only inside a link or an address is not a stated
+    requirement — and the hyphen-to-space rule would otherwise isolate its
+    parts as matchable words ("ai-solutions.de" -> "ai solutions de", making
+    a fabricated "AI" requirement read as verbatim-grounded). Applied to the
+    posting only, never to an extracted term.
+    """
+    return _LOCATOR_RE.sub(" ", text or "")
+
+
 def normalise(text: str) -> str:
     """The fixed normalisation shared by every verbatim check in this module.
 
-    NFKC -> lower-case -> hyphen/en-dash/em-dash/slash/underscore -> space ->
-    strip remaining punctuation -> collapse whitespace. Applying the SAME
+    NFKC -> lower-case -> eszett -> "ss" -> hyphen/en-dash/em-dash/slash/
+    underscore -> space -> strip remaining punctuation EXCEPT ``+``, ``#``
+    and ``.`` (they are part of "C++", "C#", ".NET", "Node.js" — see
+    :data:`_NON_WORD_RE`) -> collapse whitespace. Applying the SAME
     transform to both the extracted term and the posting text is what makes
     hyphenation ("information-retrieval"), case ("Agentic Workflows"), and a
     job board's own punctuation ("Seniority level: Mid-Senior level") never
@@ -149,6 +183,10 @@ def normalise(text: str) -> str:
         return ""
     folded = unicodedata.normalize("NFKC", text)
     folded = folded.lower()
+    # NFKC does NOT fold eszett; Swiss German never writes it, so a DACH
+    # posting's "Grosskunden" and a vault term's "Großkunden" are the same
+    # word and must compare equal (adversarial pass, 2026-08-30).
+    folded = folded.replace("ß", "ss")
     folded = folded.translate(_HYPHEN_FAMILY)
     folded = _NON_WORD_RE.sub("", folded)
     folded = _WHITESPACE_RE.sub(" ", folded).strip()
@@ -242,7 +280,8 @@ _GROUNDING_FACTS_HEADER = (
     "GROUNDING FACTS (code-computed, not the model's judgement — ADR-069 clause "
     '4b): a term below marked "verbatim yes" is present in the SOURCE JOB POSTING '
     "above under a fixed normalisation (NFKC, lower-case, hyphen/en-dash/em-dash/"
-    "slash/underscore -> space, other punctuation stripped, whole-word/phrase "
+    "slash/underscore -> space, eszett -> ss, other punctuation stripped except "
+    "+ # . as in C++/C#/.NET, links and e-mail addresses ignored, whole-word/phrase "
     'boundaries). A "verbatim yes" term is NEVER grounds for a "not stated", "not '
     'standalone", "only part of a phrase", capitalisation, "role title not a '
     'skill", or "not explicitly listed as a requirement" finding — treat it as '
@@ -268,7 +307,7 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
     line — this function reports facts about what IS there, it invents
     nothing about what is not.
     """
-    posting_norm = normalise(jd_text or "")
+    posting_norm = normalise(strip_locators(jd_text or ""))
     posting_tokens = frozenset(posting_norm.split())
     posting_stems = frozenset(_stem(tok) for tok in posting_tokens)
 
