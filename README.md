@@ -234,9 +234,17 @@ python -m applire.mcp
 ### Prerequisites
 
 - **Docker & Docker Compose**
-- **An LLM provider of your choice** (bring your own key): OpenRouter, Mistral, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
+- **An LLM provider of your choice** (bring your own key): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
 
 ### Self-hosting (no clone required)
+
+> **Which version does this install?** These commands pull the `:latest` images, which
+> track the **newest published release — currently `v0.39.0-beta`**. This page lives on
+> `main`, so it can already describe work that is merged but not yet released; the
+> Roadmap section below names the current release explicitly, and everything under
+> Configuration is kept true of `:latest`. To pin an exact version, replace `:latest` in
+> `docker-compose.yml` with a tag from the
+> [Releases page](https://github.com/Applire/Applire/releases).
 
 ```bash
 # 1. Download the two files you need (compose + env template)
@@ -247,8 +255,11 @@ curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
 cp .env.example .env
 # Edit .env: set LLM_PROVIDER and the matching API key (see Configuration below)
 
-# 3. Start all services (database migrations run automatically on backend startup)
-docker compose up -d
+# 3. Fetch the images, then start all services.
+#    The explicit `pull` matters: `up -d` on its own reuses an older `:latest`
+#    that is already cached locally. Database migrations run automatically on
+#    backend startup — there is no separate migration step.
+docker compose pull && docker compose up -d
 ```
 
 Every service — including the reverse proxy, whose config is baked into the `applire-nginx` image — is a pre-built image, so `docker compose pull` fetches a complete, working stack with no config files to place on the host.
@@ -267,10 +278,10 @@ docker compose pull && docker compose up -d
 ```
 
 > **Updating from a release older than `v0.37.0-beta`?** Step through
-> `v0.38.0-beta` first. Profiles imported before the reconciliation engine
+> `v0.37.2-beta` first. Profiles imported before the reconciliation engine
 > (E035) can hold flat duplicate employers and orphaned projects, and the
 > one-time `scripts/migrate_flat_duplicates.py` pass that folds them into the
-> typed model shipped only in `v0.37.0-beta` … `v0.38.0-beta`. It is data
+> typed model shipped only in `v0.37.0-beta` … `v0.37.2-beta`. It is data
 > hygiene, not schema — Alembic migrations still run automatically on startup,
 > so a direct jump upgrades cleanly, it just leaves those duplicates in place.
 
