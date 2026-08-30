@@ -234,21 +234,31 @@ python -m applire.mcp
 ### Prerequisites
 
 - **Docker & Docker Compose**
-- **An LLM provider of your choice** (bring your own key): OpenRouter, Mistral, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
+- **An LLM provider of your choice** (bring your own key): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
 
 ### Self-hosting (no clone required)
 
+> **Which version does this install?** These commands always fetch the **newest published
+> release** — the same one Docker's `:latest` resolves to, so the compose file, the env
+> template and the images are one matching set, with no version number for you to look
+> up. This page describes the *development* version; for documentation that matches what
+> you just installed, open the
+> [latest release](https://github.com/Applire/Applire/releases/latest).
+
 ```bash
-# 1. Download the two files you need (compose + env template)
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
+# 1. Download the two files you need, straight from the newest release
+curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml
+curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/download/env.example
 
 # 2. Configure your environment
 cp .env.example .env
 # Edit .env: set LLM_PROVIDER and the matching API key (see Configuration below)
 
-# 3. Start all services (database migrations run automatically on backend startup)
-docker compose up -d
+# 3. Fetch the images, then start all services.
+#    The explicit `pull` matters: `up -d` on its own reuses an older `:latest`
+#    that is already cached locally. Database migrations run automatically on
+#    backend startup — there is no separate migration step.
+docker compose pull && docker compose up -d
 ```
 
 Every service — including the reverse proxy, whose config is baked into the `applire-nginx` image — is a pre-built image, so `docker compose pull` fetches a complete, working stack with no config files to place on the host.
@@ -267,10 +277,10 @@ docker compose pull && docker compose up -d
 ```
 
 > **Updating from a release older than `v0.37.0-beta`?** Step through
-> `v0.38.0-beta` first. Profiles imported before the reconciliation engine
+> `v0.37.2-beta` first. Profiles imported before the reconciliation engine
 > (E035) can hold flat duplicate employers and orphaned projects, and the
 > one-time `scripts/migrate_flat_duplicates.py` pass that folds them into the
-> typed model shipped only in `v0.37.0-beta` … `v0.38.0-beta`. It is data
+> typed model shipped only in `v0.37.0-beta` … `v0.37.2-beta`. It is data
 > hygiene, not schema — Alembic migrations still run automatically on startup,
 > so a direct jump upgrades cleanly, it just leaves those duplicates in place.
 

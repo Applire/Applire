@@ -250,29 +250,75 @@ python -m applire.mcp
 
 ### Self-Hosting (kein Klonen nötig)
 
+> **Welche Version wird hier installiert?** Diese Befehle holen immer das **neueste
+> veröffentlichte Release** — genau das, auf das auch Dockers `:latest` zeigt. Compose-Datei,
+> Env-Vorlage und Images sind damit stets ein zusammenpassender Satz, ohne dass du eine
+> Versionsnummer nachschlagen musst. Diese Seite beschreibt die *Entwicklungsversion*; die
+> Dokumentation zu dem, was du gerade installiert hast, findest du beim
+> [neuesten Release](https://github.com/Applire/Applire/releases/latest).
+
 ```bash
-# 1. Benötigte Dateien herunterladen (Compose, Env-Vorlage und nginx-Konfiguration)
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
-mkdir -p nginx && curl -o nginx/self-hosted.conf https://raw.githubusercontent.com/Applire/Applire/main/nginx/self-hosted.conf
+# 1. Die beiden benötigten Dateien direkt aus dem neuesten Release herunterladen
+curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml
+curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/download/env.example
 
 # 2. Umgebung konfigurieren
 cp .env.example .env
 # .env bearbeiten: LLM_PROVIDER und den passenden API-Schlüssel setzen (siehe Konfiguration unten)
 
-# 3. Alle Dienste starten
-docker compose up -d
-
-# 4. Datenbank-Migrationen ausführen (nur beim ersten Start)
-docker compose exec backend alembic upgrade head
+# 3. Images holen, dann alle Dienste starten.
+#    Das ausdrückliche `pull` ist wichtig: `up -d` allein verwendet ein älteres,
+#    lokal bereits vorhandenes `:latest` weiter. Die Datenbank-Migrationen laufen
+#    automatisch beim Start des Backends — es gibt keinen separaten Migrationsschritt.
+docker compose pull && docker compose up -d
 ```
 
+Jeder Dienst — auch der Reverse-Proxy, dessen Konfiguration im `applire-nginx`-Image eingebacken ist — ist ein vorgefertigtes Image. `docker compose pull` holt damit einen vollständigen, lauffähigen Stack, ohne dass du Konfigurationsdateien auf dem Host ablegen musst.
+
 Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+> **Eigene Domain oder TLS?** Das Image bringt eine sinnvolle Standard-Proxy-Konfiguration
+> mit. Um sie zu überschreiben, binde deine eigene Datei über die eingebackene — ergänze
+> beim `nginx`-Dienst in `docker-compose.yml`:
+> ```yaml
+>     volumes:
+>       - ./my-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+> ```
 
 So aktualisierst du auf die neueste Version:
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+> **Du aktualisierst von einer Version älter als `v0.37.0-beta`?** Gehe zuerst über
+> `v0.37.2-beta`. Profile, die vor der Reconciliation-Engine (E035) importiert wurden,
+> können flache Doppel-Arbeitgeber und verwaiste Projekte enthalten; der einmalige Lauf
+> `scripts/migrate_flat_duplicates.py`, der sie in das typisierte Modell überführt, wurde
+> nur in `v0.37.0-beta` … `v0.37.2-beta` ausgeliefert. Das ist Datenhygiene, kein Schema —
+> Alembic-Migrationen laufen weiterhin automatisch beim Start, ein direkter Sprung
+> aktualisiert also sauber, lässt diese Duplikate aber bestehen.
+
+### Self-Hosting aus dem Quellcode
+
+Du baust lieber selbst, was du betreibst (oder erreichst GHCR nicht)? Klone das Repository,
+baue dieselben drei Images lokal und starte dieselbe Produktions-Topologie:
+
+```bash
+git clone https://github.com/Applire/Applire.git && cd Applire
+cp .env.example .env   # LLM_PROVIDER und den passenden API-Schlüssel setzen
+
+docker build -t ghcr.io/applire/applire-backend:latest ./backend
+docker build --target runner -t ghcr.io/applire/applire-frontend:latest ./frontend
+docker build -t ghcr.io/applire/applire-nginx:latest ./nginx
+
+docker compose -f docker-compose.yml up -d
+```
+
+> **Beachte das ausdrückliche `-f docker-compose.yml`.** Innerhalb eines Klons wendet ein
+> einfaches `docker compose up -d` zusätzlich `docker-compose.override.yml` an — den
+> *Entwicklungs*-Stack (Hot-Reload-Server, Quellcode-Bind-Mounts, zusätzlich
+> veröffentlichte Ports einschließlich der Datenbank). Gut zum Arbeiten an Applire, nicht
+> zum Betrieb für echte Nutzer.
 
 > **Mitwirken?** Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für das Entwickler-Setup mit Build aus dem Quellcode.
 

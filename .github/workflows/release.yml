@@ -372,10 +372,13 @@ jobs:
           fi
 
   # Compose install guard (#126): after every publish, verify from a clean
-  # context that the compose the README advertises still pulls — every image
-  # it references must resolve on its registry. Catches an image the release
-  # lane stopped publishing (the v0.37.1-beta applire-nginx:latest gap) the
-  # moment it happens instead of at the next self-hoster's front door.
+  # context that the install the README advertises still works — the release's
+  # docker-compose.yml + env.example assets must be fetchable, and every image
+  # they reference must resolve on its registry. Catches an image the release
+  # lane stopped publishing (the v0.37.1-beta applire-nginx:latest gap), and a
+  # Release published WITHOUT the install assets (which 404s the documented
+  # install for everyone), the moment it happens instead of at the next
+  # self-hoster's front door.
   verify-shipped-compose:
     name: Compose install guard
     needs: [merge-backend, merge-frontend, build-nginx]

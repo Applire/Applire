@@ -19,9 +19,14 @@
 
 Controlled by the LLM_PROVIDER environment variable:
   mistral     — Mistral AI (EU-hosted, default)
+  requesty    — Requesty EU-hosted gateway (Frankfurt, zero-retention)
   openrouter  — OpenRouter multi-model gateway (uses openai SDK)
+  anthropic   — Anthropic Claude, native Messages API (BYO Console key)
   openai      — OpenAI or any OpenAI-compatible server (LM Studio, etc.)
   ollama      — Ollama local server (zero cloud dependencies)
+
+Keep this list, the ValueError below, and .env.example in sync — a provider
+documented in .env.example but absent here is the failure a self-hoster sees.
 """
 
 from applire.config import settings
