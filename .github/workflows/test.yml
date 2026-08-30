@@ -39,6 +39,15 @@ jobs:
       - name: Install Playwright Chromium (ATS round-trip renderer)
         run: python -m playwright install --with-deps chromium
 
+      # poppler-utils supplies `pdftotext -bbox-layout`, the word-level geometry
+      # probe tests/ats/test_page_geometry.py measures #621's page margins and
+      # #622's break policy with. Without it those 45 tests error out (the binary
+      # is absent on ubuntu-latest by default) — and a skip would be worse than a
+      # failure: the whole point of the suite is that the layout claims are backed
+      # by read pixels, not by reasoning about CSS.
+      - name: Install poppler-utils (PDF geometry probe)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: ATS round-trip guarantee (ADR-039)
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
