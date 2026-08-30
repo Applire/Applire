@@ -621,8 +621,11 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.39.0-beta)
+### ✅ Aktuelle Version (v0.40.0-beta)
 
+- [x] Die Dokumentsprache ist deine Entscheidung, keine Erkennung: Ein DE/EN-Schalter je Bewerbung bestimmt alle erzeugten Dokumente, jedes Dokument hält seine Sprache fest, und ein späterer Wechsel schreibt nie ein bestehendes Dokument um
+- [x] Strukturierte Profil-Editoren für Berufserfahrung, Ausbildung, Fähigkeiten, Sprachen, Zertifikate und Projekte — das JSON-Textfeld ist verschwunden, und eine Bearbeitung auf veralteter Grundlage kann abgelehnt werden, statt still zu überschreiben
+- [x] Angeheftete Fakten: Markiere einen Fakt für eine Bewerbung als gesetzt, und er behält seinen Platz im Budget des Dokuments — mit Ausweisung im Prüfbericht
 - [x] Ein Schreibpfad ins Vault: Jeder Schreiber — Interview, Import, Abschnitts-Editor, Konfliktauflösung, Rollen-Lebenszyklus — schreibt über `commit_ops` mit Belegen je Eintrag; keine Ad-hoc-Profiländerungen mehr
 - [x] Abschließende Dokumentprüfung schließt über Lebenslauf und Anschreiben **wie komponiert**, mit begrenztem Wiedereintritt und Ship-and-Report-Semantik
 - [x] Anschreiben-Prüfung behandelt Vorhandensein als mitgeteilten Fakt, nicht als eigene Frage — falsche Forderungen und Falsch-Vorhanden-Befunde nahe null
