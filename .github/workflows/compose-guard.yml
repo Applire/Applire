@@ -21,11 +21,19 @@
 # had never been published — the README's 4-command self-host install died at
 # `docker compose pull` for every new self-hoster while every internal stack
 # (dev override, edge) kept working. This guard checks, from a clean context,
-# exactly what the README advertises: fetch the raw compose from main and verify
-# every `image:` reference resolves on its registry (manifest inspect, no pull).
+# exactly what the README advertises.
+#
+# 2026-08-30: the README's install path moved from raw-on-main to the newest
+# release's ASSETS (github.com/.../releases/latest/download/...), so that the
+# compose file, the env template and the `:latest` images are one matching set —
+# GitHub's `releases/latest` and Docker's `:latest` move on the same publish, by
+# the same `prerelease == false` predicate. This guard follows that move: it now
+# fetches what a self-hoster actually gets, which also proves the assets exist. A
+# release published without them 404s the documented install for everyone.
 #
 # Runs: after every release publish (called from release.yml), weekly (drift on
-# registries/typos), on any main push touching the compose, and on demand.
+# registries/typos/missing assets), on any main push touching the compose or the
+# env template, and on demand.
 
 name: Compose install guard
 
@@ -38,17 +46,45 @@ on:
     branches: [main]
     paths:
       - docker-compose.yml
+      - .env.example
 
 jobs:
   verify-shipped-compose:
-    name: Every image in the shipped compose resolves
+    name: The documented install fetches and resolves
     runs-on: ubuntu-latest
+    env:
+      RELEASE_DL: https://github.com/Applire/Applire/releases/latest/download
     steps:
-      - name: Fetch the compose a self-hoster gets (raw from main)
+      - name: Fetch the files a self-hoster gets (newest release's assets)
         run: |
-          curl -fsSL \
-            https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml \
-            -o compose-shipped.yml
+          set -euo pipefail
+          if ! curl -fsSL "$RELEASE_DL/docker-compose.yml" -o compose-shipped.yml; then
+            echo "::error::$RELEASE_DL/docker-compose.yml does not resolve — the newest"
+            echo "::error::release has no docker-compose.yml asset, so the README's install"
+            echo "::error::path is 404 for every self-hoster. Attach it to the Release."
+            exit 1
+          fi
+          if ! curl -fsSL "$RELEASE_DL/env.example" -o env.example.shipped; then
+            echo "::error::$RELEASE_DL/env.example does not resolve — the newest release"
+            echo "::error::has no env.example asset. Attach it to the Release."
+            exit 1
+          fi
+          echo "Fetched both install assets from the newest published release."
+
+      - name: Report drift between main and the shipped release (informational)
+        continue-on-error: true
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml -o compose-main.yml || exit 0
+          curl -fsSL https://raw.githubusercontent.com/Applire/Applire/main/.env.example -o env.main || exit 0
+          for pair in "compose-shipped.yml:compose-main.yml:docker-compose.yml" "env.example.shipped:env.main:.env.example"; do
+            IFS=: read -r shipped current label <<< "$pair"
+            if ! diff -q "$shipped" "$current" >/dev/null 2>&1; then
+              echo "::notice::$label differs between main and the newest release —"
+              echo "::notice::self-hosters are running the released version. Expected"
+              echo "::notice::mid-flavour; it must not survive the next release."
+              diff -u "$shipped" "$current" || true
+            fi
+          done
 
       - name: Verify every image manifest resolves
         run: |

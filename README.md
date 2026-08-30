@@ -238,18 +238,17 @@ python -m applire.mcp
 
 ### Self-hosting (no clone required)
 
-> **Which version does this install?** These commands pull the `:latest` images, which
-> track the **newest published release — currently `v0.39.0-beta`**. This page lives on
-> `main`, so it can already describe work that is merged but not yet released; the
-> Roadmap section below names the current release explicitly, and everything under
-> Configuration is kept true of `:latest`. To pin an exact version, replace `:latest` in
-> `docker-compose.yml` with a tag from the
-> [Releases page](https://github.com/Applire/Applire/releases).
+> **Which version does this install?** These commands always fetch the **newest published
+> release** — the same one Docker's `:latest` resolves to, so the compose file, the env
+> template and the images are one matching set, with no version number for you to look
+> up. This page describes the *development* version; for documentation that matches what
+> you just installed, open the
+> [latest release](https://github.com/Applire/Applire/releases/latest).
 
 ```bash
-# 1. Download the two files you need (compose + env template)
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/Applire/Applire/main/.env.example
+# 1. Download the two files you need, straight from the newest release
+curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml
+curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/download/env.example
 
 # 2. Configure your environment
 cp .env.example .env
