@@ -101,3 +101,85 @@ def test_template_uses_color_variables(template_key, template_file, jinja_env, m
     cv = TailoredCVData(contact=TailoredContact(name="Test", location="Berlin"), show_photo=False)
     html = template.render(cv=cv, color=minimal_color, lang="de", labels=cv_labels("de"))
     assert "#2b5fa8" in html, f"{template_key}: primary colour not found in rendered HTML"
+
+
+# ---------------------------------------------------------------------------
+# #634 — autoescape was off on every template
+#
+# ``select_autoescape(["html"])`` matches on the template filename's suffix; the
+# shipped templates are all named ``*.html.j2``, so the guard never fired and
+# free text containing angle brackets was emitted into the HTML verbatim.
+# Chromium then swallowed it as an unknown tag and the phrase was missing from
+# the delivered PDF — while the ADR-039 audit passed, because it never reads
+# bullet or summary text.
+#
+# ``tests/ats/test_autoescape_634.py`` pins the delivered artefact, but that
+# suite skips itself when Chromium is unavailable. These three run in every job
+# and pin the cause.
+# ---------------------------------------------------------------------------
+
+BRACKET_TEXT = "Koordination mit <Projekt Phoenix> und R&D-Teams beim Rollout."
+
+
+@pytest.fixture(scope="module")
+def bracket_cv():
+    from applire.schemas.cv import (
+        TailoredCVData, TailoredContact, TailoredWorkEntry,
+    )
+    return TailoredCVData(
+        contact=TailoredContact(name="Anna Musterfrau", email="anna@example.com"),
+        summary="Head of Product mit Schwerpunkt <Digitale Fertigung>.",
+        work_history=[
+            TailoredWorkEntry(
+                company="Beispiel GmbH",
+                role="Head of Product",
+                start_date="2020",
+                end_date=None,
+                bullets=[BRACKET_TEXT],
+            )
+        ],
+        show_photo=False,
+    )
+
+
+def test_autoescape_does_not_depend_on_the_template_filename(jinja_env):
+    """#634's class: a suffix-matching default is silently off under our naming.
+
+    Asserting the *shape* rather than the outcome for one name — a callable here
+    means escaping is decided per filename again, which is exactly what let
+    ``*.html.j2`` slip through.
+    """
+    assert jinja_env.autoescape is True, (
+        "template autoescape must be unconditional — a filename-dependent "
+        "policy is what #634 was"
+    )
+
+
+@pytest.mark.parametrize("template_key,template_file", ALL_TEMPLATES)
+def test_angle_brackets_in_free_text_are_escaped(
+    template_key, template_file, jinja_env, bracket_cv, minimal_color
+):
+    """The reported loss: the phrase must reach the HTML as text, not as a tag."""
+    from applire.templates.labels import cv_labels
+    html = jinja_env.get_template(template_file).render(
+        cv=bracket_cv, color=minimal_color, lang="de", labels=cv_labels("de")
+    )
+    assert "&lt;Projekt Phoenix&gt;" in html, f"{template_key}: bullet not escaped"
+    assert "&lt;Digitale Fertigung&gt;" in html, f"{template_key}: summary not escaped"
+    assert "<Projekt Phoenix>" not in html, f"{template_key}: raw tag still emitted"
+
+
+@pytest.mark.parametrize("template_key,template_file", ALL_TEMPLATES)
+def test_template_markup_is_not_escaped_into_visible_text(
+    template_key, template_file, jinja_env, bracket_cv, minimal_color
+):
+    """The other direction. ``{% set head %}`` captures rendered markup into a
+    variable; under autoescape Jinja marks that capture as ``Markup``, so
+    ``{{ head }}`` must still emit real tags. If it were escaped instead, the
+    candidate's CV would print its own ``<div>`` scaffolding."""
+    from applire.templates.labels import cv_labels
+    html = jinja_env.get_template(template_file).render(
+        cv=bracket_cv, color=minimal_color, lang="de", labels=cv_labels("de")
+    )
+    assert "&lt;div" not in html, f"{template_key}: template markup was escaped"
+    assert "&amp;lt;" not in html, f"{template_key}: text was escaped twice"
