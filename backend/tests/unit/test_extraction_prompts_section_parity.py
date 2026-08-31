@@ -52,11 +52,13 @@ semantics, ``schemas.profile.OBJECT_SECTIONS``) and one reconciler-only section
 evidence, never emitted by any extraction prompt by design). Both are excluded
 below; the eight LIST sections are exactly the shape #190/#229/#619 concern.
 
-KNOWN GAP found while building this guard, deliberately NOT fixed here (out of
-#619's scope — it is OBJECT-shaped, a different kind of section, and was not part
-of what #619 reported): ``profile_extraction.SYSTEM_PROMPT`` has no
-``professional_summary`` key at all, while both other doors ask for one. Filed as a
-finding, not fixed, so this test does not assert on it — see the #619 session report.
+OBJECT sections are guarded too, one test below. They were nearly scoped out as
+"not what #619 reported" — but the System-FMEA row this defect belongs to
+(SF-PROFILE.8) names the loss as *"a CV's Projects section (and its summary
+paragraph) never reaches the vault"*. The summary paragraph IS the OBJECT-shaped
+``professional_summary``, which the FLAT door was also missing; scoping against the
+issue text alone would have left the row's own wording uncredited. Both shapes are
+asserted here.
 
 Why prompt-content assertions (not a mock-based import test): ``MockLLMProvider``
 returns one canned dict (``_PROFILE_PARSE_RESPONSE``) for BOTH the SPLIT and FLAT
@@ -87,7 +89,7 @@ def _top_level_keys(schema_text: str) -> set[str]:
 # key name for the one LIST section whose name differs; MasterProfileData migrates
 # it back (schemas/profile.py::_migrate_legacy_fields). Not a gap — the SAME concept
 # under a different, already-handled name.
-_LEGACY_NAME_ALIASES = {"work_history": "work_experience"}
+_LEGACY_NAME_ALIASES = {"work_history": "work_experience", "contact": "personal_info"}
 
 
 def _canonicalize(section_names: set[str]) -> set[str]:
@@ -147,6 +149,30 @@ def test_profile_extraction_door_offers_every_list_section():
         "the model cannot emit a field it was never given (applire-prompt-first "
         "Category A), see #190/#229/#619"
     )
+
+
+def test_every_door_offers_every_object_section():
+    """SF-PROFILE.8 covers the summary paragraph as well as Projects.
+
+    ``professional_summary`` and ``personal_info`` are merge-patch OBJECT sections
+    (``schemas.profile.OBJECT_SECTIONS``), not lists — a different shape, the same
+    failure mode: a key absent from a door's schema cannot be emitted through it.
+    The FLAT door carried neither ``professional_summary`` (added with #619) nor the
+    name ``personal_info`` (it calls it ``contact``, aliased above like
+    ``work_history``). Guarding both shapes is what makes this file the whole gate
+    rather than the list half of one.
+    """
+    doors = {
+        "cv_extraction.py": _top_level_keys(cv_extraction._SCHEMA_DESCRIPTION),
+        "cv_extraction_segmented.py": (
+            _top_level_keys(cv_extraction_segmented.EXTRACTION_OUTLINE_SYSTEM_PROMPT)
+            | _top_level_keys(cv_extraction_segmented.EXTRACTION_CORE_SYSTEM_PROMPT)
+        ),
+        "profile_extraction.py": _top_level_keys(profile_extraction.SYSTEM_PROMPT),
+    }
+    for door, have in doors.items():
+        missing = OBJECT_SECTIONS - _canonicalize(have)
+        assert not missing, f"{door} is missing OBJECT sections: {missing}"
 
 
 def test_profile_extraction_projects_block_carries_associated_experience():

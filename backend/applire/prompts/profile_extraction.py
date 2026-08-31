@@ -95,6 +95,10 @@ STRICT EXTRACTION RULES — follow these before writing any output:
 
 Schema:
 {
+  "professional_summary": {
+    "de": "German-language professional summary or null",
+    "en": "English-language professional summary or null"
+  },
   "work_history": [
     {
       "company": "string — employer name",
