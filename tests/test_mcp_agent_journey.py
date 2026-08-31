@@ -259,6 +259,17 @@ def test_kaile_agent_journey(agent):
     ats = agent.call("get_cover_letter_ats_report", cover_letter_id=cl_id)
     assert ats["document_id"] == cl_id
     assert ats["status"] == "ready"
+    # E057/ADR-079 clause 4 groundwork (#629, story #637): the not_applicable
+    # counter must reach the agent over the real stdio channel. This journey
+    # runs the REAL audit engine with no producer wired in yet (that is a
+    # separate, pending decision), so it can only prove the field survives
+    # the full MCP round-trip — never None here, since _finish() (this
+    # worktree's schema) always populates it once the report is computed.
+    # The "excluded from passed/failed" property itself is proven with a
+    # synthetic not_applicable check at the unit tier
+    # (tests/unit/test_mcp_render_document.py), which this Docker-gated tier
+    # cannot construct without a real producer.
+    assert ats["report"]["not_applicable"] == 0
 
     # 9. Log the application to the pipeline and confirm it is listed.
     app = agent.call("create_application", job_id=job_id)

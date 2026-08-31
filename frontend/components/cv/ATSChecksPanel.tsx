@@ -25,7 +25,12 @@ import { Button } from "@/components/ui/button";
 
 type ATSCheck = {
   id: string;
-  status: "pass" | "fail";
+  // E057/ADR-079 clause 4: a THIRD status for a check that genuinely cannot
+  // be evaluated on this artefact (e.g. the page-length band on a .docx
+  // export). Counted in its own bucket by the backend's `_finish()` — never
+  // a pass, never a fail. Rendered distinctly wherever the panel shows a
+  // status (see the `notApplicable`-prefixed testids below).
+  status: "pass" | "fail" | "not_applicable";
   details?: string | null;
   // E042 follow-up (ADR-038): machine-readable twin of `details` for bands the
   // frontend localises; `details` stays the EN fallback for legacy reports.
@@ -195,6 +200,11 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   // profiles"). These are informational, never failures — style and group them
   // separately so a pass-with-advisory never reads as a problem.
   const passingAdvisory = report.checks.filter((c) => c.status === "pass" && c.details);
+  // E057/ADR-079 clause 4: a check that could not be evaluated on this
+  // artefact — neither a pass nor a fail. Rendered in its own neutral list so
+  // it is never silently absent (an absent check reads as a clean, complete
+  // audit of something that was never examined — the #634 failure class).
+  const notApplicable = report.checks.filter((c) => c.status === "not_applicable");
   const present = report.keywords.present.length;
   const total = present + report.keywords.missing.length;
   const coverageLabel = t("keywordCoverage", { present, total });
@@ -314,8 +324,10 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
 
         {/* Failures stay loud: rendered inline on the compact card, no interaction needed.
             Pass-with-advisory checks (e.g. page-length beyond the norm by choice) render
-            alongside them with informational — not failure — styling. */}
-        {(failed.length > 0 || passingAdvisory.length > 0) && (
+            alongside them with informational — not failure — styling. not_applicable
+            checks (E057/ADR-079 clause 4) render in the same list with a third,
+            deliberately neutral treatment — never the success or critical palette. */}
+        {(failed.length > 0 || passingAdvisory.length > 0 || notApplicable.length > 0) && (
           <ul className="mt-2 space-y-1 border-t border-outline-variant pt-2">
             {failed.map((c) => (
               <li
@@ -362,6 +374,36 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                     {" — "}
                     {detailText(c)}
                   </span>
+                </span>
+              </li>
+            ))}
+            {/* E057/ADR-079 clause 4: not_applicable — deliberately neither the
+                success nor the critical palette (mirrors TruthfulnessPanel's
+                VERDICT_CHIP_CLASS treatment of its own not_applicable verdict:
+                a genuinely neutral/informational chip, must not look like
+                either a pass or a fail). */}
+            {notApplicable.map((c) => (
+              <li
+                key={c.id}
+                data-testid={`ats-notapplicable-${c.id}`}
+                className="flex items-start gap-2 text-sm text-on-surface"
+              >
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative not-applicable glyph */}
+                <span aria-hidden="true" className="mt-0.5 shrink-0 text-xs font-bold text-on-surface-variant">–</span>
+                <span>
+                  <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-on-surface-variant">
+                    {t("notApplicableLabel")}
+                  </span>
+                  {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between badge and label */}
+                  {" "}
+                  {t(labelKey(c.id))}
+                  {c.details || c.details_key ? (
+                    <span className="text-on-surface-variant">
+                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
+                      {" — "}
+                      {detailText(c)}
+                    </span>
+                  ) : null}
                 </span>
               </li>
             ))}
@@ -468,9 +510,25 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
             <ul className="space-y-1.5">
               {groupChecks(report.checks).map((g) => {
                 const passed = g.checks.filter((c) => c.status === "pass").length;
-                const groupOk = passed === g.checks.length;
                 const failing = g.checks.filter((c) => c.status === "fail");
                 const advisory = g.checks.filter((c) => c.status === "pass" && c.details);
+                // E057/ADR-079 clause 4 (regression, #637): this used to read
+                // `passed === g.checks.length` — a not_applicable check is
+                // neither "pass" nor "fail", so a SINGLE not_applicable check
+                // in an otherwise-clean group made `passed` fall short of
+                // `g.checks.length` and rendered a red ✗ FAILURE glyph on a
+                // band that never failed anything. "OK" now means "nothing in
+                // this group failed" — not_applicable checks are excluded
+                // from the denominator via `checkable`, below, the same
+                // `checkable = total - not_applicable` idiom TruthfulnessPanel
+                // already uses for its own not_applicable verdicts.
+                const notApplicable = g.checks.filter((c) => c.status === "not_applicable");
+                const checkable = g.checks.length - notApplicable.length;
+                // Neutral when EVERY check in the group is not_applicable —
+                // nothing was actually evaluated, so a green checkmark would
+                // misread as "verified clean" (the #634 failure class).
+                const groupStatus: "fail" | "pass" | "not_applicable" =
+                  failing.length > 0 ? "fail" : checkable === 0 ? "not_applicable" : "pass";
                 return (
                   <li
                     key={g.base}
@@ -479,18 +537,24 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                   >
                     <span
                       aria-hidden="true"
-                      className={`mt-0.5 shrink-0 text-xs font-bold ${groupOk ? "text-success" : "text-critical"}`}
+                      className={`mt-0.5 shrink-0 text-xs font-bold ${
+                        groupStatus === "fail"
+                          ? "text-critical"
+                          : groupStatus === "not_applicable"
+                            ? "text-on-surface-variant"
+                            : "text-success"
+                      }`}
                     >
-                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
-                      {groupOk ? "✓" : "✗"}
+                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail/not-applicable glyphs */}
+                      {groupStatus === "fail" ? "✗" : groupStatus === "not_applicable" ? "–" : "✓"}
                     </span>
                     <span>
                       {t(`checks.${g.base}`)}
-                      {g.checks.length > 1 && (
+                      {checkable > 1 && (
                         <span className="text-on-surface-variant">
                           {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space before count */}
                           {" "}
-                          {t("groupCount", { passed, total: g.checks.length })}
+                          {t("groupCount", { passed, total: checkable })}
                         </span>
                       )}
                       {failing.map((c) =>
@@ -509,6 +573,25 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
                           className="block text-xs text-primary"
                         >
                           {detailText(c)}
+                        </span>
+                      ))}
+                      {/* not_applicable — its own note, named per check (never
+                          silently absent), styled neutrally like the compact
+                          card's treatment above. */}
+                      {notApplicable.map((c) => (
+                        <span
+                          key={c.id}
+                          data-testid={`ats-drawer-notapplicable-${c.id}`}
+                          className="block text-xs text-on-surface-variant"
+                        >
+                          {t("notApplicableLabel")}
+                          {c.details || c.details_key ? (
+                            <span>
+                              {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative em-dash separator */}
+                              {" — "}
+                              {detailText(c)}
+                            </span>
+                          ) : null}
                         </span>
                       ))}
                     </span>

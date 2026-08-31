@@ -305,6 +305,45 @@ async def test_render_agent_letter_chrome_injected_when_absent(seeded):
 
 
 @pytest.mark.asyncio
+async def test_render_agent_letter_ats_report_not_applicable_persisted_and_excluded(seeded):
+    """E057/ADR-079 clause 4 groundwork (#629, story #637): render_agent_letter
+    persists whatever ATSReport the audit engine returns verbatim — a
+    not_applicable check must survive that path with its count in its own
+    bucket, never folded into passed/failed. No producer emits one yet; this
+    mocks the audit engine's return value the same way _letter_patches() does
+    above, just with a not_applicable check added."""
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.cover_letter import render_agent_letter
+
+    report = ATSReport(
+        document="cover_letter",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+        not_applicable=1,
+    )
+    with (
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            new=AsyncMock(return_value=b"%PDF"),
+        ),
+        patch("applire.services.ats_audit.audit_cover_letter", return_value=report),
+    ):
+        cl = await render_agent_letter(
+            dict(AGENT_LETTER_CONTENT), seeded["job_id"], seeded["db"]
+        )
+
+    assert cl.ats_report is not None
+    assert cl.ats_report["passed"] == 1
+    assert cl.ats_report["failed"] == 0
+    assert cl.ats_report["not_applicable"] == 1
+
+
+@pytest.mark.asyncio
 async def test_render_agent_letter_missing_anrede_gets_the_generic_floor_564(seeded):
     """#564: the agent door has run the #224 floor since #224 — this pins it
     against the omission case, which no prior test in this file drove (every
