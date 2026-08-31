@@ -151,6 +151,23 @@ class ExperienceBase(BaseModel):
     # falls back to the floor (under-ask). Stores only the role-conditional fields.
     expected_fields: list[str] | None = None
 
+    @field_validator("role", mode="before")
+    @classmethod
+    def coerce_role(cls, v: object) -> str:
+        """#619 — a null role must not reject the whole entry.
+
+        ``role`` declares its own "absent" value (``""``), and the extraction
+        prompts offer no "or null" affordance on it while every neighbouring
+        field has one — so a source whose project states no role leaves the
+        model with ``null`` as its only honest answer. WorkEntry has coerced
+        exactly this since #155; the coercion simply never reached the other
+        two subclasses, because it was written on WorkEntry rather than on the
+        class that DECLARES the field. Found by the first real import through
+        the FLAT door carrying a Projects section (2026-08-31): three projects,
+        three ``role: null``, the whole import raising ValidationError.
+        """
+        return v if isinstance(v, str) else ""
+
     @field_validator("responsibilities", "achievements", "technologies", mode="before")
     @classmethod
     def coerce_experience_list_fields(cls, v: object) -> list:
@@ -180,9 +197,11 @@ class WorkEntry(ExperienceBase):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company: str = ""
 
-    @field_validator("company", "role", mode="before")
+    @field_validator("company", mode="before")
     @classmethod
     def coerce_company(cls, v: object) -> str:
+        # ``role`` is coerced by ExperienceBase.coerce_role — same behaviour as
+        # when this validator named both, now inherited by every subclass.
         return v if isinstance(v, str) else ""
 
     @field_validator("role_aliases", mode="before")
