@@ -15,6 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v5 (#619 — projects/publications/volunteer_activities sections + PROJECTS
+#   no-folding rule (9) added. Triage: Category A (applire-prompt-first) — these fields were
+#   structurally absent from this door's schema while cv_extraction.py / cv_extraction_segmented.py
+#   already carried them (measured on d86be417: 19 cv_extraction.py hits, 7 segmented hits, 0 here),
+#   so this was never a model failure. Third occurrence of the same class on this file (#190
+#   certifications, #229 responsibilities/achievements/technologies) — see
+#   test_extraction_prompts_section_parity.py for the standing regression guard.)
 # Prompt version: v4 (#548 — EDUCATION FIELD rule (8) added; 2026-08-14 edge model comparison
 #   evidence on the sibling cv_extraction.py schema: two models (qwen3.7-max, gpt-5.6-luna)
 #   extracted degree="Industriemeister Metall" AND field="Metall" for the same source line — no
@@ -78,9 +85,20 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    Systemintegration", "Technischer Fachwirt") — for these, put the whole title in "degree" and
    leave "field" null/empty. Only populate "field" for a degree whose title is generic on its own
    (e.g. "Bachelor of Science" + field "Informatik", "Diplom" + field "Betriebswirtschaftslehre").
+9. PROJECTS (#619): Extract items from a CV's "Projects" section as entries in "projects", NOT
+   folded into work_history. A project done within a job or volunteer role should set
+   "associated_experience" to the company/organisation name; standalone projects set it to null.
+   If project dates are absent from the source, set start_date and end_date to null — NEVER infer
+   them. SINGLE HOME: each accomplishment lives in exactly one place — if the same accomplishment
+   appears both as a work_history bullet and in the Projects section, keep it as the project (set
+   "associated_experience") and do NOT also duplicate it as a work_history responsibility/achievement.
 
 Schema:
 {
+  "professional_summary": {
+    "de": "German-language professional summary or null",
+    "en": "English-language professional summary or null"
+  },
   "work_history": [
     {
       "company": "string — employer name",
@@ -117,6 +135,46 @@ Schema:
       "expiry_date": "ISO date YYYY-MM-DD or null",
       "credential_id": "Credential ID or null",
       "credential_url": "Verification URL or null"
+    }
+  ],
+  "publications": [
+    {
+      "title": "Publication or patent title",
+      "type": "publication | patent",
+      "co_authors": ["Co-author names"],
+      "venue": "Journal, conference, or patent office or null",
+      "published_date": "ISO date YYYY-MM-DD or null",
+      "doi": "DOI string or null",
+      "url": "URL or null",
+      "patent_number": "Patent number or null"
+    }
+  ],
+  "volunteer_activities": [
+    {
+      "role": "Volunteer role title",
+      "organization": "Organisation name",
+      "location": "City/country or null",
+      "start_date": "e.g. '2022-03' or null",
+      "end_date": "e.g. '2022-09' or null",
+      "description": "Activity description or null",
+      "cause": "Cause area e.g. 'Education', 'Environment' or null",
+      "responsibilities": ["Day-to-day duties in this volunteer role"],
+      "achievements": ["Measurable outcomes or impacts achieved"],
+      "technologies": ["Tools or platforms used in this volunteer role"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project name",
+      "description": "Short project description or null",
+      "role": "Role on the project e.g. 'Lead Developer', 'Contributor'",
+      "start_date": "e.g. '2022-03' or null — NEVER infer dates absent from the source",
+      "end_date": "e.g. '2022-09' or null — NEVER infer dates absent from the source",
+      "responsibilities": ["What this person did on the project"],
+      "achievements": ["Quantified outcomes e.g. 'Reduced load time by 30%'"],
+      "technologies": ["Languages, frameworks, tools used"],
+      "url": "Project URL, repo, or demo link or null",
+      "associated_experience": "Name of the work or volunteer entry this project was done under, or null for standalone projects"
     }
   ],
   "contact": {

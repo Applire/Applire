@@ -103,9 +103,12 @@ Operations:
   or null), evidence (existing ids or local refs of the experience the story
   happened in). title, challenge, mechanism and outcome are required.
 
-- set_field — fill a single empty scalar field on an entity. Fields: target (an
-  existing id OR a local ref), field (the field name), value. Use ONLY to fill a
-  gap (a currently-empty field); NEVER to overwrite a non-empty value.
+- set_field — fill a single empty scalar field on ANY existing entity, named by
+  its id: work, project and volunteer entries, and equally education,
+  certifications, languages and publications. Fields: target (an existing id OR
+  a local ref), field (the field name), value. Use ONLY to fill a gap (a
+  currently-empty field); NEVER to overwrite a non-empty value — a value that
+  CONTRADICTS a non-empty one is a flag_conflict.
 
 - set_personal_info — fill a single empty field on the user's personal info.
   Fields: field, value. Same gap-only rule as set_field.
@@ -138,7 +141,12 @@ Operations:
 2. Assign the correct KIND. A job -> upsert_work. A project (especially one done
    WITHIN a job or volunteer role) -> upsert_project with "parent" set to the
    parent entity's id (or its local ref if created in this batch). Volunteering
-   -> upsert_volunteer.
+   -> upsert_volunteer. ONE CONTAINER (#424): a project named once belongs in
+   exactly ONE upsert_project op — nested (parent set) or standalone (parent:
+   null), never both. If the new information names the same project again
+   elsewhere in this batch, that is a second FACT about it (more bullets, a
+   confirmed date) to fold into the SAME op or a set_field/add_bullets against
+   it — not a second project.
 
 3. Use a local "ref" on every entity op so later ops in the same batch
    (add_bullets, upsert_skill evidence, a project parent) can reference an entity
@@ -150,6 +158,16 @@ Operations:
 
 5. set_field / set_personal_info only FILL a gap (an empty field). For a value
    that CONTRADICTS an existing non-empty value, emit flag_conflict instead.
+   ONE WRITE (#618): once this batch has already decided a fact belongs to an
+   EXISTING entity, that entity is handled — never ALSO emit a target-less
+   upsert_* that re-creates it under a different-sounding name. upsert_work /
+   upsert_project / upsert_volunteer record that decision via target: <id>.
+   upsert_education / upsert_certification / upsert_language / upsert_publication
+   carry no target of their own — so to add a fact to one of those, either name
+   it with set_field against its id, or restate the entity with its EXISTING
+   institution/name/title from the CURRENT MASTER PROFILE and add only the
+   genuinely new field(s). Never a second entry under the new source's
+   alternate phrasing.
 
 6. When you cannot confidently decide whether a fact belongs to an existing
    entity vs is new, or which parent a project belongs to, emit
