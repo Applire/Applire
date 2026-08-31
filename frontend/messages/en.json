@@ -1186,6 +1186,7 @@
       "skills": "All skills are machine-readable",
       "recipient-company": "Recipient company parsed",
       "body": "Letter paragraph parsed",
+      "content": "Text section parsed in full",
       "duplicate-bullets": "No duplicate bullet points",
       "skills-near-dupe": "No near-duplicate skills",
       "page-length": "Page length",

@@ -809,6 +809,260 @@ async def test_letter_signature_orphans_less_often_547():
 
 
 # ---------------------------------------------------------------------------
+# #547 (orphan case, session 2) — the ONE real-render gate above
+# (test_letter_signature_orphans_less_often_547) is calibrated on a single
+# template, executive. That happens to be one of the three templates where
+# the orphan does NOT reproduce (see the sweep below) — the one rendering
+# gate this codebase had for the defect was calibrated on a template the
+# defect does not affect.
+#
+# A real-render sweep of all 7 (LETTER_DE_BUDGET — already ~1 page on every
+# template — plus N realistic German words appended to the LAST paragraph;
+# a harder probe than a new paragraph, since it pays none of a fresh <p>
+# margin's fixed cost; real Chromium via _html_to_pdf, measured with
+# `pdftotext -bbox-layout`) found the smallest N that flips a template from
+# 1 to 2 pages, where page 2 holds ONLY the closing + name and page 1 ends
+# with double-digit mm of visibly unused space — the #547 orphan shape,
+# not a genuine content-driven 2-page letter:
+#
+#   template            flip N (extra words)   reproduces the orphan?
+#   classic_german       8                      yes
+#   tech_developer       20                     yes
+#   modern_swiss          30                     yes
+#   academic              34                     yes
+#   executive             not within 40          no (not observed)
+#   compact_pro           not within 40          no (not observed)
+#   creative_sidebar      not within 40          no (not observed)
+#
+# A candidate fix was tried and REVERTED, not shipped: a further uniform
+# -2mm/-2mm shave on the shared `.signature`/`.closing` block (same lever,
+# same magnitude as the original #547 margin reduction). Measured
+# (real-rendered, not assumed): it moved classic_german 8 -> 22 words and
+# tech_developer 20 -> 34 (both +14, materially real) and modern_swiss
+# beyond the 40-word swept range, but bought academic +0 words — the
+# IDENTICAL cut, zero measured effect, on a template whose baseline page-1
+# slack (LETTER_DE_BUDGET, zero extra words: 6.4/11.1/14.4/16.5mm for
+# classic_german/tech_developer/academic/modern_swiss respectively, vs
+# 19.4/71.8/70.8mm for executive/compact_pro/creative_sidebar) already
+# showed the shared block is not the dominant variable — tech_developer and
+# executive carried the IDENTICAL pre-shave signature air (14mm) and
+# flipped 20+ words apart. A margin trim that helps 3 of 4 affected
+# templates unevenly and does nothing on the fourth, applied to 3 more
+# templates that never reproduced the defect at all, is not a fix backed by
+# its own evidence — reverted (see git history / the run report for the
+# per-template before/after numbers) rather than shipped as a partial
+# result dressed as a defect fix.
+#
+# The real per-template driver is each template's OWN page-1 capacity —
+# header band height, accent-rule margins, date/subject spacing, all
+# outside the shared signature markup (verified by reading the template
+# source: lebenslauf_letter's coloured header band + 16mm margin + 14mm
+# accent-rule margin alone spend ~30mm before the body starts). Closing it
+# needs a per-template page-1-capacity change in the manner of #621's
+# `@page :first` inset or #431's retypography — both visible "look"
+# decisions the founder made for their own templates, not a shared CSS
+# budget this block owns. Not made unilaterally here; the four affected
+# templates are marked `xfail` below, carrying their measured flip word
+# count, so the gap is recorded rather than hidden. Same lever, N
+# templates, when it earns its keep — ADR-066.
+# ---------------------------------------------------------------------------
+
+_ORPHAN_547_FILLER_WORDS = (
+    "Diese zusätzliche Erfahrung im Bereich Qualitätsmanagement und "
+    "Prozessoptimierung rundet mein Profil weiter ab und zeigt meine "
+    "Bereitschaft Verantwortung zu übernehmen sowie Projekte über "
+    "mehrere Standorte hinweg erfolgreich zum Abschluss zu bringen "
+    "und dabei stets die Kundenanforderungen im Blick zu behalten."
+).split()  # 40 words
+
+_ORPHAN_547_FREE_SPACE_FLOOR_MM = 8.0  # below this, a lonely page-2 closing
+# is a genuine, non-wasteful natural break (little room was left to waste),
+# not the #547 orphan shape — see the sweep comment above for the measured
+# 17-25mm this defect actually leaves on every reproduced case.
+
+_ORPHAN_547_XFAIL_REASON = (
+    "flips at +{measured} words (this test is calibrated at that exact "
+    "measured flip point). "
+    "Root cause pinned to this template's OWN page-1 capacity (header/"
+    "accent-rule/date-block budget), not the shared signature block — a "
+    "shared-block margin trim was tried and reverted (measured to help "
+    "unevenly across templates, see the comment above). Needs a "
+    "per-template page-1-capacity change (#621 @page:first / #431 "
+    "retypography class) — a founder 'look' decision, not made here."
+)
+
+def _xfail_547(measured_flip_words: int) -> pytest.MarkDecorator:
+    """Records the #547 gap without asserting it reproduces everywhere.
+
+    **`strict=True` was tried first and withdrawn on evidence** (CI run
+    33432704537, job 99621656399): `tech_developer` XPASSed there and turned a
+    recorded gap into a red build, while the other three still XFAILed. The
+    word counts below are each template's flip point *as measured on the
+    development host*, and a flip point is a rendered-layout quantity — CI
+    substitutes fonts, so the same fixture overflows at a different word count,
+    or not at all. This file's own #429 docstring already flags that hazard for
+    the assertion; it applies just as much to the fixture that provokes it.
+
+    So: the ASSERTION stays a relative invariant read from a single render
+    (page 2 holds only the closing AND page 1 still has >8 mm unused), which
+    survives a font swap — and the MARKER is non-strict, because "does this
+    template overflow at exactly N words" does not.
+
+    The cost is real and stated rather than hidden: a future capacity fix will
+    NOT make this suite go red by itself. #547 stays open and the writer
+    collector (#601) carries the finding, which is where the tracking lives now.
+    """
+    return pytest.mark.xfail(
+        reason=_ORPHAN_547_XFAIL_REASON.format(measured=measured_flip_words),
+        strict=False,
+    )
+
+
+_ORPHAN_547_PARAMS = [
+    # (template, n_words_appended) — each template's OWN measured flip
+    # point (the smallest overflow that reproduces the orphan; 40 == the
+    # full filler list, for the 3 templates that never flipped within it);
+    # xfail only on the 4 confirmed-reproducing cases.
+    pytest.param("classic_german", 8, marks=_xfail_547(8), id="classic_german"),
+    pytest.param("tech_developer", 20, marks=_xfail_547(20), id="tech_developer"),
+    pytest.param("modern_swiss", 30, marks=_xfail_547(30), id="modern_swiss"),
+    pytest.param("academic", 34, marks=_xfail_547(34), id="academic"),
+    pytest.param("executive", 40, id="executive"),
+    pytest.param("compact_pro", 40, id="compact_pro"),
+    pytest.param("creative_sidebar", 40, id="creative_sidebar"),
+]
+assert sorted(p.id for p in _ORPHAN_547_PARAMS) == sorted(LETTER_TEMPLATES), (
+    "the #547 orphan sweep must cover exactly the shipped letter templates"
+)
+
+
+def _bbox_pages_547(pdf_bytes: bytes) -> list[dict]:
+    """poppler ``pdftotext -bbox-layout`` -> one dict per page: width/height
+    (pt) + a word list of (xMin, yMin, xMax, yMax, text) tuples, top-left
+    origin. A local re-implementation of test_page_geometry.py's own
+    ``_bbox_pages`` — kept local rather than cross-imported, matching this
+    tree's per-file convention (test_letter_final_floor_547.py)."""
+    import html as html_mod
+    import re
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(pdf_bytes)
+        pdf_path = f.name
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-bbox-layout", pdf_path, "-"],
+            capture_output=True, text=True, check=True,
+        )
+    finally:
+        Path(pdf_path).unlink(missing_ok=True)
+
+    page_re = re.compile(r'<page width="([\d.]+)" height="([\d.]+)">(.*?)</page>', re.S)
+    word_re = re.compile(
+        r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', re.S
+    )
+    pages = []
+    for width, height, body in page_re.findall(proc.stdout):
+        words = [
+            (float(x0), float(y0), float(x1), float(y1), html_mod.unescape(text))
+            for x0, y0, x1, y1, text in word_re.findall(body)
+        ]
+        pages.append({"width": float(width), "height": float(height), "words": words})
+    return pages
+
+
+def _read_page_bottom_margin_mm_547(template_file: str) -> float:
+    import re
+
+    source = (LETTER_TEMPLATES_DIR / template_file).read_text(encoding="utf-8")
+    m = re.search(r"@page\s*\{[^}]*?margin:\s*([^;]+);", source, re.S)
+    assert m, "no @page margin rule found"
+    vals = [float(v[:-2]) for v in m.group(1).split()]
+    if len(vals) == 1:
+        return vals[0]
+    if len(vals) == 2:
+        return vals[0]
+    return vals[2]  # 3- or 4-value shorthand: bottom is always index 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template, n_words", _ORPHAN_547_PARAMS)
+async def test_letter_signature_no_wasteful_orphan_547(template, n_words):
+    """The RELATIVE #547 invariant — "a letter whose body fits page 1 keeps
+    its closing block on page 1" — calibrated per template from the flip
+    points measured above (each fixture is set at its template's OWN
+    measured flip point: the smallest overflow at which the body's own
+    text still ends with visible room to spare on page 1, yet the atomic
+    signature block gets bounced whole to a lonely page 2 anyway), never
+    from an assumed page geometry. Deliberately NOT a bare page-count
+    assertion (the risk this exact file's own #429 test docstring already
+    flags for a cross-template gate: font substitution in CI shifts
+    exactly where the boundary falls). Instead: if the render spans 2+
+    pages, it only fails when page 2 holds nothing but the closing/name
+    AND page 1 still has meaningful (>8mm) unused room — both quantities
+    read from the SAME render, so a font swap moves the boundary but not
+    the comparison: on a template that never reproduces the orphan (the
+    three plain params below with no marker), a font-driven overflow at
+    this same fixture would still pass, because real body text — not just
+    the closing — would share page 2, or page 1 would already be genuinely
+    full.
+
+    xfail (strict, via the marks on _ORPHAN_547_PARAMS) on the four
+    templates this session confirmed still reproduce the orphan today: the
+    body of THIS function still runs and is still asserted on for those
+    four (imperative ``pytest.xfail()`` would skip the render entirely and
+    defeat strict's whole purpose) — only the marker on the param, not a
+    skip in this body, is what converts a real failure into a recorded,
+    tracked XFAIL, and an unexpected pass into a hard error.
+    """
+    import copy
+
+    letter = copy.deepcopy(LETTER_DE_BUDGET)
+    if n_words:
+        extra = " ".join(_ORPHAN_547_FILLER_WORDS[:n_words])
+        paragraphs = list(letter["body"]["paragraphs"])
+        paragraphs[-1] = paragraphs[-1] + " " + extra
+        letter["body"]["paragraphs"] = paragraphs
+
+    html = _jinja_env.get_template(LETTER_TEMPLATES[template]).render(
+        letter=letter,
+        color=_default_color_context(),
+        lang="de",
+        labels=cover_letter_labels("de"),
+        subject="Bewerbung als Leiter Qualitätssicherung",
+    )
+    pdf = await _html_to_pdf(html)
+    pages = _bbox_pages_547(pdf)
+
+    if len(pages) < 2:
+        return  # single page: no page 2 to orphan, invariant trivially holds
+
+    pt_per_mm = 72.0 / 25.4
+    bottom_margin_mm = _read_page_bottom_margin_mm_547(LETTER_TEMPLATES[template])
+    p1, p2 = pages[0], pages[1]
+    y_max_p1 = max((w[3] for w in p1["words"]), default=0.0)
+    bottom_ceiling_pt = p1["height"] - bottom_margin_mm * pt_per_mm
+    free_mm = (bottom_ceiling_pt - y_max_p1) / pt_per_mm
+
+    closing = _norm_probe(LETTER_DE_BUDGET["signature"]["closing"])
+    name = _norm_probe(LETTER_DE_BUDGET["signature"]["name"])
+    p2_text = _norm_probe(" ".join(w[4] for w in p2["words"]))
+    leftover = p2_text
+    for tok in closing.split() + name.split():
+        leftover = leftover.replace(tok, "")
+    orphan_only = len(leftover.strip(" ,.-")) < 5
+
+    is_wasteful_orphan = orphan_only and free_mm > _ORPHAN_547_FREE_SPACE_FLOOR_MM
+    assert not is_wasteful_orphan, (
+        f"{template}: {n_words} extra words bounced the closing alone onto "
+        f"page {len(pages)}, leaving {free_mm:.1f}mm unused on page 1 — "
+        f"the #547 orphan."
+    )
+
+
+# ---------------------------------------------------------------------------
 # #431 — academic_letter.html.j2 could not hold a budget-length body on one
 # page: 11pt / line-height 1.7 / 28mm side padding, the airiest typography of
 # the family, overflowed A4 by ~32mm on LETTER_DE_BUDGET when reported

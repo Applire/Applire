@@ -642,6 +642,44 @@ def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], cov
     )
 
 
+def _free_text_snippets(tailored: TailoredCVData) -> list[str]:
+    """Every piece of the CV the candidate actually wrote, in document order.
+
+    ADR-039 amendment (2026-08-31, #634). The summary, each work-entry bullet,
+    each bullet of a project nested under an entry, and each bullet of a
+    standalone project. Deliberately NOT the structured fields — those already
+    have their own named checks, and duplicating them here would report one
+    defect twice.
+
+    Blank entries are dropped rather than checked: there is nothing to verify,
+    and an empty needle matches anywhere. Mirrors the letter side's
+    empty-paragraph guard.
+
+    Templates render every bullet exactly once — the #622 page-break policy
+    slices them into ``[:2]`` / ``[2:-2]`` / ``[-2:]`` groups but reconstitutes
+    the full list (verified at n = 1, 2, 3, 4, 5, 7 on all seven templates), and
+    nested project bullets are never sliced — so a bullet listed here is one the
+    delivered document is expected to carry.
+    """
+    out: list[str] = []
+
+    def _add(value: str | None) -> None:
+        if value and value.strip():
+            out.append(value)
+
+    _add(tailored.summary)
+    for w in tailored.work_history:
+        for b in w.bullets or []:
+            _add(b)
+        for proj in w.projects or []:
+            for b in proj.bullets or []:
+                _add(b)
+    for proj in tailored.projects or []:
+        for b in proj.bullets or []:
+            _add(b)
+    return out
+
+
 def _audit_cv_text(
     text: str,
     tailored: TailoredCVData,
@@ -746,6 +784,20 @@ def _audit_cv_text(
                 details_key="skills-weak-vault-tie",
                 details_params={"skills": pairs_neutral, "count": len(weak_ties)},
             ))
+
+    # ── ADR-039 amendment (2026-08-31, #634): the candidate's own prose ──────
+    # Everything above verifies STRUCTURED fields. Free text was verified by
+    # nothing on this side, so a bullet that lost a phrase between the data and
+    # the delivered PDF produced a clean report — #634 shipped
+    # "Koordination mit <Projekt Phoenix> und R&D-Teams" as
+    # "Koordination mit und R&D-Teams", still grammatical, zero failures.
+    #
+    # Same `_norm`/`_find` predicate as the structured checks — one predicate,
+    # not a second matcher (ADR-066); `_audit_letter_text` converges onto it
+    # below. Presence only, never quality: no score (ADR-035).
+    for i, snippet in enumerate(_free_text_snippets(tailored)):
+        _check(checks, f"content-{i}", _find(snippet, t) >= 0,
+               f"text not found in the extracted document: '{snippet[:80]}'")
 
     # #169: a role bullet repeated inside a project nested under that role (belt-and-
     # braces over the deterministic suppression in cv._nest_projects). Only emitted
@@ -957,10 +1009,15 @@ def _audit_letter_text(
 
     paragraphs = (letter_data.get("body") or {}).get("paragraphs") or []
     for i, p in enumerate(paragraphs):
-        probe = p[:60]
-        if not _norm(probe):
+        # ADR-039 amendment (2026-08-31, #634): the FULL paragraph, not `p[:60]`.
+        # The old 60-character probe made detection depend on where in the
+        # paragraph the loss happened — measured boundary, exact and
+        # template-independent: offset ≤ 59 failed, offset ≥ 60 passed silently.
+        # This is the same predicate `_audit_cv_text` now uses on its bullets;
+        # the two halves of one responsibility had diverged (ADR-066).
+        if not _norm(p or ""):
             continue  # empty/whitespace paragraph — nothing to verify (mirrors the CV-side empty-field guard)
-        _check(checks, f"body-{i}", _find(probe, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
+        _check(checks, f"body-{i}", _find(p, t) >= 0, f"body paragraph {i + 1} not found in extracted text")
 
     # E042/US240 (ADR-051 §6): DETECTION-ONLY page-length check against the region's
     # 1-page letter norm — deliberately no target resolution, no user setting, no

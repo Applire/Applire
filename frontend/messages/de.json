@@ -1186,6 +1186,7 @@
       "skills": "Alle Fähigkeiten sind maschinenlesbar",
       "recipient-company": "Empfängerunternehmen erkannt",
       "body": "Anschreiben-Absatz erkannt",
+      "content": "Textabschnitt vollständig erkannt",
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",

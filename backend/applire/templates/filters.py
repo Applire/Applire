@@ -29,7 +29,7 @@ there is one way to get an environment and it is always correctly configured.
 import re
 import unicodedata
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader
 
 from applire.utils.budget_unit import budget_needs_unit
 
@@ -235,7 +235,14 @@ def build_template_env(templates_dir) -> Environment:
     """
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
-        autoescape=select_autoescape(["html"]),
+        # #634: unconditional, NOT ``select_autoescape([...])``. That helper
+        # decides per template *filename suffix*, and every Applire template is
+        # named ``*.html.j2`` — so ``select_autoescape(["html"])`` never fired
+        # on a single one of them, and a bullet reading "Koordination mit
+        # <Projekt Phoenix>" shipped to the candidate's PDF with the bracketed
+        # phrase silently deleted by the HTML parser. This directory holds only
+        # HTML templates; anything else added here would need its own env.
+        autoescape=True,
     )
     register_filters(env)
     return env

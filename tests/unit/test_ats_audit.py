@@ -640,10 +640,22 @@ _CV = TailoredCVData.model_validate({
 })
 
 def _full_text() -> str:
+    """Extracted text of a document that faithfully carries ALL of `_CV`.
+
+    The summary and the three bullets are load-bearing, not decoration: until
+    the ADR-039 amendment (2026-08-31, #634) the audit read no free text on the
+    CV side, so this fixture omitted them and still called itself "faithful" —
+    it was faithful only to what the instrument happened to examine. Removing
+    any line below makes `content-*` fail, which is the point.
+    """
     return (
         "Anna Bauer anna@example.com +49 151 1234567 Berlin\n"
+        "Backend engineer with cloud focus.\n"
         "Senior Backend Engineer Cloudwerk GmbH 04/2021 - heute\n"
+        "Built FastAPI services\n"
+        "Led Kubernetes migration\n"
         "Software Engineer DataHaus AG 09/2017 - 03/2021\n"
+        "Maintained ETL pipelines\n"
         "Python FastAPI Kubernetes\n"
         "TU Berlin M.Sc. Informatik 2014 - 2017\n"
     )
