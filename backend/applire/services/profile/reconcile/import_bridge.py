@@ -45,7 +45,7 @@ from applire.services.profile.reconcile.apply import (
     _merged,
     apply_ops,
 )
-from applire.services.profile.reconcile.dedupe import classify_dupe
+from applire.services.profile.reconcile.dedupe import classify_certification_dupe
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_witness import compute_import_not_applied
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
@@ -178,7 +178,8 @@ def _union_certifications(
     incoming: MasterProfileData,
     changes: list[FieldChange],
 ) -> None:
-    """#190 — deterministically UNION ``incoming.certifications`` into ``merged``.
+    """#190 (dupe instrument fixed for #618) — deterministically UNION
+    ``incoming.certifications`` into ``merged``.
 
     Certifications are FACTUAL data (like contact info): the binding F7 decision
     (``tests/unit/test_cv_certifications.py``) copies them verbatim through
@@ -189,19 +190,47 @@ def _union_certifications(
     durable guarantee against that loss: whatever op batch the LLM emitted, every
     incoming certification is present on the merged profile afterwards.
 
-    It reuses the section-agnostic near-dupe guard (``classify_dupe`` on name) so
-    it never double-adds a cert the reconciler already upserted (exact / near-dupe
-    name → MATCH → fill only empty scalar fields, never overwrite). Anything the
-    guard does not confidently call the same cert — DISTINCT, or merely
-    AMBIGUOUS (a shared single token) — is appended rather than dropped: preserving
-    a possible near-duplicate is the correct trade against silent data loss for a
-    factual, user-verifiable field. ``merged`` is the apply_ops deep copy, so
-    mutating it here is safe; incoming certs are deep-copied in so the two
-    profiles never share objects.
+    #618: this used to call the section-agnostic ``classify_dupe`` on name alone
+    — the same generic instrument used for education/languages/etc, which knows
+    nothing about certification-specific variance (EN/DE cross-language pairs, the
+    ®/™ symbol fold, or an issuer as a tie-breaker). A two-source import (FlowCV +
+    LinkedIn) produced verbatim duplicates the generic instrument could not see:
+    "Expert for Computersystemvalidation" / "Experte für Computervalidierung",
+    "ITIL Foundation Level" / "ITIL® Foundation", and a Software-Architect
+    cognate pair — all MATCH under the certification-aware instrument below,
+    0/3 under the old one. This was an ADR-066 ("one logical operation, one
+    implementation") seam: three readers of certification identity
+    (``_apply_upsert_certification`` in apply.py, ``import_witness``'s
+    ``compute_import_not_applied``, and this function) had settled on two
+    different instruments. This is the third reader switched onto
+    ``classify_certification_dupe`` — the SAME instrument the other two already
+    use, anchored on ``credential_id`` first, then name (certification-folded)
+    + issuing_organization.
+
+    The append-on-non-MATCH trade is UNCHANGED: anything the guard does not
+    confidently call the same cert — DISTINCT, or AMBIGUOUS (folded-name SAME
+    but a *confirmed different* issuing_organization, or a bare single-token
+    containment) — is still appended rather than dropped. Preserving a possible
+    near-duplicate is the correct trade against silent data loss for a factual,
+    user-verifiable field; this function has no confirmation channel available
+    to it (unlike ``_apply_upsert_certification``, which can raise a
+    ``RequestConfirmation`` instead), so AMBIGUOUS can only mean "keep both,
+    don't guess" here. Swapping the instrument shrinks the AMBIGUOUS/appended
+    set — it no longer includes the 3 pairs above — without loosening that
+    guarantee: a genuine cross-source org conflict on an otherwise-matching
+    name still surfaces as two entries, exactly as before. ``merged`` is the
+    apply_ops deep copy, so mutating it here is safe; incoming certs are
+    deep-copied in so the two profiles never share objects.
     """
     for cert in incoming.certifications:
-        verdict = classify_dupe(
-            {"name": cert.name}, merged.certifications, {"name": lambda c: c.name}
+        verdict = classify_certification_dupe(
+            name=cert.name,
+            issuing_organization=cert.issuing_organization,
+            credential_id=cert.credential_id,
+            existing=merged.certifications,
+            name_getter=lambda c: c.name,
+            org_getter=lambda c: c.issuing_organization,
+            credential_id_getter=lambda c: c.credential_id,
         )
         if verdict.match is not None:
             changed = _fill_empties(verdict.match, {

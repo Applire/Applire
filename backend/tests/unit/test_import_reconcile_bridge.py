@@ -101,6 +101,110 @@ async def test_import_certifications_no_double_add_when_already_present():
     assert certs[0].issuing_organization == "AXELOS"  # empty issuer filled from incoming
 
 
+# ── #618: _union_certifications' identity instrument (three real pairs from a
+# FlowCV + LinkedIn two-source import). Before the fix, `_union_certifications`
+# called the section-agnostic `classify_dupe` on name alone (0/3 MATCH on these
+# pairs); it now calls `classify_certification_dupe` — the same cert-aware
+# instrument `_apply_upsert_certification` (apply.py) and
+# `import_witness.compute_import_not_applied` already used, so all three
+# readers of certification identity agree (ADR-066).
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_union_matches_en_de_cross_language_pair():
+    """#618 pair 1: EN name from one source, DE translation from the other."""
+    existing = MasterProfileData(
+        certifications=[Certification(name="Expert for Computersystemvalidation")]
+    )
+    incoming = MasterProfileData(
+        certifications=[Certification(name="Experte für Computervalidierung")]
+    )
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "linkedin_import", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 1                          # no duplicate across languages
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_union_matches_trademark_symbol_pair():
+    """#618 pair 2: a trailing '® Foundation' vs 'Foundation Level' variant —
+    the ® fuses onto the adjacent token under the generic tokeniser, which
+    that instrument never strips."""
+    existing = MasterProfileData(
+        certifications=[Certification(name="ITIL Foundation Level")]
+    )
+    incoming = MasterProfileData(
+        certifications=[Certification(name="ITIL® Foundation")]
+    )
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "linkedin_import", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 1                          # no duplicate across the ® variant
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_union_matches_cognate_stem_pair():
+    """#618 pair 3: 'Software Architect' vs 'Software Architecture' — a
+    cognate-stem variant just under the generic near-dupe Jaccard threshold."""
+    existing = MasterProfileData(certifications=[
+        Certification(name="Certified Professional Software Architect Foundation Level"),
+    ])
+    incoming = MasterProfileData(certifications=[
+        Certification(name="Certified Professional for Software Architecture Foundation Level"),
+    ])
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "linkedin_import", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 1                          # no duplicate across the cognate stem
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_union_keeps_both_on_confirmed_org_conflict():
+    """#618 org-conflict question: the instrument swap alone does NOT collapse a
+    same-name pair whose two sources report a genuinely different (non-overlapping)
+    issuing_organization — `classify_certification_dupe` rules that AMBIGUOUS
+    (a name match against a *confirmed different* issuer is 'unsure', never a
+    silent merge), and `_union_certifications` has no confirmation channel, so
+    its append-on-non-MATCH trade fires: both entries survive. Unchanged
+    behaviour from before the fix — this is not a regression, it is the
+    documented trade against silent data loss."""
+    existing = MasterProfileData(certifications=[
+        Certification(name="ITIL Foundation Level", issuing_organization="AXELOS"),
+    ])
+    incoming = MasterProfileData(certifications=[
+        Certification(name="ITIL® Foundation", issuing_organization="PeopleCert"),
+    ])
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "linkedin_import", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 2                          # kept apart, not silently merged
+    assert {c.issuing_organization for c in certs} == {"AXELOS", "PeopleCert"}
+
+
+@pytest.mark.asyncio
+async def test_import_certifications_union_keeps_distinct_certs_from_same_issuer_separate():
+    """Safety net on the stronger instrument: two genuinely DIFFERENT
+    certifications from the SAME issuer (two AWS certs) must not collapse into
+    one just because they share an issuer and several name tokens."""
+    existing = MasterProfileData(certifications=[
+        Certification(name="AWS Certified Solutions Architect - Associate",
+                      issuing_organization="Amazon Web Services"),
+    ])
+    incoming = MasterProfileData(certifications=[
+        Certification(name="AWS Certified Solutions Architect - Professional",
+                      issuing_organization="Amazon Web Services"),
+    ])
+    stub = _Stub({"ops": [], "ambiguities": []})
+    result = await reconcile_import(existing, incoming, "linkedin_import", stub)
+    certs = result.merged_profile.certifications
+    assert len(certs) == 2                          # two real certs, not one
+    names = {c.name for c in certs}
+    assert names == {
+        "AWS Certified Solutions Architect - Associate",
+        "AWS Certified Solutions Architect - Professional",
+    }
+
+
 @pytest.mark.asyncio
 async def test_import_folds_synonym_role_into_existing():
     existing = MasterProfileData(work_experience=[WorkEntry(company="Applire", role="Founder & Lead Developer")])
