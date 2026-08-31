@@ -256,6 +256,12 @@ def build_summary_prompt(
 # Skills
 # ---------------------------------------------------------------------------
 
+# 2026-08-31 (ADR-062, applire-prompt-first): the "one entry per competence" paragraph
+# below mirrors cv_tailoring.SYSTEM_PROMPT's rule 7 sub-rule of the same name — see that
+# file's v12 changelog entry for the full rationale (the four observed shapes, why the
+# survivor is the vault's own term/the NAME side and never the job ad's wording, and the
+# known residual risk from #376's _restore_narrative_named_skills). Two independent
+# builders emit `skills`; a rule written into only one is no rule at the other.
 SKILLS_SECTION_SYSTEM_PROMPT = f"""\
 You are a DACH cv skills writer. Filter and order the candidate's skills to lead with those
 the job requires, following the directive's skills focus. Include a keyword-gap skill ONLY if
@@ -265,6 +271,17 @@ not a skill: a skill is a named competence, tool or method the candidate holds i
 vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of
 experience are the SETTING of the work — they belong in the summary or in the bullet that
 states them, never in the skills list.
+
+One entry per competence, even with no shared token: an acronym beside its expansion or
+description (MES / Maschinen- und Betriebsdatenerfassung), close synonyms (Lean Management /
+Lean Production), a compound sharing another entry's stem (Budgetverantwortung /
+Budgetplanung), or a norm beside the discipline it belongs to (ISO 45001 /
+Arbeitssicherheitsmanagement) — keep both ONLY with separate evidence for each, and never
+across codes, modules or standards themselves: SAP PP stays apart from SAP MM, ISO 9001 stays
+apart from ISO 45001. When they do collapse, the NAME wins over the description (an acronym,
+product, standard or method name beats a form that only describes it); otherwise keep the
+profile's own term, never the job ad's wording where the two differ, and never a phrasing you
+invent.
 
 {_CORE_RULES}
 

@@ -15,6 +15,61 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12 (ADR-062, 2026-08-31 — rule 7's "one entry per competence" sub-rule
+#   widens from the acronym/expansion/translation triad to name four shapes that still
+#   shipped as separate skills-list entries on the 2026-08-30 delivered document (a blind
+#   fachbereich reviewer named the redundancy unprompted, 25 entries total): MES / Maschinen-
+#   und Betriebsdatenerfassung (an acronym beside a description sharing no token with it —
+#   not the parenthetical "X (ABBR)" shape the old sentence covered), Lean Management / Lean
+#   Production (near-synonym), Budgetverantwortung / Budgetplanung (a DE compound sharing a
+#   stem), ISO 45001 / Arbeitssicherheitsmanagement (a norm beside the discipline it belongs
+#   to). ats_audit.skills_page_dupe correctly collapsed three OTHER pairs in the SAME list
+#   (Feinplanung/Fertigungssteuerung, KVP/KVP-Kaizen, SAP/SAP PP) and, by design, cannot
+#   reach these four — deciding "is this the same competence" is a JUDGEMENT (ADR-062 clause
+#   1), and skills_page_dupe is deliberately the narrower containment/Jaccard FACT; widening
+#   it risks conflating SAP PP with SAP MM or ISO 9001 with ISO 45001 (services/cv.py:1606's
+#   own docstring works this exact boundary). Category B (applire-prompt-first): the general
+#   principle already existed, its enumerated shapes were just too narrow to reach any of the
+#   four observed pairs — extended in place rather than bolted on as a new sub-rule (the
+#   "one-rule-per-incident growth" smell this skill names). Wording is kept terse for a second,
+#   load-bearing reason: test_cv_figure_attachment_prompts.py::test_writer_prompt_stays_
+#   smaller_than_its_reviewer enforces SYSTEM_PROMPT < review_cv_tailoring.REVIEW_SYSTEM_PROMPT
+#   in chars — a first, fuller draft of this sub-rule (per-example justification clauses, a
+#   worked ISO 45001 example sentence) pushed SYSTEM_PROMPT to 10,996 chars against the
+#   reviewer's 10,476 and broke that guard; trimmed back to 10,380 (96-char margin).
+#   The survivor rule REJECTS this task's first-drafted heuristic — "keep whichever form the
+#   job ad uses" — on replayed evidence, not preference: against the pinned 2026-08-15
+#   fixture (tests/files/run_2026_08_15/), _drop_ungrounded_jd_echo_skills (cv.py:1606)
+#   deletes a JD-echoing tag OUTRIGHT once it has no skills_page_dupe tie to any
+#   vault-attested spelling — exactly what happens to a bare acronym kept only because the
+#   JD uses it, when the vault's own Skill entity spells the competence out (or the reverse:
+#   "Lean Production" page-dupes no vault form when the vault says "Lean Management", and
+#   would be silently dropped, not merely out-ranked). Keeping the vault's own term, or the
+#   NAME side under rule 8's own name/describe test, stays vault-tied by construction and is
+#   never at risk of that deletion.
+#   Mirrored into cv_segmented.SKILLS_SECTION_SYSTEM_PROMPT: two independent builders emit
+#   `skills` (services/cv.py:394-401 and :470-483) and the ORIGINAL "one entry per
+#   competence" sentence had only ever shipped to this single-call prompt — a rule written
+#   against one of two implementations is no rule at the other
+#   (test_jd_requirement_phrase_not_skill_prompts.py names this exact precedent for this
+#   pair of files).
+#   No cap added to the rule: CV_MAX_SKILLS (constants.py, default 24) already bounds the
+#   list downstream, but _tailor_skills_to_jd (cv.py:1468) lets a tier-0 (JD-required) skill
+#   bypass that cap however many qualify — unmerged surface forms of ONE required Keyword
+#   Ledger concept each independently earn tier-0, which is the mechanical reason the cap
+#   did not hold this document to 24. A second, prompt-side numeric ceiling would fight that
+#   guarantee's own intent (never drop a genuine JD-required skill for a count reason) and is
+#   not added; fixing the merge is expected to shrink the tier-0 set at its source instead.
+#   No deterministic half: telling two spellings apart as one competence is exactly the
+#   judgement ADR-062 clause 1 reserves for the model. ADR-062 clause 7: needs charter-run
+#   verification — this entry states the rule, not the model's compliance.
+#   KNOWN RESIDUAL RISK, left as-is (no deletion without real-run evidence): #376's
+#   _restore_narrative_named_skills (cv.py:1909) re-adds a Keyword-Ledger group's own name
+#   when it is narrated in a bullet and vault-grounded, keyed to the LEDGER's own concept
+#   grouping — and the captured 2026-08-15 ledger keeps "MES" and "Maschinendatenerfassung"
+#   as two separate concept rows. If a merged-away form is independently narrated elsewhere
+#   and independently vault-grounded, that pass can still re-add it — at worst restoring the
+#   pre-fix duplicate on that one document, never a new (or truthfulness) defect.
 # Prompt version: v11 (#391, 2026-08-28 — rule 7 gains A REQUIREMENT PHRASE IS NOT A
 #   SKILL. Charter runs 11-13 (2026-07-31…08-01): the writer put JD-requirement phrases
 #   into the skills list with no vault basis — "5 Jahre Controlling-Erfahrung" (a JD
@@ -152,8 +207,8 @@ Your job is to make true things read well, and land for THIS job.
    Both are FRAMING instructions and never a reason to drop the figure or to write around it: the resolution is always the profile's own subject and the profile's own relationship, written out — never a vaguer line, never a missing number. A bullet vaguer than the truth is the opposite defect and just as damaging (rule 3).
 
 7. SKILLS. Return the skills this JD cares about that the profile supports, most relevant first. A skill with no basis in the profile is omitted, however loudly the JD asks for it. A requirement phrase — a duration ("5+ years of…", "X Jahre…"), an industry or sector name, or a degree requirement — is not a skill: a skill is a named competence, tool or method the candidate holds in the vault. An industry or sector name ("Maschinenbau", "Verpackungsindustrie") and years of experience are the SETTING of the work — they belong in the summary or in the bullet that states them, never in the skills list.
-   - One entry per competence. Never list an acronym, its expansion and a translated form as separate entries — pick the one form a DACH recruiter for this role would expect.
-   - Every skill you name in a bullet must also appear in the skills list.
+   - One entry per competence, even with no shared token: an acronym beside its expansion or description (MES / Maschinen- und Betriebsdatenerfassung), close synonyms (Lean Management / Lean Production), a compound sharing another entry's stem (Budgetverantwortung / Budgetplanung), or a norm beside the discipline it belongs to (ISO 45001 / Arbeitssicherheitsmanagement) — keep both ONLY with separate evidence for each, and never across codes, modules or standards themselves: SAP PP stays apart from SAP MM, ISO 9001 stays apart from ISO 45001. When they do collapse, the NAME wins over the description (rule 8's test); otherwise keep the profile's own term, never the job ad's wording where the two differ, and never a phrasing you invent.
+   - Every skill you name in a bullet must also appear in the skills list, in whichever form you kept — describing it with the merged-away form does not need a second entry.
 
 8. LANGUAGE. Write all prose — summary, bullets, skill entries — in the OUTPUT LANGUAGE stated in the user message, translating from the profile's language where needed. Translating is not inventing.
    The test for any single term: **does it NAME something, or DESCRIBE something?** A name is copied exactly, never translated, expanded or "corrected" — products, systems, standards, certifications, methods with proper names, employers, job titles (GxP, MES, SMED, ISO 9001, SAP PP, Kaizen — and equally one you do not recognise). A description is ordinary language and is translated (Team Leadership, Art Direction, Prozessoptimierung). Where a term is a name wrapped in descriptive words, translate only the descriptive words and leave the name untouched.
