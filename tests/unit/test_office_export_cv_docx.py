@@ -263,6 +263,9 @@ def _full_tailored_cv() -> TailoredCVData:
                 start_date="2020-01",
                 end_date="2022-06",
                 bullets=["MARKER_BULLET_ALPHA_1", "MARKER_BULLET_ALPHA_2"],
+                team_size=42,
+                budget_managed="MARKER_BUDGET_ALPHA",
+                industry_context="MARKER_INDUSTRY_ALPHA",
                 projects=[
                     TailoredProjectEntry(
                         name="MARKER_NESTED_PROJECT_ALPHA",
@@ -402,6 +405,74 @@ class TestSectionCoverageGuard:
         assert covered == set(TailoredCVData.model_fields)
 
 
+class TestNestedLeafCoverageGuard:
+    """SF-PROFILE.8's lesson, applied here: TestSectionCoverageGuard above
+    only sees TailoredCVData's TOP-LEVEL fields, so a field nested inside
+    TailoredWorkEntry (or any other nested model) could go unrendered
+    forever without turning anything red — which is exactly what happened
+    to work_history[].team_size/budget_managed/industry_context (rendered
+    by all seven PDF templates, silently absent from the .docx). These
+    tests walk the FULL field tree, so a new nested field must be given an
+    explicit rendered/not-rendered decision or the suite goes red."""
+
+    def test_iter_leaf_paths_finds_nested_work_history_fields(self):
+        """Sanity check on the walker itself, independent of the
+        registries: it must actually descend into TailoredWorkEntry and its
+        nested TailoredProjectEntry, not stop at 'work_history' as one leaf."""
+        from applire.services.office_export.cv_docx import _iter_leaf_paths
+
+        leaves = set(_iter_leaf_paths(TailoredCVData))
+        for expected in (
+            "work_history[].team_size",
+            "work_history[].budget_managed",
+            "work_history[].industry_context",
+            "work_history[].projects[].name",
+            "work_history[].projects[].bullets",
+            "contact.photo_url",
+        ):
+            assert expected in leaves, f"walker did not find {expected!r}"
+        assert "summary" in leaves  # a plain top-level field is still one leaf
+        assert "skills" in leaves  # list[str] has no sub-schema to descend into
+
+    def test_every_tailored_cv_leaf_field_is_accounted_for(self):
+        """Every leaf in the TailoredCVData tree — including fields nested
+        inside TailoredWorkEntry/TailoredProjectEntry/etc — must be in
+        EXACTLY ONE of _RENDERED_LEAVES / _NOT_RENDERED_LEAVES. A leaf in
+        neither is a silent omission (this is what let the role facts slip
+        through); a leaf in both is a self-contradiction."""
+        from applire.services.office_export.cv_docx import (
+            _NOT_RENDERED_LEAVES,
+            _RENDERED_LEAVES,
+            _iter_leaf_paths,
+        )
+
+        all_leaves = set(_iter_leaf_paths(TailoredCVData))
+        accounted = set(_RENDERED_LEAVES) | set(_NOT_RENDERED_LEAVES)
+
+        assert all_leaves == accounted, (
+            f"unaccounted leaves: {all_leaves - accounted!r}; "
+            f"stale registry entries no longer in the schema: {accounted - all_leaves!r}"
+        )
+
+    def test_rendered_and_not_rendered_leaves_are_disjoint(self):
+        from applire.services.office_export.cv_docx import (
+            _NOT_RENDERED_LEAVES,
+            _RENDERED_LEAVES,
+        )
+
+        overlap = set(_RENDERED_LEAVES) & set(_NOT_RENDERED_LEAVES)
+        assert not overlap, f"leaves classified as both rendered and not: {overlap!r}"
+
+    def test_not_rendered_leaves_have_written_reasons(self):
+        from applire.services.office_export.cv_docx import _NOT_RENDERED_LEAVES
+
+        assert _NOT_RENDERED_LEAVES, "expected at least one deliberately-not-rendered leaf"
+        for leaf, reason in _NOT_RENDERED_LEAVES.items():
+            assert isinstance(reason, str) and len(reason.strip()) >= 15, (
+                f"{leaf!r} has no real written reason: {reason!r}"
+            )
+
+
 class TestRenderCvDocxContent:
     def test_contact_fields_appear(self):
         from applire.services.office_export.cv_docx import render_cv_docx
@@ -509,6 +580,84 @@ class TestRenderCvDocxContent:
         result = render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT)
         document = _open(result)
         assert len(document.inline_shapes) == 0
+
+
+class TestRenderCvDocxRoleFacts:
+    """#328-style per-role quantified facts (team_size/budget_managed/
+    industry_context) — rendered by all seven PDF templates via
+    cv_labels()'s role_team_size/role_budget/role_industry slots. ADR-079's
+    premise is that the export carries the same content set as the PDF, so
+    these are not optional."""
+
+    def test_role_facts_appear_when_present(self):
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
+        labels_de = cv_labels("de")
+        assert f"{labels_de['role_team_size']}: 42" in text
+        assert f"{labels_de['role_budget']}: MARKER_BUDGET_ALPHA" in text
+        assert f"{labels_de['role_industry']}: MARKER_INDUSTRY_ALPHA" in text
+
+    def test_team_size_zero_renders(self):
+        """The trap: team_size: int | None, and 0 is a valid, meaningful
+        team size ("None means 'not stated' — 0 is a valid team_size",
+        schemas/cv.py:140). A `if entry.team_size:` truthiness guard would
+        silently drop a real zero; this pins that it does not."""
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        cv = TailoredCVData(
+            contact=TailoredContact(name="Solo Kandidat"),
+            work_history=[
+                TailoredWorkEntry(company="OneCo", role="Founder", team_size=0),
+            ],
+        )
+        text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
+        labels_de = cv_labels("de")
+        assert f"{labels_de['role_team_size']}: 0" in text, (
+            f"team_size=0 did not render — a truthiness guard would produce "
+            f"exactly this miss:\n{text}"
+        )
+
+    def test_role_facts_absent_when_all_none(self):
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        cv = TailoredCVData(
+            contact=TailoredContact(name="Solo Kandidat"),
+            work_history=[
+                TailoredWorkEntry(
+                    company="OneCo", role="Engineer",
+                    team_size=None, budget_managed=None, industry_context=None,
+                ),
+            ],
+        )
+        text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
+        labels_de = cv_labels("de")
+        assert labels_de["role_team_size"] not in text
+        assert labels_de["role_budget"] not in text
+        assert labels_de["role_industry"] not in text
+
+    def test_role_facts_only_entry_still_counts_as_content(self):
+        """A work entry whose ONLY content is team_size=0 must still count
+        as 'has content': the Experience heading is not suppressed, and
+        rendering does not crash."""
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        cv = TailoredCVData(
+            contact=TailoredContact(name="Solo Kandidat"),
+            work_history=[TailoredWorkEntry(team_size=0)],
+        )
+        text = _all_text(render_cv_docx(cv, lang="de", accent_color=ACCENT))
+        labels_de = cv_labels("de")
+        assert labels_de["experience"] in text
+        assert f"{labels_de['role_team_size']}: 0" in text
+
+    def test_role_facts_use_en_labels_in_english(self):
+        from applire.services.office_export.cv_docx import render_cv_docx
+
+        text = _all_text(render_cv_docx(_full_tailored_cv(), lang="en", accent_color=ACCENT))
+        labels_en = cv_labels("en")
+        assert f"{labels_en['role_team_size']}: 42" in text
+        assert cv_labels("de")["role_team_size"] not in text
 
 
 class TestRenderCvDocxDegenerateInputs:

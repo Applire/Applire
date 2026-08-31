@@ -28,19 +28,35 @@ No HTML, no template engine, no subprocess anywhere in this module (ADR-079
 clause 2): the section content is composed directly with the ``_common``
 paragraph helpers.
 
-**Section coverage is schema-driven, not a hand-written call sequence.**
-``render_cv_docx`` iterates ``TailoredCVData.model_fields`` and dispatches
-each field to a registered renderer in ``_SECTION_RENDERERS``; a field with
-no registered renderer raises rather than being silently skipped. This is
-deliberate: a hand-written list of "the sections to render" is exactly how a
-new schema field goes missing from the export without anyone noticing.
+**Section coverage is schema-driven, not a hand-written call sequence** —
+at TWO levels:
+
+1. ``render_cv_docx`` iterates ``TailoredCVData.model_fields`` and dispatches
+   each TOP-LEVEL field to a registered renderer in ``_SECTION_RENDERERS``; a
+   field with no registered renderer raises rather than being silently
+   skipped.
+2. ``_iter_leaf_paths`` walks the FULL nested field tree (into
+   ``TailoredWorkEntry``, ``TailoredProjectEntry``, etc.), and
+   ``test_every_tailored_cv_leaf_field_is_accounted_for`` requires every leaf
+   to be in ``_RENDERED_LEAVES`` or ``_NOT_RENDERED_LEAVES`` (with a written
+   reason). (1) alone is not enough: it is blind to fields nested inside a
+   section's item model — ``work_history[].team_size`` /
+   ``budget_managed`` / ``industry_context`` shipped unrendered past a green
+   (1)-only suite for exactly that reason (all seven PDF templates render
+   them; the .docx silently didn't — an undetected PDF/.docx content
+   differential, against ADR-079's own premise that the export carries the
+   same content set as the PDF). (2) is the SF-PROFILE.8 lesson applied here:
+   the gate must cover the row's shape, not the fix's.
 """
 
 import io
-from typing import Callable
+import types
+import typing
+from typing import Callable, Iterator
 
 from docx.document import Document as DocxDocument
 from docx.shared import Cm, RGBColor
+from pydantic import BaseModel
 
 from applire.schemas.cv import (
     TailoredCVData,
@@ -63,6 +79,57 @@ PHOTO_WIDTH = Cm(3.2)
 
 _DASH = " – "  # en dash, date ranges
 _JOIN = " — "  # em dash, e.g. "Company — Role"
+
+
+# ---------------------------------------------------------------------------
+# Nested-field schema walker (coverage-guard infrastructure). Namespace-level
+# so both the module and its test file can import it — the test file uses it
+# directly against the live schema, never a hand-typed mirror of it.
+# ---------------------------------------------------------------------------
+
+
+def _unwrap_optional(annotation):
+    """`X | None` / `Optional[X]` -> `X`. Anything else is returned unchanged."""
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
+def _iter_leaf_paths(model_cls: type[BaseModel], prefix: str = "") -> Iterator[str]:
+    """Walk `model_cls`'s Pydantic fields recursively, yielding one path per
+    LEAF field. A field whose type is a nested `BaseModel` (directly, or as
+    the element type of a `list[...]`) is descended into rather than counted
+    as a leaf itself — so a field added to `TailoredWorkEntry` shows up in
+    this set exactly as a top-level `TailoredCVData` field would, and cannot
+    be missed by only checking `TailoredCVData.model_fields`. A
+    `list[str]`-style field (`bullets`, `skills`) is ONE leaf: its elements
+    have no further schema to descend into.
+
+    Path shape: `"contact.name"`, `"work_history[].team_size"`,
+    `"work_history[].projects[].bullets"`.
+    """
+    for name, field in model_cls.model_fields.items():
+        path = f"{prefix}{name}"
+        annotation = _unwrap_optional(field.annotation)
+        origin = typing.get_origin(annotation)
+
+        if origin is list:
+            args = typing.get_args(annotation)
+            inner = _unwrap_optional(args[0]) if args else None
+            if isinstance(inner, type) and issubclass(inner, BaseModel):
+                yield from _iter_leaf_paths(inner, prefix=f"{path}[].")
+                continue
+            yield path
+            continue
+
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            yield from _iter_leaf_paths(annotation, prefix=f"{path}.")
+            continue
+
+        yield path
 
 
 def _has_text(*values: str | None) -> bool:
@@ -89,12 +156,38 @@ def _format_date_range(start: str | None, end: str | None, labels: dict) -> str:
     return start or end
 
 
+def _role_facts_line(entry: TailoredWorkEntry, labels: dict) -> str:
+    """#328 (ADR-062 clause 1) per-role quantified facts, rendered as
+    deterministic document furniture — 'Label: value' pairs, never composed
+    into a sentence, matching how all seven PDF templates render them via
+    the same `role_team_size` / `role_budget` / `role_industry` labels.
+
+    `team_size` is guarded on `is not None`, never truthiness: it is
+    `int | None` and 0 is a stated, meaningful fact — "None means 'not
+    stated' — 0 is a valid team_size" (schemas/cv.py:140). `if
+    entry.team_size:` would silently drop a real zero.
+    """
+    parts = []
+    if entry.team_size is not None:
+        parts.append(f"{labels['role_team_size']}: {entry.team_size}")
+    if _has_text(entry.budget_managed):
+        parts.append(f"{labels['role_budget']}: {entry.budget_managed.strip()}")
+    if _has_text(entry.industry_context):
+        parts.append(f"{labels['role_industry']}: {entry.industry_context.strip()}")
+    return "   |   ".join(parts)
+
+
 def _project_has_content(project: TailoredProjectEntry) -> bool:
     return _has_text(project.name) or any(_has_text(b) for b in project.bullets)
 
 
 def _work_entry_has_content(entry: TailoredWorkEntry) -> bool:
     if _has_text(entry.company, entry.role, entry.start_date, entry.end_date):
+        return True
+    # See _role_facts_line: 0 is a stated team_size, not "nothing to show".
+    if entry.team_size is not None:
+        return True
+    if _has_text(entry.budget_managed, entry.industry_context):
         return True
     if any(_has_text(b) for b in entry.bullets):
         return True
@@ -155,6 +248,7 @@ def _render_work_history(document, tailored, labels, color, photo_bytes) -> None
         header = _join_nonblank([entry.company, entry.role])
         add_heading(document, header, 3, color)
         add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
+        add_paragraph(document, _role_facts_line(entry, labels), italic=True)
         for bullet in entry.bullets:
             add_bullet(document, bullet)
         for project in entry.projects:
@@ -221,6 +315,72 @@ _SECTION_RENDERERS: dict[str, Callable] = {
 # photo is embedded there), never a section of its own — the caller already
 # gates `photo_bytes` on `show_photo` before calling render_cv_docx.
 _NON_SECTION_FIELDS: frozenset[str] = frozenset({"show_photo"})
+
+
+# ---------------------------------------------------------------------------
+# Nested-leaf coverage registries. Every leaf `_iter_leaf_paths` finds in
+# TailoredCVData's full field tree must be in EXACTLY ONE of these two sets
+# (test_every_tailored_cv_leaf_field_is_accounted_for enforces it) — a leaf
+# in neither is a silent omission; "structural, not content" is a real
+# category (e.g. `show_photo`) but it must be a WRITTEN decision, never an
+# absence.
+# ---------------------------------------------------------------------------
+
+_RENDERED_LEAVES: frozenset[str] = frozenset({
+    "contact.name",
+    "contact.email",
+    "contact.phone",
+    "contact.location",
+    "contact.linkedin",
+    "summary",
+    "work_history[].company",
+    "work_history[].role",
+    "work_history[].start_date",
+    "work_history[].end_date",
+    "work_history[].bullets",
+    "work_history[].team_size",
+    "work_history[].budget_managed",
+    "work_history[].industry_context",
+    "work_history[].projects[].name",
+    "work_history[].projects[].bullets",
+    "skills",
+    "education[].institution",
+    "education[].degree",
+    "education[].field",
+    "education[].start_date",
+    "education[].end_date",
+    "languages[].language",
+    "languages[].level",
+    "projects[].name",
+    "projects[].bullets",
+    "certifications[].name",
+    "certifications[].issuing_organization",
+    "certifications[].date_obtained",
+    "certifications[].expiry_date",
+})
+
+_NOT_RENDERED_LEAVES: dict[str, str] = {
+    "contact.photo_url": (
+        "Not read by this pure function at all: the caller "
+        "(services.cv.get_cv_docx) resolves it via the existing "
+        "_resolve_photo_data_uri storage lookup BEFORE calling "
+        "render_cv_docx, and passes the result as the separate "
+        "`photo_bytes` parameter. The photo IS embedded (_render_contact, "
+        "when photo_bytes is truthy) — just never by this field directly."
+    ),
+    "work_history[].id": (
+        "Internal correlation key carried from the source WorkEntry.id so "
+        "services.cv._nest_projects can match a tailored entry back to its "
+        "source (schemas/cv.py) — a plumbing id, never user-facing content "
+        "on the candidate's own CV."
+    ),
+    "show_photo": (
+        "A boolean modifier of contact.photo_url (whether the caller "
+        "resolves and passes photo_bytes at all), not a content field of "
+        "its own — consumed one layer up in services.cv.get_cv_docx, "
+        "mirrored by _NON_SECTION_FIELDS above for the same reason."
+    ),
+}
 
 
 def render_cv_docx(
