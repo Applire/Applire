@@ -892,13 +892,29 @@ _ORPHAN_547_XFAIL_REASON = (
 )
 
 def _xfail_547(measured_flip_words: int) -> pytest.MarkDecorator:
-    """``strict=True``: the marked case must keep FAILING the real assertion
-    below. If a future per-template capacity fix makes it pass, pytest turns
-    that XPASS into a hard failure instead of silently going green — the
-    marker itself must be removed once a fix is verified, not left stale."""
+    """Records the #547 gap without asserting it reproduces everywhere.
+
+    **`strict=True` was tried first and withdrawn on evidence** (CI run
+    33432704537, job 99621656399): `tech_developer` XPASSed there and turned a
+    recorded gap into a red build, while the other three still XFAILed. The
+    word counts below are each template's flip point *as measured on the
+    development host*, and a flip point is a rendered-layout quantity — CI
+    substitutes fonts, so the same fixture overflows at a different word count,
+    or not at all. This file's own #429 docstring already flags that hazard for
+    the assertion; it applies just as much to the fixture that provokes it.
+
+    So: the ASSERTION stays a relative invariant read from a single render
+    (page 2 holds only the closing AND page 1 still has >8 mm unused), which
+    survives a font swap — and the MARKER is non-strict, because "does this
+    template overflow at exactly N words" does not.
+
+    The cost is real and stated rather than hidden: a future capacity fix will
+    NOT make this suite go red by itself. #547 stays open and the writer
+    collector (#601) carries the finding, which is where the tracking lives now.
+    """
     return pytest.mark.xfail(
         reason=_ORPHAN_547_XFAIL_REASON.format(measured=measured_flip_words),
-        strict=True,
+        strict=False,
     )
 
 
