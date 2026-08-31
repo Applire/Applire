@@ -377,12 +377,31 @@ def _append_dedup(existing: list[str], incoming: list[str]) -> bool:
 
 
 def _section_for(entity: Any) -> str:
+    """The profile section an entity belongs to.
+
+    Covers every id-bearing section since 2026-08-31: ``set_field`` can now
+    reach the six non-ExperienceBase ones (see ``resolve_any``), and a
+    ``FieldChange`` built for one of them would otherwise carry ``section=""``
+    — an audit record naming no section is not an audit record.
+    """
     if isinstance(entity, WorkEntry):
         return "work_experience"
     if isinstance(entity, ProjectEntry):
         return "projects"
     if isinstance(entity, VolunteerActivity):
         return "volunteer_activities"
+    if isinstance(entity, EducationEntry):
+        return "education"
+    if isinstance(entity, Certification):
+        return "certifications"
+    if isinstance(entity, Language):
+        return "languages"
+    if isinstance(entity, Publication):
+        return "publications"
+    if isinstance(entity, Skill):
+        return "skills"
+    if isinstance(entity, SignatureStory):
+        return "signature_stories"
     return ""
 
 
@@ -432,6 +451,44 @@ def apply_ops(
                 return entry
         return None
 
+    def resolve_any(handle: str | None) -> Any | None:
+        """Resolve a handle against EVERY id-bearing section, not just the three
+        ExperienceBase ones (#619 session, 2026-08-31).
+
+        ``resolve`` above is deliberately experience-only: it backs ``parent``,
+        ``evidence`` and ``add_bullets``, where an education entry or a language
+        is not a legal referent. But ``set_field``'s target legitimately IS any
+        entity — and pointing it at an education / certification / language /
+        publication id resolved to ``None``, so ``_apply_set_field`` returned
+        silently: no change, no conflict, no ``rejected_ops`` entry, and the
+        import witness cannot see it either (it compares ENTRIES, so a field
+        left unfilled on an entry that IS present passes its arm (a)).
+
+        Measured 2026-08-31: ``set_field(target=<education_id>, field="end_date")``
+        produced ``changes=[]`` and left the field ``None``, while the identical
+        op on a work entry applied normally. The reconciler does emit such ops on
+        real runs (#618's LLM log, record 26: four ``set_field`` on an education
+        entry).
+        """
+        if handle is None:
+            return None
+        if handle in ref_map:
+            return ref_map[handle]
+        for entry in (
+            *new_profile.work_experience,
+            *new_profile.projects,
+            *new_profile.volunteer_activities,
+            *new_profile.education,
+            *new_profile.certifications,
+            *new_profile.languages,
+            *new_profile.publications,
+            *new_profile.skills,
+            *new_profile.signature_stories,
+        ):
+            if getattr(entry, "id", None) == handle:
+                return entry
+        return None
+
     for op in ops:
         if isinstance(op, UpsertWork):
             _apply_upsert_work(op, new_profile, ref_map, changes, pending)
@@ -471,7 +528,7 @@ def apply_ops(
         elif isinstance(op, UpsertStory):
             _apply_upsert_story(op, new_profile, resolve, source, changes)
         elif isinstance(op, SetField):
-            _apply_set_field(op, resolve, changes)
+            _apply_set_field(op, resolve_any, changes)
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, changes)
         elif isinstance(op, SetSummary):

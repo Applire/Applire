@@ -120,39 +120,50 @@ def _flatten(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-def test_set_field_vocabulary_entry_now_states_its_real_scope():
-    """The silent-no-op trap this refinement closes: the vocabulary used to say
-    set_field fills a field "on an entity" with no scope — inviting exactly the
-    hypothesis's shape (set_field against an education id) with zero feedback
-    when it silently does nothing. It now names the restriction explicitly."""
+def test_set_field_vocabulary_entry_states_its_real_scope():
+    """The vocabulary entry has been wrong in BOTH directions within one session,
+    which is why it is pinned.
+
+    It first said set_field fills a field "on an entity" with no scope at all —
+    inviting a set_field against an education id that then vanished without a
+    sound. It was then narrowed to "work / project / volunteer only", which was
+    accurate for the broken applier and became FALSE the moment ``resolve_any``
+    landed: a prompt telling the model to avoid the one op that now works would
+    steer it into the stray-upsert shape #618 is about. It now states the real
+    scope: any existing entity, named by id."""
     bullet = _flatten(RECONCILE_SYSTEM_PROMPT).split("- set_field —")[1].split(" - ")[0]
-    assert "work / project / volunteer" in bullet
-    assert "Education" in bullet and "no target at all" in bullet
+    assert "ANY existing entity" in bullet
+    assert "education" in bullet and "certifications" in bullet
+    assert "no target at all" not in bullet  # the retired, now-false restriction
 
 
 # ── 2. Ground truth: the hypothesis, refined ────────────────────────────────────
 
 
-def test_set_field_cannot_reach_an_education_entry_at_all():
-    """Ground truth for the work report's hypothesis refinement.
+def test_set_field_now_reaches_an_education_entry():
+    """Was ``..._cannot_reach_...``: the ground truth this file was written
+    against has since been FIXED, in the same session (2026-08-31).
 
-    ``apply_ops``'s ``resolve()`` closure — the function every ``set_field``
-    target is looked up through — only searches work/project/volunteer. A
-    ``set_field`` naming an EXISTING education entry's id is accepted by schema
-    validation, resolves to nothing, and is silently dropped: no error, no
-    confirmation, no ``rejected_ops`` entry, no profile change. Whatever the
-    original #618 batch actually contained, a set_field against the Provadis
-    entry could not have been "handled" in any applier-visible sense.
+    When this file was written, ``apply_ops``'s ``resolve()`` searched
+    work/project/volunteer only, so a ``set_field`` naming an existing education
+    entry resolved to nothing and was dropped silently — no error, no
+    ``rejected_ops``, and the entry-level import witness could not see it. That
+    is why the #618 education fix was placed in the prompt: the applier gave no
+    signal.
+
+    ``_apply_set_field`` now resolves through ``resolve_any``, which covers every
+    id-bearing section. ``resolve`` itself stays experience-only (parent /
+    evidence / add_bullets). Full coverage lives in
+    ``test_set_field_reaches_every_section.py``; this test keeps the pointer so
+    the reasoning above stays attached to the #618 story it shaped.
     """
     profile = _provadis_profile()
     existing_id = profile.education[0].id
 
-    ops = [SetField(target=existing_id, field="grade", value="1,9")]
-    result = apply_ops(profile, ops, SOURCE)
+    result = apply_ops(profile, [SetField(target=existing_id, field="grade", value="1,9")], SOURCE)
 
-    assert result.profile.education[0].grade is None  # silently never written
-    assert not result.changes
-    assert not result.pending_confirmations
+    assert result.profile.education[0].grade == "1,9"
+    assert [c.section for c in result.changes] == ["education"]
 
 
 def test_the_applier_natural_key_cannot_recognise_this_pair():
@@ -185,12 +196,12 @@ def test_the_applier_natural_key_cannot_recognise_this_pair():
 def test_a_rule_violating_batch_still_duplicates_at_the_apply_layer():
     """Characterisation test, not a desired behaviour.
 
-    The #618 batch shape: a set_field against the existing entry (inert, per
-    the ground truth above) PLUS a fresh upsert_education under the alternate
-    wording. ``apply_ops`` — unchanged by this fix on purpose — still produces
-    two education entries. This is why the fix has to live in the prompt:
-    nothing downstream catches it, and the set_field gives no signal that
-    anything went wrong.
+    The #618 batch shape: a set_field against the existing entry PLUS a fresh
+    upsert_education under the alternate wording. ``apply_ops`` still produces
+    two education entries. This is why the fix has to live in the prompt: the
+    applier's natural key cannot recognise the pair (test above), so nothing
+    downstream catches the stray upsert — and that stays true now that the
+    set_field half applies rather than vanishing.
     """
     profile = _provadis_profile()
     existing_id = profile.education[0].id
@@ -211,8 +222,11 @@ def test_a_rule_violating_batch_still_duplicates_at_the_apply_layer():
         "update this test's docstring and test_the_applier_natural_key_cannot_"
         "recognise_this_pair above to match, rather than deleting either."
     )
-    # The set_field is confirmed inert either way (see the ground-truth test).
-    assert result.profile.education[0].grade is None
+    # The set_field DOES apply now (it did not when this test was written) —
+    # which is the point: it lands on the ORIGINAL entry while the stray
+    # upsert_education still creates a second one. A working set_field does not
+    # make the batch correct; only the prompt rule prevents the duplicate.
+    assert result.profile.education[0].grade == "1,9"
 
 
 # ── 4. The desired outcome once a batch follows the new rule ───────────────────

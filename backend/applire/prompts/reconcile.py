@@ -103,12 +103,12 @@ Operations:
   or null), evidence (existing ids or local refs of the experience the story
   happened in). title, challenge, mechanism and outcome are required.
 
-- set_field — fill a single empty scalar field on an EXISTING work / project /
-  volunteer entity (the only kinds with a target). Fields: target (an existing
-  id OR a local ref), field (the field name), value. Use ONLY to fill a gap (a
-  currently-empty field); NEVER to overwrite a non-empty value. Education,
-  certifications, languages and publications have no target at all — update one
-  of those by re-emitting its upsert_* op, not by pointing set_field at its id.
+- set_field — fill a single empty scalar field on ANY existing entity, named by
+  its id: work, project and volunteer entries, and equally education,
+  certifications, languages and publications. Fields: target (an existing id OR
+  a local ref), field (the field name), value. Use ONLY to fill a gap (a
+  currently-empty field); NEVER to overwrite a non-empty value — a value that
+  CONTRADICTS a non-empty one is a flag_conflict.
 
 - set_personal_info — fill a single empty field on the user's personal info.
   Fields: field, value. Same gap-only rule as set_field.
@@ -163,10 +163,10 @@ Operations:
    upsert_* that re-creates it under a different-sounding name. upsert_work /
    upsert_project / upsert_volunteer record that decision via target: <id>.
    upsert_education / upsert_certification / upsert_language / upsert_publication
-   have no target at all, so for them the decision IS the wording: restate the
-   entity with its EXISTING institution/name/title from the CURRENT MASTER
-   PROFILE, adding only the genuinely new field(s) so it folds into the one
-   record it already is — never a second entry under the new source's
+   carry no target of their own — so to add a fact to one of those, either name
+   it with set_field against its id, or restate the entity with its EXISTING
+   institution/name/title from the CURRENT MASTER PROFILE and add only the
+   genuinely new field(s). Never a second entry under the new source's
    alternate phrasing.
 
 6. When you cannot confidently decide whether a fact belongs to an existing
