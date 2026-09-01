@@ -122,7 +122,7 @@
     "strengths": "Strengths",
     "categoryB": "Likely Present",
     "categoryC": "Not Demonstrated",
-    "startInterview": "Quick Interview (3 min)",
+    "startInterview": "Full Interview",
     "jdMissingBannerUrl": "That URL didn't look valid. Paste the job description text to run gap analysis.",
     "jdMissingBannerFetch": "We couldn't load that job posting — it may be blocked or taken down. Paste the job description text to run gap analysis.",
     "addJobDescription": "Add job description →",
