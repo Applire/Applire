@@ -1357,6 +1357,95 @@ class TestCreateSession:
         assert result.gaps_total == 1
         assert result.current_gap_id == "GCP certification"
 
+    @pytest.mark.asyncio
+    async def test_operator_ceiling_override_does_not_disguise_full_session_as_micro(
+        self, sqlite_session
+    ):
+        """#627 follow-up (tech-lead review) — hard_ceiling alone is not a
+        safe micro-session identity test: interview_max_questions_targeted
+        is an operator-overridable Settings field (config.py). A self-hoster
+        who sets it to 1 gives every REAL Mode A targeted session
+        hard_ceiling == 1 too — the default (12) just hides this. The
+        idempotency branch must tell a genuine full session apart via the
+        micro_session marker _build_state now stamps, not the ceiling, so a
+        second generic create under that override still RESUMES (never
+        retires) the real in-progress interview."""
+        from applire.services.session import create_session, settings
+        from applire.schemas.session import SessionCreateRequest
+        from applire.models.session import InterviewSession
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        with patch.object(settings, "interview_max_questions_targeted", 1):
+            req = SessionCreateRequest(job_id=job.id, mode="targeted")
+            with patch(
+                "applire.services.session.question_generator_with_profile",
+                new=AsyncMock(return_value={"question": "Tell me about GCP.", "choices": None}),
+            ):
+                created = await create_session(req, sqlite_session, _mock_provider())
+            # Sanity — the override really took effect, so this really is
+            # the trap case: a full session with hard_ceiling == 1.
+            assert created.hard_ceiling == 1
+            assert created.mode == "targeted"
+
+            # A second GENERIC create for the same job must RESUME this real
+            # session (unanswered so far, but it is the SAME session — never
+            # silently replaced).
+            req2 = SessionCreateRequest(job_id=job.id, mode="targeted")
+            result = await create_session(req2, sqlite_session, _mock_provider())
+
+        assert result.session_id == created.session_id
+        original = await sqlite_session.get(InterviewSession, created.session_id)
+        assert original.status == "active"  # NOT retired
+
+
+class TestIsMicroSession:
+    """#627 follow-up — is_micro_session() is the one predicate
+    create_session's idempotency branch and resolve_gap's MCP guard both
+    use to tell a Gap-Click micro-session apart from a full MODE A/B
+    interview. Marker-first, hard_ceiling==1 fallback only for a session
+    persisted before the marker existed."""
+
+    def test_marker_true_is_micro_session_regardless_of_ceiling(self):
+        from applire.models.session import InterviewSession
+        from applire.services.session import is_micro_session
+
+        record = InterviewSession(state={"micro_session": True}, hard_ceiling=12)
+        assert is_micro_session(record) is True
+
+    def test_marker_false_is_not_micro_session_even_at_ceiling_one(self):
+        """The operator-override case in miniature: hard_ceiling == 1 alone
+        must never win over an explicit marker=False."""
+        from applire.models.session import InterviewSession
+        from applire.services.session import is_micro_session
+
+        record = InterviewSession(state={"micro_session": False}, hard_ceiling=1)
+        assert is_micro_session(record) is False
+
+    def test_missing_marker_falls_back_to_ceiling_one(self):
+        """A session persisted before the marker existed (a self-hoster's
+        pre-upgrade DB row)."""
+        from applire.models.session import InterviewSession
+        from applire.services.session import is_micro_session
+
+        record = InterviewSession(state={"current_question": "..."}, hard_ceiling=1)
+        assert is_micro_session(record) is True
+
+    def test_missing_marker_falls_back_to_ceiling_not_one(self):
+        from applire.models.session import InterviewSession
+        from applire.services.session import is_micro_session
+
+        record = InterviewSession(state={"current_question": "..."}, hard_ceiling=12)
+        assert is_micro_session(record) is False
+
 
 # ===========================================================================
 # Part 5: get_session_state (SQLite)

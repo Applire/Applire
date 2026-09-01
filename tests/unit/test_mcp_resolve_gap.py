@@ -295,6 +295,94 @@ async def test_refuses_when_full_interview_active(db):
 
 
 @pytest.mark.asyncio
+async def test_refuses_when_full_targeted_interview_active(db):
+    """#627 follow-up (tech-lead review) — resolve_gap must NOT silently
+    kill an in-progress Mode A TARGETED interview either. Before this fix
+    the guard compared `mode` to the literal string "targeted" — but a
+    Gap-Click micro-session ALSO persists mode="targeted", so that
+    comparison correctly protected a guided run and incorrectly let a
+    half-finished MODE A run get stomped by _create_micro_session (it
+    completes any active session wholesale). active_full_interview_exists
+    (via is_micro_session) is the predicate that actually tells a real
+    Mode A session apart from a micro-session."""
+    from applire.mcp.server import resolve_gap
+    from applire.models.session import InterviewSession
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s", "cluster-aws"])
+    pid = (await db.execute(select(MasterProfile.id))).scalars().first()
+    db.add(InterviewSession(
+        job_analysis_id=job_id, profile_id=pid, mode="targeted", status="active",
+        state={
+            "critical_gaps": ["cluster-k8s", "cluster-aws"],
+            "current_gap_index": 0,
+            "messages": [],
+            # A real Mode A session — never a Gap-Click micro-session.
+            "micro_session": False,
+        },
+        questions_asked=1,
+        hard_ceiling=12,
+    ))
+    await db.commit()
+    # A working provider (not the bare-refusal _patches()) so that, absent
+    # the guard, resolve_gap would actually run create_session/send_message
+    # to completion — making a lapsed guard fail this test on a missing
+    # McpError, not on an unrelated provider-mock artifact.
+    p1, p2 = _mock_provider_patches(db)
+    with p1, p2:
+        with pytest.raises(McpError) as exc:
+            await resolve_gap(job_id=str(job_id), gap_id="cluster-k8s", answer="testimony")
+    assert exc.value.error.code == -32602
+    assert "full interview is in progress" in exc.value.error.message
+    # the targeted session is untouched — not silently completed
+    row = (await db.execute(select(InterviewSession).where(
+        InterviewSession.job_analysis_id == job_id))).scalar_one()
+    assert row.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_leftover_micro_session_is_still_safely_reaped(db):
+    """#627 follow-up — the flip side of the Mode A refusal above: a
+    genuine leftover Gap-Click micro-session (marker True) must NOT trip
+    the new guard. resolve_gap should reap it and proceed normally, exactly
+    as before this change."""
+    from applire.mcp.server import resolve_gap
+    from applire.models.session import InterviewSession
+    from applire.models.profile import MasterProfile
+    from sqlalchemy import select
+
+    job_id = await _seed_job_and_analysis(db, ["cluster-k8s"])
+    pid = (await db.execute(select(MasterProfile.id))).scalars().first()
+    leftover = InterviewSession(
+        job_analysis_id=job_id, profile_id=pid, mode="targeted", status="active",
+        state={
+            "critical_gaps": ["cluster-old"],
+            "current_gap_index": 0,
+            "messages": [],
+            "micro_session": True,
+        },
+        questions_asked=1,
+        hard_ceiling=1,
+    )
+    db.add(leftover)
+    await db.commit()
+    leftover_id = leftover.id
+
+    p1, p2 = _mock_provider_patches(db)
+    with p1, p2:
+        result = await resolve_gap(
+            job_id=str(job_id), gap_id="cluster-k8s",
+            answer="I ran production Kubernetes clusters for three years at Acme.",
+        )
+    assert result["gap_id"] == "cluster-k8s"
+
+    # the leftover was reaped (completed), not left blocking forever
+    reaped = await db.get(InterviewSession, leftover_id)
+    assert reaped.status == "complete"
+
+
+@pytest.mark.asyncio
 async def test_happy_path_composes_targeted_session(db):
     """resolve_gap = create targeted micro-session + apply the answer; returns
     the scoped question + an addressed status. Underlying guided machinery is

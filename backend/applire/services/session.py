@@ -1021,15 +1021,52 @@ async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str] | No
     return [c.get("id") for c in (gap_analysis.gap_clusters or []) if c.get("id")]
 
 
-async def active_session_mode(job_id: uuid.UUID, db: AsyncSession) -> str | None:
-    """Mode of the job's active interview session, or None if none is active.
+def is_micro_session(record: InterviewSession) -> bool:
+    """Whether `record` is a Gap-Click micro-session (US265/19.9), never a
+    full MODE A/B interview — the one predicate `create_session`'s
+    idempotency branch and `resolve_gap`'s guard (mcp/server.py) both use.
+
+    #627 follow-up: neither signal used before this was safe alone.
+      - `hard_ceiling == 1` is an operator-overridable `Settings` field
+        (`interview_max_questions_targeted`/`_guided`, config.py) — a
+        self-hoster who sets either to 1 would have every FULL interview
+        misidentified as a micro-session too, under the default (12/20)
+        this never surfaces.
+      - `mode == "targeted"` cannot tell a micro-session apart from a full
+        MODE A targeted interview at all — `_create_micro_session` also
+        persists `mode="targeted"`.
+
+    The authoritative signal is the `micro_session` marker
+    `_build_state`/`_create_micro_session` stamp into the session's own
+    state at creation. `hard_ceiling == 1` is kept ONLY as a fallback for a
+    session persisted before this marker existed (a self-hoster's
+    pre-upgrade DB row) — every session created by this codebase from here
+    on always carries the marker explicitly (default False).
+    """
+    state = record.state or {}
+    if "micro_session" in state:
+        return bool(state["micro_session"])
+    return record.hard_ceiling == 1
+
+
+async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession) -> bool:
+    """Whether the job has an active FULL interview (MODE A or MODE B) —
+    i.e. an active session that is NOT a Gap-Click micro-session.
 
     Lets the agent channel (`resolve_gap`) refuse to stomp an in-progress full
     interview — `_create_micro_session` completes any active session wholesale,
-    which would silently discard a guided run's progress.
+    which would silently discard its remaining question plan. A leftover
+    micro-session is safe to reap either way.
+
+    #627 follow-up — replaces `active_session_mode`, whose only caller
+    compared the returned mode string to `"targeted"`: that correctly
+    protected an in-progress MODE B guided run, but a MODE A targeted run
+    and a Gap-Click micro-session BOTH persist `mode="targeted"`, so it
+    silently let a half-finished targeted interview get stomped too.
+    `is_micro_session` is the predicate that actually tells them apart.
     """
     active = await _get_active_session(job_id, db)
-    return active.mode if active is not None else None
+    return active is not None and not is_micro_session(active)
 
 
 async def create_session(
@@ -1083,18 +1120,21 @@ async def create_session(
     # --- Idempotency: return existing active session if one exists for this job ---
     existing = await _get_active_session(job_id, db)
     if existing is not None:
-        # #627 — a Gap-Click micro-session (hard_ceiling == 1) that the user
-        # opened and then closed WITHOUT answering stays `active` forever:
-        # send_message is the only thing that ever completes it, and closing
-        # the panel/tab never calls it (Cancel/close is local-only UI state).
-        # A later GENERIC request (no target_gap — "start the/an interview")
-        # must not resume that orphaned single question as if it were the
+        # #627 — a Gap-Click micro-session that the user opened and then
+        # closed WITHOUT answering stays `active` forever: send_message is
+        # the only thing that ever completes it, and closing the panel/tab
+        # never calls it (Cancel/close is local-only UI state). A later
+        # GENERIC request (no target_gap — "start the/an interview") must
+        # not resume that orphaned single question as if it were the
         # freshly requested interview. Retire it exactly the way
         # _create_micro_session retires a stale active session when IT
         # supersedes one, then fall through to a real create. An unanswered
         # micro-session never reached reconcile_interview_turn, so nothing is
         # lost by retiring it — there is no vault write to preserve.
-        if existing.hard_ceiling == 1:
+        # is_micro_session (not hard_ceiling==1 directly) so an operator who
+        # overrides interview_max_questions_targeted/_guided down to 1 never
+        # has a real full interview misidentified and retired here.
+        if is_micro_session(existing):
             existing.status = "complete"
             existing.updated_at = datetime.now(timezone.utc)
             await db.flush()
@@ -1523,6 +1563,7 @@ async def _create_micro_session(
         gap_clusters_by_id={target_cluster_id: cluster},
         current_question="",
         hard_ceiling=_MICRO_CEILING,
+        micro_session=True,
     )
     # US265 — a Gap-Click micro-session asks exactly ONE cluster question ever
     # (hard_ceiling=1), so the one-shot check is trivially safe here too.
@@ -2659,6 +2700,7 @@ def _build_state(
     gap_clusters_by_id: dict,
     current_question: str,
     hard_ceiling: int,
+    micro_session: bool = False,
 ) -> InterviewState:
     return {
         "mode": mode,
@@ -2679,6 +2721,13 @@ def _build_state(
         "skipped_gaps": [],
         "full_gaps": [],
         "na_gaps": [],
+        # #627 — the authoritative "is this a Gap-Click micro-session" marker
+        # every NEW session now stamps explicitly (defaults False for every
+        # MODE A/B full session; _create_micro_session passes True). See
+        # is_micro_session() — hard_ceiling alone is operator-overridable,
+        # and mode alone can't distinguish a micro-session from a full MODE A
+        # targeted interview (both persist mode="targeted").
+        "micro_session": micro_session,
     }
 
 
