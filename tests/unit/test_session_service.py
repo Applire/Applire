@@ -1243,6 +1243,120 @@ class TestCreateSession:
         with pytest.raises(LookupError, match="No profile found"):
             await create_session(req, sqlite_session, _mock_provider())
 
+    @pytest.mark.asyncio
+    async def test_generic_create_does_not_resume_abandoned_micro_session(self, sqlite_session):
+        """#627 — reproduces the reported sequence end to end: the user opens
+        a Gap-Click micro-session for one cluster (startMicroSession() in
+        gaps/page.tsx, or LiabilityPanel.tellStory() — both POST
+        mode="targeted" + target_gap), then closes the panel WITHOUT
+        answering. Cancel/close is local-only UI state (GapClickPanel's and
+        LiabilityPanel's cancel buttons just reset to EMPTY_*_STATE) — no
+        endpoint is ever called to abandon the session, so the row stays
+        status="active" forever; only send_message completes a
+        hard_ceiling=1 micro-session, and that never happens here.
+
+        The user then asks for "the interview" generically — the "Start
+        Interview" button (advance("interview") in gaps/page.tsx) or the
+        interview page's own initSession() on mount, NEITHER of which sends
+        target_gap. Before the fix, create_session's idempotency branch
+        returned ANY active session unconditionally, resurrecting gap A's
+        single leftover question as if it were the freshly requested
+        interview — the literal "presented with the question for the
+        previous gap" from the report.
+        """
+        from applire.models.session import InterviewSession
+        from applire.services.session import create_session
+        from applire.schemas.session import SessionCreateRequest
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        # Step 1 — Gap-Click micro-session for "GCP certification": opened,
+        # never answered.
+        micro_req = SessionCreateRequest(
+            job_id=job.id, mode="targeted", target_gap="GCP certification"
+        )
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={
+                "question": "Tell me about your GCP experience.", "choices": None,
+            }),
+        ):
+            micro_result = await create_session(micro_req, sqlite_session, _mock_provider())
+        assert micro_result.hard_ceiling == 1  # sanity: this really is the micro-session path
+
+        # Step 2 — panel closed (no API call at all); user asks for the
+        # interview generically, no target_gap.
+        generic_req = SessionCreateRequest(job_id=job.id, mode="targeted")
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={
+                "question": "Tell me about your FastAPI experience.", "choices": None,
+            }),
+        ):
+            result = await create_session(generic_req, sqlite_session, _mock_provider())
+
+        stale = await sqlite_session.get(InterviewSession, micro_result.session_id)
+        assert stale.status == "complete"  # retired, not left active to hijack later creates
+        assert result.session_id != micro_result.session_id
+        assert result.resumed is False
+        # The real full-interview ceiling, not the orphaned micro-session's 1.
+        assert result.hard_ceiling == 12
+        assert result.gaps_total == 2
+        # The freshly generated question, never the stale gap-A leftover.
+        assert result.question == "Tell me about your FastAPI experience."
+
+    @pytest.mark.asyncio
+    async def test_target_gap_wins_even_when_mode_is_not_targeted(self, sqlite_session):
+        """#627 recon — target_gap names one specific cluster; that intent
+        must be authoritative regardless of how `mode` resolves.
+        _create_micro_session never reads resolved_mode at all (it hardcodes
+        mode="targeted" on the record it builds), so gating the micro-session
+        branch on `resolved_mode == "targeted"` serves no purpose but to trap
+        any caller that sends target_gap without ALSO remembering to pass
+        mode="targeted" explicitly — silently falling through to the
+        idempotency/generic-create branch instead of the requested gap.
+
+        Every LIVE caller today (startMicroSession, LiabilityPanel.tellStory,
+        the resolve_gap MCP tool) already pairs target_gap with an explicit
+        mode="targeted", so this exact path is not reachable in production
+        yet — but it is the same failure shape #627 reports for the
+        untargeted call sites, one caller-mistake away from recurring.
+        """
+        from applire.services.session import create_session
+        from applire.schemas.session import SessionCreateRequest
+
+        job = _make_job()
+        profile = _make_profile()
+        sqlite_session.add(job)
+        sqlite_session.add(profile)
+        await sqlite_session.flush()
+
+        gap = _make_gap(job.id, profile.id)
+        sqlite_session.add(gap)
+        await sqlite_session.commit()
+
+        req = SessionCreateRequest(
+            job_id=job.id, mode="guided", target_gap="GCP certification"
+        )
+
+        with patch(
+            "applire.services.session.question_generator_with_profile",
+            new=AsyncMock(return_value={"question": "Tell me about GCP certs.", "choices": None}),
+        ):
+            result = await create_session(req, sqlite_session, _mock_provider())
+
+        assert result.mode == "targeted"
+        assert result.gaps_total == 1
+        assert result.current_gap_id == "GCP certification"
+
 
 # ===========================================================================
 # Part 5: get_session_state (SQLite)

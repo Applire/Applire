@@ -1069,13 +1069,37 @@ async def create_session(
     lang = await get_conversation_language(db, job_id=job.id)
 
     # --- Micro-session: target_gap scopes to a single gap (Gap-Click mode, 19.9) ---
-    if request.target_gap and resolved_mode == "targeted":
+    # #627 — target_gap alone is authoritative: a caller naming one specific
+    # cluster always gets that cluster's micro-session, regardless of how
+    # `mode` resolves. _create_micro_session below never consults
+    # resolved_mode at all (it hardcodes mode="targeted" on the record it
+    # builds), so gating this branch on `resolved_mode == "targeted"` served
+    # no purpose but to trap a caller that sends target_gap without ALSO
+    # remembering an explicit mode="targeted" — silently falling through to
+    # the idempotency branch below instead of the requested gap.
+    if request.target_gap:
         return await _create_micro_session(job_id, job, profile_record, request.target_gap, db, provider, lang)
 
     # --- Idempotency: return existing active session if one exists for this job ---
     existing = await _get_active_session(job_id, db)
     if existing is not None:
-        return _resumed_response(existing)
+        # #627 — a Gap-Click micro-session (hard_ceiling == 1) that the user
+        # opened and then closed WITHOUT answering stays `active` forever:
+        # send_message is the only thing that ever completes it, and closing
+        # the panel/tab never calls it (Cancel/close is local-only UI state).
+        # A later GENERIC request (no target_gap — "start the/an interview")
+        # must not resume that orphaned single question as if it were the
+        # freshly requested interview. Retire it exactly the way
+        # _create_micro_session retires a stale active session when IT
+        # supersedes one, then fall through to a real create. An unanswered
+        # micro-session never reached reconcile_interview_turn, so nothing is
+        # lost by retiring it — there is no vault write to preserve.
+        if existing.hard_ceiling == 1:
+            existing.status = "complete"
+            existing.updated_at = datetime.now(timezone.utc)
+            await db.flush()
+        else:
+            return _resumed_response(existing)
 
     try:
         # --- MODE A: Targeted Gap-Fill ---

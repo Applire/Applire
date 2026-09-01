@@ -31,7 +31,9 @@ class SessionCreateRequest(BaseModel):
     job_id: uuid.UUID
     # None = auto-detect based on profile completeness_score vs MODE_B_COMPLETENESS_THRESHOLD
     mode: Literal["targeted", "guided", "profile_enrich"] | None = None
-    # When set with mode="targeted": scopes to a 1-question micro-session for Gap-Click mode
+    # #627 — authoritative whenever set, regardless of `mode`: scopes to a
+    # 1-question micro-session for Gap-Click mode (create_session routes on
+    # target_gap alone; the resulting session is always mode="targeted").
     target_gap: str | None = None
 
 
