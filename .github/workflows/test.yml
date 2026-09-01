@@ -48,6 +48,26 @@ jobs:
       - name: Install poppler-utils (PDF geometry probe)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
 
+      # tests/ats/test_office_export.py (E057 task 1.3, #637/#638, ADR-079
+      # clause 5) converts the .docx office-export writer's output to PDF
+      # with headless LibreOffice to assert the page count — a .docx has no
+      # fixed pagination of its own until a word processor lays it out
+      # (ADR-079 clause 4). Absent from ubuntu-latest by default, like
+      # poppler-utils above, and for the same reason a skip would be worse
+      # than a failure here too: the whole point of the gate is that "fits
+      # the region's page norm" is backed by a real conversion, not a guess.
+      # fonts-crosextra-carlito is the metric-compatible substitute Ubuntu
+      # ships for Calibri (services/office_export/_common.py's base font) —
+      # installing it PINS which substitution this runner's LibreOffice
+      # makes, so the flip point measured on the dev host
+      # (Documents/Runs/Stracciatella/office-export/2026-08-31-page-count-
+      # gate-portability.md: 1->2 pages at 39 bullets on this exact
+      # substitution, the tightest of three fonts measured) reproduces here
+      # instead of being asserted across whatever font happens to be
+      # present.
+      - name: Install LibreOffice + metric-compatible fonts (docx page-count gate)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer fonts-crosextra-carlito
+
       - name: ATS round-trip guarantee (ADR-039)
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
