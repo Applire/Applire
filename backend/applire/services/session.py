@@ -73,6 +73,7 @@ from applire.schemas.session import (
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
+from applire.services.interview.budget import derive_hard_ceiling
 from applire.services.interview.signals import is_termination_signal
 from applire.services.profile.reconcile.stance import (
     denial_release_corpus,
@@ -914,6 +915,15 @@ async def create_profile_review_session(
     review_categories = {**conflict_categories, **confirm_categories}
     review_by_id = {**conflict_by_id, **confirm_by_id}
 
+    # ADR-080 — the budget follows the plan. Every conflict/confirmation cluster
+    # here is answered deterministically in ONE turn (no LLM re-ask, no follow-up),
+    # so this plan's real cost is well under the derived worst case; the shared
+    # derivation is used anyway, because a second formula for one mode plan is the
+    # ADR-066 defect this ADR exists to remove.
+    hard_ceiling = derive_hard_ceiling(
+        len(review_ids), cap=settings.interview_max_questions_guided
+    )
+
     state: InterviewState = _build_state(
         mode="guided",
         job_id=None,
@@ -923,7 +933,7 @@ async def create_profile_review_session(
         gap_categories=review_categories,
         gap_clusters_by_id=review_by_id,
         current_question="",
-        hard_ceiling=settings.interview_max_questions_guided,
+        hard_ceiling=hard_ceiling,
     )
     state["entry"] = "profile_review"
     state["conflict_clusters"] = conflict_by_id
@@ -938,7 +948,7 @@ async def create_profile_review_session(
             mode="guided",
             status="complete",
             state=state,
-            hard_ceiling=settings.interview_max_questions_guided,
+            hard_ceiling=hard_ceiling,
         )
         db.add(record)
         await db.commit()
@@ -970,7 +980,7 @@ async def create_profile_review_session(
         mode="guided",
         status="active",
         state=state,
-        hard_ceiling=settings.interview_max_questions_guided,
+        hard_ceiling=hard_ceiling,
         questions_asked=1,
     )
     db.add(record)
@@ -982,8 +992,8 @@ async def create_profile_review_session(
         mode="guided",
         first_question=first_question,
         question=first_question,
-        estimated_questions=_estimated_questions("guided"),
-        hard_ceiling=settings.interview_max_questions_guided,
+        estimated_questions=_estimated_questions("guided", hard_ceiling),
+        hard_ceiling=hard_ceiling,
         gaps_total=len(review_ids),
         gaps_remaining=len(review_ids),
         choices=first_choices,
@@ -1164,7 +1174,7 @@ def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
     state: InterviewState = dict(existing.state)
     gaps_total = len(state.get("critical_gaps", []))
     gaps_remaining = gaps_total - state.get("current_gap_index", 0)
-    estimated = _estimated_questions(existing.mode)
+    estimated = _estimated_questions(existing.mode, existing.hard_ceiling)
     current_q = state.get("current_question", "")
     current_choices = state.get("current_choices")
     # `resumed` must reflect genuine in-progress work, not mere session
@@ -1275,6 +1285,16 @@ async def _create_targeted_session(
     gap_categories = {**cluster_categories, **gate_categories}
     gap_clusters_by_id = {**clusters_by_id, **gate_by_id}
 
+    # ADR-080 — the budget is derived from the plan THIS session will walk, so it
+    # is computed here: after `filter_answered_concepts` narrowed the clustering
+    # snapshot and after the US163 gates were prepended. Deriving it from the raw
+    # `gap_analysis.gap_clusters` instead would buy questions for clusters the
+    # session has already decided not to ask. This is the call site #646 is about:
+    # ADR-029 targets 5-12 clusters and the budget was a flat 12.
+    hard_ceiling = derive_hard_ceiling(
+        len(critical_gaps), cap=settings.interview_max_questions_targeted
+    )
+
     if not critical_gaps:
         state: InterviewState = _build_state(
             mode="targeted",
@@ -1285,7 +1305,7 @@ async def _create_targeted_session(
             gap_categories={},
             gap_clusters_by_id={},
             current_question="",
-            hard_ceiling=settings.interview_max_questions_targeted,
+            hard_ceiling=hard_ceiling,
         )
         record = _make_session_record(
             job_id=job_id,
@@ -1294,7 +1314,7 @@ async def _create_targeted_session(
             mode="targeted",
             status="complete",
             state=state,
-            hard_ceiling=settings.interview_max_questions_targeted,
+            hard_ceiling=hard_ceiling,
         )
         db.add(record)
         await db.commit()
@@ -1343,7 +1363,7 @@ async def _create_targeted_session(
         gap_categories=gap_categories,
         gap_clusters_by_id=gap_clusters_by_id,
         current_question="",
-        hard_ceiling=settings.interview_max_questions_targeted,
+        hard_ceiling=hard_ceiling,
     )
     state["gate_clusters"] = gate_by_id
 
@@ -1380,7 +1400,7 @@ async def _create_targeted_session(
         mode="targeted",
         status="active",
         state=state,
-        hard_ceiling=settings.interview_max_questions_targeted,
+        hard_ceiling=hard_ceiling,
         questions_asked=1,
     )
     db.add(record)
@@ -1392,8 +1412,8 @@ async def _create_targeted_session(
         mode="targeted",
         first_question=first_question,
         question=first_question,
-        estimated_questions=_estimated_questions("targeted"),
-        hard_ceiling=settings.interview_max_questions_targeted,
+        estimated_questions=_estimated_questions("targeted", hard_ceiling),
+        hard_ceiling=hard_ceiling,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -1439,6 +1459,17 @@ async def _create_guided_session(
     )
     critical_gaps = gate_ids + sections
 
+    # ADR-080 — same derivation as every other mode plan. For MODE B it
+    # REPRODUCES the historical constant rather than changing it: `gap_detector_
+    # mode_b` returns 7 core sections plus up to 2 JD-signalled ones, so an
+    # ungated 9-section plan derives 2*9+2 = 20, exactly the old
+    # INTERVIEW_HARD_CEILING_GUIDED. That the guided ceiling was already sized
+    # this way, and the targeted one was not, is the evidence in ADR-080 that
+    # this formula is the law the system had been following unevenly.
+    hard_ceiling = derive_hard_ceiling(
+        len(critical_gaps), cap=settings.interview_max_questions_guided
+    )
+
     state: InterviewState = _build_state(
         mode="guided",
         job_id=job_id,
@@ -1448,7 +1479,7 @@ async def _create_guided_session(
         gap_categories=gate_categories,
         gap_clusters_by_id=gate_by_id,
         current_question="",
-        hard_ceiling=settings.interview_max_questions_guided,
+        hard_ceiling=hard_ceiling,
     )
     state["gate_clusters"] = gate_by_id
 
@@ -1488,7 +1519,7 @@ async def _create_guided_session(
         mode="guided",
         status="active",
         state=state,
-        hard_ceiling=settings.interview_max_questions_guided,
+        hard_ceiling=hard_ceiling,
         questions_asked=1,
     )
     db.add(record)
@@ -1500,8 +1531,8 @@ async def _create_guided_session(
         mode="guided",
         first_question=first_question,
         question=first_question,
-        estimated_questions=_estimated_questions("guided"),
-        hard_ceiling=settings.interview_max_questions_guided,
+        estimated_questions=_estimated_questions("guided", hard_ceiling),
+        hard_ceiling=hard_ceiling,
         gaps_total=len(critical_gaps),
         gaps_remaining=len(critical_gaps),
         choices=first_choices,
@@ -2683,10 +2714,24 @@ def _auto_detect_mode(profile_record: MasterProfile | None) -> str:
     return "targeted" if score >= MODE_B_COMPLETENESS_THRESHOLD else "guided"
 
 
-def _estimated_questions(mode: str) -> int:
+def _estimated_questions(mode: str, hard_ceiling: int | None = None) -> int:
+    """The soft "about this many questions" midpoint shown before a session has
+    a real budget to report.
+
+    ADR-080 (#646): the upper end of the range is this SESSION's derived budget
+    when the caller has one, not the operator cap. Since ADR-080 the cap
+    defaults to 30 and no longer describes any particular interview, so
+    midpointing against it would tell a 3-cluster candidate to expect ~16
+    questions for an interview that will ask at most 6. Callers with a budget
+    in hand pass it; `_resumed_response` and any caller without one fall back to
+    the cap, which is the pre-ADR-080 behaviour and only ever a fallback (the
+    frontend prefers `hard_ceiling` over this value — issue #245).
+    """
     if mode == "guided":
-        return (INTERVIEW_TARGET_MIN_GUIDED + settings.interview_max_questions_guided) // 2
-    return (INTERVIEW_TARGET_MIN_TARGETED + settings.interview_max_questions_targeted) // 2
+        upper = hard_ceiling if hard_ceiling else settings.interview_max_questions_guided
+        return (INTERVIEW_TARGET_MIN_GUIDED + upper) // 2
+    upper = hard_ceiling if hard_ceiling else settings.interview_max_questions_targeted
+    return (INTERVIEW_TARGET_MIN_TARGETED + upper) // 2
 
 
 def _build_state(

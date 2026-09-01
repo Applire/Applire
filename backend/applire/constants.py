@@ -22,20 +22,34 @@ import os
 # Mode auto-detection: completeness_score below this → MODE B (Guided Build)
 MODE_B_COMPLETENESS_THRESHOLD: float = 0.3
 
-# Hard ceilings — DEFAULT VALUES only (issue #259). The runtime value an
-# active session actually uses comes from config.Settings
-# (interview_max_questions_targeted / interview_max_questions_guided, env
+# Question-budget CAPS — since ADR-080 these are an upper bound applied AFTER
+# the derivation, never the budget itself. The budget a session actually uses
+# is derived from its own gap plan (services/interview/budget.derive_hard_ceiling:
+# INTERVIEW_MAX_QUESTIONS_PER_GAP * len(critical_gaps) + 2). The runtime cap
+# comes from config.Settings (interview_max_questions_targeted / _guided, env
 # vars INTERVIEW_MAX_QUESTIONS_TARGETED / INTERVIEW_MAX_QUESTIONS_GUIDED) —
-# services/session.py reads settings.*, never these names directly. Since
-# #259 the ceiling is a COST GUARD, not the primary termination driver: the
-# interview ends on a deterministic sufficiency check
+# services/session.py reads settings.*, never these names directly.
+#
+# Since #259 the budget is a COST GUARD, not the primary termination driver:
+# the interview ends on a deterministic sufficiency check
 # (services/interview/sufficiency.py) OR this budget OR an explicit user
 # 'done', whichever comes first. "If the ceiling is a bottleneck, it's
 # artificial" (PO directive, run-4: the interview stopped at the old
 # hardcoded 12 one question before a fact both blind panel reviewers named
 # as invite-flipping).
-INTERVIEW_HARD_CEILING_TARGETED: int = 12  # MODE A default
-INTERVIEW_HARD_CEILING_GUIDED: int = 20    # MODE B default
+#
+# #646 / ADR-080 (2026-09-01) is what made these caps rather than values. As
+# flat ceilings they were never reconciled with ADR-029's own target of 5-12
+# gap clusters per analysis: at 2 questions per cluster a budget of 12 finishes
+# 5 clusters reliably, 11 only if every single answer lands first time, and a
+# 12-cluster analysis under no answer pattern at all — so the interview stopped
+# on the budget with clusters it had itself identified never put to the
+# candidate. The defaults below are raised to cover the derived worst case
+# (12 clusters -> 26) so that an operator who sets nothing is never capped;
+# a self-hoster on a tight provider bill can still lower them, knowing that
+# doing so truncates interviews on gap-rich jobs.
+INTERVIEW_HARD_CEILING_TARGETED: int = 30  # MODE A cap
+INTERVIEW_HARD_CEILING_GUIDED: int = 30    # MODE B cap
 
 # Soft targets — informational only, used for estimated_questions in response
 INTERVIEW_TARGET_MIN_TARGETED: int = 3

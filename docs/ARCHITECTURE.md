@@ -76,14 +76,32 @@ GapDetector → QuestionGenerator → ResponseParser → ProfileUpdater
 **Orchestration (see ADR-049):** the state machine is hand-rolled (no framework) — and stays that way. An interim decision (ADR-045) to move to a declarative graph substrate was superseded before implementation: profile reconciliation collapsed into a single LLM call + deterministic applier (ADR-046) and reviewer loops live inside the bounded review layer (ADR-021), so no cyclic graph remained to orchestrate. ADR-049 instead unifies all interview-shaped flows into one in-house engine. Hard rule unchanged: **LLM calls stay on the provider abstraction (ADR-009)** — so providers stay pluggable and mockable. The stateful-backend, pause/resume, and one-active-session invariants below are unchanged.
 
 **Two modes:**
-- **MODE A (Targeted):** User has profile data. Focuses on filling specific gaps from gap analysis. 3–12 questions.
-- **MODE B (Guided):** New user, no CV. Builds the profile section by section. 10–20 questions.
+- **MODE A (Targeted):** User has profile data. Focuses on filling specific gaps from gap analysis. Length follows the number of gap clusters the analysis produced (see *Question budget*, ADR-080).
+- **MODE B (Guided):** New user, no CV. Builds the profile section by section. 7–9 sections, so up to 20 questions.
 
 Mode is auto-detected at session creation from `completeness_score` vs `MODE_B_COMPLETENESS_THRESHOLD` (0.3), but can be overridden.
 
 **Key invariant:** One active session per `(user_id, job_id)`. `POST /api/session` is idempotent — returns the existing session with `resumed: true` if one exists.
 
-**Termination (issue #259, amended 2026-07-24):** the "3–12" / "10–20" question counts above are a **cost guard**, not the primary termination driver. The interview ends when the first of these fires: (1) **sufficiency** — every JD-critical concept is evidenced, explicitly denied (terminal, never re-asked), or triaged as a true gap (`services/interview/sufficiency.py`, deterministic, no LLM call); (2) the operator-configured **budget** is exhausted (`INTERVIEW_MAX_QUESTIONS_TARGETED` / `INTERVIEW_MAX_QUESTIONS_GUIDED` env vars, read via `config.Settings`, defaulting to the previous hardcoded 12/20); or (3) the user explicitly says "done". Question **ordering** additionally promotes a JD-hard-requirement concept that is keyword-only or unquantified in the vault ahead of nice-to-have breadth within its priority bucket, so a budget cut always lands on a lower-value question first — the run-4 trigger was the ceiling cutting off a required capability's quantification one question early.
+**Termination (issue #259, amended 2026-07-24):** the question budget is a **cost guard**, not the primary termination driver. The interview ends when the first of these fires: (1) **sufficiency** — every JD-critical concept is evidenced, explicitly denied (terminal, never re-asked), or triaged as a true gap (`services/interview/sufficiency.py`, deterministic, no LLM call); (2) the **budget** is exhausted; or (3) the user explicitly says "done". Question **ordering** additionally promotes a JD-hard-requirement concept that is keyword-only or unquantified in the vault ahead of nice-to-have breadth within its priority bucket, so a budget cut always lands on a lower-value question first — the run-4 trigger was the ceiling cutting off a required capability's quantification one question early.
+
+### ADR-080 — The question budget is derived from the gap plan, not a constant
+
+**Decision:** a session's budget is computed at creation from the work it was given:
+
+```
+hard_ceiling = INTERVIEW_MAX_QUESTIONS_PER_GAP × len(critical_gaps) + 2
+```
+
+One derivation, shared by every mode (targeted, guided, gap-click micro-session, Mode C enrichment). `INTERVIEW_MAX_QUESTIONS_TARGETED` / `INTERVIEW_MAX_QUESTIONS_GUIDED` still exist, but they are now a **cap applied after the derivation**, not the budget itself — setting one below the derived value is a deliberate cost decision that will truncate interviews.
+
+**Why:** the budget was a flat constant (12 targeted / 20 guided) while gap clustering targets **5–12 clusters** per analysis (ADR-029), and nothing related the two numbers. Closing `n` clusters costs between `n` and `2n` answers (each cluster gets its question plus at most one follow-up, `INTERVIEW_MAX_QUESTIONS_PER_GAP`, default 2), so a flat 12 could finish 5 clusters reliably and a 12-cluster analysis never — the interview stopped on the budget with clusters it had itself identified never put to the candidate. Those requirements then stay honest gaps in the keyword ledger, which both the CV and the cover letter read, so the delivered documents under-claim real experience.
+
+**The `+2` is not slack:** one unit is the opening question, counted before any answer exists, and one is headroom so a cost guard never pre-empts the sufficiency verdict on the final turn (without it, a session that closed every gap still reports `max_questions_reached`).
+
+**Trade-off:** worst-case session length rises from 12 to `2n+2` questions — 26 for a 12-cluster JD. The per-gap ceiling is unchanged and sufficiency still ends the interview as soon as answers land, so the worst case is rare; but a self-hoster on a tight provider budget can cap it with the env vars above.
+
+**Self-hosters upgrading:** if you set `INTERVIEW_MAX_QUESTIONS_TARGETED` or `INTERVIEW_MAX_QUESTIONS_GUIDED` explicitly, your value now means "never exceed this", not "use this".
 
 ---
 

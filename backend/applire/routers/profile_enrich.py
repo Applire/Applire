@@ -41,6 +41,7 @@ from applire.schemas.enrich import (
     GapItem,
 )
 from applire.schemas.session import ConfirmationPrompt
+from applire.services.interview.budget import derive_hard_ceiling
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
     gap_detector_mode_c,
@@ -53,6 +54,12 @@ from applire.services.session import get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
 
+# Mode C keeps its own PER-GAP allowance (an enrichment gap is a profile section
+# with more to give than a JD cluster), but since ADR-080 the session BUDGET it
+# feeds is the shared derivation — `derive_hard_ceiling` — not a second formula.
+# This router's `len(gaps) * _ENRICH_HARD_CEILING_PER_GAP` was the only door that
+# already scaled its budget to its plan, and that is precisely what showed the
+# targeted/guided constants were wrong (ADR-080 Context).
 _ENRICH_HARD_CEILING_PER_GAP = 3
 _ENRICH_MODE = "profile_enrich"
 
@@ -240,7 +247,9 @@ async def start_enrich_session(
         "current_question": "",
         "messages": [],
         "questions_asked": 0,
-        "hard_ceiling": len(gaps) * _ENRICH_HARD_CEILING_PER_GAP,
+        "hard_ceiling": derive_hard_ceiling(
+            len(gaps), per_gap=_ENRICH_HARD_CEILING_PER_GAP
+        ),
         "questions_per_gap": {},
         "skipped_gaps": [],
         "full_gaps": gaps,
