@@ -471,10 +471,23 @@ def apply_ops(
         produced ``changes=[]`` and left the field ``None``, while the identical
         op on a work entry applied normally. The reconciler does emit such ops on
         real runs (#618's LLM log, record 26: four ``set_field`` on an education
-        entry). Measured 2026-08-31 for #633: ``flag_conflict(target=<education_id>,
-        field="end_date", value="2006")`` produced ``conflicts=[]`` — the identical
-        silent-discard shape, on the other of the two ops that carry an entity
-        ``target``.
+        entry).
+
+        For #633 (the other op carrying an entity ``target``) the failure shape
+        differs from ``set_field``'s, and #633's own recorded probe did NOT
+        measure it: that probe passed ``value="2006"``, which is not a
+        ``FlagConflict`` field — ``existing``/``incoming`` stayed ``None`` and
+        ``_apply_flag_conflict``'s absence guard returned before any resolution
+        was attempted, so its ``conflicts=[]`` says nothing about this defect
+        and reproduces identically after the fix. Re-measured 2026-09-01 with
+        the shape the reconciler actually emits (``existing``/``incoming`` both
+        populated and differing): pre-fix, a ``Conflict`` WAS appended — with
+        ``section=""`` and ``entity_id=None``, because ``resolve`` returned
+        ``None``. That is worse than a silent drop: ``_apply_resolve_field``
+        then writes nothing while still clearing the dispute from
+        ``pending_conflicts``, so the user answers a question and the answer
+        goes nowhere. Post-fix the same op records
+        ``section='education'`` with the entity id set.
         """
         if handle is None:
             return None
