@@ -589,14 +589,17 @@ class ProjectEntry(ExperienceBase):
 class Conflict(BaseModel):
     """A two-value dispute parked for the candidate (ADR-013 / ADR-046).
 
-    #218 — ``entity_id`` names the work / project / volunteer entry the disputed
-    value hangs off, when there is one. ``section`` + ``field`` alone cannot
-    address it: ``work_experience`` / ``achievements`` is true of every role, so
-    the resolution path had to guess (it updated the FIRST entry still holding
-    the old value) and could not reach a bullet inside a list at all. Optional
-    and defaulted to ``None`` — profile-level disputes (``professional_summary``,
-    ``personal_info``) have no entity, and conflicts written before this field
-    existed load unchanged.
+    #218 — ``entity_id`` names the entity the disputed value hangs off, when
+    there is one: originally work / project / volunteer only (``apply_ops``'s
+    ``resolve()`` closure), widened by #633 (2026-09-01) to every id-bearing
+    section (education, certifications, languages, publications, skills,
+    signature_stories too — see ``apply.py``'s ``resolve_any``). ``section`` +
+    ``field`` alone cannot address it: ``work_experience`` / ``achievements``
+    is true of every role, so the resolution path had to guess (it updated the
+    FIRST entry still holding the old value) and could not reach a bullet
+    inside a list at all. Optional and defaulted to ``None`` — profile-level
+    disputes (``professional_summary``, ``personal_info``) have no entity, and
+    conflicts written before this field existed load unchanged.
     """
 
     conflict_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

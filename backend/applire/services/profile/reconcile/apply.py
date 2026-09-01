@@ -453,22 +453,27 @@ def apply_ops(
 
     def resolve_any(handle: str | None) -> Any | None:
         """Resolve a handle against EVERY id-bearing section, not just the three
-        ExperienceBase ones (#619 session, 2026-08-31).
+        ExperienceBase ones (#619 session, 2026-08-31; widened to ``flag_conflict``
+        by #633, 2026-09-01).
 
         ``resolve`` above is deliberately experience-only: it backs ``parent``,
         ``evidence`` and ``add_bullets``, where an education entry or a language
-        is not a legal referent. But ``set_field``'s target legitimately IS any
-        entity — and pointing it at an education / certification / language /
-        publication id resolved to ``None``, so ``_apply_set_field`` returned
-        silently: no change, no conflict, no ``rejected_ops`` entry, and the
-        import witness cannot see it either (it compares ENTRIES, so a field
-        left unfilled on an entry that IS present passes its arm (a)).
+        is not a legal referent. But ``set_field``'s and ``flag_conflict``'s
+        target legitimately IS any entity — and pointing either at an education /
+        certification / language / publication / skill / signature_story id
+        resolved to ``None``, so their handlers returned silently: no change, no
+        conflict, no ``rejected_ops`` entry, and the import witness cannot see it
+        either (it compares ENTRIES, so a field left unfilled — or a dispute never
+        parked — on an entry that IS present passes its arm (a)).
 
         Measured 2026-08-31: ``set_field(target=<education_id>, field="end_date")``
         produced ``changes=[]`` and left the field ``None``, while the identical
         op on a work entry applied normally. The reconciler does emit such ops on
         real runs (#618's LLM log, record 26: four ``set_field`` on an education
-        entry).
+        entry). Measured 2026-08-31 for #633: ``flag_conflict(target=<education_id>,
+        field="end_date", value="2006")`` produced ``conflicts=[]`` — the identical
+        silent-discard shape, on the other of the two ops that carry an entity
+        ``target``.
         """
         if handle is None:
             return None
@@ -534,7 +539,14 @@ def apply_ops(
         elif isinstance(op, SetSummary):
             _apply_set_summary(op, new_profile, source, changes, conflicts)
         elif isinstance(op, FlagConflict):
-            _apply_flag_conflict(op, resolve, source, conflicts)
+            # #633 — resolve() is deliberately experience-only (parent/evidence/
+            # add_bullets referents); flag_conflict's target legitimately IS any
+            # id-bearing entity, exactly like set_field's (#619/resolve_any
+            # above). Before this, a conflict aimed at an education/
+            # certification/language/publication/skill/signature_story id
+            # resolved to None: no exception, no conflicts entry, no witness —
+            # a silently discarded dispute. See resolve_any's own docstring.
+            _apply_flag_conflict(op, resolve_any, source, conflicts)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
         elif isinstance(op, ReplaceSection):
