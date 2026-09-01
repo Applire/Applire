@@ -264,7 +264,13 @@ def _full_tailored_cv() -> TailoredCVData:
                 end_date="2022-06",
                 bullets=["MARKER_BULLET_ALPHA_1", "MARKER_BULLET_ALPHA_2"],
                 team_size=42,
-                budget_managed="MARKER_BUDGET_ALPHA",
+                # Must survive `budget_display` — a bare marker string is
+                # rejected by it (returns ""), exactly as a bare unit-less
+                # number is, so the templates omit the Budget line entirely.
+                # Keeping the marker here would have pinned the pre-2026-09-01
+                # behaviour where the export printed an unfiltered value the
+                # PDF suppresses.
+                budget_managed="MARKER 4,2 Mio. EUR",
                 industry_context="MARKER_INDUSTRY_ALPHA",
                 projects=[
                     TailoredProjectEntry(
@@ -602,7 +608,7 @@ class TestRenderCvDocxRoleFacts:
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
         labels_de = cv_labels("de")
         assert f"{labels_de['role_team_size']}: 42" in text
-        assert f"{labels_de['role_budget']}: MARKER_BUDGET_ALPHA" in text
+        assert f"{labels_de['role_budget']}: MARKER 4,2 Mio. EUR" in text
         assert f"{labels_de['role_industry']}: MARKER_INDUSTRY_ALPHA" in text
 
     def test_team_size_zero_renders(self):
@@ -828,3 +834,123 @@ class TestDisplayFormattingMatchesThePdf:
 
         assert "04/2017" in self._text(cv, lang="de")
         assert "04/2017" in self._text(cv, lang="en")
+
+
+# ---------------------------------------------------------------------------
+# Adversarial-pass findings, 2026-09-01 (E057). Two classes, both of which the
+# whole suite shipped green through:
+#   * display filters the PDF applies and the export did not — the SAME miss as
+#     the date bug, in the two filters that were not checked when that was fixed;
+#   * uncaught renderer crashes on inputs the app itself declares supported.
+# ---------------------------------------------------------------------------
+
+
+class TestRemainingDisplayFilterParity:
+    """`cv_docx.py` imported only `month_year` from `templates.filters`, while
+    every CV template also applies `budget_display` and `education_title`.
+    Both filters exist *because* their shapes shipped as real defects before
+    (#382, #548 — the latter caught by a blind reviewer on a real run), so
+    omitting them reintroduces two closed bugs on a new surface."""
+
+    def _text(self, cv, lang="de"):
+        from applire.services.office_export.cv_docx import render_cv_docx
+        from applire.services.office_export.extract import extract_docx_text
+        return extract_docx_text(
+            render_cv_docx(cv, lang=lang, accent_color="#1a3a5c", photo_bytes=None)
+        )
+
+    def test_a_bare_number_budget_is_omitted_exactly_as_the_pdf_omits_it(self):
+        """#382's shape. `budget_display("6000000", "de")` returns "", and the
+        templates append the Budget line only `{% if budget_text %}` — so the
+        PDF shows no budget at all. The export printed `Budget: 6000000`."""
+        from applire.templates.filters import budget_display
+        assert budget_display("6000000", "de") == ""      # pin the filter contract
+
+        cv = _full_tailored_cv()
+        cv.work_history[0].budget_managed = "6000000"
+
+        text = self._text(cv)
+        assert "6000000" not in text, "a bare-number budget must not reach the reader"
+
+    def test_a_well_formed_budget_still_renders(self):
+        """The negative control: the filter is not a blanket suppressor."""
+        cv = _full_tailored_cv()
+        cv.work_history[0].budget_managed = "ca. 6 Mio. EUR"
+
+        assert "ca. 6 Mio. EUR" in self._text(cv)
+
+    def test_a_degree_that_repeats_its_field_is_not_printed_twice(self):
+        """#548's shape: degree 'Industriemeister Metall' + field 'Metall'.
+        `education_title` dedupes to just the degree; the export printed both."""
+        from applire.templates.filters import education_title
+        assert education_title("Industriemeister Metall", "Metall") == "Industriemeister Metall"
+
+        cv = _full_tailored_cv()
+        cv.education[0].degree = "Industriemeister Metall"
+        cv.education[0].field = "Metall"
+
+        text = self._text(cv)
+        assert text.count("Metall") == 1, f"'Metall' rendered {text.count('Metall')}x, expected once"
+
+    def test_a_distinct_degree_and_field_are_still_joined(self):
+        """Negative control for the dedup."""
+        cv = _full_tailored_cv()
+        cv.education[0].degree = "M.Sc."
+        cv.education[0].field = "Informatik"
+
+        text = self._text(cv)
+        assert "M.Sc." in text and "Informatik" in text
+
+
+class TestHostileInputsDoNotCrashTheDownload:
+    """`routers/cv.py` maps any exception to HTTP 500, so a renderer raise is a
+    failed download for the whole document. The PDF path degrades instead: its
+    photo resolution silently omits an unreadable file."""
+
+    def _render(self, cv, photo=None):
+        from applire.services.office_export.cv_docx import render_cv_docx
+        return render_cv_docx(cv, lang="de", accent_color="#1a3a5c", photo_bytes=photo)
+
+    def test_a_webp_photo_does_not_crash_the_export(self):
+        """`services/cv.py:2095` declares `webp` a supported stored-photo type,
+        but python-docx's image sniffer has no WebP reader at all (its formats
+        are bmp/gif/jpeg/png/tiff). Every `.docx` download for a candidate with
+        a .webp photo raised `UnrecognizedImageError` → HTTP 500, while the PDF
+        rendered fine because Chromium reads WebP natively."""
+        from io import BytesIO
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (120, 120), (200, 40, 40)).save(buf, format="WEBP")
+        cv = _full_tailored_cv()
+        cv.show_photo = True
+
+        data = self._render(cv, photo=buf.getvalue())        # must not raise
+        assert data[:2] == b"PK"
+
+    def test_unreadable_photo_bytes_do_not_crash_the_export(self):
+        cv = _full_tailored_cv()
+        cv.show_photo = True
+
+        assert self._render(cv, photo=b"not an image at all")[:2] == b"PK"
+        assert self._render(cv, photo=b"\x89PNG\r\n\x1a\n truncated")[:2] == b"PK"
+
+    def test_a_nul_byte_in_candidate_text_does_not_crash_the_export(self):
+        """python-docx raises `ValueError: All strings must be XML compatible`
+        on a NUL or a control character. Candidate text reaches the writer from
+        an LLM and from imported documents, so this is reachable input."""
+        cv = _full_tailored_cv()
+        cv.work_history[0].bullets = ["Koordination mit \x00 Projekt Phoenix."]
+        cv.summary = "Projektleiter\x0b mit Schwerpunkt."
+
+        assert self._render(cv)[:2] == b"PK"
+
+    def test_stripping_a_control_character_keeps_the_surrounding_text(self):
+        """The repair must not silently swallow the sentence around it."""
+        from applire.services.office_export.extract import extract_docx_text
+
+        cv = _full_tailored_cv()
+        cv.work_history[0].bullets = ["Koordination mit \x00Projekt Phoenix und R&D."]
+
+        text = extract_docx_text(self._render(cv))
+        assert "Projekt Phoenix und R&D" in text

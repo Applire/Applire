@@ -71,8 +71,12 @@ from applire.services.office_export._common import (
     hex_to_rgb_color,
     new_document,
 )
-from applire.templates.filters import month_year
+import logging
+
+from applire.templates.filters import budget_display, education_title, month_year
 from applire.templates.labels import cv_labels
+
+logger = logging.getLogger(__name__)
 
 PHOTO_WIDTH = Cm(3.2)
 
@@ -122,7 +126,7 @@ def _format_date_range(start: str | None, end: str | None, labels: dict) -> str:
     return start or end
 
 
-def _role_facts_line(entry: TailoredWorkEntry, labels: dict) -> str:
+def _role_facts_line(entry: TailoredWorkEntry, labels: dict, lang: str) -> str:
     """#328 (ADR-062 clause 1) per-role quantified facts, rendered as
     deterministic document furniture — 'Label: value' pairs, never composed
     into a sentence, matching how all seven PDF templates render them via
@@ -136,8 +140,15 @@ def _role_facts_line(entry: TailoredWorkEntry, labels: dict) -> str:
     parts = []
     if entry.team_size is not None:
         parts.append(f"{labels['role_team_size']}: {entry.team_size}")
-    if _has_text(entry.budget_managed):
-        parts.append(f"{labels['role_budget']}: {entry.budget_managed.strip()}")
+    # Through the SAME filter every template applies
+    # (`job.budget_managed | budget_display(lang)`), and — like the templates'
+    # `{% if budget_text %}` — the line is omitted when the filter rejects the
+    # value. `budget_display("6000000")` returns "" precisely because a bare
+    # unit-less number shipped as #382; printing it raw here would reintroduce
+    # that defect on the export.
+    budget_text = budget_display(entry.budget_managed, lang)
+    if _has_text(budget_text):
+        parts.append(f"{labels['role_budget']}: {budget_text.strip()}")
     if _has_text(entry.industry_context):
         parts.append(f"{labels['role_industry']}: {entry.industry_context.strip()}")
     return "   |   ".join(parts)
@@ -185,10 +196,21 @@ def _render_project(document: DocxDocument, project: TailoredProjectEntry) -> No
 # ---------------------------------------------------------------------------
 
 
-def _render_contact(document, tailored, labels, color, photo_bytes) -> None:
+def _render_contact(document, tailored, labels, color, photo_bytes, lang) -> None:
     contact = tailored.contact
     if photo_bytes:
-        document.add_picture(io.BytesIO(photo_bytes), width=PHOTO_WIDTH)
+        try:
+            document.add_picture(io.BytesIO(photo_bytes), width=PHOTO_WIDTH)
+        except Exception:
+            # python-docx reads only bmp/gif/jpeg/png/tiff. `services/cv.py`'s
+            # _PHOTO_MIME declares **webp** a supported stored-photo type, and
+            # Chromium renders it natively on the PDF path — so a candidate
+            # with a .webp photo got a correct PDF and an HTTP 500 on every
+            # .docx download (routers/cv.py maps any raise to 500). Corrupt or
+            # truncated bytes fail the same way. Degrade exactly as the PDF
+            # path already does for a missing file: omit the photo, keep the
+            # document. Never let an image cost the candidate their text.
+            logger.warning("office export: photo omitted, unreadable by python-docx")
     add_heading(document, contact.name, 1, color)
     details = _join_nonblank(
         [contact.location, contact.phone, contact.email, contact.linkedin],
@@ -197,14 +219,14 @@ def _render_contact(document, tailored, labels, color, photo_bytes) -> None:
     add_paragraph(document, details)
 
 
-def _render_summary(document, tailored, labels, color, photo_bytes) -> None:
+def _render_summary(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not _has_text(tailored.summary):
         return
     add_heading(document, labels["summary"], 2, color)
     add_paragraph(document, tailored.summary)
 
 
-def _render_work_history(document, tailored, labels, color, photo_bytes) -> None:
+def _render_work_history(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_work_entry_has_content(e) for e in tailored.work_history):
         return
     add_heading(document, labels["experience"], 2, color)
@@ -214,14 +236,14 @@ def _render_work_history(document, tailored, labels, color, photo_bytes) -> None
         header = _join_nonblank([entry.company, entry.role])
         add_heading(document, header, 3, color)
         add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
-        add_paragraph(document, _role_facts_line(entry, labels), italic=True)
+        add_paragraph(document, _role_facts_line(entry, labels, lang), italic=True)
         for bullet in entry.bullets:
             add_bullet(document, bullet)
         for project in entry.projects:
             _render_project(document, project)
 
 
-def _render_skills(document, tailored, labels, color, photo_bytes) -> None:
+def _render_skills(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_has_text(s) for s in tailored.skills):
         return
     add_heading(document, labels["skills"], 2, color)
@@ -229,19 +251,25 @@ def _render_skills(document, tailored, labels, color, photo_bytes) -> None:
         add_bullet(document, skill)
 
 
-def _render_education(document, tailored, labels, color, photo_bytes) -> None:
+def _render_education(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_education_has_content(e) for e in tailored.education):
         return
     add_heading(document, labels["education"], 2, color)
     for entry in tailored.education:
         if not _education_has_content(entry):
             continue
-        header = _join_nonblank([entry.institution, entry.degree, entry.field])
+        # `education_title` dedupes a degree that already names its field —
+        # "Industriemeister Metall" + field "Metall" renders once, not twice.
+        # The filter exists because #548 shipped exactly that redundancy and a
+        # blind reviewer flagged it on a real run; every CV template applies it
+        # (`{{ edu.degree | education_title(edu.field) }}`), so the export must
+        # too or it reintroduces a closed defect on a new surface.
+        header = _join_nonblank([entry.institution, education_title(entry.degree, entry.field)])
         add_paragraph(document, header, bold=True)
         add_paragraph(document, _format_date_range(entry.start_date, entry.end_date, labels), italic=True)
 
 
-def _render_languages(document, tailored, labels, color, photo_bytes) -> None:
+def _render_languages(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_language_has_content(e) for e in tailored.languages):
         return
     add_heading(document, labels["languages"], 2, color)
@@ -249,7 +277,7 @@ def _render_languages(document, tailored, labels, color, photo_bytes) -> None:
         add_bullet(document, _join_nonblank([entry.language, entry.level]))
 
 
-def _render_projects(document, tailored, labels, color, photo_bytes) -> None:
+def _render_projects(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_project_has_content(p) for p in tailored.projects):
         return
     add_heading(document, labels["projects"], 2, color)
@@ -257,7 +285,7 @@ def _render_projects(document, tailored, labels, color, photo_bytes) -> None:
         _render_project(document, project)
 
 
-def _render_certifications(document, tailored, labels, color, photo_bytes) -> None:
+def _render_certifications(document, tailored, labels, color, photo_bytes, lang) -> None:
     if not any(_certification_has_content(c) for c in tailored.certifications):
         return
     add_heading(document, labels["certifications"], 2, color)
@@ -379,7 +407,7 @@ def render_cv_docx(
                 "registered renderer in _SECTION_RENDERERS — a schema field would "
                 "silently go unexported from the .docx writer."
             )
-        renderer(document, tailored, labels, color, photo_bytes)
+        renderer(document, tailored, labels, color, photo_bytes, lang)
 
     buffer = io.BytesIO()
     document.save(buffer)

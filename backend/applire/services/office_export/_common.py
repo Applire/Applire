@@ -103,6 +103,25 @@ def hex_to_rgb_color(hex_color: str | None) -> RGBColor:
     return RGBColor(int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
 
 
+# XML 1.0 permits tab, LF and CR; every other C0 control and the C1 range are
+# forbidden, and python-docx raises `ValueError: All strings must be XML
+# compatible` rather than escaping them. Candidate text reaches these writers
+# from an LLM and from imported documents, so a stray NUL is reachable input,
+# and `routers/cv.py` maps any raise to HTTP 500 — one bad byte would fail the
+# whole download. Strip the offending characters and keep the sentence.
+_XML_FORBIDDEN = {c for c in range(0x00, 0x20) if c not in (0x09, 0x0A, 0x0D)} | set(
+    range(0x7F, 0xA0)
+)
+_XML_STRIP = {c: None for c in _XML_FORBIDDEN}
+
+
+def xml_safe(text: str | None) -> str | None:
+    """Drop characters XML 1.0 forbids, preserving everything else verbatim."""
+    if text is None:
+        return None
+    return text.translate(_XML_STRIP)
+
+
 def _is_blank(text: str | None) -> bool:
     return text is None or not text.strip()
 
@@ -123,7 +142,7 @@ def add_heading(
         return None
 
     paragraph = document.add_paragraph(style=_HEADING_STYLES[level])
-    run = paragraph.add_run(text.strip())
+    run = paragraph.add_run(xml_safe(text.strip()))
     run.font.color.rgb = color
     return paragraph
 
@@ -141,7 +160,7 @@ def add_paragraph(
         return None
 
     paragraph = document.add_paragraph()
-    run = paragraph.add_run(text.strip())
+    run = paragraph.add_run(xml_safe(text.strip()))
     run.bold = bold
     run.italic = italic
     return paragraph
@@ -156,7 +175,7 @@ def add_bullet(document: DocxDocument, text: str | None) -> Paragraph | None:
         return None
 
     paragraph = document.add_paragraph(style="List Bullet")
-    paragraph.add_run(text.strip())
+    paragraph.add_run(xml_safe(text.strip()))
     return paragraph
 
 
