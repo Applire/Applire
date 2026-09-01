@@ -692,3 +692,51 @@ describe("ATSChecksPanel", () => {
     });
   });
 });
+
+// ADR-079 cl. 4 / ADR-039 amendment 2026-09-01: the .docx export's page band is
+// `not_applicable` and carries a details_key with an EMPTY BUT PRESENT
+// details_params. That combination is the trap: `detailText` localises only when
+// details_params is truthy — deliberately, because next-intl renders the raw key
+// path instead of throwing on a missing ICU variable, so a keyed check whose
+// params are absent (a partially-migrated persisted report) must take the EN
+// fallback. `{}` is truthy in JS, so it means "params measured, and there are
+// none" rather than "params missing", and the German user gets German. Without
+// this test, shipping `details_params=None` from the backend would silently
+// serve the English fallback to a DE user and every other gate would stay green.
+describe("ATSChecksPanel — not_applicable page band (ADR-079 cl. 4)", () => {
+  const REPORT_WITH_NA_BAND: ATSReport = {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      { id: "skills", status: "pass" },
+      {
+        id: "page-length",
+        status: "not_applicable",
+        details:
+          "not applicable — this document has no fixed pagination until a word processor lays it out",
+        details_key: "page-length-not-applicable",
+        details_params: {},
+      },
+    ],
+    keywords: { present: [], missing: [] },
+  };
+
+  it("renders the localized German reason, not the English fallback", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_NA_BAND} />, "de"));
+
+    expect(
+      screen.getByText(/keine feste Seitenaufteilung/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no fixed pagination/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not mark the band as a failure", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_NA_BAND} />, "de"));
+
+    // The whole point: a lone not_applicable check in its own group used to
+    // make `passed === checks.length` false and paint a red ✗ on a band that
+    // is not a failure.
+    expect(screen.queryByText("✗Seitenlänge")).not.toBeInTheDocument();
+  });
+});
