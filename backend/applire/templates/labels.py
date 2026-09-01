@@ -30,6 +30,11 @@ the language-follows-output invariant is the fix, exact wording can be refined l
 
 _CV_LABELS: dict[str, dict[str, str]] = {
     "de": {
+        # The PDF's metadata title (the `<title>` tag). Edge UAT 2026-08-29: an
+        # ENGLISH CV rendered by the Classic template carried "Lebenslauf – …",
+        # because each template hardcoded its own word — the one piece of
+        # chrome ADR-038 missed. Normalised here like every other label.
+        "document_title": "Lebenslauf",
         "summary": "Profil",
         "experience": "Berufserfahrung",
         "education": "Ausbildung",
@@ -45,6 +50,7 @@ _CV_LABELS: dict[str, dict[str, str]] = {
         "role_industry": "Branche",
     },
     "en": {
+        "document_title": "Curriculum Vitae",
         "summary": "Profile",
         "experience": "Experience",
         "education": "Education",

@@ -21,6 +21,7 @@ placeholder) in the document's output language, not hardcoded German (#4,
 ADR-038). For each registered template and for lang in ("de", "en"), render
 via the production Jinja env and assert the chrome follows the language.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -93,6 +94,12 @@ def color_ctx():
     return _make_color_context("#2b5fa8")
 
 
+def _title(html: str) -> str | None:
+    """The rendered `<title>` — the PDF's metadata title (#604)."""
+    m = re.search(r"<title>(.*?)</title>", html, re.S)
+    return m.group(1).strip() if m else None
+
+
 def _render(template_file, cv, color, lang):
     from applire.services.cv import _jinja_env
     from applire.templates.labels import cv_labels
@@ -118,6 +125,15 @@ def test_english_render_uses_english_headings(template_file, sample_cv, color_ct
     assert "Present" in html, f"{template_file}: EN present-placeholder missing in EN render"
     assert _GERMAN_PRESENT not in html, f"{template_file}: German 'heute' leaked into EN render"
 
+    # #604 — the PDF's metadata title is chrome too, and it was the one piece
+    # this file did not examine: every template hardcoded its own word, so an
+    # English CV from the Classic template shipped as "Lebenslauf – …"
+    # (edge UAT 2026-08-29, CV 4121fa73). Asserting only on headings is why
+    # the defect survived a passing localization suite.
+    assert _title(html) == "Curriculum Vitae – Anna Musterfrau", (
+        f"{template_file}: EN metadata title is {_title(html)!r}"
+    )
+
 
 @pytest.mark.parametrize("template_file", ALL_TEMPLATES)
 def test_german_render_uses_german_headings(template_file, sample_cv, color_ctx):
@@ -135,6 +151,13 @@ def test_german_render_uses_german_headings(template_file, sample_cv, color_ctx)
     # Open-ended date placeholder follows DE ("heute"), never English "Present".
     assert _GERMAN_PRESENT in html, f"{template_file}: German present-placeholder missing in DE render"
     assert "Present" not in html, f"{template_file}: English 'Present' leaked into DE render"
+
+    # #604 — see the EN counterpart. The DE direction is the one that was
+    # already correct; it is pinned so the fix cannot regress into the
+    # opposite leak.
+    assert _title(html) == "Lebenslauf – Anna Musterfrau", (
+        f"{template_file}: DE metadata title is {_title(html)!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
