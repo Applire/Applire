@@ -103,15 +103,24 @@ const UNIT_ISSUE = {
   source_record_ref: "Senior Software Engineer @ Logivia",
 };
 
+// #626 — the entity/field/value/provenance shape `_conflict_issue`
+// (services/profile/health.py) now always populates for a `conflict` issue.
 const HEALTH = {
   issues: [
     {
       id: "conflict:1",
       thread: "conflict",
       profile_mismatch_severity: "review",
-      summary: "start_date '2020-03' vs '2023-01'",
+      summary: "Senior Developer @ Acme: work_experience.start_date '2020-03' vs '2023-01'",
       field_ref: "start_date",
       source_record_ref: "rec-1",
+      entity_label: "Senior Developer @ Acme",
+      section: "work_experience",
+      field: "start_date",
+      existing_value_display: "2020-03",
+      incoming_value_display: "2023-01",
+      existing_source: null,
+      incoming_source: "cv_upload",
     },
   ],
   completeness: { score: 0.99, gaps: [], field_gaps: [] },

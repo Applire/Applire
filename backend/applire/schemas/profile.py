@@ -1259,9 +1259,62 @@ class HealthIssue(BaseModel):
     # the standing condition on that omission — it must reach the user.
     thread: Literal["conflict", "accuracy", "confirmation", "unit"]
     profile_mismatch_severity: Literal["info", "review", "critical"]
+    # A server-built, English-only fallback (kept for any consumer #626
+    # (conflict legibility) could not reach; every updated reader composes its
+    # own localized sentence from the structured fields below instead, so it
+    # never shows this raw string). For a ``conflict`` issue it is still
+    # improved to carry the entity label when one resolves — never worse than
+    # before, but not localizable, which is exactly why it is no longer the
+    # primary contract.
     summary: str
     field_ref: str | None = None
     source_record_ref: str | None = None
+    # ── #626 (conflict legibility) — structured fields, populated for the
+    # ``conflict`` thread only (every other thread leaves them ``None`` and its
+    # existing reader is unaffected). The reported defect: a conflict's summary
+    # named the FIELD ("work_experience.end_date: '2019-12' vs '2020-01'") but
+    # never the ENTRY it hangs off — the user could not tell which job was in
+    # dispute. ``Conflict.entity_id`` (#218) already carried the answer; nothing
+    # resolved it. See ``services/profile/health.py`` (``_resolve_entity`` /
+    # ``_entity_label``) for the resolution and ADR notes on what could NOT be
+    # recovered (the existing side's provenance; source CV excerpts).
+    #
+    # ``entity_label``   human label of the entry in dispute ("Senior Developer
+    #                    @ Acme Corp"), or ``None`` for a profile-level dispute
+    #                    (``entity_id`` was never set — e.g. professional_summary
+    #                    / personal_info) OR a stale ``entity_id`` that no
+    #                    longer resolves against the current profile (the entry
+    #                    was edited/removed after the conflict was parked;
+    #                    nothing sweeps ``pending_conflicts`` when that happens).
+    #                    Both cases degrade to ``None`` rather than crashing or
+    #                    inventing a label.
+    # ``section``        machine section key (``conflict.section`` verbatim,
+    #                    e.g. ``"work_experience"``) — the frontend maps this
+    #                    through its own translated section-name dictionary.
+    # ``field``          machine field key (``conflict.field`` verbatim). For a
+    #                    ``professional_summary`` conflict this is the language
+    #                    slot ("de"/"en"), not a real field name — the frontend
+    #                    special-cases that section.
+    # ``existing_value_display`` / ``incoming_value_display``
+    #                    the two disputed values, already run through
+    #                    ``format_display_value`` (never a raw Python repr).
+    # ``existing_source`` / ``incoming_source``
+    #                    provenance for each side. ``conflict.source`` names
+    #                    only the import that RAISED the conflict — i.e. the
+    #                    INCOMING side. The ``Conflict`` record has no symmetric
+    #                    field for who/what wrote the EXISTING value, and
+    #                    reconstructing it from ``enrichment_history`` would mean
+    #                    walking the ``FieldChange`` trail backwards with no
+    #                    stored pointer to anchor on — an inference, not a
+    #                    stored fact. ``existing_source`` is therefore always
+    #                    ``None`` today; left unset rather than fabricated.
+    entity_label: str | None = None
+    section: str | None = None
+    field: str | None = None
+    existing_value_display: str | None = None
+    incoming_value_display: str | None = None
+    existing_source: str | None = None
+    incoming_source: str | None = None
 
 
 class CompletenessBlock(BaseModel):
