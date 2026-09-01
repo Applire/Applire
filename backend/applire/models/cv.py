@@ -73,6 +73,16 @@ class GeneratedCV(Base):
     document_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
     ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-079 clause 8 (E057/US296, #637): persisted ATS audit report for the
+    # .docx EXPORT — a separate column from ats_report (never overwrites it),
+    # because the PDF and the .docx are two artefacts, not one rendered twice
+    # (ADR-079 clause 2), and their audits can legitimately diverge. The
+    # .docx BYTES themselves are never persisted (ADR-079 clause 8: rendered
+    # on demand exactly like the PDF); only the report needs storage. NULL =
+    # not yet audited (engine error, or a pre-E057 row). Written in the same
+    # commit as ats_report/truthfulness_report/critic_report
+    # (_update_ats_report, services/cv.py) — never gates delivery.
+    docx_ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-052 (E043/US246): persisted truthfulness self-audit; NULL = not audited
     # (oracle error or pre-Tiramisu row). Written in the same commit as the
     # artifact/report so re-generation replaces it atomically. Never gates delivery.
