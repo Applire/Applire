@@ -1340,6 +1340,7 @@
     "statusReady": "Bereit",
     "statusGenerating": "Wird erstellt…",
     "statusExpired": "Abgelaufen",
+    "statusFailed": "Fehlgeschlagen",
     "expiresIn": "Läuft in {days} Tagen ab",
     "expiresToday": "Läuft heute ab",
     "openButton": "Öffnen",

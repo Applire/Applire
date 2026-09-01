@@ -246,6 +246,21 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
                           {t("statusExpired")}
                         </span>
                       )}
+                      {/* #604 — a `failed` row rendered NOTHING here: the status
+                          column was simply blank, so My Documents was the one
+                          surface that did not say a generation had died (the
+                          dossier already showed "Generation failed."). Found in
+                          edge UAT 2026-08-29. */}
+                      {item.status === "failed" && (
+                        <span
+                          data-testid="documents-status-failed"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-critical/10 text-critical"
+                        >
+                          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 13 }}>error</span>
+                          {t("statusFailed")}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3.5">
                       {isReady && days <= 7 ? (

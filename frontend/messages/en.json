@@ -1340,6 +1340,7 @@
     "statusReady": "Ready",
     "statusGenerating": "Generating…",
     "statusExpired": "Expired",
+    "statusFailed": "Failed",
     "expiresIn": "Expires in {days} days",
     "expiresToday": "Expires today",
     "openButton": "Open",
