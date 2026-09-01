@@ -19,7 +19,7 @@
 parity and round-trip CI gates.
 
 Blocking, same status as ``tests/ats/test_roundtrip.py`` (ADR-039): a
-``.docx`` export only ships if it survives this suite. Three properties,
+``.docx`` export only ships if it survives this suite. Four properties,
 each parametrized over BOTH document kinds (``_DOCUMENT_CASES`` — CV and
 cover letter) rather than duplicated per kind: every test function below is
 written against the generic ``_DocumentCase`` shape, never against
@@ -27,6 +27,21 @@ written against the generic ``_DocumentCase`` shape, never against
 this same task once ``office_export/letter_docx.py`` merged) is one more
 ``_DocumentCase`` entry plus a ``LETTER_DE``/``LETTER_EN`` fixture pair, not
 a second copy of any test.
+
+**Sections 1 and 2 both check CONTAINMENT of a field's RAW value against the
+`.docx` alone, and both are structurally blind to a defect class that slipped
+through 60 pre-existing tests plus these two gates in their first form**:
+commit ``8dc61254`` found the `.docx` CV writer printing `2017-04` where
+every PDF template prints `04/2017` (`templates.filters.month_year` applied
+on the PDF side only) — the SAME record showing two different dates
+depending on which file the reader opens. A raw-value-containment check
+cannot see this: the raw ISO value `"2017-04"` IS a substring of the buggy
+`.docx` text either way a date is (mis)formatted, so it was never a useful
+witness for this class of defect. **Section 3 exists because of that
+finding** — a genuine differential between the real PDF and the real
+`.docx` for the same fixture, not a second read of either against the raw
+data. Mutation-verified in this task's report: reverting the writer to its
+pre-fix date rule leaves sections 1 and 2 green and only section 3 goes red.
 
 1. **Round-trip** (``test_office_export_roundtrip_zero_failures``): render
    -> extract -> run the UNCHANGED ADR-039 audit (``audit_cv_docx`` /
@@ -92,7 +107,22 @@ a second copy of any test.
    (``test_fixtures_exercise_every_content_bearing_section``) guards the
    fixtures themselves against silently drifting empty.
 
-3. **Page count** (``test_office_export_page_count_within_region_norm``),
+3. **Cross-artifact content differential**
+   (``test_office_export_pdf_docx_content_differential``) — renders the SAME
+   fixture through the real PDF pipeline (one representative template,
+   ``classic_german``, via ``_html_to_pdf``/Playwright — the exact mechanics
+   ``test_roundtrip.py`` already uses per template) and through the `.docx`
+   writer, extracts both, and flags any of the candidate's own data leaves
+   whose raw-value presence DISAGREES between the two — present in one,
+   absent from the other. Scoped to the candidate's DATA (never template
+   labels/chrome, which live in a separate dictionary this never walks) —
+   see ``test_office_export_pdf_docx_content_differential``'s own docstring
+   for why this is not a full whole-document diff (ADR-079 clause 3 permits
+   real structural differences between the two artifacts) and for the one
+   disclosed blind spot (a field transformed differently, rather than
+   inconsistently, on each side).
+
+4. **Page count** (``test_office_export_page_count_within_region_norm``),
    asserted by REAL conversion (``soffice --headless --convert-to pdf``,
    isolated ``-env:UserInstallation`` profile — a shared profile silently
    drops one of two concurrent conversions, measured in the ADR-079 spike)
@@ -124,7 +154,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 import pytest
 from pypdf import PdfReader
@@ -133,7 +163,15 @@ from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.schemas.ats import ATSReport
 from applire.schemas.cover_letter import LetterData
 from applire.schemas.cv import TailoredCVData
-from applire.services.ats_audit import _norm
+from applire.services.ats_audit import _norm, extract_text
+from applire.services.color_detection import _default_context
+from applire.services.cover_letter import _TEMPLATE_FILES as LETTER_PDF_TEMPLATES
+from applire.services.cover_letter import _default_color_context
+from applire.services.cv import _TEMPLATE_FILES as CV_PDF_TEMPLATES
+# _html_to_pdf / _jinja_env are generic HTML->PDF/Jinja machinery defined
+# ONCE in services.cv and reused for both document kinds (test_roundtrip.py's
+# own import pattern — cover_letter.py has no separate copy of either).
+from applire.services.cv import _html_to_pdf, _jinja_env
 from applire.services.office_export.cv_docx import _NON_SECTION_FIELDS as _CV_NON_SECTION_FIELDS
 from applire.services.office_export.cv_docx import render_cv_docx
 from applire.services.office_export.extract import (
@@ -145,9 +183,21 @@ from applire.services.office_export.letter_docx import (
     _NON_SECTION_FIELDS as _LETTER_NON_SECTION_FIELDS,
 )
 from applire.services.office_export.letter_docx import render_letter_docx
+from applire.templates.filters import month_year
+from applire.templates.labels import cover_letter_labels, cv_labels
 
 ACCENT_COLOR = "#2c3e50"
 KEYWORDS = ["Python", "Kubernetes", "Projektmanagement"]
+
+# The one PDF template used as the "ground truth" rendering for the
+# PDF-vs-docx differential (test_office_export_pdf_docx_content_differential
+# below) -- not a re-run of test_roundtrip.py's own per-template suite (that
+# suite already proves every template renders correctly); this differential
+# exists to compare the .docx writer against SOME real member of the shared
+# rendering pipeline, and all seven CV templates apply templates.filters
+# .month_year identically (commit 8dc61254's own claim, spot-checked against
+# lebenslauf.html.j2's source directly), so one representative is enough.
+_DIFFERENTIAL_TEMPLATE = "classic_german"
 
 
 def _norm_probe(s: str) -> str:
@@ -187,11 +237,40 @@ def _string_leaves(value: Any) -> list[str]:
     return []
 
 
+def _content_present(probe: str, text_norm: str) -> bool:
+    """True if `probe`'s RAW form, OR its ``month_year()``-transformed form,
+    is present in `text_norm`. Gate 2 (`_missing_sections`, this function's
+    only caller) exists to prove a FACT survives the round trip in SOME
+    form -- never to judge which form is correct, which is gate 3's job
+    (`_presence_disagreements`, which deliberately does NOT use this
+    tolerant check: format correctness needs the strict, single-form
+    comparison this function intentionally loosens).
+
+    Without this tolerance, gate 2 breaks on its own fixtures the moment a
+    date is rendered CORRECTLY: post-fix (commit 8dc61254), a CV date reads
+    "03/2018" rather than the raw "2018-03", so a strict raw-value
+    containment check would report every dated entry as content-missing —
+    a false positive on correct output, discovered by running gate 2 after
+    merging that fix and seeing exactly this failure. `month_year` is safe
+    to apply universally (not just to known date fields): its own docstring
+    and doctests guarantee it returns non-date strings UNCHANGED (a company
+    name, a bullet, an email are never a recognised partial-date pattern),
+    so this adds no tolerance where none is wanted -- it only additionally
+    accepts the transformed form where a raw ISO date would otherwise
+    (correctly) never appear.
+    """
+    if _norm_probe(probe) in text_norm:
+        return True
+    return _norm_probe(month_year(probe)) in text_norm
+
+
 def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tuple[str, list[str]]]:
     """For every TOP-LEVEL field in ``model_cls.model_fields`` (mechanically
     — never a hand-typed list, ADR-079 clause 5), collect that field's
     string leaves from `instance` and report which ones are absent from
-    `text_norm` (already `_norm_probe`-normalised).
+    `text_norm` (already `_norm_probe`-normalised) IN EITHER their raw or
+    `month_year`-transformed form (`_content_present` — content survival,
+    not format correctness; see that function's docstring).
 
     Returns ``[(field_name, [missing_probe, ...]), ...]`` for fields with at
     least one missing probe. A field that contributes zero probes in this
@@ -205,10 +284,77 @@ def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tu
     missing: list[tuple[str, list[str]]] = []
     for field_name in sorted(model_cls.model_fields):
         probes = _string_leaves(dumped[field_name])
-        gaps = [p for p in probes if _norm_probe(p) not in text_norm]
+        gaps = [p for p in probes if not _content_present(p, text_norm)]
         if gaps:
             missing.append((field_name, gaps))
     return missing
+
+
+def _iter_leaf_values(value: Any, path: str = "") -> list[tuple[str, str]]:
+    """Like `_string_leaves`, but also carries a diagnostic PATH per leaf —
+    `_presence_disagreements` below needs it to report which specific field
+    diverged, not just that something did.
+    """
+    if isinstance(value, dict):
+        out: list[tuple[str, str]] = []
+        for k, v in value.items():
+            out.extend(_iter_leaf_values(v, f"{path}.{k}" if path else k))
+        return out
+    if isinstance(value, list):
+        out = []
+        for i, v in enumerate(value):
+            out.extend(_iter_leaf_values(v, f"{path}[{i}]"))
+        return out
+    if isinstance(value, str) and value.strip():
+        return [(path, value)]
+    return []
+
+
+def _presence_disagreements(
+    instance: Any, pdf_text_norm: str, docx_text_norm: str
+) -> list[tuple[str, str, bool, bool]]:
+    """The genuine cross-artifact differential (coordinator direction,
+    SF-EXPORT.2): for every leaf `_iter_leaf_values` finds in `instance`,
+    report leaves where the RAW value's presence DISAGREES between the two
+    artifacts' extracted text — present in exactly one, absent from the
+    other. Returns ``[(path, value, in_pdf, in_docx), ...]``.
+
+    This is deliberately NOT "does the raw value appear in the docx" (that
+    is `_missing_sections` above, and it is structurally blind to exactly
+    the defect class this function exists for): a field with NO display
+    transform is expected to appear verbatim in BOTH artifacts, so
+    `in_pdf == in_docx == True` and there is no disagreement. A field
+    transformed IDENTICALLY on both sides (dates, post-fix: both apply
+    `templates.filters.month_year`) has its RAW ISO value absent from
+    BOTH extractions -- `in_pdf == in_docx == False`, also no
+    disagreement, because a transform that renders the same way on both
+    sides is not a defect. A field transformed on only ONE side --
+    commit 8dc61254's actual bug, "the writer had its own date rule
+    instead of the shared templates.filters.month_year" -- leaves the raw
+    value present on the untransformed side and absent on the
+    transformed side: `in_pdf != in_docx`, caught here without this
+    function needing to know ahead of time that dates specifically are
+    the risky field. Any FUTURE field that grows a display transform on
+    one side only reproduces the identical shape and is caught the same
+    way -- this is not a special case for dates.
+
+    Known, deliberate blind spot (disclosed, not silently accepted): if a
+    field were transformed DIFFERENTLY on each side (rather than "one side
+    transforms, one side does not"), the raw value would be absent from
+    BOTH and this function would see no disagreement, even though the two
+    artifacts show genuinely different text. That is a real but narrower
+    failure mode than the one just found, and this file's report names it
+    explicitly rather than claiming this function catches every possible
+    divergence.
+    """
+    disagreements: list[tuple[str, str, bool, bool]] = []
+    for path, value in _iter_leaf_values(instance.model_dump()):
+        needle = _norm_probe(value)
+        in_pdf = needle in pdf_text_norm
+        in_docx = needle in docx_text_norm
+        if in_pdf != in_docx:
+            disagreements.append((path, value, in_pdf, in_docx))
+    return disagreements
 
 
 # ---------------------------------------------------------------------------
@@ -573,10 +719,28 @@ class _DocumentCase:
     non_section_fields: frozenset  # this writer's own "structural, not content" set
     render: Callable[[Any, str], bytes]       # (instance, lang) -> docx bytes
     audit: Callable[[bytes, Any], ATSReport]  # (docx_bytes, instance) -> report
+    render_pdf: Callable[[Any, str], Awaitable[bytes]]  # (instance, lang) -> real PDF bytes,
+    # via the SAME shared Jinja/Playwright pipeline the product ships -- the
+    # "ground truth" side of the differential (SF-EXPORT.2).
     fixtures: dict[str, Any]                  # {"de": ..., "en": ...}
     inflate: Callable[[], Any]                # () -> an instance that exceeds page_bound
     page_bound: int
     page_bound_label: str  # for assertion messages, e.g. "REGION_NORMS[DACH].cv_max_pages"
+
+
+async def _render_cv_pdf(tailored: TailoredCVData, lang: str) -> bytes:
+    html = _jinja_env.get_template(CV_PDF_TEMPLATES[_DIFFERENTIAL_TEMPLATE]).render(
+        cv=tailored, color=_default_context(), lang=lang, labels=cv_labels(lang)
+    )
+    return await _html_to_pdf(html)
+
+
+async def _render_letter_pdf(letter: LetterData, lang: str) -> bytes:
+    html = _jinja_env.get_template(LETTER_PDF_TEMPLATES[_DIFFERENTIAL_TEMPLATE]).render(
+        letter=letter.model_dump(), color=_default_color_context(), lang=lang,
+        labels=cover_letter_labels(lang), subject="Bewerbung" if lang == "de" else "Application",
+    )
+    return await _html_to_pdf(html)
 
 
 _CV_CASE = _DocumentCase(
@@ -586,6 +750,7 @@ _CV_CASE = _DocumentCase(
     non_section_fields=_CV_NON_SECTION_FIELDS,
     render=lambda tailored, lang: render_cv_docx(tailored, lang=lang, accent_color=ACCENT_COLOR),
     audit=lambda docx_bytes, tailored: audit_cv_docx(docx_bytes, tailored, KEYWORDS),
+    render_pdf=_render_cv_pdf,
     fixtures={"de": CV_DE, "en": CV_EN},
     inflate=_bulk_cv,
     page_bound=REGION_NORMS[DEFAULT_REGION].cv_max_pages,
@@ -604,6 +769,7 @@ _LETTER_CASE = _DocumentCase(
     # itself always carries letter_data as a dict, never a LetterData instance,
     # until the US249 agent-door validation boundary.
     audit=lambda docx_bytes, letter: audit_cover_letter_docx(docx_bytes, letter.model_dump(), KEYWORDS),
+    render_pdf=_render_letter_pdf,
     fixtures={"de": LETTER_DE, "en": LETTER_EN},
     inflate=_bulk_letter,
     page_bound=REGION_NORMS[DEFAULT_REGION].letter_pages,
@@ -776,7 +942,66 @@ def test_section_parity_checker_detects_a_stripped_section():
 
 
 # ---------------------------------------------------------------------------
-# 3. Page-count gate, asserted by REAL conversion (LibreOffice headless)
+# 3. Cross-artifact content differential (SF-EXPORT.2) — added after a real
+# export was converted and read: the .docx wrote "2017-04" where all seven
+# PDF templates write "04/2017" (commit 8dc61254). Sections 1 and 2 above
+# both check CONTAINMENT of a field's RAW value against the .docx alone --
+# the raw value is present either way a date is (mis)formatted, so neither
+# could have seen this, any more than the 60 pre-existing writer-suite tests
+# could (mutation-verified in this task's report: reverting the fix leaves
+# gates 1 and 2 green and only this section goes red). This section renders
+# the SAME fixture through the real PDF pipeline too and compares what each
+# artifact ACTUALLY contains, rather than comparing each independently
+# against the fixture's raw data.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,lang", _CASE_LANG_PARAMS, ids=_CASE_LANG_IDS)
+async def test_office_export_pdf_docx_content_differential(case, lang):
+    """SF-EXPORT.2 / commit 8dc61254 — a genuine differential between the
+    two real artifacts, not a re-check of each against the fixture's raw
+    data. Renders `classic_german` (CV) / `classic_german` (letter) via the
+    SAME Playwright/Jinja pipeline `test_roundtrip.py` exercises per
+    template, and the `.docx` via `case.render`, for the identical fixture.
+    `_presence_disagreements` flags any leaf whose raw value's presence
+    disagrees between the two extracted texts — see its own docstring for
+    why that catches "one side transforms a value, the other doesn't"
+    (exactly what broke) without needing to know in advance which field
+    would be the risky one.
+
+    Scope, stated rather than silently narrowed (coordinator direction): this
+    is NOT a full whole-document text diff of everything in both artifacts.
+    ADR-079 clause 3 is explicit that the export "does not reproduce the
+    chosen template's layout" -- some structural/wording differences between
+    the two are BY DESIGN (this writer has no icons, ADR-020; a template may
+    order or join elements differently). A naive full-text set-diff would
+    need a curated allow-list of expected differences that does not exist
+    yet and untested, so this compares ONLY the candidate's own DATA leaves
+    (`instance.model_dump()`'s string leaves — company names, bullets,
+    dates, ...), never template chrome/labels (which are a SEPARATE
+    dictionary, `cv_labels()`/`cover_letter_labels()`, not walked here at
+    all). Within that scope the check is general, not date-specific: ANY
+    leaf transformed on one side and not the other reproduces the identical
+    disagreement shape and is caught the same way.
+    """
+    instance = case.fixtures[lang]
+    docx_bytes = case.render(instance, lang)
+    docx_text = _norm_probe(extract_docx_text(docx_bytes))
+
+    pdf_bytes = await case.render_pdf(instance, lang)
+    pdf_text = _norm_probe(extract_text(pdf_bytes))
+
+    disagreements = _presence_disagreements(instance, pdf_text, docx_text)
+    assert not disagreements, (
+        f"{case.kind}-{lang}: content present in exactly ONE of the two "
+        f"artifacts for the same record (path, raw value, in_pdf, in_docx): "
+        f"{disagreements}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. Page-count gate, asserted by REAL conversion (LibreOffice headless)
 # ---------------------------------------------------------------------------
 
 
