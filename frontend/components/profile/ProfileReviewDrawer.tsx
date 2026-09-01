@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { HealthIssue } from "@/components/profile/HealthPanel";
+import { type HealthIssue, describeConflictIssue } from "@/components/profile/HealthPanel";
 import {
   type ProfileReviewMessageResult,
   sendProfileReviewMessage,
@@ -61,6 +61,12 @@ export interface ProfileReviewDrawerProps {
 
 export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileReviewDrawerProps) {
   const t = useTranslations("profileReview");
+  // #626 — the same localized composition HealthPanel uses, so a `conflict`
+  // issue shown here (the merge-loss/no-conflicts-to-walk state below) never
+  // falls back to the backend's raw "section.field: 'x' vs 'y'" summary either.
+  const tHealth = useTranslations("health");
+  const tProfile = useTranslations("profile");
+  const conflict = issue ? describeConflictIssue(issue, tHealth, tProfile) : null;
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [choices, setChoices] = useState<string[] | null>(null);
@@ -195,7 +201,15 @@ export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileR
             className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
           >
             <p className="text-sm font-medium text-neutral-dark">{t("issueHeading")}</p>
-            <p className="text-sm text-on-surface-variant">{issue.summary}</p>
+            {conflict ? (
+              <div data-testid="profile-review-issue-conflict">
+                <p className="text-sm text-on-surface-variant">{conflict.heading}</p>
+                <p className="text-xs text-on-surface-variant mt-1">{conflict.existingRow}</p>
+                <p className="text-xs text-on-surface-variant">{conflict.incomingRow}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">{issue.summary}</p>
+            )}
             <div className="flex flex-col items-center gap-2">
               {onAction && (
                 <Button

@@ -47,13 +47,20 @@ Architecture boundary (ADR-041 amended / epic Task 5):
 from __future__ import annotations
 
 from applire.schemas.profile import (
+    Certification,
     CompletenessBlock,
     Conflict,
+    EducationEntry,
     EnrichmentRecord,
+    ExperienceBase,
     HealthIssue,
+    Language,
     MasterProfileData,
     PendingConfirmation,
     ProfileHealthResponse,
+    Publication,
+    SignatureStory,
+    Skill,
 )
 from applire.services.profile.completeness import _entry_label
 from applire.services.profile.completeness import field_gaps as completeness_field_gaps
@@ -67,18 +74,106 @@ from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.display import format_display_value
 
 
-def _conflict_issue(conflict: Conflict) -> HealthIssue:
+def _resolve_entity(profile: MasterProfileData, entity_id: str | None) -> object | None:
+    """The id-bearing profile entity ``entity_id`` names, or ``None`` (#626).
+
+    Searches every section :func:`applire.services.profile.reconcile.apply.
+    resolve_any` can target — work/project/volunteer plus the six sections
+    #619 added it for — rather than trusting a ``Conflict.section`` string
+    (defensive: cheap, and correct the day ``_apply_flag_conflict`` widens
+    from its current experience-only ``resolve()`` to ``resolve_any``, the way
+    ``_apply_set_field`` already did).
+
+    ``None`` covers two legitimate cases the caller must not crash on: a
+    profile-level conflict (``entity_id`` was never set — #218's own docstring:
+    ``professional_summary`` / ``personal_info`` disputes have no entity) and a
+    STALE id (the entity existed when the conflict was flagged but was since
+    edited or removed — nothing sweeps ``metadata.pending_conflicts`` when its
+    target entity disappears).
+    """
+    if not entity_id:
+        return None
+    for entry in (
+        *profile.work_experience,
+        *profile.projects,
+        *profile.volunteer_activities,
+        *profile.education,
+        *profile.certifications,
+        *profile.languages,
+        *profile.publications,
+        *profile.skills,
+        *profile.signature_stories,
+    ):
+        if getattr(entry, "id", None) == entity_id:
+            return entry
+    return None
+
+
+def _entity_label(entity: object | None) -> str | None:
+    """Human label for a resolved id-bearing entity, or ``None`` (#626).
+
+    Mirrors the isinstance ladder ``_section_for`` (reconcile/apply.py) uses
+    for the reverse mapping (entity → section name). The "X @ Y" shape matches
+    ``_unit_issues`` below (``completeness._entry_label``) exactly, so the
+    Health hub speaks one convention for every entry label it shows — for the
+    three ``ExperienceBase`` kinds via the polymorphic ``org_label()``
+    (company / project name / organization), and by the equivalent "specific
+    @ broader" pairing for the rest (degree @ institution, cert name @ issuing
+    org). A single-value entity (language, publication title, skill name,
+    story title) has no "@" counterpart and is shown bare.
+    """
+    if entity is None:
+        return None
+    if isinstance(entity, ExperienceBase):
+        return _entry_label({"company": entity.org_label(), "role": entity.role})
+    if isinstance(entity, EducationEntry):
+        return _entry_label({"company": entity.institution, "role": entity.degree})
+    if isinstance(entity, Certification):
+        return _entry_label({"company": entity.issuing_organization, "role": entity.name})
+    if isinstance(entity, Language):
+        return entity.language
+    if isinstance(entity, Publication):
+        return entity.title
+    if isinstance(entity, Skill):
+        return entity.name
+    if isinstance(entity, SignatureStory):
+        return entity.title
+    return None
+
+
+def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIssue:
+    """#626 — name the entry a conflict hangs off, not just the field.
+
+    Before this, the summary read ``work_experience.end_date: '2019-12' vs
+    '2020-01'`` with no way to tell WHICH job — the reported defect, verbatim.
+    ``Conflict.entity_id`` (#218) already carried the answer; resolve it.
+    """
+    entity = _resolve_entity(profile, conflict.entity_id)
+    label = _entity_label(entity)
+    existing_display = format_display_value(conflict.existing_value)
+    incoming_display = format_display_value(conflict.incoming_value)
     return HealthIssue(
         id=f"conflict:{conflict.conflict_id}",
         thread="conflict",
         profile_mismatch_severity=classify_conflict(conflict),
         summary=(
+            f"{(label + ': ') if label else ''}"
             f"{conflict.section}.{conflict.field}: "
-            f"'{format_display_value(conflict.existing_value)}' "
-            f"vs '{format_display_value(conflict.incoming_value)}'"
+            f"'{existing_display}' "
+            f"vs '{incoming_display}'"
         ),
         field_ref=conflict.field,
         source_record_ref=conflict.source,
+        entity_label=label,
+        section=conflict.section or None,
+        field=conflict.field,
+        existing_value_display=existing_display,
+        incoming_value_display=incoming_display,
+        # `conflict.source` is the INCOMING side's provenance only — see the
+        # `HealthIssue.existing_source` field docstring for why the existing
+        # side's provenance is not recoverable here.
+        existing_source=None,
+        incoming_source=conflict.source,
     )
 
 
@@ -96,6 +191,14 @@ def _confirmation_issue(confirmation: PendingConfirmation) -> HealthIssue:
     Severity is always ``review``: an unanswered identity question is real and
     actionable but never blocks a document — ADR-041 amended reclassified the
     equivalent conflict class down from ``critical`` for the same reason.
+
+    #626 checked and this does NOT share the conflict thread's "which entry"
+    defect: a confirmation has no separate ``entity_id`` to resolve because
+    every ``RequestConfirmation.question`` already embeds the entity identity
+    in its own prose at construction time (e.g. ``"'Senior Developer at Acme
+    Corp' looks close to an existing position (...)"`` — see the near-dupe and
+    attribution confirmations in ``reconcile/apply.py`` and
+    ``reconcile/attribution.py``). Nothing to resolve here; left unchanged.
     """
     return HealthIssue(
         id=f"confirmation:{confirmation.confirmation_id}",
@@ -216,7 +319,7 @@ def assess_health(
     metadata = profile.metadata
     if metadata is not None:
         issues.extend(
-            _conflict_issue(c)
+            _conflict_issue(c, profile)
             for c in metadata.pending_conflicts
             if not c.resolved
         )

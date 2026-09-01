@@ -238,8 +238,14 @@ export default function ProfilePage() {
   // Map a health issue to the profile section it concerns, so "Resolve" can take
   // the user straight to the section (and its structured editor) that needs
   // attention — lib/profile-sections.ts, unit-tested.
+  // #626: a `conflict` issue now carries its real section key directly
+  // (`issue.section`, e.g. "projects") — authoritative, so it wins over the
+  // `field_ref` substring guess. Every other thread still has no `section`
+  // and falls back to the guess exactly as before.
   const sectionForIssue = (issue: HealthIssue): SectionKey =>
-    sectionForFieldRef(issue.field_ref);
+    issue.section && issue.section in SECTION_LABEL_KEYS
+      ? (issue.section as SectionKey)
+      : sectionForFieldRef(issue.field_ref);
 
   const handleResolve = (issue: HealthIssue) => {
     setResolveIssue(issue);
