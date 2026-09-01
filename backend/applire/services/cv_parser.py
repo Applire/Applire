@@ -93,20 +93,36 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract plain text from a DOCX/DOC file using python-docx."""
+    """Extract plain text from a DOCX/DOC file, tables and text boxes included.
+
+    Delegates to the E057/ADR-079 document-order walker
+    (``office_export.extract.extract_docx_text``) rather than keeping a second
+    reader — ADR-066, one logical operation, one implementation.
+
+    This function previously read ``document.paragraphs`` alone. Word table
+    cells are not paragraphs of the document body, so a *tabellarischer
+    Lebenslauf* — the standard DACH layout, which puts Berufserfahrung and
+    Ausbildung in tables — lost its entire employment and education history
+    before the extraction LLM was ever called (**#640**: 9 of 9 facts, while the
+    section headings survived and made the result look structured). Text boxes
+    were invisible to that reader for the same reason.
+
+    The blank-line normalisation below is the paragraphs reader's own, kept
+    deliberately: the walker newline-terminates every paragraph including empty
+    ones, and this path feeds the extraction prompts, so the whitespace shape
+    stays exactly what it was. Measured delta on a table-free document: a
+    literal tab becomes one space. See
+    ``tests/unit/test_cv_parser_docx_640.py``.
+    """
     try:
-        from docx import Document
-        from io import BytesIO
+        from applire.services.office_export.extract import extract_docx_text
     except ImportError as exc:
         raise RuntimeError(
             "DOCX extraction requires 'python-docx'. Add it to requirements.txt."
         ) from exc
 
-    from io import BytesIO
-
-    doc = Document(BytesIO(file_bytes))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    return "\n".join(paragraphs).strip()
+    lines = extract_docx_text(file_bytes).split("\n")
+    return "\n".join(line for line in lines if line.strip()).strip()
 
 
 async def extract_text(

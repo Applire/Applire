@@ -29,9 +29,12 @@ is invisible to either accessor (the drawing that carries it is neither a
 ``<w:p>`` nor a ``<w:tbl>``; a paragraph that only contains a drawing simply has
 an empty ``.text``). Measured in
 ``tests/unit/test_office_export_extract.py::test_naive_paragraphs_reader_loses_table_content``
-and ``::test_naive_paragraphs_reader_loses_text_box_content`` — this is the exact
-naive shape ``cv_parser.extract_text_from_docx`` (the CV *import* path) already
-uses; see this task's report for the measured cost of that on a tabular CV.
+and ``::test_naive_paragraphs_reader_loses_text_box_content`` — that naive shape
+is what ``cv_parser.extract_text_from_docx`` (the CV *import* path) used until
+**#640**, where it cost a tabellarischer Lebenslauf 9 of 9 table-borne facts
+before the extraction LLM was called. That path now delegates to this walker
+(ADR-066 — one logical operation, one implementation), so the two tests named
+above pin a retired anti-pattern rather than a live second reader.
 
 Joining rule, and why (US296 task spec's own framing: "paragraph -> newline, run
 -> no separator, cell -> ?"):
