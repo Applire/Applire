@@ -44,7 +44,7 @@ from applire.schemas.cv_sections import (
     SectionPatchRequest,
     SectionPatchResponse,
 )
-from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_pdf_filename, list_cvs_for_job
+from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_docx, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_docx_filename, get_pdf_filename, list_cvs_for_job
 from applire.services.cv_diff import get_cv_profile_diff
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
@@ -202,6 +202,29 @@ async def get_pdf(
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.get("/{cv_id}/docx")
+async def get_docx(
+    cv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> Response:
+    """ADR-079 / E057 / US296: the editable Word export — direct python-docx,
+    rendered on demand from tailored_data, no bytes persisted. Mirrors
+    GET /{cv_id}/pdf's contract exactly; only the artefact differs."""
+    try:
+        docx_bytes = await get_cv_docx(cv_id, db)
+        filename = await get_docx_filename(cv_id, db)
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except LookupError as exc:
