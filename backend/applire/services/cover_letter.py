@@ -85,6 +85,7 @@ from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
     CoverLetterStatusResponse,
+    LetterData,
 )
 from applire.utils.language_detection import resolve_jd_language
 from applire.utils.letter_date import format_letter_date
@@ -382,6 +383,160 @@ async def get_cover_letter_html(
         lang=lang,
         labels=labels,
         subject=subject,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/cover-letter/{cl_id}/docx  (ADR-079, E057/US297; requires status=ready)
+# ---------------------------------------------------------------------------
+
+
+def _drop_override_marker(section_data: dict) -> dict:
+    """Strip the ``_override`` key ``_apply_section_overrides`` stamps onto a
+    dict-shaped, non-``"body"`` section (header/recipient/signature) when the
+    caller PATCHed that section as a raw string.
+
+    Discovered while wiring this function: ``_apply_section_overrides``
+    special-cases only ``"body"`` overrides into a schema-valid shape
+    (``{"paragraphs": [content]}``); for the other three sections it just
+    stamps ``data[section]["_override"] = content`` onto the EXISTING
+    structured dict, leaving the original fields untouched right next to it.
+    No renderer reads that key back out — grepped all seven
+    ``*_letter.html.j2`` templates, none references ``_override`` — so
+    today's PDF/HTML for such a letter is unaffected by the override; this
+    is a pre-existing gap in the override feature for non-body sections,
+    out of this task's scope to fix (flagged in this task's report rather
+    than silently worked around).
+
+    It only became a problem HERE because ``LetterHeader``/
+    ``LetterRecipient``/``LetterSignature`` are all ``extra="forbid"``, and
+    this ``.docx`` path is the FIRST caller that validates ``letter_data``
+    into ``LetterData`` at all — ``get_cover_letter_html`` renders the raw
+    (post-override) dict straight through Jinja, which never raises on an
+    unrecognised key. Dropping the marker before validating reproduces
+    exactly what every existing renderer already does — the section's
+    original fields, override silently ignored — rather than either
+    crashing this new endpoint or inventing content only the .docx would
+    show.
+    """
+    return {k: v for k, v in section_data.items() if k != "_override"}
+
+
+async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
+    """The editable Word export. Rendered ON DEMAND from letter_data, exactly
+    like get_cover_letter_html / get_cover_letter_pdf — no bytes are
+    persisted (ADR-079 clause 8; models/cover_letter.py has no
+    document-bytes column).
+
+    Reuses the same data-prep steps get_cover_letter_html uses (section
+    overrides, colour resolution, pinned-language-first resolution) so the
+    export and the PDF carry the same content — only the final rendering
+    step (direct python-docx vs the Jinja/Playwright HTML path) differs, per
+    ADR-079 clause 2 (no HTML, no template engine, no subprocess on this
+    path). Mirrors services.cv.get_cv_docx's shape; see that function's own
+    docstring for the CV-side twin.
+    """
+    from applire.services.office_export.letter_docx import render_letter_docx
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    if cl.status != CoverLetterStatus.ready.value:
+        raise ValueError(f"Cover letter not ready (status={cl.status})")
+
+    letter_dict = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+    for key in ("header", "recipient", "signature"):
+        if isinstance(letter_dict.get(key), dict):
+            letter_dict[key] = _drop_override_marker(letter_dict[key])
+    letter = LetterData.model_validate(letter_dict)
+
+    # Same manual colour resolution get_cover_letter_html uses — NOT
+    # services.color_detection.resolve_color_context, which is typed for
+    # GeneratedCV and is not used by any existing cover-letter code path;
+    # this file already has its own (get_cover_letter_html's) convention.
+    color_ctx = _default_color_context()
+    if cl.color_profile_id is not None:
+        from applire.models.color_profile import ColorProfile
+        cp_result = await db.execute(
+            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
+        )
+        cp = cp_result.scalar_one_or_none()
+        if cp is not None:
+            color_ctx = {
+                "primary": cp.primary,
+                "primary_tint": cp.primary_tint,
+                "surface": cp.surface,
+                "surface_text": cp.surface_text,
+            }
+
+    # Same PINNED-language-first fallback as get_cover_letter_html (E054
+    # clause 3b) — duplicated rather than factored out, to keep this
+    # addition a pure insertion next to the existing HTML path rather than a
+    # refactor of it (mirrors services.cv.get_cv_docx's own comment for the
+    # identical choice on the CV side).
+    lang = cl.document_language
+    if not lang:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        job = await db.get(JobAnalysis, cl.job_analysis_id)
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
+
+    return render_letter_docx(letter, lang=lang, accent_color=color_ctx["primary"])
+
+
+async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+    """Build the Content-Disposition filename for a cover-letter .docx
+    export — the same <name>_<company>_<role>_<suffix> contract as
+    get_cover_letter_pdf_filename (E039/US219), with a .docx extension.
+
+    No ready-status check, matching get_cover_letter_pdf_filename's own
+    existing convention exactly (unlike the CV side's get_docx_filename,
+    which routes through _load_cv_ready) — the router always calls
+    get_cover_letter_docx first, which already enforces readiness.
+    """
+    from applire.services.cv import compose_document_filename
+
+    cl = await db.get(GeneratedCoverLetter, cl_id)
+    if cl is None or cl.deleted_at is not None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+
+    profile = await db.get(MasterProfile, cl.profile_id)
+    name = ((profile.profile_json or {}).get("personal_info") or {}).get("name") if profile else None
+    job = await db.get(JobAnalysis, cl.job_analysis_id)
+    # E054 clause 3b: the record's pinned language wins; seam fallback for
+    # pre-migration rows — the filename must name the document it renders.
+    language = cl.document_language
+    if not language:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        language = (
+            resolve_document_language(application, job) if job is not None else "de"
+        )
+    suffix = "Cover-Letter" if language == "en" else "Anschreiben"
+    fallback_stem = "cover-letter" if language == "en" else "anschreiben"
+    return compose_document_filename(
+        name,
+        job.company_name if job else None,
+        job.role_title if job else None,
+        suffix=suffix,
+        fallback=f"{fallback_stem}-{str(cl_id)[:8]}",
+        extension="docx",
     )
 
 

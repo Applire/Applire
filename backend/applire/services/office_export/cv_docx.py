@@ -50,13 +50,10 @@ at TWO levels:
 """
 
 import io
-import types
-import typing
-from typing import Callable, Iterator
+from typing import Callable
 
 from docx.document import Document as DocxDocument
 from docx.shared import Cm, RGBColor
-from pydantic import BaseModel
 
 from applire.schemas.cv import (
     TailoredCVData,
@@ -67,6 +64,7 @@ from applire.schemas.cv import (
     TailoredWorkEntry,
 )
 from applire.services.office_export._common import (
+    _iter_leaf_paths,
     add_bullet,
     add_heading,
     add_paragraph,
@@ -82,54 +80,12 @@ _JOIN = " — "  # em dash, e.g. "Company — Role"
 
 
 # ---------------------------------------------------------------------------
-# Nested-field schema walker (coverage-guard infrastructure). Namespace-level
-# so both the module and its test file can import it — the test file uses it
-# directly against the live schema, never a hand-typed mirror of it.
+# `_iter_leaf_paths` (the nested-field schema walker behind the coverage
+# guard below) moved to `_common.py` in E057 task 1.4 (US297, ADR-066) once
+# the letter writer needed the identical walk over `LetterData` — it was
+# already document-kind agnostic, so this is a pure relocation. Imported
+# above; re-used here unchanged.
 # ---------------------------------------------------------------------------
-
-
-def _unwrap_optional(annotation):
-    """`X | None` / `Optional[X]` -> `X`. Anything else is returned unchanged."""
-    origin = typing.get_origin(annotation)
-    if origin in (typing.Union, types.UnionType):
-        args = [a for a in typing.get_args(annotation) if a is not type(None)]
-        if len(args) == 1:
-            return args[0]
-    return annotation
-
-
-def _iter_leaf_paths(model_cls: type[BaseModel], prefix: str = "") -> Iterator[str]:
-    """Walk `model_cls`'s Pydantic fields recursively, yielding one path per
-    LEAF field. A field whose type is a nested `BaseModel` (directly, or as
-    the element type of a `list[...]`) is descended into rather than counted
-    as a leaf itself — so a field added to `TailoredWorkEntry` shows up in
-    this set exactly as a top-level `TailoredCVData` field would, and cannot
-    be missed by only checking `TailoredCVData.model_fields`. A
-    `list[str]`-style field (`bullets`, `skills`) is ONE leaf: its elements
-    have no further schema to descend into.
-
-    Path shape: `"contact.name"`, `"work_history[].team_size"`,
-    `"work_history[].projects[].bullets"`.
-    """
-    for name, field in model_cls.model_fields.items():
-        path = f"{prefix}{name}"
-        annotation = _unwrap_optional(field.annotation)
-        origin = typing.get_origin(annotation)
-
-        if origin is list:
-            args = typing.get_args(annotation)
-            inner = _unwrap_optional(args[0]) if args else None
-            if isinstance(inner, type) and issubclass(inner, BaseModel):
-                yield from _iter_leaf_paths(inner, prefix=f"{path}[].")
-                continue
-            yield path
-            continue
-
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            yield from _iter_leaf_paths(annotation, prefix=f"{path}.")
-            continue
-
-        yield path
 
 
 def _has_text(*values: str | None) -> bool:

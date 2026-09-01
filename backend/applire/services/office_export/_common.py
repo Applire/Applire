@@ -18,12 +18,15 @@
 """Shared ``python-docx`` foundation for the office-export writers (ADR-079, E057).
 
 Both document kinds this epic ships — the CV writer (US296, ``cv_docx.py``) and
-the cover-letter writer that follows in the next wave (US297,
-``letter_docx.py``) — need the same low-level building blocks: page setup, a
-base font, and paragraph helpers for headings, body text and list items. This
-module owns exactly that shared mechanics and nothing about either document
-kind's *content* — no knowledge of ``TailoredCVData``, ``LetterData``, section
-names or field order lives here, so the letter writer can import it unchanged.
+the cover-letter writer (US297, ``letter_docx.py``) — need the same low-level
+building blocks: page setup, a base font, paragraph helpers for headings, body
+text and list items, and a generic Pydantic leaf-field walker
+(``_iter_leaf_paths``, moved here from ``cv_docx.py`` once a second writer
+needed it — ADR-066, one implementation) for each writer's own nested-leaf
+coverage guard. This module owns exactly that shared mechanics and nothing
+about either document kind's *content* — no knowledge of ``TailoredCVData``,
+``LetterData``, section names or field order lives here, so both writers
+import it unchanged.
 
 Deliberately **not** here, per ADR-079 clause 2/3 (US296 AC): tables, text
 boxes, positioned frames, borders or shading of any kind. The accent colour
@@ -34,11 +37,15 @@ positioned frame, which is what the ADR-079 spike measured to destroy the
 """
 
 import re
+import types
+import typing
+from typing import Iterator
 
 from docx import Document
 from docx.document import Document as DocxDocument
 from docx.shared import Mm, Pt, RGBColor
 from docx.text.paragraph import Paragraph
+from pydantic import BaseModel
 
 # A4 (210mm x 297mm) — the DACH-standard page size the PDF path already
 # renders at (``_html_to_pdf``'s Playwright call uses ``format="A4"``); the
@@ -151,3 +158,57 @@ def add_bullet(document: DocxDocument, text: str | None) -> Paragraph | None:
     paragraph = document.add_paragraph(style="List Bullet")
     paragraph.add_run(text.strip())
     return paragraph
+
+
+# ---------------------------------------------------------------------------
+# Nested-field schema walker (coverage-guard infrastructure; ADR-066). Moved
+# here from ``cv_docx.py`` (US297/E057 task 1.4) once a second document kind
+# needed it: it was already document-kind agnostic — no reference to
+# ``TailoredCVData``, ``LetterData`` or any section name — so the move is a
+# pure relocation, not a rewrite. Namespace-level so every writer module AND
+# its test file can import it directly against the live schema in question,
+# never a hand-typed mirror of it.
+# ---------------------------------------------------------------------------
+
+
+def _unwrap_optional(annotation):
+    """`X | None` / `Optional[X]` -> `X`. Anything else is returned unchanged."""
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
+def _iter_leaf_paths(model_cls: type[BaseModel], prefix: str = "") -> Iterator[str]:
+    """Walk `model_cls`'s Pydantic fields recursively, yielding one path per
+    LEAF field. A field whose type is a nested `BaseModel` (directly, or as
+    the element type of a `list[...]`) is descended into rather than counted
+    as a leaf itself — so a field added to a nested model shows up in this
+    set exactly as a top-level field of `model_cls` would, and cannot be
+    missed by only checking `model_cls.model_fields`. A `list[str]`-style
+    field is ONE leaf: its elements have no further schema to descend into.
+
+    Path shape: `"parent.child"`, `"list_field[].nested_field"`,
+    `"list_field[].nested_list[].leaf"`.
+    """
+    for name, field in model_cls.model_fields.items():
+        path = f"{prefix}{name}"
+        annotation = _unwrap_optional(field.annotation)
+        origin = typing.get_origin(annotation)
+
+        if origin is list:
+            args = typing.get_args(annotation)
+            inner = _unwrap_optional(args[0]) if args else None
+            if isinstance(inner, type) and issubclass(inner, BaseModel):
+                yield from _iter_leaf_paths(inner, prefix=f"{path}[].")
+                continue
+            yield path
+            continue
+
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            yield from _iter_leaf_paths(annotation, prefix=f"{path}.")
+            continue
+
+        yield path
