@@ -305,3 +305,108 @@ def test_import_witness_recognises_the_same_alias_pair_the_applier_matched():
         "import_witness reported a pair the real applier just merged as "
         f"lost: {items}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Adversarial pass 2026-09-01 — the OPPOSITE failure direction
+# ---------------------------------------------------------------------------
+# The classifier's own docstring states the policy: once the institution says
+# SAME, degree and dates "can only ESCALATE the verdict to AMBIGUOUS — never
+# silently downgrade it to DISTINCT", because a silent WRONG MERGE is no better
+# than the silent second row #618 removes. That policy was not honoured in the
+# one case where NEITHER corroborator carries any evidence at all: institution
+# alone then produced a MATCH against whichever entry happened to come first.
+#
+# Measured before the fix: an UpsertEducation naming only an institution (blank
+# degree, no dates) — the shape a thin second source such as a LinkedIn
+# education row produces — matched the FIRST entry at that institution and
+# _fill_empties wrote its field/grade onto that row. Two qualifications became
+# one, and import_witness (which shares this classifier by design) reported the
+# discarded one as "matched, not lost".
+
+_UNI = "Universität Hamburg"
+
+
+def _uni_pair() -> list[EducationEntry]:
+    return [
+        EducationEntry(institution=_UNI, degree="B.Sc. Wirtschaftsinformatik",
+                       start_date="2015-10", end_date="2019-09"),
+        EducationEntry(institution=_UNI, degree="M.Sc. Wirtschaftsinformatik",
+                       start_date="2019-10", end_date="2021-09"),
+    ]
+
+
+_GETTERS = dict(
+    institution_getter=lambda e: e.institution,
+    degree_getter=lambda e: e.degree,
+    start_date_getter=lambda e: e.start_date,
+    end_date_getter=lambda e: e.end_date,
+)
+
+
+def test_institution_alone_never_matches_it_asks():
+    """No corroboration on EITHER side is not identity — it is a question."""
+    verdict = classify_education_dupe(
+        institution=_UNI, degree="", start_date=None, end_date=None,
+        existing=_uni_pair(), **_GETTERS,
+    )
+    assert verdict.match is None, (
+        "a blank degree with no dates matched on the institution string alone — "
+        f"silently merging into {verdict.match.degree!r}"
+    )
+    assert len(verdict.ambiguous) == 2, "both same-institution entries must be parked"
+
+
+def test_institution_alias_alone_never_matches_it_asks():
+    """The #618 noise-stripped alias fold must not become a matcher by itself.
+
+    This pair shares no raw token, so the pre-#618 generic classify_dupe could
+    not see it at all — the alias fold is what makes it reachable, which is why
+    the zero-evidence gate has to hold here specifically.
+    """
+    verdict = classify_education_dupe(
+        institution="Provadis Hochschule", degree="", start_date=None, end_date=None,
+        existing=[EducationEntry(institution="Provadis Partner für Bildung GmbH",
+                                 degree="Fachinformatiker Anwendungsentwicklung",
+                                 start_date="2002-09", end_date="2005-01")],
+        **_GETTERS,
+    )
+    assert verdict.match is None
+    assert len(verdict.ambiguous) == 1
+
+
+def test_one_corroborator_is_enough_to_match():
+    """The gate asks for evidence, not for BOTH kinds — dates alone still match."""
+    verdict = classify_education_dupe(
+        institution=_UNI, degree="", start_date="2015-10", end_date="2019-09",
+        existing=_uni_pair()[:1], **_GETTERS,
+    )
+    assert verdict.match is not None
+    assert verdict.match.degree == "B.Sc. Wirtschaftsinformatik"
+
+
+def test_the_two_source_alias_pair_still_merges():
+    """Regression pin: the zero-evidence gate must not undo #618's own fix."""
+    verdict = classify_education_dupe(
+        institution=_SHORT_INSTITUTION, degree=_DE_DEGREE,
+        start_date="2011", end_date="2014",
+        existing=_existing_profile().education, **_GETTERS,
+    )
+    assert verdict.match is not None, "#618's own reported pair no longer merges"
+    # The EN/DE degree pair stays a QUESTION by design (ADR-062 clause 1 — no
+    # occupational-title translation in the deterministic layer), so the pin
+    # uses the aliased-institution + same-degree-wording pair, which is the
+    # one #618's fix actually turned from two rows into one.
+
+
+def test_a_thin_second_source_row_does_not_contaminate_an_existing_degree():
+    """End to end through the applier: ask, never write onto the wrong row."""
+    profile = MasterProfileData(education=_uni_pair())
+    op = UpsertEducation(institution=_UNI, degree="",
+                         field="Wirtschaftsinformatik (Master, Data Science)", grade="1,3")
+    result = apply_ops(profile, [op], SOURCE)
+    bachelor = result.profile.education[0]
+    assert bachelor.grade is None, (
+        f"the incoming grade was written onto {bachelor.degree!r}"
+    )
+    assert result.pending_confirmations, "an unresolvable identity must reach the user as a question"

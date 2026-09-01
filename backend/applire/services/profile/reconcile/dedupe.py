@@ -568,6 +568,23 @@ def classify_education_dupe(
         if degree_rel in (_DISTINCT, _AMBIG) or date_rel in (_DISTINCT, _AMBIG):
             verdict.ambiguous.append(entry)
             continue
+        if degree_rel != _SAME and date_rel != _SAME:
+            # Adversarial pass 2026-09-01 — the institution anchor is necessary
+            # but never sufficient. With NEITHER corroborator carrying evidence
+            # (blank/unparseable degree AND absent/unparseable dates — the shape
+            # a thin second source such as a LinkedIn education row produces),
+            # the loop used to fall through to MATCH on whichever entry came
+            # first: at a university holding a Bachelor and a Master, an
+            # institution-only op merged into the Bachelor and _fill_empties
+            # wrote the Master's field/grade onto that row. Two qualifications
+            # became one, with no confirmation raised, and import_witness —
+            # which shares this classifier by design — reported the discarded
+            # one as matched rather than lost. That is precisely the "equally
+            # silent WRONG MERGE" this function's own docstring refuses to
+            # trade the second row for, so an unevidenced candidate is parked
+            # as a question like any other ambiguity.
+            verdict.ambiguous.append(entry)
+            continue
         verdict.match = entry
         return verdict
     return verdict

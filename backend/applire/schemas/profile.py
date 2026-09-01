@@ -383,6 +383,18 @@ class Skill(BaseModel):
     # ``experience_refs``.
     source: str | None = None
     last_used: date | None = None
+
+    @field_validator("last_used", mode="before")
+    @classmethod
+    def _coerce_last_used(cls, v: Any) -> Any:
+        # Skill was the one model carrying a bare `date | None` without the
+        # shared partial-date coercion Certification and Publication use — yet
+        # "last used" is inferred from CVs that state month/year precision at
+        # best, and the extraction prompts allow exactly that elsewhere. A
+        # "2023" or "2023-06" hit the strict parser and aborted the whole
+        # import (see _coerce_partial_date's own docstring). Unparseable text
+        # falls to None rather than raising, as it does for the two siblings.
+        return _coerce_partial_date(v)
     # Provenance: ids/labels of the experiences (work, project, volunteer) that
     # surfaced this skill. Renamed from work_entry_refs (US172 / ADR-044) now
     # that experiences are unified; legacy JSONB with the old key still loads.
@@ -425,6 +437,16 @@ class Skill(BaseModel):
     @field_validator("category", mode="before")
     @classmethod
     def normalize_category(cls, v: object) -> object:
+        # An explicit JSON null is not the same as an omitted field: the field
+        # default only applies when the key is absent, so `"category": null`
+        # reached the Literal raw and raised — aborting the WHOLE import, since
+        # _import_from_text does not wrap model_validate. normalize_proficiency
+        # below has had this branch all along; this one did not (adversarial
+        # pass 2026-09-01, newly reachable through #228's object-shaped skills
+        # on the flat/MCP door). Same landing as an unrecognised string, for
+        # the nominal-enum reason spelled out below.
+        if v is None:
+            return "technical"
         if isinstance(v, str):
             lowered = v.lower()
             if lowered in {"technical", "soft", "language", "domain"}:

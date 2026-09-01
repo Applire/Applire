@@ -141,8 +141,10 @@ STRICT EXTRACTION RULES — follow these before writing any output:
     Fortgeschritten / Erfahren / Verhandlungssicher / Fließend / Fliessend → advanced;
     Muttersprache → expert. This applies whenever such a word is the candidate's OWN declared level
     for a skill, in ANY position — a dedicated scale, a suffix after a dash, or a bare parenthetical
-    right after the skill name. Two skills shown at the same scale position MUST receive the same
-    proficiency level. Where the source gives an explicit scale, this mapping takes precedence over
+    right after the skill name (e.g. a "KENNTNISSE"/skills line reading "SAP (Anwender)" declares
+    SAP at "basic", exactly as "SAP - Grundkenntnisse" would; do not default an unscaled skill name
+    to "intermediate" when a German qualifier is sitting right next to it). Two skills shown at the
+    same scale position MUST receive the same proficiency level. Where the source gives an explicit scale, this mapping takes precedence over
     any other weighting.
 
 Schema:
