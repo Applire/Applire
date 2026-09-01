@@ -68,10 +68,24 @@ either way. Only reading the prompt text catches it (same reasoning as the two
 precedent files).
 """
 
+import json
 import re
 
 from applire.prompts import cv_extraction, cv_extraction_segmented, profile_extraction
-from applire.schemas.profile import OBJECT_SECTIONS, VAULT_SECTIONS
+from applire.schemas.profile import (
+    Certification,
+    EducationEntry,
+    Language,
+    OBJECT_SECTIONS,
+    PersonalInfo,
+    ProfessionalSummary,
+    ProjectEntry,
+    Publication,
+    Skill,
+    VAULT_SECTIONS,
+    VolunteerActivity,
+    WorkEntry,
+)
 
 # Every extraction prompt's schema is pretty-printed with the top-level section keys
 # at exactly one indent level (2 spaces) and every nested field key at a deeper one —
@@ -195,3 +209,266 @@ def test_profile_extraction_has_projects_no_folding_rule():
     system = profile_extraction.SYSTEM_PROMPT
     assert "PROJECTS" in system
     assert "folded into work_history" in system
+
+
+# ─── #228 — FIELD-level parity (the section-level gate above cannot see this) ──
+#
+# A section-level PASS ("profile_extraction.py offers `skills`") is compatible
+# with the model being asked for none of that section's actual substructure:
+# before this fix, profile_extraction.py's "skills" schema was a bare
+# ["list of technical and soft skills"] — a real `skills` key, offering ZERO
+# of Skill's five extraction-relevant fields. #190/#229/#619 were "a whole
+# SECTION is structurally unaskable"; #228 is the identical failure mode one
+# level deeper — a FIELD unaskable inside a section both doors already claim
+# to offer. Same fix shape applies here: derive the expected set mechanically
+# (each section's own Pydantic model field list) rather than hand-typing the
+# fields someone just noticed missing, so the next field added to
+# cv_extraction.py and forgotten elsewhere fails HERE instead of shipping.
+#
+# THE DIFF IS SCOPED PER SECTION, NOT FLAT. A field name reused across two
+# unrelated sections (`location` names both PersonalInfo's home city and
+# WorkEntry's per-role office city) must be checked against ITS OWN section's
+# model, never against "does this field name appear ANYWHERE in the schema".
+# A flat/global diff would call `work_experience.location` satisfied merely
+# because `personal_info.location` shares the name — exactly the false-clear
+# this scoping prevents. (#228's own measurement note: the issue's
+# hand-collected 17-field list undercounted by exactly one field for this
+# reason — work_history.location — while separately over-counting
+# `linkedin_url` as fully absent when a legacy alias already carried its
+# value under the name `linkedin`; see the field allowlist/rename discussion
+# in the PR that added this block.)
+
+#: section -> the Pydantic model whose fields an extraction prompt may ask for.
+_SECTION_MODEL: dict[str, type] = {
+    "personal_info": PersonalInfo,
+    "professional_summary": ProfessionalSummary,
+    "work_experience": WorkEntry,
+    "education": EducationEntry,
+    "certifications": Certification,
+    "skills": Skill,
+    "languages": Language,
+    "publications": Publication,
+    "volunteer_activities": VolunteerActivity,
+    "projects": ProjectEntry,
+}
+
+# Guards the guard: every section this file's LIST_SECTIONS/OBJECT_SECTIONS
+# cover has a model above (signature_stories excluded — reconciler-only, see
+# the module docstring's Scope paragraph; never emitted by any extraction
+# prompt by design, so no door is asked to carry its fields either).
+assert set(_SECTION_MODEL) == VAULT_SECTIONS - {"signature_stories"}
+
+
+#: Fields that exist on a section's Pydantic model but are NEVER an
+#: extraction target — minted, computed, or written later by a specific
+#: piece of code, never something a CV-extraction LLM is asked to fill in.
+#: Each entry names the mechanism that actually populates it, so "why isn't
+#: this in the schema" has a one-line answer instead of an implicit
+#: assumption. Keyed by field name; value is the set of sections it is
+#: internal FOR (None = every section it appears in).
+_INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
+    "id": None,  # every entity — uuid4 default_factory, never LLM-supplied
+    "status": frozenset({"certifications", "skills", "languages"}),  # ADR-061 cl.3 — reconcile/stance.py
+    "expected_fields": frozenset({"work_experience", "volunteer_activities", "projects"}),  # ADR-041 — services/profile/expectations.py
+    "role_fact_projections": frozenset({"work_experience"}),  # #328 opt.4 — services/profile/role_facts.py
+    "experience_refs": frozenset({"skills"}),  # provenance — reconcile/apply.py evidence resolution
+    "source": frozenset({"skills"}),  # years_experience provenance — services/skill_enrichment.py
+    "photo_url": frozenset({"personal_info"}),  # photo UPLOAD feature, not CV/text extraction — no door asks for it
+}
+
+
+def _is_internal(section: str, field: str) -> bool:
+    if field not in _INTERNAL_FIELDS:
+        return False
+    scope = _INTERNAL_FIELDS[field]
+    return scope is None or section in scope
+
+
+def _expected_fields(section: str) -> set[str]:
+    """The extraction-askable field set for one section, straight off its
+    Pydantic model — never hand-typed. This IS the #228 fix: a field added to
+    schemas/profile.py and forgotten by every prompt now has nothing to hide
+    behind."""
+    model = _SECTION_MODEL[section]
+    return {f for f in model.model_fields if not _is_internal(section, f)}
+
+
+#: (section, field) pairs NO door currently asks for — EVEN cv_extraction.py.
+#: Pre-existing, symmetric across all three doors, and out of #228's scope
+#: (#228 is "profile_extraction.py lacks what cv_extraction.py already has";
+#: none of these three is a case of that — cv_extraction.py itself lacks
+#: them too, by this same measurement). Each entry needs its own reason: an
+#: unexplained exemption is how the next gap hides.
+_FIELD_ALLOWLIST: dict[tuple[str, str], str] = {
+    ("volunteer_activities", "is_current"): (
+        "VolunteerActivity inherits is_current from ExperienceBase, but no door "
+        "— including cv_extraction.py — has ever asked for an ongoing/ended "
+        "marker on a volunteer role; only work_experience carries one. "
+        "Pre-existing and symmetric across all three doors, not a #228 gap."
+    ),
+    ("projects", "is_current"): (
+        "ProjectEntry inherits is_current from ExperienceBase; no door asks for "
+        "an ongoing/ended marker on a project (its start_date/end_date already "
+        "carry the span). Pre-existing and symmetric, not a #228 gap."
+    ),
+    ("projects", "location"): (
+        "ProjectEntry inherits location from ExperienceBase; no door asks for a "
+        "project's own location (associated_experience already ties it to the "
+        "work/volunteer entry whose location applies). Pre-existing and "
+        "symmetric, not a #228 gap."
+    ),
+}
+
+
+def _json_obj_field_sections(obj: dict) -> dict[str, set[str]]:
+    """One level of a parsed schema dict -> {key: {its own nested field names}}.
+
+    A dict value's own keys are the fields; a list-of-object value's first
+    element's keys are the fields (every list section here is homogeneous); a
+    scalar/string leaf (e.g. profile_extraction.py's old ``"skills": ["..."]``
+    shorthand) carries no field names at all — an empty set, not an error, so
+    a shape mismatch like that shows up as EVERY field of that section
+    missing, not a crash."""
+    out: dict[str, set[str]] = {}
+    for key, value in obj.items():
+        if isinstance(value, dict):
+            out[key] = set(value.keys())
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            out[key] = set(value[0].keys())
+        else:
+            out[key] = set()
+    return out
+
+
+def _shorthand_field_sections(block: str) -> dict[str, set[str]]:
+    """cv_extraction_segmented.py's CORE pass uses a compact NON-JSON
+    set-literal shorthand (module docstring; see also
+    test_segmented_door_offers_every_list_section above) —
+    '"section": {"f1","f2"}' rather than real JSON. Anchor on the same
+    2-space top-level indent _top_level_keys() uses, slice each section's own
+    text span, then pull quoted field tokens out of that span.
+
+    `"(\\w+)"` cannot match a description string containing a space or a `|`
+    (every description in this block has one or the other, e.g. "German
+    summary or null", "technical|soft|language|domain"), so it never mistakes
+    a description for a field name — checked against this exact block before
+    this test was written (a throwaway measurement script, not committed)."""
+    starts = [(m.group(1), m.start()) for m in re.finditer(r'(?m)^  "(\w+)":', block)]
+    starts.append((None, len(block)))
+    out: dict[str, set[str]] = {}
+    for i, (name, start) in enumerate(starts[:-1]):
+        span = block[start:starts[i + 1][1]]
+        after_colon = span.split(":", 1)[1] if ":" in span else span
+        out[name] = set(re.findall(r'"(\w+)"', after_colon))
+    return out
+
+
+def _cv_extraction_fields() -> dict[str, set[str]]:
+    """The rich door — _SCHEMA_DESCRIPTION is valid JSON on its own (every
+    value is a description STRING, never a real type, but the STRUCTURE
+    parses), so real json.loads gives an exact nested field map — no regex
+    heuristic needed."""
+    return _json_obj_field_sections(json.loads(cv_extraction._SCHEMA_DESCRIPTION))
+
+
+def _profile_extraction_fields() -> dict[str, set[str]]:
+    """The flat door — its JSON schema block follows a literal 'Schema:\\n'
+    marker and is itself valid JSON, same reasoning as cv_extraction.py."""
+    schema_text = profile_extraction.SYSTEM_PROMPT.split("Schema:\n", 1)[1]
+    fields = _json_obj_field_sections(json.loads(schema_text))
+    # profile_extraction.py predates ADR-044's section rename (handled by
+    # _LEGACY_NAME_ALIASES above) — canonicalize the SECTION name here too,
+    # field level. Unlike the section-level alias, there is no per-FIELD
+    # alias: post-#228 this door asks for "linkedin_url" verbatim (renamed
+    # from the legacy "linkedin"), matching cv_extraction.py's field NAME as
+    # well as its section — issue #228 instruction 1 ("field-for-field
+    # identical in name and shape"), so a future regression back to the old
+    # name must fail here, not be quietly re-aliased away.
+    if "work_history" in fields:
+        fields["work_experience"] = fields.pop("work_history")
+    if "contact" in fields:
+        fields["personal_info"] = fields.pop("contact")
+    return fields
+
+
+def _segmented_fields() -> dict[str, set[str]]:
+    """The ADR-047 fallback door — the outline pass is real JSON; the core
+    pass is the compact shorthand (see _shorthand_field_sections). The DETAIL
+    pass's fields (responsibilities/achievements/technologies) belong to
+    work_experience too — together with OUTLINE they are what one segmented
+    work entry carries (EXTRACTION_DETAIL_SYSTEM_PROMPT's own module comment:
+    "outline-then-expand")."""
+    outline_schema = (
+        cv_extraction_segmented.EXTRACTION_OUTLINE_SYSTEM_PROMPT
+        .split("Return:\n", 1)[1].split("\n\nRules:")[0]
+    )
+    outline = _json_obj_field_sections(json.loads(outline_schema))
+
+    core_schema = (
+        cv_extraction_segmented.EXTRACTION_CORE_SYSTEM_PROMPT
+        .split("omit a key):\n", 1)[1].split("\n\nRules:")[0]
+    )
+    core = _shorthand_field_sections(core_schema)
+
+    detail_schema = (
+        cv_extraction_segmented.EXTRACTION_DETAIL_SYSTEM_PROMPT
+        .split("Return:\n", 1)[1].split("\n\nRules:")[0]
+    )
+    detail_fields = set(json.loads(detail_schema).keys())
+
+    merged = dict(core)
+    merged["work_experience"] = outline.get("work_experience", set()) | detail_fields
+    return merged
+
+
+def _assert_field_parity(door_name: str, have: dict[str, set[str]]) -> None:
+    failures = []
+    for section in _SECTION_MODEL:
+        missing = _expected_fields(section) - have.get(section, set())
+        missing = {f for f in missing if (section, f) not in _FIELD_ALLOWLIST}
+        if missing:
+            failures.append(f"{section}: {sorted(missing)}")
+    assert not failures, (
+        f"{door_name} is missing fields schemas/profile.py declares "
+        f"extraction-askable (not in _INTERNAL_FIELDS or _FIELD_ALLOWLIST): "
+        + "; ".join(failures)
+    )
+
+
+def test_field_allowlist_is_not_accidentally_empty():
+    """Guards the guard, same reasoning as test_list_sections_is_not_
+    accidentally_empty above: every entry needs its own reason (see the
+    dict's own comments), so a change here must be a deliberate, visible
+    edit — never a silent widening that hides the next field-level gap."""
+    assert set(_FIELD_ALLOWLIST) == {
+        ("volunteer_activities", "is_current"),
+        ("projects", "is_current"),
+        ("projects", "location"),
+    }
+    assert all(reason.strip() for reason in _FIELD_ALLOWLIST.values())
+
+
+def test_cv_extraction_door_field_parity():
+    """The reference door — guarded too, so _FIELD_ALLOWLIST (built by running
+    this SAME diff against cv_extraction.py) cannot silently widen without a
+    test catching it."""
+    _assert_field_parity("cv_extraction.py", _cv_extraction_fields())
+
+
+def test_segmented_door_field_parity():
+    _assert_field_parity("cv_extraction_segmented.py", _segmented_fields())
+
+
+def test_profile_extraction_door_field_parity():
+    """#228: THE standing guard this block exists for. profile_extraction.py
+    reached section-level parity in #619 (test_profile_extraction_door_offers_
+    every_list_section above) while still being field-SHALLOW inside those
+    sections: 18 fields missing across personal_info/work_history/education/
+    skills (measured 2026-09-01 — one more than the issue's hand-collected 17;
+    see the module comment above this block), plus `skills` itself being
+    list[str] rather than list[object], so it offered NONE of Skill's fields,
+    not merely some of them. Add a field to cv_extraction.py's schema without
+    mirroring it here (or allowlisting it with a reason) and this goes red
+    instead of becoming the fourth silent repetition of the
+    #190/#229/#619/#228 class."""
+    _assert_field_parity("profile_extraction.py", _profile_extraction_fields())
