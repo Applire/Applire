@@ -711,10 +711,15 @@ class TestCreateSession:
         assert result.current_gap_id == "cluster-gcp-certification"
         assert result.addressed_gap_ids == []
         # issue #245 (NEW-4) — a fresh MODE A session reports the real
-        # hard_ceiling (12), not the soft "~7" midpoint that overshot in the
+        # hard_ceiling, not the soft "~7" midpoint that overshot in the
         # founder-acceptance run.
-        from applire.constants import INTERVIEW_HARD_CEILING_TARGETED
-        assert result.hard_ceiling == INTERVIEW_HARD_CEILING_TARGETED
+        # ADR-080 (#646): "the real hard_ceiling" is no longer the constant —
+        # it is derived from THIS session's own plan. This fixture has 2 gap
+        # clusters, so the budget is 2*2 + 2. Asserting the derivation rather
+        # than a literal keeps the test about the contract (the session reports
+        # its true budget) instead of about a number.
+        from applire.services.interview.budget import derive_hard_ceiling
+        assert result.hard_ceiling == derive_hard_ceiling(result.gaps_total)
 
     @pytest.mark.asyncio
     async def test_stale_gap_cluster_snapshot_already_direct_in_ledger_is_never_asked(
@@ -968,14 +973,21 @@ class TestCreateSession:
     async def test_operator_configured_budget_threads_into_created_session(
         self, sqlite_session, monkeypatch
     ):
-        """#259: an operator-raised INTERVIEW_MAX_QUESTIONS_TARGETED must reach
-        the actual created session's hard_ceiling — the runtime value comes
-        from config.settings, not the constants.py default, at the real
-        create_session() call site."""
+        """#259: the operator's INTERVIEW_MAX_QUESTIONS_TARGETED must reach the
+        actual created session — the runtime value comes from config.settings,
+        not the constants.py default, at the real create_session() call site.
+
+        ADR-080 (#646) changed what it means when it gets there. The setting is
+        now a CAP applied after the budget is derived from the gap plan, not the
+        budget itself, so the observable behaviour is: a cap BELOW the derived
+        value truncates (the self-hoster's deliberate cost decision), and a cap
+        ABOVE it never inflates the session past what its plan needs. Asserting
+        only the old "setting == hard_ceiling" would now pass for an
+        implementation that ignored the plan entirely, which is the defect.
+        """
         from applire.services import session as session_module
         from applire.schemas.session import SessionCreateRequest
-
-        monkeypatch.setattr(session_module.settings, "interview_max_questions_targeted", 30)
+        from applire.services.interview.budget import derive_hard_ceiling
 
         job = _make_job()
         profile = _make_profile()
@@ -987,10 +999,28 @@ class TestCreateSession:
         sqlite_session.add(gap)
         await sqlite_session.commit()
 
+        # This fixture's plan has 2 clusters, so the uncapped budget is 2*2 + 2.
+        derived = derive_hard_ceiling(2)
+        assert derived == 6, "fixture assumption: 2 clusters at the default per-gap 2"
+
+        # A generous cap must not inflate the budget beyond the plan's needs.
+        monkeypatch.setattr(
+            session_module.settings, "interview_max_questions_targeted", 30
+        )
         req = SessionCreateRequest(job_id=job.id, mode="targeted")
         result = await session_module.create_session(req, sqlite_session, _mock_provider())
+        assert result.hard_ceiling == derived
 
-        assert result.hard_ceiling == 30
+        # A cap below it truncates, and the operator's number is what lands.
+        active = await session_module._get_active_session(job.id, sqlite_session)
+        active.status = "complete"
+        await sqlite_session.commit()
+
+        monkeypatch.setattr(
+            session_module.settings, "interview_max_questions_targeted", 4
+        )
+        capped = await session_module.create_session(req, sqlite_session, _mock_provider())
+        assert capped.hard_ceiling == 4
 
     @pytest.mark.asyncio
     async def test_creates_targeted_session_no_profile_raises(self, sqlite_session):
@@ -1307,8 +1337,11 @@ class TestCreateSession:
         assert stale.status == "complete"  # retired, not left active to hijack later creates
         assert result.session_id != micro_result.session_id
         assert result.resumed is False
-        # The real full-interview ceiling, not the orphaned micro-session's 1.
-        assert result.hard_ceiling == 12
+        # The real full-interview budget, not the orphaned micro-session's 1.
+        # ADR-080 (#646): derived from this session's own 2-cluster plan.
+        from applire.services.interview.budget import derive_hard_ceiling
+        assert result.hard_ceiling == derive_hard_ceiling(2)
+        assert result.hard_ceiling > 1
         assert result.gaps_total == 2
         # The freshly generated question, never the stale gap-A leftover.
         assert result.question == "Tell me about your FastAPI experience."
@@ -1391,9 +1424,21 @@ class TestCreateSession:
                 new=AsyncMock(return_value={"question": "Tell me about GCP.", "choices": None}),
             ):
                 created = await create_session(req, sqlite_session, _mock_provider())
-            # Sanity — the override really took effect, so this really is
-            # the trap case: a full session with hard_ceiling == 1.
-            assert created.hard_ceiling == 1
+            # Sanity — the override really took effect (the budget is capped
+            # far below the 2-cluster plan's derived 6).
+            #
+            # ADR-080 (#646) narrowed this trap without removing the need for
+            # the marker. The derivation floors a capped budget at 2, so a
+            # session created by THIS codebase can no longer come out at
+            # hard_ceiling == 1 whatever the operator sets — an operator value
+            # of 1 would otherwise make the session complete on its own opening
+            # question. The ceiling/marker collision is therefore unreachable
+            # for new rows, and the `hard_ceiling == 1` fallback in
+            # is_micro_session() now serves only genuine pre-upgrade rows
+            # (pinned directly in TestIsMicroSession). The property this test
+            # exists for is unchanged and asserted below: a real full session
+            # is RESUMED, never retired, by a second generic create.
+            assert created.hard_ceiling == 2
             assert created.mode == "targeted"
 
             # A second GENERIC create for the same job must RESUME this real
