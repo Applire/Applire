@@ -71,6 +71,7 @@ from applire.services.office_export._common import (
     hex_to_rgb_color,
     new_document,
 )
+from applire.templates.filters import month_year
 from applire.templates.labels import cv_labels
 
 PHOTO_WIDTH = Cm(3.2)
@@ -98,11 +99,20 @@ def _join_nonblank(parts: list[str | None], sep: str = _JOIN) -> str:
 
 
 def _format_date_range(start: str | None, end: str | None, labels: dict) -> str:
-    """'2020-01 – 2022-06', '2022-07 – heute'/'Present' (end is None but
-    start is set), or '' when both are blank. Never renders the literal
-    string 'None'."""
-    start = (start or "").strip()
-    end = (end or "").strip()
+    """'01/2020 – 06/2022', '07/2022 – heute'/'Present' (end is None but start
+    is set), or '' when both are blank. Never renders the literal 'None'.
+
+    Formatted with the SAME ``month_year`` filter all seven PDF templates use
+    (`{{ job.start_date | month_year }}`), not a second rule of its own. The
+    export previously emitted the storage format (`2017-04`), so one document
+    showed two different dates depending on which file the reader opened —
+    SF-EXPORT.2's failure mode, and two implementations of one display rule
+    (ADR-066). Every containment assertion in this suite stayed green through
+    it, because the raw value IS present either way: the tests could not see
+    formatting at all. Caught by converting a real export and looking at it.
+    """
+    start = month_year((start or "").strip())
+    end = month_year((end or "").strip())
     if not start and not end:
         return ""
     if not end:
@@ -252,7 +262,10 @@ def _render_certifications(document, tailored, labels, color, photo_bytes) -> No
         return
     add_heading(document, labels["certifications"], 2, color)
     for cert in tailored.certifications:
-        dates = _join_nonblank([cert.date_obtained, cert.expiry_date], sep=_DASH)
+        # Same shared filter as every other date on this document.
+        dates = _join_nonblank(
+            [month_year(cert.date_obtained), month_year(cert.expiry_date)], sep=_DASH
+        )
         add_bullet(document, _join_nonblank([cert.name, cert.issuing_organization, dates]))
 
 
