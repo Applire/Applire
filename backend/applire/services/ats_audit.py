@@ -552,6 +552,41 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
     checks.append(ATSCheck(id=cid, status="pass" if ok else "fail", details=None if ok else details))
 
 
+def _page_band_not_applicable(checks: list[ATSCheck]) -> None:
+    """Emit the page-length band as an explicit ``not_applicable`` (ADR-079 cl. 4).
+
+    A document kind without intrinsic pagination — a ``.docx``, which has no
+    pages until a word processor lays it out — cannot be measured against the
+    ADR-051 length norms. The band is therefore neither a pass nor a fail, and
+    it must NOT simply be omitted: an absent check is invisible to ``passed``
+    and ``failed`` alike, so the report would read as a clean, complete audit
+    of something never evaluated. That is the #634 failure shape, and clause 4
+    exists to forbid it ("never silently omitted").
+
+    Kept here, beside the two real bands, deliberately. E057 task 1.1 first
+    froze ``_audit_cv_text``/``_audit_letter_text`` to keep the audit one
+    implementation (ADR-066), then discovered the freeze and clause 4 were not
+    simultaneously satisfiable. The founder amended the freeze rather than let
+    a second module start constructing ``page-length`` rows (PO 2026-09-01):
+    three construction sites for one check id, hand-synced, is precisely what
+    ADR-066 forbids — and any future ``page_count``-less caller would have
+    reproduced the silent-absence bug with nothing to stop it.
+    """
+    checks.append(ATSCheck(
+        id="page-length", status="not_applicable",
+        details="not applicable — this document has no fixed pagination until "
+                "a word processor lays it out",
+        details_key="page-length-not-applicable",
+        # Empty but PRESENT, deliberately. ATSChecksPanel localises only when
+        # `details_params` is truthy, because next-intl renders the raw key
+        # path instead of throwing on a missing ICU variable — so a keyed check
+        # whose params are absent (a partially-migrated persisted report) must
+        # take the EN fallback. This message has no placeholders, so `{}` says
+        # "params measured, and there are none" rather than "params missing".
+        details_params={},
+    ))
+
+
 def _keyword_coverage(
     text_norm: str,
     keywords: list[str],
@@ -691,6 +726,7 @@ def _audit_cv_text(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
+    page_band_not_applicable: bool = False,
     target: int | None = None,
     region: str = DEFAULT_REGION,
     condensation_exhausted: bool = False,
@@ -840,7 +876,13 @@ def _audit_cv_text(
     # `condensation_exhausted` was set (the section-editor re-audit path can miss
     # the target without ever running the condense loop at all — same honesty
     # applies defensively).
-    if page_count is not None:
+    if page_band_not_applicable:
+        # ADR-079 cl. 4 — takes precedence over any page_count a caller also
+        # passed: "this artefact has no pages" is a fact about the document
+        # kind, and a count measured on some other rendering of it cannot
+        # overrule that.
+        _page_band_not_applicable(checks)
+    elif page_count is not None:
         norm = REGION_NORMS[region]
         standard = norm.cv_standard_pages
         maximum = norm.cv_max_pages
@@ -994,6 +1036,7 @@ def _audit_letter_text(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     page_count: int | None = None,
+    page_band_not_applicable: bool = False,
     vault_text_norm: str | None = None,
     pins: list | None = None,
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
@@ -1031,7 +1074,9 @@ def _audit_letter_text(
     # the checks.page-length i18n key are shared by both document types. Skipped when
     # no count is given (text-only callers/tests), mirroring the CV behaviour. The
     # norm number always comes from REGION_NORMS — never hard-coded (ADR-051 §1).
-    if page_count is not None:
+    if page_band_not_applicable:
+        _page_band_not_applicable(checks)          # ADR-079 cl. 4, as above
+    elif page_count is not None:
         region = DEFAULT_REGION
         letter_pages = REGION_NORMS[region].letter_pages
         if page_count <= letter_pages:

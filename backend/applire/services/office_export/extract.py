@@ -80,44 +80,32 @@ keyword argument (``ledger``, ``vault_text_norm``, ``vault_skill_forms``,
 ``pins``, ``truth_floor_hits``) passes straight through, so this is a full-
 fidelity feed, not a stripped-down one.
 
-*** OPEN QUESTION — NOT resolved by this task, deliberately ***
+*** RESOLVED 2026-09-01 (PO) — this seam reports the band explicitly ***
 ADR-079 clause 4 requires the page-length band to be reported ``not_applicable``
-WITH its reason, in its own bucket — never folded into an ``X of Y`` rollup. But
-``_audit_cv_text`` / ``_audit_letter_text`` have no ``not_applicable`` status to
-give it: ``ATSCheck.status`` is ``Literal["pass", "fail"]``
-(``applire/schemas/ats.py``), and passing no ``page_count`` (the only option
-open to a caller that must not edit those two 🔒-protected functions) makes the
-page-length block SKIP entirely — the check is not reported as anything, it is
-simply ABSENT from ``checks``, indistinguishable in shape from a report
-persisted before the page-length band existed at all. That is the SAME failure
-class as #634: an instrument's silence read as evidence about something it
-never examined.
+WITH its reason, in its own bucket — never folded into an ``X of Y`` rollup, and
+never silently omitted. When this module was first written that was an OPEN
+QUESTION: ``ATSCheck.status`` was ``Literal["pass", "fail"]``, and passing no
+``page_count`` — the only move open to a caller forbidden from editing the two
+🔒-protected audit functions — makes the page-length block SKIP entirely. The
+check is then not reported as anything; it is simply ABSENT from ``checks``,
+indistinguishable in shape from a report persisted before the band existed, and
+invisible to ``passed`` and ``failed`` alike. That is the SAME failure class as
+#634: an instrument's silence read as evidence about something it never examined.
 
-Making this seam emit a real ``not_applicable`` check needs, either way, a
-``schemas.ats.ATSCheck.status`` Literal widening this task was told not to make
-unilaterally — and then a choice between:
+Two ways out were costed: (a) give the two audit functions a defaulted "this
+band does not apply" parameter — a boundary exception, but keeps "what a
+page-length row looks like" decided in exactly ONE place (ADR-066), which is
+what the boundary existed to protect; or (b) construct the check here, which
+respects the boundary's letter but opens a THIRD ``page-length`` construction
+site to hand-sync, and fixes only this seam — any future ``page_count``-less
+caller would reproduce the identical silent absence with nothing to stop it.
 
-  (a) widen ``_audit_cv_text`` / ``_audit_letter_text`` themselves (a new
-      parameter, e.g. an explicit "this band does not apply" flag, defaulting
-      to today's behaviour for every existing caller) — a boundary exception,
-      but keeps "what a page-length check row looks like" decided in exactly
-      ONE place (ADR-066), which is what the boundary exists to protect; or
-  (b) construct the ``not_applicable`` check HERE, outside them, by post-
-      processing the returned report — respects the boundary's letter, but
-      opens a SECOND "page-length" construction site outside ats_audit.py
-      that has to be hand-kept in sync with the two inside it, and fixes only
-      this seam: any other future ``page_count=None`` caller reproduces the
-      same silent-absence shape with nothing to stop it.
+**The founder chose (a).** ``_audit_cv_text`` / ``_audit_letter_text`` now take
+``page_band_not_applicable``, defaulting to today's behaviour for all ~90
+existing callers, and both seams below set it. ``ATSCheck.status`` gained
+``not_applicable`` as a third state, counted in its own ``ATSReport``
+bucket and honoured by every consumer down to the frontend panel.
 
-This module deliberately does NEITHER. ``audit_cv_docx`` / ``audit_cover_letter_docx``
-return exactly what ``_audit_cv_text`` / ``_audit_letter_text`` naturally
-produce with no ``page_count`` given — today, a report with the page-length
-check simply absent. That is safe only as long as nothing PERSISTS or SERVES
-this report to a user, which is true of this task (no writer, no router
-endpoint yet — Tasks 1.2/1.4). Resolving (a) vs (b) is a BLOCKING prerequisite
-before whichever task wires this seam to a real download endpoint. See
-``test_audit_cv_docx_page_band_is_absent_not_marked_pending_a_decision`` (a
-characterization test — it pins today's state, it does not endorse it).
 """
 
 from __future__ import annotations
@@ -189,11 +177,11 @@ def audit_cv_docx(
     """Audit a produced CV ``.docx`` against the structured CV data and keywords —
     the ``.docx`` twin of ``ats_audit.audit_cv`` (which audits a PDF).
 
-    Extracts via :func:`extract_docx_text` and feeds the UNCHANGED
-    ``_audit_cv_text`` (🔒 boundary) with no ``page_count`` — see the OPEN
-    QUESTION in this module's docstring: the returned report's page-length
-    check is currently simply ABSENT, not ``not_applicable``. Every other
-    keyword argument mirrors :func:`applire.services.ats_audit.audit_cv`.
+    Extracts via :func:`extract_docx_text` and feeds ``_audit_cv_text`` with
+    ``page_band_not_applicable=True``: a ``.docx`` has no pages until a word
+    processor lays it out, so the ADR-051 band is genuinely inapplicable and is
+    reported as such rather than omitted (ADR-079 cl. 4). Every other keyword
+    argument mirrors :func:`applire.services.ats_audit.audit_cv`.
     """
     text = extract_docx_text(docx_bytes)
     return _audit_cv_text(
@@ -201,6 +189,7 @@ def audit_cv_docx(
         tailored,
         keywords,
         ledger,
+        page_band_not_applicable=True,
         vault_text_norm=vault_text_norm,
         vault_skill_forms=vault_skill_forms,
         pins=pins,
@@ -219,8 +208,8 @@ def audit_cover_letter_docx(
     """Audit a produced cover-letter ``.docx`` against the structured letter data
     and keywords — the ``.docx`` twin of ``ats_audit.audit_cover_letter``.
 
-    Same open question as :func:`audit_cv_docx`: the page-length check is
-    currently simply ABSENT from the returned report, not ``not_applicable``.
+    As in :func:`audit_cv_docx`, the page-length band is reported
+    ``not_applicable`` rather than omitted (ADR-079 cl. 4).
     """
     text = extract_docx_text(docx_bytes)
     return _audit_letter_text(
@@ -228,6 +217,7 @@ def audit_cover_letter_docx(
         letter_data,
         keywords,
         ledger,
+        page_band_not_applicable=True,
         vault_text_norm=vault_text_norm,
         pins=pins,
         truth_floor_hits=truth_floor_hits,

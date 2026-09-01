@@ -1200,6 +1200,7 @@
       "page-length-exhausted": "{pages} pages — condensed to the maximum; length driven by education/skills volume; exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}",
+      "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {

@@ -421,30 +421,32 @@ def test_audit_cv_docx_detects_a_genuinely_dropped_bullet():
     assert by_id["contact-name"].status == "pass"
 
 
-def test_audit_cv_docx_page_band_is_absent_not_marked_pending_a_decision():
-    """CHARACTERIZATION TEST — pins today's deliberately unresolved state, does
-    NOT endorse it. ADR-079 clause 4 requires the page-length band reported
-    `not_applicable` WITH its reason, in its own bucket. Constructing that
-    requires a `schemas.ats.ATSCheck.status` Literal widening this task was
-    told not to make unilaterally, plus a choice between (a) a boundary
-    exception to `_audit_cv_text`/`_audit_letter_text` or (b) a second
-    "page-length" construction site outside them (see extract.py's module
-    docstring and the task report). Until that is decided, calling the
-    UNCHANGED audit functions with no `page_count` makes the page-length
-    check ABSENT from `checks` — not `not_applicable`, not `fail`: simply
-    missing, indistinguishable in shape from a report that predates the
-    page-length band entirely. If this test ever goes red because someone
-    added a "page-length" entry, that is progress — update it deliberately,
-    don't just delete it (mirrors the workaround-rule-expiry lesson: a
-    characterization test going red on a genuine fix is the alarm working)."""
+def test_audit_cv_docx_page_band_is_reported_not_applicable():
+    """ADR-079 clause 4: the band is present and explicitly inapplicable.
+
+    This test was written as a CHARACTERIZATION test pinning the opposite —
+    that the band was simply ABSENT — because the decision between amending the
+    audit functions and constructing the check in this seam was still open. Its
+    own docstring said: *"If this test ever goes red because someone added a
+    page-length entry, that is progress — update it deliberately, don't just
+    delete it."* The founder chose the amendment on 2026-09-01, the test went
+    red on the genuine fix, and this is that deliberate update. The pin is kept
+    rather than dropped because the property it guards has not gone away — it
+    has inverted: an absent band is invisible to `passed` and `failed` alike,
+    so a report would read clean on something never evaluated (the #634 shape),
+    and that must stay impossible."""
     report = audit_cv_docx(_cv_docx_bytes(), _CV, keywords=[])
-    ids = [c.id for c in report.checks]
-    assert "page-length" not in ids
-    # passed/failed are computed inside _audit_cv_text BEFORE this seam ever
-    # sees the report, over exactly the checks list above — so they already
-    # can't reflect a page-band verdict that was never added.
+
+    band = next((c for c in report.checks if c.id == "page-length"), None)
+    assert band is not None, "the band must never be silently omitted (ADR-079 cl. 4)"
+    assert band.status == "not_applicable"
+    assert band.details_key, "the reason must be machine-readable for the frontend"
+
+    # It must land in its own bucket, not in either numerator.
     assert report.passed == sum(1 for c in report.checks if c.status == "pass")
     assert report.failed == sum(1 for c in report.checks if c.status == "fail")
+    assert report.not_applicable == 1
+    assert report.passed + report.failed + report.not_applicable == len(report.checks)
 
 
 _LETTER = {
@@ -479,4 +481,7 @@ def test_audit_cover_letter_docx_runs_the_real_structural_checks_against_docx_te
     assert by_id["body-0"].status == "pass"
     assert by_id["body-1"].status == "pass"
     assert report.document == "cover_letter"
-    assert "page-length" not in {c.id for c in report.checks}  # same open question as the CV side
+    # ADR-079 cl. 4, letter side: present and explicitly inapplicable, never absent.
+    band = next((c for c in report.checks if c.id == "page-length"), None)
+    assert band is not None and band.status == "not_applicable"
+    assert report.not_applicable == 1

@@ -98,6 +98,10 @@ const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-exhausted",
   "page-length-exceeds",
   "page-length-letter",
+  // ADR-079 cl. 4 (E057): the .docx export has no intrinsic pagination, so the
+  // band is neither pass nor fail. Carries an empty-but-present details_params
+  // — the message takes no ICU variables.
+  "page-length-not-applicable",
   // #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory —
   // ships as a passing check with a localized `details` sentence, same shape
   // as the page-length advisory branches above.
