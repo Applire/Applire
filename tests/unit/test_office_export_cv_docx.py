@@ -552,8 +552,15 @@ class TestRenderCvDocxContent:
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="de", accent_color=ACCENT))
         assert "MARKER_CERT_NAME" in text
         assert "MARKER_CERT_ORG" in text
-        assert "2021-01" in text
-        assert "2024-01" in text
+        # Displayed through the shared `month_year` filter, like every other
+        # date on this document and like all seven PDF templates. This test
+        # asserted the STORAGE format ("2021-01") until 2026-09-01 — it was
+        # calibrated to the export's own divergence, so it passed while the
+        # .docx and the PDF showed different dates for the same certification.
+        # Fix the expectation, not the formatter.
+        assert "01/2021" in text
+        assert "01/2024" in text
+        assert "2021-01" not in text
 
     def test_photo_embedded_when_photo_bytes_present(self):
         from applire.services.office_export.cv_docx import render_cv_docx
@@ -767,3 +774,57 @@ class TestRenderCvDocxI18n:
 
         text = _all_text(render_cv_docx(_full_tailored_cv(), lang="fr", accent_color=ACCENT))
         assert cv_labels("de")["experience"] in text
+
+
+# ---------------------------------------------------------------------------
+# Display parity with the PDF (SF-EXPORT.2) — found by converting a real export
+# and looking at it, not by a test: every existing assertion checks CONTAINMENT
+# of a field's raw value, and the raw value is present either way, so the whole
+# suite was structurally blind to formatting.
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayFormattingMatchesThePdf:
+    """All seven PDF templates render dates through the shared `month_year`
+    Jinja filter (`{{ job.start_date | month_year }}`), which turns `2017-04`
+    into `04/2017`. The export must not render the storage format instead:
+    that is the same document showing two different dates depending on which
+    file the reader opens, which is exactly SF-EXPORT.2's failure mode — and
+    a second implementation of one display rule (ADR-066)."""
+
+    def _text(self, cv, lang="de"):
+        from applire.services.office_export.cv_docx import render_cv_docx
+        from applire.services.office_export.extract import extract_docx_text
+        return extract_docx_text(
+            render_cv_docx(cv, lang=lang, accent_color="#1a3a5c", photo_bytes=None)
+        )
+
+    def test_work_dates_use_the_shared_month_year_filter(self):
+        from applire.templates.filters import month_year
+        cv = _full_tailored_cv()
+        cv.work_history[0].start_date = "2017-04"
+        cv.work_history[0].end_date = "2021-02"
+
+        text = self._text(cv)
+
+        assert month_year("2017-04") == "04/2017"  # pin the filter's contract
+        assert "04/2017" in text, "the export must format dates like the PDF does"
+        assert "2017-04" not in text, "the storage format must not reach the reader"
+
+    def test_education_dates_use_the_shared_filter_too(self):
+        cv = _full_tailored_cv()
+        cv.education[0].start_date = "2006-10"
+        cv.education[0].end_date = "2011-03"
+
+        text = self._text(cv)
+
+        assert "10/2006" in text and "03/2011" in text
+        assert "2006-10" not in text
+
+    def test_an_open_ended_role_still_says_present_in_the_ui_language(self):
+        cv = _full_tailored_cv()
+        cv.work_history[0].start_date = "2017-04"
+        cv.work_history[0].end_date = None
+
+        assert "04/2017" in self._text(cv, lang="de")
+        assert "04/2017" in self._text(cv, lang="en")
