@@ -61,6 +61,13 @@ class GeneratedCoverLetter(Base):
     document_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     # ADR-039: persisted ATS audit report; NULL = not audited (engine error or pre-Chocolate row)
     ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-079 clause 8 (E057/US297, #637): persisted ATS audit report for the
+    # .docx EXPORT — the letter-side mirror of GeneratedCV.docx_ats_report.
+    # Schema only at this point: no writer in services/cover_letter.py
+    # populates it yet (that wiring is a separate story, US297); the column
+    # exists now so the schema migration lands once, not twice. See
+    # GeneratedCV.docx_ats_report for the full rationale.
+    docx_ats_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     # ADR-052 (E043/US246): persisted truthfulness self-audit; NULL = not audited
     # (oracle error or pre-Tiramisu row). Written in the same commit as the
     # artifact/report so re-generation replaces it atomically. Never gates delivery.

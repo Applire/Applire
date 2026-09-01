@@ -115,4 +115,20 @@ describe("DocumentWorkspace", () => {
       expect(className).toContain("inline-flex");
     });
   });
+
+  // US298 (E057 task 1.5): the .docx download affordance passes through the
+  // shared workspace shell exactly like the existing PDF one.
+  describe("US298 — .docx download affordance", () => {
+    it("wires the top bar docx button to onDownloadDocx when supplied", () => {
+      const onDownloadDocx = vi.fn();
+      render(withIntl(<DocumentWorkspace {...BASE} onDownloadDocx={onDownloadDocx} />));
+      fireEvent.click(screen.getByTestId("document-download-docx-btn"));
+      expect(onDownloadDocx).toHaveBeenCalledOnce();
+    });
+
+    it("omits the docx download button when onDownloadDocx is not supplied", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      expect(screen.queryByTestId("document-download-docx-btn")).toBeNull();
+    });
+  });
 });

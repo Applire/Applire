@@ -152,6 +152,19 @@ the matching `artifact_id` when advancing.
   report as-is. For a fresh audit that can also use the narrow entailment
   tier, pass the text via `audit_document(document_text=...)` — raw text
   carries no position anchors, so misattribution checks are skipped there.
+  **`format='docx'` (US298, ADR-079)** additionally reaches the editable
+  Word export — the SAME writer `GET /api/{cv|cover-letter}/{id}/docx`
+  serves (ADR-066: one writer, both doors), never a parallel one. It adds
+  `docx_url`, `docx_base64` (the file itself, base64-encoded) and
+  `docx_filename` to the response; `pdf_url`/`html_url` are unchanged
+  (additive, not a replacement). The attached ATS/truthfulness reports
+  describe the document **as generated** — they are never re-evaluated
+  against edits you or the human make to a downloaded `.docx` afterwards,
+  and there is no tool to re-check an edited file (ADR-079 clause 6: a
+  document-id audit on an already-edited-by-a-human file would be an Oracle
+  call on an Oracle-derived artefact shown to no one — weaker than no
+  control at all, so it isn't offered as one). Tell the human this
+  plainly if they ask "did you check my edits?" — you didn't, and can't.
 - `audit_document` — the Oracle on demand, including documents Applire never
   wrote (raw text has no position anchors, so misattribution checks need a
   generated document id).

@@ -2341,17 +2341,21 @@ def filename_part(value: str | None) -> str:
 
 
 def compose_document_filename(
-    *parts: str | None, suffix: str = "", fallback: str
+    *parts: str | None, suffix: str = "", fallback: str, extension: str = "pdf"
 ) -> str:
-    """Join sanitized parts as <name>_<company>_<role>[_suffix].pdf; empty parts
-    are skipped. When nothing survives sanitization, fall back to a stable id-
-    based name so the header never carries an empty filename."""
+    """Join sanitized parts as <name>_<company>_<role>[_suffix].<extension>;
+    empty parts are skipped. When nothing survives sanitization, fall back to
+    a stable id-based name so the header never carries an empty filename.
+
+    `extension` defaults to "pdf" (unchanged behaviour for the original PDF
+    caller); the .docx export (E057/US296) passes extension="docx" so both
+    downloads share one sanitization/fallback implementation."""
     clean = [p for p in (filename_part(part) for part in parts) if p]
     if not clean:
-        return f"{fallback}.pdf"
+        return f"{fallback}.{extension}"
     if suffix:
         clean.append(suffix)
-    return "_".join(clean) + ".pdf"
+    return "_".join(clean) + f".{extension}"
 
 
 async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
@@ -2481,6 +2485,133 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
 async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
     html = await get_cv_html(cv_id, db)
     return await _html_to_pdf(html)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/cv/{cv_id}/docx  (ADR-079, E057/US296; requires status=ready)
+# ---------------------------------------------------------------------------
+
+
+async def _prepare_cv_docx_render(
+    record: GeneratedCV, db: AsyncSession
+) -> tuple[TailoredCVData, str, str, bytes | None]:
+    """Build the four inputs render_cv_docx needs — section overrides applied,
+    empty projects stripped, photo resolved, colour + language resolved —
+    as ONE function so every caller that renders the .docx for THIS record
+    prepares it identically. ADR-079 clause 8 / #637: the report a caller
+    persists must describe the bytes a user actually downloads; two
+    independently-written preparation paths could silently drift apart (one
+    gains a step the other doesn't) and audit a document nobody receives.
+
+    Callers: `get_cv_docx` (the GET endpoint — serves the bytes) and
+    `_update_ats_report` (the ADR-039 audit-and-persist seam — audits the
+    bytes). Both must render from the SAME tailored/lang/colour/photo, which
+    is exactly what sharing this function guarantees; it would not be
+    guaranteed by two call sites independently repeating the same five
+    steps in the same order.
+
+    Takes an ALREADY-LOADED `record`, never a cv_id — it does not call
+    `_load_cv_ready` and does not read `record.status` at all. `get_cv_docx`
+    enforces "must be ready" itself (via `_load_cv_ready`, its own READ
+    endpoint contract) before calling this. `_update_ats_report` calls this
+    directly on the record it already holds — exactly like that function's
+    other three report blocks (ats_report/truthfulness_report/critic_report)
+    already operate on `record` with no status re-check. This is measured,
+    not assumed: at all three of `_update_ats_report`'s call sites,
+    `record.status` is ALREADY `'ready'` by the time it runs — the
+    generation path sets it in-memory before entering the subject-identity
+    loop that calls this (cv.py, `record.status = CVGenerationStatus.ready.value`
+    ahead of the `while True` block), the agent door sets it at construction
+    before calling, and the section-editor re-audit only ever re-audits an
+    already-ready row. Re-deriving readiness through `_load_cv_ready` here
+    would be a redundant DB round trip at best, and at worst would make this
+    helper raise `LookupError` in the one case (mid-generation, DB commit not
+    yet flushed) it must never fail — violating "an audit failure must NEVER
+    fail or alter generation status" for a status check that is already
+    satisfied by construction.
+
+    Returns (tailored, lang, accent_color, photo_bytes).
+    """
+    from applire.services.color_detection import resolve_color_context
+    from applire.services.cv_section_editor import apply_overrides_to_tailored
+    from applire.storage import get_storage
+
+    tailored = TailoredCVData.model_validate(record.tailored_data)
+    tailored = apply_overrides_to_tailored(
+        tailored, record.content_snapshot, record.section_overrides
+    )
+    # #312: never hand the writer (or the audit) a project with nothing under its heading.
+    tailored = strip_empty_projects(tailored)
+
+    # Reuse the exact same photo resolution get_cv_html uses (_resolve_photo_data_uri:
+    # storage lookup + FileNotFoundError handling) rather than a second read of
+    # storage — decode its data URI back to raw bytes for python-docx's add_picture,
+    # which needs bytes/a stream, not a data: URI string.
+    photo_bytes: bytes | None = None
+    if tailored.show_photo and tailored.contact.photo_url:
+        data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, get_storage())
+        if data_uri is not None:
+            _, _, b64_payload = data_uri.partition(",")
+            photo_bytes = _base64.b64decode(b64_payload)
+
+    color_ctx = await resolve_color_context(record, db)
+
+    # Same PINNED-language-first fallback as get_cv_html (E054 clause 3b) —
+    # duplicated rather than factored out, to keep this addition a pure
+    # insertion next to the existing HTML path rather than a refactor of it.
+    lang = record.document_language
+    if not lang:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+
+        job = await db.get(JobAnalysis, record.job_analysis_id)
+        application = await get_application_for_job(
+            record.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
+
+    return tailored, lang, color_ctx.primary, photo_bytes
+
+
+async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
+    """The editable Word export. Rendered ON DEMAND from tailored_data, exactly
+    like get_cv_pdf — no bytes are persisted (ADR-079 clause 8; models/cv.py
+    has no document-bytes column).
+
+    Reuses the same data-prep steps get_cv_html uses (section overrides,
+    empty-project stripping, colour resolution, language resolution) so the
+    export and the PDF carry the same content — only the final rendering step
+    (direct python-docx vs the Jinja/Playwright HTML path) differs, per
+    ADR-079 clause 2 (no HTML, no template engine, no subprocess on this path).
+
+    The prep steps live in `_prepare_cv_docx_render`, shared with
+    `_update_ats_report`'s .docx audit block (ADR-079 clause 8 / #637) — see
+    that function's docstring for why a second, independently-written prep
+    path would risk auditing a document this endpoint does not actually serve.
+    """
+    from applire.services.office_export.cv_docx import render_cv_docx
+
+    record = await _load_cv_ready(cv_id, db)
+    tailored, lang, accent_color, photo_bytes = await _prepare_cv_docx_render(record, db)
+    return render_cv_docx(
+        tailored, lang=lang, accent_color=accent_color, photo_bytes=photo_bytes
+    )
+
+
+async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
+    """Build the Content-Disposition filename for a CV .docx export — the
+    same <name>_<company>_<role> contract as get_pdf_filename (E039/US219),
+    with a .docx extension."""
+    record = await _load_cv_ready(cv_id, db)
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    contact = (record.tailored_data or {}).get("contact") or {}
+    return compose_document_filename(
+        contact.get("name"),
+        job.company_name if job else None,
+        job.role_title if job else None,
+        fallback=f"lebenslauf-{str(cv_id)[:8]}",
+        extension="docx",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3766,6 +3897,21 @@ async def _update_ats_report(
     Engine errors leave ats_report NULL, never raise — an audit failure must NEVER
     fail or alter generation status. Deliberately wipes any previous report on error:
     ADR-039 forbids a persisted report describing a state it was not computed from.
+
+    ADR-079 clause 8 (E057/US296, #637): also computes and persists
+    ``docx_ats_report`` — the ADR-039 audit of the .docx EXPORT, a SEPARATE
+    column from ``ats_report`` that can legitimately diverge from it (ADR-079
+    clause 2: the .docx is a second artefact, not a second renderer). This is
+    the single audit-and-persist seam for the CV, reached by all three
+    callers (generation, section-editor re-audit, agent-authored re-audit),
+    so the stored .docx report can never be stale relative to
+    ``tailored_data``/``content_snapshot``/``section_overrides`` — and a
+    database write stays out of the `GET /docx` endpoint. It is a FOURTH,
+    independent try block (own paragraph below): both never-raise rules
+    above apply to it exactly as they apply to ``ats_report`` — an engine
+    error leaves ``docx_ats_report`` NULL and never fails or alters
+    generation status, and any previous ``docx_ats_report`` is wiped on
+    error for the same ADR-039 reason.
     """
     # Stage relabel (#538 refuter observation, fixed in #539): the audit tail's
     # own LLM calls (Oracle sentence triage, outcome critic Pass A) otherwise
@@ -3918,6 +4064,80 @@ async def _update_ats_report(
             record.id,
         )
         record.critic_report = None
+    # ADR-079 clause 8 (E057/US296, #637): the .docx export's OWN ATS audit —
+    # NEVER writes ats_report (the PDF's column); the two artefacts can
+    # legitimately diverge (ADR-079 clause 2: a second artefact, not a
+    # second renderer). Computed HERE rather than in get_cv_docx (a GET must
+    # never write) so the persisted report can never be stale relative to
+    # tailored_data — every commit that can change tailored_data/
+    # content_snapshot/section_overrides runs through this same function.
+    # Renders via _prepare_cv_docx_render — the SAME preparation
+    # (overrides applied, empty projects stripped, photo/colour/language
+    # resolved) get_cv_docx uses to serve the bytes a user actually
+    # downloads, so this audits the DELIVERED document, never a
+    # differently-prepared stand-in (see that helper's docstring).
+    # A SEPARATE try block, deliberately independent of the other three
+    # blocks' locals (same rule as the critic block above): a docx-audit
+    # failure must never take the PDF audit down, or vice versa.
+    try:
+        from applire.services.office_export.cv_docx import render_cv_docx
+        from applire.services.office_export.extract import audit_cv_docx
+
+        docx_tailored, docx_lang, docx_accent, docx_photo_bytes = await _prepare_cv_docx_render(
+            record, db
+        )
+        docx_bytes = render_cv_docx(
+            docx_tailored,
+            lang=docx_lang,
+            accent_color=docx_accent,
+            photo_bytes=docx_photo_bytes,
+        )
+
+        docx_job = await db.get(JobAnalysis, record.job_analysis_id)
+        # ADR-048 / US203: same Keyword Ledger bucketing as the PDF audit —
+        # recomputed here rather than reused from the ats_report block above,
+        # deliberately (see the paragraph comment).
+        docx_ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
+        from applire.services.keyword_ledger import profile_literal_corpus
+
+        docx_profile_row = await db.get(MasterProfile, record.profile_id)
+        docx_profile_json = docx_profile_row.profile_json if docx_profile_row else None
+        docx_vault_text_norm = profile_literal_corpus(docx_profile_json) or None
+        docx_vault_skill_forms = _vault_skill_forms_for_audit(docx_profile_json)
+        # E056/ADR-077: the application's active CV fact pins, loaded the
+        # same fail-safe way the ats_report block loads them — a pin load
+        # failure audits without pins, never fails the docx audit.
+        docx_audit_pins: list = []
+        try:
+            from applire.services.application import get_application_for_job
+            from applire.services.color_detection import _CE_STUB_USER_ID
+            from applire.services.fact_pins import load_pins
+
+            docx_pin_app = await get_application_for_job(
+                record.job_analysis_id, _CE_STUB_USER_ID, db
+            )
+            if docx_pin_app is not None and docx_pin_app.pinned_facts:
+                docx_audit_pins = load_pins(docx_pin_app)
+        except Exception:
+            logger.exception(
+                "fact-pin load failed during .docx ATS audit for CV %s — "
+                "auditing without pins (ADR-077 fail-safe)", record.id,
+            )
+
+        record.docx_ats_report = audit_cv_docx(
+            docx_bytes,
+            docx_tailored,
+            list(docx_job.keywords or []) if docx_job else [],
+            docx_ledger,
+            vault_text_norm=docx_vault_text_norm,
+            vault_skill_forms=docx_vault_skill_forms,
+            pins=docx_audit_pins,
+        ).model_dump()
+    except Exception:
+        logger.exception(
+            "docx ATS audit failed for CV %s — docx_ats_report left NULL", record.id
+        )
+        record.docx_ats_report = None
     if commit:
         await db.commit()
 

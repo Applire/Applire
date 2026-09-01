@@ -164,6 +164,34 @@ const REPORT_PAGE_LENGTH_WITH_PIN_DRIVER: ATSReport = {
   keywords: { present: [], missing: [] },
 };
 
+// E057/ADR-079 clause 4 groundwork (#629, story #637): a THIRD ATSCheck
+// status, not_applicable, for a check that genuinely cannot be evaluated on
+// the artefact (e.g. the page-length band on a .docx export, which has no
+// fixed pagination until a renderer lays it out). No producer constructs one
+// in a real report yet — these are synthetic fixtures, same as every other
+// report constant in this file.
+const REPORT_WITH_NOT_APPLICABLE: ATSReport = {
+  checks: [
+    { id: "contact-name", status: "pass" },
+    {
+      id: "page-length",
+      status: "not_applicable",
+      details: "page count is not defined for this export format",
+    },
+  ],
+  keywords: { present: ["TypeScript"], missing: [] },
+};
+
+// A group with a base id shared by a pass and a not_applicable check — the
+// drawer's "X of Y" denominator must exclude the not_applicable one.
+const REPORT_WITH_MIXED_GROUP: ATSReport = {
+  checks: [
+    { id: "work-0", status: "pass" },
+    { id: "work-1", status: "not_applicable", details: "not evaluable for this export format" },
+  ],
+  keywords: { present: [], missing: [] },
+};
+
 describe("ATSChecksPanel", () => {
   // Case 1: failed checks render inline on the compact card — visible without any interaction
   it("renders failed checks inline with data-testid ats-check-<id> and details", () => {
@@ -584,5 +612,131 @@ describe("ATSChecksPanel", () => {
       const unmet = screen.getByTestId("ats-pinned-fact-unmet-p2");
       expect(unmet.textContent).not.toContain("do-not-claim");
     });
+  });
+
+  // E057/ADR-079 clause 4 groundwork (#629, story #637): the third check
+  // state must render distinguishably — not as a pass, not as a fail — at
+  // every level the panel renders a status (compact card, drawer group, and
+  // the group's "X of Y" count).
+  describe("not_applicable status (E057/ADR-079 clause 4)", () => {
+    it("renders a not_applicable check distinctly on the compact card — not pass, not fail", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_NOT_APPLICABLE} />));
+      const naRow = screen.getByTestId("ats-notapplicable-page-length");
+      expect(naRow).toBeInTheDocument();
+      expect(naRow.textContent).toContain("page count is not defined for this export format");
+      // Never rendered through the failure or pass-with-advisory paths.
+      expect(screen.queryByTestId("ats-check-page-length")).toBeNull();
+      expect(screen.queryByTestId("ats-advisory-page-length")).toBeNull();
+      // Neutral styling — neither the success nor the critical palette.
+      expect(naRow.querySelector(".text-success")).toBeNull();
+      expect(naRow.querySelector(".text-critical")).toBeNull();
+    });
+
+    it("does not treat a not_applicable check as a structure issue", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_NOT_APPLICABLE} />));
+      const status = screen.getByTestId("ats-structure-status");
+      // Nothing FAILED — the headline stays the plain green all-clear.
+      expect(status.textContent).toContain("all checks passed");
+      expect(screen.queryByText(/structureIssues/)).toBeNull();
+    });
+
+    it("localises the not-applicable label into German", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_NOT_APPLICABLE} />, "de"));
+      const naRow = screen.getByTestId("ats-notapplicable-page-length");
+      expect(naRow.textContent).toContain("Nicht anwendbar");
+    });
+
+    // Regression test for the exact defect this task exists to prevent: the
+    // drawer's group-level "all pass?" check used to be `passed ===
+    // g.checks.length`, which reads a not_applicable check (neither "pass"
+    // nor "fail") as a FAILURE — a single not_applicable check rendered a
+    // red ✗ on a band that never failed anything.
+    it("does not render a not_applicable-only drawer group as a failure (regression)", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_NOT_APPLICABLE} />));
+      fireEvent.click(screen.getByTestId("ats-details-button"));
+      const group = screen.getByTestId("ats-drawer-check-page-length");
+      expect(group.textContent).not.toContain("✗");
+      expect(group.querySelector(".text-critical")).toBeNull();
+    });
+
+    // The other half of the same property: a group with NOTHING gradable
+    // (every check in it is not_applicable) must not render the green
+    // checkmark either — that would read as "verified clean" for something
+    // that was never evaluated at all, the exact #634 failure class.
+    it("does not render a not_applicable-only drawer group as a pass either", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_NOT_APPLICABLE} />));
+      fireEvent.click(screen.getByTestId("ats-details-button"));
+      const group = screen.getByTestId("ats-drawer-check-page-length");
+      expect(group.textContent).not.toContain("✓");
+      expect(group.querySelector(".text-success")).toBeNull();
+    });
+
+    it("excludes a not_applicable check from the drawer group's pass/fail count, noting it separately", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_WITH_MIXED_GROUP} />));
+      fireEvent.click(screen.getByTestId("ats-details-button"));
+      const group = screen.getByTestId("ats-drawer-check-work");
+      // Must never read "1 of 2 passed" — only one check in the group was
+      // actually gradable, the other was not_applicable.
+      expect(group.textContent).not.toMatch(/1 of 2|1 von 2/);
+      // The not_applicable check is named in its own note, not silently
+      // dropped — this is the "absent check reads as evidence" trap.
+      const naNote = screen.getByTestId("ats-drawer-notapplicable-work-1");
+      expect(naNote.textContent).toContain("not evaluable for this export format");
+      // The group still reads as OK — nothing in it failed.
+      expect(group.textContent).not.toContain("✗");
+    });
+
+    it("stays silent when no check is not_applicable", () => {
+      render(withIntl(<ATSChecksPanel report={REPORT_ALL_PASS} />));
+      expect(screen.queryAllByTestId(/^ats-notapplicable-/)).toHaveLength(0);
+    });
+  });
+});
+
+// ADR-079 cl. 4 / ADR-039 amendment 2026-09-01: the .docx export's page band is
+// `not_applicable` and carries a details_key with an EMPTY BUT PRESENT
+// details_params. That combination is the trap: `detailText` localises only when
+// details_params is truthy — deliberately, because next-intl renders the raw key
+// path instead of throwing on a missing ICU variable, so a keyed check whose
+// params are absent (a partially-migrated persisted report) must take the EN
+// fallback. `{}` is truthy in JS, so it means "params measured, and there are
+// none" rather than "params missing", and the German user gets German. Without
+// this test, shipping `details_params=None` from the backend would silently
+// serve the English fallback to a DE user and every other gate would stay green.
+describe("ATSChecksPanel — not_applicable page band (ADR-079 cl. 4)", () => {
+  const REPORT_WITH_NA_BAND: ATSReport = {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      { id: "skills", status: "pass" },
+      {
+        id: "page-length",
+        status: "not_applicable",
+        details:
+          "not applicable — this document has no fixed pagination until a word processor lays it out",
+        details_key: "page-length-not-applicable",
+        details_params: {},
+      },
+    ],
+    keywords: { present: [], missing: [] },
+  };
+
+  it("renders the localized German reason, not the English fallback", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_NA_BAND} />, "de"));
+
+    expect(
+      screen.getByText(/keine feste Seitenaufteilung/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no fixed pagination/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not mark the band as a failure", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_NA_BAND} />, "de"));
+
+    // The whole point: a lone not_applicable check in its own group used to
+    // make `passed === checks.length` false and paint a red ✗ on a band that
+    // is not a failure.
+    expect(screen.queryByText("✗Seitenlänge")).not.toBeInTheDocument();
   });
 });

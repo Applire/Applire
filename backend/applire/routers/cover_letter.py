@@ -200,6 +200,30 @@ async def get_pdf(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
+@router.get("/{cl_id}/docx")
+async def get_docx(
+    cl_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> Response:
+    """ADR-079 / E057 / US297: the editable Word export — direct python-docx,
+    rendered on demand from letter_data, no bytes persisted. Mirrors
+    GET /{cl_id}/pdf's contract exactly; only the artefact differs."""
+    try:
+        from applire.services.cover_letter import get_cover_letter_docx, get_cover_letter_docx_filename
+        docx_bytes = await get_cover_letter_docx(cl_id, db)
+        filename = await get_cover_letter_docx_filename(cl_id, db)
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
 @router.patch("/{cl_id}/section", response_model=SectionOverridePatchResponse)
 async def patch_section(
     cl_id: uuid.UUID,

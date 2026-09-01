@@ -85,6 +85,11 @@ from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
     CoverLetterStatusResponse,
+    LetterBody,
+    LetterData,
+    LetterHeader,
+    LetterRecipient,
+    LetterSignature,
 )
 from applire.utils.language_detection import resolve_jd_language
 from applire.utils.letter_date import format_letter_date
@@ -382,6 +387,234 @@ async def get_cover_letter_html(
         lang=lang,
         labels=labels,
         subject=subject,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/cover-letter/{cl_id}/docx  (ADR-079, E057/US297; requires status=ready)
+# ---------------------------------------------------------------------------
+
+
+def _coerce_stored_letter_data(stored: dict) -> LetterData:
+    """Validate a persisted ``letter_data`` dict into :class:`LetterData`,
+    ignoring keys the schema does not declare — exactly as every existing
+    renderer already does.
+
+    This `.docx` path is the FIRST consumer that validates `letter_data` at
+    all; `get_cover_letter_html` renders the raw dict straight through Jinja,
+    and a template reads only the fields it names. Every nested letter model
+    is ``extra="forbid"``, so strict validation turns keys the PDF harmlessly
+    ignores into a failed download. Two such keys are known to occur on real
+    stored letters, from unrelated causes:
+
+    * **``body.signature``** — a duplicate, half-empty copy of the signature
+      that already exists correctly at top level. Found by downloading a real
+      generated letter through the proxy: `/docx` answered **409** while
+      `/pdf` answered 200 for the same record. The writer prompt asks for
+      `signature` at the top level and a `body` holding only `paragraphs`, so
+      this is a model deviation — and nothing validates `letter_data` before
+      persisting it, which is why it survived. Every stored letter in the dev
+      database (n=1) carried it.
+    * **``_override``** — ``_apply_section_overrides`` special-cases only a
+      ``"body"`` override into a schema-valid shape; for header/recipient/
+      signature it stamps ``data[section]["_override"] = content`` onto the
+      existing dict, which no renderer reads back (grepped: zero hits across
+      all seven ``*_letter.html.j2``). A pre-existing gap in the override
+      feature for non-body sections, recorded as a collector line rather than
+      fixed here.
+
+    Tolerance is scoped to **unknown** keys only. A missing required field or
+    a wrong type on a declared one still raises, so this cannot become a
+    blanket "accept anything" that hides real corruption.
+    """
+    section_models = {
+        "header": LetterHeader,
+        "recipient": LetterRecipient,
+        "body": LetterBody,
+        "signature": LetterSignature,
+    }
+    cleaned: dict = {}
+    for key, value in (stored or {}).items():
+        if key not in LetterData.model_fields:
+            continue                      # unknown section — the PDF ignores it too
+        model = section_models.get(key)
+        if model is not None and isinstance(value, dict):
+            value = {k: v for k, v in value.items() if k in model.model_fields}
+        cleaned[key] = value
+    return LetterData.model_validate(cleaned)
+
+
+async def _prepare_cover_letter_docx_render(
+    cl: GeneratedCoverLetter, db: AsyncSession
+) -> tuple[LetterData, str, str]:
+    """Build the three inputs render_letter_docx needs — section overrides
+    applied, letter_data coerced to a validated LetterData, colour +
+    language resolved — as ONE function so every caller that renders the
+    `.docx` for THIS record prepares it identically. E057 adversarial
+    review Finding 3 / ADR-079 clause 8: the report a caller persists must
+    describe the bytes a user actually downloads; two independently-written
+    preparation paths could silently drift apart (one gains a step the
+    other doesn't) and audit a document nobody receives. Mirrors
+    `services.cv._prepare_cv_docx_render` (same name, same role, same
+    reasoning — see that function's own docstring for the fuller version
+    of this argument); this is its letter-side twin, not a re-derivation.
+
+    Callers: `get_cover_letter_docx` (the GET endpoint — serves the bytes)
+    and `_update_ats_report_letter` (the ADR-039 audit-and-persist seam —
+    audits the bytes). Both must render from the SAME letter/lang/colour,
+    which is exactly what sharing this function guarantees.
+
+    Takes an ALREADY-LOADED `cl`, never a `cl_id` — mirrors
+    `_prepare_cv_docx_render`'s own reasoning: no status re-check here.
+    `get_cover_letter_docx` enforces "must be ready" itself before calling
+    this; `_update_ats_report_letter`'s three call sites all already hold a
+    `cl` whose `letter_data` is populated (the generation background task,
+    after the writer chain persisted it; the agent door, after
+    constructing the row; the section-editor re-audit, only ever on an
+    already-ready row) — re-deriving readiness here would be a redundant
+    DB round trip at best, and at worst would make this helper raise in
+    the one window (mid-generation, before 'ready' is set) it must never
+    fail, violating "an audit failure must NEVER fail or alter generation
+    status" for a status check already satisfied by construction.
+
+    Deliberately NOT shared with `get_cover_letter_html`, which renders the
+    RAW `letter_data` dict straight through Jinja rather than a validated
+    `LetterData` — a template only reads the fields it names; python-docx
+    has no such tolerance (see `_coerce_stored_letter_data`'s own docstring
+    for the two known-divergent keys real stored letters can carry that
+    this coercion must reject rather than pass through). This mirrors
+    `services.cv.py`'s own precedent exactly: `get_cv_html` and
+    `_prepare_cv_docx_render` stay two separate call paths for the
+    identical reason (see that function's own docstring) — keeping this
+    addition "a pure insertion next to the existing HTML path", not a
+    refactor of it, the same call this file already made once for
+    `get_cover_letter_docx` itself (its own prior comment, preserved
+    below).
+
+    Returns (letter, lang, accent_color).
+    """
+    letter_dict = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
+    letter = _coerce_stored_letter_data(letter_dict)
+
+    # Same manual colour resolution get_cover_letter_html uses — NOT
+    # services.color_detection.resolve_color_context, which is typed for
+    # GeneratedCV and is not used by any existing cover-letter code path;
+    # this file already has its own (get_cover_letter_html's) convention.
+    color_ctx = _default_color_context()
+    if cl.color_profile_id is not None:
+        from applire.models.color_profile import ColorProfile
+        cp_result = await db.execute(
+            select(ColorProfile).where(ColorProfile.id == cl.color_profile_id)
+        )
+        cp = cp_result.scalar_one_or_none()
+        if cp is not None:
+            color_ctx = {
+                "primary": cp.primary,
+                "primary_tint": cp.primary_tint,
+                "surface": cp.surface,
+                "surface_text": cp.surface_text,
+            }
+
+    # Same PINNED-language-first fallback as get_cover_letter_html (E054
+    # clause 3b) — duplicated rather than factored out, to keep this
+    # addition a pure insertion next to the existing HTML path rather than a
+    # refactor of it (mirrors services.cv.get_cv_docx's own comment for the
+    # identical choice on the CV side).
+    lang = cl.document_language
+    if not lang:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        job = await db.get(JobAnalysis, cl.job_analysis_id)
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        lang = resolve_document_language(application, job) if job else "de"
+
+    return letter, lang, color_ctx["primary"]
+
+
+async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
+    """The editable Word export. Rendered ON DEMAND from letter_data, exactly
+    like get_cover_letter_html / get_cover_letter_pdf — no bytes are
+    persisted (ADR-079 clause 8; models/cover_letter.py has no
+    document-bytes column).
+
+    Reuses the same data-prep steps get_cover_letter_html uses (section
+    overrides, colour resolution, pinned-language-first resolution) so the
+    export and the PDF carry the same content — only the final rendering
+    step (direct python-docx vs the Jinja/Playwright HTML path) differs, per
+    ADR-079 clause 2 (no HTML, no template engine, no subprocess on this
+    path). Mirrors services.cv.get_cv_docx's shape; see that function's own
+    docstring for the CV-side twin.
+
+    The prep steps live in `_prepare_cover_letter_docx_render`, shared with
+    `_update_ats_report_letter`'s `.docx` audit block (E057 adversarial
+    review Finding 3 / ADR-079 clause 8) — see that function's own
+    docstring for why a second, independently-written prep path would risk
+    auditing a document this endpoint does not actually serve.
+    """
+    from applire.services.office_export.letter_docx import render_letter_docx
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    if cl.status != CoverLetterStatus.ready.value:
+        raise ValueError(f"Cover letter not ready (status={cl.status})")
+
+    letter, lang, accent_color = await _prepare_cover_letter_docx_render(cl, db)
+    return render_letter_docx(letter, lang=lang, accent_color=accent_color)
+
+
+async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+    """Build the Content-Disposition filename for a cover-letter .docx
+    export — the same <name>_<company>_<role>_<suffix> contract as
+    get_cover_letter_pdf_filename (E039/US219), with a .docx extension.
+
+    No ready-status check, matching get_cover_letter_pdf_filename's own
+    existing convention exactly (unlike the CV side's get_docx_filename,
+    which routes through _load_cv_ready) — the router always calls
+    get_cover_letter_docx first, which already enforces readiness.
+    """
+    from applire.services.cv import compose_document_filename
+
+    cl = await db.get(GeneratedCoverLetter, cl_id)
+    if cl is None or cl.deleted_at is not None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+
+    profile = await db.get(MasterProfile, cl.profile_id)
+    name = ((profile.profile_json or {}).get("personal_info") or {}).get("name") if profile else None
+    job = await db.get(JobAnalysis, cl.job_analysis_id)
+    # E054 clause 3b: the record's pinned language wins; seam fallback for
+    # pre-migration rows — the filename must name the document it renders.
+    language = cl.document_language
+    if not language:
+        from applire.services.application import get_application_for_job
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from applire.utils.language_detection import resolve_document_language
+
+        application = await get_application_for_job(
+            cl.job_analysis_id, _CE_STUB_USER_ID, db
+        )
+        language = (
+            resolve_document_language(application, job) if job is not None else "de"
+        )
+    suffix = "Cover-Letter" if language == "en" else "Anschreiben"
+    fallback_stem = "cover-letter" if language == "en" else "anschreiben"
+    return compose_document_filename(
+        name,
+        job.company_name if job else None,
+        job.role_title if job else None,
+        suffix=suffix,
+        fallback=f"{fallback_stem}-{str(cl_id)[:8]}",
+        extension="docx",
     )
 
 
@@ -2264,6 +2497,22 @@ async def _update_ats_report_letter(
              When provided, the render is reused and no second Playwright
              launch is needed.  The BackgroundTasks patch path leaves this
              None, triggering a fresh render inside the try block.
+
+    E057 adversarial review Finding 3 (ADR-079 clause 8, the letter mount
+    of services/cv.py's own docx_ats_report block): also computes and
+    persists `docx_ats_report` — the ADR-039 audit of the `.docx` EXPORT, a
+    SEPARATE column from `ats_report` that can legitimately diverge from it
+    (ADR-079 clause 2: the `.docx` is a second artefact, not a second
+    renderer). This is the single audit-and-persist seam for the letter,
+    reached by all three callers (generation, section-editor re-audit,
+    agent-authored re-audit), so the stored `.docx` report can never be
+    stale relative to `letter_data`/`section_overrides` — and a database
+    write stays out of the `GET /docx` endpoint. It is a FOURTH,
+    independent try block (own paragraph below): both never-raise rules
+    above apply to it exactly as they apply to `ats_report` — an engine
+    error leaves `docx_ats_report` NULL and never fails or alters
+    generation status, and any previous `docx_ats_report` is wiped on
+    error for the same ADR-039 reason.
     """
     # Stage relabel (#539 evidence-run refuter observation, letter mount of the
     # #538 finding): without this, the audit tail's own LLM calls (Oracle
@@ -2461,6 +2710,79 @@ async def _update_ats_report_letter(
             cl.id,
         )
         cl.critic_report = None
+    # ADR-079 clause 8 (E057 adversarial review Finding 3): the .docx
+    # export's OWN ATS audit — NEVER writes ats_report (the PDF's column);
+    # the two artefacts can legitimately diverge (ADR-079 clause 2: a
+    # second artefact, not a second renderer). Computed HERE rather than in
+    # get_cover_letter_docx (a GET must never write) so the persisted
+    # report can never be stale relative to letter_data/section_overrides
+    # — every commit that can change either runs through this same
+    # function. Renders via _prepare_cover_letter_docx_render — the SAME
+    # preparation get_cover_letter_docx uses to serve the bytes a user
+    # actually downloads, so this audits the DELIVERED document, never a
+    # differently-prepared stand-in (see that helper's docstring). Mirrors
+    # services.cv.py::_update_ats_report's own docx block.
+    # A SEPARATE try block, deliberately independent of the other three
+    # blocks' locals (same rule as the critic block above): a docx-audit
+    # failure must never take the PDF audit down, or vice versa — every
+    # value it needs is recomputed fresh here, never read from ats_report's
+    # own locals, which may be unset if that block raised before reaching
+    # them.
+    try:
+        from applire.services.office_export.extract import audit_cover_letter_docx
+        from applire.services.office_export.letter_docx import render_letter_docx
+
+        docx_letter, docx_lang, docx_accent = await _prepare_cover_letter_docx_render(cl, db)
+        docx_bytes = render_letter_docx(docx_letter, lang=docx_lang, accent_color=docx_accent)
+
+        docx_job = await db.get(JobAnalysis, cl.job_analysis_id)
+        # ADR-048 / US203: same Keyword Ledger bucketing as the PDF audit —
+        # recomputed here rather than reused from the ats_report block
+        # above, deliberately (see the paragraph comment).
+        docx_ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        from applire.services.keyword_ledger import profile_literal_corpus
+
+        docx_profile_row = await db.get(MasterProfile, cl.profile_id)
+        docx_vault_text_norm = (
+            profile_literal_corpus(docx_profile_row.profile_json if docx_profile_row else None)
+            or None
+        )
+        # E056/ADR-077: the application's active fact pins, loaded the same
+        # fail-safe way the ats_report block loads them when its own
+        # `pins` parameter is None — a pin load failure audits without
+        # pins, never fails the docx audit.
+        docx_pins: list = []
+        try:
+            from applire.services.application import get_application_for_job
+            from applire.services.color_detection import _CE_STUB_USER_ID
+            from applire.services.fact_pins import load_pins
+
+            docx_pin_app = await get_application_for_job(
+                cl.job_analysis_id, _CE_STUB_USER_ID, db
+            )
+            if docx_pin_app is not None and docx_pin_app.pinned_facts:
+                docx_pins = load_pins(docx_pin_app)
+        except Exception:
+            logger.exception(
+                "fact-pin load failed during .docx ATS audit for cover "
+                "letter %s — auditing without pins (ADR-077 fail-safe)", cl.id,
+            )
+
+        cl.docx_ats_report = audit_cover_letter_docx(
+            docx_bytes,
+            docx_letter.model_dump(),
+            list(docx_job.keywords or []) if docx_job else [],
+            docx_ledger,
+            vault_text_norm=docx_vault_text_norm,
+            pins=docx_pins,
+            truth_floor_hits=set(truth_floor_hits),
+        ).model_dump()
+    except Exception:
+        logger.exception(
+            "docx ATS audit failed for cover letter %s — docx_ats_report left NULL",
+            cl.id,
+        )
+        cl.docx_ats_report = None
     await db.commit()
 
 

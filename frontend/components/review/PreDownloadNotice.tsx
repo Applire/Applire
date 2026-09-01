@@ -34,15 +34,30 @@ import { Button } from "@/components/ui/button";
  *
  * `onConfirm(dontShowAgain)` proceeds with the download. A nudge, never a gate
  * (ADR-040 §4).
+ *
+ * US298 (E057 task 1.5, ADR-079 cl.6): EXTENDED (not duplicated) to gate the
+ * office (.docx) export too — `format="docx"` renders one additional line
+ * stating that the truthfulness/ATS attestation describes the file AS
+ * EXPORTED. It deliberately does not imply any re-check of an edited file:
+ * `audit_document` is not offered as a return-path mitigation (ADR-079 cl.6
+ * struck that justification) and this notice must not suggest otherwise.
  */
 export interface PreDownloadNoticeProps {
   /** The shared preference is not already set — offer the "don't show again" control. */
   canSuppress: boolean;
+  /** Which download this gates. Defaults to "pdf" (the original surface,
+   *  unchanged). "docx" adds the export-scope line (US298). */
+  format?: "pdf" | "docx";
   onConfirm: (dontShowAgain: boolean) => void;
   onCancel: () => void;
 }
 
-export function PreDownloadNotice({ canSuppress, onConfirm, onCancel }: PreDownloadNoticeProps) {
+export function PreDownloadNotice({
+  canSuppress,
+  format = "pdf",
+  onConfirm,
+  onCancel,
+}: PreDownloadNoticeProps) {
   const t = useTranslations("predownload");
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
@@ -58,6 +73,14 @@ export function PreDownloadNotice({ canSuppress, onConfirm, onCancel }: PreDownl
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-on-surface">{t("title")}</h3>
           <p className="mt-1 text-sm text-on-surface-variant">{t("warning")}</p>
+          {format === "docx" && (
+            <p
+              data-testid="predownload-docx-scope"
+              className="mt-1 text-sm text-on-surface-variant"
+            >
+              {t("docxNotice")}
+            </p>
+          )}
         </div>
       </div>
 

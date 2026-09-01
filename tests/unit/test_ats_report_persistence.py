@@ -655,6 +655,124 @@ async def test_get_cv_ats_report_malformed_degrades_to_null(db_with_cv):
     assert response.status == "ready"
 
 
+# ---------------------------------------------------------------------------
+# E057/ADR-079 clause 4 groundwork (#629, story #637): the not_applicable
+# bucket, API-response layer. No producer constructs one yet — these round-
+# trip a hand-built report through the persisted-JSONB → get_cv_ats_report
+# path the same way test_get_cv_ats_report_returns_persisted_report does.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_not_applicable_excluded_from_totals(db_with_cv):
+    """A stored report carrying a not_applicable check round-trips through
+    get_cv_ats_report with the count in its own bucket — never folded into
+    passed/failed."""
+    from applire.models.cv import GeneratedCV
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.cv import get_cv_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+
+    stored = ATSReport(
+        document="cv",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+        not_applicable=1,
+    )
+    record = await session.get(GeneratedCV, cv_id)
+    record.ats_report = stored.model_dump(mode="json")
+    await session.commit()
+
+    response = await get_cv_ats_report(cv_id, session)
+    assert response.report is not None
+    assert response.report.passed == 1
+    assert response.report.failed == 0
+    assert response.report.not_applicable == 1
+
+
+@pytest.mark.asyncio
+async def test_get_cv_ats_report_legacy_payload_reads_not_applicable_as_none(db_with_cv):
+    """A report persisted before this field existed has no `not_applicable`
+    key in its stored JSONB at all — the API response must read that as
+    None, never as a silent 0 (schemas/ats.py's back-compat comment: a
+    legacy report was never given the chance to say "confirmed zero")."""
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import get_cv_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+
+    record = await session.get(GeneratedCV, cv_id)
+    # The exact shape of a report persisted before this migration shipped —
+    # no "not_applicable" key at all.
+    record.ats_report = {
+        "version": 1,
+        "document": "cv",
+        "checks": [{"id": "contact-name", "status": "pass"}],
+        "keywords": {"present": ["Python"], "missing": []},
+        "passed": 1,
+        "failed": 0,
+    }
+    await session.commit()
+
+    response = await get_cv_ats_report(cv_id, session)
+    assert response.report is not None
+    assert response.report.not_applicable is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_cv_ats_report_not_applicable_excluded_from_totals(db_with_cv):
+    """The MCP agent door's ATS report summary (applire.mcp.server's
+    get_cv_ats_report tool) is a bare `.model_dump(mode="json")` of the same
+    ATSReportResponse the REST endpoint returns — proven directly against
+    the actual tool function, not just by analogy to another tool."""
+    from applire.mcp.server import get_cv_ats_report as mcp_get_cv_ats_report
+    from applire.models.cv import GeneratedCV
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    cv_id = ctx["cv_id"]
+
+    stored = ATSReport(
+        document="cv",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+        not_applicable=1,
+    )
+    record = await session.get(GeneratedCV, cv_id)
+    record.ats_report = stored.model_dump(mode="json")
+    await session.commit()
+
+    def _db_cm(sess):
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=sess)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    with patch("applire.mcp.server.get_db", return_value=_db_cm(session)):
+        result = await mcp_get_cv_ats_report(str(cv_id))
+
+    report = result["report"]
+    assert report is not None
+    assert report["passed"] == 1
+    assert report["failed"] == 0
+    assert report["not_applicable"] == 1
+
+
 # ===========================================================================
 # ADR-039 Task 4: Cover-letter pipeline persistence hooks (TDD)
 # ===========================================================================

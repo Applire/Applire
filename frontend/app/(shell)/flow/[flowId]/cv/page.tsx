@@ -40,6 +40,7 @@ import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { getApplication } from "@/lib/api/applications";
+import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
@@ -91,8 +92,13 @@ export default function CVPage({
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [showCoverLetterModal, setShowCoverLetterModal] = useState(false);
   // ADR-040 (amended 2026-07-04): the pre-download AI-content notice (nudge, not gate).
-  // `null` = closed.
-  const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
+  // `null` = closed. US298 (E057 task 1.5): carries WHICH format the notice
+  // gates — the same notice, extended (ADR-079 cl.6), not a second surface
+  // for the .docx export.
+  const [downloadNotice, setDownloadNotice] = useState<{
+    canSuppress: boolean;
+    format: "pdf" | "docx";
+  } | null>(null);
   // E039/US218 natural-moment prompt: after a download, offer to mark the
   // application as applied (only when it's still in `tracking`). `null` = closed.
   // Carries the downloaded CV id so confirming also pins the sent version (US219).
@@ -344,6 +350,31 @@ export default function CVPage({
     }
   }
 
+  // US298 (E057 task 1.5, ADR-079): the editable Word export. Mirrors
+  // handleDownloadPdf exactly — same on-demand REST door
+  // (GET /api/cv/{id}/docx, already live), only the extension, fallback
+  // filename and the Content-Disposition parser (the shared helper, rather
+  // than this file's own inline PDF regex) differ.
+  async function handleDownloadDocx() {
+    try {
+      const res = await fetch(`${API_BASE}/api/cv/${cvId}/docx`);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const filename =
+        extractFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        `lebenslauf-${cvId!.slice(0, 8)}.docx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      void offerMarkApplied();
+    } catch {
+      // silently fail
+    }
+  }
+
   // The download is the cheapest truthful moment to update the pipeline status
   // (E039/US218, FMEA JF-E-P2.1). Only nudge while the application is still
   // `tracking` — anything later means the user already maintains the status.
@@ -366,16 +397,19 @@ export default function CVPage({
 
   // ADR-040 amendment: show the AI-content notice unless dismissed-forever. A
   // settings failure degrades to "show the notice" — never a gate (ADR-040 §4).
-  async function requestDownload() {
+  // US298: the SAME gate now also covers the office (.docx) export —
+  // `format` says which download the notice (and a subsequent confirm) is for.
+  async function requestDownload(format: "pdf" | "docx" = "pdf") {
     if (!cvId) return;
     const hideNotice = await getSettings()
       .then((s) => s.hide_predownload_notice)
       .catch(() => false);
     if (hideNotice) {
-      void handleDownloadPdf();
+      if (format === "docx") void handleDownloadDocx();
+      else void handleDownloadPdf();
       return;
     }
-    setDownloadNotice({ canSuppress: true });
+    setDownloadNotice({ canSuppress: true, format });
   }
 
   // --- Preview phase: 70/30 split ---
@@ -527,7 +561,8 @@ export default function CVPage({
           flowId={flowId}
           activeDoc="cv"
           documentLanguage={docLanguage}
-          onDownloadPdf={() => void requestDownload()}
+          onDownloadPdf={() => void requestDownload("pdf")}
+          onDownloadDocx={() => void requestDownload("docx")}
           preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
           atsPanel={atsPanelBody}
           sidebar={
@@ -555,7 +590,7 @@ export default function CVPage({
                   onUnsavedChange={() => {}}
                 />
               }
-              onDownloadPdf={() => void requestDownload()}
+              onDownloadPdf={() => void requestDownload("pdf")}
             />
           }
         />
@@ -568,10 +603,13 @@ export default function CVPage({
             <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
               <PreDownloadNotice
                 canSuppress={downloadNotice.canSuppress}
+                format={downloadNotice.format}
                 onConfirm={(dontShowAgain) => {
                   if (dontShowAgain) void setHidePredownloadNotice(true);
+                  const format = downloadNotice.format;
                   setDownloadNotice(null);
-                  void handleDownloadPdf();
+                  if (format === "docx") void handleDownloadDocx();
+                  else void handleDownloadPdf();
                 }}
                 onCancel={() => setDownloadNotice(null)}
               />

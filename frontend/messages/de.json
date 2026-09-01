@@ -1176,6 +1176,7 @@
     "structureOkKeywordsMissing": "{count, plural, one {Struktur bestanden — # belegtes Keyword fehlt im Dokument} other {Struktur bestanden — # belegte Keywords fehlen im Dokument}}",
     "detailsButton": "Details",
     "groupCount": "({passed} von {total} erkannt)",
+    "notApplicableLabel": "Nicht anwendbar",
     "checks": {
       "contact-name": "Name ist maschinenlesbar",
       "contact-email": "E-Mail ist maschinenlesbar",
@@ -1199,6 +1200,7 @@
       "page-length-exhausted": "{pages} Seiten — maximal gekürzt; die Länge ergibt sich aus dem Umfang von Ausbildung und Fähigkeiten; überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}",
+      "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {
@@ -1313,6 +1315,7 @@
   "predownload": {
     "title": "Vor dem Download",
     "warning": "KI-generierte Inhalte können Fehler enthalten — bitte vor dem Absenden prüfen.",
+    "docxNotice": "Die Wahrheits- und ATS-Prüfung bezieht sich auf die Datei zum Zeitpunkt des Exports — Änderungen, die du danach in Word vornimmst, werden nicht erneut geprüft.",
     "dontShowAgain": "Nicht mehr anzeigen",
     "cancel": "Abbrechen",
     "download": "Herunterladen"
@@ -1403,6 +1406,7 @@
     "navCoverLetter": "Anschreiben",
     "navAriaLabel": "Dokument wählen",
     "downloadPdf": "PDF herunterladen",
+    "downloadDocx": ".docx herunterladen",
     "matchScoreLabel": "Profil-Match",
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",
