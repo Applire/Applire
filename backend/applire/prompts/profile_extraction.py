@@ -15,6 +15,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#228 — FIELD-level parity, one layer deeper than v5: personal_info
+#   gains address/nationality/date_of_birth/xing_url/website_url and "linkedin" is renamed to
+#   "linkedin_url" (same value, name now identical to cv_extraction.py's — #228 instruction 1);
+#   work_history gains location/role_aliases/industry_context/team_size/budget_managed (+ rules
+#   10-12 below); education gains grade/thesis_title/relevant_coursework; skills becomes
+#   list[object] (name/category/proficiency/years_experience/last_used, + rule 13) instead of
+#   list[str], which had offered NONE of Skill's fields, not merely some. Triage: Category A
+#   (applire-prompt-first) — every one of these fields was structurally absent from this door's
+#   schema while cv_extraction.py / cv_extraction_segmented.py already carried it, so this was
+#   never a model failure. Measured 2026-09-01 with a section-scoped (not flat) field diff: 19
+#   fields missing here, one more than the issue's hand-collected 17 — work_history.location had
+#   been undercounted because a flat diff credited it against personal_info/contact.location, a
+#   different field on a different model that merely shares the name. Fourth occurrence of the
+#   same class on this file (#190 certifications, #229 responsibilities/achievements/technologies,
+#   #619 projects/publications/volunteer_activities) — see test_extraction_prompts_section_parity.py,
+#   which now gates at field level, not just section level.)
 # Prompt version: v5 (#619 — projects/publications/volunteer_activities sections + PROJECTS
 #   no-folding rule (9) added. Triage: Category A (applire-prompt-first) — these fields were
 #   structurally absent from this door's schema while cv_extraction.py / cv_extraction_segmented.py
@@ -92,6 +108,42 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    them. SINGLE HOME: each accomplishment lives in exactly one place — if the same accomplishment
    appears both as a work_history bullet and in the Projects section, keep it as the project (set
    "associated_experience") and do NOT also duplicate it as a work_history responsibility/achievement.
+10. ROLE ALIASES: If a position is described under multiple titles within the same employer and
+    overlapping time period, create exactly ONE work_history entry using the most senior/formal
+    title as "role", and list all other titles in "role_aliases". Never create a separate entry
+    per title.
+11. QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context are DERIVED PROJECTIONS
+    of a figure the source ALSO states in prose — never the only place that figure lives. When you
+    populate one of these fields for a work_history entry, the responsibility or achievement bullet
+    that states the underlying figure MUST keep it verbatim (e.g. keep "Budgetverantwortung ca. 6
+    Mio. EUR (Personal, Instandhaltung, Material-Gemeinkosten)" as the bullet text) — never shorten
+    it to a bare label such as "Budgetverantwortung" merely because the number is also captured
+    structurally in the typed field.
+12. TEAM_SIZE SEMANTICS (#562): "team_size" counts ONLY the people the candidate PERSONALLY led or
+    managed in THAT role (direct reports, or a team/shift they were responsible for) — never
+    another quantity that happens to sit near a headcount word in the same sentence. It is NOT the
+    employer's total headcount, a facility's capacity (beds, seats, machines), mentees/trainees
+    coached WITHOUT line/disciplinary responsibility, or any other people-count that is not the
+    candidate's own led team. When the source states only such a figure, leave "team_size" null for
+    that entry — the figure still belongs in the bullet text, just not in this typed field.
+    Examples: "der GmbH mit 480 Mitarbeitenden" (employer headcount) → null; "a 28-bed ward"
+    (facility capacity) → null; "Mentor two mid-level engineers" (mentees, no line responsibility)
+    → null; "mit 38 Mitarbeitenden im Dreischichtbetrieb" (people the candidate led) → 38.
+13. PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
+    advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
+    fraction of its maximum, so equal scale positions always yield the same proficiency level:
+    full marks (5/5 dots, 10/10, ●●●●●) → "expert"; ~80% (4/5 dots, 8/10, ●●●●○) → "advanced";
+    ~50-60% (3/5 dots, 6/10, ●●●○○) → "intermediate"; ≤40% (1-2/5 dots, ≤4/10) → "basic". Word
+    scales map the same way: beginner / novice / elementary → basic; professional working →
+    intermediate; proficient / fluent / senior / full professional → advanced; native / expert /
+    master → expert. German self-declaration words map the same way — do NOT guess your own
+    English-scale equivalent for them: Anwender / Grundkenntnisse / Grundlagen → basic;
+    Fortgeschritten / Erfahren / Verhandlungssicher / Fließend / Fliessend → advanced;
+    Muttersprache → expert. This applies whenever such a word is the candidate's OWN declared level
+    for a skill, in ANY position — a dedicated scale, a suffix after a dash, or a bare parenthetical
+    right after the skill name. Two skills shown at the same scale position MUST receive the same
+    proficiency level. Where the source gives an explicit scale, this mapping takes precedence over
+    any other weighting.
 
 Schema:
 {
@@ -103,22 +155,38 @@ Schema:
     {
       "company": "string — employer name",
       "role": "string — job title",
+      "role_aliases": ["Any additional titles used for this position — see ROLE ALIASES rule"],
+      "location": "string or null — office city/region",
       "start_date": "string — e.g. '2020-01' or '2020'",
       "end_date": "string or null — null means current position",
       "is_current": "boolean — true when the source marks the role as ongoing ('present', 'heute', 'seit ...'); keep end_date null for such roles",
       "responsibilities": ["Day-to-day duties and standing scope of the role"],
       "achievements": ["Outcomes, with the metric/benchmark exactly as stated in the source"],
-      "technologies": ["Concrete tools, languages, frameworks, platforms used in THIS role"]
+      "technologies": ["Concrete tools, languages, frameworks, platforms used in THIS role"],
+      "industry_context": "string or null — industry or domain context, see QUANTIFIED ROLE FACTS rule",
+      "team_size": "integer or null — see TEAM_SIZE SEMANTICS rule",
+      "budget_managed": "string or null — budget amount as stated, see QUANTIFIED ROLE FACTS rule"
     }
   ],
-  "skills": ["list of technical and soft skills"],
+  "skills": [
+    {
+      "name": "Skill name",
+      "category": "technical | soft | language | domain",
+      "proficiency": "basic | intermediate | advanced | expert — see PROFICIENCY SCALE rule",
+      "years_experience": "Integer years or null",
+      "last_used": "ISO date YYYY-MM-DD or null"
+    }
+  ],
   "education": [
     {
       "institution": "string — university or school name",
       "degree": "string — e.g. 'Bachelor of Science', 'Ausbildung', 'Industriemeister Metall'",
       "field": "string — field of study, ONLY if it names something 'degree' does not already say",
       "start_date": "string — e.g. '2015'",
-      "end_date": "string or null"
+      "end_date": "string or null",
+      "grade": "string or null — final grade or GPA as stated",
+      "thesis_title": "string or null — thesis or dissertation title",
+      "relevant_coursework": ["Relevant courses if listed"]
     }
   ],
   "languages": [
@@ -182,7 +250,12 @@ Schema:
     "email": "string or null",
     "phone": "string or null",
     "location": "string or null — city/region",
-    "linkedin": "string or null — LinkedIn profile URL or username"
+    "address": "string or null — street address",
+    "nationality": "string or null",
+    "date_of_birth": "ISO date YYYY-MM-DD or null",
+    "linkedin_url": "string or null — LinkedIn profile URL",
+    "xing_url": "string or null — XING profile URL",
+    "website_url": "string or null — personal website URL"
   }
 }"""
 
