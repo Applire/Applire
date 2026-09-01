@@ -1019,7 +1019,7 @@ A constraint and an obligation are not the same thing. "Never contradict a state
 **Why:** On a well-used profile the bookkeeping dwarfs the content — in the case that prompted this, 138,946 of 144,624 characters were edit receipts, leaving 5,391 characters of actual career history. Measured on the real prompt builders, the CV writer's prompt was 211,507 characters and the reviewer's 209,015; nine calls in a single generation exceeded the debug log's 200,000-character field cap. Three costs follow, and none of them is "the model got it wrong": every generation is billed for the audit trail and the bill grows forever as the profile is used; the reviewer is told the profile is its "source of truth" and has to find 4% signal inside it; and the log truncation hid the tail of every prompt, which is exactly where the system's deterministic instructions sit. Note this is a *different* filter from ADR-061's `exclude_unconfirmed`, which removes unconfirmed **content** and applies to deterministic code as well — this one removes **bookkeeping** and applies to prompts only, because the deterministic passes genuinely need the trail.
 
 
-### ADR-079 — The Office Export Is a Second Artefact, Not a Second Renderer (accepted 2026-08-31, scoped — not yet built)
+### ADR-079 — The Office Export Is a Second Artefact, Not a Second Renderer (accepted 2026-08-31, built 2026-09-01)
 
 **Decision:** Applire will export a generated CV or cover letter as a **`.docx` you can edit**, written directly from the same structured data the PDF is built from — one small writer per document kind, using `python-docx` (already a dependency). It is not a conversion of the seven CV and seven cover-letter templates, and not a second renderer reproducing them. `.docx` is the only format: of Word, LibreOffice Writer and Apple Pages it is the only one all three both read and write, while Pages cannot open `.odt` at all.
 
@@ -1035,6 +1035,10 @@ An HTML export template converted by headless LibreOffice was measured too and s
 
 ---
 ## 4. Data Model Highlights
+
+**Built (2026-09-01):** `GET /api/cv/{id}/docx` and `GET /api/cover-letter/{id}/docx` render the file on demand — no document bytes are stored, exactly as for the PDF — and the same export is reachable over the agent channel through `render_document(format="docx")`, which calls the identical service function rather than a parallel one. The produced file is audited by the existing ATS engine through a `.docx` text extractor, and its report is kept separately from the PDF's so the two can differ without overwriting each other.
+
+Two things worth knowing if you work on this. First, the export is a **different artefact**, not a second rendering of the PDF: it deliberately does not reproduce the chosen template's layout, and it says so in the download notice, which also states that the truthfulness and ATS checks describe the file *as exported* — edits you make afterwards in Word are not re-checked, and nothing claims otherwise. Second, keeping the two artefacts saying the same thing turned out to be the hard part rather than producing the file: the export twice rendered content differently from the PDF (three role-detail fields missing, then dates in storage format), and neither was caught by tests that checked whether each field's value appeared *somewhere* in the document — that check is satisfied by a correct and an incorrect rendering alike. The gate that catches this class renders the same record both ways and compares the two extractions directly. If you add a field to the export, reuse the display filter the templates use rather than formatting it again.
 
 ### Master Profile JSONB Shape
 
