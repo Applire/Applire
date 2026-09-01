@@ -1315,6 +1315,7 @@
   "predownload": {
     "title": "Before you download",
     "warning": "AI-generated content can have faults — please review before you submit.",
+    "docxNotice": "The truthfulness and ATS checks describe the file as exported — changes you make afterwards in Word are not re-checked.",
     "dontShowAgain": "Don't show this again",
     "cancel": "Cancel",
     "download": "Download"
@@ -1405,6 +1406,7 @@
     "navCoverLetter": "Cover letter",
     "navAriaLabel": "Choose document",
     "downloadPdf": "Download PDF",
+    "downloadDocx": "Download .docx",
     "matchScoreLabel": "Profile match",
     "panelCollapse": "Collapse panel",
     "panelExpand": "Expand panel",

@@ -90,7 +90,12 @@ export default function CoverLetterPage({
   // US170 / ADR-040 §3/§4 — pre-download attestation nudge (nudge, not gate).
   // ADR-040 (amended 2026-07-01): pre-download notice. A cover letter is prose, so
   // there are never red flags — only the dismissible AI-content notice. `null` = closed.
-  const [downloadNotice, setDownloadNotice] = useState<{ canSuppress: boolean } | null>(null);
+  // US298 (E057 task 1.5): carries WHICH format the notice gates — the same
+  // notice, extended (ADR-079 cl.6), not a second surface for the .docx export.
+  const [downloadNotice, setDownloadNotice] = useState<{
+    canSuppress: boolean;
+    format: "pdf" | "docx";
+  } | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [atsReport, setAtsReport] = useState<ATSReport>(null);
   // E043/US247: truthfulness self-audit report, fetched alongside the ATS report.
@@ -307,17 +312,47 @@ export default function CoverLetterPage({
     }
   }
 
+  // US298 (E057 task 1.5, ADR-079): the editable Word export. Mirrors
+  // handleDownloadPdf exactly — same on-demand REST door
+  // (GET /api/cover-letter/{id}/docx, already live), only the extension and
+  // fallback filename differ.
+  async function handleDownloadDocx() {
+    if (!clState) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/cover-letter/${clState.coverLetterId}/docx`);
+      if (!res.ok) throw new Error(tc("error"));
+      const filename =
+        extractFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        "anschreiben.docx";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   // ADR-040 amendment: show the AI-content notice unless dismissed-forever. No red
   // flags for prose. A settings failure degrades to "download directly" (never a gate).
-  async function requestDownload() {
+  // US298: the SAME gate now also covers the office (.docx) export — `format`
+  // says which download the notice (and a subsequent confirm) is for.
+  async function requestDownload(format: "pdf" | "docx" = "pdf") {
     const hideNotice = await getSettings()
       .then((s) => s.hide_predownload_notice)
       .catch(() => false);
     if (hideNotice) {
-      void handleDownloadPdf();
+      if (format === "docx") void handleDownloadDocx();
+      else void handleDownloadPdf();
       return;
     }
-    setDownloadNotice({ canSuppress: true });
+    setDownloadNotice({ canSuppress: true, format });
   }
 
   function handleTemplateChange(_template: CLTemplate) {
@@ -456,7 +491,8 @@ export default function CoverLetterPage({
         flowId={flowId}
         activeDoc="cover-letter"
         documentLanguage={clState?.documentLanguage ?? null}
-        onDownloadPdf={requestDownload}
+        onDownloadPdf={() => void requestDownload("pdf")}
+        onDownloadDocx={() => void requestDownload("docx")}
         downloadDisabled={downloading || phase !== "ready"}
         preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}
         atsPanel={
@@ -487,10 +523,13 @@ export default function CoverLetterPage({
           <div className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <PreDownloadNotice
               canSuppress={downloadNotice.canSuppress}
+              format={downloadNotice.format}
               onConfirm={(dontShowAgain) => {
                 if (dontShowAgain) void setHidePredownloadNotice(true);
+                const format = downloadNotice.format;
                 setDownloadNotice(null);
-                void handleDownloadPdf();
+                if (format === "docx") void handleDownloadDocx();
+                else void handleDownloadPdf();
               }}
               onCancel={() => setDownloadNotice(null)}
             />

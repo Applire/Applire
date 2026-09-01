@@ -83,4 +83,40 @@ describe("DocumentTopBar", () => {
     render(withIntl(<DocumentTopBar {...BASE} documentLanguage={null} />));
     expect(screen.queryByTestId("document-language-badge")).toBeNull();
   });
+
+  // US298 (E057 task 1.5, ADR-058 cl.2/ADR-066): the office (.docx) export
+  // download affordance, alongside the existing PDF CTA.
+  describe("US298 — .docx download affordance", () => {
+    it("renders no docx download button when onDownloadDocx is not supplied", () => {
+      render(withIntl(<DocumentTopBar {...BASE} />));
+      expect(screen.queryByTestId("document-download-docx-btn")).toBeNull();
+    });
+
+    it("renders the docx download button and invokes onDownloadDocx on click", () => {
+      const onDownloadDocx = vi.fn();
+      render(withIntl(<DocumentTopBar {...BASE} onDownloadDocx={onDownloadDocx} />));
+      fireEvent.click(screen.getByTestId("document-download-docx-btn"));
+      expect(onDownloadDocx).toHaveBeenCalledOnce();
+    });
+
+    it("disables the docx download button when downloadDisabled is true", () => {
+      render(withIntl(<DocumentTopBar {...BASE} onDownloadDocx={vi.fn()} downloadDisabled />));
+      expect(
+        (screen.getByTestId("document-download-docx-btn") as HTMLButtonElement).disabled
+      ).toBe(true);
+    });
+
+    it("hides the docx button below md too when hideDownloadBelowMd is set (same mobile rule as the primary CTA — avoids a redundant CTA next to the mobile command bar)", () => {
+      render(withIntl(<DocumentTopBar {...BASE} onDownloadDocx={vi.fn()} hideDownloadBelowMd />));
+      const className = screen.getByTestId("document-download-docx-btn").className;
+      expect(className).toContain("hidden");
+      expect(className).toContain("md:inline-flex");
+    });
+
+    it("keeps the docx button visible below md by default (no command bar present)", () => {
+      render(withIntl(<DocumentTopBar {...BASE} onDownloadDocx={vi.fn()} />));
+      const className = screen.getByTestId("document-download-docx-btn").className;
+      expect(className).not.toContain("hidden");
+    });
+  });
 });

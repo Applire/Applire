@@ -26,11 +26,23 @@ interface DocumentTopBarProps {
   flowId: string;
   activeDoc: "cv" | "cover-letter";
   onDownloadPdf: () => void;
+  /**
+   * US298 (E057 task 1.5, ADR-058 cl.2/ADR-066): the ADR-079 editable Word
+   * export. Optional — when omitted, no .docx CTA renders (keeps this bar
+   * usable by a caller that hasn't wired an office-export handler). Both
+   * document pages supply it. Gated by the SAME pre-download notice as the
+   * PDF button (ADR-040 cl.4) — the caller is responsible for that gate,
+   * exactly as it already is for `onDownloadPdf`.
+   */
+  onDownloadDocx?: () => void;
   downloadDisabled?: boolean;
   /**
    * E040 / US226: hide this Download button below `md` when the page also
    * renders a MobileCommandBar with its own primary Download action, so
    * mobile never shows two Download CTAs at once. Desktop is unaffected.
+   * US298: the same rule applies to the .docx CTA — mobile keeps exactly
+   * one primary CTA (ADR-050), the office export stays a desktop-only
+   * top-bar affordance.
    */
   hideDownloadBelowMd?: boolean;
   /**
@@ -52,6 +64,7 @@ export function DocumentTopBar({
   flowId,
   activeDoc,
   onDownloadPdf,
+  onDownloadDocx,
   downloadDisabled = false,
   hideDownloadBelowMd = false,
   documentLanguage = null,
@@ -108,18 +121,38 @@ export function DocumentTopBar({
       </div>
 
       {/* Primary CTA — always visible on both documents */}
-      <button
-        type="button"
-        onClick={onDownloadPdf}
-        disabled={downloadDisabled}
-        data-testid="document-download-btn"
-        className={`btn-pill-primary items-center gap-2 hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none ${
-          hideDownloadBelowMd ? "hidden md:inline-flex" : "inline-flex"
-        }`}
-      >
-        <Download className="w-4 h-4" aria-hidden="true" />
-        {t("downloadPdf")}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onDownloadPdf}
+          disabled={downloadDisabled}
+          data-testid="document-download-btn"
+          className={`btn-pill-primary items-center gap-2 hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:pointer-events-none ${
+            hideDownloadBelowMd ? "hidden md:inline-flex" : "inline-flex"
+          }`}
+        >
+          <Download className="w-4 h-4" aria-hidden="true" />
+          {t("downloadPdf")}
+        </button>
+
+        {/* US298 (E057 task 1.5): the office (.docx) export — same top bar,
+            same mobile-visibility rule as the primary CTA, secondary style
+            (.btn-glass) so the PDF stays the one visually primary action. */}
+        {onDownloadDocx && (
+          <button
+            type="button"
+            onClick={onDownloadDocx}
+            disabled={downloadDisabled}
+            data-testid="document-download-docx-btn"
+            className={`btn-glass items-center gap-2 disabled:opacity-50 disabled:pointer-events-none ${
+              hideDownloadBelowMd ? "hidden md:inline-flex" : "inline-flex"
+            }`}
+          >
+            <Download className="w-4 h-4" aria-hidden="true" />
+            {t("downloadDocx")}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

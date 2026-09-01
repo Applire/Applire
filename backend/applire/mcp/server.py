@@ -769,12 +769,10 @@ async def audit_document(
 
 @mcp.tool(
     description=(
-        "Render YOUR agent-authored structured content into a norms-checked, "
-        "templated PDF — Applire renders, checks, reports; it NEVER rewrites "
-        "your content. Read resource schema://cv or schema://cover-letter "
-        "first; unknown fields are rejected with field paths. Returns "
-        "document_id, pdf_url/html_url, schema_version, ATS + truthfulness "
-        "reports. UI-visible only after create_application (guide)."
+        "Render YOUR content into a norms-checked PDF; NEVER rewrites it. "
+        "Read schema://cv or schema://cover-letter first; unknown fields "
+        "rejected. Returns document_id, pdf_url/html_url, schema_version, "
+        "ATS + truthfulness reports; format='docx' adds the Word export."
     )
 )
 async def render_document(
@@ -783,6 +781,7 @@ async def render_document(
     job_id: str,
     template: str | None = None,
     target_pages: int | None = None,
+    format: str | None = None,
 ) -> dict:
     from typing import get_args
 
@@ -810,6 +809,13 @@ async def render_document(
             raise invalid_input("target_pages only applies to document_kind='cv'")
         if not (1 <= target_pages <= MAX_TARGET_PAGES):
             raise invalid_input(f"target_pages must be between 1 and {MAX_TARGET_PAGES}")
+    # US298 (E057 task 1.5): the office-format door. 'pdf' is the (explicit
+    # or implicit) status quo; 'docx' is the only office format ADR-079
+    # clause 1 defines. Validated up front with the other fail-fast checks,
+    # before any DB access, matching this tool's existing style.
+    fmt = format or "pdf"
+    if fmt not in ("pdf", "docx"):
+        raise invalid_input(f"Unknown format {fmt!r}. Valid formats: pdf, docx")
 
     base = settings.applire_base_url
     async with get_db() as db:
@@ -818,7 +824,7 @@ async def render_document(
                 record = await cv_svc.render_agent_cv(
                     content, jid, db, template=tmpl, target_pages=target_pages
                 )
-                return {
+                result = {
                     "document_id": str(record.id),
                     "document_kind": "cv",
                     "status": record.status,
@@ -829,10 +835,23 @@ async def render_document(
                     "ats_report": record.ats_report,
                     "truthfulness_report": record.truthfulness_report,
                 }
+                if fmt == "docx":
+                    # ADR-058 clause 2 (reachability) / ADR-066 (one writer,
+                    # both doors), US298: calls the EXACT function
+                    # GET /api/cv/{id}/docx calls (services.cv.get_cv_docx,
+                    # which itself is the one caller of the one writer,
+                    # office_export.cv_docx.render_cv_docx) — never a
+                    # parallel construction. Rendered on demand, like the
+                    # REST route; no bytes persisted (ADR-079 clause 8).
+                    docx_bytes = await cv_svc.get_cv_docx(record.id, db)
+                    result["docx_url"] = f"{base}/api/cv/{record.id}/docx"
+                    result["docx_base64"] = base64.b64encode(docx_bytes).decode("ascii")
+                    result["docx_filename"] = await cv_svc.get_docx_filename(record.id, db)
+                return result
             cl = await cover_letter_svc.render_agent_letter(
                 content, jid, db, template=tmpl
             )
-            return {
+            result = {
                 "document_id": str(cl.id),
                 "document_kind": "cover_letter",
                 "status": cl.status,
@@ -843,6 +862,17 @@ async def render_document(
                 "ats_report": cl.ats_report,
                 "truthfulness_report": cl.truthfulness_report,
             }
+            if fmt == "docx":
+                # Letter twin of the CV branch above — same function the
+                # REST door calls (services.cover_letter.get_cover_letter_docx
+                # → office_export.letter_docx.render_letter_docx).
+                docx_bytes = await cover_letter_svc.get_cover_letter_docx(cl.id, db)
+                result["docx_url"] = f"{base}/api/cover-letter/{cl.id}/docx"
+                result["docx_base64"] = base64.b64encode(docx_bytes).decode("ascii")
+                result["docx_filename"] = await cover_letter_svc.get_cover_letter_docx_filename(
+                    cl.id, db
+                )
+            return result
         except LookupError as exc:
             raise not_found(str(exc))
         except (ValidationError, ValueError) as exc:

@@ -24,6 +24,9 @@ interface DocumentWorkspaceProps {
   flowId: string;
   activeDoc: "cv" | "cover-letter";
   onDownloadPdf: () => void;
+  /** US298 (E057 task 1.5): the office (.docx) export CTA — see
+   *  DocumentTopBar's own prop doc; forwarded unchanged. */
+  onDownloadDocx?: () => void;
   downloadDisabled?: boolean;
   /** Rendered document (iframe preview). Fills the left column. */
   preview: ReactNode;
@@ -53,6 +56,7 @@ export function DocumentWorkspace({
   flowId,
   activeDoc,
   onDownloadPdf,
+  onDownloadDocx,
   downloadDisabled = false,
   preview,
   atsPanel,
@@ -69,6 +73,7 @@ export function DocumentWorkspace({
         flowId={flowId}
         activeDoc={activeDoc}
         onDownloadPdf={onDownloadPdf}
+        onDownloadDocx={onDownloadDocx}
         downloadDisabled={downloadDisabled}
         // E040/US226: a command bar carries its own primary Download action —
         // hide the top-bar one below `md` so mobile shows a single CTA.
