@@ -988,41 +988,56 @@ def test_apply_section_overrides_no_overrides():
 
 
 # ---------------------------------------------------------------------------
-# US297 (E057 task 1.4) — _drop_override_marker: the .docx export seam's
-# defensive un-leak of the "_override" marker test_apply_section_overrides_
-# other_dict_key (above) pins. LetterHeader/LetterRecipient/LetterSignature
-# are all extra="forbid", so validating a section carrying "_override" into
-# LetterData would raise — a problem only get_cover_letter_docx (the first
-# STRICT validator of letter_data) hits; get_cover_letter_html renders the
-# raw post-override dict straight through Jinja, which never raises on an
-# unrecognised key, so it silently ignores non-body overrides today too.
+# US297 (E057 task 1.4, generalised 2026-09-01) — _coerce_stored_letter_data:
+# the .docx export seam validates letter_data into LetterData, and every
+# nested letter model is extra="forbid". get_cover_letter_docx is the FIRST
+# strict validator of letter_data; get_cover_letter_html renders the raw dict
+# straight through Jinja, which never raises on an unrecognised key. So keys
+# the PDF harmlessly ignores would turn into a failed download.
+#
+# Originally this was `_drop_override_marker`, handling only the "_override"
+# key that test_apply_section_overrides_other_dict_key (above) pins. A real
+# letter downloaded from the dev stack then produced a 409 from a DIFFERENT
+# undeclared key — a stray `body.signature` the writer had emitted — proving
+# the narrow helper was one instance of a general problem. It was generalised
+# to drop any key the schema does not declare, per section, so there is one
+# implementation rather than one per key discovered (ADR-066).
 # ---------------------------------------------------------------------------
 
-def test_drop_override_marker_removes_the_key():
-    from applire.services.cover_letter import _drop_override_marker
+def test_coerce_drops_the_override_marker():
+    from applire.services.cover_letter import _coerce_stored_letter_data
 
-    section = {"name": "Erika", "email": "erika@example.com", "_override": "raw text"}
-    result = _drop_override_marker(section)
-    assert result == {"name": "Erika", "email": "erika@example.com"}
-
-
-def test_drop_override_marker_no_marker_present_is_unchanged():
-    from applire.services.cover_letter import _drop_override_marker
-
-    section = {"name": "Erika", "email": "erika@example.com"}
-    result = _drop_override_marker(section)
-    assert result == section
+    letter = _coerce_stored_letter_data({
+        "header": {"name": "Erika", "email": "erika@example.com", "_override": "raw text"},
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,"]},
+    })
+    assert letter.header.name == "Erika"
+    assert letter.header.email == "erika@example.com"
 
 
-def test_apply_section_overrides_then_drop_marker_survives_letterdata_validation():
-    """The actual failure mode this seam prevents: a header override applied
-    via _apply_section_overrides leaves LetterHeader's extra="forbid" schema
-    unable to validate the dict as-is — _drop_override_marker is what makes
-    LetterData.model_validate succeed on exactly this shape, reproducing
-    what the HTML path already does (original fields render, override
-    silently ignored) instead of crashing this new endpoint."""
-    from applire.schemas.cover_letter import LetterData
-    from applire.services.cover_letter import _apply_section_overrides, _drop_override_marker
+def test_coerce_leaves_a_clean_section_untouched():
+    from applire.services.cover_letter import _coerce_stored_letter_data
+
+    letter = _coerce_stored_letter_data({
+        "header": {"name": "Erika", "email": "erika@example.com"},
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,"]},
+    })
+    assert letter.header.name == "Erika"
+    assert letter.header.email == "erika@example.com"
+
+
+def test_apply_section_overrides_then_coerce_survives_letterdata_validation():
+    """The failure mode this seam prevents: a header override applied via
+    _apply_section_overrides leaves LetterHeader's extra="forbid" schema
+    unable to validate the dict as-is. Coercing reproduces what the HTML path
+    already does — original fields render, override silently ignored —
+    instead of crashing this endpoint. (The override being ignored at all for
+    non-body sections is a separate, pre-existing gap, recorded as a
+    collector line rather than fixed here.)"""
+    from applire.services.cover_letter import (
+        _apply_section_overrides,
+        _coerce_stored_letter_data,
+    )
 
     data = {
         "header": {"name": "Erika Mustermann", "address": "Berlin"},
@@ -1033,12 +1048,8 @@ def test_apply_section_overrides_then_drop_marker_survives_letterdata_validation
     overridden = _apply_section_overrides(data, {"header": "A raw header override"})
     assert "_override" in overridden["header"]  # confirms the seam this test protects
 
-    for key in ("header", "recipient", "signature"):
-        if isinstance(overridden.get(key), dict):
-            overridden[key] = _drop_override_marker(overridden[key])
-
-    letter = LetterData.model_validate(overridden)  # must not raise
-    assert letter.header.name == "Erika Mustermann"  # original field survives, override silently ignored
+    letter = _coerce_stored_letter_data(overridden)  # must not raise
+    assert letter.header.name == "Erika Mustermann"
 
 
 # ---------------------------------------------------------------------------

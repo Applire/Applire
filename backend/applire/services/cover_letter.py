@@ -85,7 +85,11 @@ from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
     CoverLetterStatusResponse,
+    LetterBody,
     LetterData,
+    LetterHeader,
+    LetterRecipient,
+    LetterSignature,
 )
 from applire.utils.language_detection import resolve_jd_language
 from applire.utils.letter_date import format_letter_date
@@ -391,35 +395,53 @@ async def get_cover_letter_html(
 # ---------------------------------------------------------------------------
 
 
-def _drop_override_marker(section_data: dict) -> dict:
-    """Strip the ``_override`` key ``_apply_section_overrides`` stamps onto a
-    dict-shaped, non-``"body"`` section (header/recipient/signature) when the
-    caller PATCHed that section as a raw string.
+def _coerce_stored_letter_data(stored: dict) -> LetterData:
+    """Validate a persisted ``letter_data`` dict into :class:`LetterData`,
+    ignoring keys the schema does not declare — exactly as every existing
+    renderer already does.
 
-    Discovered while wiring this function: ``_apply_section_overrides``
-    special-cases only ``"body"`` overrides into a schema-valid shape
-    (``{"paragraphs": [content]}``); for the other three sections it just
-    stamps ``data[section]["_override"] = content`` onto the EXISTING
-    structured dict, leaving the original fields untouched right next to it.
-    No renderer reads that key back out — grepped all seven
-    ``*_letter.html.j2`` templates, none references ``_override`` — so
-    today's PDF/HTML for such a letter is unaffected by the override; this
-    is a pre-existing gap in the override feature for non-body sections,
-    out of this task's scope to fix (flagged in this task's report rather
-    than silently worked around).
+    This `.docx` path is the FIRST consumer that validates `letter_data` at
+    all; `get_cover_letter_html` renders the raw dict straight through Jinja,
+    and a template reads only the fields it names. Every nested letter model
+    is ``extra="forbid"``, so strict validation turns keys the PDF harmlessly
+    ignores into a failed download. Two such keys are known to occur on real
+    stored letters, from unrelated causes:
 
-    It only became a problem HERE because ``LetterHeader``/
-    ``LetterRecipient``/``LetterSignature`` are all ``extra="forbid"``, and
-    this ``.docx`` path is the FIRST caller that validates ``letter_data``
-    into ``LetterData`` at all — ``get_cover_letter_html`` renders the raw
-    (post-override) dict straight through Jinja, which never raises on an
-    unrecognised key. Dropping the marker before validating reproduces
-    exactly what every existing renderer already does — the section's
-    original fields, override silently ignored — rather than either
-    crashing this new endpoint or inventing content only the .docx would
-    show.
+    * **``body.signature``** — a duplicate, half-empty copy of the signature
+      that already exists correctly at top level. Found by downloading a real
+      generated letter through the proxy: `/docx` answered **409** while
+      `/pdf` answered 200 for the same record. The writer prompt asks for
+      `signature` at the top level and a `body` holding only `paragraphs`, so
+      this is a model deviation — and nothing validates `letter_data` before
+      persisting it, which is why it survived. Every stored letter in the dev
+      database (n=1) carried it.
+    * **``_override``** — ``_apply_section_overrides`` special-cases only a
+      ``"body"`` override into a schema-valid shape; for header/recipient/
+      signature it stamps ``data[section]["_override"] = content`` onto the
+      existing dict, which no renderer reads back (grepped: zero hits across
+      all seven ``*_letter.html.j2``). A pre-existing gap in the override
+      feature for non-body sections, recorded as a collector line rather than
+      fixed here.
+
+    Tolerance is scoped to **unknown** keys only. A missing required field or
+    a wrong type on a declared one still raises, so this cannot become a
+    blanket "accept anything" that hides real corruption.
     """
-    return {k: v for k, v in section_data.items() if k != "_override"}
+    section_models = {
+        "header": LetterHeader,
+        "recipient": LetterRecipient,
+        "body": LetterBody,
+        "signature": LetterSignature,
+    }
+    cleaned: dict = {}
+    for key, value in (stored or {}).items():
+        if key not in LetterData.model_fields:
+            continue                      # unknown section — the PDF ignores it too
+        model = section_models.get(key)
+        if model is not None and isinstance(value, dict):
+            value = {k: v for k, v in value.items() if k in model.model_fields}
+        cleaned[key] = value
+    return LetterData.model_validate(cleaned)
 
 
 async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
@@ -451,10 +473,7 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
     letter_dict = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
-    for key in ("header", "recipient", "signature"):
-        if isinstance(letter_dict.get(key), dict):
-            letter_dict[key] = _drop_override_marker(letter_dict[key])
-    letter = LetterData.model_validate(letter_dict)
+    letter = _coerce_stored_letter_data(letter_dict)
 
     # Same manual colour resolution get_cover_letter_html uses — NOT
     # services.color_detection.resolve_color_context, which is typed for
