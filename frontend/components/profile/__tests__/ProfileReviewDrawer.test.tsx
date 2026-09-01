@@ -208,6 +208,53 @@ describe("ProfileReviewDrawer", () => {
     expect(onAction).toHaveBeenCalledWith(issue);
   });
 
+  // #626 — the no-conflicts-to-walk state can also carry a `conflict`-thread
+  // issue (defensive: today's `conflict`-walk normally handles these itself,
+  // but nothing guarantees `gaps_total` and this prop always agree). It must
+  // get the SAME localized composition HealthPanel uses, never the raw
+  // backend summary.
+  it("composes a conflict issue's entity + values instead of showing the raw summary", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Nothing to review",
+      gaps_total: 0,
+      gaps_remaining: 0,
+      choices: null,
+    });
+
+    const issue = {
+      id: "conflict:w-1",
+      thread: "conflict" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "work_experience.end_date: '2019-12' vs '2020-01'",
+      field_ref: "end_date",
+      source_record_ref: "cv_upload",
+      entity_label: "Senior Developer @ Acme Corp",
+      section: "work_experience",
+      field: "end_date",
+      existing_value_display: "2019-12",
+      incoming_value_display: "2020-01",
+      existing_source: null,
+      incoming_source: "cv_upload",
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />,
+        "en",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-review-issue")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Senior Developer @ Acme Corp/)).toBeInTheDocument();
+    expect(screen.getByText(/End date/)).toBeInTheDocument();
+    expect(screen.queryByText(/work_experience\.end_date/)).not.toBeInTheDocument();
+    expect(screen.getByText(/2019-12/)).toBeInTheDocument();
+    expect(screen.getByText(/2020-01/)).toBeInTheDocument();
+  });
+
   // A genuinely-resolved conflict walk still ends on the all-clear, even if an
   // issue was passed in (the walk had conflicts, so it's not the merge-loss case).
   it("shows the all-clear done state after resolving real conflicts even with an issue prop", async () => {

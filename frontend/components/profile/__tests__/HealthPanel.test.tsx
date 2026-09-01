@@ -20,18 +20,51 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { HealthPanel, type ProfileHealth } from "../HealthPanel";
 import { withIntl } from "@/lib/test-utils/with-intl";
 
+// #626 — a conflict whose `entity_id` resolves: the structured fields
+// `_conflict_issue` (services/profile/health.py) now populates.
 const REVIEW_HEALTH: ProfileHealth = {
   issues: [
     {
       id: "conflict:abc",
       thread: "conflict",
       profile_mismatch_severity: "review",
-      summary: "work_experience.start_date: '2020-01' vs '2019-06'",
+      summary: "Senior Developer @ Acme Corp: work_experience.start_date: '2020-01' vs '2019-06'",
       field_ref: "start_date",
       source_record_ref: "cv:audi.pdf",
+      entity_label: "Senior Developer @ Acme Corp",
+      section: "work_experience",
+      field: "start_date",
+      existing_value_display: "2020-01",
+      incoming_value_display: "2019-06",
+      existing_source: null,
+      incoming_source: "cv_upload",
     },
   ],
   completeness: { score: 0.82, gaps: ["certifications"], field_gaps: ["achievements: Team Lead @ Acme"] },
+};
+
+// #626 — a profile-level conflict (e.g. `professional_summary`): `entity_id`
+// was never set (#218 — no entity to name), so `entity_label` is legitimately
+// `null`. Must render a sensible general heading, never "null"/"undefined".
+const PROFILE_LEVEL_CONFLICT_HEALTH: ProfileHealth = {
+  issues: [
+    {
+      id: "conflict:summary-de",
+      thread: "conflict",
+      profile_mismatch_severity: "review",
+      summary: "professional_summary.de: 'Alte Zusammenfassung' vs 'Neue Zusammenfassung'",
+      field_ref: "de",
+      source_record_ref: "cv_upload",
+      entity_label: null,
+      section: "professional_summary",
+      field: "de",
+      existing_value_display: "Alte Zusammenfassung",
+      incoming_value_display: "Neue Zusammenfassung",
+      existing_source: null,
+      incoming_source: "cv_upload",
+    },
+  ],
+  completeness: { score: 0.9, gaps: [], field_gaps: [] },
 };
 
 const CRITICAL_HEALTH: ProfileHealth = {
@@ -101,15 +134,53 @@ const TWO_FIELD_GAPS: ProfileHealth = {
 };
 
 describe("HealthPanel", () => {
-  it("renders a card per health issue with thread, severity and summary (en)", () => {
+  // #626 — the reported defect, verbatim: a conflict named the FIELD but never
+  // the ENTRY it belonged to. The raw "work_experience.start_date: 'x' vs 'y'"
+  // backend string must never reach the user; the entry, the field in words,
+  // and both values with their provenance must.
+  it("renders a conflict issue naming its entry, the field in words, and both values with provenance (en)", () => {
     render(withIntl(<HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} />, "en"));
 
     const cards = screen.getAllByTestId("health-issue");
     expect(cards).toHaveLength(1);
-    expect(screen.getByText(/work_experience\.start_date/)).toBeInTheDocument();
+    // The entry is named — this is the fix.
+    expect(screen.getByText(/Senior Developer @ Acme Corp/)).toBeInTheDocument();
+    // The field is in human words, not the raw dotted machine key.
+    expect(screen.getByText(/Start date/)).toBeInTheDocument();
+    expect(screen.queryByText(/work_experience\.start_date/)).not.toBeInTheDocument();
+    // Both values are shown, each labeled with its provenance.
+    expect(screen.getByText(/Current value/)).toBeInTheDocument();
+    expect(screen.getByText(/2020-01/)).toBeInTheDocument();
+    expect(screen.getByText(/New value from/)).toBeInTheDocument();
+    expect(screen.getByText(/CV upload/)).toBeInTheDocument();
+    expect(screen.getByText(/2019-06/)).toBeInTheDocument();
     // Thread + severity labels are translated chrome, not raw enum values.
     expect(screen.getByText(/Conflict/i)).toBeInTheDocument();
     expect(screen.getByText(/Review/i)).toBeInTheDocument();
+  });
+
+  // #626 — a profile-level conflict (no entity to name) must not crash and
+  // must not print "null"/"undefined" — it degrades to a general heading.
+  it("renders a profile-level conflict (no entity_id) with a general heading, never a null/undefined label", () => {
+    render(withIntl(<HealthPanel health={PROFILE_LEVEL_CONFLICT_HEALTH} onResolve={vi.fn()} />, "en"));
+
+    expect(screen.getAllByTestId("health-issue")).toHaveLength(1);
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
+    // `professional_summary` + field "de" is special-cased to a real label.
+    expect(screen.getByText(/Summary \(German\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Alte Zusammenfassung/)).toBeInTheDocument();
+    expect(screen.getByText(/Neue Zusammenfassung/)).toBeInTheDocument();
+  });
+
+  it("renders a conflict issue in German with translated field/value labels", () => {
+    render(withIntl(<HealthPanel health={REVIEW_HEALTH} onResolve={vi.fn()} />, "de"));
+
+    expect(screen.getByText(/Senior Developer @ Acme Corp/)).toBeInTheDocument();
+    expect(screen.getByText(/Startdatum/)).toBeInTheDocument();
+    expect(screen.getByText(/Aktueller Wert/)).toBeInTheDocument();
+    expect(screen.getByText(/Neuer Wert aus/)).toBeInTheDocument();
+    expect(screen.getByText(/Lebenslauf-Upload/)).toBeInTheDocument();
   });
 
   it("renders a parked confirmation as a resolvable card with a translated thread label", () => {

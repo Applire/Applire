@@ -567,11 +567,15 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
                 f"Unknown gap_id {gap_id!r}. Valid gap cluster ids: "
                 f"{', '.join(valid_ids)}"
             )
-        # Don't stomp an in-progress full interview: _create_micro_session
-        # completes any active session wholesale, silently discarding a guided
-        # run's progress. A leftover 'targeted' micro-session is safe to reap.
-        mode = await session_svc.active_session_mode(jid, db)
-        if mode is not None and mode != "targeted":
+        # Don't stomp an in-progress full interview (guided OR targeted):
+        # _create_micro_session completes any active session wholesale,
+        # discarding its remaining question plan. A leftover Gap-Click
+        # micro-session is safe to reap — active_full_interview_exists is the
+        # predicate that tells one apart from a full MODE A targeted run
+        # (#627: both persist mode="targeted", so a plain mode comparison
+        # here used to protect only a guided run, not a half-finished
+        # targeted one).
+        if await session_svc.active_full_interview_exists(jid, db):
             raise invalid_input(
                 "A full interview is in progress for this job — finish it "
                 "(reply 'done') before resolving gaps one at a time."

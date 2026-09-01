@@ -270,11 +270,22 @@ def _contact_from_profile(profile: dict) -> dict:
     """Source CV contact deterministically from the profile (ADR-040) — identity data is
     never LLM-generated per segment. Reads personal_info (or a flat contact block)."""
     pi = profile.get("personal_info") or profile.get("contact") or {}
-    return {
+    contact = {
         k: pi.get(k)
-        for k in ("name", "email", "phone", "location", "linkedin")
+        for k in ("name", "email", "phone", "location")
         if pi.get(k) is not None
     }
+    # The vault field is `linkedin_url` (PersonalInfo, schemas/profile.py); the
+    # bare `linkedin` only ever existed on the legacy flat `contact` block, which
+    # _migrate_legacy_fields renames on load. Reading only the legacy name meant
+    # every template's `{% if cv.contact.linkedin %}` and the E057 .docx export
+    # were permanently false, so a candidate's LinkedIn URL never reached any
+    # delivered document. The EMITTED key stays `linkedin` — that is what the
+    # seven templates and the docx renderer bind to (found closing #228).
+    linkedin = pi.get("linkedin_url") or pi.get("linkedin")
+    if linkedin is not None:
+        contact["linkedin"] = linkedin
+    return contact
 
 
 async def generate_cv_segmented(

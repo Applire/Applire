@@ -97,6 +97,13 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "dashboard.jdTabUrl",
   "coverLetter.autoTag",
   "coverLetter.optionalHint",
+  // #626 Health-hub field labels — same two words already allowlisted for the
+  // structured editors above (profile.educationEditor.fieldInstitution,
+  // profile.projectsEditor.fieldUrl): identical in both languages.
+  "health.fieldLabel.institution",
+  "health.fieldLabel.url",
+  "health.fieldLabel.position",
+  "health.fieldLabel.name",
   // Symbols, separators and pure ICU patterns
   "coverLetter.separator",
   "coverLetter.emDash",
@@ -121,6 +128,9 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "settings.deleteToken",
   // URL example
   "quickTailor.urlPlaceholder",
+  // #626 conflict headings — pure ICU placeholder patterns, no prose to translate
+  "health.conflictHeadingWithEntity",
+  "health.conflictHeadingGeneral",
 ]);
 
 describe("German UI register (BRAND.md §2.3)", () => {

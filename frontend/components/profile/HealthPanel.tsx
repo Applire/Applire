@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { enrichmentSourceKey } from "@/lib/enrichment-sources";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
@@ -40,6 +41,17 @@ export interface HealthIssue {
   summary: string;
   field_ref?: string | null;
   source_record_ref?: string | null;
+  // #626 (conflict legibility) — structured fields, populated for `conflict`
+  // issues only (every other thread leaves them undefined/null and renders
+  // exactly as before). See `services/profile/health.py`'s `HealthIssue` for
+  // the full contract, incl. why `existing_source` is always null today.
+  entity_label?: string | null;
+  section?: string | null;
+  field?: string | null;
+  existing_value_display?: string | null;
+  incoming_value_display?: string | null;
+  existing_source?: string | null;
+  incoming_source?: string | null;
 }
 
 export interface ProfileHealth {
@@ -74,6 +86,62 @@ const THREAD_LABEL: Record<
   unit: "threadUnit",
 };
 
+type Translator = ReturnType<typeof useTranslations>;
+
+// #626 (conflict legibility) — human field label. `professional_summary` is
+// special-cased: its `field` is a language slot ("de"/"en"), not a real field
+// name (see `services/profile/health.py`'s `_conflict_issue`). Falls back to
+// the raw key (underscores → spaces) for a field name outside the dictionary
+// — informative without fabricating a translation.
+function conflictFieldLabel(t: Translator, issue: HealthIssue): string {
+  const field = issue.field ?? "";
+  if (issue.section === "professional_summary") {
+    return field === "de" ? t("fieldLabel.summaryDe") : t("fieldLabel.summaryEn");
+  }
+  const key = `fieldLabel.${field}`;
+  if (field && t.has(key)) return t(key);
+  return field.replace(/_/g, " ");
+}
+
+// #626 — provenance label for `conflict.source`, reusing the SAME dictionary
+// the enrichment-history trail already uses (`lib/enrichment-sources.ts`)
+// rather than a second one.
+function conflictSourceLabel(tProfile: Translator, source: string | null | undefined): string {
+  if (!source) return "";
+  const key = enrichmentSourceKey(source);
+  return key ? tProfile(key) : source;
+}
+
+/**
+ * #626 — compose a `conflict` issue into a localized heading + two
+ * provenance-labeled value rows, so no surface shows the backend's raw
+ * `work_experience.end_date: '…' vs '…'` string (the reported defect: it
+ * named the field but never WHICH work entry). `null` for a non-conflict
+ * issue — the caller falls back to its own thread-specific rendering.
+ */
+export function describeConflictIssue(
+  issue: HealthIssue,
+  t: Translator,
+  tProfile: Translator,
+): { heading: string; existingRow: string; incomingRow: string } | null {
+  if (issue.thread !== "conflict") return null;
+  const field = conflictFieldLabel(t, issue);
+  const heading = issue.entity_label
+    ? t("conflictHeadingWithEntity", { entity: issue.entity_label, field })
+    : t("conflictHeadingGeneral", { field });
+  const existingRow = t("conflictValueRow", {
+    label: t("conflictCurrentValueLabel"),
+    value: issue.existing_value_display ?? "",
+  });
+  const incomingRow = t("conflictValueRow", {
+    label: t("conflictNewValueLabel", {
+      source: conflictSourceLabel(tProfile, issue.incoming_source),
+    }),
+    value: issue.incoming_value_display ?? "",
+  });
+  return { heading, existingRow, incomingRow };
+}
+
 function IssueCard({
   issue,
   onResolve,
@@ -84,6 +152,8 @@ function IssueCard({
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
+  const tProfile = useTranslations("profile");
+  const conflict = describeConflictIssue(issue, t, tProfile);
   return (
     <div
       data-testid="health-issue"
@@ -97,15 +167,25 @@ function IssueCard({
         </Badge>
         <span className="text-xs text-gray-500">{t(THREAD_LABEL[issue.thread])}</span>
       </div>
-      {/* #382: a `unit` issue is a QUESTION put to the user, so it is asked in
-          their language rather than shown as the backend's log-shaped summary.
-          The other threads keep the summary — it quotes the two conflicting
-          values verbatim, which no translation could reproduce. */}
-      <p className="text-sm text-neutral-dark">
-        {issue.thread === "unit"
-          ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
-          : issue.summary}
-      </p>
+      {/* #626: a `conflict` issue composes a localized heading (naming the
+          entry the dispute belongs to) + two provenance-labeled value rows,
+          instead of the backend's raw "section.field: 'x' vs 'y'" summary.
+          #382: a `unit` issue is a QUESTION put to the user, asked in their
+          own language. Every other thread keeps the summary as-is — it is
+          server-built English-ish text no translation could reproduce. */}
+      {conflict ? (
+        <div data-testid="health-issue-conflict">
+          <p className="text-sm font-medium text-neutral-dark">{conflict.heading}</p>
+          <p className="text-xs text-on-surface-variant mt-1">{conflict.existingRow}</p>
+          <p className="text-xs text-on-surface-variant">{conflict.incomingRow}</p>
+        </div>
+      ) : (
+        <p className="text-sm text-neutral-dark">
+          {issue.thread === "unit"
+            ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
+            : issue.summary}
+        </p>
+      )}
       <div className="mt-2 flex justify-end">
         <Button
           size="sm"

@@ -31,7 +31,9 @@ class SessionCreateRequest(BaseModel):
     job_id: uuid.UUID
     # None = auto-detect based on profile completeness_score vs MODE_B_COMPLETENESS_THRESHOLD
     mode: Literal["targeted", "guided", "profile_enrich"] | None = None
-    # When set with mode="targeted": scopes to a 1-question micro-session for Gap-Click mode
+    # #627 — authoritative whenever set, regardless of `mode`: scopes to a
+    # 1-question micro-session for Gap-Click mode (create_session routes on
+    # target_gap alone; the resulting session is always mode="targeted").
     target_gap: str | None = None
 
 
@@ -190,3 +192,9 @@ class InterviewState(TypedDict):
     # US165: descriptors for the open Tier-2 conflicts a standalone profile-review
     # session walks, keyed by "conflict:<conflict_id>". Present only for that entry.
     conflict_clusters: dict
+    # #627 — the authoritative "is this a Gap-Click micro-session" marker
+    # (services.session.is_micro_session). Every session _build_state creates
+    # now stamps this explicitly (False for MODE A/B, True for a micro-
+    # session); missing only on a row persisted before this field existed, in
+    # which case is_micro_session() falls back to hard_ceiling == 1.
+    micro_session: bool

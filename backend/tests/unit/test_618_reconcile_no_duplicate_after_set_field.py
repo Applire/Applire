@@ -54,14 +54,30 @@ corrected to say plainly that it cannot target education/certification/
 language/publication at all, closing the silent-no-op trap for any FUTURE
 model output that (like the hypothesis) tries it anyway.
 
-``apply_ops`` is deliberately UNCHANGED beyond that prompt-accuracy fix.
-Widening ``classify_dupe`` to fold "Provadis Hochschule" into "Provadis
-Partner für Bildung GmbH" would be a semantic judgement ADR-062 clause 1
-reserves for the model (see the natural-key test below); and widening
-``resolve()`` to also search education/certification/language/publication
-(making ``set_field`` actually reach them) is a legitimate, separate,
-low-risk follow-up — flagged in the work report, not built here, since it
-touches a heavily-shared function outside this defect's requested scope.
+``apply_ops`` is deliberately UNCHANGED beyond that prompt-accuracy fix —
+**as of 2026-08-31, when this file was written.** Widening plain
+``classify_dupe`` to fold "Provadis Hochschule" into "Provadis Partner für
+Bildung GmbH" would be a semantic judgement ADR-062 clause 1 reserves for the
+model (see the natural-key test below, still true of ``classify_dupe``
+itself); and widening ``resolve()`` to also search education/certification/
+language/publication (making ``set_field`` actually reach them) was flagged
+as a legitimate, separate, low-risk follow-up rather than built here.
+
+**2026-09-01 (#618 education half, same Bug's other defect): both follow-ups
+have since landed, on their OWN instruments, not by widening ``classify_dupe``.**
+``resolve()``/``resolve_any`` already reached education by the time this file
+was written (see ``test_set_field_now_reaches_an_education_entry`` below).
+What changed since is ``_apply_upsert_education`` itself: it now calls
+``dedupe.classify_education_dupe`` — a NEW, education-specific instrument
+(institution-alias fold, date-range containment, a purely mechanical degree
+preposition fold) — instead of plain ``classify_dupe``. It still does NOT
+translate "Computer System Developer" into "Fachinformatiker
+Anwendungsentwicklung" (that judgement call stands, see the natural-key test
+below); what it adds is recognising, from the institution alias and the
+date-range containment ALONE, that the pair is plausibly the same entry and
+routing it to a ``RequestConfirmation`` instead of silently appending a second
+row. Section 3 below is updated to match — the batch that used to silently
+duplicate now asks instead.
 
 Per the work order for this defect: **no real-provider call was made here**
 (the efficacy check runs later in a shared real run). These tests pin (a) the
@@ -174,12 +190,30 @@ def test_the_applier_natural_key_cannot_recognise_this_pair():
     these two real, differently-worded strings into a match: both the
     institution and the degree tokenise to disjoint sets (no shared stem, no
     containment), so the verdict is empty (no match, no ambiguity) and
-    ``_apply_upsert_education`` falls through to creating a new entry. Widening
-    the natural key to catch this specific pair would mean curating an
-    open-ended DE/EN vocational-qualification dictionary — a JUDGEMENT about
-    what the institution/degree names refer to, not a fact a token-overlap
-    check can compute. That call belongs to the model (rule 1 already assigns
-    it cross-language/synonym entity matching); it is not earned code here.
+    ``_apply_upsert_education`` — AS OF WHEN THIS TEST WAS WRITTEN, when that
+    function still called plain ``classify_dupe`` — fell through to creating a
+    new entry. Widening the natural key to catch this specific pair would mean
+    curating an open-ended DE/EN vocational-qualification dictionary — a
+    JUDGEMENT about what the institution/degree names refer to, not a fact a
+    token-overlap check can compute. That call belongs to the model (rule 1
+    already assigns it cross-language/synonym entity matching); it is not
+    earned code here.
+
+    **2026-09-01 (#618 education half): this assertion is still true of
+    ``classify_dupe`` itself** — it is exercised directly here, unchanged, and
+    still returns an empty verdict for this pair. What changed is which
+    instrument ``_apply_upsert_education`` actually calls: it now uses
+    ``dedupe.classify_education_dupe``, a NEW education-specific instrument
+    that does NOT attempt the DE/EN degree-title translation this docstring
+    reserves for the model either — but it DOES recognise the institution
+    alias (a purely mechanical legal-form-noise fold — "Partner für Bildung
+    GmbH" / "Hochschule" both strip to the same distinctive token) and the
+    date-range containment ("2002–2005" contains "09/2002–01/2005") as real,
+    non-judgemental evidence. Institution+dates SAME with degree DISTINCT is
+    exactly the AMBIGUOUS band (see ``classify_education_dupe``'s own
+    docstring) — asked, never silently merged, never silently duplicated. See
+    ``test_a_batch_with_this_pair_now_asks_instead_of_duplicating`` below,
+    which replaces this file's former residual-exposure characterisation.
     """
     verdict = classify_dupe(
         {"institution": _ALTERNATE_INSTITUTION, "degree": _ALTERNATE_DEGREE},
@@ -190,18 +224,30 @@ def test_the_applier_natural_key_cannot_recognise_this_pair():
     assert verdict.ambiguous == []
 
 
-# ── 3. Residual exposure: the applier alone does not close this ────────────────
+# ── 3. Closed (2026-09-01): the applier now asks instead of duplicating ────────
+#
+# Was "Residual exposure: the applier alone does not close this" — pinned a
+# characterisation of a real defect (`len(education) == 2`), not a desired
+# behaviour, with an explicit note that a future fix here should update this
+# section rather than delete it. `_apply_upsert_education` now calls
+# `classify_education_dupe` (#618 education half); this section's test is
+# rewritten to pin the NEW behaviour instead of the old defect. The prompt
+# rule from section 1 is still the primary defence for a compliant model (a
+# compliant batch never emits the stray upsert at all — section 4); this
+# section is what happens when a batch violates it anyway.
 
 
-def test_a_rule_violating_batch_still_duplicates_at_the_apply_layer():
-    """Characterisation test, not a desired behaviour.
+def test_a_batch_with_this_pair_now_asks_instead_of_duplicating():
+    """Was ``test_a_rule_violating_batch_still_duplicates_at_the_apply_layer``.
 
     The #618 batch shape: a set_field against the existing entry PLUS a fresh
-    upsert_education under the alternate wording. ``apply_ops`` still produces
-    two education entries. This is why the fix has to live in the prompt: the
-    applier's natural key cannot recognise the pair (test above), so nothing
-    downstream catches the stray upsert — and that stays true now that the
-    set_field half applies rather than vanishing.
+    upsert_education under the alternate wording. This used to silently
+    produce two education entries (the applier's natural key could not
+    recognise the pair — test above). It now produces ONE entry plus a parked
+    ``RequestConfirmation`` — neither a silent duplicate nor a silent merge:
+    ``classify_education_dupe`` reads the institution alias and the
+    overlapping date range as strong-enough evidence to ask, even though it
+    still can't fold the degree text itself (test above, unchanged).
     """
     profile = _provadis_profile()
     existing_id = profile.education[0].id
@@ -217,16 +263,21 @@ def test_a_rule_violating_batch_still_duplicates_at_the_apply_layer():
     ]
     result = apply_ops(profile, ops, SOURCE)
 
-    assert len(result.profile.education) == 2, (
-        "if this now reads 1, the applier grew its own guard for this pair — "
-        "update this test's docstring and test_the_applier_natural_key_cannot_"
-        "recognise_this_pair above to match, rather than deleting either."
+    assert len(result.profile.education) == 1, (
+        "if this now reads 2, classify_education_dupe stopped recognising the "
+        "institution-alias + date-range signal for this pair — update this "
+        "test to match, rather than deleting it."
     )
-    # The set_field DOES apply now (it did not when this test was written) —
-    # which is the point: it lands on the ORIGINAL entry while the stray
-    # upsert_education still creates a second one. A working set_field does not
-    # make the batch correct; only the prompt rule prevents the duplicate.
+    # The set_field DOES apply (lands on the ORIGINAL entry) regardless of the
+    # second op's verdict — it is a separate, id-targeted op (#633/#619).
     assert result.profile.education[0].grade == "1,9"
+    assert result.profile.education[0].institution == _EXISTING_INSTITUTION
+    # The alternate-wording upsert parked as a question instead of a silent
+    # duplicate or a silent merge.
+    assert len(result.pending_confirmations) == 1
+    pc = result.pending_confirmations[0]
+    assert pc.context["section"] == "education"
+    assert _EXISTING_DEGREE in pc.context["existing"][0]
 
 
 # ── 4. The desired outcome once a batch follows the new rule ───────────────────
