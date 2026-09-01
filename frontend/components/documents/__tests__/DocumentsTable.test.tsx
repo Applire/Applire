@@ -156,4 +156,40 @@ describe("DocumentsTable", () => {
     const generatingBtn = buttons.find((b) => b.textContent?.includes("generatingButton"));
     expect(generatingBtn).toBeDisabled();
   });
+
+  // #604 — a `failed` row rendered an EMPTY status cell: the type union has
+  // carried "failed" all along, and every branch in the cell skipped it, so My
+  // Documents was the one surface that never said a generation had died
+  // (edge UAT 2026-08-29). Every other status is asserted alongside it, so a
+  // future branch cannot be dropped silently the same way.
+  describe("status cell covers every status in the union (#604)", () => {
+    const FAILED_ITEM: DocumentItem = {
+      cv_id: "cv-4",
+      flow_id: null,
+      role_title: "Head of CMC",
+      company_name: "Lonza",
+      template: "classic_german",
+      status: "failed",
+      created_at: new Date().toISOString(),
+      expires_at: FAR_FUTURE,
+    };
+    const EXPIRED_ITEM: DocumentItem = { ...FAILED_ITEM, cv_id: "cv-5", status: "expired" };
+
+    it("a failed row says so instead of showing nothing", () => {
+      renderTable({ items: [FAILED_ITEM], total: 1 });
+      expect(screen.getByTestId("documents-status-failed")).toBeInTheDocument();
+      expect(screen.getByText("statusFailed")).toBeInTheDocument();
+    });
+
+    it.each([
+      ["ready", "statusReady"],
+      ["generating", "statusGenerating"],
+      ["pending", "statusGenerating"],
+      ["expired", "statusExpired"],
+      ["failed", "statusFailed"],
+    ] as const)("status %s renders a label", (status, label) => {
+      renderTable({ items: [{ ...EXPIRED_ITEM, status }], total: 1 });
+      expect(screen.getByText(label)).toBeInTheDocument();
+    });
+  });
 });

@@ -270,7 +270,6 @@
     "advancingToCV": "Wird vorbereitet…",
     "viewHistory": "Gesprächsverlauf anzeigen ({count} {count, plural, one {Austausch} other {Austausche}})",
     "matchScorePercent": "{score}%",
-    "conflictDetail": "{field}: „{oldValue}” vs. „{newValue}”",
     "confirmHint": "Kurze Rückfrage — was trifft zu? Wir führen das nicht eigenmächtig zusammen."
   },
   "cv": {
@@ -1341,6 +1340,7 @@
     "statusReady": "Bereit",
     "statusGenerating": "Wird erstellt…",
     "statusExpired": "Abgelaufen",
+    "statusFailed": "Fehlgeschlagen",
     "expiresIn": "Läuft in {days} Tagen ab",
     "expiresToday": "Läuft heute ab",
     "openButton": "Öffnen",

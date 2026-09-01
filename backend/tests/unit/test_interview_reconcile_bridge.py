@@ -74,7 +74,10 @@ def test_to_summary_formats_list_value_as_clean_text():
         incoming_value=["Yes, same role", "No, separate roles"],
         source="cv_upload",
     )
-    summary = _to_summary(conflict)
+    # #604 — the seam takes the post-commit profile so it can name the entry.
+    # This conflict has no `entity_id` (a bare synonym ask), so `None` is the
+    # honest second argument and the value formatting under test is untouched.
+    summary = _to_summary(conflict, None)
     assert summary.new_value == "Yes, same role, No, separate roles"
     assert "[" not in summary.new_value and "'" not in summary.new_value
     # None side renders as empty, not the string "None"
