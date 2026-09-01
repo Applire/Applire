@@ -628,9 +628,14 @@ test.describe('Conflict Resolution', () => {
           pending_conflicts: [
             {
               conflict_id: 'test-conflict-001',
-              field: 'work_experience[0].end_date',
+              // #604 — the shape the backend actually sends: a bare field name
+              // plus the entry the dispute hangs off.
+              field: 'end_date',
               old_value: '2021-06',
               new_value: '2022-03',
+              entity_label: 'Software Engineer @ Acme Corp',
+              section: 'work_experience',
+              source: 'cv_upload',
             },
           ],
         }),
@@ -643,6 +648,17 @@ test.describe('Conflict Resolution', () => {
 
     // Conflict card must appear
     await expect(page.getByTestId('conflict-card')).toBeVisible({ timeout: 10000 });
+
+    // #604 — and it must NAME THE ENTRY. Before this, the card read
+    // "end_date: '2021-06' vs '2022-03'": it said which field was disputed but
+    // never which job, the same defect #626 fixed in the Health hub and left
+    // standing here because this card is fed by a second mechanism.
+    const detail = (await page.getByTestId('conflict-detail').innerText()).replace(/\s+/g, ' ');
+    expect(detail).toContain('Software Engineer @ Acme Corp');
+    expect(detail).toContain('End date');
+    expect(detail).not.toContain('end_date');
+    expect(detail).toContain('2021-06');
+    expect(detail).toContain('2022-03');
 
     // Both resolution buttons must be present
     await expect(page.getByTestId('conflict-keep-old')).toBeVisible();
@@ -670,10 +686,13 @@ test.describe('Conflict Resolution', () => {
           complete: false,
           question: 'What was your role at Acme Corp?',
           gaps_remaining: 1,
+          // #604 — deliberately the PRE-#604 shape (no entity_label/section/
+          // source): an older backend behind a newer frontend must still render
+          // a resolvable card, on the general heading.
           pending_conflicts: [
             {
               conflict_id: 'test-conflict-002',
-              field: 'work_experience[0].title',
+              field: 'title',
               old_value: 'Software Engineer',
               new_value: 'Senior Software Engineer',
             },

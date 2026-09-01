@@ -91,11 +91,27 @@ class SessionCreateResponse(BaseModel):
 
 
 class ConflictSummary(BaseModel):
-    """A detected merge conflict surfaced during the interview (19.10)."""
+    """A detected merge conflict surfaced during the interview (19.10).
+
+    #604 — the three fields below were added so the live interview's
+    ``ConflictCard`` can say WHICH entry a dispute belongs to, the way the
+    Health hub's card has since #626. They are additive and optional: every
+    pre-existing consumer (the MCP ``pending_conflicts`` payload, the PQ
+    specs' mocks) keeps working unchanged, and a conflict with no resolvable
+    entity — a profile-level dispute, or a stale id whose entry was edited
+    away — legitimately carries ``entity_label=None`` and renders the general
+    heading. See ``services/profile/entity_label.py``.
+    """
     conflict_id: str  # stable identifier: "{field}:{old_value}" hash
     field: str
     old_value: str
     new_value: str
+    entity_label: str | None = None
+    section: str | None = None
+    # The INCOMING side's provenance only — same asymmetry `HealthIssue`
+    # documents: the existing side's source is not recoverable from a
+    # `Conflict`.
+    source: str | None = None
 
 
 class ConfirmationPrompt(BaseModel):

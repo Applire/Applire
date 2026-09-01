@@ -48,6 +48,7 @@ from applire.services.profile.commit import (
     TurnGrounding,
     commit_ops,
 )
+from applire.services.profile.entity_label import label_for
 from applire.services.profile.reconcile.engine import reconcile
 from applire.utils.display import format_display_value
 
@@ -80,12 +81,23 @@ class InterviewTurnResult:
     denied_concepts: list[str] = field(default_factory=list)
 
 
-def _to_summary(conflict: Conflict) -> ConflictSummary:
+def _to_summary(conflict: Conflict, profile: MasterProfileData | None) -> ConflictSummary:
+    """#604 — name the entry the dispute hangs off, not just the field.
+
+    The live interview's ``ConflictCard`` showed ``end_date: "2019-12" vs
+    "2020-01"`` with no way to tell WHICH job — the very defect #626 fixed in
+    the Health hub, still standing here because this card is fed by a second
+    mechanism. ``Conflict.entity_id`` (#218) already carried the answer on
+    both paths; both now resolve it through the same module.
+    """
     return ConflictSummary(
         conflict_id=conflict.conflict_id,
         field=conflict.field,
         old_value=format_display_value(conflict.existing_value),
         new_value=format_display_value(conflict.incoming_value),
+        entity_label=label_for(profile, conflict.entity_id),
+        section=conflict.section or None,
+        source=conflict.source,
     )
 
 
@@ -146,6 +158,15 @@ async def reconcile_interview_turn(
         snapshot=None,
     )
 
+    # The POST-commit profile: a conflict was flagged against the entity this
+    # record now holds, so it is the one that resolves `entity_id`. Validated
+    # once per turn, not once per conflict.
+    after: MasterProfileData | None = (
+        MasterProfileData.model_validate(committed.record.profile_json)
+        if committed.conflicts
+        else None
+    )
+
     return InterviewTurnResult(
         profile_dict=committed.record.profile_json,
         changes=committed.enrichment_record.changes,
@@ -155,7 +176,7 @@ async def reconcile_interview_turn(
         # separation for us: denials and demotions have their own lists and are
         # deliberately absent from `changes`.
         addressed=bool(committed.changes),
-        conflict_summaries=[_to_summary(c) for c in committed.conflicts],
+        conflict_summaries=[_to_summary(c, after) for c in committed.conflicts],
         pending_confirmations=committed.pending_confirmations,
         denial_recorded=bool(committed.denials),
         denied_concepts=[d.strip() for d in result.denials if d and d.strip()],

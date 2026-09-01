@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
+import { describeConflict } from "@/lib/conflict-display";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -92,6 +93,12 @@ interface ConflictSummary {
   field: string;
   old_value: string;
   new_value: string;
+  // #604 — the entry the dispute hangs off, so this card can say WHICH job.
+  // Optional: absent for a profile-level conflict, for a stale entity id, and
+  // for any response produced before the backend carried them.
+  entity_label?: string | null;
+  section?: string | null;
+  source?: string | null;
 }
 
 interface PendingConfirmation {
@@ -237,6 +244,23 @@ function ConflictCard({
   onResolved: () => void;
 }) {
   const t = useTranslations("interview");
+  // #604 — the conflict wording is shared with the Health hub's card, so both
+  // surfaces name the entry the same way; the strings live in the `health`
+  // namespace where #626 defined the convention (`lib/conflict-display.ts`).
+  const tHealth = useTranslations("health");
+  const tProfile = useTranslations("profile");
+  const described = describeConflict(
+    {
+      entity_label: conflict.entity_label,
+      section: conflict.section,
+      field: conflict.field,
+      existing_value_display: displayValue(conflict.old_value),
+      incoming_value_display: displayValue(conflict.new_value),
+      incoming_source: conflict.source,
+    },
+    tHealth,
+    tProfile,
+  );
   const [resolving, setResolving] = useState(false);
 
   async function resolve(resolution: "existing" | "incoming") {
@@ -258,13 +282,14 @@ function ConflictCard({
   return (
     <div data-testid="conflict-card" className="rounded-lg border border-warning/40 bg-warning/5 p-4 mt-3">
       <p className="text-sm font-semibold text-neutral-dark mb-1">{t("discrepancyDetected")}</p>
-      <p className="text-xs text-gray-600 mb-3">
-        {t("conflictDetail", {
-          field: conflict.field,
-          oldValue: displayValue(conflict.old_value),
-          newValue: displayValue(conflict.new_value),
-        })}
-      </p>
+      {/* #604: was `conflictDetail` — the raw "end_date: 'x' vs 'y'" shape,
+          which named the field but never WHICH entry. Same composition the
+          Health hub has shown since #626. */}
+      <div data-testid="conflict-detail" className="mb-3">
+        <p className="text-xs font-medium text-neutral-dark">{described.heading}</p>
+        <p className="text-xs text-gray-600 mt-1">{described.existingRow}</p>
+        <p className="text-xs text-gray-600">{described.incomingRow}</p>
+      </div>
       <div className="flex gap-2">
         <Button
           data-testid="conflict-keep-old"

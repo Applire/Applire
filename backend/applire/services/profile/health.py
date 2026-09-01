@@ -47,23 +47,21 @@ Architecture boundary (ADR-041 amended / epic Task 5):
 from __future__ import annotations
 
 from applire.schemas.profile import (
-    Certification,
     CompletenessBlock,
     Conflict,
-    EducationEntry,
     EnrichmentRecord,
-    ExperienceBase,
     HealthIssue,
-    Language,
     MasterProfileData,
     PendingConfirmation,
     ProfileHealthResponse,
-    Publication,
-    SignatureStory,
-    Skill,
 )
 from applire.services.profile.completeness import _entry_label
 from applire.services.profile.completeness import field_gaps as completeness_field_gaps
+# #604 — the entity-label ladder #626 introduced now lives in its own module,
+# because the live interview's conflict card needs the identical resolution
+# (see `entity_label.py`'s docstring). Imported, never re-derived.
+from applire.services.profile.entity_label import entity_label as _entity_label
+from applire.services.profile.entity_label import resolve_entity as _resolve_entity
 from applire.services.profile.severity import (
     classify_conflict,
     classify_confidence,
@@ -72,73 +70,6 @@ from applire.services.profile.severity import (
 )
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.display import format_display_value
-
-
-def _resolve_entity(profile: MasterProfileData, entity_id: str | None) -> object | None:
-    """The id-bearing profile entity ``entity_id`` names, or ``None`` (#626).
-
-    Searches every section :func:`applire.services.profile.reconcile.apply.
-    resolve_any` can target — work/project/volunteer plus the six sections
-    #619 added it for — rather than trusting a ``Conflict.section`` string
-    (defensive: cheap, and correct the day ``_apply_flag_conflict`` widens
-    from its current experience-only ``resolve()`` to ``resolve_any``, the way
-    ``_apply_set_field`` already did).
-
-    ``None`` covers two legitimate cases the caller must not crash on: a
-    profile-level conflict (``entity_id`` was never set — #218's own docstring:
-    ``professional_summary`` / ``personal_info`` disputes have no entity) and a
-    STALE id (the entity existed when the conflict was flagged but was since
-    edited or removed — nothing sweeps ``metadata.pending_conflicts`` when its
-    target entity disappears).
-    """
-    if not entity_id:
-        return None
-    for entry in (
-        *profile.work_experience,
-        *profile.projects,
-        *profile.volunteer_activities,
-        *profile.education,
-        *profile.certifications,
-        *profile.languages,
-        *profile.publications,
-        *profile.skills,
-        *profile.signature_stories,
-    ):
-        if getattr(entry, "id", None) == entity_id:
-            return entry
-    return None
-
-
-def _entity_label(entity: object | None) -> str | None:
-    """Human label for a resolved id-bearing entity, or ``None`` (#626).
-
-    Mirrors the isinstance ladder ``_section_for`` (reconcile/apply.py) uses
-    for the reverse mapping (entity → section name). The "X @ Y" shape matches
-    ``_unit_issues`` below (``completeness._entry_label``) exactly, so the
-    Health hub speaks one convention for every entry label it shows — for the
-    three ``ExperienceBase`` kinds via the polymorphic ``org_label()``
-    (company / project name / organization), and by the equivalent "specific
-    @ broader" pairing for the rest (degree @ institution, cert name @ issuing
-    org). A single-value entity (language, publication title, skill name,
-    story title) has no "@" counterpart and is shown bare.
-    """
-    if entity is None:
-        return None
-    if isinstance(entity, ExperienceBase):
-        return _entry_label({"company": entity.org_label(), "role": entity.role})
-    if isinstance(entity, EducationEntry):
-        return _entry_label({"company": entity.institution, "role": entity.degree})
-    if isinstance(entity, Certification):
-        return _entry_label({"company": entity.issuing_organization, "role": entity.name})
-    if isinstance(entity, Language):
-        return entity.language
-    if isinstance(entity, Publication):
-        return entity.title
-    if isinstance(entity, Skill):
-        return entity.name
-    if isinstance(entity, SignatureStory):
-        return entity.title
-    return None
 
 
 def _conflict_issue(conflict: Conflict, profile: MasterProfileData) -> HealthIssue:

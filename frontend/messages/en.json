@@ -270,7 +270,6 @@
     "advancingToCV": "Preparing…",
     "viewHistory": "View conversation history ({count} {count, plural, one {exchange} other {exchanges}})",
     "matchScorePercent": "{score}%",
-    "conflictDetail": "{field}: “{oldValue}” vs “{newValue}”",
     "confirmHint": "Quick check — which is it? We won't merge these on our own."
   },
   "cv": {

@@ -22,7 +22,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { enrichmentSourceKey } from "@/lib/enrichment-sources";
+import { describeConflict } from "@/lib/conflict-display";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
@@ -88,36 +88,16 @@ const THREAD_LABEL: Record<
 
 type Translator = ReturnType<typeof useTranslations>;
 
-// #626 (conflict legibility) — human field label. `professional_summary` is
-// special-cased: its `field` is a language slot ("de"/"en"), not a real field
-// name (see `services/profile/health.py`'s `_conflict_issue`). Falls back to
-// the raw key (underscores → spaces) for a field name outside the dictionary
-// — informative without fabricating a translation.
-function conflictFieldLabel(t: Translator, issue: HealthIssue): string {
-  const field = issue.field ?? "";
-  if (issue.section === "professional_summary") {
-    return field === "de" ? t("fieldLabel.summaryDe") : t("fieldLabel.summaryEn");
-  }
-  const key = `fieldLabel.${field}`;
-  if (field && t.has(key)) return t(key);
-  return field.replace(/_/g, " ");
-}
-
-// #626 — provenance label for `conflict.source`, reusing the SAME dictionary
-// the enrichment-history trail already uses (`lib/enrichment-sources.ts`)
-// rather than a second one.
-function conflictSourceLabel(tProfile: Translator, source: string | null | undefined): string {
-  if (!source) return "";
-  const key = enrichmentSourceKey(source);
-  return key ? tProfile(key) : source;
-}
-
 /**
  * #626 — compose a `conflict` issue into a localized heading + two
  * provenance-labeled value rows, so no surface shows the backend's raw
- * `work_experience.end_date: '…' vs '…'` string (the reported defect: it
- * named the field but never WHICH work entry). `null` for a non-conflict
- * issue — the caller falls back to its own thread-specific rendering.
+ * `work_experience.end_date: '…' vs '…'` string (the reported defect: it named
+ * the field but never WHICH work entry). `null` for a non-conflict issue — the
+ * caller falls back to its own thread-specific rendering.
+ *
+ * #604 — the composition itself now lives in `lib/conflict-display.ts`, shared
+ * with the live interview's `ConflictCard`, which showed the same raw shape via
+ * a second mechanism. This is the `HealthIssue`-shaped adapter onto it.
  */
 export function describeConflictIssue(
   issue: HealthIssue,
@@ -125,21 +105,7 @@ export function describeConflictIssue(
   tProfile: Translator,
 ): { heading: string; existingRow: string; incomingRow: string } | null {
   if (issue.thread !== "conflict") return null;
-  const field = conflictFieldLabel(t, issue);
-  const heading = issue.entity_label
-    ? t("conflictHeadingWithEntity", { entity: issue.entity_label, field })
-    : t("conflictHeadingGeneral", { field });
-  const existingRow = t("conflictValueRow", {
-    label: t("conflictCurrentValueLabel"),
-    value: issue.existing_value_display ?? "",
-  });
-  const incomingRow = t("conflictValueRow", {
-    label: t("conflictNewValueLabel", {
-      source: conflictSourceLabel(tProfile, issue.incoming_source),
-    }),
-    value: issue.incoming_value_display ?? "",
-  });
-  return { heading, existingRow, incomingRow };
+  return describeConflict(issue, t, tProfile);
 }
 
 function IssueCard({
