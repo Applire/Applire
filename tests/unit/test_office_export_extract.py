@@ -59,10 +59,14 @@ def _docx_bytes(doc: Document) -> bytes:
 
 
 def _naive_paragraphs_text(data: bytes) -> str:
-    """The naive reader this task exists to replace — mirrors
-    cv_parser.extract_text_from_docx's ``"\\n".join(p.text for p in doc.paragraphs)``
-    exactly (that function is the CV import path, out of scope to import from a
-    test in office_export/; the anti-pattern is reproduced inline instead)."""
+    """The naive reader this task exists to replace —
+    ``"\\n".join(p.text for p in doc.paragraphs)``, reproduced inline.
+
+    This was ``cv_parser.extract_text_from_docx``'s algorithm until #640, where
+    it was measured losing 9 of 9 facts on a tabellarischer Lebenslauf; that
+    function now delegates to ``extract_docx_text``. The inline copy stays
+    because these tests document WHY the walker exists — they must keep failing
+    the naive way even though no production caller does it any more."""
     doc = Document(BytesIO(data))
     return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
@@ -198,7 +202,7 @@ def test_table_cells_extracted_in_document_order_between_surrounding_paragraphs(
 
 
 def test_naive_paragraphs_reader_loses_table_content():
-    """Grounds the epic's own claim: .paragraphs alone (cv_parser.py's
+    """Grounds the epic's own claim: .paragraphs alone (the pre-#640
     extract_text_from_docx algorithm, reproduced inline) never sees table text."""
     doc = Document()
     doc.add_paragraph("Intro paragraph")
