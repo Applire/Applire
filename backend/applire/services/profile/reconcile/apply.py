@@ -63,6 +63,7 @@ from applire.services.profile.role_facts import project_profile_role_facts
 from applire.services.profile.reconcile.dedupe import (
     classify_certification_dupe,
     classify_dupe,
+    classify_education_dupe,
     classify_engagement_dupe,
 )
 from applire.services.profile.reconcile.ops import (
@@ -2193,10 +2194,26 @@ def _apply_upsert_language(op, profile, changes, pending):
 
 
 def _apply_upsert_education(op, profile, changes, pending):
-    verdict = classify_dupe(
-        {"institution": op.institution, "degree": op.degree},
-        profile.education,
-        {"institution": lambda e: e.institution, "degree": lambda e: e.degree},
+    # #618 (education half) — was plain classify_dupe on (institution, degree)
+    # alone: no institution-alias fold, no date-range signal. A two-source
+    # import naming the SAME qualification via a long-legal-form institution
+    # name + EN-ish degree phrase on one side, and a short colloquial
+    # institution name + the DE qualification name on the other (plus a
+    # coarser date precision), produced two rows instead of one. See
+    # classify_education_dupe's own docstring for the anchor/escalation
+    # policy — an AMBIGUOUS verdict below still routes to the SAME
+    # RequestConfirmation this function already raised for classify_dupe's
+    # own ambiguous band; nothing downstream of the verdict changed.
+    verdict = classify_education_dupe(
+        institution=op.institution,
+        degree=op.degree,
+        start_date=op.start_date,
+        end_date=op.end_date,
+        existing=profile.education,
+        institution_getter=lambda e: e.institution,
+        degree_getter=lambda e: e.degree,
+        start_date_getter=lambda e: e.start_date,
+        end_date_getter=lambda e: e.end_date,
     )
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {
