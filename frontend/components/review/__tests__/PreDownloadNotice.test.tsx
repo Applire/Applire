@@ -67,4 +67,42 @@ describe("PreDownloadNotice", () => {
     fireEvent.click(screen.getByTestId("predownload-download"));
     expect(onConfirm).toHaveBeenCalledWith(false);
   });
+
+  // US298 (E057 task 1.5, ADR-079 cl.6): the office (.docx) export is gated
+  // by this SAME notice — extended, not duplicated. The extension states the
+  // attestation describes the file AS EXPORTED (no return-path is implied).
+  describe("US298 — office-export scope notice", () => {
+    it("defaults to the pdf format: no docx-scope notice", () => {
+      render(withIntl(<PreDownloadNotice canSuppress onConfirm={vi.fn()} onCancel={vi.fn()} />));
+      expect(screen.queryByTestId("predownload-docx-scope")).toBeNull();
+    });
+
+    it("format='pdf' explicitly: no docx-scope notice", () => {
+      render(
+        withIntl(
+          <PreDownloadNotice canSuppress format="pdf" onConfirm={vi.fn()} onCancel={vi.fn()} />
+        )
+      );
+      expect(screen.queryByTestId("predownload-docx-scope")).toBeNull();
+    });
+
+    it("format='docx': shows the export-scope notice", () => {
+      render(
+        withIntl(
+          <PreDownloadNotice canSuppress format="docx" onConfirm={vi.fn()} onCancel={vi.fn()} />
+        )
+      );
+      expect(screen.getByTestId("predownload-docx-scope")).toBeTruthy();
+    });
+
+    it("format='docx': the AI-content warning and Download control still render (extended, not replaced)", () => {
+      render(
+        withIntl(
+          <PreDownloadNotice canSuppress format="docx" onConfirm={vi.fn()} onCancel={vi.fn()} />
+        )
+      );
+      expect(screen.getByTestId("predownload-notice")).toBeTruthy();
+      expect(screen.getByTestId("predownload-download")).toBeTruthy();
+    });
+  });
 });

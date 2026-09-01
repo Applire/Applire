@@ -219,6 +219,51 @@ describe("CoverLetterPage — polling loop", () => {
     await waitFor(() => expect(pdfFetched).toBe(true));
   });
 
+  it("US298 (E057 doors) — the .docx download is ALSO gated by the pre-download notice, and confirming downloads the docx (not the pdf)", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    let docxFetched = false;
+    let pdfFetched = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/state")) {
+        return { ok: true, json: async () => FLOW_STATE_RESPONSE } as Response;
+      }
+      if (url.includes("/docx")) {
+        docxFetched = true;
+        return { ok: true, headers: new Headers(), blob: async () => new Blob(["docx"]) } as Response;
+      }
+      if (url.includes("/pdf")) {
+        pdfFetched = true;
+        return { ok: true, headers: new Headers(), blob: async () => new Blob(["pdf"]) } as Response;
+      }
+      if (url.includes("/status")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "ready", letter_data: { header: { name: "Max" } } }),
+        } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+
+    await act(async () => { renderPage(); });
+    await waitFor(() => expect(screen.getByTestId("cl-document")).toBeInTheDocument(), { timeout: 8000 });
+
+    // Clicking the .docx CTA opens the notice — it must NOT download yet
+    // (the notice is a nudge that runs BEFORE the fetch, not after it).
+    await act(async () => { fireEvent.click(screen.getByTestId("document-download-docx-btn")); });
+    await waitFor(() => expect(screen.getByTestId("cl-download-review-overlay")).toBeInTheDocument());
+    expect(docxFetched).toBe(false);
+    expect(pdfFetched).toBe(false);
+
+    // The notice states the attestation is scoped to the moment of export.
+    expect(screen.getByTestId("predownload-docx-scope")).toBeInTheDocument();
+
+    // Confirming proceeds with the DOCX download specifically — never the PDF.
+    await act(async () => { fireEvent.click(screen.getByTestId("predownload-download")); });
+    await waitFor(() => expect(docxFetched).toBe(true));
+    expect(pdfFetched).toBe(false);
+  });
+
   it("issue #246 (NEW-5) — uses the server's Content-Disposition filename for the download, not a hardcoded German default", async () => {
     const { fireEvent } = await import("@testing-library/react");
     let downloadedFilename: string | null = null;

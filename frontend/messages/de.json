@@ -1315,6 +1315,7 @@
   "predownload": {
     "title": "Vor dem Download",
     "warning": "KI-generierte Inhalte können Fehler enthalten — bitte vor dem Absenden prüfen.",
+    "docxNotice": "Die Wahrheits- und ATS-Prüfung bezieht sich auf die Datei zum Zeitpunkt des Exports — Änderungen, die du danach in Word vornimmst, werden nicht erneut geprüft.",
     "dontShowAgain": "Nicht mehr anzeigen",
     "cancel": "Abbrechen",
     "download": "Herunterladen"
@@ -1405,6 +1406,7 @@
     "navCoverLetter": "Anschreiben",
     "navAriaLabel": "Dokument wählen",
     "downloadPdf": "PDF herunterladen",
+    "downloadDocx": ".docx herunterladen",
     "matchScoreLabel": "Profil-Match",
     "panelCollapse": "Panel einklappen",
     "panelExpand": "Panel ausklappen",

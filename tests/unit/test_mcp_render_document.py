@@ -336,6 +336,117 @@ async def test_unknown_job_raises_not_found(db):
 
 
 @pytest.mark.asyncio
+async def test_render_document_rejects_unknown_format():
+    """US298 (E057 task 1.5): `format` joins the other fail-fast input checks
+    — an agent typo must not reach the DB layer."""
+    from applire.mcp.server import render_document
+
+    with pytest.raises(McpError) as exc_info:
+        await render_document(
+            document_kind="cv",
+            content=dict(AGENT_CV_CONTENT),
+            job_id=str(uuid.uuid4()),
+            format="odt",
+        )
+    assert exc_info.value.error.code == -32602
+
+
+@pytest.mark.asyncio
+async def test_alacarte_cv_render_default_format_has_no_docx_keys(seeded):
+    """The office-format keys are ADDITIVE (US298) — omitting `format` (or
+    passing 'pdf') must leave the pinned pdf/html response shape unchanged."""
+    from applire.mcp.server import render_document
+
+    p1, p2, p3, p4 = _cv_patches(seeded["db"])
+    with p1, p2, p3, p4:
+        result = await render_document(
+            document_kind="cv",
+            content=dict(AGENT_CV_CONTENT),
+            job_id=str(seeded["job_id"]),
+        )
+
+    assert "docx_url" not in result
+    assert "docx_base64" not in result
+    assert "docx_filename" not in result
+
+
+@pytest.mark.asyncio
+async def test_alacarte_cv_render_docx_format_calls_the_shared_writer(seeded):
+    """US298 (E057 task 1.5, ADR-058 cl.2 / ADR-066): `format='docx'` returns
+    the SAME artefact `GET /api/cv/{id}/docx` serves — reached by calling
+    `services.cv.get_cv_docx`, the identical function the REST route calls,
+    never a parallel writer. Cross-door byte/text parity is asserted
+    separately in `tests/unit/test_office_export_doors.py`; this test pins
+    the MCP-side response SHAPE and that the embedded bytes are a real,
+    content-bearing .docx (not empty/placeholder bytes)."""
+    import base64 as b64
+
+    from applire.mcp.server import render_document
+    from applire.services.office_export.extract import extract_docx_text
+
+    p1, p2, p3, p4 = _cv_patches(seeded["db"])
+    with p1, p2, p3, p4:
+        result = await render_document(
+            document_kind="cv",
+            content=dict(AGENT_CV_CONTENT),
+            job_id=str(seeded["job_id"]),
+            format="docx",
+        )
+
+    assert result["status"] == "ready"
+    assert result["document_id"]
+    assert f"/api/cv/{result['document_id']}/docx" in result["docx_url"]
+    assert result["docx_filename"].endswith(".docx")
+    docx_bytes = b64.b64decode(result["docx_base64"])
+    assert docx_bytes[:2] == b"PK", "a .docx is a zip container"
+    text = extract_docx_text(docx_bytes)
+    assert "Anna Bauer" in text
+    assert "Led a team of 12 engineers." in text
+    # Additive: the existing pdf/html fields are still present too.
+    assert f"/api/cv/{result['document_id']}/pdf" in result["pdf_url"]
+
+
+@pytest.mark.asyncio
+async def test_alacarte_letter_render_docx_format(seeded):
+    """Letter twin of the CV docx-format test above."""
+    import base64 as b64
+
+    from applire.mcp.server import render_document
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.office_export.extract import extract_docx_text
+
+    report = ATSReport(
+        document="cover_letter",
+        checks=[ATSCheck(id="contact-name", status="pass")],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+    )
+    with (
+        patch("applire.mcp.server.get_db", return_value=_db_cm(seeded["db"])),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            new=AsyncMock(return_value=b"%PDF"),
+        ),
+        patch("applire.services.ats_audit.audit_cover_letter", return_value=report),
+    ):
+        result = await render_document(
+            document_kind="cover_letter",
+            content=dict(AGENT_LETTER_CONTENT),
+            job_id=str(seeded["job_id"]),
+            format="docx",
+        )
+
+    assert result["status"] == "ready"
+    assert f"/api/cover-letter/{result['document_id']}/docx" in result["docx_url"]
+    docx_bytes = b64.b64decode(result["docx_base64"])
+    assert docx_bytes[:2] == b"PK"
+    text = extract_docx_text(docx_bytes)
+    assert "Anna Bauer" in text
+    assert "Hauptteil." in text
+
+
+@pytest.mark.asyncio
 async def test_schema_resources_serve_versioned_contracts():
     import json
 
