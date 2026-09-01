@@ -149,9 +149,11 @@ clause 2) — ``soffice`` is invoked ONLY to convert an already-produced
 ``.docx`` to PDF for page counting, never to render content.
 """
 
+import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -173,6 +175,7 @@ from applire.services.cv import _TEMPLATE_FILES as CV_PDF_TEMPLATES
 # own import pattern — cover_letter.py has no separate copy of either).
 from applire.services.cv import _html_to_pdf, _jinja_env
 from applire.services.office_export.cv_docx import _NON_SECTION_FIELDS as _CV_NON_SECTION_FIELDS
+from applire.services.office_export.cv_docx import _RENDERED_LEAVES as _CV_RENDERED_LEAVES
 from applire.services.office_export.cv_docx import render_cv_docx
 from applire.services.office_export.extract import (
     audit_cover_letter_docx,
@@ -182,6 +185,7 @@ from applire.services.office_export.extract import (
 from applire.services.office_export.letter_docx import (
     _NON_SECTION_FIELDS as _LETTER_NON_SECTION_FIELDS,
 )
+from applire.services.office_export.letter_docx import _RENDERED_LEAVES as _LETTER_RENDERED_LEAVES
 from applire.services.office_export.letter_docx import render_letter_docx
 from applire.templates.filters import month_year
 from applire.templates.labels import cover_letter_labels, cv_labels
@@ -215,12 +219,26 @@ def _string_leaves(value: Any) -> list[str]:
     pydantic ``.model_dump()``-shaped structure (dict / list / str / other).
 
     No per-field knowledge: a dict recurses into its values, a list
-    recurses into its elements, a str is a leaf (dropped if blank), and
-    anything else (bool, int, None) contributes nothing. This is what lets
+    recurses into its elements, a str is a leaf (dropped if blank), a
+    non-bool int is a leaf too (stringified — see below), and anything else
+    (bool, None, float) contributes nothing. This is what lets
     `_missing_sections` cover a LIST section, the one nested-OBJECT section
     and a plain-scalar section through the SAME code path (task 1.3's 🔒
     boundary) instead of three special cases that could individually be
     narrowed or forgotten.
+
+    Int handling (Finding 2, E057 adversarial review): originally int
+    contributed nothing, same as bool — but `work_history[].team_size` is a
+    real, content-bearing `int | None` field (`schemas/cv.py`'s own
+    docstring: "None means 'not stated' — 0 is a valid team_size"), rendered
+    as a literal digit by `_role_facts_line`. Excluding it meant no probe
+    was ever generated for it, so NEITHER this gate nor gate 3
+    (`_presence_disagreements`, which shares this walker's int-handling via
+    `_iter_leaf_values` below) could ever have caught team_size going
+    unrendered — independently of whether a fixture set it at all. `bool`
+    is checked first and excluded (Python's `bool` is an `int` subclass):
+    a boolean like `show_photo` is a structural modifier, never rendered as
+    the literal text "True"/"False".
     """
     if isinstance(value, dict):
         out: list[str] = []
@@ -234,34 +252,71 @@ def _string_leaves(value: Any) -> list[str]:
         return out
     if isinstance(value, str) and value.strip():
         return [value]
+    if isinstance(value, int) and not isinstance(value, bool):
+        return [str(value)]
     return []
 
 
-def _content_present(probe: str, text_norm: str) -> bool:
+def _content_present(probe: str, text_norm: str, required_count: int = 1) -> bool:
     """True if `probe`'s RAW form, OR its ``month_year()``-transformed form,
-    is present in `text_norm`. Gate 2 (`_missing_sections`, this function's
-    only caller) exists to prove a FACT survives the round trip in SOME
-    form -- never to judge which form is correct, which is gate 3's job
+    together account for at least `required_count` occurrences in
+    `text_norm`. Gate 2 (`_missing_sections`, this function's only caller)
+    exists to prove a FACT survives the round trip in SOME form -- never to
+    judge which form is correct, which is gate 3's job
     (`_presence_disagreements`, which deliberately does NOT use this
     tolerant check: format correctness needs the strict, single-form
     comparison this function intentionally loosens).
 
-    Without this tolerance, gate 2 breaks on its own fixtures the moment a
-    date is rendered CORRECTLY: post-fix (commit 8dc61254), a CV date reads
-    "03/2018" rather than the raw "2018-03", so a strict raw-value
-    containment check would report every dated entry as content-missing —
-    a false positive on correct output, discovered by running gate 2 after
-    merging that fix and seeing exactly this failure. `month_year` is safe
-    to apply universally (not just to known date fields): its own docstring
-    and doctests guarantee it returns non-date strings UNCHANGED (a company
-    name, a bullet, an email are never a recognised partial-date pattern),
-    so this adds no tolerance where none is wanted -- it only additionally
-    accepts the transformed form where a raw ISO date would otherwise
-    (correctly) never appear.
+    Without the raw-or-transformed tolerance, gate 2 breaks on its own
+    fixtures the moment a date is rendered CORRECTLY: post-fix (commit
+    8dc61254), a CV date reads "03/2018" rather than the raw "2018-03", so
+    a strict raw-value containment check would report every dated entry as
+    content-missing — a false positive on correct output, discovered by
+    running gate 2 after merging that fix and seeing exactly this failure.
+    `month_year` is safe to apply universally (not just to known date
+    fields): its own docstring and doctests guarantee it returns non-date
+    strings UNCHANGED (a company name, a bullet, an email are never a
+    recognised partial-date pattern), so this adds no tolerance where none
+    is wanted -- it only additionally accepts the transformed form where a
+    raw ISO date would otherwise (correctly) never appear.
+
+    `required_count` (Finding 1, E057 adversarial review): defaults to 1,
+    the ORIGINAL "present at least once, anywhere in the document" check —
+    unscoped to the probe's own field, which is exactly the point: gate 2
+    proves a fact survived the round trip SOMEWHERE, not where. That is a
+    real, wanted tolerance for the overwhelmingly common case (a probe's
+    value is unique across the fixture), but it silently stopped being a
+    check at all for a probe whose value COINCIDES with another, unrelated
+    leaf's value: `_content_present("2023-04", text)` returns `True`
+    against text containing only an unrelated `04/2023` rendered from a
+    different field entirely — reproduced end-to-end by dropping an
+    education entry's date rendering while a work entry in the same
+    fixture shares that month and year (an ordinary CV shape — concurrent
+    job and study, or two roles starting the same month — not a contrived
+    one); the work entry's own correctly-rendered date alone satisfied
+    "present at least once" for BOTH leaves. `_missing_sections` closes
+    this by passing `required_count` = the number of leaves ACROSS THE
+    WHOLE FIXTURE that share this exact raw value — every occurrence a
+    correct render legitimately owes the document, not just one.
+
+    Per-occurrence raw-vs-transformed accounting, not a naive sum: when
+    `month_year(probe)` is a no-op (the overwhelming majority of probes —
+    anything that isn't a recognised partial date), raw and transformed
+    normalise to the IDENTICAL string, so counting both and adding them
+    would double-count every physical occurrence. Only genuinely DIFFERENT
+    normalised forms (a real date) are counted separately and summed —
+    `_norm`'s hyphen-to-space folding (`ats_audit._norm`) guarantees a raw
+    ISO date ("2023-04" -> "2023 04") and its `month_year` form ("04/2023")
+    never normalise to the same string, so this never conflates them
+    either.
     """
-    if _norm_probe(probe) in text_norm:
-        return True
-    return _norm_probe(month_year(probe)) in text_norm
+    raw_norm = _norm_probe(probe)
+    transformed_norm = _norm_probe(month_year(probe))
+    if transformed_norm == raw_norm:
+        available = text_norm.count(raw_norm)
+    else:
+        available = text_norm.count(raw_norm) + text_norm.count(transformed_norm)
+    return available >= required_count
 
 
 def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tuple[str, list[str]]]:
@@ -279,12 +334,43 @@ def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tu
     is nothing to assert about it either way (see
     `test_fixtures_exercise_every_content_bearing_section`, which guards
     against a fixture drifting into that state by accident).
+
+    `expected_counts` (Finding 1): a `Counter` over EVERY string leaf in
+    the WHOLE fixture (`instance.model_dump()`, not just the field being
+    checked) — how many leaves, across every section, share this exact raw
+    value. Passed as `_content_present`'s `required_count`, so a probe
+    whose value coincides with another field's value must be backed by
+    that many occurrences in the extracted text, not just one — see
+    `_content_present`'s own docstring for why a whole-document,
+    unscoped-to-one-field check needs this to catch a dropped field masked
+    by an unrelated coincidence elsewhere.
+
+    Honest limitation, not silently absorbed: when two DIFFERENT fields
+    genuinely share a value (this fixture's `LETTER_DE`/`LETTER_EN`
+    already do — the candidate's own name, once as `header.name`, once as
+    `signature.name`, both real, both meant to render), a shortfall in the
+    combined count cannot say WHICH of the colliding fields lost its
+    rendering — a document missing either occurrence reports the SAME
+    deficit, and this function attributes it to every field that
+    contributed to the expected count, not just the one actually at fault.
+    That is a real precision loss against per-entry attribution, traded
+    for a mechanical, schema-agnostic check that works identically for
+    both document kinds (`LetterData` has no per-section heading text to
+    scope a check against at all — see the module docstring on why the two
+    kinds share one code path here). It never trades away RECALL: a
+    genuine drop still turns the gate red, which is what matters for a
+    blocking CI gate — see `test_content_present_...` below for the
+    mutation-verified proof.
     """
     dumped = instance.model_dump()
+    expected_counts: Counter[str] = Counter(_string_leaves(dumped))
     missing: list[tuple[str, list[str]]] = []
     for field_name in sorted(model_cls.model_fields):
         probes = _string_leaves(dumped[field_name])
-        gaps = [p for p in probes if not _content_present(p, text_norm)]
+        gaps = [
+            p for p in probes
+            if not _content_present(p, text_norm, expected_counts[p])
+        ]
         if gaps:
             missing.append((field_name, gaps))
     return missing
@@ -294,6 +380,11 @@ def _iter_leaf_values(value: Any, path: str = "") -> list[tuple[str, str]]:
     """Like `_string_leaves`, but also carries a diagnostic PATH per leaf —
     `_presence_disagreements` below needs it to report which specific field
     diverged, not just that something did.
+
+    Int-widened the same way and for the same reason as `_string_leaves`
+    (Finding 2): a non-bool int leaf (`work_history[].team_size`) is
+    stringified rather than dropped, so the cross-artifact differential
+    below can see it diverge exactly like any string leaf would.
     """
     if isinstance(value, dict):
         out: list[tuple[str, str]] = []
@@ -307,6 +398,8 @@ def _iter_leaf_values(value: Any, path: str = "") -> list[tuple[str, str]]:
         return out
     if isinstance(value, str) and value.strip():
         return [(path, value)]
+    if isinstance(value, int) and not isinstance(value, bool):
+        return [(path, str(value))]
     return []
 
 
@@ -346,6 +439,29 @@ def _presence_disagreements(
     failure mode than the one just found, and this file's report names it
     explicitly rather than claiming this function catches every possible
     divergence.
+
+    A SECOND, distinct blind spot (Finding 2, E057 adversarial review;
+    proved, not just claimed, in
+    `test_presence_disagreements_cannot_see_education_title_dedup_diverge`):
+    `education_title` (#548) dedupes a degree that already names its field
+    verbatim -- e.g. `degree="Industriemeister Metall"`,
+    `field="Metall"` renders once, not twice. `field`'s own raw value
+    ("Metall") is a SUBSTRING of `degree`'s own rendered text
+    ("Industriemeister Metall") EITHER WAY a document renders it -- deduped
+    or (hypothetically, a regression) not -- so `in_pdf` and `in_docx` for
+    the `field` leaf are BOTH trivially `True` regardless of whether dedup
+    actually fired the same way on both sides. This is not the "transformed
+    differently" case above (dedup, when it fires, fires IDENTICALLY on
+    both sides -- every PDF template and this writer share the one
+    `education_title` filter): it is that a genuinely DIVERGENT dedup
+    outcome between the two artifacts is invisible to a presence check for
+    THIS SPECIFIC LEAF, because the leaf's value was never independently
+    absent on either side to begin with. A fixture change cannot fix a
+    blind spot in the CHECKER'S OWN MECHANISM -- see
+    `test_office_export_education_title_dedup_survives_the_round_trip` for
+    the different, format-aware assertion (redundant form absent, not just
+    deduped form present) that actually catches a dedup regression on this
+    writer, independently of this function.
     """
     disagreements: list[tuple[str, str, bool, bool]] = []
     for path, value in _iter_leaf_values(instance.model_dump()):
@@ -394,6 +510,21 @@ CV_DE = TailoredCVData.model_validate(
                     "Leitung eines Teams von acht Prüfingenieuren über drei Standorte hinweg.",
                     "Einführung eines KPI-gestützten Projektmanagements zur Prozessoptimierung.",
                 ],
+                # #328 role facts (ADR-062 clause 1) — E057 Finding 2: these three
+                # fields shipped unrendered on the .docx export past a green CI
+                # suite because no fixture in this file ever set them. Populated
+                # here so the section-parity gate actually exercises them.
+                # team_size deliberately does NOT match the "acht Prüfingenieuren"
+                # bullet above — a single-digit value is a substring of the
+                # phone number "+49 89 1234567" (the "8" in "89"), which would
+                # let an UNRELATED coincidence mask a genuine drop of this
+                # field's own rendering (measured while writing the
+                # mutation-verification test below); a broader, two-digit
+                # figure covering the wider org across all three sites avoids
+                # the collision without contradicting the bullet's narrower claim.
+                "team_size": 14,
+                "budget_managed": "ca. 2,4 Mio. EUR",
+                "industry_context": "Automobilzulieferer",
                 "projects": [
                     {
                         "name": "Projekt Nullfehler-Initiative",
@@ -448,6 +579,9 @@ CV_DE = TailoredCVData.model_validate(
                 "name": "Lead Auditor ISO 9001",
                 "issuing_organization": "TÜV Süd",
                 "date_obtained": "2021-05-01",
+                # E057 Finding 2: expiry_date was unpopulated in every
+                # fixture, so no gate ever exercised it either.
+                "expiry_date": "2024-05-01",
             }
         ],
     }
@@ -478,6 +612,11 @@ CV_EN = TailoredCVData.model_validate(
                     "Owned the migration of 40+ services onto a managed Kubernetes platform.",
                     "Introduced infrastructure-as-code, cutting environment setup from days to minutes.",
                 ],
+                # #328 role facts (ADR-062 clause 1) — E057 Finding 2: see the
+                # matching CV_DE comment above.
+                "team_size": 11,
+                "budget_managed": "approx. CHF 1.8 million",
+                "industry_context": "Financial services technology",
                 "projects": [
                     {
                         "name": "Zero-Downtime Migration Initiative",
@@ -532,6 +671,8 @@ CV_EN = TailoredCVData.model_validate(
                 "name": "Certified Kubernetes Administrator",
                 "issuing_organization": "CNCF",
                 "date_obtained": "2022-03-01",
+                # E057 Finding 2: see the matching CV_DE comment above.
+                "expiry_date": "2025-03-01",
             }
         ],
     }
@@ -717,6 +858,7 @@ class _DocumentCase:
     document_field: str  # expected ATSReport.document value ("cv" / "cover_letter")
     model_cls: type
     non_section_fields: frozenset  # this writer's own "structural, not content" set
+    rendered_leaves: frozenset  # this writer's own NESTED-leaf registry (Finding 2)
     render: Callable[[Any, str], bytes]       # (instance, lang) -> docx bytes
     audit: Callable[[bytes, Any], ATSReport]  # (docx_bytes, instance) -> report
     render_pdf: Callable[[Any, str], Awaitable[bytes]]  # (instance, lang) -> real PDF bytes,
@@ -748,6 +890,7 @@ _CV_CASE = _DocumentCase(
     document_field="cv",
     model_cls=TailoredCVData,
     non_section_fields=_CV_NON_SECTION_FIELDS,
+    rendered_leaves=_CV_RENDERED_LEAVES,
     render=lambda tailored, lang: render_cv_docx(tailored, lang=lang, accent_color=ACCENT_COLOR),
     audit=lambda docx_bytes, tailored: audit_cv_docx(docx_bytes, tailored, KEYWORDS),
     render_pdf=_render_cv_pdf,
@@ -762,6 +905,7 @@ _LETTER_CASE = _DocumentCase(
     document_field="cover_letter",
     model_cls=LetterData,
     non_section_fields=_LETTER_NON_SECTION_FIELDS,
+    rendered_leaves=_LETTER_RENDERED_LEAVES,
     render=lambda letter, lang: render_letter_docx(letter, lang=lang, accent_color=ACCENT_COLOR),
     # _audit_letter_text (and therefore audit_cover_letter_docx) takes
     # letter_data as a plain dict, unlike audit_cv_docx's TailoredCVData
@@ -841,6 +985,69 @@ def test_office_export_roundtrip_zero_failures(case, lang):
 # ---------------------------------------------------------------------------
 
 
+def _leaf_values_at_path(dumped: dict, path: str) -> list[Any]:
+    """Navigate a ``.model_dump()``-shaped dict along `path` — the SAME
+    grammar `_iter_leaf_paths` (``_common.py``) produces, e.g.
+    ``"work_history[].team_size"`` — and return every value reached, one
+    per list element crossed by a ``[]`` segment.
+
+    Exists to bridge a real path-grammar mismatch (Finding 2): this file's
+    OTHER walkers (`_string_leaves`/`_iter_leaf_values`) number every list
+    element for their own diagnostic purposes (a `skills: list[str]` field
+    walks as one leaf per element), while `_iter_leaf_paths` — the
+    SCHEMA-level walker `_RENDERED_LEAVES` is built from, and what this
+    function's caller checks fixtures against — treats a whole
+    scalar-element list field as ONE leaf with no index at all
+    (``"skills"``, not ``"skills[]"``): it never descends into a `list[str]`
+    the way it descends into a `list[SomeModel]`. The two conventions only
+    coincide for list-of-OBJECT fields. Navigating the TARGET path directly
+    against the raw dumped data, rather than generalising the diagnostic
+    walkers' own per-element paths back down to the schema grammar,
+    sidesteps that mismatch instead of silently mis-matching it — verified
+    empirically before this was written: generalising `_iter_leaf_values`'s
+    paths by stripping list indices falsely flagged `skills`,
+    `work_history[].bullets`, `projects[].bullets`,
+    `work_history[].projects[].bullets` and `body.paragraphs` as
+    contentless in every fixture, none of which are.
+    """
+    segments = re.findall(r"[^.\[\]]+|\[\]", path)
+    current: list[Any] = [dumped]
+    for segment in segments:
+        nxt: list[Any] = []
+        if segment == "[]":
+            for item in current:
+                nxt.extend(item or [])
+        else:
+            for item in current:
+                nxt.append(item.get(segment) if isinstance(item, dict) else None)
+        current = nxt
+    return current
+
+
+def _has_leaf_content(value: Any) -> bool:
+    """True if `value` (as returned by `_leaf_values_at_path`, so possibly
+    itself a list — e.g. a `bullets`/`skills` leaf resolves to ONE list of
+    strings, `work_history[].team_size` resolves to one int-or-None per
+    entry) carries at least one non-blank string or a stated (non-bool)
+    int, recursively. Mirrors `_string_leaves`'s own int-widening (see that
+    function's docstring for why team_size — an `int | None` field — must
+    count as content) — kept as a separate, small function rather than
+    reusing `_string_leaves` because this needs to short-circuit on "is
+    there anything at all", not collect every leaf, and because a plain
+    scalar reached here is a bare value, not yet wrapped in the dict/list
+    shape `_string_leaves` expects as its input.
+    """
+    if isinstance(value, list):
+        return any(_has_leaf_content(v) for v in value)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, int):
+        return True
+    return False
+
+
 @pytest.mark.parametrize("case", _DOCUMENT_CASES, ids=_CASE_IDS)
 def test_fixtures_exercise_every_content_bearing_section(case):
     """Fixture-completeness guard — a different failure mode from anything
@@ -864,6 +1071,23 @@ def test_fixtures_exercise_every_content_bearing_section(case):
     field is structural, not content" (imported, not re-typed) — reusing it
     is what keeps this fixture-quality check from becoming a second
     hand-maintained list of section names, which would defeat its purpose.
+
+    Nested-leaf coverage (Finding 2, E057 adversarial review, HIGH): the
+    TOP-LEVEL check above cannot see a nested field left empty — a
+    fixture where `work_history` has bullets, dates and a company name but
+    NO entry ever sets `team_size`/`budget_managed`/`industry_context`
+    still gives `work_history` "some" content, so the check above stays
+    green while the section-parity gate silently never probes those three
+    fields at all. Those are EXACTLY the fields E057 shipped unrendered
+    (`cv_docx.py`'s own module docstring) — a document missing all three
+    would have passed every gate in this file. `case.rendered_leaves` is
+    each writer's own MECHANICALLY-derived nested-leaf registry (imported,
+    never re-typed — the same `_RENDERED_LEAVES` set
+    `test_every_tailored_cv_leaf_field_is_accounted_for` /
+    `test_every_letterdata_leaf_field_is_accounted_for` already prove is
+    exactly "every schema leaf this writer renders as text"), so this
+    check grows automatically the day a new leaf is added to a schema and
+    wired into a writer — never a second hand-maintained leaf list either.
     """
     for lang, instance in case.fixtures.items():
         dumped = instance.model_dump()
@@ -877,6 +1101,19 @@ def test_fixtures_exercise_every_content_bearing_section(case):
             f"{empty_sections} — the section-parity gate cannot exercise "
             f"these sections against this fixture; add content to the "
             f"fixture rather than leaving the gap silent"
+        )
+
+        empty_leaves = sorted(
+            path
+            for path in case.rendered_leaves
+            if not _has_leaf_content(_leaf_values_at_path(dumped, path))
+        )
+        assert not empty_leaves, (
+            f"{case.kind}-{lang}: fixture has no probeable content for the "
+            f"NESTED leaf(ves) {empty_leaves} — every gate that walks the "
+            f"schema down to leaf level (not just top-level sections, see "
+            f"the top-level check above) cannot exercise these; add "
+            f"content to the fixture rather than leaving the gap silent"
         )
 
 
@@ -938,6 +1175,343 @@ def test_section_parity_checker_detects_a_stripped_section():
         f"'certifications' missing; got {missing_fields!r} — either the "
         f"checker cannot detect a real gap (vacuous pass) or it is "
         f"cross-contaminating between sections"
+    )
+
+
+def test_content_present_scoped_to_expected_occurrences_across_the_document(monkeypatch):
+    """Finding 1 (E057 adversarial review, HIGH): `_content_present`'s
+    raw-or-transformed tolerance used to be a WHOLE-DOCUMENT substring
+    check with no notion of how many times a value is expected to occur —
+    so a probe was "present" if its value appeared ANYWHERE, even from a
+    totally different field's independently-correct rendering.
+
+    Part 1 is the review's own literal repro, run in isolation (no
+    rendering involved) to pin the PRIMITIVE's tolerance directly: a probe
+    backed by only ONE real occurrence elsewhere in the document must still
+    read as present — this is the deliberate, wanted tolerance
+    `_content_present`'s own docstring describes (the common case: a
+    probe's value is unique across the fixture), not the bug. The bug was
+    never having this tolerance; it was having ONLY this tolerance, with no
+    way to demand MORE occurrences when more are genuinely expected.
+
+    Part 2 is the end-to-end shape the review reproduced: an education
+    entry's date rendering dropped entirely, undetected by
+    `test_office_export_section_parity_survives_extraction` because a work
+    entry in the SAME fixture starts in the same month and year — an
+    ordinary CV shape (concurrent job and study, or two roles starting the
+    same month), not a contrived one. The mutation drops EVERY education
+    entry's date paragraph (a realistic writer regression: someone edited
+    `_render_education` and dropped its date line) via
+    `monkeypatch.setitem` on `_SECTION_RENDERERS["education"]` — the
+    dispatch dict `render_cv_docx` actually calls through, NOT a plain
+    `setattr` on the module's `_render_education` name (that name is looked
+    up once, at module-IMPORT time, when the dict literal is built; a later
+    `setattr` on the module attribute would not reach the already-captured
+    dict value). `_render_work_history` is untouched, so the work entry's
+    identical-month date still renders — proving the education entry's
+    OWN missing date is masked by a DIFFERENT field's rendering, not by a
+    global date cut.
+
+    The assertion targets the exact colliding PROBE VALUE, not just "some
+    education content went missing": `education[1]`'s dates (2004-10,
+    2006-09 in `CV_DE`) collide with nothing and are — correctly — reported
+    missing by BOTH the old and the new code once every education date is
+    dropped, so asserting only `"education" in missing_fields` would pass
+    either way and prove nothing about the fix specifically. Checking that
+    the COLLIDING value itself (`work_history[0].start_date`) is among
+    `education`'s own reported gaps is what only the fix can satisfy.
+    """
+    # --- Part 1: the primitive's tolerance, isolated -----------------------
+    text = _norm_probe("some prose mentioning 04/2023 from an unrelated field")
+    assert _content_present("2023-04", text), (
+        "sanity: a SINGLE required occurrence must still accept a match "
+        "coming from elsewhere in the document — this is the existing, "
+        "wanted tolerance, not the bug Finding 1 is about"
+    )
+
+    # --- Part 2: end-to-end, via the real writer ----------------------------
+    dumped = CV_DE.model_dump()
+    edu_start_before = dumped["education"][0]["start_date"]
+    work_start = dumped["work_history"][0]["start_date"]
+    assert edu_start_before != work_start, (
+        "fixture sanity: this test manufactures the collision itself; "
+        "CV_DE must not already carry it, or the edit below is a no-op"
+    )
+    dumped["education"][0]["start_date"] = work_start
+    instance = TailoredCVData.model_validate(dumped)
+
+    docx_bytes = _CV_CASE.render(instance, "de")
+    text_norm = _norm_probe(extract_docx_text(docx_bytes))
+    assert not _missing_sections(TailoredCVData, instance, text_norm), (
+        "positive control: the real, unmutated render (with the collision "
+        "in place) must have nothing missing"
+    )
+
+    import applire.services.office_export.cv_docx as cv_docx_module
+
+    def render_education_without_dates(document, tailored, labels, color, photo_bytes, lang):
+        if not any(cv_docx_module._education_has_content(e) for e in tailored.education):
+            return
+        cv_docx_module.add_heading(document, labels["education"], 2, color)
+        for entry in tailored.education:
+            if not cv_docx_module._education_has_content(entry):
+                continue
+            header = cv_docx_module._join_nonblank(
+                [entry.institution, cv_docx_module.education_title(entry.degree, entry.field)]
+            )
+            cv_docx_module.add_paragraph(document, header, bold=True)
+            # Date paragraph intentionally OMITTED — this is the mutation.
+
+    monkeypatch.setitem(
+        cv_docx_module._SECTION_RENDERERS, "education", render_education_without_dates
+    )
+
+    mutated_bytes = _CV_CASE.render(instance, "de")
+    mutated_text_norm = _norm_probe(extract_docx_text(mutated_bytes))
+
+    # Confirm the mutation really is selective — the work entry's own,
+    # identical-month date must still be there (work_history's own
+    # renderer was never touched). Otherwise this is not testing "a work
+    # entry shares the month", it is just re-running gate 3's own already-
+    # covered whole-writer cut.
+    assert _content_present(work_start, mutated_text_norm), (
+        "test setup: the work entry's own date must still render — "
+        "_render_work_history must be untouched by this mutation"
+    )
+
+    missing = _missing_sections(TailoredCVData, instance, mutated_text_norm)
+    missing_by_field = dict(missing)
+    assert work_start in missing_by_field.get("education", []), (
+        f"education's dropped '{work_start}' must be reported missing even "
+        f"though the work entry independently renders the identical "
+        f"(raw-or-transformed) text elsewhere in the same document; "
+        f"education's own reported gaps: {missing_by_field.get('education')}"
+    )
+
+
+def test_section_parity_checker_detects_dropped_role_facts(monkeypatch):
+    """Finding 2 (E057 adversarial review, HIGH), mutation-verification half:
+    `team_size` / `budget_managed` / `industry_context` are exactly the
+    fields that shipped unrendered on the .docx export past a green CI
+    suite (`cv_docx.py`'s own module docstring) — because no fixture in
+    this file ever set them, so the fixtures test above
+    (`test_fixtures_exercise_every_content_bearing_section`) would have
+    stayed green regardless. That test alone does not prove the GATE
+    catches a regression once the fixture carries real values for these
+    three fields — it only proves the fixture HAS something to probe. This
+    test is the other half: drop the writer's OWN role-facts rendering
+    (`cv_docx._role_facts_line`, the one call site all three fields go
+    through) and confirm `_missing_sections` — the checker
+    `test_office_export_section_parity_survives_extraction` calls — now
+    reports it, using the NOW-populated `CV_DE` fixture (E057 Finding 2's
+    other half, above).
+
+    Mutation targets `_role_facts_line` specifically (not the whole
+    `work_history` section renderer) so company/role/dates/bullets staying
+    present proves this is a REGRESSION IN THE ROLE-FACTS LINE, not a
+    coarser "the whole entry vanished" cut that gate 2 would trivially
+    catch regardless of this fix.
+    """
+    instance = CV_DE
+    docx_bytes = _CV_CASE.render(instance, "de")
+    text_norm = _norm_probe(extract_docx_text(docx_bytes))
+
+    # Positive control: the real, unmutated render has nothing missing —
+    # in particular, this is where the "fixture actually carries these
+    # three fields" half of Finding 2 gets exercised for real.
+    assert not _missing_sections(TailoredCVData, instance, text_norm)
+
+    entry = instance.work_history[0]
+    for field_name, value in (
+        ("team_size", entry.team_size),
+        ("budget_managed", entry.budget_managed),
+        ("industry_context", entry.industry_context),
+    ):
+        assert value is not None and str(value).strip(), (
+            f"fixture sanity: work_history[0].{field_name} must carry a "
+            f"real value for this test to mean anything — got {value!r}"
+        )
+
+    import applire.services.office_export.cv_docx as cv_docx_module
+
+    monkeypatch.setattr(cv_docx_module, "_role_facts_line", lambda entry, labels, lang: "")
+
+    mutated_bytes = _CV_CASE.render(instance, "de")
+    mutated_text_norm = _norm_probe(extract_docx_text(mutated_bytes))
+
+    # Confirm the mutation really is selective to the role-facts line —
+    # the rest of the entry (company/role/dates/bullets) must still be
+    # there, or this is just re-testing "an entire entry vanished".
+    for probe in (entry.company, entry.role, entry.bullets[0]):
+        assert _content_present(probe, mutated_text_norm), (
+            f"test setup: {probe!r} must still render — the mutation must "
+            f"be selective to _role_facts_line, not the whole entry"
+        )
+
+    missing = _missing_sections(TailoredCVData, instance, mutated_text_norm)
+    missing_by_field = dict(missing)
+    work_history_gaps = missing_by_field.get("work_history", [])
+    for field_name, value in (
+        ("team_size", str(entry.team_size)),
+        ("budget_managed", entry.budget_managed),
+        ("industry_context", entry.industry_context),
+    ):
+        assert value in work_history_gaps, (
+            f"dropping _role_facts_line's rendering must be caught as a "
+            f"missing work_history probe for {field_name} ({value!r}) — "
+            f"got work_history gaps: {work_history_gaps}"
+        )
+
+
+def test_office_export_omits_a_unit_less_budget_figure():
+    """Finding 2 (E057 adversarial review), related unexercised shape #1: a
+    `budget_managed` the display filter REJECTS — a bare, unit-less number
+    (`budget_display("6000000")` -> `""`, #382 PO decision 2026-08-08) —
+    had no coverage anywhere in this file. Not exercising it is a real gap
+    in the opposite direction from the other two: every OTHER probe in
+    this suite is expected to SURVIVE the round trip; this one is expected
+    to be DELIBERATELY OMITTED, and nothing here proved the office export
+    honours that (as opposed to printing the bare, meaningless figure — the
+    ORIGINAL #382 defect, on a second surface).
+
+    This is deliberately NOT folded into `CV_DE`/`CV_EN` (the fixtures
+    every OTHER gate in this file walks expecting full survival): a probe
+    this filter is SUPPOSED to drop would make
+    `test_office_export_section_parity_survives_extraction` report a false
+    failure on correct behaviour, which is exactly the "fix that makes
+    correct output fail" trap task 1's own brief warns against. A
+    dedicated, local fixture keeps that contract intact.
+    """
+    dumped = CV_DE.model_dump()
+    dumped["work_history"][0]["budget_managed"] = "6000000"
+    instance = TailoredCVData.model_validate(dumped)
+
+    docx_bytes = _CV_CASE.render(instance, "de")
+    text_norm = _norm_probe(extract_docx_text(docx_bytes))
+
+    assert "6000000" not in text_norm, (
+        "a bare, unit-less budget figure must be OMITTED from the office "
+        "export (budget_display's #382 contract) — found it printed raw"
+    )
+    # Positive control: the rest of the entry the label/value pair would
+    # have sat next to still renders — this is a targeted omission, not a
+    # side effect of the whole entry (or the whole role-facts line, which
+    # still carries team_size/industry_context) going missing.
+    assert _content_present(str(instance.work_history[0].team_size), text_norm)
+    assert _content_present(instance.work_history[0].industry_context, text_norm)
+    assert _content_present(instance.work_history[0].company, text_norm)
+
+
+def test_office_export_education_title_dedup_survives_the_round_trip():
+    """Finding 2 (E057 adversarial review), related unexercised shape #2: a
+    degree that repeats its own field (`degree="Industriemeister Metall"`,
+    `field="Metall"` — #548's real ground truth, ``education_title``'s own
+    doctest) had no coverage anywhere in this file either.
+
+    Asserts BOTH directions, which plain substring-containment checks
+    (`_content_present` / gate 2) structurally cannot: the deduped form
+    MUST be present (content survived), AND the redundant, un-deduped form
+    MUST NOT be present (format is actually deduped, not just "some text
+    resembling it exists somewhere") — the "different assertion that DOES
+    catch it" the review asked for, since presence-of-the-deduped-form
+    alone would pass even if dedup silently stopped firing (the redundant
+    form CONTAINS the deduped form as a prefix).
+    """
+    dumped = CV_DE.model_dump()
+    dumped["education"] = [
+        {
+            "institution": "IHK Ausbildungszentrum",
+            "degree": "Industriemeister Metall",
+            "field": "Metall",
+            "start_date": "2009-09",
+            "end_date": "2011-06",
+        }
+    ]
+    instance = TailoredCVData.model_validate(dumped)
+
+    docx_bytes = _CV_CASE.render(instance, "de")
+    text_norm = _norm_probe(extract_docx_text(docx_bytes))
+
+    assert _norm_probe("Industriemeister Metall") in text_norm, (
+        "the deduped degree title must survive the round trip"
+    )
+    assert _norm_probe("Industriemeister Metall, Metall") not in text_norm, (
+        "the REDUNDANT, un-deduped form must not appear — education_title's "
+        "dedup (#548) must actually have fired on the office export, "
+        "exactly as it does in all seven PDF templates"
+    )
+
+
+def test_presence_disagreements_cannot_see_education_title_dedup_diverge():
+    """Finding 2 (E057 adversarial review): PROVES, rather than just
+    asserts in prose, the blind spot `_presence_disagreements`'s own
+    docstring must disclose (task brief: "do not pretend a fixture change
+    fixes that; state it in the docstring") — gate 3 cannot catch a
+    genuine education_title divergence between the two artifacts even in
+    principle, because `field`'s raw value ("Metall") is a SUBSTRING of
+    `degree`'s own rendered text ("Industriemeister Metall") regardless of
+    whether dedup fired on either side.
+
+    Constructed directly against two hand-built normalised "extracted
+    text" strings — `_presence_disagreements` is a pure function of
+    normalised text, so the SAME genuine divergence a real writer bug
+    would produce (one artifact deduped, one not — #548's actual shape,
+    reproduced with the roles reversed here since the .docx side is the
+    one that HAS the fix) is exercised exactly, with no Playwright/real
+    PDF render needed to prove a negative result about text this test
+    fully controls.
+
+    The two hand-built strings ALSO diverge on `institution` (present in
+    one, absent from the other) — proof that this test's texts are not
+    just uniformly missing everything (which would make "no disagreement
+    for `field`" a vacuous, meaningless pass): the checker DOES flag the
+    institution divergence, and STILL misses the field one, in the exact
+    same pair of strings.
+    """
+    dumped = CV_DE.model_dump()
+    dumped["education"] = [
+        {
+            "institution": "IHK Ausbildungszentrum",
+            "degree": "Industriemeister Metall",
+            "field": "Metall",
+            "start_date": "2009-09",
+            "end_date": "2011-06",
+        }
+    ]
+    instance = TailoredCVData.model_validate(dumped)
+
+    # A genuine divergence: one artifact renders the deduped form, the
+    # other (hypothetically, a regression) renders the redundant form —
+    # AND the docx side additionally carries the institution name, the pdf
+    # side does not (the real, catchable divergence proving this checker
+    # is not just blind to everything in this constructed pair of strings).
+    pdf_text_norm = _norm_probe("Lebenslauf Industriemeister Metall, Metall 09/2009")
+    docx_text_norm = _norm_probe(
+        "Lebenslauf IHK Ausbildungszentrum Industriemeister Metall 09/2009"
+    )
+
+    disagreements = _presence_disagreements(instance, pdf_text_norm, docx_text_norm)
+
+    institution_disagreements = [d for d in disagreements if d[0] == "education[0].institution"]
+    assert institution_disagreements, (
+        "test sanity: the checker must catch the institution divergence "
+        "these hand-built strings genuinely contain — if it does not, "
+        "this test's texts are not exercising the checker at all, and "
+        "the assertion below would be vacuous"
+    )
+
+    field_disagreements = [d for d in disagreements if d[0] == "education[0].field"]
+    assert not field_disagreements, (
+        "this IS the disclosed blind spot, not a new failure: "
+        "_presence_disagreements cannot see education[].field diverge "
+        "here — 'Metall' is a substring of the degree's own rendered text "
+        "on BOTH sides regardless of whether dedup fired, so presence "
+        "agrees on both sides for reasons unrelated to whether the "
+        "artifacts actually match (proven alongside a divergence — "
+        "institution, above — that this SAME checker call DOES catch). "
+        "If this assertion ever fails, the checker gained a way to catch "
+        "this — update it and the disclosure in _presence_disagreements' "
+        "own docstring together, rather than leaving one stale."
     )
 
 
