@@ -711,6 +711,14 @@ Mit dem Einreichen eines Pull Requests stimmst du dem [Applire CLA](CLA.md) zu. 
 
 ---
 
+## 💛 Projekt unterstützen
+
+Applire entsteht nebenberuflich bei einem Solo-Gründer und bleibt vollständig Open Source (AGPL-3.0, keine zurückgehaltenen Features). Jedes Feature und jedes Release wird vor dem Ausliefern gegen **echte LLM-Anbieter** geprüft — adversariale Pässe, blinde Hiring-Panel-Reviews, Agent-Kanal-Journeys — und Applire entsteht öffentlich gemeinsam mit KI-Coding-Agenten. Sponsoring bezahlt genau das: die API-Credits, die KI-Coding-Werkzeuge und die Infrastruktur hinter applire.de und den Release-Images.
+
+Wenn Applire dir einen Abend Lebenslauf-Feinschliff erspart, überlege, **[das Projekt auf GitHub zu sponsern](https://github.com/sponsors/Applire)**. Sponsoren werden in den Release-Notes und hier im README genannt, und jeder Release-Beitrag nennt, was das Sponsoring in diesem Zyklus bezahlt hat.
+
+---
+
 ## 💬 Community & Support
 
 ### Hilfe bekommen

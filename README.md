@@ -698,6 +698,14 @@ By submitting a pull request you agree to the [Applire CLA](CLA.md). This allows
 
 ---
 
+## 💛 Support the project
+
+Applire is built part-time by a solo founder and stays fully open source (AGPL-3.0, no feature held back). Every feature and every release is checked against **real LLM providers** before it ships — adversarial passes, blind hiring-panel reviews, agent-channel journeys — and Applire is built in public together with AI coding agents. Sponsorship pays for exactly that: the API credits, the AI coding tools, and the infrastructure behind applire.de and the release images.
+
+If Applire saves you an evening of CV tailoring, consider **[sponsoring the project on GitHub](https://github.com/sponsors/Applire)**. Sponsors are named in the release notes and here in the README, and every release post states what sponsorship paid for in that cycle.
+
+---
+
 ## 💬 Community & Support
 
 ### Get Help
