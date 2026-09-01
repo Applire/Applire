@@ -292,3 +292,282 @@ def classify_certification_dupe(
             verdict.ambiguous.append(entry)
 
     return verdict
+
+
+# ── #618 (education half): education identity — date-range + institution-noise
+# fold + a purely mechanical degree fold ──────────────────────────────────────
+# A two-source import produced the SAME apprenticeship twice under Education:
+# one source names the institution by its long legal form and the degree by an
+# EN-ish job-title-shaped phrase; the other names the institution by its short
+# colloquial name and the degree by the DE qualification name, and states the
+# same date range at coarser precision (year-only vs month+year). The plain
+# ``classify_dupe`` natural key (institution, degree) folds neither the
+# institution alias nor the date-precision difference, so the pair created two
+# rows (#618; see ``test_the_applier_natural_key_cannot_recognise_this_pair``
+# in ``test_618_reconcile_no_duplicate_after_set_field.py`` for the ground
+# truth that pinned this as ``classify_dupe``'s own gap, not a batch-shape bug).
+
+_EDU_NEAR_DUPE_JACCARD = 0.75  # own name/value — mirrors _CERT_NEAR_DUPE_JACCARD's
+# own comment: a future retune of the skills/cert threshold must not silently
+# retune this one as a side effect.
+
+# Legal-form and generic institution-type words, DROPPED (not folded) from an
+# institution name before comparison — purely mechanical, no translation
+# judgement. "Partner für Bildung" is the multi-word descriptor tail observed
+# in real school-operator names; "für" itself also has to be dropped as its
+# own token since skill_tokens only drops the English "for" as a stopword.
+_EDU_INSTITUTION_DROP_TOKENS = frozenset({
+    "gmbh", "co", "kg", "ag", "mbh", "ug", "ev",
+    "hochschule", "universität", "universitat", "universitaet", "university",
+    "fachhochschule", "fh", "schule", "school", "akademie", "academy",
+    "institut", "institute", "college",
+    "partner", "für", "bildung", "education",
+})
+
+# A SMALL, purely mechanical German-preposition/conjunction fold for degree
+# text, routed through the same drop skill_tokens already gives "for"/"and"/
+# "with" (English stopwords) — mirrors _CERT_TOKEN_FOLD's "für"->"for" trick.
+# Deliberately NOT an EN/DE occupational-title translator: folding a
+# "Computer System Developer" / "Fachinformatiker Anwendungsentwicklung"-shaped
+# pair is a semantic judgement ADR-062 clause 1 reserves for the model — the
+# same ruling ``test_the_applier_natural_key_cannot_recognise_this_pair``
+# already draws for ``classify_dupe`` itself (see that test's own docstring).
+# See ``classify_education_dupe``'s docstring for what this means downstream:
+# a degree pair the fold cannot bridge does not make the pair DISTINCT, it
+# makes the whole entry AMBIGUOUS once the institution already says SAME.
+_EDU_DEGREE_TOKEN_FOLD: dict[str, str] = {
+    "für": "for",
+    "und": "and",
+    "mit": "with",
+}
+_EDU_DEGREE_DROP_TOKENS = frozenset({"for", "and", "with"})
+
+
+def _edu_institution_tokens(name: str) -> frozenset[str]:
+    """Institution token set with legal-form/generic-institution-type noise
+    dropped — see :data:`_EDU_INSTITUTION_DROP_TOKENS`. Purely subtractive,
+    built on the shared :func:`skill_tokens` tokeniser."""
+    return frozenset(
+        t for t in skill_tokens(name) if t not in _EDU_INSTITUTION_DROP_TOKENS
+    )
+
+
+def _edu_degree_tokens(name: str) -> frozenset[str]:
+    """Degree token set with the small mechanical preposition/conjunction fold
+    applied — see :data:`_EDU_DEGREE_TOKEN_FOLD`."""
+    folded = {_EDU_DEGREE_TOKEN_FOLD.get(t, t) for t in skill_tokens(name)}
+    return frozenset(t for t in folded if t not in _EDU_DEGREE_DROP_TOKENS)
+
+
+def _token_set_relation(
+    ta: frozenset[str], tb: frozenset[str], *, jaccard: float
+) -> int | None:
+    """SAME/AMBIGUOUS/DISTINCT over two pre-tokenised sets — the same policy
+    :func:`_cert_name_relation` implements for certifications, generalised
+    here so the education instrument below does not re-implement it a second
+    time. The two classifiers stay independent copies on purpose (editing one
+    must never silently change the other's behaviour): exact equality, or
+    containment where the contained side has >= 2 tokens, or a Jaccard
+    overlap >= ``jaccard`` -> SAME; a bare single-token containment ->
+    AMBIGUOUS (never silent identity — the #172 rule); any other evidenced
+    pair -> DISTINCT. ``None`` when either set is empty (no evidence).
+    """
+    if not ta or not tb:
+        return None
+    if ta == tb:
+        return _SAME
+    if ta <= tb and len(ta) >= 2:
+        return _SAME
+    if tb <= ta and len(tb) >= 2:
+        return _SAME
+    if len(ta & tb) / len(ta | tb) >= jaccard:
+        return _SAME
+    if (ta < tb and len(ta) == 1) or (tb < ta and len(tb) == 1):
+        return _AMBIG
+    return _DISTINCT
+
+
+def _edu_institution_relation(a: str | None, b: str | None) -> int | None:
+    """Institution identity: the STRONGER of two signals wins (never vetoes).
+
+    PLAIN — the existing ``classify_dupe`` behaviour (:func:`_field_relation`
+    on the raw name), unchanged, so an already-working case like "Universität
+    Würzburg" contained in "Julius-Maximilians-Universität Würzburg" keeps
+    matching (the word "Universität" surviving as a token is exactly what
+    lets that 2-token containment clear the >= 2 floor).
+
+    STRIPPED — the noise-dropped relation (:func:`_edu_institution_tokens`),
+    which catches an alias pair where the generic word IS what differs:
+    "Provadis Partner für Bildung GmbH" / "Provadis Hochschule"-shaped pairs
+    share no raw token at all, but both reduce to a single shared distinctive
+    token once legal-form/institution-type noise is dropped from both sides.
+
+    The combination is ``max(plain, stripped)`` (SAME > AMBIGUOUS > DISTINCT):
+    stripping never loses a match the plain signal already had, and the plain
+    signal never blocks a match only the stripped one can see.
+    """
+    if not a or not b:
+        return None
+    plain = _field_relation(a, b, containment_is_same=False)
+    stripped = _token_set_relation(
+        _edu_institution_tokens(a), _edu_institution_tokens(b),
+        jaccard=_EDU_NEAR_DUPE_JACCARD,
+    )
+    candidates = [r for r in (plain, stripped) if r is not None]
+    return max(candidates) if candidates else None
+
+
+def _edu_degree_relation(a: str | None, b: str | None) -> int | None:
+    """Degree identity over the mechanically-folded token set
+    (:func:`_edu_degree_tokens`) — see :func:`classify_education_dupe`'s
+    docstring for why this deliberately does not attempt EN/DE
+    occupational-title translation."""
+    if not a or not b:
+        return None
+    return _token_set_relation(
+        _edu_degree_tokens(a), _edu_degree_tokens(b), jaccard=_EDU_NEAR_DUPE_JACCARD
+    )
+
+
+# ── education date-range relation ──────────────────────────────────────────────
+# EducationEntry.start_date/end_date are free-form strings, NOT run through
+# schemas.profile._coerce_partial_date (that helper doesn't even parse
+# "09/2002" — see apply.py's _apply_upsert_education, which keeps them raw).
+
+_EDU_MONTH_YEAR_RE = re.compile(r"\b(0[1-9]|1[0-2])[./](\d{4})\b")   # "09/2002", "09.2002"
+_EDU_YEAR_MONTH_RE = re.compile(r"\b(\d{4})[-/.](0[1-9]|1[0-2])\b")  # "2002-09"
+_EDU_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")                      # "2002"
+
+
+def _parse_edu_date(value: str | None) -> tuple[int, int | None] | None:
+    """Best-effort ``(year, month)`` from a free-form education date string.
+    ``month`` is ``None`` when only a year could be read; the whole result is
+    ``None`` when nothing date-shaped is found at all."""
+    if not value:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    m = _EDU_MONTH_YEAR_RE.search(s)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    m = _EDU_YEAR_MONTH_RE.search(s)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = _EDU_YEAR_RE.search(s)
+    if m:
+        return int(m.group(0)), None
+    return None
+
+
+def _edu_ordinal(year: int, month: int | None, *, is_end: bool) -> int:
+    """Month-resolution ordinal. A missing month expands to the COARSEST bound
+    for its role — January for a range start, December for a range end — so a
+    bare year "2002" reads as "no earlier than Jan 2002" when it is a start
+    and "no later than Dec 2002" when it is an end."""
+    if month is None:
+        month = 12 if is_end else 1
+    return year * 12 + (month - 1)
+
+
+def _edu_range(start: str | None, end: str | None) -> tuple[int, int] | None:
+    """``(lo, hi)`` month-ordinal range from an entry's start/end date
+    strings, at whatever precision is available. ``None`` when neither side
+    parses to anything date-shaped."""
+    parsed_start = _parse_edu_date(start)
+    parsed_end = _parse_edu_date(end)
+    if parsed_start is None and parsed_end is None:
+        return None
+    lo = _edu_ordinal(*parsed_start, is_end=False) if parsed_start else None
+    hi = _edu_ordinal(*parsed_end, is_end=True) if parsed_end else None
+    if lo is None:
+        lo = hi
+    if hi is None:
+        hi = lo
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo, hi
+
+
+def _edu_date_relation(
+    a_start: str | None, a_end: str | None, b_start: str | None, b_end: str | None
+) -> int | None:
+    """Date-range identity (#618): one range containing (or equalling) the
+    other — at whatever precision each side states, a bare year expanding to
+    Jan-Dec of that year — is SAME ("2002–2005" contains "09/2002–01/2005").
+    A partial, non-containing overlap is AMBIGUOUS; no overlap at all is
+    DISTINCT; unparseable/absent dates on either side are no evidence at all
+    (``None``) and never veto a match built on the other two signals."""
+    ra = _edu_range(a_start, a_end)
+    rb = _edu_range(b_start, b_end)
+    if ra is None or rb is None:
+        return None
+    (a_lo, a_hi), (b_lo, b_hi) = ra, rb
+    if a_lo <= b_lo and b_hi <= a_hi:
+        return _SAME
+    if b_lo <= a_lo and a_hi <= b_hi:
+        return _SAME
+    if a_hi < b_lo or b_hi < a_lo:
+        return _DISTINCT
+    return _AMBIG
+
+
+def classify_education_dupe(
+    *,
+    institution: str,
+    degree: str,
+    start_date: str | None,
+    end_date: str | None,
+    existing: list[Any],
+    institution_getter: Callable[[Any], str | None],
+    degree_getter: Callable[[Any], str | None],
+    start_date_getter: Callable[[Any], str | None],
+    end_date_getter: Callable[[Any], str | None],
+) -> DupeVerdict:
+    """New-entry guard for ``EducationEntry`` identity (#618 education half).
+
+    Institution is the REQUIRED anchor (mirrors
+    :func:`classify_certification_dupe`'s credential-id/name anchor): a
+    DISTINCT or unevidenced institution rules an existing entry out as a
+    candidate entirely, regardless of degree or dates. Once the institution
+    says SAME, degree and dates are corroborators that can only ESCALATE the
+    verdict to AMBIGUOUS — never silently downgrade it to DISTINCT. The
+    failure this closes is a silent SECOND ROW; silently assuming two
+    differently-worded degree titles are the same qualification would only
+    trade that for an equally silent WRONG MERGE. Neither is acceptable, so
+    the deterministic layer surfaces the question instead — the caller raises
+    ``RequestConfirmation`` on an AMBIGUOUS verdict (mirrors every other
+    ``_apply_upsert_*`` dupe classifier in this module; this function never
+    raises anything itself).
+
+    See :func:`_edu_institution_relation` for the institution fold (two
+    combined signals — plain containment AND legal-form-noise-stripped
+    aliasing), :func:`_edu_degree_relation` for the degree fold (a small
+    mechanical preposition fold ONLY — deliberately not an EN/DE
+    occupational-title translator, see its docstring), and
+    :func:`_edu_date_relation` for the date-range containment/overlap signal.
+
+    An AMBIGUOUS institution signal (bare single-token containment) parks
+    regardless of degree/dates, mirroring how ``classify_certification_dupe``
+    treats an AMBIGUOUS name relation.
+    """
+    verdict = DupeVerdict()
+    for entry in existing:
+        inst_rel = _edu_institution_relation(institution, institution_getter(entry))
+        if inst_rel is None or inst_rel == _DISTINCT:
+            continue
+        if inst_rel == _AMBIG:
+            verdict.ambiguous.append(entry)
+            continue
+        # inst_rel == _SAME — the anchor holds. Degree/dates may only escalate
+        # to AMBIGUOUS from here, never veto to DISTINCT (see docstring).
+        degree_rel = _edu_degree_relation(degree, degree_getter(entry))
+        date_rel = _edu_date_relation(
+            start_date, end_date, start_date_getter(entry), end_date_getter(entry)
+        )
+        if degree_rel in (_DISTINCT, _AMBIG) or date_rel in (_DISTINCT, _AMBIG):
+            verdict.ambiguous.append(entry)
+            continue
+        verdict.match = entry
+        return verdict
+    return verdict

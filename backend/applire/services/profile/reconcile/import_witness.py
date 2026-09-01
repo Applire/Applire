@@ -41,12 +41,18 @@ table, imported here rather than copied), CARRIED when:
 
   (a) the natural key is present in the merged profile, or
   (b) the merge's OWN near-dupe instrument matches it to a merged entry of
-      that section — ``dedupe.classify_dupe`` on the label, for the six FLAT
-      sections (skills, languages, certifications, education, publications,
-      signature_stories); the date-aware ``dedupe.classify_engagement_dupe``,
-      MATCH ONLY (an AMBIGUOUS verdict does not rescue — the entry stays
-      listed, the caller judges), for the three ENGAGEMENT sections
-      (work_experience, projects, volunteer_activities); or
+      that section — ``dedupe.classify_dupe`` on the label, for the four FLAT
+      sections with no section-aware instrument of their own (skills,
+      languages, publications, signature_stories); the section-aware
+      instruments the real applier itself uses for the other two FLAT
+      sections — ``dedupe.classify_certification_dupe`` (certifications) and
+      ``dedupe.classify_education_dupe`` (education, #618) — so this witness
+      can never report a pair the applier just merged as a loss (the N1
+      shape, ADR-066: one logical operation, one implementation); the
+      date-aware ``dedupe.classify_engagement_dupe``, MATCH ONLY (an
+      AMBIGUOUS verdict does not rescue — the entry stays listed, the caller
+      judges), for the three ENGAGEMENT sections (work_experience, projects,
+      volunteer_activities); or
   (c) an emitted op for that section carries it: an ``upsert_<section>`` op
       whose own declared natural-key field(s), normalised, equal the
       incoming entry's — this closes the gap arm (b) cannot: an op that
@@ -110,6 +116,7 @@ from applire.services.profile.reconcile.dedupe import (
     _SAME,
     classify_certification_dupe,
     classify_dupe,
+    classify_education_dupe,
     classify_engagement_dupe,
 )
 from applire.services.profile.reconcile.ops import (
@@ -244,6 +251,26 @@ def _flat_section_not_applied(
                 name_getter=lambda c: getattr(c, "name", None),
                 org_getter=lambda c: getattr(c, "issuing_organization", None),
                 credential_id_getter=lambda c: getattr(c, "credential_id", None),
+            )
+        elif section == "education":
+            # #618 (education half) — same N1 shape as certifications above:
+            # the REAL applier (`_apply_upsert_education`) decides identity
+            # with the education-aware instrument (institution-alias fold,
+            # date-range containment, mechanical degree fold) since this
+            # session; the generic label dupe would otherwise report a pair
+            # the applier itself just merged as a loss (ADR-066 — one logical
+            # operation, one implementation; the exact seam #618's cert half
+            # closed for certifications, mirrored here for education).
+            verdict = classify_education_dupe(
+                institution=getattr(entry, "institution", None),
+                degree=getattr(entry, "degree", None),
+                start_date=getattr(entry, "start_date", None),
+                end_date=getattr(entry, "end_date", None),
+                existing=merged_entries,
+                institution_getter=lambda e: getattr(e, "institution", None),
+                degree_getter=lambda e: getattr(e, "degree", None),
+                start_date_getter=lambda e: getattr(e, "start_date", None),
+                end_date_getter=lambda e: getattr(e, "end_date", None),
             )
         else:
             incoming_dict = {f: getattr(entry, f, None) for f in fields}
