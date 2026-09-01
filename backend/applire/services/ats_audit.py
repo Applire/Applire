@@ -633,12 +633,17 @@ def _keyword_coverage(
 
 
 def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
+    # E057/ADR-079 clause 4: not_applicable is its own bucket, counted the same
+    # way passed/failed are (a sum over status equality) — never derived as
+    # "whatever's left over", so a status this function doesn't yet know about
+    # would undercount everywhere rather than silently inflating one bucket.
     return ATSReport(
         document=document,
         checks=checks,
         keywords=coverage,
         passed=sum(1 for c in checks if c.status == "pass"),
         failed=sum(1 for c in checks if c.status == "fail"),
+        not_applicable=sum(1 for c in checks if c.status == "not_applicable"),
     )
 
 

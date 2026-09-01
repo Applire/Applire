@@ -205,6 +205,40 @@ async def test_render_agent_cv_show_photo_false_strips_entirely(seeded):
 
 
 @pytest.mark.asyncio
+async def test_render_agent_cv_ats_report_not_applicable_persisted_and_excluded(seeded):
+    """E057/ADR-079 clause 4 groundwork (#629, story #637) — the CV twin of
+    test_render_agent_letter_ats_report_not_applicable_persisted_and_excluded.
+    Unlike the letter pipeline, production no longer calls the audit_cv
+    wrapper (see its docstring) — services/cv._update_ats_report calls
+    _audit_cv_text directly, so that is the patch target here. This
+    substitutes _audit_cv_text's RETURN VALUE for one test only; it does not
+    modify the frozen function's source, which this task's non-goals
+    forbid."""
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.cv import render_agent_cv
+
+    report = ATSReport(
+        document="cv",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+        not_applicable=1,
+    )
+    p1, p2, p3 = _cv_render_patches()
+    with p1, p2, p3, patch("applire.services.ats_audit._audit_cv_text", return_value=report):
+        record = await render_agent_cv(dict(AGENT_CV_CONTENT), seeded["job_id"], seeded["db"])
+
+    assert record.ats_report is not None
+    assert record.ats_report["passed"] == 1
+    assert record.ats_report["failed"] == 0
+    assert record.ats_report["not_applicable"] == 1
+
+
+@pytest.mark.asyncio
 async def test_render_agent_cv_unknown_field_rejected_with_path(seeded):
     from applire.services.cv import render_agent_cv
 
@@ -302,6 +336,45 @@ async def test_render_agent_letter_chrome_injected_when_absent(seeded):
     # photo stripped; body verbatim
     assert cl.letter_data["header"]["photo_url"] is None
     assert cl.letter_data["body"]["paragraphs"] == AGENT_LETTER_CONTENT["body"]["paragraphs"]
+
+
+@pytest.mark.asyncio
+async def test_render_agent_letter_ats_report_not_applicable_persisted_and_excluded(seeded):
+    """E057/ADR-079 clause 4 groundwork (#629, story #637): render_agent_letter
+    persists whatever ATSReport the audit engine returns verbatim — a
+    not_applicable check must survive that path with its count in its own
+    bucket, never folded into passed/failed. No producer emits one yet; this
+    mocks the audit engine's return value the same way _letter_patches() does
+    above, just with a not_applicable check added."""
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+    from applire.services.cover_letter import render_agent_letter
+
+    report = ATSReport(
+        document="cover_letter",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=0,
+        not_applicable=1,
+    )
+    with (
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            new=AsyncMock(return_value=b"%PDF"),
+        ),
+        patch("applire.services.ats_audit.audit_cover_letter", return_value=report),
+    ):
+        cl = await render_agent_letter(
+            dict(AGENT_LETTER_CONTENT), seeded["job_id"], seeded["db"]
+        )
+
+    assert cl.ats_report is not None
+    assert cl.ats_report["passed"] == 1
+    assert cl.ats_report["failed"] == 0
+    assert cl.ats_report["not_applicable"] == 1
 
 
 @pytest.mark.asyncio

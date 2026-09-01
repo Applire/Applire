@@ -79,6 +79,30 @@ const MOCK_ATS_REPORT = {
   },
 };
 
+// E057/ADR-079 clause 4 groundwork (#629, story #637): a not_applicable
+// check must render distinguishably in the mobile ATS sheet and must never
+// inflate the pass-count badge. No producer constructs one in a real report
+// yet — this is a synthetic fixture, same status as MOCK_ATS_REPORT above.
+const MOCK_ATS_REPORT_WITH_NOT_APPLICABLE = {
+  report: {
+    checks: [
+      { id: "contact-name", status: "pass" },
+      { id: "skills", status: "pass" },
+      {
+        id: "page-length",
+        status: "not_applicable",
+        details: "page count is not defined for this export format",
+      },
+    ],
+    keywords: {
+      present: ["TypeScript", "React"],
+      missing: [],
+      missing_claimable: [],
+      missing_honest_gap: [],
+    },
+  },
+};
+
 async function setupCvMocks(page: import("@playwright/test").Page) {
   await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_STATE) })
@@ -139,6 +163,48 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.screenshot({ path: testInfo.outputPath("cv-review-ats-sheet.png"), fullPage: true });
     await testInfo.attach("cv-review-ats-sheet", {
       path: testInfo.outputPath("cv-review-ats-sheet.png"),
+      contentType: "image/png",
+    });
+
+    await page.getByTestId("command-sheet-close").tap();
+    await expect(sheet).toBeHidden({ timeout: 5000 });
+  });
+
+  // E057/ADR-079 clause 4 groundwork (#629, story #637): the third check
+  // state renders distinguishably in the real mobile sheet (not the compact
+  // desktop card) and never inflates the pass-count badge.
+  test("ATS sheet renders a not_applicable check distinctly and never inflates the pass badge", async ({
+    page,
+  }, testInfo) => {
+    // Overrides the beforeEach mock for this one test — Playwright routes
+    // registered later win, so this replaces MOCK_ATS_REPORT for this test only.
+    await page.route(`**/api/cv/${CV_ID}/ats-report`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(MOCK_ATS_REPORT_WITH_NOT_APPLICABLE),
+      })
+    );
+
+    await page.goto(`/flow/${FLOW_ID}/cv`);
+    await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
+
+    // The badge counts only the 2 genuine passes — a not_applicable check
+    // must never inflate it (the exact fold this task exists to prevent).
+    await expect(page.getByTestId("command-ats-badge")).toHaveText("2", { timeout: 5000 });
+
+    await page.getByTestId("command-ats").tap();
+    const sheet = page.getByTestId("command-sheet");
+    await expect(sheet).toBeVisible({ timeout: 5000 });
+    // Rendered in its own neutral row — never as a pass, never as a failure.
+    await expect(sheet.getByTestId("ats-notapplicable-page-length")).toBeVisible();
+
+    await page.screenshot({
+      path: testInfo.outputPath("cv-review-ats-sheet-not-applicable.png"),
+      fullPage: true,
+    });
+    await testInfo.attach("cv-review-ats-sheet-not-applicable", {
+      path: testInfo.outputPath("cv-review-ats-sheet-not-applicable.png"),
       contentType: "image/png",
     });
 

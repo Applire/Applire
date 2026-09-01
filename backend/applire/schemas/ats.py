@@ -23,7 +23,16 @@ from pydantic import BaseModel, Field
 
 class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
-    status: Literal["pass", "fail"]
+    # E057/ADR-079 clause 4: a THIRD status, `not_applicable`, for a check that
+    # genuinely cannot be evaluated on the artefact (e.g. the page-length band
+    # on a `.docx` export, which has no fixed pagination until a renderer lays
+    # it out). Counted in its own bucket by `_finish()` — never folded into
+    # `passed`/`failed`, and never silently absent, which is worse: an absent
+    # check is invisible to both counters and reads as a clean, complete audit
+    # of something that was never examined (the #634 failure class). Nothing
+    # in this codebase constructs a `not_applicable` check yet — this widening
+    # is groundwork only; the producer is a separate, pending decision.
+    status: Literal["pass", "fail", "not_applicable"]
     details: Optional[str] = None  # human-readable EN diagnostic; frontend translates labels by id
     # E042 follow-up (ADR-038 chrome discipline): machine-readable variant of `details`
     # for user-facing bands the frontend localises (currently the page-length band).
@@ -100,8 +109,27 @@ class ATSReport(BaseModel):
     checks: list[ATSCheck]
     keywords: ATSKeywordCoverage
     # convenience counts — NOT a score (ADR-039/ADR-035): the UI shows the list, never a percentage
+    # E057/ADR-079 clause 4: both EXCLUDE not_applicable checks by construction
+    # (_finish sums on status equality) — a not_applicable check is neither a
+    # pass nor a fail, at this layer or any layer that reports a total.
     passed: int
     failed: int
+    # E057/ADR-079 clause 4: the not_applicable bucket, counted separately —
+    # same back-compat shape as `PinnedFactReportEntry.ledger_conflict` below,
+    # deliberately not the same shape as `passed`/`failed` (plain, required
+    # `int`). Those two are safe as required fields because every report ever
+    # persisted was computed by a version of `_finish()` that populated them;
+    # `not_applicable` did not exist before this field, so a persisted report
+    # from before this change has no key for it at all.
+    #   * `None` = the report predates this field — audited under the old
+    #     two-value pass/fail vocabulary, where `not_applicable` could not
+    #     have been assigned to any check. Never read as "confirmed zero";
+    #     the schema never gave that report the chance to say so.
+    #   * an int (including `0`) = computed by `_finish()` under the current
+    #     three-value schema. `_finish` populates this on every call, so any
+    #     report produced from here on always carries a real, measured count
+    #     — `0` genuinely means "audited, and nothing came back not_applicable".
+    not_applicable: Optional[int] = None
     # E056/ADR-077: per-pin presence measurement (ship-and-report, never a
     # gate). None = audited without pin context (legacy reports, no pins).
     pinned_facts: Optional[list[PinnedFactReportEntry]] = None

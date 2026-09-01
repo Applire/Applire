@@ -257,6 +257,56 @@ async def test_alacarte_letter_render(seeded):
 
 
 @pytest.mark.asyncio
+async def test_alacarte_letter_render_ats_report_not_applicable_excluded_from_totals(seeded):
+    """E057/ADR-079 clause 4 groundwork (#629, story #637) — the MCP door's
+    ATS report summary. render_document echoes back whatever the audit
+    engine returns; a not_applicable check must reach the agent with its
+    count in its own bucket, never folded into passed/failed. No producer
+    constructs one yet — this mocks the audit engine's return value the same
+    way test_alacarte_letter_render does above, with a not_applicable check
+    added, and calls the REAL render_document MCP tool function so the
+    assertion covers the tool's actual JSON-serialised response shape."""
+    from applire.mcp.server import render_document
+    from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+
+    report = ATSReport(
+        document="cover_letter",
+        checks=[
+            ATSCheck(id="contact-name", status="pass"),
+            ATSCheck(id="body", status="fail", details="paragraph not found"),
+            ATSCheck(id="page-length", status="not_applicable"),
+        ],
+        keywords=ATSKeywordCoverage(present=["Python"], missing=[]),
+        passed=1,
+        failed=1,
+        not_applicable=1,
+    )
+    with (
+        patch("applire.mcp.server.get_db", return_value=_db_cm(seeded["db"])),
+        patch(
+            "applire.services.cover_letter_pdf.render_pdf",
+            new=AsyncMock(return_value=b"%PDF"),
+        ),
+        patch("applire.services.ats_audit.audit_cover_letter", return_value=report),
+    ):
+        result = await render_document(
+            document_kind="cover_letter",
+            content=dict(AGENT_LETTER_CONTENT),
+            job_id=str(seeded["job_id"]),
+        )
+
+    assert result["status"] == "ready"
+    ats_report = result["ats_report"]
+    assert ats_report is not None
+    assert ats_report["passed"] == 1
+    assert ats_report["failed"] == 1
+    assert ats_report["not_applicable"] == 1
+    # Never folded into either bucket — 3 checks total, 2 gradable.
+    assert ats_report["passed"] + ats_report["failed"] == 2
+    assert len(ats_report["checks"]) == 3
+
+
+@pytest.mark.asyncio
 async def test_unknown_field_surfaces_field_path(seeded):
     from applire.mcp.server import render_document
 
