@@ -134,6 +134,7 @@ from applire.schemas.ats import ATSReport
 from applire.schemas.cover_letter import LetterData
 from applire.schemas.cv import TailoredCVData
 from applire.services.ats_audit import _norm
+from applire.templates.filters import month_year
 from applire.services.office_export.cv_docx import _NON_SECTION_FIELDS as _CV_NON_SECTION_FIELDS
 from applire.services.office_export.cv_docx import render_cv_docx
 from applire.services.office_export.extract import (
@@ -205,7 +206,18 @@ def _missing_sections(model_cls: type, instance: Any, text_norm: str) -> list[tu
     missing: list[tuple[str, list[str]]] = []
     for field_name in sorted(model_cls.model_fields):
         probes = _string_leaves(dumped[field_name])
-        gaps = [p for p in probes if _norm_probe(p) not in text_norm]
+        # Probe with the DISPLAYED form, not the stored one. Dates are stored
+        # as `2018-03` and rendered as `03/2018` through `month_year` — the
+        # same filter all seven PDF templates use — so a raw-value probe
+        # would go red on a correctly formatted document. `month_year` is the
+        # identity on anything that is not a date, and `_string_leaves` has
+        # already dropped blanks, so no probe can collapse to "" (which would
+        # match everything and pass vacuously). Asserting the displayed form
+        # is also strictly stronger: a regression that stopped formatting
+        # dates turns this gate red instead of slipping through.
+        gaps = [
+            p for p in probes if _norm_probe(month_year(p)) not in text_norm
+        ]
         if gaps:
             missing.append((field_name, gaps))
     return missing
