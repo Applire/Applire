@@ -413,12 +413,29 @@ class TestRenderLetterDocxPassesAudit:
     test_office_export_extract.py already proved it against a hand-built
     fixture docx."""
 
-    def test_writer_output_passes_the_unchanged_letter_audit(self):
+    def test_writer_output_passes_the_unchanged_letter_audit_de(self):
         from applire.services.office_export.extract import audit_cover_letter_docx
         from applire.services.office_export.letter_docx import render_letter_docx
 
         letter = _full_letter_data()
         docx_bytes = render_letter_docx(letter, lang="de", accent_color=ACCENT)
+        report = audit_cover_letter_docx(docx_bytes, letter.model_dump(), keywords=[])
+
+        failed = [c for c in report.checks if c.status == "fail"]
+        assert not failed, f"unexpected failing checks: {failed!r}"
+        assert report.checks, "expected at least one check to have run"
+
+    def test_writer_output_passes_the_unchanged_letter_audit_en(self):
+        """The ADR-079 spike measured 0 failures for both DE and EN
+        (epic spec's Context section) — pinned for both languages, not just
+        DE, even though _audit_letter_text's own checks (contact-name,
+        contact-email, recipient-company, body-N) never touch this writer's
+        one language-varying leaf (signature's closing_punctuation)."""
+        from applire.services.office_export.extract import audit_cover_letter_docx
+        from applire.services.office_export.letter_docx import render_letter_docx
+
+        letter = _full_letter_data()
+        docx_bytes = render_letter_docx(letter, lang="en", accent_color=ACCENT)
         report = audit_cover_letter_docx(docx_bytes, letter.model_dump(), keywords=[])
 
         failed = [c for c in report.checks if c.status == "fail"]
