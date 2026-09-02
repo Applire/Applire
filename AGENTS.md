@@ -141,8 +141,10 @@ docker compose exec backend alembic upgrade head
 # or standalone:
 cd backend && alembic upgrade head
 
-# Backend unit tests (no Docker)
-pytest tests/unit/ -v --cov=applire --cov-fail-under=75
+# Backend unit tests (no Docker) — BOTH roots; this is what CI runs
+PYTHONPATH=backend pytest tests/unit/ backend/tests/unit/ -v \
+  --ignore=tests/conftest.py --ignore=backend/tests/conftest.py \
+  --cov=applire --cov-config=backend/.coveragerc --cov-fail-under=75
 
 # Backend integration tests (spins up Docker stack)
 pytest tests/test_iter*.py -v

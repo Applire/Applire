@@ -115,13 +115,22 @@ tests/
 ### Unit tests (no Docker)
 
 ```bash
-pytest tests/unit/ -v \
+PYTHONPATH=backend pytest tests/unit/ backend/tests/unit/ -v \
+  --ignore=tests/conftest.py --ignore=backend/tests/conftest.py \
   --cov=applire --cov-config=backend/.coveragerc \
   --cov-report=html:backend/htmlcov \
   --cov-fail-under=75
 ```
 
 Coverage threshold: **≥ 75%** (enforced in CI).
+
+> **There are two unit-test roots, and the gate spans both.** `tests/unit/` holds 235 files,
+> `backend/tests/unit/` a further 129, and CI's *Run unit tests with coverage* step passes both
+> paths in one invocation. Measured 2026-09-02 with `--collect-only`: the command above collects
+> **6,014** tests, `tests/unit/` alone collects **4,300**. Running only the first root therefore
+> executes 71 % of the suite and measures the 75 % gate against that smaller population — the number you get locally is then not the number CI
+> computes. `PYTHONPATH=backend` and `--cov-config=backend/.coveragerc` are part of the command,
+> not decoration: without them the imports resolve differently and so does the coverage scope.
 
 ### Frontend unit tests (Vitest)
 
