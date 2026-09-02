@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2024 Tobias Rosenbaum
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Tobias Rosenbaum
 
 import { test, expect, Page } from "@playwright/test";
 import path from "path";
@@ -9,7 +9,11 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Felix — Returning User: Profile Upload (PQ, Sprint 32)
+ * Emma — Returning Power User: profile upload (PQ)
+ *
+ * Re-assigned from `pq/felix/` on 2026-09-02: the spec's own docblock says
+ * "a returning user (with an existing profile)", which is Emma's journey.
+ * Felix is the finetuner, not the returning user.
  *
  * Validates that a returning user (with an existing profile) can navigate
  * to the "Profil aktualisieren" page via the sidebar, upload an updated CV,
@@ -17,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
  * Run locally: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
- *              npx playwright test --config=playwright.config.pq.ts tests/pq/felix/felix-profile-upload.spec.ts
+ *              npx playwright test --config=playwright.config.pq.ts tests/pq/emma/emma-profile-upload.spec.ts
  */
 
 const CV_PATH = path.join(__dirname, "../../fixtures/profiles/sample_cv.pdf");
@@ -70,7 +74,7 @@ async function runFullOnboardingFlow(page: Page): Promise<void> {
 
 // ────────────────────────────────────────────────────────────────────────────
 
-test.describe("Felix — Returning User: Profile Upload (Sprint 32 PQ)", () => {
+test.describe("Emma — Returning Power User: profile upload (PQ)", () => {
   test("sidebar 'Profil aktualisieren' navigates to /profile/upload", async ({
     page,
   }) => {

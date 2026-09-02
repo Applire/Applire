@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Tobias Rosenbaum
+
 import { test, expect, Page } from "@playwright/test";
 import path from "path";
 import fs from "fs";
@@ -6,15 +9,21 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Cover Letter — Happy path (PQ)
+ * Felix — Cover letter: generate, navigate, edit, restyle (PQ)
+ *
+ * Renamed from `cover-letter.spec.ts` on 2026-09-02 to satisfy this tier's
+ * own naming convention, `<persona>-<journey>.spec.ts`. It stays with Felix:
+ * the flow-from-scratch at the top is setup, and what it actually asserts is
+ * the finetuning surface — the body section editable and saving, and the
+ * design tab's template choice.
  *
  * Tests cover letter generation, navigation, editing, and templates.
  * Each test builds its own state from scratch via the full UI flow.
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
  * Run locally: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
- *              npx playwright test --config=playwright.config.pq.ts tests/pq/felix/cover-letter.spec.ts
- * Run in CI:   Trigger the "PQ Tests" workflow in GitHub Actions.
+ *              npx playwright test --config=playwright.config.pq.ts tests/pq/felix/felix-cover-letter.spec.ts
+ * Run in CI:   see docs/TESTING.md (the PQ tier runs inside the "Integration & E2E Tests" job).
  *
  * NOTE: This replaces tests/e2e/test_cover_letter.spec.ts which was silently
  * skipped on every run due to a broken beforeAll (GET /api/flow returned 404)
@@ -101,7 +110,7 @@ async function setupCoverLetter(page: Page): Promise<string> {
   return match ? match[1] : "";
 }
 
-test.describe("Cover Letter — Happy path (PQ)", () => {
+test.describe("Felix — Cover letter: generate, navigate, edit, restyle (PQ)", () => {
   test("US-CL01: navigates to cover-letter page after generation", async ({
     page,
   }) => {

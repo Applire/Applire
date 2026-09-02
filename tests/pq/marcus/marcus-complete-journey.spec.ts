@@ -1,4 +1,6 @@
-// tests/e2e/pq/markus-complete-journey.spec.ts
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Tobias Rosenbaum
+
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
@@ -14,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
  * Run locally: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
- *              npx playwright test --config=playwright.config.pq.ts tests/pq/marcus/markus-complete-journey.spec.ts
+ *              npx playwright test --config=playwright.config.pq.ts tests/pq/marcus/marcus-complete-journey.spec.ts
  * Run in CI:   Trigger the "PQ Tests" workflow in GitHub Actions.
  *
  * DO NOT run this file with the standard `npx playwright test` command.
@@ -52,7 +54,7 @@ async function setupCompleteJourney(page: Page): Promise<string> {
   await page.waitForLoadState('load');
 
   // Paste JD (unique token prevents flow-creation idempotency re-using a stale flow)
-  const uniqueJD = `${JD_TEXT}\n\n<!-- markus-complete-journey: ${Date.now()} -->`;
+  const uniqueJD = `${JD_TEXT}\n\n<!-- marcus-complete-journey: ${Date.now()} -->`;
   await page.getByTestId('jd-mode-text').click();
   await page.getByTestId('jd-text-input').fill(uniqueJD);
 

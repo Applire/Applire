@@ -1,4 +1,6 @@
-// tests/e2e/pq/marcus-new-user-journey.spec.ts
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Tobias Rosenbaum
+
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
