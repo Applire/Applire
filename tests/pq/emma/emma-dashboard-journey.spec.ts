@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2024 Tobias Rosenbaum
+
 import { test, expect, Page } from "@playwright/test";
 import path from "path";
 import fs from "fs";
@@ -6,7 +9,13 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Felix — Power-User Dashboard Journey (PQ, Sprint 29)
+ * Emma — Returning Power User: dashboard journey (PQ)
+ *
+ * Re-assigned from `pq/felix/` on 2026-09-02: every step below is Emma's
+ * journey, not Felix's. Emma is the RETURNING POWER USER (retention,
+ * one-click parallel tailoring); Felix is the FINETUNER (section-level
+ * editing against a live preview). The Quick Tailor step in particular is
+ * Emma's core job-to-be-done. See `Personas/Persona-and-Channel-Model.md`.
  *
  * Validates the returning-user dashboard experience end-to-end:
  *   1. New-user onboarding: CV upload + JD → gap analysis → CV generation
@@ -17,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * PQ tier: requires the full Docker stack (LLM_PROVIDER=mock).
  * Run locally: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
- *              npx playwright test --config=playwright.config.pq.ts tests/pq/felix/felix-dashboard-sprint29.spec.ts
+ *              npx playwright test --config=playwright.config.pq.ts tests/pq/emma/emma-dashboard-journey.spec.ts
  */
 
 const CV_PATH = path.join(__dirname, "../../fixtures/profiles/sample_cv.pdf");
@@ -84,7 +93,7 @@ async function runFullOnboardingFlow(page: Page): Promise<string> {
 
 // ────────────────────────────────────────────────────────────────────────────
 
-test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
+test.describe("Emma — Returning Power User: dashboard journey (PQ)", () => {
   test("returning user is redirected from / to /dashboard", async ({ page }) => {
     await runFullOnboardingFlow(page);
 
@@ -122,7 +131,7 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
   test("Open button on dashboard card navigates to the CV view (via the dossier)", async ({ page }) => {
     // E041/US235 — the dashboard card's Open button now opens the per-application
     // dossier (like the card body); the dossier header's Open CV action is where
-    // Felix actually reaches the CV. No capability is lost — same intent, one hop.
+    // Emma actually reaches the CV. No capability is lost — same intent, one hop.
     await runFullOnboardingFlow(page);
     await page.goto("/dashboard");
     await expect(page.getByTestId("dashboard-card-open-btn").first()).toBeVisible({
@@ -176,7 +185,7 @@ test.describe("Felix — Power-User Dashboard (Sprint 29 PQ)", () => {
     await expect(analyseBtn).toBeEnabled({ timeout: 3000 });
 
     // A new flow starts via the flow index, which advances the state machine.
-    // Felix already has a profile, so the flow skips cv_import and lands on
+    // Emma already has a profile, so the flow skips cv_import and lands on
     // the gap analysis step.
     await analyseBtn.click();
     await expect(page).toHaveURL(/\/flow\/.+\/gaps/, { timeout: 60000 });
