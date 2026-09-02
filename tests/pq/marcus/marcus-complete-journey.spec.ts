@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2024 Tobias Rosenbaum
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Tobias Rosenbaum
 
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
