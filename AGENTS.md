@@ -177,11 +177,13 @@ python -m applire.mcp
 Set in `.env` (copy from `.env.example`):
 
 ```env
-LLM_PROVIDER=openrouter          # mistral | requesty | openrouter | anthropic | openai | ollama
-OPENROUTER_API_KEY=your-key      # get one at openrouter.ai/keys
+LLM_PROVIDER=mistral             # mistral | requesty | openrouter | anthropic | openai | ollama
+MISTRAL_API_KEY=your-key         # …plus the matching key for whichever one you pick
 ```
 
-EU-resident options: `mistral` (EU-hosted) or `requesty` (EU endpoint, also an EU path to Claude/GPT/Gemini). `anthropic` is BYO-API-key only — a Claude subscription cannot be used. For fully offline use: `LLM_PROVIDER=ollama` and `docker compose --profile ollama up`.
+**No provider is privileged, and the choice belongs to the operator.** It decides where a user's CV and interview answers are sent, so it is made deliberately at install time — the value in `.env.example` is an example, not a recommendation, and `config.py` falls back to `mistral` only so the setting is never empty.
+
+The range on offer: `ollama` runs fully offline (`docker compose --profile ollama up` — no key, no cloud); `mistral` (EU-hosted) and `requesty` (EU endpoint, also an EU-resident route to Claude/GPT/Gemini) keep data in-region; `openrouter`, `anthropic` and `openai` are US-hosted. `anthropic` is BYO-API-key only — a Claude subscription cannot be used.
 
 ---
 

@@ -62,7 +62,12 @@ Changes that affect the open-core boundary (`applire` vs `applire.cloud`), data 
 
 - `applire.cloud.*` is cloud-only — never import it from `applire.*` directly; use the `HAS_CLOUD` guard in `config.py`
 - Do not add `NEXT_PUBLIC_*` env vars that reference cloud infrastructure
-- 100% EU data residency — do not add US-based sub-processors
+- **Where the data goes is the operator's choice, never ours.** Applire offers the full range — a
+  local model on your own machine, an EU-resident provider, or a US one — and privileges none of
+  them. Any new outbound path for user data must go through a provider abstraction the operator
+  can point elsewhere (`LLM_PROVIDER`, `EMBEDDING_PROVIDER`, …); never hardwire a third-party
+  service as the only option, and say in the docs where the data lands. A dependency with no
+  self-hosted or EU alternative narrows that choice — raise it in an issue before adding it.
 
 ## Getting Help
 
