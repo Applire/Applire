@@ -70,10 +70,17 @@ applire-core/
 │   ├── components/
 │   │   └── cv/CVPreview.tsx     # CV preview — always use srcDoc
 │   └── lib/                     # API clients, utilities
-├── tests/                       # Integration + E2E tests
+├── tests/                       # unit/ integration/ iq/ oq/ pq/ fixtures/ — see docs/TESTING.md
+│   ├── unit/                    # pytest, no Docker
+│   ├── integration/             # pytest, full Docker stack (mock LLM by default)
+│   ├── iq/                      # Playwright — Installation Qualification (stack up + reachable)
+│   ├── oq/                      # Playwright — Operational Qualification (pages vs. mocked API)
+│   ├── pq/                      # Playwright — Performance Qualification (persona journeys, one dir per persona)
+│   ├── fixtures/                # Sample CVs, JDs, downloads
+│   └── test_iter*.py            # Legacy per-iteration API tests
 ├── docs/
 │   ├── ARCHITECTURE.md          # Architecture decisions (start here)
-│   ├── TESTING.md               # Test strategy and commands
+│   ├── TESTING.md               # Test strategy, vocabulary, and commands
 │   └── CI_CD_GUIDE.md
 ├── docker-compose.yml           # Full stack (postgres, backend, frontend, nginx, retention)
 ├── .env.example                 # Environment template — copy to .env
@@ -84,7 +91,7 @@ applire-core/
 
 ## Contributing Workflow
 
-1. **Create a feature branch**: `git checkout -b feature/my-change` (never commit directly to `main`).
+1. **Create a feature branch**: `git checkout -b feat/<kebab-name>` (e.g. `feat/master-profile-health`) — never commit directly to `main`.
 2. **Plan before coding** — for non-trivial work, write a plan and confirm before implementing.
 3. **Reference ADRs** — if a decision has a relevant ADR in `docs/ARCHITECTURE.md`, follow it. If you need to deviate, flag it and propose a new ADR.
 4. **Test as you go** — unit tests for new backend logic, Playwright tests for new user journeys.
@@ -110,6 +117,8 @@ These are hard constraints. Do not work around them.
 | Auth goes through the `AuthProvider` abstraction | Any auth check |
 | `applire.cloud.*` is never imported here | Everywhere |
 | Edition-gated features return HTTP 402 in Community | Cloud-only endpoints |
+
+**Flow Orchestrator — linear DAG:** `jd_analysis → cv_import → gap_analysis → interview → cv_generation → complete`. Returning users skip `cv_import`; a user with a job but no CV takes `jd_analysis → interview` instead (skipping `cv_import` + `gap_analysis`). Full state-machine semantics — the gap-driven interview offer, the no-CV onboarding path, DB-arbitrated concurrent gap-analysis kickoffs — are in `docs/ARCHITECTURE.md` (ADR-016).
 
 ### Frontend
 
@@ -182,6 +191,12 @@ EU-resident options: `mistral` (EU-hosted) or `requesty` (EU endpoint, also an E
 - Integration tests use a real Docker Compose stack — they spin it up automatically.
 - E2E runs Chromium only (`chromium` + `mobile-chromium` projects). Firefox is installed in CI but no suite targets it, so there is no cross-browser gate.
 - All JavaScript/TypeScript uses ES modules (`"type": "module"`). Never `require()` in tests.
+- **Vocabulary is three axes, not one ladder** — kind (Unit · Integration · IQ · OQ · PQ — *what a test proves*) × environment (CI stack · local dev stack · edge) × driver (CI · a subagent · a human). E2E is an **umbrella** over IQ+OQ+PQ, not a fourth kind. UAT is not a CI concept at all. `OQ` here means *pages against a mocked API* (Playwright + `page.route()`), not module-interface testing. Full definitions: `docs/TESTING.md` → *Vocabulary — three axes, not one ladder*.
+- **Frontend tests: run `./node_modules/.bin/vitest run` (or `npm test`) from `frontend/` — never `npx vitest`.** `npx` resolves a different, cached rolldown build that intermittently fails to parse valid `.tsx` (non-deterministic flakiness easily misread as a broken build). Tell: `transform 0ms / tests 0ms` with the error path running under `_npx/<hash>/…/rolldown`.
+- **Run `npm run build` from `frontend/` before pushing any `.ts`/`.tsx` change.** The Next.js production build runs a strict type-check that lint and Vitest do not — a strict-null mismatch can pass every other gate and fail only the `Frontend Production Build` CI job.
+- **Any literal text node in JSX fails the build** — ESLint rule `formatjs/no-literal-string-in-jsx`, enforced in both the `Frontend Lint` and `Frontend Production Build` CI jobs (Vitest does not catch it). Decorative glyphs count too (`→`, `·`, `—`). Fixes: user-facing strings become `next-intl` keys added to **both** `messages/en.json` and `messages/de.json` (parity is enforced); decorative punctuation goes through a lucide icon (e.g. `ArrowRight`) or a function call (`[...].join(" · ")`) instead of a bare JSX child. A string literal as a function *argument* is fine — only literals rendered as JSX children/text trip the rule.
+- **Provider stubs in tests must absorb the full provider-ABC signature.** `acomplete`/`aparse_json` gain kwargs over time; a stub with an explicit signature (not `**kwargs`) raises `TypeError` the instant a service threads a new kwarg through, and the stubs are scattered enough that it surfaces one test file at a time. Prefer `**kwargs` in new stubs; when the ABC changes, grep `tests/` for `def acomplete` / `def aparse_json` and update every explicit stub in one pass.
+- **Template-render changes** (new required Jinja context, a new `.render(`/`get_template` call) must run `pytest tests/ats/test_roundtrip.py` before pushing — `tests/unit` does not render templates the production way. Every Jinja environment comes from `applire.templates.filters.build_template_env`; `tests/unit/test_dach_conventions.py` fails the build on any hand-rolled `Environment(`.
 
 ---
 
@@ -191,6 +206,7 @@ EU-resident options: `mistral` (EU-hosted) or `requesty` (EU endpoint, also an E
 Python:     Black formatting, type annotations on all new code
 TypeScript: strict mode, no `any`
 Commits:    Conventional commits — feat:, fix:, test:, chore:, docs:
+CI gates:   Never skip pre-commit hooks (--no-verify) or bypass CI gates
 Migrations: Always via Alembic — never raw DDL
 MCP tools:  Always async, short-lived AsyncSession per tool call
 Copyright:  Add AGPL-3.0 header to every new Python/TS/JS file
@@ -236,10 +252,12 @@ Understanding these helps you make the right product decisions:
 |---|---|---|
 | **Marcus** | Experienced professional, any industry | Precision tailoring, efficiency, no hand-holding |
 | **Priya** | International candidate relocating to DACH | Cultural "translation" of career history, German CV norms |
-| **Felix** | Detail-oriented user who reads every line | Section-level editing, live preview, AI assist on demand |
-| **Kaile** | AI agent calling Applire via MCP/API | Structured tools, deterministic flow, session recovery via `flow_id` |
+| **Felix** | Detail-oriented user who reads every line (the finetuner) | Section-level editing, live preview, AI assist on demand |
+| **Emma** | Returning power user, existing profile already on file | One-click parallel tailoring of that profile against several new jobs — retention, highest lifetime value |
 
 The Jason (recruiter/headhunter) persona is a Cloud/B2B concern — do not surface it in Community features or documentation. (The former "Dr. Weber" pharma segment was removed entirely in 2026-06 — do not reintroduce industry-specific positioning.)
+
+**Kaile is a channel, not a persona** — the AI agent driving Applire over MCP/API, not a human archetype. It needs structured tools, a deterministic flow, and session recovery via `flow_id`. Agent-facing guidance (served at runtime via the `get_guide` MCP tool) lives in `backend/applire/mcp/AGENT_GUIDE.md` — see the scope note at the top of this file.
 
 ---
 
