@@ -1,0 +1,30 @@
+# Nothing below is needed to build the image, and three of these carry real
+# user data. `backend/Dockerfile` does `COPY . .` from this directory, and
+# `docker-compose.override.yml` bind-mounts `./backend:/app`, so the running
+# dev stack writes its LLM debug log and its uploads straight into the build
+# context: on a machine that has served real traffic that is ~300 MB of
+# prompts and model responses plus the uploaded CVs themselves. Images built
+# in CI are unaffected — a fresh checkout has none of this — so the exposed
+# path is a LOCAL rebuild after use, which grows silently and is invisible
+# because nobody inspects their own image.
+logs/
+data/
+
+# Build and test residue — regenerated in the image, never copied in.
+build/
+htmlcov/
+.pytest_cache/
+.coverage
+coverage.xml
+test-results.xml
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+
+# Never ship a local environment file into an image.
+.env
+.env.*

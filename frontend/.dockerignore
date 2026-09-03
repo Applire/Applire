@@ -1,0 +1,17 @@
+# `node_modules` and `.next` are over 1 GB together and are rebuilt inside the
+# image anyway; shipping them into the build context is pure transfer cost and
+# risks host-built native modules overwriting the container's own.
+node_modules/
+.next/
+out/
+
+# Test and coverage residue.
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.nyc_output/
+
+# Never ship a local environment file into an image.
+.env
+.env.*

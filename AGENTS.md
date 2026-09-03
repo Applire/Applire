@@ -240,7 +240,7 @@ All tunable values live in `backend/applire/constants.py` and are backed by envi
 | `MODE_B_COMPLETENESS_THRESHOLD` | 0.3 | Score below which interview uses Guided mode |
 | `INTERVIEW_HARD_CEILING_TARGETED` | 12 | Max questions in Targeted mode |
 | `INTERVIEW_HARD_CEILING_GUIDED` | 20 | Max questions in Guided mode |
-| `INTERVIEW_MAX_QUESTIONS_PER_GAP` | 3 | Max follow-ups per gap (env-var backed) |
+| `INTERVIEW_MAX_QUESTIONS_PER_GAP` | 2 | Max follow-ups per gap (env-var backed). Since ADR-080 this is the **multiplier** on the derived interview budget (`per_gap × gaps + 2`), not a standalone cap |
 | `UPLOAD_TTL_DAYS` | 7 | Retention: uploaded files |
 | `INTERVIEW_SESSION_TTL_DAYS` | 30 | Retention: interview sessions |
 | `GENERATED_DOCUMENTS_TTL_DAYS` | 90 | Retention: generated CVs (human channel) |
