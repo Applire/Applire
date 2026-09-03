@@ -555,17 +555,42 @@ logger = logging.getLogger(__name__)
 
 
 def _project_bullets(source_project: dict) -> list[str]:
-    """Collapse a source ProjectEntry's responsibilities + achievements into the
-    flat bullet list TailoredProjectEntry renders. Description leads when present
-    so a one-line project still carries content. Order is stable and deduped."""
+    """Collapse a source ProjectEntry into the flat bullet list
+    TailoredProjectEntry renders. Order is stable and deduped.
+
+    **ADR-082 clause 7 (2026-09-03, #659) — the description no longer rides
+    alongside the detail it summarises.** A `ProjectEntry.description` is a prose
+    summary OF THIS PROJECT; the responsibilities and achievements are the same
+    project told in detail. Emitting the description as the first of N peer
+    bullets therefore manufactures redundancy *deterministically*, before any
+    model or dedup pass is involved — it is not a model failure and no dedup
+    predicate is needed to prevent it. On the delivered CV that motivated #659
+    this projection produced 4 of the 9 flagged redundant pairs, including the
+    worst of them (the two bullets the issue calls "nearly identical
+    sentence-for-sentence" are the description and the responsibility it
+    summarises, containment 0.864 with a 12-token shared run).
+
+    The description still leads when it is the ONLY content — #312's rule that a
+    one-line project must carry text rather than an orphan bold heading is
+    unchanged, and `project_has_content` still governs whether the entry renders
+    at all.
+
+    This is a correction to an existing projection, not a new post-processing
+    pass, so ADR-058 clause 4's freeze does not bind it; and it removes content
+    from no one — every responsibility and achievement still reaches the page.
+    """
     bullets: list[str] = []
+    detail = [
+        item
+        for key in ("responsibilities", "achievements")
+        for item in source_project.get(key) or []
+        if isinstance(item, str) and item.strip()
+    ]
     desc = source_project.get("description")
-    if isinstance(desc, str) and desc.strip():
+    if isinstance(desc, str) and desc.strip() and not detail:
         bullets.append(desc.strip())
-    for key in ("responsibilities", "achievements"):
-        for item in source_project.get(key) or []:
-            if isinstance(item, str) and item.strip():
-                bullets.append(item.strip())
+    for item in detail:
+        bullets.append(item.strip())
     # Dedupe while preserving order.
     seen: set[str] = set()
     out: list[str] = []
