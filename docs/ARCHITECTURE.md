@@ -1051,6 +1051,23 @@ An HTML export template converted by headless LibreOffice was measured too and s
 
 **On truthfulness:** everything Applire promises about a document — that each claim is grounded in your own vault — describes the file *as exported*. The moment you edit it in Word, those guarantees no longer describe what you are sending. That is expected and legitimate; they are your documents. Applire prompts you at the export, and is explicit that it has no way to check a file once it has left. It does not pretend otherwise.
 
+### ADR-082 — Redundancy in a Delivered Document: Names vs. Prose, and Detect Rather Than Repair (accepted + built 2026-09-03)
+
+**Decision:** Applire checks whether a generated CV says the same thing twice, and it **reports** that rather than silently fixing it.
+
+Two bugs prompted this: a delivered CV that shipped six near-duplicate bullets under one project, and a project that appeared twice in one CV — once under its job, once in the standalone projects section. Both were filed with the same suggested fix: reuse the near-duplicate matcher Applire already has for skill names. Measuring it on the actual document refuted that. The matcher compares short *names*, where sharing three of four words is decisive; over full sentences the words the two bullets *don't* share dominate, and it fired on none of the fifteen pairs — including the two the report itself called "nearly identical".
+
+So the dividing line is **name vs. prose**, not one component vs. another. Deciding that two *names* refer to the same company, project or language is settled by the data and stays deterministic — Applire already does it in six places. Deciding that two *sentences* describe the same achievement means reading them for meaning, which is a judgement, and under ADR-062 the deterministic layer does not make judgements. That is not a philosophical position here but a measured one: across ninety-one bullet pairs from a real document, no threshold cleanly separates the redundant pairs from the distinct ones.
+
+**Why detect and not repair.** A detector only has to be right often enough to surface a cluster, and a false positive costs you a glance. A repairer has to be right *every time*, because each hit deletes a line from a CV you are about to send — and a false positive there silently removes a real achievement. The measured predicate catches nine of fifteen redundant pairs while flagging none of 139 distinct-bullet pairs drawn from the project's four reference CVs. That is a good detector and an unacceptable editor, so nothing may use it to cut content.
+
+**Where it runs.** In the ATS audit — which is also the one place that reaches **both** doors. Content you author yourself and hand to Applire through the agent (MCP) surface is persisted verbatim by design: Applire renders, checks and reports, but never rewrites what you wrote. The generation-side cleanup passes therefore deliberately do not run on that path. Detection does, so agent-authored documents get the same finding, and a test drives both doors with the same duplicate-bearing content to prove the verdicts agree.
+
+**One cause was fixed at the source instead.** A project's `description` is a summary of that project; the responsibilities and achievements are the same project in detail. Emitting the description as just another bullet next to them therefore *manufactures* the repetition before any model or matcher is involved — it accounted for the largest single share of the flagged pairs, including the worst one. Projects with nothing but a description still show it. The rest of the redundancy is reported, not edited.
+
+Worth stating plainly: on the document that prompted all this, **the language model did not cause the problem.** It had folded the project's evidence into a single condensed line, exactly as instructed; the duplicate bullets were assembled afterwards by Applire's own deterministic code.
+
+---
 ---
 ## 4. Data Model Highlights
 

@@ -438,6 +438,109 @@ def skills_page_dupe(a: str, b: str) -> bool:
     return _compound_suffix_dupe(skill_tokens(a), skill_tokens(b))
 
 
+# ── ADR-082 (#659, #424): the third member of the near-dupe family — PROSE ────
+#
+# `skills_near_dupe` decides what is safe to auto-MERGE in the vault (strict,
+# because merging is destructive). `skills_page_dupe` decides what a reader sees
+# as one competence twice on a page (wider, because the blast radius is smaller).
+# Both are calibrated for short NAMES. This one decides whether two delivered
+# BULLET SENTENCES state the same achievement, and it is a separate predicate
+# rather than a widening of either because the calibration does not transfer:
+# measured over the #659 document, `skills_near_dupe` returns False on all 15
+# pairs, and the two bullets that issue calls "nearly identical
+# sentence-for-sentence" score Jaccard 0.594 against its 0.75 threshold. Sharing
+# 3 of 4 tokens is decisive in a skill name; over 30 tokens the non-shared prose
+# dominates the union. Re-pointing an instrument at a new population is a
+# re-calibration, not a reuse (ADR-082 clause 6).
+#
+# DETECTION ONLY. ADR-082 clauses 1-3: whether two sentences state the same
+# achievement is a JUDGEMENT (ADR-062 clause 1), and no threshold separates the
+# classes on real data — the best zero-false-positive cut catches 9 of 15
+# labelled pairs. That recall is sufficient to surface a cluster to the candidate
+# (one flagged pair is enough) and insufficient to delete a line from a delivered
+# CV, which is why nothing may consume this predicate to cut content.
+
+#: Fraction of the SHORTER bullet's content tokens that must also appear in the
+#: longer one. Asymmetric on purpose: a short restatement folded into a longer
+#: sentence is the shape #659 delivered, and symmetric Jaccard cannot see it.
+_PROSE_DUPE_CONTAINMENT = 0.40
+#: Length of a contiguous shared token run that reads as a copied clause.
+_PROSE_DUPE_MIN_RUN = 3
+#: Below this, a bullet is too short for either signal to mean anything — two
+#: 4-token bullets naming different standards ("ISO 9001 verantwortet" /
+#: "ISO 45001 vorbereitet") share most of their tokens while stating distinct
+#: facts. Short bullets fall back to exact equality.
+_PROSE_DUPE_MIN_TOKENS = 8
+
+
+def _prose_tokens(text: str) -> list[str]:
+    """Ordered content tokens of a bullet, using THE shared normaliser.
+
+    Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and same
+    edge-punctuation/stopword treatment as :func:`skill_tokens`, so "Code-Review"
+    and "code review" tokenise alike here exactly as they do there — one
+    normalisation for the module (ADR-066), two predicates over it.
+    """
+    out: list[str] = []
+    for raw in _norm(text).split():
+        t = raw.strip(_SKILL_EDGE_PUNCT)
+        if t and t not in _SKILL_STOPWORDS:
+            out.append(_skill_stem(t))
+    return out
+
+
+def _longest_shared_run(a: list[str], b: list[str]) -> int:
+    """Longest contiguous run of tokens common to both sequences."""
+    if not a or not b:
+        return 0
+    best = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        ai = a[i - 1]
+        for j in range(1, len(b) + 1):
+            if ai == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
+
+
+def bullets_prose_dupe(a: str, b: str) -> bool:
+    """Do two delivered bullets state the same achievement? (ADR-082, #659/#424)
+
+    True when EITHER the shorter bullet's content tokens are ``>=
+    _PROSE_DUPE_CONTAINMENT`` covered by the longer one, OR the two share a
+    contiguous run of ``>= _PROSE_DUPE_MIN_RUN`` tokens — a copied clause.
+    Bullets shorter than ``_PROSE_DUPE_MIN_TOKENS`` content tokens compare by
+    exact normalised equality only.
+
+    **Measured, not assumed** (2026-09-03, ADR-082 Context 7). Positives: the
+    real delivered document behind #659 — 9 of 15 human-labelled redundant pairs
+    caught, including every pair the issue names, with the one genuinely distinct
+    project bullet never flagged. Negatives: 0 of 139 distinct-bullet pairs drawn
+    from all four `tests/files/panel_review_case` CVs. The negative population is
+    hand-authored rather than LLM-written and therefore understates the
+    false-positive risk of the population this will meet; the threshold is
+    recorded as measured on n=1 delivered document and is expected to move.
+
+    Symmetric. This is the ONE implementation for prose redundancy (ADR-066): the
+    three exact-match passes of arc42 §5.3.23's matrix converge onto it rather
+    than each growing their own. It is a DETECTOR — see the block comment above
+    for why no caller may cut content with it.
+    """
+    ta, tb = _prose_tokens(a), _prose_tokens(b)
+    if not ta or not tb:
+        return False
+    if min(len(ta), len(tb)) < _PROSE_DUPE_MIN_TOKENS:
+        return _norm(a) == _norm(b)
+    sa, sb = set(ta), set(tb)
+    if len(sa & sb) / min(len(sa), len(sb)) >= _PROSE_DUPE_CONTAINMENT:
+        return True
+    return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+
+
 # ── #391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): a
 # measurement-only advisory over skills_page_dupe's weakest disjunct ─────────
 #
@@ -840,20 +943,63 @@ def _audit_cv_text(
         _check(checks, f"content-{i}", _find(snippet, t) >= 0,
                f"text not found in the extracted document: '{snippet[:80]}'")
 
-    # #169: a role bullet repeated inside a project nested under that role (belt-and-
-    # braces over the deterministic suppression in cv._nest_projects). Only emitted
-    # when there is at least one nested project to compare.
-    if any((w.projects or []) for w in tailored.work_history):
-        collisions: list[str] = []
-        for w in tailored.work_history:
-            role_norms = {_norm(b) for b in (w.bullets or []) if b and _norm(b)}
-            for proj in (w.projects or []):
-                for pb in (proj.bullets or []):
-                    if pb and _norm(pb) in role_norms:
-                        collisions.append(pb)
-        _check(checks, "duplicate-bullets", not collisions,
-               "bullets duplicated between a role and its nested project: "
-               + "; ".join(f"'{b}'" for b in collisions))
+    # ── ADR-082 clause 5 (2026-09-03, #659 / #424) ──────────────────────────
+    # Was #169: a role bullet repeated inside a project nested under that role,
+    # by exact `_norm` equality. That is narrower than this check's own NAME in
+    # two independent ways, and a delivered CV shipped six near-duplicate bullets
+    # under one project while this reported `pass`:
+    #   * SCOPE — it never compared a list against ITSELF, and never reached the
+    #     standalone projects section.
+    #   * PREDICATE — exact match, so no near-duplicate was visible to it.
+    # Now every bullet the document delivers is compared: within each role's own
+    # list, within each project's own list (nested and standalone), and across the
+    # role/nested-project boundary — on `bullets_prose_dupe`, the prose member of
+    # the near-dupe family (NOT `skills_near_dupe`, which is calibrated for names
+    # and fires on none of these pairs — ADR-082 clause 6).
+    #
+    # DETECTION ONLY (ADR-076 clause 3, ADR-082 clauses 1-3): this reports, it
+    # never edits `tailored`. Prose redundancy is a judgement under ADR-062
+    # clause 1, and the measured predicate is deliberately recall-limited — enough
+    # to surface a cluster, not enough to license deleting an achievement.
+    # Every bullet the document delivers, in one flat list with its location, then
+    # compared pairwise. Enumerating the whole delivered set — rather than the
+    # handful of axes someone thought to name — is what makes the check's scope
+    # equal to its name. It is also what reaches #424's shape: one project entity
+    # rendered BOTH nested under its role and standalone puts its bullets in two
+    # different containers, which no per-axis scan compares.
+    delivered: list[tuple[str, str]] = []  # (location, bullet)
+
+    def _collect(where: str, bullets) -> None:
+        for b in bullets or []:
+            if isinstance(b, str) and b.strip():
+                delivered.append((where, b))
+
+    for w in tailored.work_history:
+        where = f"{w.company or '?'} / {w.role or '?'}"
+        _collect(where, w.bullets)
+        for proj in (w.projects or []):
+            _collect(f"{where} > {proj.name or '?'}", proj.bullets)
+    for proj in (tailored.projects or []):
+        _collect(f"Projekte > {proj.name or '?'}", proj.bullets)
+
+    dupe_pairs: list[tuple[str, str, str, str]] = []
+    for i in range(len(delivered)):
+        for j in range(i + 1, len(delivered)):
+            (wa, a), (wb, b) = delivered[i], delivered[j]
+            if bullets_prose_dupe(a, b):
+                dupe_pairs.append((wa, a, wb, b))
+
+    # Emitted whenever a comparison was actually possible — a document with fewer
+    # than two bullets has nothing to say here, and a check that reports `pass`
+    # on an empty comparison is the kind of green this ADR exists to stop.
+    if len(delivered) >= 2:
+        _check(checks, "duplicate-bullets", not dupe_pairs,
+               "bullets that state the same achievement twice: "
+               + "; ".join(
+                   f"[{wa}] '{a[:60]}' ~ [{wb}] '{b[:60]}'"
+                   for wa, a, wb, b in dupe_pairs[:5]
+               )
+               + (f" (+{len(dupe_pairs) - 5} more)" if len(dupe_pairs) > 5 else ""))
 
     # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
     # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to

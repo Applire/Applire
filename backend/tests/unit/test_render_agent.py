@@ -449,3 +449,114 @@ async def test_render_agent_letter_pdf_failure_fails_open(seeded):
     assert cl.status == "ready"
     assert cl.ats_report is None
     assert cl.truthfulness_report is not None
+
+
+# ---------------------------------------------------------------------------
+# ADR-082 clause 4 / ADR-058 — redundancy DETECTION reaches the agent door
+# ---------------------------------------------------------------------------
+
+#: Agent-authored content carrying the #659 shape: one achievement stated twice.
+#: The caller wrote both wordings; Applire renders, checks and reports — it does
+#: not rewrite them (ADR-054 §4).
+_AGENT_CV_WITH_REDUNDANCY = {
+    "contact": {"name": "Anna Bauer", "email": "anna@example.de", "location": "Berlin"},
+    "summary": "Backend engineer with platform focus.",
+    "work_history": [
+        {
+            "company": "Acme GmbH",
+            "role": "Backend Engineer",
+            "start_date": "2019-03",
+            "end_date": "2023-05",
+            "bullets": [
+                "Led a team of twelve backend engineers through the platform "
+                "migration from a monolith to services, delivered over eighteen months.",
+                "Led a team of twelve backend engineers through the platform "
+                "migration, moving the monolith onto services within eighteen months.",
+            ],
+        }
+    ],
+    "skills": [],
+}
+
+
+def _dupe_check(report_dict):
+    return next(
+        (c for c in (report_dict or {}).get("checks", []) if c.get("id") == "duplicate-bullets"),
+        None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_bullets_detection_reaches_the_agent_door(seeded):
+    """ADR-058 parity, asserted BEHAVIOURALLY — the same duplicate-bearing payload
+    is driven through the real agent door and the verdict is read off the PERSISTED
+    report, not off a shared symbol.
+
+    ADR-082 clause 4: the generation-side dedup passes (`_nest_projects`,
+    `_suppress_duplicate_project_bullets`) deliberately do NOT run here — that is
+    ADR-054 §4 verbatim persistence, not a parity gap. What parity is owed on is
+    DETECTION, and it is satisfied because `_update_ats_report` runs on both doors.
+    """
+    from applire.services.cv import render_agent_cv
+
+    p1, p2, p3 = _cv_render_patches()
+    with p1, p2, p3:
+        record = await render_agent_cv(
+            dict(_AGENT_CV_WITH_REDUNDANCY), seeded["job_id"], seeded["db"], target_pages=1
+        )
+
+    check = _dupe_check(record.ats_report)
+    assert check is not None, "the agent door must emit duplicate-bullets at all"
+    assert check["status"] == "fail", record.ats_report
+
+    # ADR-054 §4 / ADR-082 clause 2-3: it REPORTS, it does not repair. The
+    # caller's two bullets are both still there, verbatim, in the delivered row.
+    assert record.tailored_data["work_history"][0]["bullets"] == \
+        _AGENT_CV_WITH_REDUNDANCY["work_history"][0]["bullets"]
+
+
+@pytest.mark.asyncio
+async def test_agent_door_and_audit_seam_agree_on_the_same_content(seeded):
+    """The other half of the behavioural claim: same input, same verdict. If the
+    door ever grows its own copy of the predicate, these two diverge and this
+    fails — which symbol-identity assertions cannot detect."""
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.ats_audit import _audit_cv_text
+    from applire.services.cv import render_agent_cv
+
+    p1, p2, p3 = _cv_render_patches()
+    with p1, p2, p3:
+        record = await render_agent_cv(
+            dict(_AGENT_CV_WITH_REDUNDANCY), seeded["job_id"], seeded["db"], target_pages=1
+        )
+    door_check = _dupe_check(record.ats_report)
+
+    tailored = TailoredCVData.model_validate(_AGENT_CV_WITH_REDUNDANCY)
+    text = "\n".join(b for w in tailored.work_history for b in (w.bullets or []))
+    seam_report = _audit_cv_text(text, tailored, keywords=[])
+    seam_check = next(c for c in seam_report.checks if c.id == "duplicate-bullets")
+
+    assert door_check["status"] == seam_check.status
+    assert door_check["details"] == seam_check.details
+
+
+@pytest.mark.asyncio
+async def test_agent_door_reports_pass_when_the_caller_wrote_distinct_bullets(seeded):
+    """Negative control for the parity claim: the door is not simply always red."""
+    from applire.services.cv import render_agent_cv
+
+    content = dict(_AGENT_CV_WITH_REDUNDANCY)
+    content["work_history"] = [
+        {**_AGENT_CV_WITH_REDUNDANCY["work_history"][0],
+         "bullets": [
+             "Led a team of twelve backend engineers through the platform migration.",
+             "Cut median API latency from 480 ms to 120 ms by adding a read-through cache.",
+         ]}
+    ]
+
+    p1, p2, p3 = _cv_render_patches()
+    with p1, p2, p3:
+        record = await render_agent_cv(content, seeded["job_id"], seeded["db"], target_pages=1)
+
+    check = _dupe_check(record.ats_report)
+    assert check is not None and check["status"] == "pass", record.ats_report
