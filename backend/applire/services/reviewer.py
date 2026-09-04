@@ -168,6 +168,20 @@ for every ``max_retries=0`` caller, which is exactly the silent-default clause 2
 exists to forbid. The exclusion is structural (that call site never passes a settle
 ``path``), not incidental — a future ``issue_matches`` written carelessly (matching an
 empty string, say) cannot accidentally reach it.
+
+Findings reach the corrector (ADR-083 clause 4, 2026-09): every ``issue`` above already
+carries the reviewer's structured verdict — severity-classified, blocking or minor — but
+until this amendment only the free-text ``feedback`` string was ever handed to
+``generator_prompt_fn``; ``issues[]`` fed exactly one log line and the #306(a)/#537
+measurement passes and was then discarded. A real-provider replay measured the gap: a
+finding the reviewer raised 5 times out of 5 reached ``feedback`` only 2 times out of 5.
+``services/corrector_feedback.py``'s ``fold_issues_into_feedback`` now renders the
+BLOCKING subset of ``issues`` into a corrector-facing instruction block and appends it to
+``feedback`` (prose stays first) before the retry call — see that module's docstring for
+the full design rationale (audience-correct wording, why ``location``/``check`` are not
+rendered, and the byte-identical-when-nothing-blocking guarantee). No change to
+``generator_prompt_fn``'s signature; only the VALUE of its ``feedback`` argument gains a
+section on rounds that carry a blocking finding.
 """
 
 import json
@@ -193,6 +207,7 @@ from applire.providers.llm.debug_log import (
     set_review_call_meta,
 )
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
+from applire.services.corrector_feedback import fold_issues_into_feedback
 from applire.services.load_bearing import stringify_draft
 from applire.services.review_compliance import (
     aggregate_by_shape,
@@ -711,13 +726,30 @@ async def review_and_refine(
                 last_issues,
             )
 
-            retry_prompt = generator_prompt_fn(current_draft, feedback, source)
+            # ADR-083 clause 4: `feedback` above is the reviewer's raw prose —
+            # it never carried the normalized `issues[]` (severity, blocking
+            # gate) computed above, only prose. `corrector_feedback` folds the
+            # BLOCKING issues in (prose first, block appended — see
+            # services/corrector_feedback.py); when nothing is blocking it is
+            # `feedback` unchanged, byte-identical. This is what actually
+            # reaches `generator_prompt_fn` — `feedback` itself is untouched.
+            corrector_feedback = fold_issues_into_feedback(feedback, issues)
+
+            retry_prompt = generator_prompt_fn(current_draft, corrector_feedback, source)
             logger.info(
-                "review_and_refine: chain=%s attempt=%d retry_input_chars=%d feedback_chars=%d",
+                "review_and_refine: chain=%s attempt=%d retry_input_chars=%d feedback_chars=%d "
+                "corrector_feedback_chars=%d",
                 chain_id,
                 attempt + 1,
                 len(retry_prompt),
+                # `feedback_chars` deliberately keeps measuring the raw reviewer
+                # prose ONLY — unchanged meaning, kept for metric continuity
+                # (ADR-083 clause 4 does not silently redefine an existing
+                # metric). `corrector_feedback_chars` is the new field: what
+                # generator_prompt_fn's `feedback` argument actually contains
+                # (prose + folded REVIEWER FINDINGS block, when one exists).
                 len(feedback),
+                len(corrector_feedback),
             )
 
             # #537 (ADR-076 clause 2): the draft THIS round's issues were raised

@@ -25,6 +25,8 @@ from typing import Any
 
 import pytest
 
+from applire.services.corrector_feedback import fold_issues_into_feedback
+from applire.services.review_issues import normalize_issues
 from applire.services.reviewer import review_and_refine
 
 
@@ -48,7 +50,12 @@ class _FakeProvider:
 async def test_generator_callback_receives_source():
     """US194: the refiner re-reads the source, so the generator retry callback now
     receives (draft, feedback, source) — cap-safe (the reviewer critiques referentially
-    and the refiner re-reads source itself instead of the reviewer quoting it back)."""
+    and the refiner re-reads source itself instead of the reviewer quoting it back).
+
+    ADR-083 clause 4 (2026-09): "x" is the pre-severity plain-string issue shape,
+    which normalizes to blocking, so `feedback_seen` now also carries the folded
+    REVIEWER FINDINGS block — computed here via the real `fold_issues_into_feedback`
+    so the exact-content assertion doesn't duplicate the block's literal wording."""
     received_args: list[tuple] = []
 
     def generator(draft: dict, feedback: str, source: str) -> str:
@@ -80,7 +87,7 @@ async def test_generator_callback_receives_source():
     assert len(received_args) == 1
     draft_seen, feedback_seen, source_seen = received_args[0]
     assert draft_seen == {"work_history": [], "initial": True}
-    assert feedback_seen == "fix x"
+    assert feedback_seen == fold_issues_into_feedback("fix x", normalize_issues(["x"]))
     assert source_seen == "RAW SOURCE TEXT THE REFINER RE-READS"
 
 
