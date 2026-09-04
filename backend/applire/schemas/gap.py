@@ -84,6 +84,18 @@ class KeywordLedgerEntry(BaseModel):
     # gap-analysis judgement seam or elicited testimony — never via literal
     # corpus presence.
     bar: dict | None = None
+    # #525 — the position(s) whose vault evidence carries this concept, as
+    # employer names in the profile's own work-experience order. A deterministic
+    # vault lookup (keyword_ledger.annotate_evidence_owners), the term twin of
+    # letter_figure_guard's FIGURE ownership facts. Absent/empty means no
+    # position in particular owns it (summary, skills, education) or the vault
+    # does not carry it — never "the owner is unknown".
+    #
+    # Declared here for the reason the `adjacent_evidence` comment above
+    # records: an undeclared key is silently stripped from every API response
+    # by `GapAnalysisResponse.model_validate`, so an ownership fact the ledger
+    # computes would never reach the agent channel or the frontend.
+    evidence_owners: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":

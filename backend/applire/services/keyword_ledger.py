@@ -1403,10 +1403,32 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
         "not re-derive it). The following claimable keywords are ABSENT from the draft "
         "in every known surface form:",
     ]
+    any_owner = False
     for entry in entries:
         forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
         evidence = entry.get("evidence", "")
-        lines.append(f"  - {entry.get('concept', '')} [forms: {forms}] — profile evidence: {evidence}")
+        line = f"  - {entry.get('concept', '')} [forms: {forms}] — profile evidence: {evidence}"
+        # #525: the demand names the position that OWNS the term. Without it, a
+        # corrector obeying "surface SAP MM" welded it onto the wrong employer
+        # and every downstream check passed (2026-08-11). Deterministic vault
+        # lookup, stamped at the ledger's construction sites — see
+        # :func:`annotate_evidence_owners`.
+        owners = [o for o in (entry.get("evidence_owners") or []) if isinstance(o, str)]
+        if owners:
+            any_owner = True
+            line += f" — owned by: {', '.join(owners)}"
+        lines.append(line)
+    if any_owner:
+        lines += [
+            "",
+            "Where a term names its owner(s), that is the same deterministic vault "
+            "lookup and is equally ground truth: every vault fact carrying that term "
+            "belongs to the position(s) named, so a sentence surfacing it belongs "
+            "under THAT position and nowhere else. Never ask the writer to attach it "
+            "to a position the list does not name. A term with no owner line is owned "
+            "by no position in particular (summary, skills, education) — nothing is "
+            "claimed either way there, and the anchoring judgement stays yours.",
+        ]
     lines += [
         "",
         "You MUST set approved=false while any term above remains both absent and "
@@ -1699,6 +1721,7 @@ def upgrade_ledger_for_concepts(
     denied_concepts: list[str] | None = None,
     upgrade: bool = True,
     vault_corpus: str | None = None,
+    profile_json: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Deterministically UPGRADE honest-gap entries the interview just confirmed (#188).
 
@@ -1959,6 +1982,13 @@ def upgrade_ledger_for_concepts(
             e["evidence"] = ev
         changed = True
         new_ledger.append(e)
+    # #525 site 3 — the interview/agent seam writes the candidate's own answer as
+    # evidence, which belongs to no position. The ownership FACT is the same one
+    # every other site states: which vault entries carry this term. Stamped only
+    # when the caller hands over the vault; every pre-#525 caller passes none and
+    # gets exactly today's row shape (no owner invented from nothing).
+    if profile_json is not None:
+        new_ledger = annotate_evidence_owners(new_ledger, profile_json)
     return new_ledger, changed
 
 
@@ -2111,7 +2141,201 @@ def reevaluate_gap_ledger_against_vault(
 
         ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
         changed = changed or did_change
+    # #525 site 2 — this seam's evidence IS a vault text node, so its owner is
+    # the most directly derivable of the three. Stamped over the whole ledger,
+    # not only the rows this call moved: the vault may have gained the entry that
+    # owns an already-claimable term since the row was written.
+    ledger = annotate_evidence_owners(ledger, profile_json)
     return ledger, changed
+
+
+def refresh_ledger_against_vault(
+    keyword_ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+    *,
+    seam: str = "",
+) -> tuple[list[dict[str, Any]], bool]:
+    """THE persisted-ledger-vs-current-vault refresh (#592, ADR-048 amended).
+
+    A ledger row is a statement about the vault *as it stood when the analysis
+    ran*. The vault keeps moving after that — a CV import, a testimony intake,
+    an interview turn, ``submit_claims`` — and nothing re-derives the ledger on
+    the generation path. The delivered consequence is that the CV/letter writer
+    receives a ``DO NOT CLAIM`` list contradicting the very profile it is handed,
+    and the reviewer's check 6(b) then enforces the contradiction as a BLOCKING
+    fabrication finding against the candidate's own words.
+
+    **Measured, not asserted.** Over every captured gap-classification call
+    (1608 calls, 7497 ``gap`` rows) the classifier returns ``gap`` against a term
+    the same prompt's profile carries in **9 rows (0.12 %)**, and all nine are
+    true gaps — six are candidate denials, three are a different sense of an
+    English common noun ("the quality and reliability of a LIMS" against a JD's
+    "AI reliability"). The classifier is not the defect. At the DELIVERY point
+    the number is different: of **4119** forbidden-term instances across **932**
+    captured writer prompts, **30 (0.73 %)** are carried by the same prompt's own
+    non-metadata vault text, and **10 of those 30** are also on the denial rail
+    (correctly forbidden — see the floor below). The residue is staleness.
+
+    Pinned to one captured pair: at gap-analysis time
+    (``backend/logs/llm/2026-08-24.jsonl`` rec 18, 16:09 UTC) the Anna-Bauer
+    vault's two work entries carried **zero** responsibilities and **zero**
+    achievements, so ``REST APIs``/``microservices``/``backend``/``Kubernetes``
+    were genuinely absent and every ``gap`` verdict was right. By CV-writing time
+    (``2026-08-25.jsonl`` rec 4, 17:11 UTC) the same profile carried 2+2 and 2+1
+    bullets naming all four — and the DO-NOT-CLAIM block still forbade them.
+
+    This function is **reuse, not a new mechanism** (ADR-066 clause 2): the
+    whole of it is :func:`reevaluate_gap_ledger_against_vault`, which
+    ``services/session.py`` has run at interview start since #274/#284/#273. It
+    upgrades a still-open ``gap`` row ONLY when a real vault text node contains
+    one of its surface forms, and cites that node verbatim as the new evidence.
+    Denial-testimony text is stripped from its corpus before flattening, and
+    ``is_denied_concept`` is checked independently as a second floor, so a
+    concept the candidate denied is never lifted however the vault phrases it —
+    which matters here, because 10 of the 30 measured delivery-point
+    contradictions are terms that are ALSO on the denial rail. Skip-only: it
+    never writes ``denied``, never demotes, and never invents evidence.
+
+    **What this deliberately does NOT re-run: ADR-061/#318's affirmative
+    invariant.** ``assert_claimable_backed`` is specified as running "at every
+    ledger PERSIST seam" (its own docstring), and the seams this function serves
+    are READS. Re-running it here would newly demote claimable rows whenever the
+    vault SHRANK since the analysis — a real direction, but one no measurement in
+    #592 asked for, and one that would silently change what every generation
+    ships. That direction stays where ADR-061 put it: on the write paths
+    (``gap.py`` build, the liability downgrade, the interview seam, the agent
+    door). Recorded rather than assumed — see the report's open decisions.
+
+    No new status value, no new judgement, no LLM call, and no flip this module
+    did not already own: the fifth-status design of 2026-08-28 was refuted
+    (ADR-062 clause 1 — "whether a negation attaches to a concept" is a
+    judgement) and is not what this is.
+
+    Returns ``(ledger, changed)``. Pure — the input list and its rows are never
+    mutated. ``changed`` is the signal a persisting caller needs; a read-only
+    caller may ignore it.
+    """
+    if not keyword_ledger or profile_json is None:
+        return list(keyword_ledger or []), False
+    before = [(e.get("concept"), e.get("status")) for e in keyword_ledger if isinstance(e, dict)]
+    ledger, changed = reevaluate_gap_ledger_against_vault(keyword_ledger, profile_json)
+    if changed:
+        after = [(e.get("concept"), e.get("status")) for e in ledger if isinstance(e, dict)]
+        moved = [
+            f"{c}: {s0} -> {s1}"
+            for (c, s0), (_c1, s1) in zip(before, after, strict=False)
+            if s0 != s1
+        ]
+        logger.info(
+            "refresh_ledger_against_vault[%s]: the persisted ledger disagreed with the "
+            "current vault — %d row(s) re-derived (#592): %s",
+            seam or "unnamed-seam",
+            len(moved),
+            moved,
+        )
+    return ledger, changed
+
+
+# ── #525 — the coverage demand names the vault entry that OWNS the term ─────
+
+
+def annotate_evidence_owners(
+    keyword_ledger: list[dict[str, Any]] | None,
+    profile_json: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Stamp ``evidence_owners`` — the position(s) whose vault evidence carries
+    this concept (#525).
+
+    The coverage block hands the reviewer a term plus a bare evidence sentence
+    and demands the term be surfaced. Nothing in that demand says which employer
+    the term belongs to, so a corrector obeying it can weld the term onto the
+    wrong position and satisfy every downstream check: 2026-08-11, a
+    coverage-demanded ``SAP MM`` was welded onto Rasselstein when it belongs to
+    Weberit, and the settle-time guard could not see it because
+    ``load_bearing_fn`` stringifies the whole draft and counts FIGURES —
+    ownership is not in its input at all.
+
+    The identical question is already answered for FIGURES by
+    ``services/letter_figure_guard.py::figure_ownership_facts``; #525's finding
+    is that the ledger never threaded the same fact for TERMS. This is that
+    fact, and it applies that module's own scope rules unchanged:
+
+    * a term NO position owns — role-agnostic evidence (summary, skills,
+      education, signature stories) or no vault hit at all — carries no field.
+      Absent, not empty: "nobody owns it" is not a statement worth making, and
+      would invite a reviewer to strip a legitimate claim;
+    * the JUDGEMENT — which employer the sentence carrying the term is ABOUT —
+      is deliberately not computed. It is what the reviewer is asked to make.
+
+    ADR-062 clause 1 classification: **FACT**. Which position an evidence unit
+    belongs to is settled by the profile's own structure
+    (``EvidenceUnit.owner_ids``, US244/#196), not by reading prose for meaning.
+    Matching is ``review_compliance.term_present`` — token-boundary, the same
+    predicate ``pin_reach.pin_ledger_conflicts`` uses for the same question, and
+    deliberately NOT ``surface_present``'s substring match ("REST" inside
+    "restructuring") nor ``ground_skill_claim``'s ``skills_near_dupe`` fallback,
+    whose threshold is calibrated for 2-5-token NAMES.
+
+    Pure; returns new row dicts. Tolerant of ``None``/empty on both sides.
+    """
+    if not keyword_ledger or not profile_json:
+        return list(keyword_ledger or [])
+    try:
+        from applire.services.letter_figure_guard import _owner_labels
+        from applire.services.oracle.matchers.vault import build_vault_index
+        from applire.services.review_compliance import term_present
+
+        index = build_vault_index(exclude_unconfirmed(profile_json))
+        labels = _owner_labels(profile_json)
+    except Exception as exc:  # pragma: no cover - defensive, mirrors clause 5
+        # Fail OPEN and loudly: no owner is stated, which is exactly the
+        # pre-#525 behaviour. Never fail the ledger over an unindexable vault.
+        logger.warning(
+            "annotate_evidence_owners: the vault could not be indexed (%s: %s) — "
+            "no ownership fact is stated for this ledger",
+            type(exc).__name__,
+            exc,
+        )
+        return list(keyword_ledger)
+
+    owned_units = [u for u in index.units if u.owner_ids]
+    # `owner_ids` is a frozenset, so the ORDER of a multi-owner unit is not
+    # stable. The reviewer reads this list, and a list that reshuffles between
+    # two runs of the same input reads as new information — emit it in the
+    # profile's own work-experience order, which is the order every other
+    # ownership surface uses.
+    profile_order = [
+        str(w.get("id")).strip()
+        for w in ((profile_json or {}).get("work_experience") or [])
+        if isinstance(w, dict) and isinstance(w.get("id"), str) and w.get("id", "").strip()
+    ]
+    out: list[dict[str, Any]] = []
+    for entry in keyword_ledger:
+        if not isinstance(entry, dict):
+            out.append(entry)
+            continue
+        row = dict(entry)
+        row.pop("evidence_owners", None)
+        forms = [
+            f
+            for f in ([row.get("concept", "")] + list(row.get("surface_forms") or []))
+            if isinstance(f, str) and f.strip()
+        ]
+        hit_ids: set[str] = set()
+        for unit in owned_units:
+            if any(term_present(f, unit.text) for f in forms):
+                hit_ids |= set(unit.owner_ids)
+        ordered = [i for i in profile_order if i in hit_ids]
+        ordered += sorted(i for i in hit_ids if i not in profile_order)
+        owners: list[str] = []
+        for oid in ordered:
+            label = labels.get(oid)
+            if label and label not in owners:
+                owners.append(label)
+        if owners:
+            row["evidence_owners"] = owners
+        out.append(row)
+    return out
 
 
 # ── #260 — pre-generation keyword-liability check ───────────────────────────
@@ -2877,4 +3101,8 @@ def build_keyword_ledger(
     # #260: final pass — stamp narrative_backed so downstream consumers (the
     # pre-generation summary, the agent-channel ledger surface) can single
     # out a claimable-but-unstoried hard requirement without re-deriving it.
-    return _annotate_narrative_backed(ledger, profile_json)
+    # #525 site 1 — beside #260's narrative_backed stamp, in the same final
+    # pass over the same vault: which position's evidence carries this term.
+    return annotate_evidence_owners(
+        _annotate_narrative_backed(ledger, profile_json), profile_json
+    )

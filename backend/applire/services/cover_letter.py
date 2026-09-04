@@ -972,7 +972,19 @@ async def _render_cover_letter_background(
                 .limit(1)
             )
             gap = gap_result.scalar_one_or_none()
-            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
+            # #592 (ADR-048 amended): the persisted row states what the vault held
+            # when the analysis ran. Re-derive it against the vault THIS run was
+            # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
+            # carries. Same helper, same seam name discipline as the ATS-report read
+            # below (`_latest_keyword_ledger`); no second query — `gap` and `profile`
+            # are already loaded.
+            from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
+                (gap.keyword_ledger or []) if gap else [],
+                profile.profile_json if profile else None,
+                seam="letter generation",
+            )
 
             # E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)): deterministic,
             # no-LLM positioning inputs — a blind hiring panel rejected an otherwise-honest
@@ -2453,13 +2465,25 @@ async def _terminal_review_letter(
 # ---------------------------------------------------------------------------
 
 
-async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+async def _latest_keyword_ledger(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    profile_json: dict | None = None,
+) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
-    Mirrors the generation-path gap query; ``None`` for legacy pre-E037 rows (then all
-    missing keywords default to honest-gap in the ATS report).
+    THE ledger read for the whole letter chain — generation and the ATS report
+    both come through here (letter twin of ``services/cv.py``); ``None`` for
+    legacy pre-E037 rows (then all missing keywords default to honest-gap).
+
+    #592 / ADR-048 amended: re-derived against the CURRENT vault here, so a
+    DO-NOT-CLAIM list can never contradict the profile the writer is handed —
+    see :func:`keyword_ledger.refresh_ledger_against_vault`. Read-only: the
+    persisted row is not rewritten.
     """
     from applire.models.gap import GapAnalysis
+    from applire.models.profile import MasterProfile
 
     result = await db.execute(
         select(GapAnalysis)
@@ -2471,7 +2495,17 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
         .limit(1)
     )
     gap = result.scalar_one_or_none()
-    return (gap.keyword_ledger or []) if gap else None
+    if gap is None:
+        return None
+    if profile_json is None and gap.profile_id is not None:
+        profile_row = await db.get(MasterProfile, gap.profile_id)
+        profile_json = profile_row.profile_json if profile_row else None
+    from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+    ledger, _changed = refresh_ledger_against_vault(
+        gap.keyword_ledger or [], profile_json, seam="letter ledger read"
+    )
+    return ledger
 
 
 async def _update_ats_report_letter(

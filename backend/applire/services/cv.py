@@ -2711,7 +2711,18 @@ async def _render_cv_background(
             # Keyword Ledger's job (ADR-048).
             # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
             # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
-            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
+            # #592 (ADR-048 amended): the persisted row states what the vault held
+            # when the analysis ran. Re-derive it against the vault THIS run was
+            # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
+            # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
+            # no second query — `gap` and `profile` are already loaded.
+            from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
+                (gap.keyword_ledger or []) if gap else [],
+                profile.profile_json if profile else None,
+                seam="cv generation",
+            )
 
             job_dict = {
                 "role_title": job.role_title,
@@ -3400,11 +3411,31 @@ async def _html_to_pdf(html: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+async def _latest_keyword_ledger(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    profile_json: dict | None = None,
+) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
-    Mirrors the generation-path gap query. Used by the ATS audit to bucket missing
-    keywords; ``None`` for legacy pre-E037 rows (then all missing default to honest-gap).
+    THE ledger read for the whole CV chain — generation, the ATS audit and the
+    DOCX report all come through here, so the writer, the reviewer's
+    DO-NOT-CLAIM presence block and the truthfulness panel cannot disagree about
+    one term. ``None`` for legacy pre-E037 rows (then all missing default to
+    honest-gap).
+
+    #592 / ADR-048 amended: the persisted row is a statement about the vault as
+    it stood when the analysis ran, and the vault keeps moving afterwards. The
+    row is re-derived against the CURRENT vault here
+    (:func:`keyword_ledger.refresh_ledger_against_vault` — read its docstring for
+    the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
+    the writer is handed. Read-only: the persisted row is not rewritten, so the
+    Gaps screen's score is untouched by generating a document.
+
+    ``profile_json`` — the caller's already-loaded vault, when it has one (the
+    generation path does). Omitted, the profile is loaded from the analysis's own
+    ``profile_id``.
     """
     result = await db.execute(
         select(GapAnalysis)
@@ -3416,7 +3447,17 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
         .limit(1)
     )
     gap = result.scalar_one_or_none()
-    return (gap.keyword_ledger or []) if gap else None
+    if gap is None:
+        return None
+    if profile_json is None and gap.profile_id is not None:
+        profile_row = await db.get(MasterProfile, gap.profile_id)
+        profile_json = profile_row.profile_json if profile_row else None
+    from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+    ledger, _changed = refresh_ledger_against_vault(
+        gap.keyword_ledger or [], profile_json, seam="cv ledger read"
+    )
+    return ledger
 
 
 @dataclass
