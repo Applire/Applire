@@ -1068,6 +1068,17 @@ So the dividing line is **name vs. prose**, not one component vs. another. Decid
 Worth stating plainly: on the document that prompted all this, **the language model did not cause the problem.** It had folded the project's evidence into a single condensed line, exactly as instructed; the duplicate bullets were assembled afterwards by Applire's own deterministic code.
 
 ---
+### ADR-083 — A Reviewer's Findings Reach the Writer (accepted + partly built 2026-09-04)
+
+**Decision:** when Applire's review loop finds something wrong with a draft, the writer is now told *what* it found — not just that it failed.
+
+Applire generates a CV by drafting it, reviewing it, and handing the review back for a rewrite. The reviewer returns two things: a prose summary, and a structured list of findings with severities. Until this change only the prose summary was passed on. The structured list was logged and discarded — so a finding the reviewer made reliably reached the writer only about 40% of the time, and the same problem got raised round after round because nobody was ever told about it in a form they could act on. The findings are now folded into what the writer receives, at the single shared point all five review chains pass through.
+
+**A design question this settled, with a number.** The obvious idea is to write reviewer prompts as a *role* — "you are an experienced reviewer, find anything wrong with this document" — rather than an enumerated checklist, on the theory that an experienced professional doesn't need to be told what to look for. We measured it on a real document where the reviewer had missed a defect: an open role mandate found it **0 times out of 5**, while adding one **named** check found it **5 out of 5**, with no false positives. So the mandate stays a list of named checks. What the principle *does* change is which parts of a prompt earn their space: the things any experienced reviewer already knows get compressed, and the things they could not possibly know — that employer names and dates are filled in by code *after* review, what Applire's keyword ledger means, what marking a finding "blocking" actually costs — get the room instead.
+
+**And a limit we found by testing rather than assuming.** Having built the transport, we replayed it against a real model instead of trusting the unit tests. The finding does reach the writer and does change what it produces — but for one class of problem it still cannot be acted on, because the reviewer and the writer are shown *different documents*: the reviewer reads the fully assembled CV, while the writer edits the earlier draft that does not yet contain the code-assembled sections. A complaint about a section the writer cannot see is a complaint it cannot fix. That is now recorded rather than discovered later, and it is why redundancy in those sections is **reported** to you rather than silently rewritten.
+
+---
 ---
 ## 4. Data Model Highlights
 
