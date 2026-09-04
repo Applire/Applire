@@ -183,6 +183,15 @@ jobs:
       # and does not rebuild; `--build` is therefore dropped.
       - name: Build backend image (layer-cached)
         uses: docker/build-push-action@v6
+        # docker/build-push-action uploads a `.dockerbuild` build-record artifact
+        # by default. The Test Summary job downloads ALL artifacts of the run, so
+        # two extra ones broke its download step (8 found instead of 6) while every
+        # test passed — a green suite reported red by its own aggregator. We do not
+        # consume build records; turn them off rather than teach the summary to
+        # filter, so the artifact set stays exactly what the tests produce.
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: ./backend
           tags: ghcr.io/applire/applire-backend:latest
@@ -192,6 +201,9 @@ jobs:
 
       - name: Build frontend image (layer-cached)
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: ./frontend
           # `target: dev` mirrors docker-compose.override.yml exactly — the
