@@ -34,6 +34,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _VALID_LANGUAGES = {"de", "en"}
+# ADR-081 clause 5 (US301): three-valued document-review preference.
+_VALID_REVIEW_MODES = {"auto", "overview", "guided"}
 
 
 class SettingsResponse(BaseModel):
@@ -46,6 +48,9 @@ class SettingsResponse(BaseModel):
     hide_predownload_notice: bool
     # E042/US236 (ADR-051 §1): NULL = "use region standard".
     target_cv_pages: int | None = None
+    # ADR-081 clause 5 (US301): 'auto' follows the document; 'overview'/
+    # 'guided' are fixed overrides. Not exposed over MCP (clause 8).
+    review_mode: Literal["auto", "overview", "guided"] = "auto"
 
 
 class SettingsPatchRequest(BaseModel):
@@ -54,6 +59,7 @@ class SettingsPatchRequest(BaseModel):
     hide_predownload_notice: bool | None = None
     # E042/US236: >= 1, no upper cap (users may deliberately exceed the norm).
     target_cv_pages: int | None = Field(default=None, ge=1)
+    review_mode: Literal["auto", "overview", "guided"] | None = None
 
 
 async def get_settings(db: AsyncSession) -> dict:
@@ -76,6 +82,10 @@ async def get_settings(db: AsyncSession) -> dict:
     ui_language = (row.ui_language if row else None) or "en"
     hide_predownload_notice = bool(row.hide_predownload_notice) if row else False
     target_cv_pages = row.target_cv_pages if row else None
+    # ADR-081 clause 5: a legacy row whose column is NULL/empty (pre-0060,
+    # or the in-memory default not yet reflected before commit) is served
+    # as 'auto', never None.
+    review_mode = getattr(row, "review_mode", None) or "auto"
 
     if row is None or row.default_color_profile_id is None:
         return {
@@ -85,6 +95,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "ui_language_explicit": ui_language_explicit,
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
+            "review_mode": review_mode,
         }
 
     cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -96,6 +107,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "ui_language_explicit": ui_language_explicit,
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
+            "review_mode": review_mode,
         }
 
     return {
@@ -105,6 +117,7 @@ async def get_settings(db: AsyncSession) -> dict:
         "ui_language_explicit": ui_language_explicit,
         "hide_predownload_notice": hide_predownload_notice,
         "target_cv_pages": target_cv_pages,
+        "review_mode": review_mode,
     }
 
 
@@ -115,6 +128,7 @@ async def update_settings(
     hide_predownload_notice: bool | None = None,
     target_cv_pages: int | None = None,
     clear_target_cv_pages: bool = False,
+    review_mode: str | None = None,
 ) -> dict:
     """Service logic — upsert user settings. All fields are optional.
 
@@ -138,6 +152,11 @@ async def update_settings(
     if target_cv_pages is not None and target_cv_pages < 1:
         raise ValueError(
             f"Invalid target_cv_pages: {target_cv_pages!r}. Must be >= 1."
+        )
+
+    if review_mode is not None and review_mode not in _VALID_REVIEW_MODES:
+        raise ValueError(
+            f"Invalid review_mode: {review_mode!r}. Must be one of {_VALID_REVIEW_MODES}."
         )
 
     result = await db.execute(
@@ -166,6 +185,9 @@ async def update_settings(
     elif target_cv_pages is not None:
         row.target_cv_pages = target_cv_pages
 
+    if review_mode is not None:
+        row.review_mode = review_mode
+
     await db.commit()
 
     response: dict = {
@@ -173,6 +195,9 @@ async def update_settings(
         "ui_language_explicit": bool(row.ui_language),
         "hide_predownload_notice": bool(row.hide_predownload_notice),
         "target_cv_pages": row.target_cv_pages,
+        # Same NULL-safety as get_settings(): the in-memory server_default
+        # is not reflected before commit on a freshly-created row.
+        "review_mode": getattr(row, "review_mode", None) or "auto",
     }
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -215,6 +240,7 @@ async def api_patch_settings(
             hide_predownload_notice=body.hide_predownload_notice,
             target_cv_pages=body.target_cv_pages,
             clear_target_cv_pages=clear_target_cv_pages,
+            review_mode=body.review_mode,
         )
         return SettingsResponse(**result)
     except ValueError as exc:
