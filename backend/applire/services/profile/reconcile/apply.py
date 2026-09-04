@@ -160,6 +160,32 @@ def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
     return existing
 
 
+def _prefer_mixed_case_spelling(existing: str, incoming: str) -> str:
+    """#602/#620 — a layout-driven extraction (e.g. a table CV) can render an
+    employer ALL-CAPS while another source states the ordinary mixed-case
+    rendering of the SAME name. A deterministic preference between two
+    SPELLINGS of one name, never a judgement about whether two names are the
+    same entity — callers apply this only where identity is already settled
+    (an explicit ``target``, or an entity the caller's own near-dupe
+    instrument already matched).
+
+    Fires only when both sides are, ignoring case, the identical string
+    (``_norm`` — NFC + casefold) AND the existing value is all-uppercase while
+    the incoming one is not — i.e. incoming actually carries mixed case to
+    prefer. Any other pairing (both mixed case, both ALL-CAPS, or genuinely
+    different names) is left to the caller's existing rule unchanged.
+    """
+    if (
+        existing
+        and incoming
+        and existing.isupper()
+        and not incoming.isupper()
+        and _norm(existing) == _norm(incoming)
+    ):
+        return incoming
+    return existing
+
+
 def _merge_last_used(existing: date | None, incoming: date | None) -> date | None:
     """#602/#620 — a skill's ``last_used`` must SURVIVE a merge import, not be
     dropped because the incoming op is folding into an already-known skill.
@@ -1755,6 +1781,16 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending):
     ):
         target.role_aliases.append(op.role)
         changes.append(_merged("work_experience", "role_aliases", None, op.role))
+    # #602/#620 — identity is already settled (this IS `target`); prefer a
+    # mixed-case employer rendering over an ALL-CAPS one from a layout
+    # source. Deliberately BEFORE _fill_empties, which never overwrites a
+    # non-empty company — this is the one exception, and only for two
+    # spellings of the SAME name (see _prefer_mixed_case_spelling).
+    if op.company:
+        preferred = _prefer_mixed_case_spelling(target.company, op.company)
+        if preferred != target.company:
+            changes.append(_updated("work_experience", "company", target.company, preferred))
+            target.company = preferred
     # Fill only empties for the rest (never overwrite company/role).
     _fill_empties(
         target,

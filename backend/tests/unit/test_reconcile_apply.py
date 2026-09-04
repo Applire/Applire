@@ -1059,6 +1059,52 @@ def test_upsert_work_different_org_still_appends():
     assert len(result.profile.work_experience) == 2
 
 
+# ── #602/#620: employer ALL-CAPS from a layout source — prefer mixed case ────
+
+
+def test_upsert_work_merge_prefers_mixed_case_employer_over_all_caps():
+    """A layout-driven extraction (e.g. a table CV) rendered the employer
+    ALL-CAPS; a second source states the same employer in ordinary mixed
+    case. Identity is already settled (explicit `target`) — this is a
+    deterministic preference between two spellings of ONE name, never a
+    judgement about whether two names are the same entity."""
+    work = WorkEntry(company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="Weberit Kunststofftechnik GmbH", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.work_experience[0].company == "Weberit Kunststofftechnik GmbH"
+
+
+def test_upsert_work_merge_keeps_existing_mixed_case_over_incoming_all_caps():
+    """The reverse direction: the vault already has the nicely-cased name — an
+    ALL-CAPS incoming rendering must never overwrite it."""
+    work = WorkEntry(company="Weberit Kunststofftechnik GmbH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.work_experience[0].company == "Weberit Kunststofftechnik GmbH"
+
+
+def test_upsert_work_merge_never_touches_a_genuinely_different_all_caps_name():
+    """The preference fires ONLY when the two spellings are the SAME name
+    (case aside) — never a judgement about whether two DIFFERENT names name
+    the same entity. An unrelated ALL-CAPS incoming company must never
+    silently replace the existing one."""
+    work = WorkEntry(company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="Bosch", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    # `company` is never overwritten by _fill_empties once non-empty — this
+    # merge behaviour is unrelated to and unaffected by the case preference.
+    assert result.profile.work_experience[0].company == "WEBERIT KUNSTSTOFFTECHNIK GMBH"
+
+
 def test_upsert_work_unresolved_target_still_runs_near_dup_guard():
     """#181 pin (item 2): op.target is SET but resolves to nothing — a stale or
     hallucinated id that matches no existing entry and no ref_map ref. `target`
