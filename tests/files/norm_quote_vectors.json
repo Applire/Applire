@@ -1,0 +1,101 @@
+{
+  "_comment": "ADR-081 clause 2 / SF-REVIEW.5 — the group-1 carve-out folds strings with the ADR-070 clause 1 quote fold. That fold exists twice: backend/applire/services/scope_requirements.py::_norm_quote (Python) and frontend/lib/norm-quote.ts::normQuote (TypeScript, a port — the carve-out runs in the browser, so ADR-066's one-implementation rule cannot be satisfied literally). These vectors are the divergence DETECTOR: both a pytest and a vitest assert every pair. Whoever changes either fold adds a vector for the class they changed — a fold change in a class these vectors do not exercise passes both suites.",
+  "vectors": [
+    {
+      "in": "SAP PP",
+      "out": "sap pp"
+    },
+    {
+      "in": "  SAP   PP  ",
+      "out": "sap pp"
+    },
+    {
+      "in": "SAP PP/DS",
+      "out": "sap pp/ds"
+    },
+    {
+      "in": "ISO 45001",
+      "out": "iso 45001"
+    },
+    {
+      "in": "Lean‑Management",
+      "out": "lean management"
+    },
+    {
+      "in": "Lean–Management",
+      "out": "lean management"
+    },
+    {
+      "in": "Lean—Management",
+      "out": "lean management"
+    },
+    {
+      "in": "Lean−Management",
+      "out": "lean management"
+    },
+    {
+      "in": "Lean-Management",
+      "out": "lean management"
+    },
+    {
+      "in": "O’Brien",
+      "out": "o'brien"
+    },
+    {
+      "in": "OʼBrien",
+      "out": "o'brien"
+    },
+    {
+      "in": "O‘Brien",
+      "out": "o'brien"
+    },
+    {
+      "in": "O‛Brien",
+      "out": "o'brien"
+    },
+    {
+      "in": "O`Brien",
+      "out": "o'brien"
+    },
+    {
+      "in": "„Projektleitung“",
+      "out": "\"projektleitung\""
+    },
+    {
+      "in": "«Projektleitung»",
+      "out": "\"projektleitung\""
+    },
+    {
+      "in": "Six Sigma",
+      "out": "six sigma"
+    },
+    {
+      "in": "ﬁnite Elemente",
+      "out": "finite elemente"
+    },
+    {
+      "in": "Ⅸ Kategorie",
+      "out": "ix kategorie"
+    },
+    {
+      "in": "TÜV­Zertifikat",
+      "out": "tüv­zertifikat"
+    },
+    {
+      "in": "Qualitäts‐management",
+      "out": "qualitäts management"
+    },
+    {
+      "in": "  ",
+      "out": ""
+    },
+    {
+      "in": "",
+      "out": ""
+    },
+    {
+      "in": "MES\r\n Rollout",
+      "out": "mes rollout"
+    }
+  ]
+}
