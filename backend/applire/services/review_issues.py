@@ -94,6 +94,50 @@ class ReviewIssue:
         return self.severity == SEVERITY_BLOCKING
 
 
+@dataclass(frozen=True)
+class ReviewSettle:
+    """What ``review_and_refine`` knew about the loop at the moment it settled
+    (ADR-021 amended 2026-09-04, #563 part D).
+
+    The loop returns a draft and nothing else, so until this existed the fact
+    that a document shipped with its reviewer's blocking findings still open
+    did not survive the loop's own stack frame. It reached exactly two places —
+    a ``REVIEW_EXHAUSTED`` / ``REVIEW_CYCLE_DETECTED`` log line and the unit
+    tests pinning that line's format. The positive set was exhausted on
+    2026-09-04: no router, no column, no frontend surface, no alert read either
+    line anywhere in the repository.
+
+    Carried to an optional ``on_settle`` callback, once per invocation. It is a
+    REPORT, never a lever: the loop has already chosen ``settled`` by the time
+    this object exists, and the callback returns nothing.
+
+    ``path`` is the loop's own settle-path label, and ``None`` is load-bearing:
+    it is the ``max_retries <= 0`` call site — the review layer did not run at
+    all — which is the only way a consumer can tell "not evaluated" from
+    "evaluated and clean" (ADR-081 clause 9 / ADR-079 clause 4: *unknown, never
+    0*). ``ran`` is that same distinction as a boolean, so no consumer has to
+    re-derive it from a sentinel.
+
+    ``blocking_issues`` / ``minor_issues`` are the texts of the LAST verdict's
+    normalized issues, split by the ADR-021 severity gate — the loop's own
+    ``normalize_issues`` output, never a second parse (ADR-066). Both are empty
+    on the disabled path (no verdict exists) and on a reviewer-call failure
+    before any verdict was obtained.
+    """
+
+    path: str | None
+    approved: bool
+    blocking_issues: tuple[str, ...]
+    minor_issues: tuple[str, ...]
+    rounds: int
+    settled: dict
+
+    @property
+    def ran(self) -> bool:
+        """False only for the ``max_retries <= 0`` short-circuit."""
+        return self.path is not None
+
+
 def _coerce_severity(raw: object) -> str:
     """Read a severity value, defaulting to blocking.
 
