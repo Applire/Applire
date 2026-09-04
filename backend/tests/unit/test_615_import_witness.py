@@ -106,6 +106,56 @@ def test_arm_c_upsert_op_restating_the_key_is_carried_even_when_parked_ambiguous
     assert items == []
 
 
+def test_arm_c_sub_clause_2_set_field_on_an_existing_flat_entry_is_not_a_loss():
+    """#602/#620 — the real case: a LinkedIn import states 'German Diploma' for
+    an education entry the vault already holds as 'Diplom'. The reconciler
+    correlates them and emits a `set_field` against the EXISTING entry's id
+    (never an `upsert_education`, so arm (c) sub-clause 1's key-restating check
+    cannot see it) — the natural key (institution, degree) no longer matches
+    post-merge because the changed field IS the differing one. A targeted op
+    on an id already present in `merged` is not a loss, mirroring the
+    engagement sections' own sub-clause 2."""
+    existing_id = "edu-1"
+    incoming = MasterProfileData(
+        education=[EducationEntry(institution="TU München", degree="German Diploma")]
+    )
+    merged = MasterProfileData(
+        education=[
+            EducationEntry(id=existing_id, institution="TU München", degree="Diplom")
+        ]
+    )
+    raw_ops = [
+        {"op": "set_field", "target": existing_id, "field": "degree", "value": "German Diploma"},
+    ]
+    ops = _parse_ops(raw_ops)
+    items = compute_import_not_applied(incoming, merged, ops=ops)
+    assert items == []
+
+
+def test_arm_c_sub_clause_2_does_not_rescue_an_unrelated_flat_entry():
+    """The targeted `set_field` must share an actual identity signal with the
+    incoming entry it excuses — a set_field touching a DIFFERENT education
+    entry (different institution) must not blanket-rescue every unresolved
+    incoming education entry in the batch."""
+    touched_id = "edu-1"
+    incoming = MasterProfileData(
+        education=[EducationEntry(institution="Uni Hamburg", degree="BSc")]
+    )
+    merged = MasterProfileData(
+        education=[
+            EducationEntry(id=touched_id, institution="TU München", degree="Diplom")
+        ]
+    )
+    raw_ops = [
+        {"op": "set_field", "target": touched_id, "field": "degree", "value": "German Diploma"},
+    ]
+    ops = _parse_ops(raw_ops)
+    items = compute_import_not_applied(incoming, merged, ops=ops)
+    assert len(items) == 1
+    assert items[0].section == "education"
+    assert items[0].reason == "no_op_carried_entry"
+
+
 def test_op_rejected_items_from_raw_rejected_ops():
     items = compute_import_not_applied(
         MasterProfileData(), MasterProfileData(), ops=[],
