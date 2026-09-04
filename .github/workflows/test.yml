@@ -147,7 +147,13 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
+          # Both lockfiles: this job runs `npm ci` twice (root, then frontend) and
+          # the key covered only the frontend one, so a root-lockfile change
+          # silently missed. Measured 2026-09-04: a cold `npm ci` costs 7.0 min in
+          # a job with ~8 min of headroom.
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Install root dependencies
         run: npm ci
@@ -162,19 +168,48 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
+      # The step that used to sit here cached /tmp/.buildx-cache — a path that
+      # appeared exactly ONCE in the whole repository, in the cache step itself.
+      # Nothing wrote to it and `docker compose up --build` never read it, so the
+      # image build was cold on EVERY run: a control that could not fire. Measured
+      # 2026-09-04 on a job with `timeout-minutes: 30` and ~8 min of headroom, the
+      # build cost 2.9-8.6 min depending on the runner, and three consecutive runs
+      # timed out during PQ with no test having failed. Replaced with a cache that
+      # is actually wired to the build, via BuildKit's GitHub Actions backend.
+      #
+      # `docker-compose.override.yml` builds two images (backend -- shared by the
+      # backend/retention/mcp services -- and frontend). They are built here with
+      # the tags docker-compose.yml declares, so the `up` below finds them locally
+      # and does not rebuild; `--build` is therefore dropped.
+      - name: Build backend image (layer-cached)
+        uses: docker/build-push-action@v6
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ hashFiles('backend/Dockerfile', 'backend/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          context: ./backend
+          tags: ghcr.io/applire/applire-backend:latest
+          load: true
+          cache-from: type=gha,scope=e2e-backend
+          cache-to: type=gha,mode=max,scope=e2e-backend
+
+      - name: Build frontend image (layer-cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          # `target: dev` mirrors docker-compose.override.yml exactly — the
+          # frontend Dockerfile is multi-stage and the dev stack expects the dev
+          # stage (hot reload, the /app/node_modules and /app/.next volumes).
+          # Building the default/production stage here would start a subtly wrong
+          # frontend and the E2E suites would chase the symptom, not the cause.
+          target: dev
+          tags: ghcr.io/applire/applire-frontend:latest
+          load: true
+          cache-from: type=gha,scope=e2e-frontend
+          cache-to: type=gha,mode=max,scope=e2e-frontend
 
       - name: Create .env from CI template
         run: cp .env.ci .env
 
       - name: Start Docker services
-        run: docker compose up -d --build
+        run: docker compose up -d
 
       - name: Wait for application to be ready
         run: |
