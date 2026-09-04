@@ -34,6 +34,7 @@ import types
 import typing
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -157,6 +158,23 @@ def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
     if _PROFICIENCY_ORDER.get(existing) is None:
         return incoming
     return existing
+
+
+def _merge_last_used(existing: date | None, incoming: date | None) -> date | None:
+    """#602/#620 — a skill's ``last_used`` must SURVIVE a merge import, not be
+    dropped because the incoming op is folding into an already-known skill.
+
+    Neither side is more authoritative than the other the way a declared
+    proficiency is (ADR-061 clause 5) — ``last_used`` is a plain fact, and the
+    MORE RECENT of two dates is always the more informative "still current"
+    signal, so it wins regardless of which side (existing vs incoming) stated
+    it. An absent side never regresses the other.
+    """
+    if incoming is None:
+        return existing
+    if existing is None:
+        return incoming
+    return max(existing, incoming)
 
 
 class ApplyResult(BaseModel):
@@ -1985,6 +2003,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 existing.proficiency = _merge_declared_proficiency(
                     existing.proficiency, op.proficiency.lower()
                 )
+            # #602/#620 — see _merge_last_used: the more recent date wins.
+            existing.last_used = _merge_last_used(existing.last_used, op.last_used)
             # ADR-061 clause 3 + the 2026-08-08 amendment (#485) — promote-only,
             # and never OUT of `denied`. See _promote_to_confirmed.
             _promote_to_confirmed(existing, op.status)
@@ -2002,6 +2022,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             skill_kwargs["category"] = op.category
         if op.proficiency:
             skill_kwargs["proficiency"] = op.proficiency
+        if op.last_used:
+            skill_kwargs["last_used"] = op.last_used
         profile.skills.append(Skill(**skill_kwargs))
         changes.append(_added("skills", "name", op.name))
         return
@@ -2068,6 +2090,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing.proficiency = _merge_declared_proficiency(
                 existing.proficiency, op.proficiency.lower()
             )
+        # #602/#620 — see _merge_last_used: the more recent date wins.
+        existing.last_used = _merge_last_used(existing.last_used, op.last_used)
         # ADR-061 clause 3 + the 2026-08-08 amendment: promote-only, and never
         # out of `denied` (see _promote_to_confirmed for the full rationale).
         _promote_to_confirmed(existing, op.status)
@@ -2085,6 +2109,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         skill_kwargs["category"] = op.category
     if op.proficiency:
         skill_kwargs["proficiency"] = op.proficiency
+    if op.last_used:
+        skill_kwargs["last_used"] = op.last_used
     profile.skills.append(Skill(**skill_kwargs))
     changes.append(_added("skills", "name", op.name))
 

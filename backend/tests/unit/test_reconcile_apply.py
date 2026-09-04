@@ -517,6 +517,44 @@ def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
     assert sk.proficiency == "advanced"  # declared ceiling — not raised
 
 
+# ── #602/#620: skills[].last_used survives a MERGE import ────────────────────
+
+
+def test_upsert_skill_new_carries_last_used():
+    profile = MasterProfileData()
+    ops = [UpsertSkill(name="Rust", last_used="2024-06")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2024, 6, 1)
+
+
+def test_upsert_skill_merge_fills_an_empty_last_used():
+    """A skill first seen without a last-used date (e.g. an interview mention)
+    gets one from a later import that names it — the field must not be
+    dropped just because `UpsertSkill` never carried it before."""
+    existing = Skill(name="Python", last_used=None)
+    profile = MasterProfileData(skills=[existing])
+    ops = [UpsertSkill(name="Python", last_used="2023-01")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2023, 1, 1)
+
+
+def test_upsert_skill_merge_keeps_the_more_recent_last_used():
+    """Two sources disagree on when a skill was last used — the more recent
+    date is the more informative "still current" signal; an older incoming
+    value never regresses it."""
+    existing = Skill(name="Python", last_used=date(2024, 1, 1))
+    profile = MasterProfileData(skills=[existing])
+    ops = [UpsertSkill(name="Python", last_used="2020-01")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2024, 1, 1)
+
+    existing2 = Skill(name="Java", last_used=date(2020, 1, 1))
+    profile2 = MasterProfileData(skills=[existing2])
+    ops2 = [UpsertSkill(name="Java", last_used="2024-01")]
+    result2 = apply_ops(profile2, ops2, SOURCE)
+    assert result2.profile.skills[0].last_used == date(2024, 1, 1)
+
+
 def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
     """A compound incoming skill that relates to MULTIPLE existing atoms by
     single-token containment must NOT silently merge — it emits a
