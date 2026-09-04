@@ -2298,6 +2298,12 @@ def annotate_evidence_owners(
         )
         return list(keyword_ledger)
 
+    # An OPTIMISATION, not a guard — mutation-verified: dropping this filter
+    # changes no result, because a role-agnostic unit contributes an empty
+    # `owner_ids` set and therefore no owner either way. It is kept because a
+    # large vault's summary/skills/education units are the majority of the
+    # index and `term_present` is not free. Do not read it as the mechanism that
+    # keeps role-agnostic evidence out of the answer; that is `owner_ids` itself.
     owned_units = [u for u in index.units if u.owner_ids]
     # `owner_ids` is a frozenset, so the ORDER of a multi-owner unit is not
     # stable. The reviewer reads this list, and a list that reshuffles between
