@@ -1079,6 +1079,22 @@ Applire generates a CV by drafting it, reviewing it, and handing the review back
 **And a limit we found by testing rather than assuming.** Having built the transport, we replayed it against a real model instead of trusting the unit tests. The finding does reach the writer and does change what it produces — but for one class of problem it still cannot be acted on, because the reviewer and the writer are shown *different documents*: the reviewer reads the fully assembled CV, while the writer edits the earlier draft that does not yet contain the code-assembled sections. A complaint about a section the writer cannot see is a complaint it cannot fix. That is now recorded rather than discovered later, and it is why redundancy in those sections is **reported** to you rather than silently rewritten.
 
 ---
+
+### ADR-084 — Untrusted job-posting text is data, not instructions (accepted + built 2026-09-04)
+
+**Decision:** every place a job posting — or anything derived from one — is handed to a language model, it is now structurally marked as third-party content that must never be obeyed.
+
+A job posting is the one input in Applire's whole pipeline that the candidate did not write. It arrives from an arbitrary URL or a paste, and everything downstream is derived from it: the extracted requirement list, the keyword ledger's evidence lines, the excerpt the cover-letter writer reads. Applire's internal model has no tools, no database access and no secrets in its context, so a hostile posting cannot make it *do* anything — but it can try to make it *say* something, and the machinery that checks Applire's own honesty treats posting-derived text as ground truth. An instruction that survived extraction was therefore re-injected into every later call carrying the ledger's authority.
+
+**What was actually found.** Enumerating the places posting text enters a prompt — properly, by tracing every model call back to its arguments rather than grepping for a variable name — turned up **32**, not the one obvious place. The dangerous ones are not where the posting is read as a posting; they are where its *derivatives* arrive already dressed as Applire's own facts.
+
+**Two marking forms, and why not one.** Where the embedded content is a self-contained span (the posting itself, an excerpt, an extracted-analysis document), it is fenced between explicit markers with a sentence saying it is data. Where Applire's own instructions are interleaved with posting-derived items — the keyword-ledger blocks — the block instead gains one sentence stating where those items came from, and **no per-item delimiter**. That is deliberate: those items are the exact strings the writer must reproduce word-for-word into the finished CV, so wrapping them would put the marker inside a candidate's document. The second form is weaker, it lands on the blocks that matter most, and that trade is recorded rather than glossed over.
+
+**The agent channel gets the same marking, machine-readably.** Applire's MCP tools serve agents that *do* have tools, so results carrying posting-derived text now include an `untrusted_content` object naming exactly which fields those are. The agent guide explains it. Applire's duty here is the channel — never hand a stranger's text to an agent dressed as trusted output; the agent's own defences remain the agent's.
+
+**What this is not.** It is not a filter, a sanitiser, or a detector of hostile postings — deciding whether a sentence is an attack is a judgement, and Applire's deterministic layer does not make judgements. It removes two structural advantages an attacker got for free and makes what remains measurable: a small corpus of hostile postings (with benign twins, German and English) is run against a real model and its result recorded per release. It is a real-model measurement, not a CI gate, and it is reported as such.
+
+---
 ---
 ## 4. Data Model Highlights
 
