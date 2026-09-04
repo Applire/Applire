@@ -1295,6 +1295,7 @@ async def _render_cover_letter_background(
             # independently, so the two can never disagree about what the
             # JD says (applire.services.jd_excerpt module docstring).
             from applire.services.jd_excerpt import build_jd_excerpt
+            from applire.services.untrusted_text import fence_inline
             jd_excerpt = build_jd_excerpt(job.raw_text)
             # #271 Tasks 2/3: the vault's strongest JD-relevant evidence,
             # selected independently of what cv_data's tailoring
@@ -1378,7 +1379,13 @@ async def _render_cover_letter_background(
                     # company fact must still fail review 4 (Oracle discipline unchanged).
                     # #271 Task 1: literally the SAME excerpt string the writer prompt above
                     # was built from (jd_excerpt) — never a second, independently-sliced copy.
-                    "job_description": jd_excerpt,
+                    # ADR-084 embedding point 14 (Form A, inline): this value is
+                    # handed unchanged to the letter REVIEWER and the CORRECTOR on
+                    # every round (prompts/review_cover_letter.py's
+                    # `CANDIDATE SOURCE (source of truth)` block), so one marking
+                    # here covers three prompts. Inline rather than block form
+                    # because json.dumps(indent=2) escapes the framing's newlines.
+                    "job_description": fence_inline(jd_excerpt),
                     # #255 (ADR-057 amended 2026-07-24): the SAME positioning inputs the
                     # writer received — see build above. Without this the reviewer/
                     # corrector cannot distinguish a REQUESTED, grounded domain reference /

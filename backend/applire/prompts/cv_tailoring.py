@@ -175,6 +175,19 @@ Respond ONLY with a valid JSON object — no markdown, no explanation:
 }"""
 
 
+
+def _fenced_job_analysis(job_analysis: dict) -> str:
+    """ADR-084 Form A: the JOB ANALYSIS block is the posting's derivatives —
+    every string in it was chosen by the posting's author — reaching the writer
+    as the target it is tailoring against. Fenced at the one place this file
+    builds it, so a new prompt function in this module inherits the marking
+    instead of re-deriving it (ADR-066)."""
+    from applire.services.untrusted_text import fence
+
+    return fence(
+        json.dumps(job_analysis, ensure_ascii=False, indent=2), header="JOB ANALYSIS"
+    )
+
 def build_user_prompt(
     job_analysis: dict,
     profile: dict,
@@ -249,7 +262,7 @@ def build_user_prompt(
         "Tailor the candidate's profile for the job below.\n\n"
         f"OUTPUT LANGUAGE: {language_name} — write the summary, all work bullets, and "
         f"skills in {language_name}, translating from the profile's language where needed.\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{ledger_section}"
         f"{evidence_section}"

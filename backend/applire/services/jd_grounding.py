@@ -307,6 +307,8 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
     line — this function reports facts about what IS there, it invents
     nothing about what is not.
     """
+    from applire.services.untrusted_text import items_note
+
     posting_norm = normalise(strip_locators(jd_text or ""))
     posting_tokens = frozenset(posting_norm.split())
     posting_stems = frozenset(_stem(tok) for tok in posting_tokens)
@@ -314,7 +316,16 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
     def fact(term: Any) -> str | None:
         return _fact(term, posting_norm, posting_tokens, posting_stems)
 
-    lines: list[str] = [_GROUNDING_FACTS_HEADER]
+    # ADR-084 embedding point 5 (Form B): every term below is quoted back from
+    # the posting, and the block's own header tells the reviewer to treat a
+    # "verbatim yes" as SETTLED — which is precisely the authority an injected
+    # requirement would inherit. Form B, not a fence: the header above is OUR
+    # instruction and must keep its force.
+    lines: list[str] = [
+        _GROUNDING_FACTS_HEADER,
+        "",
+        items_note("terms and quotes"),
+    ]
 
     for field in ("required_skills", "nice_to_have_skills", "keywords"):
         terms = view.get(field)

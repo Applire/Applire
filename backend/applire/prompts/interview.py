@@ -346,10 +346,14 @@ def _capped_profile_summary(profile: dict) -> str:
 # repeat anyway since build_question_prompt fires exactly once per cluster
 # (follow-ups use build_follow_up_question_prompt, which carries neither param).
 def _quant_instruction(quant_concepts: list[str]) -> str:
-    concept = quant_concepts[0]
+    # ADR-084 embedding point 25d (Form A, inline): a ledger concept — the
+    # posting's own term — interpolated into one of our instruction sentences.
+    from applire.services.untrusted_text import fence_inline
+
+    concept = fence_inline(quant_concepts[0])
     return (
         "\n\nQuantification opportunity: the candidate's profile evidences "
-        f"'{concept}' without any number, team size, or measurable outcome. "
+        f"{concept} without any number, team size, or measurable outcome. "
         "As part of THIS ONE question (not a second question), invitingly ask "
         "if they can share a number for it — team size, scale, or a measurable "
         "outcome. An answer with no numbers is a completely valid, final "
@@ -440,13 +444,22 @@ def build_question_prompt(
     else:
         choices_hint = "Set choices to null."
 
-    cluster_context = f"Cluster: {cluster_label}"
+    # ADR-084 embedding point 25a (Form A). Every line of this block is the
+    # posting's derivative — the cluster label and `jd_context` are themselves
+    # LLM output from the clustering call (point 22), so a hostile posting that
+    # survives two hops arrives here shaping the question the CANDIDATE is
+    # asked. That is the one place in the system where injected text reaches a
+    # human directly.
+    from applire.services.untrusted_text import fence
+
+    cluster_body = f"Cluster: {cluster_label}"
     if constituent_gaps:
-        cluster_context += f"\nConstituent gaps: {', '.join(constituent_gaps)}"
+        cluster_body += f"\nConstituent gaps: {', '.join(constituent_gaps)}"
     if jd_skills:
-        cluster_context += f"\nRelevant JD skills: {', '.join(jd_skills)}"
+        cluster_body += f"\nRelevant JD skills: {', '.join(jd_skills)}"
     if jd_context:
-        cluster_context += f"\nJD context: {jd_context}"
+        cluster_body += f"\nJD context: {jd_context}"
+    cluster_context = fence(cluster_body, header="GAP CLUSTER")
 
     prompt = (
         f"{cluster_context}\n"
@@ -561,8 +574,11 @@ def build_guided_question_prompt(
 
     role_ctx = ""
     if job_context.get("role_title"):
+        # ADR-084 embedding point 25b (Form A, inline).
+        from applire.services.untrusted_text import fence_inline
+
         role_ctx = (
-            f"\nTarget role context: {job_context['role_title']}"
+            f"\nTarget role context: {fence_inline(job_context['role_title'])}"
             + (
                 f" ({job_context['seniority_level']})"
                 if job_context.get("seniority_level")
@@ -630,8 +646,12 @@ def build_follow_up_question_prompt(
         ensure_ascii=False,
     )
 
+
+    # ADR-084 embedding point 25c (Form A, inline): `gap` is the cluster
+    # label, i.e. clustering-call output over posting-derived terms.
+    from applire.services.untrusted_text import fence_inline
     return (
-        f"Gap not yet addressed: {gap}\n"
+        f"Gap not yet addressed: {fence_inline(gap)}\n"
         f"Follow-up direction: {follow_up_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
         f"{history}\n\n"
@@ -736,8 +756,12 @@ def build_denial_probe_question_prompt(
     # It now shares Mode A's capped summary — one implementation (ADR-066).
     profile_summary = _capped_profile_summary(profile)
 
+
+    # ADR-084 embedding point 25c (Form A, inline): `gap` is the cluster
+    # label, i.e. clustering-call output over posting-derived terms.
+    from applire.services.untrusted_text import fence_inline
     return (
-        f"Gap not yet addressed: {gap}\n"
+        f"Gap not yet addressed: {fence_inline(gap)}\n"
         f"Follow-up direction: {follow_up_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
         f"{history}\n\n"

@@ -381,9 +381,16 @@ def render_unaddressed_hard_requirements_block(
     """
     if not entries:
         return ""
+    # ADR-084 embedding point 20 (Form B): every `concept` is a JD hard
+    # requirement and every `context` is the classifier's free text about it —
+    # both the posting's derivatives, reaching the letter writer AND (through
+    # `unaddressed_requirements_reviewer_prompt_fn`) its reviewer.
+    from applire.services.untrusted_text import items_note
+
     lines = [
         "=== UNADDRESSED HARD REQUIREMENTS (deterministic — #270(c)) ===",
         _UNADDRESSED_INSTRUCTION,
+        items_note("requirement terms and context quotes"),
     ]
     for e in entries:
         # ADR-074 / ADR-062 clause 3: the no-vault-context fallback string is

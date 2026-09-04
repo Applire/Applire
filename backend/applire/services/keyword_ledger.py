@@ -804,8 +804,18 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
     if not claimable and not forbidden:
         return ""
 
+    # ADR-084 embedding point 15 (Form B). Every `concept`, `surface_forms`
+    # entry and `evidence` string below is the posting's derivative arriving at
+    # the writer AS THE CANDIDATE'S OWN GROUND TRUTH — the amplification
+    # `SF-GAP.4` describes and `SF-UNTRUSTED.2` scores. Form B, not a fence:
+    # this block's own sentences are OUR instructions, and its surface forms are
+    # strings the writer must reproduce VERBATIM into the delivered document, so
+    # a per-item delimiter would ship the delimiter inside the candidate's CV.
+    from applire.services.untrusted_text import items_note
+
     lines: list[str] = [
         "KEYWORD LEDGER (ADR-048) — grounding strictly OUTRANKS coverage:",
+        items_note("concept terms, surface forms and evidence quotes"),
         "Surface a claimable keyword ONLY where the listed profile evidence supports it; "
         "if surfacing it would need any stretch, drop it. These are estimates of an "
         "unknowable target, so do NOT over-stuff. NEVER claim a do-not-claim term.",
@@ -1044,10 +1054,14 @@ def render_ledger_reviewer_block(
     if not claimable and not forbidden:
         return ""
 
+    # ADR-084 embedding point 16 (Form B) — the reviewer's copy of point 15.
+    from applire.services.untrusted_text import items_note
+
     lines: list[str] = [
         "KEYWORD LEDGER (ADR-048) — for your two ledger checks. Grounding strictly "
         "OUTRANKS coverage: an absent claimable keyword is a surfacing suggestion only, "
         "NEVER a reason to fabricate or stretch.",
+        items_note("concept terms and surface forms"),
         "",
         "CLAIMABLE KEYWORDS (the candidate truthfully supports these). Reference list for "
         "your grounding judgments — do NOT scan the draft for absent ones yourself; a "
@@ -1398,10 +1412,18 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     """
     if not entries:
         return ""
+    # ADR-084 embedding point 17 (Form B). Highest fan-out point in the system:
+    # `coverage_reviewer_prompt_fn` injects this block into EVERY reviewer round
+    # of four chains (cv_language, cv_tailoring, cv_terminal_review,
+    # cover_letter), so marking it here is four chains marked at one site
+    # (ADR-066).
+    from applire.services.untrusted_text import items_note
+
     lines = [
         "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, do "
         "not re-derive it). The following claimable keywords are ABSENT from the draft "
         "in every known surface form:",
+        items_note("concept terms, surface forms and evidence quotes"),
     ]
     for entry in entries:
         forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
@@ -1529,10 +1551,14 @@ def render_forbidden_presence_block(present_terms: list[str]) -> str:
     #531's two spurious findings needed. Callers gate on the ledger having a
     forbidden list at all (:func:`forbidden_presence_reviewer_prompt_fn`).
     """
+    # ADR-084 embedding point 18 (Form B).
+    from applire.services.untrusted_text import items_note
+
     lines = [
         "DO-NOT-CLAIM PRESENCE (deterministic literal scan of THIS draft — this is "
         "ground truth, do not re-derive it). Of the DO NOT CLAIM terms above, the "
         "scan finds these in the draft:",
+        items_note("terms"),
     ]
     if present_terms:
         lines += [f"  - {term}" for term in present_terms]
@@ -1606,11 +1632,15 @@ def render_coverage_retention_block(entries: list[dict[str, Any]]) -> str:
     for entry in entries:
         surface = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
         forms.append(f"  - {entry.get('concept', '')} [forms: {surface}]")
+    from applire.services.untrusted_text import items_note
+
+    # ADR-084 embedding point 19 (Form B) — the CORRECTOR's copy.
     return "\n".join(
         [
             "COVERAGE ALREADY ACHIEVED (deterministic literal scan of the PREVIOUS "
             "OUTPUT above — this is ground truth, do not re-derive it). The draft you "
             "are patching already surfaces these claimable keywords:",
+            items_note("concept terms and surface forms"),
             *forms,
             "",
             "Your corrected draft MUST still contain every one of them. Fixing what "

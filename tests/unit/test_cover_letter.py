@@ -521,7 +521,14 @@ def test_build_cover_letter_prompt_includes_company_engagement_block():
         company_name="Roche Diagnostics",
     )
     assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in prompt
-    assert "TARGET COMPANY: Roche Diagnostics" in prompt
+    # ADR-084 point 24: the company name is still threaded, and is now inside the
+    # untrusted-text marking (it is a free-text field the POSTING's author chose).
+    # Asserting containment rather than the old bare "TARGET COMPANY: <name>"
+    # substring keeps the original intent AND pins the marking.
+    from applire.services.untrusted_text import is_covered
+
+    assert "TARGET COMPANY:" in prompt
+    assert is_covered(prompt, "Roche Diagnostics")
 
 
 def test_build_cover_letter_prompt_omits_company_engagement_block_when_no_company_name():

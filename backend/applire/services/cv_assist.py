@@ -307,9 +307,14 @@ def _rewrite_prompt(
     gap_ids: list[str],
     role_title: str | None,
 ) -> str:
+    # ADR-084 embedding point 28 (Form A, inline): the target role title is the
+    # posting's own text, and this prompt's output is written straight into the
+    # candidate's CV section.
+    from applire.services.untrusted_text import fence_inline
+
     lines = [f"Abschnitt: {section_label}"]
     if role_title:
-        lines.append(f"Zielrolle: {role_title}")
+        lines.append(f"Zielrolle: {fence_inline(role_title)}")
     lines.append(f"Aktueller Inhalt:\n{section_content}")
     if gap_ids:
         lines.append(f"Zu schließende Lücken: {', '.join(gap_ids)}")

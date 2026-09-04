@@ -278,7 +278,15 @@ def _leadership_concept_label(leadership_emphasis: dict[str, Any] | None) -> str
     ):
         quote = leadership_emphasis.get("quote")
         if isinstance(quote, str) and quote.strip():
-            return f'leadership (the posting states: "{quote.strip()}")'
+            # ADR-084 embedding point 23a: this is the one place a VERBATIM
+            # posting sentence travels into a writer prompt as a concept LABEL.
+            # Neutralised rather than fenced: the label is an item in the
+            # Form-B-marked block below, and fencing a value that also serves as
+            # an identity string risks changing what downstream comparisons see.
+            # The residual is named in ADR-084's Consequences.
+            from applire.services.untrusted_text import neutralise
+
+            return f'leadership (the posting states: "{neutralise(quote.strip())}")'
     return "leadership (JD states a leadership weighting/responsibility)"
 
 

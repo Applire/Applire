@@ -371,10 +371,19 @@ def build_cover_letter_prompt(
     # JD says (see applire.services.jd_excerpt module docstring).
     from applire.services.jd_excerpt import build_jd_excerpt
 
+    # ADR-084 embedding point 13 (Form A). The heading already said "NOT a
+    # source of candidate facts"; the fence says the stronger thing the heading
+    # could not — that the employer's text is not a source of INSTRUCTIONS
+    # either. Note this is the largest untrusted span in any prompt in the
+    # system (JD_EXCERPT_BUDGET = 4000 chars).
+    from applire.services.untrusted_text import fence, fence_inline
+
     lines += [
         "",
-        "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
-        build_jd_excerpt(jd_text),
+        fence(
+            build_jd_excerpt(jd_text),
+            header="=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
+        ),
     ]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #1 blocker — the letter never
@@ -385,7 +394,11 @@ def build_cover_letter_prompt(
         lines += [
             "",
             "=== POSITIONING: COMPANY & DOMAIN ENGAGEMENT ===",
-            f"TARGET COMPANY: {company_name}",
+            # ADR-084 embedding point 24 (Form A, inline): `company_name` is a
+            # free-text field the posting's author chose, interpolated into one
+            # of our own sentences — the shape where an injected clause reads
+            # most like an instruction from us.
+            f"TARGET COMPANY: {fence_inline(company_name)}",
             "Engage this employer concretely in the opening or motivation paragraph — "
             "reference what they build, sell, or operate in, using ONLY the JOB DESCRIPTION "
             "text above. Never invent a company product, market, or achievement that is not "

@@ -314,19 +314,34 @@ def build_user_prompt(
     # stated bar verbatim plus the candidate's typed vault values WITH their field
     # semantics. Only the sufficiency JUDGEMENT is the model's; the facts, the
     # fail-closed floor and the citation check are code's.
+    # ADR-084 embedding point 6 (Form A), three blocks. This prompt is where the
+    # posting's derivatives become the ledger, and the ledger is the authority
+    # every later call defers to (`SF-GAP.4` / `SF-UNTRUSTED.2`) — so the JOB
+    # ANALYSIS, the SCOPE REQUIREMENTS (which carry the posting's own sentences
+    # verbatim as `jd_quote`) and the REQUIREMENTS list are all fenced, while the
+    # CANDIDATE PROFILE and PRE-CLASSIFICATION blocks — the candidate's own data
+    # and code's own computation — deliberately are not. Marking everything would
+    # make the marker mean nothing.
+    from applire.services.untrusted_text import fence
+
     scope_block = (
-        "SCOPE REQUIREMENTS (quantified requirements — judge sufficiency per the system "
-        "rules; do NOT keyword-match):\n"
-        f"{json.dumps(scope_requirements, ensure_ascii=False, indent=2)}\n\n"
+        fence(
+            json.dumps(scope_requirements, ensure_ascii=False, indent=2),
+            header=(
+                "SCOPE REQUIREMENTS (quantified requirements — judge sufficiency per the "
+                "system rules; do NOT keyword-match)"
+            ),
+        )
+        + "\n\n"
         if scope_requirements
         else ""
     )
     return (
         "Produce the gap analysis JSON.\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{fence(json.dumps(job_analysis, ensure_ascii=False, indent=2), header='JOB ANALYSIS')}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile_wo_meta, ensure_ascii=False, indent=2)}\n\n"
         f"{statements_block}"
         f"{scope_block}"
         f"PRE-CLASSIFICATION:\n{json.dumps(pre_dict, ensure_ascii=False, indent=2)}\n\n"
-        f"REQUIREMENTS:\n{json.dumps(requirements, ensure_ascii=False, indent=2)}"
+        f"{fence(json.dumps(requirements, ensure_ascii=False, indent=2), header='REQUIREMENTS')}"
     )
