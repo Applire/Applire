@@ -24,6 +24,8 @@ enforced by tests/ats/test_roundtrip.py.
 
 import re
 import unicodedata
+from collections.abc import Sequence
+from functools import lru_cache
 from io import BytesIO
 from typing import Any, Literal
 
@@ -473,8 +475,15 @@ _PROSE_DUPE_MIN_RUN = 3
 _PROSE_DUPE_MIN_TOKENS = 8
 
 
-def _prose_tokens(text: str) -> list[str]:
+@lru_cache(maxsize=2048)
+def _prose_tokens(text: str) -> tuple[str, ...]:
     """Ordered content tokens of a bullet, using THE shared normaliser.
+
+    Memoized: :func:`bullets_prose_dupe` is called once per PAIR of delivered
+    bullets, so tokenizing inside it made tokenization O(n^2) in the number of
+    bullets when O(n) suffices. Measured on a 216-bullet document before the
+    cache: 1,993 ms per audit. Returns a tuple so the cached value cannot be
+    mutated by a caller.
 
     Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and same
     edge-punctuation/stopword treatment as :func:`skill_tokens`, so "Code-Review"
@@ -486,10 +495,10 @@ def _prose_tokens(text: str) -> list[str]:
         t = raw.strip(_SKILL_EDGE_PUNCT)
         if t and t not in _SKILL_STOPWORDS:
             out.append(_skill_stem(t))
-    return out
+    return tuple(out)
 
 
-def _longest_shared_run(a: list[str], b: list[str]) -> int:
+def _longest_shared_run(a: Sequence[str], b: Sequence[str]) -> int:
     """Longest contiguous run of tokens common to both sequences."""
     if not a or not b:
         return 0
@@ -536,8 +545,14 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     if min(len(ta), len(tb)) < _PROSE_DUPE_MIN_TOKENS:
         return _norm(a) == _norm(b)
     sa, sb = set(ta), set(tb)
-    if len(sa & sb) / min(len(sa), len(sb)) >= _PROSE_DUPE_CONTAINMENT:
+    shared = sa & sb
+    if len(shared) / min(len(sa), len(sb)) >= _PROSE_DUPE_CONTAINMENT:
         return True
+    # A contiguous shared run of length >= 1 requires at least one shared token,
+    # so an empty intersection settles it without the quadratic scan. Exact, not
+    # a heuristic: this cannot change any verdict, only skip work.
+    if not shared:
+        return False
     return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
 
 

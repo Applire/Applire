@@ -21,6 +21,8 @@ from applire.services.reviewer import review_and_refine
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTruncatedError, LLMTimeoutError
 from applire.providers.llm import debug_log
+from applire.services.corrector_feedback import fold_issues_into_feedback
+from applire.services.review_issues import normalize_issues
 from applire.services.signal_disposition import (
     ExhaustionDisposition,
     UndeclaredSignalDispositionError,
@@ -254,7 +256,15 @@ async def test_reviewer_max_tokens_override_is_respected(mock_provider):
 @pytest.mark.asyncio
 async def test_generator_retry_receives_feedback_and_source(mock_provider):
     """ADR-021 amended / US194: referential critique requires the refiner to re-read the
-    source, so generator_prompt_fn is called as fn(previous_draft, feedback, source)."""
+    source, so generator_prompt_fn is called as fn(previous_draft, feedback, source).
+
+    ADR-083 clause 4 (2026-09): a plain-string issue (the pre-severity shape used
+    here) normalizes to blocking (``test_pre_severity_plain_strings_read_as_blocking``
+    in test_review_issues.py), so the feedback this seam hands the corrector now
+    carries the folded REVIEWER FINDINGS block too — computed here via the real
+    ``fold_issues_into_feedback``/``normalize_issues`` so this stays an exact-content
+    assertion without duplicating the block's literal wording (that is pinned,
+    hardcoded, in test_corrector_feedback.py)."""
     draft = {"key": "original"}
     received_args: list[tuple] = []
 
@@ -279,7 +289,94 @@ async def test_generator_retry_receives_feedback_and_source(mock_provider):
         max_retries=2,
     )
 
-    assert received_args[0] == (draft, "specific critique", "THE SOURCE MATERIAL")
+    expected_feedback = fold_issues_into_feedback("specific critique", normalize_issues(["x"]))
+    assert received_args[0] == (draft, expected_feedback, "THE SOURCE MATERIAL")
+
+
+# ---------------------------------------------------------------------------
+# ADR-083 clause 4 — the reviewer's normalized issues[] reach the corrector
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_blocking_issue_findings_reach_the_corrector_through_the_loop(mock_provider):
+    """The seam: drive review_and_refine (not the renderer directly) with a stub
+    reviewer returning a schema-shaped blocking issue, and a stub corrector that
+    records its `feedback` argument. This is what proves all FIVE chains sharing
+    this loop (cv_tailoring, cv_language, cv_terminal_review, cover_letter,
+    letter_terminal_review) inherit ADR-083 clause 4 automatically."""
+    captured_feedback: list[str] = []
+
+    def stub_corrector(draft: dict, feedback: str, source: str) -> str:
+        captured_feedback.append(feedback)
+        return "retry prompt"
+
+    mock_provider.aparse_json.side_effect = [
+        {
+            "approved": False,
+            "issues": [
+                {
+                    "severity": "blocking",
+                    "issue": "Paragraph 2 claims a certification the source never mentions.",
+                }
+            ],
+            "feedback": "The certification claim is unsupported.",
+        },
+        {"key": "revised"},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    await review_and_refine(
+        source="SOURCE",
+        draft={"key": "original"},
+        generator_prompt_fn=stub_corrector,
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review prompt",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert len(captured_feedback) == 1
+    feedback_seen = captured_feedback[0]
+    # Prose feedback stays, and stays first (constraint 3) — a hardcoded,
+    # non-circular check independent of the renderer's own formatting.
+    assert feedback_seen.startswith("The certification claim is unsupported.")
+    # The finding itself arrives verbatim, framed as something to fix.
+    assert "Fix: Paragraph 2 claims a certification the source never mentions." in feedback_seen
+
+
+@pytest.mark.asyncio
+async def test_no_blocking_issues_leaves_corrector_feedback_byte_identical(mock_provider):
+    """Back-compat (constraint 4): a rejection that names NO issues at all (the
+    fail-safe "unreadable verdict" path — see reviewer.py's `if issues and not
+    blocking` gate) still retries, exactly as before, and the string handed to
+    generator_prompt_fn must be byte-identical to today's — asserted on the
+    argument actually captured by a fake generator_prompt_fn, not inferred."""
+    received_args: list[tuple] = []
+
+    def capture_generator(d: dict, feedback: str, source: str) -> str:
+        received_args.append((d, feedback, source))
+        return "retry prompt"
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": [], "feedback": "Something is off; please revise."},
+        {"key": "revised"},
+        {"approved": True, "issues": [], "feedback": ""},
+    ]
+
+    await review_and_refine(
+        source="SOURCE",
+        draft={"key": "original"},
+        generator_prompt_fn=capture_generator,
+        generator_system="gen",
+        reviewer_prompt_fn=lambda s, d: "review prompt",
+        reviewer_system="rev",
+        provider=mock_provider,
+        max_retries=2,
+    )
+
+    assert received_args[0][1] == "Something is off; please revise."
 
 
 # ---------------------------------------------------------------------------
