@@ -396,3 +396,42 @@ def test_duplicate_bullets_sees_a_project_rendered_nested_AND_standalone():
     assert "LucaNet" in check.details, check.details
     # The finding must say WHERE, or the candidate cannot act on it.
     assert "Projekte >" in check.details, check.details
+
+
+# ── 7. The cost property (ADR-082 clause 5's check is O(pairs)) ──────────────
+
+
+def test_prose_tokens_is_memoized_so_tokenisation_is_linear_not_quadratic():
+    """`bullets_prose_dupe` is called once per PAIR of delivered bullets, so a
+    tokenizer that re-runs inside it is O(n^2) in the number of bullets when O(n)
+    is enough. Measured on a 216-bullet document before memoization: 1,993 ms per
+    audit; after: 778 ms.
+
+    This pins the mechanism rather than a wall-clock number — a timing assertion
+    would be flaky on a loaded CI runner, and the property that matters is that a
+    repeat call does not re-tokenise.
+    """
+    from applire.services.ats_audit import _prose_tokens
+
+    _prose_tokens.cache_clear()
+    first = _prose_tokens(_RESP_ROLLOUT)
+    hits_before = _prose_tokens.cache_info().hits
+    second = _prose_tokens(_RESP_ROLLOUT)
+
+    assert second is first, "a repeated tokenisation must come from the cache"
+    assert _prose_tokens.cache_info().hits == hits_before + 1
+    assert isinstance(first, tuple), "cached value must be immutable"
+
+
+def test_the_empty_intersection_shortcut_cannot_change_a_verdict():
+    """The short-circuit skips the quadratic scan when two bullets share no token
+    at all. That is exact, not a heuristic — a contiguous shared run needs at
+    least one shared token — so it may only skip work, never flip an answer."""
+    from applire.services.ats_audit import _longest_shared_run, _prose_tokens
+
+    disjoint = ("Rüstzeiten an der Pilotlinie um 35 % reduziert.",
+                "Konzernkonsolidierung von Excel auf LucaNet umgestellt.")
+    ta, tb = _prose_tokens(disjoint[0]), _prose_tokens(disjoint[1])
+    assert not (set(ta) & set(tb)), "fixture must actually be token-disjoint"
+    assert _longest_shared_run(ta, tb) == 0
+    assert not bullets_prose_dupe(*disjoint)
