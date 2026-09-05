@@ -618,6 +618,18 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
     )
 
 
+# #641 (section allowlist): the sections the RENDER path actually supports
+# for a manual override. Derived from what _apply_section_overrides really
+# restructures into a schema-valid shape — today only "body" (it rewrites
+# body.paragraphs). For header/recipient/signature it stamps a "_override"
+# key onto the existing dict instead, and no *_letter.html.j2 template reads
+# that key back (grepped: zero hits across all seven), so an override there
+# was accepted and silently dropped. Widening this set means teaching
+# _apply_section_overrides AND every relevant template to render the new
+# section FIRST — it is not a matter of adding a name here.
+SUPPORTED_SECTION_OVERRIDES: frozenset[str] = frozenset({"body"})
+
+
 async def patch_cover_letter_section(
     cl_id: uuid.UUID,
     section: str,
@@ -625,6 +637,12 @@ async def patch_cover_letter_section(
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
 ) -> None:
+    if section not in SUPPORTED_SECTION_OVERRIDES:
+        raise ValueError(
+            f"Unsupported section override: {section!r} "
+            f"(supported: {sorted(SUPPORTED_SECTION_OVERRIDES)})"
+        )
+
     result = await db.execute(
         select(GeneratedCoverLetter).where(
             GeneratedCoverLetter.id == cl_id,

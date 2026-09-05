@@ -139,7 +139,14 @@ class CoverLetterStatusResponse(BaseModel):
 
 
 class SectionOverridePatch(BaseModel):
-    section: Literal["header", "recipient", "body", "signature"]
+    # #641 (section allowlist): narrowed from the original
+    # Literal["header", "recipient", "body", "signature"] — only "body" is
+    # actually restructured into something a template renders (see
+    # services.cover_letter.SUPPORTED_SECTION_OVERRIDES and
+    # _apply_section_overrides). The other three were accepted here and then
+    # silently dropped at render time. FastAPI's own validation now answers
+    # 422 for them at the door.
+    section: Literal["body"]
     content: str
 
 

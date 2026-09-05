@@ -237,3 +237,10 @@ async def patch_section(
         return SectionOverridePatchResponse(cover_letter_id=cl_id, section=body.section)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        # #641 (section allowlist): patch_cover_letter_section raises
+        # ValueError for a section the render path doesn't support. The
+        # schema (Literal["body"]) already blocks this for REST callers, but
+        # the service is the shared ADR-066 door — map it here too so any
+        # other caller that reaches it gets 422, not an unhandled 500.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
