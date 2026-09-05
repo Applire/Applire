@@ -307,3 +307,40 @@ def test_refresh_still_lifts_a_term_carried_as_a_whole_token():
 
     assert changed is True
     assert refreshed[0]["status"] == "direct"
+
+
+# ── the write-side allowlist audit, executable ─────────────────────────────
+
+
+def test_the_refresh_introduces_no_status_outside_the_write_side_allowlists():
+    """#592's 2026-08-28 design added a FIFTH status value (`contested`) and was
+    refuted; this one adds none, which is why four write-side allowlists need no
+    change. Pinned rather than argued, because the ADR-048 3→4 widening already
+    broke `match_score` once (#383) by exactly this route.
+
+    The four gates, and why each is satisfied:
+      * `keyword_ledger._VALID_STATUS` — the refresh emits only `direct`;
+      * `upgrade_ledger_for_concepts`'s `upgrade_status` coercion
+        (`status if status in {"direct","partial"} else "direct"`) — called with
+        its default;
+      * `match_score._FACTOR` — every emitted status is already a key;
+      * `gap.askable_gap_inputs` — reads the PERSISTED row, which this
+        read-only seam never rewrites.
+    """
+    from applire.services.keyword_ledger import _VALID_STATUS
+    from applire.services.match_score import _FACTOR
+
+    vault = _vault(
+        bullets=[
+            "Built and maintained REST APIs in FastAPI serving 2 million-plus daily requests.",
+            "Right-sized Kubernetes node pools across three clusters.",
+        ]
+    )
+    ledger = [_gap_row("REST APIs"), _gap_row("Kubernetes"), _gap_row("GraphQL")]
+
+    refreshed, _changed = refresh_ledger_against_vault(ledger, vault, seam="test")
+
+    statuses = {row["status"] for row in refreshed}
+    assert statuses <= _VALID_STATUS, f"a status outside the builder's allowlist: {statuses}"
+    assert statuses <= set(_FACTOR), f"a status match_score cannot weigh: {statuses}"
+    assert statuses == {"direct", "gap"}
