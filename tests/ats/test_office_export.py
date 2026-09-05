@@ -49,7 +49,10 @@ pre-fix date rule leaves sections 1 and 2 green and only section 3 goes red.
    audit) -> zero ``fail`` checks, DE x EN, for both document kinds. The
    ``.docx`` twin of ``test_roundtrip.py``'s ``test_cv_template_roundtrip``.
    Also asserts the page-length band explicitly: exactly one ``page-length``
-   check, ``status="not_applicable"``, and ``report.not_applicable == 1``
+   check, ``status="not_applicable"``, and ``report.not_applicable`` equal to
+   the number of checks carrying that status, with the producers pinned by id
+   (since the ADR-039 amendment of 2026-09-04 the ``terminal-review`` and
+   ``narrative-evidence`` checks share the bucket on a direct audit)
    (ADR-079 clause 4 — a ``.docx`` has no fixed pagination until a word
    processor lays it out, so the band is reported N/A WITH its reason,
    never silently absent — the #634 failure shape — and never folded into
@@ -973,10 +976,22 @@ def test_office_export_roundtrip_zero_failures(case, lang):
         f"clause 4 — a .docx has no fixed pagination until a word processor "
         f"lays it out)"
     )
-    assert report.not_applicable == 1, (
-        f"{case.kind}-{lang}: report.not_applicable={report.not_applicable!r}, "
-        f"expected 1 (the page-length band, counted in its own bucket, "
-        f"never folded into passed/failed)"
+    # The `not_applicable` bucket must count EXACTLY the checks that carry that
+    # status (pins `_finish()`'s own computation, never folded into
+    # passed/failed) and the page-length band must be one of them. Since the
+    # ADR-039 amendment of 2026-09-04 the primary report also produces
+    # `not_applicable` for `terminal-review` (no review outcome on a direct
+    # audit) and, on the CV, `narrative-evidence` (no Keyword Ledger handed in),
+    # so the bucket is no longer the page band alone — the set is pinned so a
+    # NEW producer of the status cannot slip in unnamed.
+    na_ids = sorted(c.id for c in report.checks if c.status == "not_applicable")
+    assert report.not_applicable == len(na_ids), (
+        f"{case.kind}-{lang}: report.not_applicable={report.not_applicable!r} "
+        f"but {len(na_ids)} checks carry the status: {na_ids}"
+    )
+    assert "page-length" in na_ids, f"{case.kind}-{lang}: page band missing from {na_ids}"
+    assert set(na_ids) <= {"page-length", "terminal-review", "narrative-evidence"}, (
+        f"{case.kind}-{lang}: unexpected not_applicable producer(s): {na_ids}"
     )
 
 
