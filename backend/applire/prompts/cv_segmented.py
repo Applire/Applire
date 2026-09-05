@@ -107,6 +107,19 @@ Respond ONLY with a JSON object — no markdown:
 }}"""
 
 
+
+def _fenced_job_analysis(job_analysis: dict) -> str:
+    """ADR-084 Form A: the JOB ANALYSIS block is the posting's derivatives —
+    every string in it was chosen by the posting's author — reaching the writer
+    as the target it is tailoring against. Fenced at the one place this file
+    builds it, so a new prompt function in this module inherits the marking
+    instead of re-deriving it (ADR-066)."""
+    from applire.services.untrusted_text import fence
+
+    return fence(
+        json.dumps(job_analysis, ensure_ascii=False, indent=2), header="JOB ANALYSIS"
+    )
+
 def build_outline_prompt(
     job_analysis: dict,
     profile: dict,
@@ -120,7 +133,7 @@ def build_outline_prompt(
     budget_section = f"{budget_block}\n\n" if budget_block else ""
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
         f"{budget_section}"
@@ -191,7 +204,7 @@ def build_work_section_prompt(
         f"EMPHASIS THEME FOR THIS ENTRY: {theme or '(use the summary angle)'}\n"
         f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n"
         f"{budget_section}\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"THIS WORK ENTRY:\n{json.dumps(entry, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
         f"{evidence_section}"
@@ -244,7 +257,7 @@ def build_summary_prompt(
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SUMMARY ANGLE: {directive.get('summary_angle', '')}\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
         f"{stated_limits_section}"
@@ -292,7 +305,7 @@ def build_skills_prompt(
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
         f"SKILLS TO FOREGROUND: {json.dumps(directive.get('skills_focus') or [], ensure_ascii=False)}\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         f"{_ledger_section(keyword_ledger)}"
         f"{stated_limits_section}"
@@ -330,7 +343,7 @@ def build_projects_prompt(
 ) -> str:
     return (
         f"OUTPUT LANGUAGE: {_language_name(output_language)}.\n\n"
-        f"JOB ANALYSIS:\n{json.dumps(job_analysis, ensure_ascii=False, indent=2)}\n\n"
+        f"{_fenced_job_analysis(job_analysis)}\n\n"
         f"CANDIDATE PROFILE:\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
         "Return the standalone-projects JSON."
     )

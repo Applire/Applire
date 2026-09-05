@@ -131,7 +131,7 @@ page-count, or "too long / too short" finding.
 
 """
 
-_AUTHORITY_AND_CHECKS = """\
+_CHECKS = """\
 AUTHORITY — three sources, each authoritative for one kind of claim, and never for
 another:
 - CANDIDATE SOURCE (grounded CV data, master profile, the candidate's own stated inputs
@@ -153,17 +153,15 @@ someone. Ask only: WHO?
   ``job_description``. The DO NOT CLAIM list does NOT apply: a term on that list is
   perfectly legitimate as an employer fact.
 - Naming a concept as something the candidate does NOT have — an honest gap, a stated
-  limit — is not a claim to it. "While I have not worked in LegalTech directly, my
-  regulated-industry background..." names LegalTech as an absence. Never flag it.
+  limit — is not a claim to it: "While I have not worked in LegalTech directly, ..."
+  names LegalTech as an absence. Never flag it.
 The three branches are exclusive. If you catch yourself flagging a term rather than a
 sentence, you have skipped this test.
 
 YOU NEVER PERFORM LITERAL STRING MATCHING. Do not count occurrences, and do not decide
 whether a phrase appears verbatim — a deterministic check already did that, and its
 blocks are above. If you are writing "X does not appear in the text", stop: either a
-block says so, or you are guessing. (A prior round of this reviewer called a term absent
-from the job_description while quoting a phrase containing it — its own evidence refuted
-it, because the prompt had asked a model to do a string operation.)
+block says so, or you are guessing.
 
 BLOCKING CHECKS — these five, and nothing else. Each is a way this letter can be untrue
 or incomplete; anything you notice outside them is `minor` by definition.
@@ -190,30 +188,35 @@ or incomplete; anything you notice outside them is `minor` by definition.
      flag it here and say which evidence it throws away. Note that a stated limit names
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
-2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure that belongs to one
-   specific employer must name that employer in the SAME sentence — not rely on an
-   earlier sentence to imply it. Flag both misattribution to the wrong employer and an
-   unanchored position-owned claim, especially when the letter names more than one
-   employer. The two halves reach you with different evidence:
-   2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE: where it names the
-       employer a figure's own sentence names, you may NOT report that figure as
-       unanchored. Whether that is the RIGHT employer, against the same line's owner
-       list, stays yours. Where it states no anchor, nothing is settled — judge as 2b.
+2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
+   specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
+   one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
+   later sentences of the SAME paragraph may refer back ("Dort", "There"); the carry
+   never crosses a paragraph break. Flag misattribution, a paragraph stating a
+   position-owned claim that names no employer at all, and a paragraph switching employer
+   without naming the new one — never a back-referring sentence inside an already-anchored
+   run. The two halves reach you with different evidence:
+   2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE, per SENTENCE: where
+       it names the employer a figure's own sentence names, you may NOT report that
+       figure as unanchored. Whether that is the RIGHT employer, against the same line's
+       owner list, stays yours. Where it states no anchor nothing is settled — the
+       sentence may be carrying its paragraph's anchor; judge as 2b.
    2b. NO FIGURE — a tenure, a title, a scope of duty, an outcome stated without a
        number. No block covers this half, and 2a being answered says nothing about it;
-       ask the same question of the sentence itself.
-   The remedy is always to ADD the anchor in place. Never instruct the writer
-   to delete the achievement or figure to make the problem go away — a figure dropped for
-   lack of an anchor is a worse letter, not a safer one.
+       ask the paragraph question of it.
+   The remedy is always to ADD the anchor to the run's first sentence. Never instruct the
+   writer to delete the achievement or figure to make the problem go away — a figure
+   dropped for lack of an anchor is a worse letter, not a safer one.
 3. INVENTED EMPLOYER FACT. A claim about the target employer's product, market, domain,
    or achievements that is not in ``job_description``. Treat it exactly like an invented
    candidate fact.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``,
-   ``pinned_facts``, ``closing``. Each
+   ``pinned_facts``, ``stated_limits`` (when ``required``),
+   ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
-   deliver is an issue: name it BY KEY (e.g. ``company_domain_engagement``) and point
+   deliver is an issue: name it BY KEY and point
    the writer to ONLY that entry's own grounding — NEVER copy ``job_description`` wording
    into your demand; a pasted phrase carrying a DO-NOT-CLAIM term comes back as a
    candidate claim a later round must then flag. ``closing`` is always required: a
@@ -224,6 +227,10 @@ or incomplete; anything you notice outside them is `minor` by definition.
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
+   ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
+   positioning decision in one paragraph — the gap in the candidate's own terms plus the
+   adjacent strength. BOTH directions are findings: silence on a listed limit, and a
+   limit the letter states that the entry does NOT list (check 1).
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -241,13 +248,9 @@ or incomplete; anything you notice outside them is `minor` by definition.
      in either document — if the CV asserts it and the letter disclaims it, the LETTER
      is what is wrong, because the ledger says the vault supports the claim. A concept
      is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
-     the candidate's own words. Judge this by reading the two documents; there is no
-     block listing conflicts for you, because the rule below is what the block used to
-     approximate and got wrong.
-     A sentence that admits one thing and affirms another — "no IFS/BRC experience, but
-     ten years of ISO 9001 audit practice" — is an honest transfer argument, not a
-     denial of the second half. It is the correct shape for a gap. Never flag it, and
-     never ask the writer to remove, soften, or split it.
+     the candidate's own words. Judge this by reading the two documents; no block lists
+     conflicts for you. The admit-and-affirm sentence check 1 describes is the CORRECT
+     shape for a gap, not a denial of its second half: never flag, soften or split it.
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
@@ -258,18 +261,70 @@ or incomplete; anything you notice outside them is `minor` by definition.
 NEVER REVERSE YOURSELF ACROSS ROUNDS. If an earlier round asked for a change, do not now
 flag the result of that change and ask for the original back. That is oscillation, not a
 finding.
+"""
 
+#: The PROSE door's `minor` paragraph — byte-for-byte the tail of the former
+#: ``_AUTHORITY_AND_CHECKS``. Split out, not edited; ``REVIEW_SYSTEM_PROMPT`` below is
+#: unchanged and pinned by test.
+_MINOR_PROSE = """\
 WHAT IS `minor` HERE. Everything not in checks 1-5: repetition of a name or phrase,
 paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
-(e.g. wrong German gender agreement: "Mein Budgetverantwortung" for "Meine
-Budgetverantwortung") — and soft filler
-that asserts nothing checkable about the candidate ("Regulated industries share the same
-discipline..."). Filler is real, and worth recording, but nothing false is stated, so it
+— and soft filler that asserts nothing checkable about the candidate. Filler is real, and worth recording, but nothing false is stated, so it
 never justifies regenerating the letter. Record it as `minor` and move on. Never use it
 to soften, narrow, or cut an honest gap or a scoped limit — trimming padding must never
 become trimming honesty.
 
 """
+
+#: ADR-076 clause 9, BUILT 2026-09-04 (#545) — the whole-document questions, TERMINAL
+#: door only. NAMED checks rather than a role sentence (ADR-083 clause 1: an open role
+#: mandate measured 0/5 against a named check's 5/5). VISIBILITY ONLY, for the reasons
+#: recorded on the CV twin: run 17's blocking widening, the memoryless corrector, the
+#: reviewer/corrector subject asymmetry (SF-WRITE.29) and ADR-076 clause 7's send seat.
+#: The letter's own tells are the 2026-08-16 blind panel's, quoted almost verbatim: the
+#: letter as a compressed copy of the CV's figures in the CV's order, and the
+#: "[measure] von X auf Y" construction four times over.
+#:
+#: Numbered 6 and 7, after the five blocking checks, so the head's "BLOCKING CHECKS —
+#: these five, and nothing else" stays literally true and needs no per-door variant.
+_TERMINAL_CHECKS = """\
+TERMINAL-ROUND CHECKS — the two questions only the finished letter can answer. Both are
+VISIBILITY ONLY: report them with severity `minor`, NEVER `blocking`, and report AT MOST ONE
+finding per check for the whole letter. What you write here is shown to the candidate with
+their letter, and they decide.
+
+6. CLAIM BALANCE — over AND under. Check 1 looks for claims the CANDIDATE SOURCE does not
+   support. This one also looks the other way: does the letter leave out something the source
+   clearly supports and this posting clearly wants? Include a strength the candidate named
+   inside their own stated limit ("no IFS/BRC experience, but ten years of ISO-9001 audit
+   practice") — that is a real strength, and a letter that drops it under-sells them. Name the
+   evidence that is not represented. Never ask for a term to be listed, and never ask for
+   anything the source does not already support.
+
+7. VOICE — does this read as written by a person? The tell is mechanical uniformity, and the
+   patterns are our own rules applied without exception:
+   - the letter restates the CV's figures in the CV's own order, so it reads as a compressed
+     copy of the CV rather than its own argument with two or three points of its own;
+   - one construction repeated across paragraphs — "[measure] from X to Y", near-identical;
+   - the posting's requirement list echoed in the posting's order.
+   Report the pattern and quote two examples of it. Two things you must NOT do: never propose
+   dropping a figure or a fact to break a pattern — a line vaguer than the truth is the worse
+   defect — and never touch an unprompted admission of a gap or a limit. Blind readers name that
+   admission as the strongest single reason to trust a letter; it must survive any voice work.
+
+"""
+
+#: The TERMINAL door's `minor` paragraph: the prose text with ONE sentence appended,
+#: naming checks 6 and 7 as belonging to it. Without that the model must infer a severity
+#: for a check that has none, and this codebase has a measured instance of that inference
+#: going the wrong way (#563 triage item 4: a "blocking" filed on a check whose own text
+#: reads VISIBILITY ONLY).
+_MINOR_TERMINAL = _MINOR_PROSE.rstrip("\n") + """
+Checks 6 and 7 above are `minor` for the same reason and by the same rule: they are reported to
+the candidate with the document and they never regenerate the letter.
+
+"""
+
 
 _SCHEMA_AND_CLOSER = review_output_schema(
     issue_hint="the paragraph plus what is untrue or missing — empty array if nothing found",
@@ -280,10 +335,18 @@ Keep `feedback` concise and *referential*: name the offending location (paragrap
 state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate
 source itself (ADR-021 amended 2026-06-29)."""
 
-REVIEW_SYSTEM_PROMPT = _GROUNDING_INTRO + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+# ONE definition of the authority block and the five blocking checks; TWO doors,
+# differing in the shape note, the terminal-only checks and the `minor` paragraph.
+REVIEW_SYSTEM_PROMPT = _GROUNDING_INTRO + _CHECKS + "\n" + _MINOR_PROSE + _SCHEMA_AND_CLOSER
 
 TERMINAL_REVIEW_SYSTEM_PROMPT = (
-    _GROUNDING_INTRO + _SHAPE_NOTE_TERMINAL + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+    _GROUNDING_INTRO
+    + _SHAPE_NOTE_TERMINAL
+    + _CHECKS
+    + "\n"
+    + _TERMINAL_CHECKS
+    + _MINOR_TERMINAL
+    + _SCHEMA_AND_CLOSER
 )
 
 
@@ -389,9 +452,16 @@ Rules:
   ungrounded claims while keeping the letter coherent and well-written.
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
-  honest gap/transfer argument, availability, ``scope_positioning`` and ``pinned_facts``
+  honest gap/transfer argument, availability, ``scope_positioning``, ``pinned_facts``
+  and — when the entry carries ``required`` — ``stated_limits``
   paragraphs are REQUIRED content — do not strip or dilute them while fixing an
-  unrelated issue. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
+  unrelated issue. A ``required`` ``stated_limits`` entry (ADR-075) lists concepts THIS
+  posting asks about and the candidate has denied in their own words: each owes ONE
+  honest positioning decision — the gap in their terms, then the adjacent strength that
+  transfers — folded into the SAME honest-gap paragraph, never a litany. Never state a
+  limit the entry does not list, and never soften or delete one it does: an unprompted
+  admission of a gap is the single thing blind readers name as the reason to trust a
+  letter. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in
   substance) and never extend it beyond what the quote says. A
   ``scope_positioning`` statement (ADR-070) states the candidate's own scale evidence — a
@@ -428,18 +498,21 @@ Rules:
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
   verbatim there. If the evidence carries no figure, describe the experience qualitatively
   instead of inventing one.
-- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE (#283): when you add, keep, or patch a
-  sentence that states an achievement, responsibility, or figure/metric belonging to ONE
-  specific employer or position, name that employer within the SAME sentence — e.g. "At
-  Northwind Labs, I delivered the lab-systems rollout in 9 months across 4 sites" — never leave
-  the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
-  content to satisfy a coverage issue. An unanchored claim is the one shape nothing
-  downstream can check: in a letter naming more than one employer, the post-generation
-  attribution guards FAIL OPEN on a sentence that names none (#299), so a borrowed claim
-  left vague survives every check that runs after you, and the reviewer's check 2 flags it
-  again next round. A vaguer letter is not a safer one — never let an achievement/figure
-  ship unanchored and never quietly delete it to sidestep this rule; restore it WITH its
-  correct anchor instead.
+- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE — ONE ANCHOR PER EMPLOYER RUN, PER
+  PARAGRAPH (#283, scope corrected #565): when you add, keep, or patch a sentence that states
+  an achievement, responsibility, or figure/metric belonging to ONE specific employer or
+  position, that employer must be named in the FIRST sentence of its run inside that
+  paragraph — e.g. "At Northwind Labs, I delivered the lab-systems rollout in 9 months across
+  4 sites" — after which the later sentences of the SAME paragraph may refer back ("Dort",
+  "There"). Do NOT repeat the name in every sentence; do NOT let a back-reference cross a
+  paragraph break, and do NOT patch NEW content into a paragraph whose run belongs to a
+  different employer — open a new paragraph, or name the employer again. An unanchored
+  PARAGRAPH is the one shape nothing downstream can check: in a letter naming more than one
+  employer, the post-generation attribution guards FAIL OPEN on a sentence that names none
+  (#299), so a borrowed claim left vague survives every check that runs after you, and the
+  reviewer's check 2 flags it again next round. A vaguer letter is not a safer one — never
+  let an achievement/figure ship in an unanchored paragraph and never quietly delete it to
+  sidestep this rule; restore it WITH its correct anchor instead.
 - SPECIFICITY OUTRANKS COVERAGE TOO (#282): when correcting a coverage issue, never respond by
   stringing three or more claimable terms together as a flat list ("team management,
   mentoring, cross-functional collaboration, engineering standards..."). Fold at most one or

@@ -541,7 +541,12 @@
     "defaultCVLength": "Standard-Seitenzahl für Lebensläufe",
     "defaultCVLengthHint": "Die Ausgangs-Seitenzahl für neue Lebensläufe, sofern du für eine einzelne Generierung nichts anderes wählst.",
     "saved": "Gespeichert ✓",
-    "back": "← Zurück"
+    "back": "← Zurück",
+    "reviewMode": "Prüf-Ansicht",
+    "reviewModeHint": "Wie die Befunde zu einem erzeugten Dokument angezeigt werden. „Automatisch“ folgt dem Dokument: Schritt für Schritt, solange es noch ungelesene Befunde der obersten Gruppe hat, danach alles auf einmal.",
+    "reviewModeAuto": "Automatisch",
+    "reviewModeOverview": "Immer alles auf einmal",
+    "reviewModeGuided": "Immer Schritt für Schritt"
   },
   "dashboard": {
     "newApplication": "Neue Bewerbung",
@@ -1053,7 +1058,7 @@
     "dragDropHeading": "Lebensläufe hier ablegen",
     "clickToBrowse": "Datei auswählen",
     "orPrefix": "oder",
-    "formatHint": "PDF, DOCX, DOC bis 10 MB je Datei"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei"
   },
   "progressWidget": {
     "done": "fertig"
@@ -1105,7 +1110,9 @@
     "topbarUserInitial": "A",
     "backArrowLabel": "← {label}",
     "openNavAriaLabel": "Navigation öffnen",
-    "navDrawerDescription": "Hauptnavigation"
+    "navDrawerDescription": "Hauptnavigation",
+    "railExpand": "Navigation ausklappen",
+    "railCollapse": "Navigation einklappen"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1121,10 +1128,10 @@
   },
   "profileImport": {
     "title": "Profil aktualisieren",
-    "subtitle": "Lebenslauf als PDF oder DOCX — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
+    "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
     "browse": "Datei auswählen",
-    "formats": "PDF · DOCX · ZIP bis 10 MB",
+    "formats": "PDF · DOCX · TXT · MD · Bild · ZIP (LinkedIn) bis 10 MB",
     "linkedinCardTitle": "LinkedIn-Datenexport hochladen",
     "linkedinCardDesc": "Vollständiges Archiv (ZIP) aus den LinkedIn-Datenschutzeinstellungen — enthält strukturierte Profildaten für präzisere Extraktion.",
     "progressTitle": "Profil wird aktualisiert",
@@ -1229,7 +1236,9 @@
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",
-      "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug"
+      "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
+      "terminal-review": "Abschlussprüfung des Dokuments",
+      "narrative-evidence": "Belege im Werdegang statt nur als Skill"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1462,15 +1471,54 @@
     "languageSwitchConfirm": "Neu generieren",
     "languageSwitchCancel": "Abbrechen",
     "languageSwitchBusy": "Wird gespeichert …",
-    "languageSwitchError": "Speichern fehlgeschlagen — bitte erneut versuchen."
+    "languageSwitchError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
+    "tabReview": "Prüfung",
+    "tabEdit": "Bearbeiten"
   },
   "commandBar": {
-    "atsChecks": "ATS-Checks",
+    "atsChecks": "Prüfung",
     "fineTune": "Feinschliff",
     "downloadPdf": "PDF herunterladen",
-    "atsSheetTitle": "ATS-Checks",
+    "atsSheetTitle": "Prüfung",
     "fineTuneSheetTitle": "Feinschliff",
-    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}",
-    "fineTuneDegradedNotice": "Die Bearbeitung ist für größere Bildschirme optimiert. Hier kannst du prüfen; für die volle Bearbeitung öffne diesen Lebenslauf am Computer."
+    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}"
+  },
+  "documentReview": {
+    "title": "Prüfung",
+    "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
+    "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
+    "verdictClearWithOthers": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {count, plural, =0 {Weiter unten stehen Befunde, die dem Versand nicht im Weg stehen.} one {Weiter unten steht # weiterer Befund — er steht dem Versand nicht im Weg.} other {Weiter unten stehen # weitere Befunde — sie stehen dem Versand nicht im Weg.}}",
+    "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
+    "group1Title": "Im Dokument, aber nicht in Deinem Profil",
+    "group2Title": "Fehlt, obwohl Dein Profil es deckt",
+    "group3Title": "Fehlt, und Dein Profil deckt es nicht",
+    "group4Title": "Handwerk",
+    "producerAts": "ATS-Bericht",
+    "producerOracle": "Wahrheits-Orakel",
+    "producerCritic": "Kohärenz-Hinweis",
+    "producerClusters": "Lückenanalyse",
+    "kindTerm": "Begriff",
+    "kindCluster": "Cluster",
+    "kindClaim": "Aussage",
+    "kindCheck": "Prüfung",
+    "kindAdvisory": "Hinweis",
+    "unknownLabel": "unbekannt",
+    "unknownWhole": "Nicht geprüft: {producers} lief für dieses Dokument nicht. Das ist keine Entwarnung — es wurde nichts gemessen.",
+    "unknownPartial": "Teilweise ungeprüft: {producers} lief für dieses Dokument nicht. Was hier steht, ist der Rest.",
+    "passedChecks": "{count, plural, one {# Prüfung bestanden} other {# Prüfungen bestanden}}",
+    "modeOverview": "Alles auf einmal",
+    "modeGuided": "Schritt für Schritt",
+    "switchToOverview": "Zur Übersicht wechseln — alle Befunde auf einmal",
+    "switchToGuided": "Schritt für Schritt durchgehen",
+    "guidedRemaining": "{count, plural, =0 {Kein Befund mehr offen} one {Noch # Befund ungelesen} other {Noch # Befunde ungelesen}}",
+    "guidedPrev": "Zurück",
+    "guidedNext": "Weiter",
+    "guidedDone": "Du hast alle Befunde gesehen. Die Zähler oben bleiben stehen — Du kannst jederzeit zurückgehen.",
+    "guidedNothing": "Es gibt nichts durchzugehen.",
+    "group2TradeBody": "Dein Profil deckt das ab — es hat nur nicht ins Dokument gepasst. Der Längen-Kompromiss hat entschieden, nicht die Wahrheitsprüfung: Applire hat beim Schreiben versucht, diese Begriffe unterzubringen, und die Seitenzahl hat gewonnen. Was hier steht, ist der Rest danach.",
+    "group2HandlesTitle": "Drei Hebel, die es schon gibt:",
+    "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
+    "group2HandlePin": "Die zugrunde liegende Tatsache im Profil anpinnen — ein Pin schlägt das Längen-Budget, nie die Wahrheitsprüfung. Zu finden im Reiter Bearbeiten.",
+    "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
   }
 }

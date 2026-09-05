@@ -176,6 +176,8 @@ def audit_cv_docx(
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
     pins: list | None = None,
+    terminal_review=None,
+    previous_report: dict | None = None,
 ) -> ATSReport:
     """Audit a produced CV ``.docx`` against the structured CV data and keywords —
     the ``.docx`` twin of ``ats_audit.audit_cv`` (which audits a PDF).
@@ -196,6 +198,14 @@ def audit_cv_docx(
         vault_text_norm=vault_text_norm,
         vault_skill_forms=vault_skill_forms,
         pins=pins,
+        # #563 (D) / #542: the review-completion and narrative-evidence checks are
+        # statements about the CONTENT, which both artefacts share (ADR-079 clause 8's
+        # "the stored .docx report can never be stale relative to tailored_data"), so
+        # the same outcome is threaded here rather than letting the .docx report claim
+        # the review's result is unknown. `previous_report` is the previous DOCX report
+        # — separate lineage, same carry-forward rule.
+        terminal_review=terminal_review,
+        previous_report=previous_report,
     )
 
 
@@ -207,6 +217,8 @@ def audit_cover_letter_docx(
     vault_text_norm: str | None = None,
     pins: list | None = None,
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
+    terminal_review=None,
+    previous_report: dict | None = None,
 ) -> ATSReport:
     """Audit a produced cover-letter ``.docx`` against the structured letter data
     and keywords — the ``.docx`` twin of ``ats_audit.audit_cover_letter``.
@@ -224,4 +236,6 @@ def audit_cover_letter_docx(
         vault_text_norm=vault_text_norm,
         pins=pins,
         truth_floor_hits=truth_floor_hits,
+        terminal_review=terminal_review,
+        previous_report=previous_report,
     )

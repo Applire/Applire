@@ -1072,9 +1072,14 @@ class TestCoverLetterPositioningIntegration:
             await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
 
         generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        from applire.services.untrusted_text import is_covered
+
         assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in generation_prompt
-        assert "TARGET COMPANY: Roche Diagnostics" in generation_prompt
-        assert "diagnostics instruments" in generation_prompt  # the JD's own domain text
+        assert "TARGET COMPANY:" in generation_prompt
+        # ADR-084 points 13 + 24: both the company name and the JD's own domain
+        # text still reach the writer, and both are now inside the marking.
+        assert is_covered(generation_prompt, "Roche Diagnostics")
+        assert is_covered(generation_prompt, "diagnostics instruments")
 
     @pytest.mark.asyncio
     async def test_render_threads_gap_testimony_when_category_c_story_matches(self):
@@ -1433,6 +1438,17 @@ class TestCoverLetterPositioningIntegration:
         # invented (an invented product/market NOT in this text has nowhere to ground).
         assert "diagnostics instruments" in src
         assert "job_description" in src
+        # ADR-084 embedding point 14 — the NAMED seam test for the highest
+        # fan-out marking in the system: this one string is handed to the letter
+        # REVIEWER and the CORRECTOR unchanged on every round, so one mark here
+        # covers three prompts. Registry entry: `14_letter_grounding_source`
+        # in tests/unit/test_untrusted_embedding_points.py.
+        from applire.services.untrusted_text import is_covered
+
+        assert is_covered(src, "diagnostics instruments"), (
+            "ADR-084 point 14: grounding_source['job_description'] reached the "
+            "reviewer unmarked"
+        )
 
     def test_review_system_prompt_flags_invented_employer_facts(self):
         """The reviewer's own instructions must name employer/company facts not
@@ -1620,11 +1636,23 @@ class TestPositionAnchoringRequirement:
     in 7 months across 3 sites") into a paragraph whose sentence never named
     the employer. The letter separately named a DIFFERENT employer (Applire)
     elsewhere, so neither the sentence-level anchor nor the whole-letter
-    single-employer escape could resolve ownership, and the deterministic
-    #254 figure guard correctly (and silently) dropped '7' and '3' — leaving
-    "delivered ... in months across sites", vaguer than the truth. The fix is
-    a prompt-level requirement: any sentence carrying a position-owned
-    achievement or figure must name that employer in the SAME sentence.
+    single-employer escape could resolve ownership.
+
+    **Rescoped 2026-09-05 (#565, ADR-021 amended).** The requirement is no
+    longer "the SAME sentence" — the sentence granularity produced eight
+    consecutive body sentences opening with the same employer name in the
+    2026-08-19 ship-gate run, which both blind panel reviewers named as the
+    letter's machine-written tell. The unit is now the EMPLOYER RUN inside one
+    PARAGRAPH: the first sentence of a run names the employer, later sentences
+    of the same paragraph may refer back, the carry never crosses a paragraph
+    break. What the run-6 shape violated is unchanged — it folded the
+    achievement into a paragraph that named NO employer at all.
+
+    Also corrected in the same change: the #254 guard no longer drops such a
+    figure. `_allowed_owner_ids` returns ``None`` and "the sentence is left
+    ALONE (#299)". The docstring above kept the pre-#299 consequence for a
+    year; the prompt statements that repeated it are fixed in
+    `tests/unit/test_565_anchor_scope.py`.
     """
 
     def test_review_system_prompt_flags_unanchored_position_owned_content(self):
@@ -1635,16 +1663,16 @@ class TestPositionAnchoringRequirement:
 
         low = _flat(p)
         assert "wrong or missing owner" in low
-        assert "same sentence" in low
-        assert "add the anchor in place" in low
+        assert "employer run inside one paragraph, not the sentence" in low
+        assert "add the anchor" in low
         assert "never instruct the writer to delete" in low
 
-    def test_refinement_prompt_requires_naming_employer_in_same_sentence(self):
+    def test_refinement_prompt_requires_naming_the_employer_in_the_runs_first_sentence(self):
         from applire.prompts.review_cover_letter import COVER_LETTER_REFINEMENT_PROMPT as p
 
-        low = p.lower()
+        low = _flat(p)
         assert "anchor" in low
-        assert "same sentence" in low
+        assert "first sentence of its run inside that paragraph" in low
 
     def test_refinement_prompt_forbids_silently_omitting_the_anchor(self):
         """The guardrail: restoring the figure with a correct anchor is the
@@ -2120,10 +2148,20 @@ class TestUnsupportedGeneralizationCheck:
         positive instruction to avoid producing filler in the first place —
         that is where it is cheap. See the sibling tests in this class."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as writer_p
         low = _flat(p)
         assert "filler" in low
-        assert "regulated industries share the same discipline" in low
         assert "never justifies regenerating the letter" in low
+
+        # 2026-09-05 (#532): the "Regulated industries share the same
+        # discipline..." example was REMOVED from the reviewer's `minor`
+        # paragraph and is asserted here at its detection site instead. It was a
+        # second copy: the reviewer paragraph only CLASSIFIES filler as minor,
+        # while the writer's NO UNSUPPORTED GENERALIZATIONS rule is what teaches
+        # the shape — and it still carries the example in full. The 55 characters
+        # were spent on ADR-075's required-content entry in check 4, on a door
+        # with 25 characters of ratchet headroom.
+        assert "regulated industries share the same discipline" in _flat(writer_p)
         assert "record it as `minor`" in low
 
     def test_reviewer_prompt_forbids_using_the_check_against_honesty(self):
@@ -2424,9 +2462,11 @@ class TestLetterReviewerPresenceIsToldNotAsked:
         assert "no block covers this half" in low
 
     def test_the_add_the_anchor_remedy_survives_the_split(self):
-        """The #283 remedy is unchanged by the split: never delete the figure."""
+        """The #283 remedy is unchanged by the split AND by #565's rescope: the
+        anchor is ADDED (now to the run's first sentence), never bought by
+        deleting the figure."""
         low = _flat(self._p())
-        assert "remedy is always to add the anchor in place" in low
+        assert "remedy is always to add the anchor to the run's first sentence" in low
         assert "never instruct the writer to delete the achievement" in low
 
     # --- clause 4: the pointer, and the rule where it points -----------------

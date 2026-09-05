@@ -26,7 +26,11 @@ import { Card } from "@/components/ui/card";
 import { useLocale } from "@/lib/providers/locale-provider";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
-import { getSettings, setTargetCvPages } from "@/lib/api/settings";
+import { getSettings, setReviewMode, setTargetCvPages } from "@/lib/api/settings";
+import {
+  REVIEW_MODE_PREFERENCES,
+  type ReviewModePreference,
+} from "@/lib/review-walked";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -125,6 +129,78 @@ function DefaultCVLengthPicker() {
         allowRegionStandard
         className="flex flex-col items-start gap-1"
       />
+      {saved && <span className="text-xs text-success">{t("saved")}</span>}
+    </div>
+  );
+}
+
+/**
+ * E058/US301 (ADR-081 cl. 5) — the review-mode preference.
+ *
+ * Three values, and the default is deliberately NOT a fixed layout: under
+ * `auto` the mode is a property of the DOCUMENT, not of the person. Guided
+ * answers *"walk me through what is new"*, which is true after a fresh
+ * generation and false on the fifth visit to the same document — for a power
+ * user exactly as much as for a newcomer. The two fixed values exist for people
+ * who want the mode settled regardless.
+ *
+ * Deliberately NOT on the agent door (cl. 8, an explicit SF-DOOR.4 carve-out).
+ */
+function ReviewModePicker() {
+  const t = useTranslations("settings");
+  const [value, setValue] = useState<ReviewModePreference>("auto");
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setValue(s.review_mode ?? "auto");
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const LABEL_KEY: Record<ReviewModePreference, string> = {
+    auto: "reviewModeAuto",
+    overview: "reviewModeOverview",
+    guided: "reviewModeGuided",
+  };
+
+  const handleChange = async (next: ReviewModePreference) => {
+    setValue(next);
+    try {
+      await setReviewMode(next);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // Best-effort — the selector still reflects the chosen value locally.
+    }
+  };
+
+  if (loading) return <div className="h-8 w-40 bg-surface-container rounded animate-pulse" />;
+
+  return (
+    <div className="flex items-center gap-3">
+      <select
+        data-testid="settings-review-mode"
+        aria-label={t("reviewMode")}
+        value={value}
+        onChange={(e) => void handleChange(e.target.value as ReviewModePreference)}
+        className="rounded-lg border border-outline-variant bg-surface-bright px-3 py-2 text-sm text-on-surface"
+      >
+        {REVIEW_MODE_PREFERENCES.map((mode) => (
+          <option key={mode} value={mode}>
+            {t(LABEL_KEY[mode])}
+          </option>
+        ))}
+      </select>
       {saved && <span className="text-xs text-success">{t("saved")}</span>}
     </div>
   );
@@ -286,6 +362,13 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("defaultCVLength")}</h2>
             <p className="text-sm text-neutral-medium mb-4">{t("defaultCVLengthHint")}</p>
             <DefaultCVLengthPicker />
+          </section>
+
+          {/* E058/US301 (ADR-081 cl. 5) */}
+          <section data-testid="settings-review-mode-section">
+            <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("reviewMode")}</h2>
+            <p className="text-sm text-neutral-medium mb-4">{t("reviewModeHint")}</p>
+            <ReviewModePicker />
           </section>
 
           {/* Delete Confirmation */}

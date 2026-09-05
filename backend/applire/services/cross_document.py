@@ -381,9 +381,16 @@ def render_unaddressed_hard_requirements_block(
     """
     if not entries:
         return ""
+    # ADR-084 embedding point 20 (Form B): every `concept` is a JD hard
+    # requirement and every `context` is the classifier's free text about it —
+    # both the posting's derivatives, reaching the letter writer AND (through
+    # `unaddressed_requirements_reviewer_prompt_fn`) its reviewer.
+    from applire.services.untrusted_text import items_note
+
     lines = [
         "=== UNADDRESSED HARD REQUIREMENTS (deterministic — #270(c)) ===",
         _UNADDRESSED_INSTRUCTION,
+        items_note("requirement terms and context quotes"),
     ]
     for e in entries:
         # ADR-074 / ADR-062 clause 3: the no-vault-context fallback string is
@@ -443,6 +450,132 @@ def render_unaddressed_hard_requirements_block(
 
 
 # ── render helpers ───────────────────────────────────────────────────────────
+
+
+#: ADR-075 clause 4 — at most this many limits reach the letter, ranked by the
+#: ledger's own ``fit_weight``. Deliberately the same number as
+#: ``_MAX_UNADDRESSED_REPORTED`` above: a candidate with many denials must not
+#: turn their letter into a list of things they cannot do.
+_MAX_STATED_LIMITS_REPORTED = 3
+
+
+def select_jd_relevant_limits(
+    denied_concepts: list[Any] | None,
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """The candidate's own denial statements **this posting asks about** (ADR-075).
+
+    ADR-075 clause 3: *selection is a FACT; the wording is a JUDGEMENT.* This
+    function answers only the fact — which denials are relevant here — from two
+    persisted, deterministic signals:
+
+    * a ``DeniedConcept`` record (``metadata.denied_concepts``), whose
+      ``statement`` is write-once from the candidate's own interview turn (#348);
+    * a Keyword-Ledger row for THIS job with ``status == "denied"``, which
+      ``keyword_ledger._denied_row`` writes unconditionally for a concept the
+      candidate refused (ADR-059 amended 2026-07-27: the floor writes the
+      STATUS, not merely the flag, precisely so a refusal stays distinguishable
+      from a requirement nobody asked about).
+
+    Ranking is the ledger's own ``fit_weight`` (``required`` 1.0 >
+    ``nice_to_have`` 0.5 > …) — **any tier qualifies**, which is the gap ADR-075
+    exists to close: IFS/BRC were classified ``nice_to_have_skills`` at job
+    analysis, so `find_unaddressed_hard_requirements`' ``"required" in sources``
+    gate could never reach them.
+
+    What this function deliberately does NOT do:
+
+    * it does not pair a limit with the strength that offsets it. That question
+      was deleted on 2026-07-28 (``find_scoped_boundaries``) after answering it
+      *backwards* on real data, and it stays deleted — an honest denial names
+      its own adjacent strengths, so text overlap is strongest for exactly the
+      concepts the denial does not limit. See :func:`collect_stated_limits`.
+    * it does not reopen ADR-074. A *Restfall* (``gap``, empty ``evidence``,
+      nobody ever asked) has no honest move and carries no denial record, so it
+      cannot match here — ADR-074 clause 1's ``status != "denied"`` conjunct and
+      this predicate are complements, not overlaps.
+
+    Pure; ``None``/empty tolerant. Truncation is logged at INFO on the #264
+    pattern, PII-free (counts and concepts, never the statement).
+    """
+    denied_rows: dict[str, float] = {}
+    for entry in keyword_ledger or []:
+        if not isinstance(entry, dict) or entry.get("status") != "denied":
+            continue
+        concept = (entry.get("concept") or "").strip()
+        if not concept:
+            continue
+        weight = entry.get("fit_weight")
+        weight = float(weight) if isinstance(weight, (int, float)) else 0.0
+        key = ats_norm(concept)
+        denied_rows[key] = max(denied_rows.get(key, 0.0), weight)
+    if not denied_rows:
+        return []
+
+    ranked: list[tuple[float, int, str, str]] = []
+    seen: set[str] = set()
+    for position, denial in enumerate(denied_concepts or []):
+        concept = (_get(denial, "concept", "") or "").strip()
+        statement = (_get(denial, "statement", "") or "").strip()
+        if not concept or not statement:
+            continue
+        weight = denied_rows.get(ats_norm(concept))
+        if weight is None:
+            continue  # the candidate said no about something this posting
+            # never asked for — not this letter's business
+        key = ats_norm(statement)
+        if key in seen:
+            continue  # one interview answer is persisted once per concept
+        seen.add(key)
+        # negative weight so the sort is (strongest first, then intake order)
+        ranked.append((-weight, position, concept, statement))
+
+    ranked.sort()
+    kept = ranked[:_MAX_STATED_LIMITS_REPORTED]
+    dropped = ranked[_MAX_STATED_LIMITS_REPORTED:]
+    if dropped:
+        logger.info(
+            "LETTER_STATED_LIMITS_TRUNCATED kept=%d dropped=%d dropped_concepts=%s",
+            len(kept), len(dropped), [c for _, _, c, _ in dropped],
+        )
+    return [statement for _, _, _, statement in kept]
+
+
+def render_required_limits_block(limits: list[str]) -> str:
+    """The AFFIRMATIVE half of ADR-075, for the LETTER writer's user prompt only.
+
+    Why this exists as its own block rather than as a flag the writer reads:
+    ``positioning_requested`` is the review loop's ``source`` and never reaches
+    the initial writer call at all — `build_cover_letter_prompt` renders the
+    POSITIONING sections and :func:`render_stated_limits_block`, not that JSON.
+    A writer rule keyed on *"when the positioning block marks stated_limits
+    REQUIRED"* would therefore name a marker the writer cannot see, and would be
+    a no-op on the very call that decides whether the disclosure exists at all
+    (`applire-prompt-first` step 3, pattern 6). Found by writing the replay, not
+    by reading the code.
+
+    It is deliberately NOT folded into :func:`render_stated_limits_block`, which
+    the CV writer also receives (`services/cv.py`): CV writer rule 3a says a CV
+    is not the place to disclose a gap, so the obligation must not reach it.
+
+    Returns ``""`` when nothing is owed, so a candidate with no JD-relevant
+    denial adds nothing — the ADR-074 discipline, applied to this block too.
+    """
+    if not limits:
+        return ""
+    lines = [
+        "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
+        "Each statement below is the candidate's own wording about a concept THIS "
+        "posting asks for and they have denied. Every one of them needs an explicit "
+        "positioning decision in the body — name the gap in their own terms, then the "
+        "adjacent strength that transfers — all folded into the SAME single honest-gap "
+        "paragraph, never a litany and never an apology. Silence on one of these is "
+        "not one of the options.",
+        "Never state a limit that is NOT listed here: an invented limit is as untrue "
+        "as an inflated claim and throws away the candidate's own best evidence.",
+    ]
+    lines.extend(f"  - {text}" for text in limits)
+    return "\n".join(lines)
 
 
 def render_stated_limits_block(limits: list[str]) -> str:

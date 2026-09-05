@@ -50,6 +50,13 @@ class UserSettings(Base):
     # resolve_target_pages()). No upper cap — users may deliberately exceed
     # the norm; validated >= 1 at the API layer.
     target_cv_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ADR-081 clause 5 (US301): three-valued document-review preference.
+    # 'auto' follows the DOCUMENT (guided while it has unwalked group-1
+    # findings, overview otherwise); 'overview'/'guided' are fixed user
+    # overrides. Deliberately NOT exposed over MCP (clause 8, SF-DOOR.4).
+    review_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="auto", default="auto"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

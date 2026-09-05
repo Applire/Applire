@@ -168,7 +168,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
   // Refinement panel visible with Browse content
   // -------------------------------------------------------------------------
 
-  test("refinement panel loads with gap count and section list", async ({
+  test("Edit tab loads with section list and per-section gap counts", async ({
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
@@ -176,15 +176,19 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
       timeout: 10_000,
     });
 
-    // Content tab is default — should show gap count
-    // Page loads with default "en" locale (no /api/settings mock here),
-    // so the gap-count line comes from en.json "gapsFoundFor".
-    await expect(
-      page.getByText(/1 gap found for/)
-    ).toBeVisible({ timeout: 5_000 });
+    // E058/ADR-081 cl. 2: "review" is now the default tab, and the section
+    // editor (ContentTab, mounted with variant="sections" on this page) lives
+    // on "edit". The aggregate "N gap(s) found for <role>" summary that used
+    // to render here only exists for variant="full" — it no longer renders on
+    // this page at all (that finding moved into the review surface's groups) —
+    // so the closest surviving equivalent is the per-section gap-count badge
+    // that variant="sections" still renders next to each section row.
+    await page.getByTestId("sidebar-tab-edit").click();
 
     // Section list buttons (they're rendered as buttons)
-    await expect(page.getByRole("button", { name: "Introduction" })).toBeVisible();
+    const introBtn = page.getByRole("button", { name: "Introduction" });
+    await expect(introBtn).toBeVisible();
+    await expect(introBtn).toContainText("1");
     await expect(page.getByRole("button", { name: "Skills" })).toBeVisible();
   });
 
@@ -199,6 +203,10 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
+
+    // E058/ADR-081 cl. 2: the section list moved onto the "edit" tab —
+    // "review" opens by default.
+    await page.getByTestId("sidebar-tab-edit").click();
 
     // Click Introduction section button
     await clickSectionButton(page, "Introduction");
@@ -229,6 +237,10 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     await expect(page.locator('[data-testid="cv-iframe"]')).toBeVisible({
       timeout: 10_000,
     });
+
+    // E058/ADR-081 cl. 2: the section list moved onto the "edit" tab —
+    // "review" opens by default.
+    await page.getByTestId("sidebar-tab-edit").click();
 
     // Open Introduction section
     await clickSectionButton(page, "Introduction");
@@ -274,6 +286,10 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
       timeout: 10_000,
     });
 
+    // E058/ADR-081 cl. 2: the section list moved onto the "edit" tab —
+    // "review" opens by default.
+    await page.getByTestId("sidebar-tab-edit").click();
+
     // Open Introduction and make unsaved edit
     await clickSectionButton(page, "Introduction");
     const textarea = page.locator('[data-testid="section-textarea"]');
@@ -291,7 +307,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
   // Gap card in Browse navigates to owning section
   // -------------------------------------------------------------------------
 
-  test("clicking a gap card opens Edit mode for owning section", async ({
+  test("clicking a section row in the Edit tab opens Edit mode for that section", async ({
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
@@ -299,8 +315,14 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
       timeout: 10_000,
     });
 
-    // First gap card in Browse mode (data-testid="gap-card")
-    await page.locator('[data-testid="gap-card"]').first().click();
+    // E058/ADR-081 cl. 2: gap cards are gone from this page — ContentTab is
+    // mounted with variant="sections" here, so gap findings render as rows in
+    // the review surface instead (data-testid prefix `review-item-g<N>-`).
+    // The section list on the "edit" tab is the surviving path into Edit mode;
+    // Introduction carries a gap in this fixture, same as the gap card this
+    // test used to click directly.
+    await page.getByTestId("sidebar-tab-edit").click();
+    await clickSectionButton(page, "Introduction");
 
     // Should be in Edit mode — back button visible
     await expect(page.locator('[data-testid="back-to-browse"]')).toBeVisible({
@@ -386,6 +408,10 @@ test.describe("CV Section Editor — KaileChat Rewrite", () => {
       timeout: 10_000,
     });
 
+    // E058/ADR-081 cl. 2: the section list moved onto the "edit" tab —
+    // "review" opens by default.
+    await page.getByTestId("sidebar-tab-edit").click();
+
     // Open Introduction section
     await clickSectionButton(page, "Introduction");
     await expect(page.locator('[data-testid="section-textarea"]')).toBeVisible({
@@ -419,6 +445,10 @@ test.describe("CV Section Editor — KaileChat Rewrite", () => {
     await expect(page.locator('[data-testid="refinement-sidebar"]')).toBeVisible({
       timeout: 10_000,
     });
+
+    // E058/ADR-081 cl. 2: the section list moved onto the "edit" tab —
+    // "review" opens by default.
+    await page.getByTestId("sidebar-tab-edit").click();
 
     // Open Introduction (which has a gap)
     await clickSectionButton(page, "Introduction");

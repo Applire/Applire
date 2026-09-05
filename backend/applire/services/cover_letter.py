@@ -618,6 +618,93 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
     )
 
 
+# #641 (section allowlist): the sections the RENDER path actually supports
+# for a manual override. Derived from what _apply_section_overrides really
+# restructures into a schema-valid shape — today only "body" (it rewrites
+# body.paragraphs). For header/recipient/signature it stamps a "_override"
+# key onto the existing dict instead, and no *_letter.html.j2 template reads
+# that key back (grepped: zero hits across all seven), so an override there
+# was accepted and silently dropped. Widening this set means teaching
+# _apply_section_overrides AND every relevant template to render the new
+# section FIRST — it is not a matter of adding a name here.
+SUPPORTED_SECTION_OVERRIDES: frozenset[str] = frozenset({"body"})
+
+
+_STATED_LIMITS_CONSTRAINT = (
+    "These are the candidate's own words about what they cannot claim, and the "
+    "ONLY limits the vault holds. A draft must not contradict one — and must not "
+    "invent one either. A concept named inside a statement as something the "
+    "candidate DOES have is a strength, not a limit: an honest denial names the "
+    "adjacent strengths that transfer. Everything the Keyword Ledger marks "
+    "claimable stays fully claimable unless a statement here denies it."
+)
+
+
+def _constraining_stated_limits_entry(limits: list[str]) -> dict:
+    """The pre-ADR-075 entry: every denial the vault holds, constraint only.
+
+    Kept as the fallback for the case ADR-075 does NOT cover — the candidate has
+    denials, but none of them is a concept this posting's ledger asked about. The
+    letter then owes nothing affirmative and the entry stays what it always was:
+    never contradict a limit, never invent one. It carries no ``required`` flag,
+    so reviewer check 4 does not demand content that does not exist.
+    """
+    return {"limits": limits, "instruction": _STATED_LIMITS_CONSTRAINT}
+
+
+def build_stated_limits_entry(
+    denied_concepts: list[dict] | None,
+    keyword_ledger: list[dict] | None,
+) -> dict | None:
+    """The ADR-075 affirmative entry, or ``None`` when nothing is owed (#532).
+
+    The obligation this builds is the one gate charter run 1 delivered *by
+    accident*: an unprompted honest disclosure of a denied, JD-relevant concept
+    was the single property BOTH blind panel reviewers named as their reason for
+    `ja`, and the 2026-08-13 verification letter — same case, same inputs —
+    carried none, because no component ever required it (SF-WRITE.22).
+
+    Three things make this entry different from the constraint it replaces:
+
+    1. ``required: True``. ADR-021's own 2026-08-13 amendment records that the
+       flag is **not self-enforcing** — the deleted ``unaddressed_hard_
+       requirements`` entry read ``required: true`` for ten rounds while the
+       corrector dropped both its concepts. So the flag ships with the other two
+       hooks (reviewer check 4 by name, a named corrector bullet), never alone.
+    2. ``limits`` is the SELECTED set, not every denial the vault holds —
+       :func:`cross_document.select_jd_relevant_limits`, capped and ranked.
+    3. The instruction is affirmative **and** states its own trap. A reviewer
+       told only "name the limits" will accept an invented limit as compliance;
+       an invented limit is an ungrounded claim in the direction that costs the
+       candidate most (check 1), and it is what run 1's disclosure was a repair
+       *of*.
+
+    Returns ``None`` when no denial is JD-relevant, so the letter is never asked
+    for content the vault cannot ground.
+    """
+    from applire.services.cross_document import select_jd_relevant_limits
+
+    limits = select_jd_relevant_limits(denied_concepts, keyword_ledger)
+    if not limits:
+        return None
+    return {
+        "limits": limits,
+        "required": True,
+        "instruction": (
+            "REQUIRED content (ADR-075). These are the candidate's own words about "
+            "concepts THIS posting asks about and they have denied. Each one gets an "
+            "explicit positioning decision in the body: name the gap in the "
+            "candidate's own terms, then the adjacent strength that transfers — all "
+            "folded into ONE honest paragraph, never a litany, never an apology. "
+            "Silence on a limit listed here is not one of the options. The inverse "
+            "is equally binding: never state a limit that is NOT listed here. "
+            "Everything the Keyword Ledger marks claimable stays fully claimable, "
+            "and disclaiming it would throw away the candidate's own best evidence. "
+            + _STATED_LIMITS_CONSTRAINT
+        ),
+    }
+
+
 async def patch_cover_letter_section(
     cl_id: uuid.UUID,
     section: str,
@@ -625,6 +712,12 @@ async def patch_cover_letter_section(
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
 ) -> None:
+    if section not in SUPPORTED_SECTION_OVERRIDES:
+        raise ValueError(
+            f"Unsupported section override: {section!r} "
+            f"(supported: {sorted(SUPPORTED_SECTION_OVERRIDES)})"
+        )
+
     result = await db.execute(
         select(GeneratedCoverLetter).where(
             GeneratedCoverLetter.id == cl_id,
@@ -972,7 +1065,19 @@ async def _render_cover_letter_background(
                 .limit(1)
             )
             gap = gap_result.scalar_one_or_none()
-            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
+            # #592 (ADR-048 amended): the persisted row states what the vault held
+            # when the analysis ran. Re-derive it against the vault THIS run was
+            # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
+            # carries. Same helper, same seam name discipline as the ATS-report read
+            # below (`_latest_keyword_ledger`); no second query — `gap` and `profile`
+            # are already loaded.
+            from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
+                (gap.keyword_ledger or []) if gap else [],
+                profile.profile_json if profile else None,
+                seam="letter generation",
+            )
 
             # E048/US264 (ADR-057 amended 2026-07-24 / ADR-058 exception (a)): deterministic,
             # no-LLM positioning inputs — a blind hiring panel rejected an otherwise-honest
@@ -1047,12 +1152,19 @@ async def _render_cover_letter_background(
             from applire.services.cross_document import (
                 collect_stated_limits,
                 find_unaddressed_hard_requirements,
+                render_required_limits_block,
                 render_stated_limits_block,
+                select_jd_relevant_limits,
                 render_unaddressed_hard_requirements_block,
             )
             # denied_concepts already resolved above (#272 Task 1 hoist).
             stated_limits_block = render_stated_limits_block(
                 collect_stated_limits(denied_concepts)
+            )
+            # ADR-075 / #532 — the affirmative half, selected deterministically
+            # from THIS job's ledger; empty string when nothing is owed.
+            required_limits_block = render_required_limits_block(
+                select_jd_relevant_limits(denied_concepts, keyword_ledger)
             )
 
             # #270(c): unmet JD hard requirements (claimable: false, required) that need
@@ -1185,19 +1297,12 @@ async def _render_cover_letter_background(
                 ),
             }
             if stated_limits_block:
-                positioning_requested["stated_limits"] = {
-                    "limits": collect_stated_limits(denied_concepts),
-                    "instruction": (
-                        "These are the candidate's own words about what they cannot "
-                        "claim, and the ONLY limits the vault holds. A draft must not "
-                        "contradict one — and must not invent one either. A concept "
-                        "named inside a statement as something the candidate DOES have "
-                        "is a strength, not a limit: an honest denial names the "
-                        "adjacent strengths that transfer. Everything the Keyword "
-                        "Ledger marks claimable stays fully claimable unless a "
-                        "statement here denies it."
-                    ),
-                }
+                positioning_requested["stated_limits"] = (
+                    build_stated_limits_entry(denied_concepts, keyword_ledger)
+                    or _constraining_stated_limits_entry(
+                        collect_stated_limits(denied_concepts)
+                    )
+                )
             # NOTE (ADR-021 amended 2026-08-13, #526): there is deliberately no
             # `positioning_requested["unaddressed_hard_requirements"]` entry. Every
             # other key here is a STANDING obligation, true of the letter regardless
@@ -1295,6 +1400,7 @@ async def _render_cover_letter_background(
             # independently, so the two can never disagree about what the
             # JD says (applire.services.jd_excerpt module docstring).
             from applire.services.jd_excerpt import build_jd_excerpt
+            from applire.services.untrusted_text import fence_inline
             jd_excerpt = build_jd_excerpt(job.raw_text)
             # #271 Tasks 2/3: the vault's strongest JD-relevant evidence,
             # selected independently of what cv_data's tailoring
@@ -1333,6 +1439,12 @@ async def _render_cover_letter_background(
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
                 stated_limits_block=stated_limits_block,
+                # ADR-075 / #532: the affirmative half reaches the WRITER as its
+                # own block. `positioning_requested` is the review loop's `source`
+                # and never reaches this call, so the obligation would otherwise
+                # exist only from round 2 onwards — on the one call that decides
+                # whether the disclosure is ever drafted at all.
+                required_limits_block=required_limits_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
                 scope_positioning_block=scope_positioning_block,
@@ -1378,7 +1490,13 @@ async def _render_cover_letter_background(
                     # company fact must still fail review 4 (Oracle discipline unchanged).
                     # #271 Task 1: literally the SAME excerpt string the writer prompt above
                     # was built from (jd_excerpt) — never a second, independently-sliced copy.
-                    "job_description": jd_excerpt,
+                    # ADR-084 embedding point 14 (Form A, inline): this value is
+                    # handed unchanged to the letter REVIEWER and the CORRECTOR on
+                    # every round (prompts/review_cover_letter.py's
+                    # `CANDIDATE SOURCE (source of truth)` block), so one marking
+                    # here covers three prompts. Inline rather than block form
+                    # because json.dumps(indent=2) escapes the framing's newlines.
+                    "job_description": fence_inline(jd_excerpt),
                     # #255 (ADR-057 amended 2026-07-24): the SAME positioning inputs the
                     # writer received — see build above. Without this the reviewer/
                     # corrector cannot distinguish a REQUESTED, grounded domain reference /
@@ -1698,6 +1816,7 @@ async def _render_cover_letter_background(
             terminal_rounds = tr.rounds
             reentry_exhausted = tr.reentry_exhausted
             condense_used = tr.condense_used
+            terminal_outcome = tr.outcome
 
             # Wave-6 follow-up (charter run #6, Task 3), carried over: the
             # condense rewrite is bounded and retain_if never sacrifices the
@@ -1728,6 +1847,7 @@ async def _render_cover_letter_background(
                 await _update_ats_report_letter(
                     cl, db, pdf=pdf_bytes,
                     pins=letter_pins, truth_floor_hits=pin_floor_hits,
+                    terminal_review=terminal_outcome,
                 )
                 delivered_hash = subject_hash(cl.letter_data)
                 match = delivered_hash == verdict_hash
@@ -1779,11 +1899,28 @@ async def _render_cover_letter_background(
                     # norm re-entry stays an accepted, logged residual
                     # rather than minting a THIRD condense generation.
                     final_floor=False,
+                    # writer collector #601: the re-entry used to pass no
+                    # pins= and to drop its own pin_floor_hits, so a pin whose
+                    # carrier the compose tail deleted DURING a re-entry was
+                    # removed correctly by hierarchy (truth > pin) and never
+                    # reported — the one thing ADR-077 clause 2 / SF-PIN.6
+                    # forbid. Same pin set as the first invocation: a re-entry
+                    # reviews the same document contract.
+                    pins=letter_pins,
                 )
                 pdf_bytes, measured = tr.pdf_bytes, tr.measured
+                # Fold, never replace — the report call at the TOP of this loop
+                # persists the accumulated set on the next iteration.
+                pin_floor_hits |= tr.pin_floor_hits
                 terminal_rounds += tr.rounds
                 reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                 condense_used = condense_used or tr.condense_used
+                # Fold, never replace (#563 D) — see LetterTerminalReviewResult.outcome.
+                terminal_outcome = (
+                    tr.outcome.worse_of(terminal_outcome)
+                    if tr.outcome is not None
+                    else terminal_outcome
+                )
                 verdict_hash = subject_hash(cl.letter_data)
 
             # Now flip to 'ready' — the report is already committed, so the frontend's
@@ -1998,6 +2135,13 @@ class LetterTerminalReviewResult:
     # "the floor did not run" for the one construction site that predates it.
     final_floor_fired: bool = False
     final_floor_selection: str = "none"
+    # #563 (D): how this delivery's terminal review actually ENDED — approved,
+    # exhausted with findings open, or stopped on a cycle — folded across every
+    # `review_and_refine` invocation of this method (including the final-length-floor
+    # round) via `worse_of`, so a clean later round cannot erase an earlier
+    # exhaustion that already shipped content. Reported as the ADR-039
+    # `terminal-review` check. `None` only when no settle was produced at all.
+    outcome: object | None = None
 
 
 async def _terminal_review_letter(
@@ -2182,6 +2326,19 @@ async def _terminal_review_letter(
         )
         return f"{prompt}\n\n{block}"
 
+    # #563 (D): every `review_and_refine` invocation of this method reports how it
+    # settled; `worse_of` folds them into ONE outcome for the delivery, so the ADR-039
+    # `terminal-review` check cannot be talked out of an earlier exhaustion by a clean
+    # later round. Never raises into the loop (the hook is wrapped there).
+    from applire.services.terminal_review_outcome import settle_to_outcome
+
+    outcome_cell: dict = {"outcome": None}
+
+    def _record_settle(settle) -> None:
+        outcome_cell["outcome"] = settle_to_outcome(
+            settle, chain_id="letter_terminal_review"
+        ).worse_of(outcome_cell["outcome"])
+
     current = draft
     rounds = 0
     reentry_exhausted = False
@@ -2265,6 +2422,7 @@ async def _terminal_review_letter(
             # #420's boundary, preserved: the word-budget tie-break narrows
             # only among CONDENSE-descendant drafts, never on a content round.
             prefer_if=(within_budget_fn if entered_via_condense else None),
+            on_settle=_record_settle,
         )
         entered_via_condense = False
         if _canon(settled) == _canon(current):
@@ -2384,6 +2542,7 @@ async def _terminal_review_letter(
                     retain_if=retain_if_fn,
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
+                    on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
                     current = settled
@@ -2445,6 +2604,7 @@ async def _terminal_review_letter(
         pin_floor_hits=floor_hits,
         final_floor_fired=final_floor_fired,
         final_floor_selection=final_floor_selection,
+        outcome=outcome_cell["outcome"],
     )
 
 
@@ -2453,13 +2613,25 @@ async def _terminal_review_letter(
 # ---------------------------------------------------------------------------
 
 
-async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+async def _latest_keyword_ledger(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    profile_json: dict | None = None,
+) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
-    Mirrors the generation-path gap query; ``None`` for legacy pre-E037 rows (then all
-    missing keywords default to honest-gap in the ATS report).
+    THE ledger read for the whole letter chain — generation and the ATS report
+    both come through here (letter twin of ``services/cv.py``); ``None`` for
+    legacy pre-E037 rows (then all missing keywords default to honest-gap).
+
+    #592 / ADR-048 amended: re-derived against the CURRENT vault here, so a
+    DO-NOT-CLAIM list can never contradict the profile the writer is handed —
+    see :func:`keyword_ledger.refresh_ledger_against_vault`. Read-only: the
+    persisted row is not rewritten.
     """
     from applire.models.gap import GapAnalysis
+    from applire.models.profile import MasterProfile
 
     result = await db.execute(
         select(GapAnalysis)
@@ -2471,7 +2643,17 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
         .limit(1)
     )
     gap = result.scalar_one_or_none()
-    return (gap.keyword_ledger or []) if gap else None
+    if gap is None:
+        return None
+    if profile_json is None and gap.profile_id is not None:
+        profile_row = await db.get(MasterProfile, gap.profile_id)
+        profile_json = profile_row.profile_json if profile_row else None
+    from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+    ledger, _changed = refresh_ledger_against_vault(
+        gap.keyword_ledger or [], profile_json, seam="letter ledger read"
+    )
+    return ledger
 
 
 async def _update_ats_report_letter(
@@ -2480,6 +2662,7 @@ async def _update_ats_report_letter(
     pdf: bytes | None = None,
     pins: list | None = None,
     truth_floor_hits: set | frozenset = frozenset(),
+    terminal_review=None,
 ) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
@@ -2522,6 +2705,10 @@ async def _update_ats_report_letter(
     from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
 
     _set_llm_log_stage("letter_audit")
+    # #563 (D): read the report about to be replaced BEFORE replacing it — the
+    # re-audit doors run no terminal review, and dropping the check there would let a
+    # later section edit launder a letter that shipped on an exhausted review.
+    previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
     try:
         from applire.services.ats_audit import audit_cover_letter
         from applire.services.cover_letter_pdf import render_pdf
@@ -2570,6 +2757,8 @@ async def _update_ats_report_letter(
             vault_text_norm=vault_text_norm,
             pins=pins,
             truth_floor_hits=set(truth_floor_hits),
+            terminal_review=terminal_review,
+            previous_report=previous_report,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -2730,6 +2919,11 @@ async def _update_ats_report_letter(
     # them.
     try:
         from applire.services.office_export.extract import audit_cover_letter_docx
+
+        # #563 (D): own lineage, own carry-forward (never the PDF report's).
+        previous_docx_report = (
+            cl.docx_ats_report if isinstance(cl.docx_ats_report, dict) else None
+        )
         from applire.services.office_export.letter_docx import render_letter_docx
 
         docx_letter, docx_lang, docx_accent = await _prepare_cover_letter_docx_render(cl, db)
@@ -2776,6 +2970,8 @@ async def _update_ats_report_letter(
             vault_text_norm=docx_vault_text_norm,
             pins=docx_pins,
             truth_floor_hits=set(truth_floor_hits),
+            terminal_review=terminal_review,
+            previous_report=previous_docx_report,
         ).model_dump()
     except Exception:
         logger.exception(

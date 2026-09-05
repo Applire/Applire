@@ -121,19 +121,18 @@ Rules:
   availability/notice-period line, the honest-gap/transfer-argument paragraph (see POSITIONING
   below), or a short connective clause that introduces a grounded claim — those stay exactly as
   the other rules in this prompt already require them.
-- POSITION ANCHORING (#283 — a downstream truthfulness guard silently strips an unattributable
-  figure): whenever a sentence states an achievement, responsibility, or figure/metric that
-  belongs to ONE specific employer or position — not something true of the candidate
-  everywhere — name that employer within the SAME sentence, e.g. "At Northwind Labs, I
-  delivered the lab-systems rollout in 9 months across 4 sites", never a later, unattributed
-  sentence like "...and delivered record-breaking projects ... in 9 months across 4 sites" with
-  the employer left to an earlier sentence or paragraph to imply. This matters most in a paragraph
-  that draws on more than one role or blends content from different positions: never fold a
-  position-owned achievement into a general leadership/summary sentence that itself names no
-  employer. An unanchored figure does not stay in the letter — it is silently dropped by a
-  deterministic guard before the letter is sent, which only makes the claim vaguer and weaker
-  ("in months across sites"), never safer. Anchor it correctly instead of letting it go
-  unattributed.
+- POSITION ANCHORING — ONE ANCHOR PER EMPLOYER RUN, PER PARAGRAPH (#283, scope corrected #565):
+  a sentence that states an achievement, responsibility, or figure/metric belonging to ONE
+  specific employer or position — not something true of the candidate everywhere — must be
+  attributable to that employer, and the unit carrying the attribution is the EMPLOYER RUN
+  INSIDE ONE PARAGRAPH, never the individual sentence. Name the employer in the FIRST sentence
+  of the run — "At Northwind Labs, I delivered the lab-systems rollout in 9 months across 4
+  sites" — and let the later sentences of the SAME paragraph refer back instead ("Dort ...",
+  "There, ..."). A paragraph changes employer only by naming the new one, and a back-reference
+  never crosses a paragraph break. Prefer ONE PARAGRAPH, ONE EMPLOYER. Still wrong: a
+  position-owned achievement folded into a general summary sentence in a paragraph that named
+  no employer, and two employers' achievements mixed in one paragraph. Do NOT repeat the
+  company name in every sentence — that reads as mechanical, not careful.
 - THE CANDIDATE'S OWN JOB TITLES ARE NAMES, NOT DESCRIPTIONS (#321 — a delivered letter
   called the candidate "Bereichsverantwortlicher" at a position the profile records as
   "Produktionsleiter", having lifted the noun out of that same position's own achievement
@@ -197,15 +196,24 @@ Rules:
     testimony means the candidate's CURRENT/former employer — in a letter addressed to the
     TARGET company those words read as the target. Name the employer instead. And never
     re-state content another paragraph of the letter already covers — one fact, one paragraph.
-- STATED LIMITS: when a STATED LIMITS block appears in the user message, it holds the
-  candidate's own words about what they cannot claim, and they are the ONLY limits that
-  exist. Never write a claim one of them contradicts. Equally: never invent a limit they do
-  not state. A concept named inside one of those statements as something the candidate DOES
-  have is a STRENGTH — an honest denial names the adjacent strengths that transfer — so
-  claim it plainly and without qualification. Everything the Keyword Ledger marks claimable
-  stays fully claimable unless a stated limit denies it, and never belongs in the
-  honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences costs
-  the candidate their best material and is as untrue as an inflated claim.
+- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075): when a STATED LIMITS block appears in
+  the user message, it holds the candidate's own words about what they cannot claim, and
+  they are the ONLY limits that exist.
+  (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit
+  they do not state. A concept named inside one of those statements as something the
+  candidate DOES have is a STRENGTH — an honest denial names the adjacent strengths that
+  transfer — so claim it plainly and without qualification. Everything the Keyword Ledger
+  marks claimable stays fully claimable unless a stated limit denies it, and never belongs
+  in the honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences
+  costs the candidate their best material and is as untrue as an inflated claim.
+  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears in
+  the user message, its entries are the concepts THIS posting asks about that the
+  candidate has DENIED in their own words — at ANY requirement tier, required or nice-to-have alike. Each listed limit owes
+  ONE explicit positioning decision: name the gap in the candidate's own terms, then the
+  adjacent strength that transfers, inside the SAME single honest-gap paragraph, never a
+  litany. Silence on a listed limit is not one of the options. This reaches ONLY what the
+  candidate said themselves — a requirement nobody ever asked them about is not a gap you
+  may assert on their behalf.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
   job-description concept the candidate's own material does not evidence (an honest gap),
   choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
@@ -229,6 +237,7 @@ def build_cover_letter_prompt(
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
     stated_limits_block: str | None = None,
+    required_limits_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
@@ -371,10 +380,19 @@ def build_cover_letter_prompt(
     # JD says (see applire.services.jd_excerpt module docstring).
     from applire.services.jd_excerpt import build_jd_excerpt
 
+    # ADR-084 embedding point 13 (Form A). The heading already said "NOT a
+    # source of candidate facts"; the fence says the stronger thing the heading
+    # could not — that the employer's text is not a source of INSTRUCTIONS
+    # either. Note this is the largest untrusted span in any prompt in the
+    # system (JD_EXCERPT_BUDGET = 4000 chars).
+    from applire.services.untrusted_text import fence, fence_inline
+
     lines += [
         "",
-        "=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
-        build_jd_excerpt(jd_text),
+        fence(
+            build_jd_excerpt(jd_text),
+            header="=== JOB DESCRIPTION (what the employer WANTS — NOT a source of candidate facts) ===",
+        ),
     ]
 
     # E048/US264 (ADR-057 amended 2026-07-24): the panel's #1 blocker — the letter never
@@ -385,7 +403,11 @@ def build_cover_letter_prompt(
         lines += [
             "",
             "=== POSITIONING: COMPANY & DOMAIN ENGAGEMENT ===",
-            f"TARGET COMPANY: {company_name}",
+            # ADR-084 embedding point 24 (Form A, inline): `company_name` is a
+            # free-text field the posting's author chose, interpolated into one
+            # of our own sentences — the shape where an injected clause reads
+            # most like an instruction from us.
+            f"TARGET COMPANY: {fence_inline(company_name)}",
             "Engage this employer concretely in the opening or motivation paragraph — "
             "reference what they build, sell, or operate in, using ONLY the JOB DESCRIPTION "
             "text above. Never invent a company product, market, or achievement that is not "
@@ -404,6 +426,16 @@ def build_cover_letter_prompt(
     # (services.cross_document.collect_stated_limits); no denials → adds nothing.
     if stated_limits_block:
         lines += ["", stated_limits_block]
+
+    # ADR-075 / #532: the AFFIRMATIVE half — the denials THIS posting asks about,
+    # each owing a positioning decision. Threaded ONLY when
+    # cross_document.select_jd_relevant_limits found one; absent → adds nothing,
+    # so a candidate with no JD-relevant denial is asked for nothing (the
+    # ADR-074 discipline). Rendered separately from stated_limits_block because
+    # that block is shared with the CV writer, whose rule 3a forbids gap
+    # disclosure on a CV.
+    if required_limits_block:
+        lines += ["", required_limits_block]
 
     # #270(c): unmet JD hard requirements (claimable: false, "required") that
     # need an explicit positioning decision (transfer argument or a brief,
@@ -529,12 +561,13 @@ LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
     "The company/domain engagement: any concrete reference to this employer or "
     "its domain, not a generic sentence that could apply to any company.",
     "The availability / notice-period line, if present.",
-    "Every employer anchor attached to a position-owned achievement or figure "
-    "(e.g. \"At Northwind Labs,\") — never compress a sentence in a way that drops the "
-    "employer name while keeping the achievement or figure. An unanchored figure "
-    "is silently stripped by a downstream guard, which makes the letter vaguer, "
-    "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
-    "sentence as the achievement/figure it belongs to.",
+    "Each paragraph's employer anchor (e.g. \"At Northwind Labs,\"). The name is "
+    "carried by ONE sentence per employer run (#565), so a paragraph that states a "
+    "position-owned achievement or figure must still name its employer at or before "
+    "the first such claim — never compress that one sentence in a way that drops the "
+    "name while keeping the achievement or figure. Merging two paragraphs merges two "
+    "employer runs: re-anchor the second, or keep the paragraphs apart. Dropping the "
+    "last remaining anchor makes the letter vaguer, not shorter.",
 )
 
 

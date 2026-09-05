@@ -28,6 +28,7 @@ from sqlalchemy import select
 from applire.db.session import AsyncSessionLocal
 from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
 from applire.services.cover_letter import get_cover_letter_html
+from applire.services.pdf_provenance import render_marked_pdf
 
 
 async def render_pdf(cl_id: uuid.UUID, allow_unready: bool = False) -> bytes:
@@ -45,7 +46,10 @@ async def render_pdf(cl_id: uuid.UUID, allow_unready: bool = False) -> bytes:
         browser = await p.chromium.launch()
         page = await browser.new_page()
         await page.set_content(html, wait_until="networkidle")
-        pdf_bytes = await page.pdf(
+        # ADR-085: the AI-provenance mark is applied at this one seam (see
+        # services/pdf_provenance.py — no module may call page.pdf() itself).
+        pdf_bytes = await render_marked_pdf(
+            page,
             format="A4",
             margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
             print_background=True,

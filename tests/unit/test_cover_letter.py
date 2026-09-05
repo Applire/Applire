@@ -374,7 +374,11 @@ def test_build_condense_prompt_preserves_employer_anchors_on_achievements():
     """#283 — condense must not be the thing that strips (or fails to add) the
     employer anchor a position-owned achievement/figure needs. The REQUIRED
     CONTENT list must name the anchor explicitly as content that must survive
-    the shortening, exactly like the closing paragraph and company engagement."""
+    the shortening, exactly like the closing paragraph and company engagement.
+
+    Rescoped 2026-09-05 (#565): the unit is the PARAGRAPH's employer run, so
+    what must survive is one anchor per run — and the shortening-specific
+    hazard condense owns is MERGING two paragraphs, which merges two runs."""
     from applire.prompts.cover_letter import build_condense_prompt
 
     letter_data = {"body": {"paragraphs": ["Hello there."]}}
@@ -382,7 +386,8 @@ def test_build_condense_prompt_preserves_employer_anchors_on_achievements():
     low = prompt.lower()
 
     assert "anchor" in low
-    assert "same sentence" in low
+    assert "one sentence per employer run" in low
+    assert "merging two paragraphs merges two" in low
 
 
 def test_build_cover_letter_prompt_returns_system_and_user():
@@ -448,13 +453,21 @@ def test_system_prompt_requires_anchoring_position_owned_achievements():
     DIFFERENT employer (Applire) elsewhere. The deterministic #254 figure
     guard could not resolve ownership and correctly dropped '7' and '3',
     leaving the clause vaguer than the truth ("in months across sites").
-    The writer's own SYSTEM_PROMPT must require naming the employer in the
-    SAME sentence as any position-owned achievement or figure."""
+    Rescoped 2026-09-05 (#565, ADR-021 amended): the writer's SYSTEM_PROMPT
+    requires the employer to be named in the first sentence of its run inside
+    a paragraph, not in every sentence — the sentence granularity is what
+    produced eight consecutive identical sentence openings in the 2026-08-19
+    ship-gate letter. The run-6 shape it was written against is unchanged:
+    that achievement sat in a paragraph naming NO employer at all.
+
+    The docstring's #254 half is also stale and kept only as history: since
+    #299 the guard leaves such a sentence ALONE — see
+    `tests/unit/test_565_anchor_scope.py`."""
     from applire.prompts.cover_letter import SYSTEM_PROMPT
 
     low = SYSTEM_PROMPT.lower()
     assert "anchor" in low
-    assert "same sentence" in low
+    assert "one anchor per employer run, per paragraph" in low
     assert "figure" in low or "achievement" in low
 
 
@@ -521,7 +534,14 @@ def test_build_cover_letter_prompt_includes_company_engagement_block():
         company_name="Roche Diagnostics",
     )
     assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in prompt
-    assert "TARGET COMPANY: Roche Diagnostics" in prompt
+    # ADR-084 point 24: the company name is still threaded, and is now inside the
+    # untrusted-text marking (it is a free-text field the POSTING's author chose).
+    # Asserting containment rather than the old bare "TARGET COMPANY: <name>"
+    # substring keeps the original intent AND pins the marking.
+    from applire.services.untrusted_text import is_covered
+
+    assert "TARGET COMPANY:" in prompt
+    assert is_covered(prompt, "Roche Diagnostics")
 
 
 def test_build_cover_letter_prompt_omits_company_engagement_block_when_no_company_name():
@@ -903,6 +923,39 @@ async def test_patch_cover_letter_section_not_found(db):
         await patch_cover_letter_section(uuid.uuid4(), "body", "text", db)
 
 
+# ---------------------------------------------------------------------------
+# #641 (section allowlist) — patch_cover_letter_section rejects sections the
+# render path does not actually support (header/recipient/signature stamp an
+# "_override" key no template reads back — see _apply_section_overrides'
+# own docstring history and test_apply_section_overrides_other_dict_key
+# below). The allowlist rejects at the DOOR, before any write.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejected_section", ["header", "recipient", "signature"])
+async def test_patch_cover_letter_section_rejects_unsupported_section(db, rejected_section):
+    from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
+    from applire.services.cover_letter import patch_cover_letter_section
+
+    cl = GeneratedCoverLetter(
+        job_analysis_id=uuid.uuid4(),
+        profile_id=uuid.uuid4(),
+        template="classic_german",
+        letter_data={"header": {"name": "Frau Vogt"}},
+        pre_gen_inputs={},
+        status=CoverLetterStatus.ready.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    with pytest.raises(ValueError):
+        await patch_cover_letter_section(cl.id, rejected_section, "Herr Dr. Schmidt", db)
+
+    await db.refresh(cl)
+    assert cl.section_overrides is None  # nothing written, nothing committed
+
+
 @pytest.mark.asyncio
 async def test_get_cover_letter_by_job_not_found(db):
     from applire.services.cover_letter import get_cover_letter_by_job
@@ -985,6 +1038,20 @@ def test_apply_section_overrides_no_overrides():
     data = {"body": {"paragraphs": ["p1"]}}
     result = _apply_section_overrides(data, {})
     assert result == data
+
+
+def test_apply_section_overrides_legacy_header_override_still_tolerated():
+    """#641: the door (patch_cover_letter_section) now rejects a NEW header
+    override, but existing DB rows may already carry a stored header/
+    recipient/signature override from before this fix. _apply_section_overrides
+    itself must keep tolerating them exactly as before (inert _override stamp,
+    no raise) — this PR narrows the write door, not this render-time helper."""
+    from applire.services.cover_letter import _apply_section_overrides
+
+    data = {"header": {"name": "Frau Vogt"}}
+    result = _apply_section_overrides(data, {"header": "Herr Dr. Schmidt, Ostwerk AG"})
+    assert result["header"]["_override"] == "Herr Dr. Schmidt, Ostwerk AG"
+    assert result["header"]["name"] == "Frau Vogt"  # original field untouched
 
 
 # ---------------------------------------------------------------------------
@@ -1332,6 +1399,78 @@ async def test_router_patch_section_ok(cl_client):
     data = resp.json()
     assert data["cover_letter_id"] == str(cl.id)
     assert data["section"] == "body"
+
+
+@pytest.mark.asyncio
+async def test_router_patch_section_422_unsupported_section(cl_client):
+    """#641: the REST door itself must answer 422 for a section the render
+    path does not support — FastAPI's own schema validation (SectionOverride
+    Patch.section narrowed to Literal["body"]) rejects it before the service
+    is ever called, for a section that never even reaches a DB row."""
+    client, db, _ = cl_client
+    from applire.models.cover_letter import GeneratedCoverLetter, CoverLetterStatus
+
+    cl = GeneratedCoverLetter(
+        job_analysis_id=uuid.uuid4(),
+        profile_id=uuid.uuid4(),
+        template="classic_german",
+        letter_data={"recipient": {"name": "Frau Vogt", "company": "Nordwerk GmbH"}},
+        pre_gen_inputs={},
+        status=CoverLetterStatus.ready.value,
+    )
+    db.add(cl)
+    await db.commit()
+    await db.refresh(cl)
+
+    payload = {"section": "recipient", "content": "Herr Dr. Schmidt, Ostwerk AG"}
+    resp = await client.patch(f"/api/cover-letter/{cl.id}/section", json=payload)
+    assert resp.status_code == 422
+
+    await db.refresh(cl)
+    assert cl.section_overrides is None  # rejected at the door, nothing written
+
+
+def test_section_override_patch_schema_rejects_non_body_section():
+    """#641: SectionOverridePatch.section is narrowed to Literal["body"] so
+    pydantic/FastAPI itself answers 422 for header/recipient/signature —
+    they are accepted by the schema today but silently inert at render time
+    (see test_apply_section_overrides_other_dict_key)."""
+    from pydantic import ValidationError
+    from applire.schemas.cover_letter import SectionOverridePatch
+
+    for rejected_section in ("header", "recipient", "signature"):
+        with pytest.raises(ValidationError):
+            SectionOverridePatch(section=rejected_section, content="x")
+
+    # body is still accepted
+    assert SectionOverridePatch(section="body", content="x").section == "body"
+
+
+@pytest.mark.asyncio
+async def test_router_patch_section_maps_value_error_to_422():
+    """#641: the router's ValueError -> 422 mapping, isolated from schema
+    validation — calls the router function directly with a stubbed service
+    that raises ValueError (e.g. a future caller that reaches the allowlist
+    with a section the schema alone no longer blocks), and asserts the
+    router itself answers 422 rather than an unhandled 500."""
+    from unittest.mock import AsyncMock, patch as mock_patch
+    from fastapi import BackgroundTasks, HTTPException
+    from applire.routers.cover_letter import patch_section
+    from applire.schemas.cover_letter import SectionOverridePatch
+
+    with mock_patch(
+        "applire.routers.cover_letter.patch_cover_letter_section",
+        new=AsyncMock(side_effect=ValueError("Unsupported section override: 'body'")),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await patch_section(
+                uuid.uuid4(),
+                SectionOverridePatch(section="body", content="x"),
+                BackgroundTasks(),
+                db=None,
+                _auth=None,
+            )
+    assert exc_info.value.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,7 @@ interface MobileCommandBarProps {
   atsPanel: ReactNode;
   /**
    * The existing CV editing surface (ContentTab). Mounted only while the
-   * Fine-tune sheet is open (read-degraded on mobile — US228 does the polish).
+   * Fine-tune sheet is open. Fully editable since US228 — no degraded notice.
    */
   fineTuneSurface: ReactNode;
   /** Wired to the CV page's requestDownload() / PreDownloadNotice path. */
@@ -43,9 +43,12 @@ type ActiveSheet = "ats" | "fineTune" | null;
  *
  * Below `md` the desktop RefinementSidebar is hidden; this floating bar carries
  * exactly three actions (Versions was cut — ADR-050 amendment 2026-07-14):
- * ATS Checks (bottom sheet, pass-count badge), Fine-tune (bottom sheet hosting
- * the existing ContentTab, read-degraded), and Download PDF (primary). It opens
- * the live CV-page components (ATSChecksPanel, ContentTab) — no forked panels.
+ * Prüfung/Review (bottom sheet, pass-count badge), Fine-tune (bottom sheet
+ * hosting the existing ContentTab, editable since US228), and Download PDF (primary).
+ * It opens the live CV-page components — no forked panels; since E058 the
+ * review sheet hosts the SAME `ReviewSurface` instance the desktop panel
+ * renders (ADR-081 cl. 7: mobile is unchanged in kind, only the sheet's CONTENT
+ * follows the new grouping).
  *
  * Presentation-only: no new panel content, no API surface. Rendered as a
  * `flex-shrink-0` child at the bottom of the fixed-height DocumentWorkspace
@@ -156,17 +159,16 @@ export function MobileCommandBar({
             {/* Extra bottom padding keeps content clear of the sheet edge (mockup nit). */}
             <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
               {sheet === "ats" && atsPanel}
-              {sheet === "fineTune" && (
-                <>
-                  <p
-                    data-testid="command-finetune-degraded"
-                    className="mb-4 rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-xs text-on-surface-variant"
-                  >
-                    {t("fineTuneDegradedNotice")}
-                  </p>
-                  {fineTuneSurface}
-                </>
-              )}
+              {/* E040/US228: the "editing is optimised for a larger screen"
+                  notice is GONE. It was honest under US226 and became false
+                  here — measured 2026-09-05 at 390x844 and at 390x500 (the
+                  height a phone leaves while its keyboard is up): the section
+                  editor opens, Save enables only on a real change, the scope
+                  prompt covers the whole viewport rather than just this sheet,
+                  the PATCH goes out with the right body, and the unsaved flag
+                  clears. Telling the user to go to a computer for something
+                  that works is worse than saying nothing. */}
+              {sheet === "fineTune" && fineTuneSurface}
             </div>
           </div>
         </div>

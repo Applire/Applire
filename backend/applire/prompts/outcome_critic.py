@@ -104,13 +104,22 @@ def build_pass_a_prompt(
     jd_excerpt: str | None,
 ) -> str:
     """Pass A — the assembled CV, judged alone (single-document coherence)."""
+    # ADR-084 embedding point 26a/b (Form A): the critic reads the delivered
+    # document against the posting, so both the role title and the 4000-char
+    # excerpt reach it. Its findings are shown to the user as advisories.
+    from applire.services.untrusted_text import fence, fence_inline
+
     return "\n\n".join(
         [
             "PASS A — single-document coherence of the assembled CV.",
-            f"Target role: {job_role_title or 'unspecified'}",
-            "Job description excerpt (context only — do not judge JD "
-            "coverage here, a separate check owns that):\n"
-            + (jd_excerpt or "(none)"),
+            f"Target role: {fence_inline(job_role_title) if job_role_title else 'unspecified'}",
+            fence(
+                jd_excerpt or "(none)",
+                header=(
+                    "Job description excerpt (context only — do not judge JD "
+                    "coverage here, a separate check owns that)"
+                ),
+            ),
             _document_block("CV (assembled, as delivered)", cv_units),
             "Only internal_inconsistency findings are valid on this pass; "
             "cv_quote holds the broader/contradicting span and "
@@ -133,6 +142,10 @@ def build_pass_b_prompt(
     ledger concepts the fact layer already knows are letter-only or
     letter-richer. They are known-suspicious spots, not the finding universe.
     """
+    # ADR-084 embedding point 26c-e (Form A + Form B): the anchors are ledger
+    # concepts (posting-derived), the role title and excerpt as in Pass A.
+    from applire.services.untrusted_text import fence, fence_inline, items_note
+
     anchor_lines: list[str] = []
     if anchors:
         anchor_lines.append(
@@ -140,6 +153,7 @@ def build_pass_b_prompt(
             "— and still read the full documents; real findings routinely "
             "fall OUTSIDE this list):"
         )
+        anchor_lines.append(items_note("concept terms"))
         for a in anchors:
             anchor_lines.append(
                 f"- concept: {a['concept']!r}\n"
@@ -150,10 +164,14 @@ def build_pass_b_prompt(
         [
             "PASS B — cross-document coherence of the assembled CV and "
             "cover letter.",
-            f"Target role: {job_role_title or 'unspecified'}",
-            "Job description excerpt (context only — do not judge JD "
-            "coverage here, a separate check owns that):\n"
-            + (jd_excerpt or "(none)"),
+            f"Target role: {fence_inline(job_role_title) if job_role_title else 'unspecified'}",
+            fence(
+                jd_excerpt or "(none)",
+                header=(
+                    "Job description excerpt (context only — do not judge JD "
+                    "coverage here, a separate check owns that)"
+                ),
+            ),
             _document_block("CV (assembled, as delivered)", cv_units),
             _document_block("COVER LETTER (as delivered)", letter_units),
             *(["\n".join(anchor_lines)] if anchor_lines else []),

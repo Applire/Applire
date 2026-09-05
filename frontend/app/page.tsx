@@ -24,7 +24,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Dropzone } from "@/components/ui/dropzone";
+import { CV_UPLOAD_ACCEPT, Dropzone } from "@/components/ui/dropzone";
 import { FileChip } from "@/components/ui/file-chip";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { cn } from "@/lib/utils";
@@ -163,7 +163,7 @@ export default function Home() {
               <Dropzone
                 data-testid="upload-area"
                 onDrop={(fileList) => addFiles(fileList)}
-                accept=".pdf,.docx,.doc"
+                accept={CV_UPLOAD_ACCEPT}
                 multiple
                 disabled={showOverlay}
               />

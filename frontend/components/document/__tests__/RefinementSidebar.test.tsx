@@ -85,4 +85,57 @@ describe("RefinementSidebar", () => {
     expect(screen.getByTestId("sidebar-expand-btn")).toBeTruthy();
     expect(screen.queryByTestId("body-content")).toBeNull();
   });
+
+  // E058/US299 (ADR-081 cl. 1): the dissolved DocumentTopBar's two halves.
+  describe("the panel is the ONE document-scope chrome region", () => {
+    it("renders the identity bar inside the status header", () => {
+      render(
+        withIntl(
+          <RefinementSidebar
+            {...BASE}
+            identityBar={<div data-testid="slot-identity">identity</div>}
+          />,
+        ),
+      );
+      const header = screen.getByTestId("sidebar-status-header");
+      expect(header.contains(screen.getByTestId("slot-identity"))).toBe(true);
+    });
+
+    it("pins the export footer below the active tab's own footer, in EVERY tab", () => {
+      render(
+        withIntl(
+          <RefinementSidebar
+            {...BASE}
+            pinnedFooter={<div data-testid="slot-exports">exports</div>}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("sidebar-pinned-footer")).toBeTruthy();
+      // The "actions" tab has no contextual footer of its own — the exports stay.
+      fireEvent.click(screen.getByTestId("sidebar-tab-actions"));
+      expect(screen.queryByTestId("sidebar-footer")).toBeNull();
+      expect(screen.getByTestId("slot-exports")).toBeTruthy();
+    });
+
+    it("renders no pinned footer region when no exports are supplied", () => {
+      render(withIntl(<RefinementSidebar {...BASE} />));
+      expect(screen.queryByTestId("sidebar-pinned-footer")).toBeNull();
+    });
+
+    // ADR-081 cl. 6, carried onto the collapse: collapsing the panel must not
+    // hide a non-zero count.
+    it("carries a tab badge onto the tab strip AND onto the collapsed rail", () => {
+      const tabs = [
+        { ...TABS[0], badge: <span data-testid="badge-count">3</span> },
+        ...TABS.slice(1),
+      ];
+      const { unmount } = render(withIntl(<RefinementSidebar {...BASE} tabs={tabs} />));
+      expect(screen.getByTestId("badge-count")).toBeTruthy();
+      unmount();
+
+      render(withIntl(<RefinementSidebar {...BASE} tabs={tabs} collapsed />));
+      expect(screen.getByTestId("sidebar-rail-badge-content")).toBeTruthy();
+      expect(screen.getByTestId("badge-count")).toBeTruthy();
+    });
+  });
 });

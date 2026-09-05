@@ -98,8 +98,8 @@ test.describe('CV View — 70/30 layout rendering', () => {
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
     // Page action bar should be present (signals CV preview phase is fully rendered)
-    await expect(page.locator('[data-testid="sidebar-tab-content"]')).toBeVisible();
-    await expect(page.locator('[data-testid="document-topbar"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar-tab-review"]')).toBeVisible();
+    await expect(page.locator('[data-testid="document-identity-bar"]')).toBeVisible();
   });
 
   test('download button triggers PDF fetch', async ({ page }) => {

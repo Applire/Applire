@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
+    from applire.services.terminal_review_outcome import TerminalReviewOutcome
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
@@ -95,6 +96,7 @@ from applire.prompts.review_cv_language import (
 from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
 from applire.services.load_bearing import bullet_carries_figure
+from applire.services.pdf_provenance import render_marked_pdf
 from applire.services.reviewer import review_and_refine
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.language_detection import (
@@ -2711,7 +2713,18 @@ async def _render_cv_background(
             # Keyword Ledger's job (ADR-048).
             # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
             # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
-            keyword_ledger: list[dict] = (gap.keyword_ledger or []) if gap else []
+            # #592 (ADR-048 amended): the persisted row states what the vault held
+            # when the analysis ran. Re-derive it against the vault THIS run was
+            # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
+            # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
+            # no second query — `gap` and `profile` are already loaded.
+            from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
+                (gap.keyword_ledger or []) if gap else [],
+                profile.profile_json if profile else None,
+                seam="cv generation",
+            )
 
             job_dict = {
                 "role_title": job.role_title,
@@ -3142,6 +3155,9 @@ async def _render_cv_background(
             # layer (mirrors review_and_refine's own short-circuit).
             terminal_rounds = 0
             reentry_exhausted = False
+            # #563 (D): stays None when the review layer is disabled — which the
+            # ADR-039 check reports as `not_applicable`, never as a clean pass.
+            terminal_outcome = None
             if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
                 tr = await _terminal_review(
                     record, db,
@@ -3161,6 +3177,7 @@ async def _render_cv_background(
                 prose_draft, measured = tr.prose_draft, tr.measured
                 terminal_rounds = tr.rounds
                 reentry_exhausted = tr.reentry_exhausted
+                terminal_outcome = tr.outcome
 
             # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
             # terminal verdict covered must BE the delivered content. The audits
@@ -3170,7 +3187,10 @@ async def _render_cv_background(
             verdict_hash = _subject_hash(record.tailored_data)
             reentered = 0
             while True:
-                await _update_ats_report(record, db, measured=measured, commit=False)
+                await _update_ats_report(
+                    record, db, measured=measured, commit=False,
+                    terminal_review=terminal_outcome,
+                )
                 delivered_hash = _subject_hash(record.tailored_data)
                 match = delivered_hash == verdict_hash
                 _log_subject_identity(
@@ -3215,6 +3235,13 @@ async def _render_cv_background(
                     prose_draft, measured = tr.prose_draft, tr.measured
                     terminal_rounds += tr.rounds
                     reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                    # Fold, never replace: a clean re-entry round must not erase an
+                    # earlier exhaustion that already shipped content.
+                    terminal_outcome = (
+                        tr.outcome.worse_of(terminal_outcome)
+                        if tr.outcome is not None
+                        else terminal_outcome
+                    )
                 verdict_hash = _subject_hash(record.tailored_data)
             # ADR-039: the single ready-commit — status + reports together.
             await db.commit()
@@ -3386,7 +3413,10 @@ async def _html_to_pdf(html: str) -> bytes:
         browser = await pw.chromium.launch()
         page = await browser.new_page()
         await page.set_content(html, wait_until="networkidle")
-        pdf_bytes = await page.pdf(
+        # ADR-085: the AI-provenance mark is applied at this one seam, so every
+        # template, both document kinds and both doors inherit it.
+        pdf_bytes = await render_marked_pdf(
+            page,
             format="A4",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
@@ -3400,11 +3430,31 @@ async def _html_to_pdf(html: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[dict] | None:
+async def _latest_keyword_ledger(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    profile_json: dict | None = None,
+) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
-    Mirrors the generation-path gap query. Used by the ATS audit to bucket missing
-    keywords; ``None`` for legacy pre-E037 rows (then all missing default to honest-gap).
+    THE ledger read for the whole CV chain — generation, the ATS audit and the
+    DOCX report all come through here, so the writer, the reviewer's
+    DO-NOT-CLAIM presence block and the truthfulness panel cannot disagree about
+    one term. ``None`` for legacy pre-E037 rows (then all missing default to
+    honest-gap).
+
+    #592 / ADR-048 amended: the persisted row is a statement about the vault as
+    it stood when the analysis ran, and the vault keeps moving afterwards. The
+    row is re-derived against the CURRENT vault here
+    (:func:`keyword_ledger.refresh_ledger_against_vault` — read its docstring for
+    the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
+    the writer is handed. Read-only: the persisted row is not rewritten, so the
+    Gaps screen's score is untouched by generating a document.
+
+    ``profile_json`` — the caller's already-loaded vault, when it has one (the
+    generation path does). Omitted, the profile is loaded from the analysis's own
+    ``profile_id``.
     """
     result = await db.execute(
         select(GapAnalysis)
@@ -3416,7 +3466,17 @@ async def _latest_keyword_ledger(db: AsyncSession, job_id: uuid.UUID) -> list[di
         .limit(1)
     )
     gap = result.scalar_one_or_none()
-    return (gap.keyword_ledger or []) if gap else None
+    if gap is None:
+        return None
+    if profile_json is None and gap.profile_id is not None:
+        profile_row = await db.get(MasterProfile, gap.profile_id)
+        profile_json = profile_row.profile_json if profile_row else None
+    from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+    ledger, _changed = refresh_ledger_against_vault(
+        gap.keyword_ledger or [], profile_json, seam="cv ledger read"
+    )
+    return ledger
 
 
 @dataclass
@@ -3726,6 +3786,12 @@ class TerminalReviewResult:
     measured: MeasuredRender | None
     rounds: int
     reentry_exhausted: bool
+    # #563 (D): how the terminal review actually ENDED — approved, exhausted with
+    # findings open, or stopped on a cycle — folded across every invocation of this
+    # delivery's terminal loop (`worse_of`), so a clean re-entry round cannot erase an
+    # earlier exhaustion that already shipped content. `None` only when the review
+    # layer produced no settle at all. Reported as the ADR-039 `terminal-review` check.
+    outcome: "TerminalReviewOutcome | None" = None
 
 
 async def _terminal_review(
@@ -3845,6 +3911,20 @@ async def _terminal_review(
             subject_by_draft[key] = subject
         return _subject_fn(source, subject.model_dump(mode="json"))
 
+    # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
+    # Both hooks are inert by default; naming them here is this chain's opt-in.
+    from applire.services.cv_gap_hints import underclaim_signal_issues_fn
+    from applire.services.terminal_review_outcome import TerminalReviewOutcome, settle_to_outcome
+
+    outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
+
+    def _record_settle(settle) -> None:
+        outcome_cell["outcome"] = settle_to_outcome(
+            settle, chain_id="cv_terminal_review"
+        ).worse_of(outcome_cell["outcome"])
+
+    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger)
+
     current = prose_draft
     rounds = 0
     reentry_exhausted = False
@@ -3862,6 +3942,8 @@ async def _terminal_review(
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             chain_id="cv_terminal_review",
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
+            signal_issues_fn=_underclaim_fn,
+            on_settle=_record_settle,
         )
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on the
@@ -3902,6 +3984,7 @@ async def _terminal_review(
         measured=measure_cell["measured"],
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
+        outcome=outcome_cell["outcome"],
     )
 
 
@@ -3911,6 +3994,7 @@ async def _update_ats_report(
     *,
     measured: MeasuredRender | None = None,
     commit: bool = True,
+    terminal_review: "TerminalReviewOutcome | None" = None,
 ) -> None:
     """ADR-039: render (unless already measured) → audit → persist. Audit-only —
     the measure-and-condense loop lives in ``_measure_and_condense`` since #538
@@ -3956,6 +4040,12 @@ async def _update_ats_report(
     from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
 
     _set_llm_log_stage("cv_audit")
+    # #563 (D): read the report about to be replaced BEFORE it is replaced. The
+    # re-audit doors (section editor, agent-authored) run no terminal review, so
+    # without this the `terminal-review` check would recompute as `not_applicable`
+    # there and any later edit would launder a document that shipped on an exhausted
+    # review into one that reads as cleanly audited (the #634 class).
+    previous_report = record.ats_report if isinstance(record.ats_report, dict) else None
     try:
         from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
         from applire.services.cv_section_editor import apply_overrides_to_tailored
@@ -4025,6 +4115,8 @@ async def _update_ats_report(
             vault_text_norm=vault_text_norm,
             vault_skill_forms=vault_skill_forms,
             pins=audit_pins,
+            terminal_review=terminal_review,
+            previous_report=previous_report,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -4119,6 +4211,12 @@ async def _update_ats_report(
         from applire.services.office_export.cv_docx import render_cv_docx
         from applire.services.office_export.extract import audit_cv_docx
 
+        # #563 (D): the .docx report has its own lineage, so it carries its OWN previous
+        # check forward (never the PDF report's).
+        previous_docx_report = (
+            record.docx_ats_report if isinstance(record.docx_ats_report, dict) else None
+        )
+
         docx_tailored, docx_lang, docx_accent, docx_photo_bytes = await _prepare_cv_docx_render(
             record, db
         )
@@ -4168,6 +4266,8 @@ async def _update_ats_report(
             vault_text_norm=docx_vault_text_norm,
             vault_skill_forms=docx_vault_skill_forms,
             pins=docx_audit_pins,
+            terminal_review=terminal_review,
+            previous_report=previous_docx_report,
         ).model_dump()
     except Exception:
         logger.exception(

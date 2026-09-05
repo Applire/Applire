@@ -34,6 +34,7 @@ import types
 import typing
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -157,6 +158,49 @@ def _merge_declared_proficiency(existing: str, incoming: str | None) -> str:
     if _PROFICIENCY_ORDER.get(existing) is None:
         return incoming
     return existing
+
+
+def _prefer_mixed_case_spelling(existing: str, incoming: str) -> str:
+    """#602/#620 — a layout-driven extraction (e.g. a table CV) can render an
+    employer ALL-CAPS while another source states the ordinary mixed-case
+    rendering of the SAME name. A deterministic preference between two
+    SPELLINGS of one name, never a judgement about whether two names are the
+    same entity — callers apply this only where identity is already settled
+    (an explicit ``target``, or an entity the caller's own near-dupe
+    instrument already matched).
+
+    Fires only when both sides are, ignoring case, the identical string
+    (``_norm`` — NFC + casefold) AND the existing value is all-uppercase while
+    the incoming one is not — i.e. incoming actually carries mixed case to
+    prefer. Any other pairing (both mixed case, both ALL-CAPS, or genuinely
+    different names) is left to the caller's existing rule unchanged.
+    """
+    if (
+        existing
+        and incoming
+        and existing.isupper()
+        and not incoming.isupper()
+        and _norm(existing) == _norm(incoming)
+    ):
+        return incoming
+    return existing
+
+
+def _merge_last_used(existing: date | None, incoming: date | None) -> date | None:
+    """#602/#620 — a skill's ``last_used`` must SURVIVE a merge import, not be
+    dropped because the incoming op is folding into an already-known skill.
+
+    Neither side is more authoritative than the other the way a declared
+    proficiency is (ADR-061 clause 5) — ``last_used`` is a plain fact, and the
+    MORE RECENT of two dates is always the more informative "still current"
+    signal, so it wins regardless of which side (existing vs incoming) stated
+    it. An absent side never regresses the other.
+    """
+    if incoming is None:
+        return existing
+    if existing is None:
+        return incoming
+    return max(existing, incoming)
 
 
 class ApplyResult(BaseModel):
@@ -549,7 +593,7 @@ def apply_ops(
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve_any, changes)
         elif isinstance(op, SetPersonalInfo):
-            _apply_set_personal_info(op, new_profile, changes)
+            _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
             _apply_set_summary(op, new_profile, source, changes, conflicts)
         elif isinstance(op, FlagConflict):
@@ -1737,6 +1781,16 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending):
     ):
         target.role_aliases.append(op.role)
         changes.append(_merged("work_experience", "role_aliases", None, op.role))
+    # #602/#620 — identity is already settled (this IS `target`); prefer a
+    # mixed-case employer rendering over an ALL-CAPS one from a layout
+    # source. Deliberately BEFORE _fill_empties, which never overwrites a
+    # non-empty company — this is the one exception, and only for two
+    # spellings of the SAME name (see _prefer_mixed_case_spelling).
+    if op.company:
+        preferred = _prefer_mixed_case_spelling(target.company, op.company)
+        if preferred != target.company:
+            changes.append(_updated("work_experience", "company", target.company, preferred))
+            target.company = preferred
     # Fill only empties for the rest (never overwrite company/role).
     _fill_empties(
         target,
@@ -1985,6 +2039,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 existing.proficiency = _merge_declared_proficiency(
                     existing.proficiency, op.proficiency.lower()
                 )
+            # #602/#620 — see _merge_last_used: the more recent date wins.
+            existing.last_used = _merge_last_used(existing.last_used, op.last_used)
             # ADR-061 clause 3 + the 2026-08-08 amendment (#485) — promote-only,
             # and never OUT of `denied`. See _promote_to_confirmed.
             _promote_to_confirmed(existing, op.status)
@@ -2002,6 +2058,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             skill_kwargs["category"] = op.category
         if op.proficiency:
             skill_kwargs["proficiency"] = op.proficiency
+        if op.last_used:
+            skill_kwargs["last_used"] = op.last_used
         profile.skills.append(Skill(**skill_kwargs))
         changes.append(_added("skills", "name", op.name))
         return
@@ -2068,6 +2126,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing.proficiency = _merge_declared_proficiency(
                 existing.proficiency, op.proficiency.lower()
             )
+        # #602/#620 — see _merge_last_used: the more recent date wins.
+        existing.last_used = _merge_last_used(existing.last_used, op.last_used)
         # ADR-061 clause 3 + the 2026-08-08 amendment: promote-only, and never
         # out of `denied` (see _promote_to_confirmed for the full rationale).
         _promote_to_confirmed(existing, op.status)
@@ -2085,6 +2145,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         skill_kwargs["category"] = op.category
     if op.proficiency:
         skill_kwargs["proficiency"] = op.proficiency
+    if op.last_used:
+        skill_kwargs["last_used"] = op.last_used
     profile.skills.append(Skill(**skill_kwargs))
     changes.append(_added("skills", "name", op.name))
 
@@ -2358,12 +2420,46 @@ def _apply_set_field(op, resolve, changes):
     changes.append(_updated(_section_for(entity), op.field, current, value))
 
 
-def _apply_set_personal_info(op, profile, changes):
+#: `personal_info` fields another writer OWNS — an import may neither write
+#: them nor raise a dispute about them, because the candidate is not the party
+#: who would answer it. `photo_url` belongs to the photo endpoints
+#: (`services/photo.py`: upload records GDPR consent, delete removes the stored
+#: file); a foreign URL there ends up in the CV's `<img src>`, rendered by
+#: headless Chromium. The section door refuses it outright with the same
+#: reasoning (`services/profile/field_edit.py`, adversarial finding 2026-08-26);
+#: this door has always dropped it silently and must keep doing so — a parked
+#: "which photo is right?" question is a question about a file the import never
+#: saw.
+_USER_MANAGED_PERSONAL_INFO_FIELDS = frozenset({"photo_url"})
+
+
+def _apply_set_personal_info(op, profile, source, changes, conflicts):
+    # #602/#620 — mirrors _apply_set_summary's exact mechanism (ADR-066: one
+    # implementation per capability): an already-populated field that a
+    # second write contradicts used to be dropped with NO trace at all (no
+    # change, no conflict, not even a log line). The ADR-063 contract is a
+    # receipt either way — a real update when the slot was empty, a `Conflict`
+    # parked for the candidate when it was not, never silence.
     pi = profile.personal_info
     if not hasattr(pi, op.field):
         return
     current = getattr(pi, op.field)
     if not _is_empty(current):
+        if op.field in _USER_MANAGED_PERSONAL_INFO_FIELDS:
+            return  # not ours to write and not ours to dispute — see the constant
+        if _is_empty(op.value):
+            return  # absence is not an update, and not a conflict either
+        if _norm(current) == _norm(op.value):
+            return  # a restatement of what is already stored
+        conflicts.append(
+            Conflict(
+                section="personal_info",
+                field=op.field,
+                existing_value=current,
+                incoming_value=op.value,
+                source=source,
+            )
+        )
         return
     value = _coerce_to_field_type(pi, op.field, op.value)
     if value is _SKIP:

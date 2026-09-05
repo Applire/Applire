@@ -60,11 +60,25 @@ def build_clustering_prompt(
     # #3 (ADR-038): the gaps page is conversational — jd_context follows the candidate's
     # UI language, not the JD's. An explicit directive is more reliable than "the JD's language".
     language_name = "GERMAN" if lang == "de" else "ENGLISH"
+    # ADR-084 embedding point 22 (Form A). Everything above the OUTPUT LANGUAGE
+    # line is the posting's derivatives, and this call's output — the cluster
+    # labels and `jd_context` — is what the candidate is SHOWN on the gaps page
+    # and asked about in the interview (points 25a-c).
+    from applire.services.untrusted_text import fence
+
     return (
-        f"Category C gaps (missing evidence):\n{json.dumps(category_c, ensure_ascii=False)}\n\n"
-        f"Category B gaps (likely but unstated):\n{json.dumps(category_b, ensure_ascii=False)}\n\n"
-        f"Required skills from JD:\n{json.dumps(required_skills, ensure_ascii=False)}\n\n"
-        f"Nice-to-have skills from JD:\n{json.dumps(nice_to_have_skills, ensure_ascii=False)}\n\n"
+        fence(
+            "Category C gaps (missing evidence):\n"
+            + json.dumps(category_c, ensure_ascii=False)
+            + "\n\nCategory B gaps (likely but unstated):\n"
+            + json.dumps(category_b, ensure_ascii=False)
+            + "\n\nRequired skills from JD:\n"
+            + json.dumps(required_skills, ensure_ascii=False)
+            + "\n\nNice-to-have skills from JD:\n"
+            + json.dumps(nice_to_have_skills, ensure_ascii=False),
+            header="GAPS AND JD SKILLS TO CLUSTER",
+        )
+        + "\n\n"
         f"OUTPUT LANGUAGE: write every cluster's jd_context entirely in {language_name}.\n\n"
         'Group the gaps into semantic clusters. Return a JSON object: {"clusters": [ ... ]}.'
     )

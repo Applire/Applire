@@ -272,3 +272,64 @@ describe("QuickTailorWidget", () => {
     });
   });
 });
+
+// US229 (E040, ADR-050 amendment 2026-09-05 clause 4c) — the share-target /
+// deep-link prefill. Emma Journey-FMEA JF-E-Q.6's control is the NEGATIVE half
+// of these tests: a prefill that also submitted would satisfy every positive
+// assertion, so each case asserts that nothing was fetched.
+describe("QuickTailorWidget — ?jd_url= / ?jd_text= prefill (US229)", () => {
+  function withSearch(search: string) {
+    window.history.replaceState({}, "", `/dashboard${search}`);
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockReset();
+    global.fetch = vi.fn();
+    withSearch("");
+  });
+
+  it("prefills the URL tab from ?jd_url=", () => {
+    withSearch("?jd_url=https%3A%2F%2Fjobs.example.com%2F42");
+    render(<QuickTailorWidget />);
+    expect(screen.getByPlaceholderText("urlPlaceholder")).toHaveValue(
+      "https://jobs.example.com/42",
+    );
+    expect(screen.getByText("analyseButton")).not.toBeDisabled();
+  });
+
+  it("prefills the TEXT tab from ?jd_text= and switches to it", () => {
+    withSearch("?jd_text=Senior%20Engineer%20(m%2Fw%2Fd)");
+    render(<QuickTailorWidget />);
+    expect(screen.getByPlaceholderText("textPlaceholder")).toHaveValue("Senior Engineer (m/w/d)");
+    expect(screen.queryByPlaceholderText("urlPlaceholder")).not.toBeInTheDocument();
+  });
+
+  it("prefills only — it never starts the analysis on its own", () => {
+    withSearch("?jd_url=https%3A%2F%2Fjobs.example.com%2F42");
+    render(<QuickTailorWidget />);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("ignores a non-http jd_url rather than putting it in the URL tab", () => {
+    withSearch("?jd_url=javascript%3Aalert(1)");
+    render(<QuickTailorWidget />);
+    expect(screen.getByPlaceholderText("urlPlaceholder")).toHaveValue("");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("prefers jd_url when a share somehow carried both", () => {
+    withSearch("?jd_url=https%3A%2F%2Fjobs.example.com%2F42&jd_text=some%20prose");
+    render(<QuickTailorWidget />);
+    expect(screen.getByPlaceholderText("urlPlaceholder")).toHaveValue(
+      "https://jobs.example.com/42",
+    );
+  });
+
+  it("leaves the widget untouched without the params", () => {
+    render(<QuickTailorWidget />);
+    expect(screen.getByPlaceholderText("urlPlaceholder")).toHaveValue("");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

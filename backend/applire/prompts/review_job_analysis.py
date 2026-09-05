@@ -223,16 +223,23 @@ def build_job_analysis_review_prompt(jd_text: str, extracted_json: dict) -> str:
     ``prompts/gap_analysis.py``, ``prompts/reconcile.py``).
     """
     from applire.services.jd_grounding import grounding_facts, reviewer_view
+    from applire.services.untrusted_text import fence
 
     view = reviewer_view(extracted_json)
     facts = grounding_facts(view, jd_text)
+    # ADR-084 embedding points 2 and 3 (Form A). Both blocks are third-party
+    # content: the posting itself, and the extraction derived from it — whose
+    # every string value the posting's author chose. Fencing the EXTRACTED
+    # ANALYSIS is the point that matters here: an auditor reading a hostile
+    # `required_skills` entry as an instruction is how a fabricated requirement
+    # gets approved (`SF-UNTRUSTED.1`).
     return (
         "Audit this extracted job-description analysis against the source posting. "
         "Apply the approval bar: approve unless a requirement, keyword, title, or "
         "company name lacks a basis in the source text. Reasonable normalisation and "
         "translation are NOT defects.\n\n"
-        f"SOURCE JOB POSTING:\n{jd_text}\n\n"
-        f"EXTRACTED ANALYSIS:\n{json.dumps(view, ensure_ascii=False, indent=2)}\n\n"
+        f"{fence(jd_text, header='SOURCE JOB POSTING')}\n\n"
+        f"{fence(json.dumps(view, ensure_ascii=False, indent=2), header='EXTRACTED ANALYSIS')}\n\n"
         f"{facts}\n\n"
         "Return your review JSON."
     )
@@ -294,12 +301,17 @@ def build_job_analysis_retry_prompt(
     referential critique instead of quoting the source, so the corrector re-reads the
     posting to verify which items are actually grounded.
     """
+    from applire.services.untrusted_text import fence
+
+    # ADR-084 embedding point 4 (Form A): the corrector re-reads the posting by
+    # design (ADR-021 amended / US194), so it meets the same untrusted text the
+    # extractor and the reviewer did, and needs the same framing.
     return (
         "A quality review of your previous job-description analysis identified the "
         "following issues. Patch the JSON to address every issue, re-reading the "
         "SOURCE JOB POSTING as the source of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
-        f"SOURCE JOB POSTING (source of truth):\n{source}\n\n"
+        f"{fence(source, header='SOURCE JOB POSTING (source of truth)')}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )

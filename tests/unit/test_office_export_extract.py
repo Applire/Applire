@@ -449,7 +449,13 @@ def test_audit_cv_docx_page_band_is_reported_not_applicable():
     # It must land in its own bucket, not in either numerator.
     assert report.passed == sum(1 for c in report.checks if c.status == "pass")
     assert report.failed == sum(1 for c in report.checks if c.status == "fail")
-    assert report.not_applicable == 1
+    # Scoped to the BAND (2026-09-04): ADR-039's amendment adds two always-present
+    # checks that read `not_applicable` on a fixture with no ledger and no recorded
+    # review outcome, so a bare `== 1` would assert something this test never meant.
+    # The bucket-exhaustiveness identity below is the invariant that matters.
+    assert report.not_applicable == sum(
+        1 for c in report.checks if c.status == "not_applicable"
+    )
     assert report.passed + report.failed + report.not_applicable == len(report.checks)
 
 
@@ -488,4 +494,6 @@ def test_audit_cover_letter_docx_runs_the_real_structural_checks_against_docx_te
     # ADR-079 cl. 4, letter side: present and explicitly inapplicable, never absent.
     band = next((c for c in report.checks if c.id == "page-length"), None)
     assert band is not None and band.status == "not_applicable"
-    assert report.not_applicable == 1
+    assert report.not_applicable == sum(
+        1 for c in report.checks if c.status == "not_applicable"
+    )

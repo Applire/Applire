@@ -31,7 +31,7 @@ the applier against the batch's ref-map first, then against existing entity ids.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
@@ -42,6 +42,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MasterProfileData,
+    _coerce_partial_date,
 )
 
 
@@ -113,6 +114,17 @@ class UpsertSkill(BaseModel):
     # token (LLM said no/unclear, or adjudication failed) — the guard no longer
     # drops the op outright; the vault entity is written but never claimable.
     status: Literal["confirmed", "unconfirmed"] = "confirmed"
+    # #602/#620 — mirrors ``schemas.profile.Skill.last_used`` (same coercion:
+    # a CV/LinkedIn source states month/year precision at best). This op used
+    # to carry no such field at all, so a MERGE import (an existing skill
+    # matched by name/near-dupe) silently dropped a last-used date the source
+    # actually stated — never validated, never written, no trace.
+    last_used: date | None = None
+
+    @field_validator("last_used", mode="before")
+    @classmethod
+    def _coerce_last_used(cls, v: Any) -> Any:
+        return _coerce_partial_date(v)
 
 
 class DemoteSkill(BaseModel):

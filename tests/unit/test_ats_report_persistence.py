@@ -376,7 +376,17 @@ async def test_letter_audit_receives_keyword_ledger(db_with_cover_letter):
         from applire.services.cover_letter import _render_cover_letter_background
         await _render_cover_letter_background(cl_id, None, job_id)
 
-    assert captured.get("ledger") == ledger, "audit_cover_letter did not receive the Keyword Ledger"
+    # US203's pin: the audit receives THE ledger of this job, row for row.
+    # #592 (ADR-048 amended): what it receives is the persisted row re-derived
+    # against the CURRENT vault, so the assertion is on identity of the rows,
+    # not on their persisted statuses. This fixture is itself a miniature of the
+    # bug — the row says `Python` is an honest gap while the vault's skills list
+    # names Python, so the refresh legitimately lifts it and the letter's
+    # DO-NOT-CLAIM block stops contradicting the profile beside it.
+    received = captured.get("ledger")
+    assert received is not None, "audit_cover_letter did not receive the Keyword Ledger"
+    assert [e["concept"] for e in received] == [e["concept"] for e in ledger]
+    assert received[0]["status"] == "direct" and received[0]["claimable"] is True
 
 
 @pytest.mark.asyncio
@@ -1665,3 +1675,75 @@ async def test_letter_overrun_with_section_overrides_skips_condense(db_with_cove
 
     cl = await session.get(GeneratedCoverLetter, cl_id)
     assert cl.status == "ready"
+
+
+# ---------------------------------------------------------------------------
+# #563 part D — the terminal review's outcome reaches the PERSISTED report
+# (the seam test for `_update_ats_report`'s call site, not just the audit fn)
+# ---------------------------------------------------------------------------
+
+
+def _exhausted_outcome():
+    from applire.services.review_issues import ReviewSettle
+    from applire.services.terminal_review_outcome import settle_to_outcome
+
+    return settle_to_outcome(
+        ReviewSettle(
+            path="exhausted",
+            approved=False,
+            blocking_issues=("the LucaNet project bullet omits the ownership limitation",),
+            minor_issues=(),
+            rounds=1,
+            settled={},
+        ),
+        chain_id="cv_terminal_review",
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_review_outcome_reaches_the_persisted_cv_report(db_with_cv):
+    """`_update_ats_report` is the single audit-and-persist seam all three CV doors
+    share. #563(D) is inert unless the outcome survives THAT call, not merely
+    `_audit_cv_text` — so this drives the service function, not the audit helper."""
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import _update_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    record = await session.get(GeneratedCV, ctx["cv_id"])
+
+    with patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)):
+        await _update_ats_report(record, session, terminal_review=_exhausted_outcome())
+
+    checks = {c["id"]: c for c in record.ats_report["checks"]}
+    assert "terminal-review" in checks, "the check must never be absent (#634 class)"
+    assert checks["terminal-review"]["status"] == "fail"
+    assert "LucaNet" in checks["terminal-review"]["details"]
+
+
+@pytest.mark.asyncio
+async def test_a_re_audit_door_cannot_launder_an_exhausted_terminal_review(db_with_cv):
+    """The section-editor and agent-authored doors reach the same seam with NO terminal
+    review of their own. Recomputing `not_applicable` there would turn a document that
+    shipped on an exhausted review into one that reads as cleanly audited after any
+    later edit — so the previously persisted check is re-emitted verbatim."""
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import _update_ats_report
+
+    ctx = db_with_cv
+    session = ctx["db"]
+    record = await session.get(GeneratedCV, ctx["cv_id"])
+
+    with patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")), \
+         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)):
+        await _update_ats_report(record, session, terminal_review=_exhausted_outcome())
+        first = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
+        # The re-audit door: same seam, no fresh outcome.
+        await _update_ats_report(record, session)
+
+    carried = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
+    assert carried["status"] == "fail"
+    assert carried["details"] == first["details"]
