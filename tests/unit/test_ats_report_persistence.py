@@ -376,7 +376,17 @@ async def test_letter_audit_receives_keyword_ledger(db_with_cover_letter):
         from applire.services.cover_letter import _render_cover_letter_background
         await _render_cover_letter_background(cl_id, None, job_id)
 
-    assert captured.get("ledger") == ledger, "audit_cover_letter did not receive the Keyword Ledger"
+    # US203's pin: the audit receives THE ledger of this job, row for row.
+    # #592 (ADR-048 amended): what it receives is the persisted row re-derived
+    # against the CURRENT vault, so the assertion is on identity of the rows,
+    # not on their persisted statuses. This fixture is itself a miniature of the
+    # bug — the row says `Python` is an honest gap while the vault's skills list
+    # names Python, so the refresh legitimately lifts it and the letter's
+    # DO-NOT-CLAIM block stops contradicting the profile beside it.
+    received = captured.get("ledger")
+    assert received is not None, "audit_cover_letter did not receive the Keyword Ledger"
+    assert [e["concept"] for e in received] == [e["concept"] for e in ledger]
+    assert received[0]["status"] == "direct" and received[0]["claimable"] is True
 
 
 @pytest.mark.asyncio

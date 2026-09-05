@@ -261,3 +261,45 @@ async def test_every_confirmation_of_the_same_turn_is_asked_not_dropped(async_db
     names = await _reload_skill_names(async_db, profile.id)
     for expected in ("SAP", "SAP PP", "SAP MM", "SAP SD"):
         assert expected in names, f"{expected} must survive the turn, got {names}"
+
+
+# ── #620: why the deterministic confirmations are NOT localised yet ──────────
+#
+# The collector line asks for `{"de": …, "en": …}` payloads on
+# `RequestConfirmation` (8 call sites in reconcile/apply.py, one in
+# reconcile/attribution.py, one in reconcile/stance.py). The QUESTION half is
+# free prose and could move today. The OPTIONS half cannot, and this is the
+# reason, executable rather than asserted: an option string is not a label, it
+# is the IDENTITY the answer is matched on, in English, by substring, on a
+# vault WRITE path shared by both doors (ADR-058).
+#
+# `_skill_confirmation_decision` keys on "separate" / "keep"+"existing" /
+# "merge" and defaults to "distinct" for anything else. Localise the options
+# without replacing that matcher with a stable key and the German rendering of
+# "Keep the existing skills" silently resolves to "distinct" — the incoming
+# skill is ADDED to the vault when the candidate asked to discard it. Silent,
+# wrong, and on the truthfulness-bearing side.
+#
+# These tests characterise today's matcher so the trap is visible at the exact
+# place it bites. They are a PIN, not a gate: they do not stop anyone localising
+# the options — the ADR delta in the run folder proposes the stable-key shape.
+
+
+def test_option_matching_is_english_substring_matching_today():
+    from applire.services.session import _skill_confirmation_decision
+
+    assert _skill_confirmation_decision("Add 'SAP MM' as a separate skill") == "distinct"
+    assert _skill_confirmation_decision("Keep the existing skills") == "keep"
+    assert _skill_confirmation_decision("Merge into 'SAP MM'") == "merge"
+
+
+def test_a_german_rendering_of_the_same_options_mis_resolves():
+    """The blocker, executable. `keep` is the dangerous one: the candidate asked
+    to DISCARD the incoming skill and the matcher answers `distinct`, which adds
+    it. Localising the options is therefore a vault-write change, not a string
+    change — see `D-ledger/adr-delta.md`."""
+    from applire.services.session import _skill_confirmation_decision
+
+    assert _skill_confirmation_decision("Bestehende Skills behalten") == "distinct"
+    assert _skill_confirmation_decision("In 'SAP MM' zusammenführen") == "distinct"
+    assert _skill_confirmation_decision("Als eigenständigen Skill hinzufügen") == "distinct"

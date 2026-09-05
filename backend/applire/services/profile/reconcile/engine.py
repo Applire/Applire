@@ -162,10 +162,17 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
         try:
             ops.append(_OP_ADAPTER.validate_python(item))
         except ValidationError:
-            logger.debug("reconcile: dropped malformed op %r", item)
+            # #602 — WARNING, not DEBUG: a schema-rejected op is a silent data
+            # loss for whichever batch emitted it (an entire incoming section
+            # can go missing this way), and DEBUG is invisible under any
+            # production log configuration. Named by its own `op` type so an
+            # operator can tell WHICH shape the model drifted off of, without
+            # re-running under DEBUG to even notice it happened.
+            label = item.get("op") if isinstance(item, dict) else None
+            label = label if isinstance(label, str) and label else "<unknown>"
+            logger.warning("reconcile: dropped malformed op (op=%s): %r", label, item)
             if rejected is not None:
-                label = item.get("op") if isinstance(item, dict) else None
-                rejected.append(label if isinstance(label, str) and label else "<unknown>")
+                rejected.append(label)
     return ops
 
 

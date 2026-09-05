@@ -517,6 +517,44 @@ def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
     assert sk.proficiency == "advanced"  # declared ceiling — not raised
 
 
+# ── #602/#620: skills[].last_used survives a MERGE import ────────────────────
+
+
+def test_upsert_skill_new_carries_last_used():
+    profile = MasterProfileData()
+    ops = [UpsertSkill(name="Rust", last_used="2024-06")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2024, 6, 1)
+
+
+def test_upsert_skill_merge_fills_an_empty_last_used():
+    """A skill first seen without a last-used date (e.g. an interview mention)
+    gets one from a later import that names it — the field must not be
+    dropped just because `UpsertSkill` never carried it before."""
+    existing = Skill(name="Python", last_used=None)
+    profile = MasterProfileData(skills=[existing])
+    ops = [UpsertSkill(name="Python", last_used="2023-01")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2023, 1, 1)
+
+
+def test_upsert_skill_merge_keeps_the_more_recent_last_used():
+    """Two sources disagree on when a skill was last used — the more recent
+    date is the more informative "still current" signal; an older incoming
+    value never regresses it."""
+    existing = Skill(name="Python", last_used=date(2024, 1, 1))
+    profile = MasterProfileData(skills=[existing])
+    ops = [UpsertSkill(name="Python", last_used="2020-01")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.skills[0].last_used == date(2024, 1, 1)
+
+    existing2 = Skill(name="Java", last_used=date(2020, 1, 1))
+    profile2 = MasterProfileData(skills=[existing2])
+    ops2 = [UpsertSkill(name="Java", last_used="2024-01")]
+    result2 = apply_ops(profile2, ops2, SOURCE)
+    assert result2.profile.skills[0].last_used == date(2024, 1, 1)
+
+
 def test_upsert_skill_compound_over_two_atoms_asks_confirmation():
     """A compound incoming skill that relates to MULTIPLE existing atoms by
     single-token containment must NOT silently merge — it emits a
@@ -900,6 +938,52 @@ def test_set_personal_info_ignored_when_present():
     assert result.profile.personal_info.phone == "existing"
 
 
+# ── #602/#620: a mismatching `set_personal_info` gets a receipt, not silence ─
+#
+# `_apply_set_personal_info` used to drop a differing incoming scalar with NO
+# trace at all — no change, no conflict, not even a log line — once the field
+# was already populated. Its sibling `_apply_set_summary` faced the identical
+# "don't silently overwrite user content" problem (#113(b)) and settled it via
+# the ADR-063 `Conflict` channel; this reuses that exact mechanism (ADR-066 —
+# one implementation per capability) rather than inventing a second one.
+
+
+def test_set_personal_info_mismatch_raises_a_conflict_not_a_silent_drop():
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value="+49 222")]
+    result = apply_ops(profile, ops, SOURCE)
+    # never silently overwritten — same contract as test_set_personal_info_ignored_when_present
+    assert result.profile.personal_info.phone == "+49 111"
+    assert len(result.conflicts) == 1
+    c = result.conflicts[0]
+    assert c.section == "personal_info"
+    assert c.field == "phone"
+    assert c.existing_value == "+49 111"
+    assert c.incoming_value == "+49 222"
+    assert c.source == SOURCE
+
+
+def test_set_personal_info_restating_the_same_value_is_not_a_conflict():
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value="+49 111")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.phone == "+49 111"
+    assert result.conflicts == []
+
+
+def test_set_personal_info_absent_incoming_value_is_not_a_conflict():
+    """Absence is not an update, and not a conflict either (mirrors
+    _apply_set_summary's identical guard)."""
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value=None)]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.phone == "+49 111"
+    assert result.conflicts == []
+
+
 # #113(b) — a second CV import silently replaced the professional summary the
 # user already had, offering no choice. `_apply_set_summary` was the one write
 # in this applier with no "already populated" gate, while its `set_field` and
@@ -1019,6 +1103,52 @@ def test_upsert_work_different_org_still_appends():
     ops = [UpsertWork(ref="w1", company="Bosch", role="Software Engineer", start_date="2019-01-01")]
     result = apply_ops(profile, ops, source="test")
     assert len(result.profile.work_experience) == 2
+
+
+# ── #602/#620: employer ALL-CAPS from a layout source — prefer mixed case ────
+
+
+def test_upsert_work_merge_prefers_mixed_case_employer_over_all_caps():
+    """A layout-driven extraction (e.g. a table CV) rendered the employer
+    ALL-CAPS; a second source states the same employer in ordinary mixed
+    case. Identity is already settled (explicit `target`) — this is a
+    deterministic preference between two spellings of ONE name, never a
+    judgement about whether two names are the same entity."""
+    work = WorkEntry(company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="Weberit Kunststofftechnik GmbH", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.work_experience[0].company == "Weberit Kunststofftechnik GmbH"
+
+
+def test_upsert_work_merge_keeps_existing_mixed_case_over_incoming_all_caps():
+    """The reverse direction: the vault already has the nicely-cased name — an
+    ALL-CAPS incoming rendering must never overwrite it."""
+    work = WorkEntry(company="Weberit Kunststofftechnik GmbH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.work_experience[0].company == "Weberit Kunststofftechnik GmbH"
+
+
+def test_upsert_work_merge_never_touches_a_genuinely_different_all_caps_name():
+    """The preference fires ONLY when the two spellings are the SAME name
+    (case aside) — never a judgement about whether two DIFFERENT names name
+    the same entity. An unrelated ALL-CAPS incoming company must never
+    silently replace the existing one."""
+    work = WorkEntry(company="WEBERIT KUNSTSTOFFTECHNIK GMBH", role="Engineer")
+    profile = MasterProfileData(work_experience=[work])
+    ops = [
+        UpsertWork(ref="w1", target=work.id, company="Bosch", role="Engineer"),
+    ]
+    result = apply_ops(profile, ops, SOURCE)
+    # `company` is never overwritten by _fill_empties once non-empty — this
+    # merge behaviour is unrelated to and unaffected by the case preference.
+    assert result.profile.work_experience[0].company == "WEBERIT KUNSTSTOFFTECHNIK GMBH"
 
 
 def test_upsert_work_unresolved_target_still_runs_near_dup_guard():
@@ -1237,3 +1367,61 @@ def test_upsert_work_new_entry_carries_is_current():
     result = apply_ops(profile, ops, SOURCE)
     assert result.profile.work_experience[0].is_current is True
     _roundtrips(result.profile)
+
+
+def test_a_personal_info_conflict_is_actually_RESOLVABLE_end_to_end():
+    """Step 2b — a receipt nobody can act on is not a receipt.
+
+    `_apply_set_personal_info`'s new `Conflict` is only worth writing if the
+    existing resolution path can close it. `personal_info` is a profile-level
+    dispute with no `entity_id` (the `Conflict` docstring names exactly this
+    case), and `_apply_resolve_field` writes dict-shaped sections generically —
+    so no new consumer is needed. Pinned rather than assumed, because "the
+    adapter looks generic" is how a dead-ended channel gets shipped.
+    """
+    from applire.schemas.profile import Conflict, ProfileMetadata
+    from applire.services.profile.reconcile.ops import ResolveField
+
+    profile = MasterProfileData(metadata=ProfileMetadata())
+    profile.personal_info.phone = "+49 111"
+    result = apply_ops(profile, [SetPersonalInfo(field="phone", value="+49 222")], SOURCE)
+    assert len(result.conflicts) == 1
+
+    # Park the dispute the way the merge path does, then answer it.
+    parked = result.profile
+    parked.metadata.pending_conflicts = list(result.conflicts)
+    conflict: Conflict = parked.metadata.pending_conflicts[0]
+    assert conflict.entity_id is None  # profile-level dispute, by design
+
+    answered = apply_ops(
+        parked,
+        [
+            ResolveField(
+                conflict_id=conflict.conflict_id,
+                target=conflict.entity_id,
+                section=conflict.section,
+                field=conflict.field,
+                value=None,
+                resolution="incoming",
+            )
+        ],
+        SOURCE,
+    )
+    assert answered.profile.personal_info.phone == "+49 222"
+    assert answered.profile.metadata.pending_conflicts == []
+    assert any(c.section == "personal_info" and c.field == "phone" for c in answered.changes)
+
+
+def test_set_personal_info_never_disputes_a_field_another_writer_owns():
+    """`photo_url` belongs to the photo endpoints, not to an import. The section
+    door refuses it outright; this door drops it silently and must keep doing so
+    — a parked "which photo is right?" question is a question about a file the
+    import never saw, and `tests/unit/test_photo_service.py` pins exactly that.
+    Found by running the full gate after the receipt landed: correct where the
+    change was made, wrong one hop away."""
+    profile = MasterProfileData()
+    profile.personal_info.photo_url = "/uploads/my_photo.jpg"
+    ops = [SetPersonalInfo(field="photo_url", value="/uploads/other_photo.jpg")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.photo_url == "/uploads/my_photo.jpg"
+    assert result.conflicts == []

@@ -287,3 +287,36 @@ async def test_mock_reconciler_flags_ambiguity_for_synonym_role() -> None:
     assert result.ambiguities, "mock must surface a confirmation for the synonym-fold fixture"
     assert "Founder & Lead Developer" in result.ambiguities[0].question
     assert result.ambiguities[0].options
+
+
+# ── #602 — a schema-rejected op is a WARNING, not a DEBUG whisper ────────────
+#
+# `_parse_ops` silently dropped a malformed op at DEBUG level — invisible in
+# any production log configuration — with no indication of WHICH op type was
+# rejected. A batch that quietly loses e.g. every `upsert_education` because
+# the model drifted off-schema should show up in an operator's WARNING-level
+# log, naming the op type, not require DEBUG tracing to even notice.
+
+
+def test_parse_ops_rejection_is_logged_at_warning_with_the_op_type(caplog) -> None:
+    from applire.services.profile.reconcile.engine import _parse_ops
+
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.engine"):
+        ops = _parse_ops([{"op": "upsert_education"}])  # missing required fields
+
+    assert ops == []
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "upsert_education" in warnings[0].message
+
+
+def test_parse_ops_rejection_with_no_op_key_logs_unknown_at_warning(caplog) -> None:
+    from applire.services.profile.reconcile.engine import _parse_ops
+
+    with caplog.at_level("WARNING", logger="applire.services.profile.reconcile.engine"):
+        ops = _parse_ops([{"not_an_op_field": True}])
+
+    assert ops == []
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "<unknown>" in warnings[0].message

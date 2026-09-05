@@ -71,7 +71,20 @@ table, imported here rather than copied), CARRIED when:
       entity that restates no key at all (prompt rule 7's own economical
       form — "never use add_bullets merely to restate a title"), and a
       label-only rule (arms a/b alone) reports that clean, prompt-endorsed
-      merge as a loss.
+      merge as a loss — **or**, for FLAT sections specifically (#602/#620), a
+      ``set_field`` op whose `target` resolves BY ID to a merged entry of that
+      section which shares at least one non-empty natural-key field
+      (normalised) with the incoming entry. Flat entities are addressed by id
+      directly (ADR-077 clause 1), so no org/date correlation is needed the
+      way engagement sections require it — the real case: a LinkedIn import
+      states "German Diploma" for an education entry the vault already holds
+      as "Diplom"; the reconciler correlates them and emits
+      ``set_field(target=<id>, field="degree", ...)`` rather than an
+      ``upsert_education``, so sub-clause 1's key-restating check cannot see
+      it, and the CHANGED field is itself the one that breaks the natural-key
+      match arm (a) needs. Scoped to entries sharing a field with the touched
+      entry (not "any set_field anywhere in this section") so one targeted
+      edit cannot blanket-rescue an unrelated loss in the same batch.
 
 Otherwise -> ``not_applied`` item, reason ``no_op_carried_entry``. Every raw
 op in ``rejected_ops`` (``ReconcileResult.rejected_ops`` — a model op that
@@ -217,6 +230,27 @@ def _op_natural_keys(ops: Sequence[CommitOp], op_type: type, fields: tuple[str, 
     }
 
 
+def _flat_set_field_touched_entries(
+    ops: Sequence[CommitOp], merged_entries: Sequence[Any]
+) -> list[Any]:
+    """Arm (c), sub-clause 2 (#602/#620) — merged entries a `set_field` op
+    targets directly by id.
+
+    A `set_field` against an EXISTING id is the model correlating the incoming
+    information with an entity that already exists — not a loss, even when the
+    changed field is itself the one that makes the natural key stop matching
+    post-merge (the real case: LinkedIn's "German Diploma" vs the vault's own
+    "Diplom" — `set_field(target=<id>, field="degree", ...)`, never an
+    `upsert_education`, so sub-clause 1's key-restating check cannot see it).
+    Mirrors the engagement sections' own sub-clause 2, minus the org/date
+    correlation those sections use instead of an id (flat entities are
+    addressed by id directly — ADR-077 clause 1)."""
+    targets = {op.target for op in ops if isinstance(op, SetField)}
+    if not targets:
+        return []
+    return [e for e in merged_entries if getattr(e, "id", None) in targets]
+
+
 def _flat_section_not_applied(
     section: str, incoming: MasterProfileData, merged: MasterProfileData, ops: Sequence[CommitOp]
 ) -> list[ImportNotApplied]:
@@ -225,6 +259,7 @@ def _flat_section_not_applied(
     merged_entries = getattr(merged, section)
     merged_keys = {_entry_key(e, fields) for e in merged_entries}
     op_keys = _op_natural_keys(ops, _FLAT_OP_TYPES[section], fields)
+    touched_entries = _flat_set_field_touched_entries(ops, merged_entries)
     getters = _getters_for(fields)
     containment_is_same = _FLAT_CONTAINMENT_IS_SAME.get(section, False)
 
@@ -280,6 +315,15 @@ def _flat_section_not_applied(
         if verdict.match is not None:  # arm (b)
             continue
         if key in op_keys:  # arm (c), sub-clause 1
+            continue
+        if touched_entries and any(
+            any(
+                _norm(getattr(entry, f, "") or "") == _norm(getattr(touched, f, "") or "")
+                and _norm(getattr(entry, f, "") or "")
+                for f in fields
+            )
+            for touched in touched_entries
+        ):  # arm (c), sub-clause 2 — the op must have targeted THIS entry
             continue
         items.append(
             ImportNotApplied(
