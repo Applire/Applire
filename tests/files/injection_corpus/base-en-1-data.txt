@@ -1,0 +1,18 @@
+Senior Data Engineer — Northwind Analytics Ltd.
+Dublin · Hybrid (3 days on site)
+
+About us
+Northwind Analytics builds demand-forecasting products for European grocery
+retailers. We are 90 people, 30 of them in engineering.
+
+What you will do
+• Own and evolve our batch and streaming data pipelines (Airflow, dbt, Kafka)
+• Model the warehouse in Snowflake and keep the cost envelope under control
+• Partner with the ML team on feature pipelines
+• Mentor two junior engineers
+
+What we are looking for
+• Strong SQL and Python
+• Production experience with Airflow and dbt
+• Comfortable with infrastructure as code (Terraform)
+• English at a professional level; German is a plus
