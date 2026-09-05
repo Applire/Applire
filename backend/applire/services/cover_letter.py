@@ -1698,6 +1698,7 @@ async def _render_cover_letter_background(
             terminal_rounds = tr.rounds
             reentry_exhausted = tr.reentry_exhausted
             condense_used = tr.condense_used
+            terminal_outcome = tr.outcome
 
             # Wave-6 follow-up (charter run #6, Task 3), carried over: the
             # condense rewrite is bounded and retain_if never sacrifices the
@@ -1728,6 +1729,7 @@ async def _render_cover_letter_background(
                 await _update_ats_report_letter(
                     cl, db, pdf=pdf_bytes,
                     pins=letter_pins, truth_floor_hits=pin_floor_hits,
+                    terminal_review=terminal_outcome,
                 )
                 delivered_hash = subject_hash(cl.letter_data)
                 match = delivered_hash == verdict_hash
@@ -1784,6 +1786,12 @@ async def _render_cover_letter_background(
                 terminal_rounds += tr.rounds
                 reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                 condense_used = condense_used or tr.condense_used
+                # Fold, never replace (#563 D) — see LetterTerminalReviewResult.outcome.
+                terminal_outcome = (
+                    tr.outcome.worse_of(terminal_outcome)
+                    if tr.outcome is not None
+                    else terminal_outcome
+                )
                 verdict_hash = subject_hash(cl.letter_data)
 
             # Now flip to 'ready' — the report is already committed, so the frontend's
@@ -1998,6 +2006,13 @@ class LetterTerminalReviewResult:
     # "the floor did not run" for the one construction site that predates it.
     final_floor_fired: bool = False
     final_floor_selection: str = "none"
+    # #563 (D): how this delivery's terminal review actually ENDED — approved,
+    # exhausted with findings open, or stopped on a cycle — folded across every
+    # `review_and_refine` invocation of this method (including the final-length-floor
+    # round) via `worse_of`, so a clean later round cannot erase an earlier
+    # exhaustion that already shipped content. Reported as the ADR-039
+    # `terminal-review` check. `None` only when no settle was produced at all.
+    outcome: object | None = None
 
 
 async def _terminal_review_letter(
@@ -2182,6 +2197,19 @@ async def _terminal_review_letter(
         )
         return f"{prompt}\n\n{block}"
 
+    # #563 (D): every `review_and_refine` invocation of this method reports how it
+    # settled; `worse_of` folds them into ONE outcome for the delivery, so the ADR-039
+    # `terminal-review` check cannot be talked out of an earlier exhaustion by a clean
+    # later round. Never raises into the loop (the hook is wrapped there).
+    from applire.services.terminal_review_outcome import settle_to_outcome
+
+    outcome_cell: dict = {"outcome": None}
+
+    def _record_settle(settle) -> None:
+        outcome_cell["outcome"] = settle_to_outcome(
+            settle, chain_id="letter_terminal_review"
+        ).worse_of(outcome_cell["outcome"])
+
     current = draft
     rounds = 0
     reentry_exhausted = False
@@ -2265,6 +2293,7 @@ async def _terminal_review_letter(
             # #420's boundary, preserved: the word-budget tie-break narrows
             # only among CONDENSE-descendant drafts, never on a content round.
             prefer_if=(within_budget_fn if entered_via_condense else None),
+            on_settle=_record_settle,
         )
         entered_via_condense = False
         if _canon(settled) == _canon(current):
@@ -2384,6 +2413,7 @@ async def _terminal_review_letter(
                     retain_if=retain_if_fn,
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
+                    on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
                     current = settled
@@ -2445,6 +2475,7 @@ async def _terminal_review_letter(
         pin_floor_hits=floor_hits,
         final_floor_fired=final_floor_fired,
         final_floor_selection=final_floor_selection,
+        outcome=outcome_cell["outcome"],
     )
 
 
@@ -2480,6 +2511,7 @@ async def _update_ats_report_letter(
     pdf: bytes | None = None,
     pins: list | None = None,
     truth_floor_hits: set | frozenset = frozenset(),
+    terminal_review=None,
 ) -> None:
     """ADR-039 — letter twin of services/cv.py:_update_ats_report.
 
@@ -2522,6 +2554,10 @@ async def _update_ats_report_letter(
     from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
 
     _set_llm_log_stage("letter_audit")
+    # #563 (D): read the report about to be replaced BEFORE replacing it — the
+    # re-audit doors run no terminal review, and dropping the check there would let a
+    # later section edit launder a letter that shipped on an exhausted review.
+    previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
     try:
         from applire.services.ats_audit import audit_cover_letter
         from applire.services.cover_letter_pdf import render_pdf
@@ -2570,6 +2606,8 @@ async def _update_ats_report_letter(
             vault_text_norm=vault_text_norm,
             pins=pins,
             truth_floor_hits=set(truth_floor_hits),
+            terminal_review=terminal_review,
+            previous_report=previous_report,
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -2730,6 +2768,11 @@ async def _update_ats_report_letter(
     # them.
     try:
         from applire.services.office_export.extract import audit_cover_letter_docx
+
+        # #563 (D): own lineage, own carry-forward (never the PDF report's).
+        previous_docx_report = (
+            cl.docx_ats_report if isinstance(cl.docx_ats_report, dict) else None
+        )
         from applire.services.office_export.letter_docx import render_letter_docx
 
         docx_letter, docx_lang, docx_accent = await _prepare_cover_letter_docx_render(cl, db)
@@ -2776,6 +2819,8 @@ async def _update_ats_report_letter(
             vault_text_norm=docx_vault_text_norm,
             pins=docx_pins,
             truth_floor_hits=set(truth_floor_hits),
+            terminal_review=terminal_review,
+            previous_report=previous_docx_report,
         ).model_dump()
     except Exception:
         logger.exception(

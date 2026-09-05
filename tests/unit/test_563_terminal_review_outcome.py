@@ -316,3 +316,151 @@ def test_normalize_issues_still_produces_what_the_settle_reports():
     issues = normalize_issues([{"severity": "minor", "issue": "tone"}, "unlabelled"])
     assert [i.text for i in issues if not i.is_blocking] == ["tone"]
     assert [i.text for i in issues if i.is_blocking] == ["unlabelled"]
+
+
+# ---------------------------------------------------------------------------
+# 3. The checks land in the persisted report (both documents, both artefacts)
+# ---------------------------------------------------------------------------
+
+
+def _cv_fixture():
+    from applire.schemas.cv import TailoredCVData
+
+    return TailoredCVData.model_validate(
+        {
+            "contact": {"name": "Anna Bauer", "email": None, "phone": None, "location": None},
+            "summary": "Operations lead.",
+            "work_history": [
+                {"id": "w1", "company": "Acme", "role": "Lead", "start_date": "2020-01",
+                 "end_date": None, "bullets": ["ran the shift plan"], "projects": []}
+            ],
+            "skills": ["ISO 45001"],
+            "education": [],
+            "languages": [],
+        }
+    )
+
+
+_LEDGER = [
+    {"concept": "ISO 45001", "claimable": True, "status": "direct", "fit_weight": 1.0,
+     "evidence": "LTIF from 4.2 to 1.1", "surface_forms": ["ISO 45001"]},
+]
+
+
+def test_the_cv_report_always_carries_both_new_checks():
+    """Never absent: an absent check is invisible to both counters and reads as a clean,
+    complete audit of something that was never examined (#634 / ADR-079 clause 4)."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    report = _audit_cv_text("Anna Bauer ran the shift plan ISO 45001", _cv_fixture(), keywords=[])
+    ids = [c.id for c in report.checks]
+    assert "terminal-review" in ids
+    assert "narrative-evidence" in ids
+
+
+def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_a_fail():
+    from applire.services.ats_audit import _audit_cv_text
+
+    outcome = settle_to_outcome(
+        _settle("exhausted", blocking=("the LucaNet project bullet omits the ownership limit",)),
+        chain_id="cv_terminal_review",
+    )
+    report = _audit_cv_text(
+        "Anna Bauer", _cv_fixture(), keywords=[], terminal_review=outcome
+    )
+    check = next(c for c in report.checks if c.id == "terminal-review")
+    assert check.status == "fail" and "LucaNet" in (check.details or "")
+    assert report.failed == sum(1 for c in report.checks if c.status == "fail")
+
+
+def test_a_re_audit_carries_the_fail_forward_into_the_new_report():
+    """The section editor re-audits with no terminal review of its own. Recomputing
+    `not_applicable` there would let any later edit launder an exhausted review."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    first = _audit_cv_text(
+        "Anna Bauer", _cv_fixture(), keywords=[],
+        terminal_review=settle_to_outcome(
+            _settle("exhausted", blocking=("open finding",)), chain_id="cv_terminal_review"
+        ),
+    ).model_dump()
+    second = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], previous_report=first)
+    check = next(c for c in second.checks if c.id == "terminal-review")
+    assert check.status == "fail"
+
+
+def test_the_letter_report_carries_the_check_too_and_no_narrative_twin():
+    """The letter has no bullet corpus and no `_restore_ledger_bullets` sibling, so the
+    narrative/tag distinction has no referent there (arc42 §5.3.23, unguarded surface 3)."""
+    from applire.services.ats_audit import _audit_letter_text
+
+    letter_data = {"header": {"name": "Anna Bauer"}, "recipient": {"company": "Acme"},
+                   "body": {"paragraphs": ["Sehr geehrte Damen und Herren,"]}}
+    report = _audit_letter_text("Anna Bauer Acme Sehr geehrte Damen und Herren,", letter_data, keywords=[])
+    ids = [c.id for c in report.checks]
+    assert "terminal-review" in ids
+    assert "narrative-evidence" not in ids
+
+
+def test_the_narrative_evidence_check_fails_on_a_tag_only_concept():
+    """#542's send-seat half — the class no other instrument reports."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    report = _audit_cv_text(
+        "Anna Bauer ISO 45001", _cv_fixture(), keywords=[], ledger=_LEDGER
+    )
+    check = next(c for c in report.checks if c.id == "narrative-evidence")
+    assert check.status == "fail"
+    assert "ISO 45001" in (check.details or "")
+    assert "claimed but not evidenced" in (check.details or "")
+    assert check.driver == {"concepts": 1}
+
+
+def test_the_narrative_evidence_check_passes_when_the_bullet_carries_it():
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.ats_audit import _audit_cv_text
+
+    tailored = _cv_fixture()
+    tailored = TailoredCVData.model_validate(
+        {**tailored.model_dump(mode="json"),
+         "work_history": [{"id": "w1", "company": "Acme", "role": "Lead",
+                           "start_date": "2020-01", "end_date": None,
+                           "bullets": ["rolled out ISO 45001 across three plants"],
+                           "projects": []}]}
+    )
+    report = _audit_cv_text("Anna Bauer", tailored, keywords=[], ledger=_LEDGER)
+    assert next(c for c in report.checks if c.id == "narrative-evidence").status == "pass"
+
+
+def test_the_narrative_evidence_check_is_not_applicable_without_a_ledger():
+    """A legacy row cannot be judged — and saying `pass` there is the #634 class in the
+    other direction."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    report = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], ledger=None)
+    assert next(c for c in report.checks if c.id == "narrative-evidence").status == "not_applicable"
+
+
+def test_missing_claimable_keeps_its_own_population():
+    """`ATSKeywordCoverage.missing_claimable` is whole-document presence and is already
+    rendered (E058 group 2). Widening it in place would silently move a number its
+    readers have been reading, so the new class gets a check of its own instead."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    report = _audit_cv_text(
+        "Anna Bauer ISO 45001", _cv_fixture(), keywords=["ISO 45001"], ledger=_LEDGER
+    )
+    assert "ISO 45001" in report.keywords.present
+    assert report.keywords.missing_claimable == []
+    assert next(c for c in report.checks if c.id == "narrative-evidence").status == "fail"
+
+
+def test_the_worse_outcome_of_a_delivery_survives_a_clean_later_round():
+    """A delivery can invoke the terminal loop more than once (clause 3's re-entry, the
+    letter's final-length-floor round). Reporting only the last would let a clean final
+    round erase an earlier exhaustion that already shipped content."""
+    bad = settle_to_outcome(_settle("exhausted", blocking=("open",)), chain_id="cv_terminal_review")
+    good = settle_to_outcome(_settle("approved", approved=True), chain_id="cv_terminal_review")
+    assert good.worse_of(bad).status == "fail"
+    assert bad.worse_of(good).status == "fail"
+    assert good.worse_of(bad).rounds == bad.rounds + good.rounds

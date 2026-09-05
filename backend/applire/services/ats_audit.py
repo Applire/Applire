@@ -851,6 +851,8 @@ def _audit_cv_text(
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
     pins: list | None = None,
+    terminal_review=None,
+    previous_report: dict | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1139,10 +1141,87 @@ def _audit_cv_text(
             # the condense loop was forbidden to reclaim.
             page_check.driver = {"pinned_facts": present_count}
 
+    # ── #563 (D) + #542 — the send seat's two new answers (ADR-039 amended
+    # 2026-09-04). Both are appended LAST so their position in the list is stable
+    # for a reader scanning the report, and both are ALWAYS present: an absent
+    # check is invisible to every counter and reads as a clean, complete audit of
+    # something that was never examined (the #634 class, ADR-079 clause 4).
+    checks.append(_terminal_review_check(terminal_review, previous_report))
+    checks.append(_narrative_evidence_check(tailored, ledger))
+
     report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
+
+
+def _terminal_review_check(terminal_review, previous_report: dict | None) -> ATSCheck:
+    """#563 (D): the ADR-076 clause-3 terminal review's own outcome, reported.
+
+    ADR-076 clause 2 makes every SIGNAL name an exhaustion disposition and the
+    terminal review declares *ship-and-report*; the ship half was built and the
+    report half was not. Local import: ``terminal_review_outcome`` reads
+    ``review_issues``, and this module is imported by ``keyword_ledger`` which that
+    chain reaches — a module-level import here would close the cycle.
+    """
+    from applire.services.terminal_review_outcome import (
+        TERMINAL_REVIEW_CHECK_ID,
+        build_terminal_review_check,
+        previous_check,
+    )
+
+    return build_terminal_review_check(
+        terminal_review,
+        previous=previous_check(previous_report, TERMINAL_REVIEW_CHECK_ID),
+        document="cv",
+    )
+
+
+#: Stable machine id for ADR-076 clause 5's send-seat report (#542).
+NARRATIVE_EVIDENCE_CHECK_ID = "narrative-evidence"
+
+
+def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, Any]] | None) -> ATSCheck:
+    """#542 / ADR-076 clause 5: is the evidence behind the CV's own claims on the page?
+
+    ``fail`` when a claimable ledger concept at the JD's own requirement rank reaches
+    the delivered document only as a bare skills tag or a summary word — or not at all.
+    ``not_applicable`` without a ledger: a legacy row cannot be judged, and saying
+    "pass" there would be the #634 class in the other direction.
+
+    Deliberately NOT folded into ``ATSKeywordCoverage.missing_claimable``: that field's
+    population is WHOLE-DOCUMENT presence, it is already rendered (E058 group 2), and
+    widening it in place would silently move a number its readers have been reading.
+    """
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    if not ledger:
+        return ATSCheck(
+            id=NARRATIVE_EVIDENCE_CHECK_ID,
+            status="not_applicable",
+            details=(
+                "No Keyword Ledger is available for this document, so whether its claims "
+                "are evidenced in the work history could not be judged."
+            ),
+        )
+    missing = verified_narrative_underclaim(tailored.model_dump(mode="json"), ledger)
+    if not missing:
+        return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
+    named = ", ".join(
+        f"{c.concept} (claimed but not evidenced)" if c.tag_only else f"{c.concept} (absent)"
+        for c in missing
+    )
+    details = (
+        "Required capabilities the candidate genuinely supports are not shown in any "
+        f"work-entry or project bullet: {named}. A skills-list entry alone reads to a "
+        "hiring reviewer as an unmet requirement."
+    )
+    return ATSCheck(
+        id=NARRATIVE_EVIDENCE_CHECK_ID,
+        status="fail",
+        details=details if len(details) <= 1200 else details[:1199].rstrip() + "…",
+        driver={"concepts": len(missing)},
+    )
 
 
 def audit_cv(
@@ -1201,6 +1280,8 @@ def _audit_letter_text(
     vault_text_norm: str | None = None,
     pins: list | None = None,
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
+    terminal_review=None,
+    previous_report: dict | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1281,6 +1362,24 @@ def _audit_letter_text(
         if page_check is not None and page_check.status == "fail" and present_count:
             page_check.driver = {"pinned_facts": present_count}
 
+    # #563 (D): the letter's terminal review answers the same question. No
+    # `narrative-evidence` twin — the letter has no bullet corpus and no
+    # `_restore_ledger_bullets` sibling (arc42 §5.3.23, unguarded surface 3), so the
+    # narrative/tag distinction has no referent there.
+    from applire.services.terminal_review_outcome import (
+        TERMINAL_REVIEW_CHECK_ID,
+        build_terminal_review_check,
+        previous_check,
+    )
+
+    checks.append(
+        build_terminal_review_check(
+            terminal_review,
+            previous=previous_check(previous_report, TERMINAL_REVIEW_CHECK_ID),
+            document="cover_letter",
+        )
+    )
+
     report = _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
     if pin_entries is not None:
         report.pinned_facts = pin_entries
@@ -1295,6 +1394,8 @@ def audit_cover_letter(
     vault_text_norm: str | None = None,
     pins: list | None = None,
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
+    terminal_review=None,
+    previous_report: dict | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -1313,4 +1414,5 @@ def audit_cover_letter(
         text, letter_data, keywords, ledger, page_count=page_count,
         vault_text_norm=vault_text_norm,
         pins=pins, truth_floor_hits=truth_floor_hits,
+        terminal_review=terminal_review, previous_report=previous_report,
     )

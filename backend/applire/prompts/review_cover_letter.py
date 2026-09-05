@@ -131,7 +131,7 @@ page-count, or "too long / too short" finding.
 
 """
 
-_AUTHORITY_AND_CHECKS = """\
+_CHECKS = """\
 AUTHORITY — three sources, each authoritative for one kind of claim, and never for
 another:
 - CANDIDATE SOURCE (grounded CV data, master profile, the candidate's own stated inputs
@@ -258,7 +258,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
 NEVER REVERSE YOURSELF ACROSS ROUNDS. If an earlier round asked for a change, do not now
 flag the result of that change and ask for the original back. That is oscillation, not a
 finding.
+"""
 
+#: The PROSE door's `minor` paragraph — byte-for-byte the tail of the former
+#: ``_AUTHORITY_AND_CHECKS``. Split out, not edited; ``REVIEW_SYSTEM_PROMPT`` below is
+#: unchanged and pinned by test.
+_MINOR_PROSE = """\
 WHAT IS `minor` HERE. Everything not in checks 1-5: repetition of a name or phrase,
 paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
 (e.g. wrong German gender agreement: "Mein Budgetverantwortung" for "Meine
@@ -271,6 +276,56 @@ become trimming honesty.
 
 """
 
+#: ADR-076 clause 9, BUILT 2026-09-04 (#545) — the whole-document questions, TERMINAL
+#: door only. NAMED checks rather than a role sentence (ADR-083 clause 1: an open role
+#: mandate measured 0/5 against a named check's 5/5). VISIBILITY ONLY, for the reasons
+#: recorded on the CV twin: run 17's blocking widening, the memoryless corrector, the
+#: reviewer/corrector subject asymmetry (SF-WRITE.29) and ADR-076 clause 7's send seat.
+#: The letter's own tells are the 2026-08-16 blind panel's, quoted almost verbatim: the
+#: letter as a compressed copy of the CV's figures in the CV's order, and the
+#: "[measure] von X auf Y" construction four times over.
+#:
+#: Numbered 6 and 7, after the five blocking checks, so the head's "BLOCKING CHECKS —
+#: these five, and nothing else" stays literally true and needs no per-door variant.
+_TERMINAL_CHECKS = """\
+TERMINAL-ROUND CHECKS — the two questions only the finished letter can answer. Both are
+VISIBILITY ONLY: report them with severity `minor`, NEVER `blocking`, and report AT MOST ONE
+finding per check for the whole letter. What you write here is shown to the candidate with
+their letter, and they decide.
+
+6. CLAIM BALANCE — over AND under. Check 1 looks for claims the CANDIDATE SOURCE does not
+   support. This one also looks the other way: does the letter leave out something the source
+   clearly supports and this posting clearly wants? Include a strength the candidate named
+   inside their own stated limit ("no IFS/BRC experience, but ten years of ISO-9001 audit
+   practice") — that is a real strength, and a letter that drops it under-sells them. Name the
+   evidence that is not represented. Never ask for a term to be listed, and never ask for
+   anything the source does not already support.
+
+7. VOICE — does this read as written by a person? The tell is mechanical uniformity, and the
+   patterns are our own rules applied without exception:
+   - the letter restates the CV's figures in the CV's own order, so it reads as a compressed
+     copy of the CV rather than its own argument with two or three points of its own;
+   - one construction repeated across paragraphs — "[measure] from X to Y", near-identical;
+   - the posting's requirement list echoed in the posting's order.
+   Report the pattern and quote two examples of it. Two things you must NOT do: never propose
+   dropping a figure or a fact to break a pattern — a line vaguer than the truth is the worse
+   defect — and never touch an unprompted admission of a gap or a limit. Blind readers name that
+   admission as the strongest single reason to trust a letter; it must survive any voice work.
+
+"""
+
+#: The TERMINAL door's `minor` paragraph: the prose text with ONE sentence appended,
+#: naming checks 6 and 7 as belonging to it. Without that the model must infer a severity
+#: for a check that has none, and this codebase has a measured instance of that inference
+#: going the wrong way (#563 triage item 4: a "blocking" filed on a check whose own text
+#: reads VISIBILITY ONLY).
+_MINOR_TERMINAL = _MINOR_PROSE.rstrip("\n") + """
+Checks 6 and 7 above are `minor` for the same reason and by the same rule: they are reported to
+the candidate with the document and they never regenerate the letter.
+
+"""
+
+
 _SCHEMA_AND_CLOSER = review_output_schema(
     issue_hint="the paragraph plus what is untrue or missing — empty array if nothing found",
     feedback_hint="concise instruction for the writer to correct the BLOCKING issues — empty string if there are none",
@@ -280,10 +335,18 @@ Keep `feedback` concise and *referential*: name the offending location (paragrap
 state what is wrong. Do NOT quote or paste source passages — the writer re-reads the candidate
 source itself (ADR-021 amended 2026-06-29)."""
 
-REVIEW_SYSTEM_PROMPT = _GROUNDING_INTRO + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+# ONE definition of the authority block and the five blocking checks; TWO doors,
+# differing in the shape note, the terminal-only checks and the `minor` paragraph.
+REVIEW_SYSTEM_PROMPT = _GROUNDING_INTRO + _CHECKS + "\n" + _MINOR_PROSE + _SCHEMA_AND_CLOSER
 
 TERMINAL_REVIEW_SYSTEM_PROMPT = (
-    _GROUNDING_INTRO + _SHAPE_NOTE_TERMINAL + _AUTHORITY_AND_CHECKS + _SCHEMA_AND_CLOSER
+    _GROUNDING_INTRO
+    + _SHAPE_NOTE_TERMINAL
+    + _CHECKS
+    + "\n"
+    + _TERMINAL_CHECKS
+    + _MINOR_TERMINAL
+    + _SCHEMA_AND_CLOSER
 )
 
 
