@@ -1051,6 +1051,16 @@ An HTML export template converted by headless LibreOffice was measured too and s
 
 **On truthfulness:** everything Applire promises about a document — that each claim is grounded in your own vault — describes the file *as exported*. The moment you edit it in Word, those guarantees no longer describe what you are sending. That is expected and legitimate; they are your documents. Applire prompts you at the export, and is explicit that it has no way to check a file once it has left. It does not pretend otherwise.
 
+### ADR-080 — The Interview's Question Budget Comes From Its Own Gap Plan (accepted + built 2026-09-01)
+
+**Decision:** the maximum number of questions a targeted interview may ask is **derived from the gap plan it is about to walk** — `questions_per_gap × number_of_gaps + 2` — instead of being a fixed constant.
+
+Two earlier decisions each set half of one number and were never reconciled. The gap-clustering step targets 5–12 topics per analysis; the session ceiling was a flat 12 questions for all of them. Simulating the real interview loop (no model involved) made the arithmetic explicit: closing *n* topics costs between *n* and *2n* answers, so against a ceiling of 12, five topics complete reliably, eleven complete only if every single answer lands first time, and **a twelve-topic analysis cannot complete under any answer pattern at all**. Users hit "interview limit reached" on an interview that had barely started — reported as issue #646.
+
+The `+ 2` is not slack and was measured, not derived: one unit is the opening question, which is counted before any answer exists, and one is headroom so the cost guard cannot pre-empt the "we have enough" verdict on the final turn. At `+ 1`, every topic closes and the session *still* reports that a limit stopped it — telling the candidate something untrue about an interview that finished.
+
+Two consequences worth knowing if you self-host. The operator settings `INTERVIEW_MAX_QUESTIONS_TARGETED` / `_GUIDED` are now a **cap applied after the derivation**, not the value itself; setting one below the derived budget is a deliberate cost decision that reintroduces truncation, and the completion still reports that truncation honestly. And the worst case grew: a twelve-topic job description can now ask up to 26 questions instead of 12. That is a longer interview and a larger provider bill, bounded by the unchanged per-topic allowance of two and by the interview ending early whenever answers land. The alternative — capping the analysis at five topics — was cheaper and silently dropped real gaps.
+
 ### ADR-082 — Redundancy in a Delivered Document: Names vs. Prose, and Detect Rather Than Repair (accepted + built 2026-09-03)
 
 **Decision:** Applire checks whether a generated CV says the same thing twice, and it **reports** that rather than silently fixing it.
@@ -1077,6 +1087,23 @@ Applire generates a CV by drafting it, reviewing it, and handing the review back
 **A design question this settled, with a number.** The obvious idea is to write reviewer prompts as a *role* — "you are an experienced reviewer, find anything wrong with this document" — rather than an enumerated checklist, on the theory that an experienced professional doesn't need to be told what to look for. We measured it on a real document where the reviewer had missed a defect: an open role mandate found it **0 times out of 5**, while adding one **named** check found it **5 out of 5**, with no false positives. So the mandate stays a list of named checks. What the principle *does* change is which parts of a prompt earn their space: the things any experienced reviewer already knows get compressed, and the things they could not possibly know — that employer names and dates are filled in by code *after* review, what Applire's keyword ledger means, what marking a finding "blocking" actually costs — get the room instead.
 
 **And a limit we found by testing rather than assuming.** Having built the transport, we replayed it against a real model instead of trusting the unit tests. The finding does reach the writer and does change what it produces — but for one class of problem it still cannot be acted on, because the reviewer and the writer are shown *different documents*: the reviewer reads the fully assembled CV, while the writer edits the earlier draft that does not yet contain the code-assembled sections. A complaint about a section the writer cannot see is a complaint it cannot fix. That is now recorded rather than discovered later, and it is why redundancy in those sections is **reported** to you rather than silently rewritten.
+
+---
+### ADR-085 — Every Rendered Document Says, Machine-Readably, That AI Made It (accepted + built 2026-09-04)
+
+**Decision:** every PDF and `.docx` Applire renders carries machine-readable AI-provenance metadata — an XMP packet with a documented namespace plus IPTC's `DigitalSourceType`, duplicated into the PDF Info dictionary, and mirrored into OOXML custom document properties for the `.docx`. Nothing about the document looks different. Full detail, including how to read the mark back out: [`ai-act-provenance.md`](./ai-act-provenance.md).
+
+This is Article 50(2) of the EU AI Act, and it lands on Applire rather than on the model: Applire integrates a model over an API and is therefore the provider of the *system*, the Commission Guidelines only *encourage* marking at the model level, and Article 2(12)'s open-source exemption explicitly does not cover Article 50 — the AGPL licence changes nothing here. If you self-host, this is what discharges the obligation for your instance, and there is nothing to configure.
+
+**Applied at one seam.** The mark goes on where Chromium's bytes are born, below the templates, below the document kind and below both doors — so all fourteen templates, both languages, and the agent channel inherit it without knowing it exists. A test enumerates the render seams and fails if a new one appears, because a third renderer added later would ship unmarked while every existing test stayed green.
+
+**What it says, and what it refuses to say.** The mark records the generation *event*: produced by Applire version V at time T, text machine-generated, configured provider family P. It carries no API key, no exact model id, no user, job or document identifier, and no text from the document. It also makes no claim that the file still contains what Applire generated — you are meant to edit these documents.
+
+**The limitation is part of the decision, and it was measured.** A metadata mark survives copying, mailing and archiving; it does not survive a downstream party re-rendering the file. Running a marked PDF through Ghostscript's `pdfwrite` (the engine behind many "compress PDF" flows, and the shape of what an ATS does on upload) removes the Applire namespace, the IPTC property and every custom Info key — the text is untouched. So the honest claim is: *marked at generation, and the mark survives until the first party who re-processes it.* CI runs that round-trip and pins the result, so the public note cannot drift from the behaviour.
+
+**Two things this deliberately is not:** token-level text watermarking (the model provider's layer — and under bring-your-own-model no third-party-callable detector exists to verify it), and a visible "AI-generated" banner on your CV (Article 50(2) asks for machine-readable detectability; the visible-disclosure duty of Article 50(4) is about published public-interest text).
+
+**An implementation note for anyone touching this.** The XMP stream must be an *indirect* PDF object. pypdf's public `xmp_metadata` setter writes it inline into the catalog; pypdf reads that file back happily and PyMuPDF — the library Applire's own ATS text extraction uses — cannot open it at all. A test asserts the marked file opens in PyMuPDF for exactly that reason; a pypdf-only check would have passed while every delivered document became unreadable to the audit.
 
 ---
 ---
