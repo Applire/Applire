@@ -593,7 +593,7 @@ def apply_ops(
         elif isinstance(op, SetField):
             _apply_set_field(op, resolve_any, changes)
         elif isinstance(op, SetPersonalInfo):
-            _apply_set_personal_info(op, new_profile, changes)
+            _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
             _apply_set_summary(op, new_profile, source, changes, conflicts)
         elif isinstance(op, FlagConflict):
@@ -2420,12 +2420,31 @@ def _apply_set_field(op, resolve, changes):
     changes.append(_updated(_section_for(entity), op.field, current, value))
 
 
-def _apply_set_personal_info(op, profile, changes):
+def _apply_set_personal_info(op, profile, source, changes, conflicts):
+    # #602/#620 — mirrors _apply_set_summary's exact mechanism (ADR-066: one
+    # implementation per capability): an already-populated field that a
+    # second write contradicts used to be dropped with NO trace at all (no
+    # change, no conflict, not even a log line). The ADR-063 contract is a
+    # receipt either way — a real update when the slot was empty, a `Conflict`
+    # parked for the candidate when it was not, never silence.
     pi = profile.personal_info
     if not hasattr(pi, op.field):
         return
     current = getattr(pi, op.field)
     if not _is_empty(current):
+        if _is_empty(op.value):
+            return  # absence is not an update, and not a conflict either
+        if _norm(current) == _norm(op.value):
+            return  # a restatement of what is already stored
+        conflicts.append(
+            Conflict(
+                section="personal_info",
+                field=op.field,
+                existing_value=current,
+                incoming_value=op.value,
+                source=source,
+            )
+        )
         return
     value = _coerce_to_field_type(pi, op.field, op.value)
     if value is _SKIP:

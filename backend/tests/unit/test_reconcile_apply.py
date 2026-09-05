@@ -938,6 +938,52 @@ def test_set_personal_info_ignored_when_present():
     assert result.profile.personal_info.phone == "existing"
 
 
+# ── #602/#620: a mismatching `set_personal_info` gets a receipt, not silence ─
+#
+# `_apply_set_personal_info` used to drop a differing incoming scalar with NO
+# trace at all — no change, no conflict, not even a log line — once the field
+# was already populated. Its sibling `_apply_set_summary` faced the identical
+# "don't silently overwrite user content" problem (#113(b)) and settled it via
+# the ADR-063 `Conflict` channel; this reuses that exact mechanism (ADR-066 —
+# one implementation per capability) rather than inventing a second one.
+
+
+def test_set_personal_info_mismatch_raises_a_conflict_not_a_silent_drop():
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value="+49 222")]
+    result = apply_ops(profile, ops, SOURCE)
+    # never silently overwritten — same contract as test_set_personal_info_ignored_when_present
+    assert result.profile.personal_info.phone == "+49 111"
+    assert len(result.conflicts) == 1
+    c = result.conflicts[0]
+    assert c.section == "personal_info"
+    assert c.field == "phone"
+    assert c.existing_value == "+49 111"
+    assert c.incoming_value == "+49 222"
+    assert c.source == SOURCE
+
+
+def test_set_personal_info_restating_the_same_value_is_not_a_conflict():
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value="+49 111")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.phone == "+49 111"
+    assert result.conflicts == []
+
+
+def test_set_personal_info_absent_incoming_value_is_not_a_conflict():
+    """Absence is not an update, and not a conflict either (mirrors
+    _apply_set_summary's identical guard)."""
+    profile = MasterProfileData()
+    profile.personal_info.phone = "+49 111"
+    ops = [SetPersonalInfo(field="phone", value=None)]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.phone == "+49 111"
+    assert result.conflicts == []
+
+
 # #113(b) — a second CV import silently replaced the professional summary the
 # user already had, offering no choice. `_apply_set_summary` was the one write
 # in this applier with no "already populated" gate, while its `set_field` and
@@ -1321,3 +1367,46 @@ def test_upsert_work_new_entry_carries_is_current():
     result = apply_ops(profile, ops, SOURCE)
     assert result.profile.work_experience[0].is_current is True
     _roundtrips(result.profile)
+
+
+def test_a_personal_info_conflict_is_actually_RESOLVABLE_end_to_end():
+    """Step 2b — a receipt nobody can act on is not a receipt.
+
+    `_apply_set_personal_info`'s new `Conflict` is only worth writing if the
+    existing resolution path can close it. `personal_info` is a profile-level
+    dispute with no `entity_id` (the `Conflict` docstring names exactly this
+    case), and `_apply_resolve_field` writes dict-shaped sections generically —
+    so no new consumer is needed. Pinned rather than assumed, because "the
+    adapter looks generic" is how a dead-ended channel gets shipped.
+    """
+    from applire.schemas.profile import Conflict, ProfileMetadata
+    from applire.services.profile.reconcile.ops import ResolveField
+
+    profile = MasterProfileData(metadata=ProfileMetadata())
+    profile.personal_info.phone = "+49 111"
+    result = apply_ops(profile, [SetPersonalInfo(field="phone", value="+49 222")], SOURCE)
+    assert len(result.conflicts) == 1
+
+    # Park the dispute the way the merge path does, then answer it.
+    parked = result.profile
+    parked.metadata.pending_conflicts = list(result.conflicts)
+    conflict: Conflict = parked.metadata.pending_conflicts[0]
+    assert conflict.entity_id is None  # profile-level dispute, by design
+
+    answered = apply_ops(
+        parked,
+        [
+            ResolveField(
+                conflict_id=conflict.conflict_id,
+                target=conflict.entity_id,
+                section=conflict.section,
+                field=conflict.field,
+                value=None,
+                resolution="incoming",
+            )
+        ],
+        SOURCE,
+    )
+    assert answered.profile.personal_info.phone == "+49 222"
+    assert answered.profile.metadata.pending_conflicts == []
+    assert any(c.section == "personal_info" and c.field == "phone" for c in answered.changes)
