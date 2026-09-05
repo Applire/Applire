@@ -203,14 +203,28 @@ def _document_title(labels: dict, letter: LetterData) -> str:
     return f"{kind} – {name}" if name else kind
 
 
-def render_letter_docx(letter: LetterData, *, lang: str, accent_color: str) -> bytes:
+def render_letter_docx(
+    letter: LetterData,
+    *,
+    lang: str,
+    accent_color: str,
+    digital_source_type: str | None = None,
+) -> bytes:
     """Render `letter` as a `.docx` file, returned as bytes.
 
     Pure function — no I/O. See module docstring for the two deliberate
     asymmetries with `render_cv_docx`.
+
+    `digital_source_type` (ADR-085, ruling 14) is passed straight to the
+    provenance seam in ``new_document``; ``None`` keeps the uniform default.
+    A caller holding the ``GeneratedCoverLetter`` row derives it from
+    ``record.origin``.
     """
     labels = cover_letter_labels(lang)
-    document = new_document(title=_document_title(labels, letter))
+    document = new_document(
+        title=_document_title(labels, letter),
+        digital_source_type=digital_source_type,
+    )
     color: RGBColor = hex_to_rgb_color(accent_color)
 
     for field_name in LetterData.model_fields:

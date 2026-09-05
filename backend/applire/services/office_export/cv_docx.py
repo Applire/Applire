@@ -399,18 +399,26 @@ def render_cv_docx(
     lang: str,
     accent_color: str,
     photo_bytes: bytes | None = None,
+    digital_source_type: str | None = None,
 ) -> bytes:
     """Render `tailored` as a `.docx` file, returned as bytes.
 
     Pure function — no I/O. `photo_bytes` is the already-resolved photo (or
     None if absent/unreadable/not shown); the caller decides whether to
     resolve and pass it based on `tailored.show_photo`.
+
+    `digital_source_type` (ADR-085, ruling 14) is passed straight to the
+    provenance seam in ``new_document``; ``None`` keeps the uniform default.
+    A caller holding the ``GeneratedCV`` row derives it from ``record.origin``.
     """
     labels = cv_labels(lang)
     # Writer collector #601 / ADR-085 clause 5: the .docx carried no Title at
     # all while the PDF carried a language-correct one (PR #647 gave the seven
     # templates a `document_title` label). Same source, same shape.
-    document = new_document(title=_document_title(labels, tailored))
+    document = new_document(
+        title=_document_title(labels, tailored),
+        digital_source_type=digital_source_type,
+    )
     color: RGBColor = hex_to_rgb_color(accent_color)
 
     for field_name in TailoredCVData.model_fields:

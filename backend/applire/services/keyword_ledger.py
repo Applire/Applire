@@ -1228,6 +1228,31 @@ def _tailored_narrative_texts(draft: dict[str, Any] | None) -> list[str]:
     return texts
 
 
+def narrative_corpus_view(draft: dict[str, Any] | None) -> dict[str, Any]:
+    """Adapt either CV document shape to the one :func:`_tailored_narrative_texts`
+    understands, without duplicating its corpus rule (ADR-066).
+
+    The writer's response schema names the work list ``work``
+    (``prompts/cv_tailoring.py``); ``TailoredCVData`` names it ``work_history``.
+    :func:`_tailored_narrative_texts` reads ``work_history`` only, so anything handed
+    a PROSE-shaped draft would see an EMPTY narrative corpus.
+
+    **Moved here from ``cv_gap_hints`` on 2026-09-05 (ruling 4, ADR-076 clause 6).**
+    It lived next to its first reader — the #542 under-claim signal — and its
+    docstring named this exact defect in ``cv_coverage_budget``'s ``measure`` as
+    "reported, not fixed here". Two readers of ONE notion of "narrative space" must
+    not carry two definitions of it (ADR-066), so the adapter moved to the module
+    that owns the corpus rule and both readers now go through it.
+    ``cv_gap_hints.narrative_corpus_view`` re-exports this name.
+    """
+    if not draft:
+        return {"work_history": []}
+    entries = draft.get("work_history")
+    if entries is None:
+        entries = draft.get("work")
+    return {"work_history": entries or []}
+
+
 def tailored_narrative_corpus(draft: dict[str, Any] | None) -> str:
     """The tailored draft's NARRATIVE-bearing text only, flattened +
     normalised (#315) -- the DELIVERED-side twin of
@@ -1352,13 +1377,24 @@ def cv_coverage_budget(budget: Any) -> "CoverageBudget | None":
     (ADR-066). ``None`` when no budget was computed (a legacy call site) —
     the gate then stays fully open, i.e. today's behaviour: it can never make
     a coverage demand MORE aggressive than before this clause.
+
+    **Fixed 2026-09-05 (founder ruling 4, v0.41.1-beta).** ``measure`` read
+    ``work_history`` directly, so on the CV DRAFTING loop (``cv_tailoring``) and the
+    LANGUAGE loop (``cv_language``) — both of which review the writer's PROSE draft,
+    whose work list is named ``work`` — it returned 0 for every draft and
+    ``under_pressure`` was permanently ``False``. Clause 6's rank gate therefore never
+    engaged on either loop; only ``cv_terminal_review``, which reviews the COMPOSED
+    ``TailoredCVData``, ever saw a real occupancy. The measure now goes through
+    :func:`narrative_corpus_view` — the SAME adapter the #542 under-claim signal uses —
+    so the demand and the budget read one definition of "narrative space" on every
+    shape (ADR-066).
     """
     if budget is None:
         return None
     capacity = sum(rb.max_bullets for rb in budget.roles.values())
     return CoverageBudget(
         capacity=capacity,
-        measure=lambda draft: len(_tailored_narrative_texts(draft)),
+        measure=lambda draft: len(_tailored_narrative_texts(narrative_corpus_view(draft))),
     )
 
 

@@ -160,6 +160,36 @@ def test_the_export_still_opens_and_keeps_its_content(kind):
     assert "Anna Bauer" in text
 
 
+@pytest.mark.parametrize("lang", ["de", "en"])
+@pytest.mark.parametrize("kind", sorted(_CASES))
+def test_export_carries_no_provider_property(kind, lang):
+    """ADR-085 clause 3, amended by founder ruling 15 (2026-09-05).
+
+    Earlier the `.docx` mark named the configured LLM provider family as a
+    custom property. Ruling 15 dropped that property on both carriers.
+
+    The expected set below is spelled out **independently** of
+    ``CUSTOM_PROP_NAMES`` rather than compared against it: a mutation that
+    reintroduces a provider property consistently in both the constant and
+    the writer would sail through an ``== set(CUSTOM_PROP_NAMES)`` check
+    (both sides move together), so the ground truth here is hardcoded.
+    """
+    expected_properties = {
+        "AIGenerated",
+        "AIGeneratedBy",
+        "AIGeneratedAt",
+        "AIDigitalSourceType",
+        "AIMarkingSpec",
+    }
+    properties = read_document_provenance(_CASES[kind](lang))
+    assert set(properties) == expected_properties, properties
+    assert set(properties) == set(CUSTOM_PROP_NAMES), properties
+
+    blob = _CASES[kind](lang)
+    for forbidden in (b"mistral", b"openrouter", b"openai"):
+        assert forbidden not in blob, forbidden
+
+
 def test_read_document_provenance_says_nothing_for_an_unmarked_docx():
     """Negative control — the detector must be able to say "no"."""
     from docx import Document

@@ -271,28 +271,18 @@ class UnderclaimedConcept:
     tag_only: bool
 
 
-def narrative_corpus_view(draft: dict[str, Any] | None) -> dict[str, Any]:
-    """Adapt either document shape to the one ``keyword_ledger._tailored_narrative_texts``
-    understands, without duplicating its corpus rule (ADR-066).
-
-    The writer's response schema names the list ``work`` (``prompts/cv_tailoring.py``);
-    ``TailoredCVData`` names it ``work_history``. The shared helper reads
-    ``work_history`` only, so a signal handed the loop's PROSE draft would see an EMPTY
-    narrative corpus and report every claimable concept as missing — a control firing on
-    everything is as useless as one firing on nothing. This adapter is the single place
-    that difference is handled for this signal.
-
-    (The same shape difference makes ``keyword_ledger.cv_coverage_budget``'s ``measure``
-    return 0 on the CV drafting loop's prose draft — reported, not fixed here: it is
-    ADR-076 clause 6 / #543 territory and changing it changes prompt-effect behaviour
-    that owes its own real-run evidence.)
-    """
-    if not draft:
-        return {"work_history": []}
-    entries = draft.get("work_history")
-    if entries is None:
-        entries = draft.get("work")
-    return {"work_history": entries or []}
+# The prose-vs-composed shape adapter now lives in ``keyword_ledger`` — the module
+# that owns the narrative-corpus rule — because it has TWO readers, not one: this
+# signal and ``cv_coverage_budget``'s ``measure`` (ADR-076 clause 6). Re-exported
+# under its original name so this module's callers and tests are untouched
+# (ADR-066: one definition of "narrative space", one implementation).
+#
+# History: it was written here on 2026-09-02 for the #542 under-claim signal, and its
+# docstring reported — without fixing — that the same shape difference made
+# ``cv_coverage_budget``'s ``measure`` return 0 on the drafting loop's prose draft.
+# Founder ruling 4 of 2026-09-05 called that in for v0.41.1-beta; folding it at the
+# ONE shared place was the fix.
+from applire.services.keyword_ledger import narrative_corpus_view  # noqa: E402,F401
 
 
 def _underclaim_candidates(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

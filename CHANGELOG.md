@@ -6,6 +6,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The CV coverage rank gate now engages on the drafting loop (ADR-076 clause 6).**
+  `cv_coverage_budget`'s occupancy measure read `work_history`, but the two reviewer
+  chains that review the writer's PROSE draft — `cv_tailoring` (the drafting loop)
+  and `cv_language` — hand it a draft whose work list is named `work`. It therefore
+  measured 0 bullets on every round of both loops, `under_pressure` was permanently
+  false, and no below-rank coverage demand was ever withheld; only
+  `cv_terminal_review`, which reviews the composed document, ever saw a real
+  occupancy. The measure now goes through the same prose/composed adapter the
+  under-claim signal uses, moved to the module that owns the narrative-corpus rule
+  so both readers share one definition of narrative space. Measured on the
+  2026-09-05 delivery run: 31 of 31 captured drafting-loop rounds measured 0 before
+  and their true bullet count after.
+- **A document rendered through the agent door is marked composite (ADR-085).**
+  A CV or cover letter whose content the caller's own agent supplied verbatim
+  through the BYOI door now carries `DigitalSourceType =
+  compositeWithTrainedAlgorithmicMedia` — Applire rendered it and cannot attest its
+  authorship. The mark is derived from the persisted row's `origin`, so it is
+  correct on the PDF and on the `.docx`, on the first download and on every later
+  one. Documents Applire's own writer produced are unchanged.
+
+### Removed
+- **`modelProvider` is no longer part of the provenance mark (ADR-085).** The XMP
+  packet's `applireAI:modelProvider`, the PDF Info dictionary's `/AIModelProvider`
+  and the `.docx` `AIModelProvider` custom property are gone. The mark carries the
+  generator, its version, the timestamp, the `DigitalSourceType` and the marking
+  spec — which is what Art. 50(2) asks for; which model vendor produced the text is
+  the deployer's business, not the document's.
+
 ## [0.41.0-beta] – 2026-09-05
 
 The Stracciatella release candidate: the document gets the screen and the

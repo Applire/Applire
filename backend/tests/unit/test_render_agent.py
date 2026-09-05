@@ -560,3 +560,100 @@ async def test_agent_door_reports_pass_when_the_caller_wrote_distinct_bullets(se
 
     check = _dupe_check(record.ats_report)
     assert check is not None and check["status"] == "pass", record.ats_report
+
+
+# ---------------------------------------------------------------------------
+# ADR-085, founder ruling 14 (2026-09-05): the agent door marks COMPOSITE
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_authored_cv_docx_is_marked_composite(seeded):
+    """End-to-end, through the real door and the real export.
+
+    ``render_agent_cv`` persists ``origin='agent'``; ``get_cv_docx`` — the exact
+    function both ``GET /api/cv/{id}/docx`` and the MCP ``render_document`` tool
+    call — must therefore stamp
+    ``DigitalSourceType = compositeWithTrainedAlgorithmicMedia``: Applire
+    rendered that content, it did not author it (ADR-054 §4).
+
+    This is the delivery point, not a seam: the bytes asserted on here are the
+    bytes the caller receives, and the same bytes any later download produces —
+    the mark comes off the persisted row, not off a render-time flag.
+    """
+    from applire.services.cv import get_cv_docx, render_agent_cv
+    from applire.services.office_export.provenance import (
+        PROP_SOURCE_TYPE,
+        read_document_provenance,
+    )
+    from applire.services.pdf_provenance import COMPOSITE_DIGITAL_SOURCE_TYPE
+
+    p1, p2, p3 = _cv_render_patches()
+    with p1, p2, p3:
+        record = await render_agent_cv(
+            dict(AGENT_CV_CONTENT), seeded["job_id"], seeded["db"], target_pages=1
+        )
+    assert record.origin == "agent"
+
+    docx_bytes = await get_cv_docx(record.id, seeded["db"])
+    props = read_document_provenance(docx_bytes)
+    assert props[PROP_SOURCE_TYPE] == COMPOSITE_DIGITAL_SOURCE_TYPE
+
+
+@pytest.mark.asyncio
+async def test_a_pipeline_authored_cv_docx_stays_trained_algorithmic_media(seeded):
+    """The negative control the composite claim needs: the SAME export function
+    on a row Applire's own writer produced still marks the uniform value. Without
+    this, a mapping that returned composite unconditionally would pass above."""
+    from applire.models.cv import CVGenerationStatus, GeneratedCV
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import get_cv_docx
+    from applire.services.cv_section_editor import build_content_snapshot
+    from applire.services.office_export.provenance import (
+        PROP_SOURCE_TYPE,
+        read_document_provenance,
+    )
+    from applire.services.pdf_provenance import DIGITAL_SOURCE_TYPE
+
+    db = seeded["db"]
+    tailored = TailoredCVData.model_validate(dict(AGENT_CV_CONTENT))
+    record = GeneratedCV(
+        job_analysis_id=seeded["job_id"],
+        profile_id=seeded["profile_id"],
+        tailored_data=tailored.model_dump(mode="json"),
+        template="classic",
+        status=CVGenerationStatus.ready.value,
+        origin="pipeline",
+        target_pages=1,
+        content_snapshot=build_content_snapshot(tailored),
+        document_language="de",
+    )
+    db.add(record)
+    await db.commit()
+
+    props = read_document_provenance(await get_cv_docx(record.id, db))
+    assert props[PROP_SOURCE_TYPE] == DIGITAL_SOURCE_TYPE
+
+
+@pytest.mark.asyncio
+async def test_agent_authored_letter_docx_is_marked_composite(seeded):
+    """The letter twin — ``render_agent_letter`` + the real
+    ``get_cover_letter_docx`` the REST and MCP doors both call."""
+    from applire.services.cover_letter import get_cover_letter_docx, render_agent_letter
+    from applire.services.office_export.provenance import (
+        PROP_SOURCE_TYPE,
+        read_document_provenance,
+    )
+    from applire.services.pdf_provenance import COMPOSITE_DIGITAL_SOURCE_TYPE
+
+    p1, p2 = _letter_patches()
+    with p1, p2:
+        cl = await render_agent_letter(
+            dict(AGENT_LETTER_CONTENT), seeded["job_id"], seeded["db"]
+        )
+    assert cl.origin == "agent"
+
+    props = read_document_provenance(
+        await get_cover_letter_docx(cl.id, seeded["db"])
+    )
+    assert props[PROP_SOURCE_TYPE] == COMPOSITE_DIGITAL_SOURCE_TYPE

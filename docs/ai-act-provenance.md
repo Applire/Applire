@@ -42,7 +42,6 @@ catalog's `/Metadata`:
 | `applireAI:generator` | `Applire` |
 | `applireAI:generatorVersion` | the running version |
 | `applireAI:generatedAt` | ISO-8601 UTC timestamp of the render |
-| `applireAI:modelProvider` | the configured provider *family* (`mistral`, `openai`, `openrouter`, …) |
 | `applireAI:markingSpec` | `EU AI Act Art. 50(2)` |
 | `xmp:CreatorTool` | `Applire <version>` |
 
@@ -51,7 +50,7 @@ catalog's `/Metadata`:
 generative services already use, so a third-party tool that understands one understands this.
 
 **2. Duplicate keys in the PDF Info dictionary** — `/AIGenerated`, `/AIGeneratedBy`, `/AIGeneratedAt`,
-`/AIModelProvider`, `/AIDigitalSourceType`. These are a **convenience for a human opening Document
+`/AIDigitalSourceType`. These are a **convenience for a human opening Document
 Properties**, not the claim: the PDF specification defines no standard key for this, so anything here is
 bespoke. The XMP packet with its documented namespace is what carries the meaning.
 
@@ -62,29 +61,37 @@ because the format has no XMP surface:
 
 - **`docProps/custom.xml`** (custom document properties, visible in Word under
   *File → Info → Properties → Advanced*): `AIGenerated`, `AIGeneratedBy`, `AIGeneratedAt`,
-  `AIModelProvider`, `AIDigitalSourceType`, `AIMarkingSpec` — the same claim as the XMP packet.
+  `AIDigitalSourceType`, `AIMarkingSpec` — the same claim as the XMP packet.
 - **`docProps/core.xml`**: a human-readable `Comments` line, `Keywords = AI-generated`, and the
   document `Title` (e.g. *Lebenslauf – Anna Bauer*), which follows the document's language exactly as
   the PDF's title does.
 
 ## What the mark says — and what it does not
 
-It records the **generation event**: this file was produced by Applire version *V* at time *T*, its text
-is machine-generated, and the configured provider family was *P*.
+It records the **generation event**: this file was produced by Applire version *V* at time *T*, and its
+text is machine-generated.
 
 It deliberately does **not** contain:
 
 - your API key, or any credential;
-- the exact model id;
+- the exact model id, or the configured provider name;
 - your name, the job you applied for, or any document/user identifier;
 - any text from the document itself.
 
 And it does **not** claim that the file still contains exactly what Applire generated. If you edit the
 document afterwards — which you are meant to be able to do — the mark still describes the generation
-event, not the edited result. In the other direction, the mark is applied uniformly at the render step,
-so a CV in which you overrode a section by hand, or a document whose content your own agent supplied
-verbatim through the MCP door, is marked the same way. Marking more than strictly necessary is the safe
-direction here; failing to mark generated output is the one that is not.
+event, not the edited result. A CV in which you overrode a section by hand is marked exactly like one
+you did not touch: marking more than strictly necessary is the safe direction here; failing to mark
+generated output is the one that is not.
+
+There is one deliberate exception. A document whose content **your own agent supplied verbatim through
+the MCP door** (`render_document`, the BYOI path) carries
+`DigitalSourceType = compositeWithTrainedAlgorithmicMedia` instead of `trainedAlgorithmicMedia`, on both
+the PDF and the `.docx`. Applire rendered that document; it did not write it, and it cannot attest whose
+model — or whether a model at all — produced the text. Saying "a trained model made this" would be a
+claim about a process Applire never observed, so it says the weaker true thing instead: model-made
+content passed through this renderer. The value comes from the stored document's own origin, so it is
+the same on the first download and on every later one.
 
 ## What it does not survive — measured, not assumed
 

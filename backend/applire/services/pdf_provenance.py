@@ -43,10 +43,10 @@ third renderer added later fails a named test instead of shipping unmarked.
   Document Properties. They have no standard and are not the claim.
 
 **What the mark asserts:** the generation *event* — produced by Applire version
-V at time T, text is ``trainedAlgorithmicMedia``, configured model-provider
-family P. It asserts nothing about the delivered content still being the
-generated content, and it carries no API key, no exact model id, and no user,
-job or document identifier.
+V at time T, text is ``trainedAlgorithmicMedia``. It asserts nothing about the
+delivered content still being the generated content, and it carries no API
+key, no exact model id, no configured provider name, and no user, job or
+document identifier.
 
 **What it does not survive.** The mark lives in a metadata layer. Measured
 2026-09-04 with Ghostscript 10.07.0 ``-sDEVICE=pdfwrite``: the Applire XMP
@@ -89,18 +89,26 @@ IPTC_EXT_NS_PREFIX = "Iptc4xmpExt"
 _IPTC_SOURCE_TYPE_BASE = "http://cv.iptc.org/newscodes/digitalsourcetype"
 DIGITAL_SOURCE_TYPE = f"{_IPTC_SOURCE_TYPE_BASE}/trainedAlgorithmicMedia"
 
-#: The IPTC term for a document mixing model output with other content. Applire
-#: does not emit it today: the mark is applied at the render seam, which cannot
-#: know whether a section carries a human override (`SectionPatchRequest`) or
-#: came verbatim from an external agent (`render_agent_cv`, ADR-054 §4). Both
-#: are marked `trainedAlgorithmicMedia`, deliberately — Art. 50(2)'s risk is
-#: asymmetric, an unmarked AI output is the breach and an over-marked human edit
-#: is not. The parameter exists so that threading an "edited/verbatim" fact to
-#: the seam later is a caller change, not a vocabulary change (ADR-085 clause 3,
-#: open PO decision).
+#: The IPTC term for a document mixing model output with other content.
+#:
+#: **Emitted since 2026-09-05 (founder ruling 14, v0.41.1-beta) for exactly one
+#: class: a document authored through the BYOI agent door.** ``render_agent_cv``
+#: / ``render_agent_letter`` (ADR-054 §4) persist content the CALLER's agent
+#: wrote; Applire rendered it and cannot attest its authorship, so claiming
+#: "a trained model made this" would be a claim about someone else's process.
+#: Composite says what is true: model-made content passed through this renderer.
+#:
+#: A HAND-EDITED UI document (`SectionPatchRequest`) is deliberately NOT in this
+#: class and stays uniform — that is ADR-067 territory and undecided. The
+#: asymmetry is intentional: Art. 50(2)'s risk is asymmetric, an unmarked AI
+#: output is the breach and an over-marked human edit is not.
 COMPOSITE_DIGITAL_SOURCE_TYPE = (
     f"{_IPTC_SOURCE_TYPE_BASE}/compositeWithTrainedAlgorithmicMedia"
 )
+
+#: ``GeneratedCV.origin`` / ``GeneratedCoverLetter.origin`` (ADR-054, migration
+#: 0051) for a document the caller's own agent authored through the BYOI door.
+ORIGIN_AGENT = "agent"
 
 XMP_NS_URI = "http://ns.adobe.com/xap/1.0/"
 
@@ -113,7 +121,6 @@ MARKING_SPEC = "EU AI Act Art. 50(2)"
 INFO_KEY_GENERATED = "/AIGenerated"
 INFO_KEY_GENERATED_BY = "/AIGeneratedBy"
 INFO_KEY_GENERATED_AT = "/AIGeneratedAt"
-INFO_KEY_MODEL_PROVIDER = "/AIModelProvider"
 INFO_KEY_SOURCE_TYPE = "/AIDigitalSourceType"
 
 #: Every Info key this module writes — the enumeration the tests read, so a key
@@ -122,7 +129,6 @@ INFO_KEYS: tuple[str, ...] = (
     INFO_KEY_GENERATED,
     INFO_KEY_GENERATED_BY,
     INFO_KEY_GENERATED_AT,
-    INFO_KEY_MODEL_PROVIDER,
     INFO_KEY_SOURCE_TYPE,
 )
 
@@ -150,15 +156,14 @@ del _key
 class Provenance:
     """The generation-event facts the mark carries. Deliberately small.
 
-    ``model_provider`` is the configured provider *family* (``mistral``,
-    ``openai``, ``openrouter``, …) — deployment configuration, never the
-    operator's key and never the exact model id.
+    Founder ruling (ADR-085 ruling 15, 2026-09-05): the mark does not name the
+    configured LLM provider at all — an earlier field doing that here is gone,
+    not merely left unset.
     """
 
     generator: str
     generator_version: str
     generated_at: str
-    model_provider: str
     digital_source_type: str = DIGITAL_SOURCE_TYPE
 
     def as_info_dict(self) -> dict[str, str]:
@@ -166,7 +171,6 @@ class Provenance:
             INFO_KEY_GENERATED: "true",
             INFO_KEY_GENERATED_BY: f"{self.generator} {self.generator_version}",
             INFO_KEY_GENERATED_AT: self.generated_at,
-            INFO_KEY_MODEL_PROVIDER: self.model_provider,
             INFO_KEY_SOURCE_TYPE: self.digital_source_type,
         }
 
@@ -174,37 +178,25 @@ class Provenance:
 def current_provenance(
     *,
     generated_at: datetime | None = None,
-    model_provider: str | None = None,
     digital_source_type: str = DIGITAL_SOURCE_TYPE,
 ) -> Provenance:
-    """Build the provenance record for a render happening *now*.
-
-    ``applire.config`` is imported lazily so this module stays importable by a
-    standalone detection script that has no ``DATABASE_URL`` — the marking and
-    the *reading* of a mark are the same vocabulary and should not need the app.
-    """
+    """Build the provenance record for a render happening *now*."""
     from applire._version import __version__
-
-    if model_provider is None:
-        from applire.config import settings
-
-        model_provider = settings.llm_provider
 
     when = generated_at or datetime.now(timezone.utc)
     return Provenance(
         generator=GENERATOR_NAME,
         generator_version=__version__,
         generated_at=when.isoformat(),
-        model_provider=model_provider,
         digital_source_type=digital_source_type,
     )
 
 
 #: Characters XML 1.0 forbids outright (control characters other than tab, LF,
 #: CR). ``escape`` handles ``& < >``; it does not handle these, and a stray one
-#: — a control character reaching ``LLM_PROVIDER`` from a mangled ``.env``, say —
-#: would make the metadata stream unparseable for every reader while the PDF
-#: itself still opened. Dropped rather than escaped: they carry no meaning here.
+#: — reaching a provenance value from mangled input, say — would make the
+#: metadata stream unparseable for every reader while the PDF itself still
+#: opened. Dropped rather than escaped: they carry no meaning here.
 _XML_FORBIDDEN_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
@@ -233,7 +225,6 @@ def build_xmp_packet(provenance: Provenance) -> bytes:
         (f"{APPLIRE_NS_PREFIX}:generator", provenance.generator),
         (f"{APPLIRE_NS_PREFIX}:generatorVersion", provenance.generator_version),
         (f"{APPLIRE_NS_PREFIX}:generatedAt", provenance.generated_at),
-        (f"{APPLIRE_NS_PREFIX}:modelProvider", provenance.model_provider),
         (f"{APPLIRE_NS_PREFIX}:markingSpec", MARKING_SPEC),
     )
     body = "\n".join(f"   <{k}>{_xml_text(v)}</{k}>" for k, v in properties)
@@ -295,13 +286,38 @@ def mark_pdf_bytes(pdf_bytes: bytes, provenance: Provenance | None = None) -> by
     return out.getvalue()
 
 
-async def render_marked_pdf(page: Any, **pdf_options: Any) -> bytes:
+def digital_source_type_for_origin(origin: str | None) -> str:
+    """THE mapping from ADR-054's ``origin`` to ADR-085's ``DigitalSourceType``.
+
+    One function, because the PDF seam and the ``.docx`` seam must never grow two
+    answers to the same question (ADR-066), and because the join of those two
+    ADRs is a decision — founder ruling 14 of 2026-09-05 — not an implementation
+    detail either module should re-derive.
+
+    Fail-SAFE, not fail-closed: an unknown, empty or NULL ``origin`` (a
+    pre-migration row, a value some future writer invents) maps to the uniform
+    ``trainedAlgorithmicMedia``. Only a door that KNOWS it did not author the
+    content may claim composite; guessing composite for an unrecognised value
+    would weaken the Art. 50(2) claim on documents Applire really did write.
+    """
+    return COMPOSITE_DIGITAL_SOURCE_TYPE if origin == ORIGIN_AGENT else DIGITAL_SOURCE_TYPE
+
+
+async def render_marked_pdf(
+    page: Any, *, provenance: "Provenance | None" = None, **pdf_options: Any
+) -> bytes:
     """The single PDF render seam: Chromium's bytes, marked before anyone sees them.
 
     ``page`` is a Playwright ``Page``; ``pdf_options`` are passed through to
     ``page.pdf()`` unchanged, so each caller keeps its own format and margins.
+
+    ``provenance`` (ADR-085 clause 1 stays intact: this is still the ONE seam, it
+    just takes an argument) lets a caller holding a document row supply the mark
+    whose ``digital_source_type`` it derived from that row's ``origin``. ``None``
+    — every caller that does not know — keeps ``current_provenance()``, i.e.
+    today's behaviour exactly.
     """
-    return mark_pdf_bytes(await page.pdf(**pdf_options))
+    return mark_pdf_bytes(await page.pdf(**pdf_options), provenance)
 
 
 def read_provenance(pdf_bytes: bytes) -> dict[str, Any]:
