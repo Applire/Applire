@@ -570,7 +570,16 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
     letter, lang, accent_color = await _prepare_cover_letter_docx_render(cl, db)
-    return render_letter_docx(letter, lang=lang, accent_color=accent_color)
+    # ADR-085 / ruling 14: exported from the PERSISTED row at any later time, so
+    # the row's own `origin` (ADR-054) is the only carrier of "who authored this
+    # content" that reaches this point. Recorded since migration 0051; the mark
+    # simply never read it.
+    from applire.services.pdf_provenance import digital_source_type_for_origin
+
+    return render_letter_docx(
+        letter, lang=lang, accent_color=accent_color,
+        digital_source_type=digital_source_type_for_origin(cl.origin),
+    )
 
 
 async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
@@ -2927,7 +2936,14 @@ async def _update_ats_report_letter(
         from applire.services.office_export.letter_docx import render_letter_docx
 
         docx_letter, docx_lang, docx_accent = await _prepare_cover_letter_docx_render(cl, db)
-        docx_bytes = render_letter_docx(docx_letter, lang=docx_lang, accent_color=docx_accent)
+        # ADR-085 / ruling 14: the same origin-derived mark get_cover_letter_docx
+        # stamps, so the audited bytes stay the served bytes (see the CV twin).
+        from applire.services.pdf_provenance import digital_source_type_for_origin
+
+        docx_bytes = render_letter_docx(
+            docx_letter, lang=docx_lang, accent_color=docx_accent,
+            digital_source_type=digital_source_type_for_origin(cl.origin),
+        )
 
         docx_job = await db.get(JobAnalysis, cl.job_analysis_id)
         # ADR-048 / US203: same Keyword Ledger bucketing as the PDF audit —

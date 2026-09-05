@@ -48,6 +48,7 @@ from docx.text.paragraph import Paragraph
 from pydantic import BaseModel
 
 from applire.services.office_export.provenance import mark_document
+from applire.services.pdf_provenance import current_provenance
 
 # A4 (210mm x 297mm) — the DACH-standard page size the PDF path already
 # renders at (``_html_to_pdf``'s Playwright call uses ``format="A4"``); the
@@ -69,7 +70,9 @@ _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 _HEADING_STYLES = {1: "Heading 1", 2: "Heading 2", 3: "Heading 3"}
 
 
-def new_document(title: str | None = None) -> DocxDocument:
+def new_document(
+    title: str | None = None, *, digital_source_type: str | None = None
+) -> DocxDocument:
     """A fresh ``python-docx`` ``Document`` with A4 page size, standard
     margins and the base font set on the ``Normal`` style — the shared
     starting point every office-export writer builds on.
@@ -80,10 +83,26 @@ def new_document(title: str | None = None) -> DocxDocument:
     kind, below the language, below both doors. ``title`` is the one part of the
     mark a caller must supply, because it is language- and name-dependent
     (writer collector #601).
+
+    ``digital_source_type`` (ADR-085, founder ruling 14 of 2026-09-05) is the
+    SECOND caller-supplied part, for the same reason: the seam cannot see who
+    authored the content. ``None`` keeps the module default
+    (``trainedAlgorithmicMedia``), so every caller that does not know stays
+    uniform; a caller holding a document row passes
+    :func:`applire.services.pdf_provenance.digital_source_type_for_origin` of
+    its ``origin``.
     """
     document = Document()
 
-    mark_document(document, title=title)
+    mark_document(
+        document,
+        title=title,
+        provenance=(
+            current_provenance(digital_source_type=digital_source_type)
+            if digital_source_type is not None
+            else None
+        ),
+    )
 
     section = document.sections[0]
     section.page_width = PAGE_WIDTH

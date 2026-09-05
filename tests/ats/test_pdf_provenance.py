@@ -80,8 +80,15 @@ _MINIMAL_LETTER_HTML = (
 )
 
 
-def _assert_marked(pdf: bytes, label: str) -> dict:
-    """The one predicate every presence test asserts, so it cannot drift."""
+def _assert_marked(
+    pdf: bytes, label: str, source_type: str = DIGITAL_SOURCE_TYPE
+) -> dict:
+    """The one predicate every presence test asserts, so it cannot drift.
+
+    ``source_type`` defaults to the uniform ``trainedAlgorithmicMedia``; ADR-085
+    ruling 14 (2026-09-05) gives the BYOI agent door the composite value, and
+    that caller states it here rather than growing a second predicate.
+    """
     import fitz  # PyMuPDF — property 3 in the module docstring
 
     document = fitz.open(stream=pdf, filetype="pdf")
@@ -95,8 +102,8 @@ def _assert_marked(pdf: bytes, label: str) -> dict:
     xmp, info = found["xmp"], found["info"]
 
     assert xmp.get(f"{APPLIRE_NS_PREFIX}:aiGenerated") == "true", f"{label}: XMP {xmp}"
-    assert xmp.get("Iptc4xmpExt:DigitalSourceType") == DIGITAL_SOURCE_TYPE, (
-        f"{label}: the interoperable half is missing — {xmp}"
+    assert xmp.get("Iptc4xmpExt:DigitalSourceType") == source_type, (
+        f"{label}: the interoperable half is missing or wrong — {xmp}"
     )
     for key in INFO_KEYS:
         assert key in info, f"{label}: Info key {key} missing — {info}"
@@ -130,9 +137,10 @@ async def test_letter_template_pdf_carries_the_provenance_mark(template, lang):
     _assert_marked(await _html_to_pdf(html), f"letter/{template}/{lang}")
 
 
-@pytest.mark.asyncio
-async def test_cover_letter_render_seam_marks_its_own_output(monkeypatch):
-    """The SECOND Chromium call site, driven through its real function body."""
+def _letter_render_pdf(monkeypatch, origin: str | None):
+    """Drive ``cover_letter_pdf.render_pdf``'s real body with only its session
+    and HTML source stubbed — Chromium, the mark and the read-back are real.
+    ``origin`` is what the stub session reports for the row (ADR-054)."""
 
     class _NullSession:
         async def __aenter__(self):
@@ -141,13 +149,56 @@ async def test_cover_letter_render_seam_marks_its_own_output(monkeypatch):
         async def __aexit__(self, *exc):
             return False
 
+        async def scalar(self, *args, **kwargs):
+            return origin
+
     async def _html(cl_id, db, require_ready=True):
         return _MINIMAL_LETTER_HTML
 
     monkeypatch.setattr(cover_letter_pdf, "AsyncSessionLocal", lambda: _NullSession())
     monkeypatch.setattr(cover_letter_pdf, "get_cover_letter_html", _html)
+    return cover_letter_pdf.render_pdf(uuid4())
 
-    _assert_marked(await cover_letter_pdf.render_pdf(uuid4()), "cover_letter_pdf")
+
+@pytest.mark.asyncio
+async def test_cover_letter_render_seam_marks_its_own_output(monkeypatch):
+    """The SECOND Chromium call site, driven through its real function body."""
+    _assert_marked(await _letter_render_pdf(monkeypatch, "pipeline"), "cover_letter_pdf")
+
+
+@pytest.mark.asyncio
+async def test_cv_render_seam_marks_an_agent_row_composite():
+    """ADR-085 ruling 14 on the CV Chromium seam, real render, real read-back.
+    ``get_cv_pdf`` derives this argument from the row's ``origin`` (ADR-054);
+    here the seam itself is shown to carry the value through to the file."""
+    from applire.services.pdf_provenance import COMPOSITE_DIGITAL_SOURCE_TYPE
+
+    html = _jinja_env.get_template(CV_TEMPLATES["classic_german"]).render(
+        cv=_CV_FIXTURES["de"],
+        color=_default_context(),
+        lang="de",
+        labels=cv_labels("de"),
+    )
+    _assert_marked(
+        await _html_to_pdf(html, digital_source_type=COMPOSITE_DIGITAL_SOURCE_TYPE),
+        "cv/_html_to_pdf/agent",
+        COMPOSITE_DIGITAL_SOURCE_TYPE,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_render_seam_marks_an_agent_row_composite(monkeypatch):
+    """ADR-085 ruling 14 at the DELIVERY point, through real Chromium: a letter
+    row the BYOI door authored (``origin='agent'``, ADR-054 §4) carries
+    ``compositeWithTrainedAlgorithmicMedia`` — Applire rendered that content and
+    cannot attest its authorship. The test above is its negative control."""
+    from applire.services.pdf_provenance import COMPOSITE_DIGITAL_SOURCE_TYPE
+
+    _assert_marked(
+        await _letter_render_pdf(monkeypatch, "agent"),
+        "cover_letter_pdf/agent",
+        COMPOSITE_DIGITAL_SOURCE_TYPE,
+    )
 
 
 @pytest.mark.asyncio

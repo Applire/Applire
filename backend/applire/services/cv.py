@@ -96,7 +96,11 @@ from applire.prompts.review_cv_language import (
 from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
 from applire.services.load_bearing import bullet_carries_figure
-from applire.services.pdf_provenance import render_marked_pdf
+from applire.services.pdf_provenance import (
+    current_provenance,
+    digital_source_type_for_origin,
+    render_marked_pdf,
+)
 from applire.services.reviewer import review_and_refine
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.language_detection import (
@@ -2521,8 +2525,20 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
 
 
 async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
+    """The delivered CV PDF.
+
+    ADR-085 / ruling 14: this is where an agent-authored document's mark is
+    decided, not inside ``render_agent_cv`` — the BYOI door persists the row and
+    hands the caller THIS url (``mcp/server.py``'s ``render_document``), so the
+    bytes a caller receives are produced here, and here again on every later
+    download. Reading ``record.origin`` (ADR-054: ``"agent"`` vs ``"pipeline"``)
+    therefore marks every fetch correctly, not only the one during the tool call.
+    """
+    record = await _load_cv_ready(cv_id, db)
     html = await get_cv_html(cv_id, db)
-    return await _html_to_pdf(html)
+    return await _html_to_pdf(
+        html, digital_source_type=digital_source_type_for_origin(record.origin)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2631,8 +2647,13 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
 
     record = await _load_cv_ready(cv_id, db)
     tailored, lang, accent_color, photo_bytes = await _prepare_cv_docx_render(record, db)
+    # ADR-085 / ruling 14: the .docx is exported from the PERSISTED row, at any
+    # later time, so the row's own `origin` (ADR-054) is the only thing that can
+    # tell an agent-authored document from a pipeline-authored one here. It is
+    # recorded (models/cv.py, migration 0051) — the mark just never read it.
     return render_cv_docx(
-        tailored, lang=lang, accent_color=accent_color, photo_bytes=photo_bytes
+        tailored, lang=lang, accent_color=accent_color, photo_bytes=photo_bytes,
+        digital_source_type=digital_source_type_for_origin(record.origin),
     )
 
 
@@ -3408,7 +3429,16 @@ async def _load_cv_ready(cv_id: uuid.UUID, db: AsyncSession) -> GeneratedCV:
     return record
 
 
-async def _html_to_pdf(html: str) -> bytes:
+async def _html_to_pdf(html: str, *, digital_source_type: str | None = None) -> bytes:
+    """Render HTML to a provenance-marked PDF.
+
+    ``digital_source_type`` (ADR-085, founder ruling 14 of 2026-09-05) is the
+    ONE part of the mark this seam cannot derive: it says who authored the
+    CONTENT, which is a property of the document row, not of the render. A
+    caller holding a ``GeneratedCV`` passes
+    ``digital_source_type_for_origin(record.origin)``; ``None`` keeps the
+    uniform default, so nothing about the pipeline door changes.
+    """
     async with async_playwright() as pw:
         browser = await pw.chromium.launch()
         page = await browser.new_page()
@@ -3420,6 +3450,11 @@ async def _html_to_pdf(html: str) -> bytes:
             format="A4",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+            provenance=(
+                current_provenance(digital_source_type=digital_source_type)
+                if digital_source_type is not None
+                else None
+            ),
         )
         await browser.close()
     return pdf_bytes
@@ -4225,6 +4260,12 @@ async def _update_ats_report(
             lang=docx_lang,
             accent_color=docx_accent,
             photo_bytes=docx_photo_bytes,
+            # ADR-085 / ruling 14: the same origin-derived mark get_cv_docx
+            # stamps. This block's own claim is that it audits the DELIVERED
+            # document and never a differently-prepared stand-in; leaving the
+            # source type off here would make the audited bytes differ from the
+            # served bytes for exactly the agent-door rows.
+            digital_source_type=digital_source_type_for_origin(record.origin),
         )
 
         docx_job = await db.get(JobAnalysis, record.job_analysis_id)
