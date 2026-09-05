@@ -1229,7 +1229,9 @@
       "duplicate-bullets": "No duplicate bullet points",
       "skills-near-dupe": "No near-duplicate skills",
       "page-length": "Page length",
-      "skills-weak-vault-tie": "Skills with only a weak profile link"
+      "skills-weak-vault-tie": "Skills with only a weak profile link",
+      "terminal-review": "Final document review",
+      "narrative-evidence": "Evidence in the work history, not only as a skill"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
