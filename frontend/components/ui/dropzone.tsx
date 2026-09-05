@@ -29,8 +29,26 @@ interface DropzoneProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onDr
   disabled?: boolean;
 }
 
+/**
+ * Frontend collector #604 — the dropzone advertised "PDF, DOCX, DOC" only, while
+ * plain text, Markdown and images all upload successfully. Undersold, not broken.
+ *
+ * Grounded in `services/cv_parser.py::detect_format` and the `/api/profile/upload`
+ * docstring ("PDF (text + OCR fallback for scanned), DOCX, JPEG/PNG, plain text"),
+ * NOT in what the label happened to say. Keep this list, the `formatHint`
+ * catalog string and the caller's own `accept` in step — a picker that filters
+ * out what the text promises is a worse mismatch than the one being fixed, which
+ * is what `__tests__/dropzone.test.tsx` pins.
+ *
+ * Images go through the configured OCR backend (`OCR_BACKEND`, default
+ * `mistral_vision`), so an instance without that key will reject them — an
+ * operator-configuration limit, not a product one.
+ */
+export const CV_UPLOAD_ACCEPT =
+  ".pdf,.docx,.doc,.txt,.md,.jpg,.jpeg,.png,.tiff,.tif,.bmp,.webp";
+
 const Dropzone = React.forwardRef<HTMLInputElement, DropzoneProps>(
-  ({ accept = ".pdf,.docx,.doc", multiple = true, onDrop, disabled, className, ...props }, ref) => {
+  ({ accept = CV_UPLOAD_ACCEPT, multiple = true, onDrop, disabled, className, ...props }, ref) => {
     const t = useTranslations("dropzone");
     const [isDragOver, setIsDragOver] = React.useState(false);
     const inputRef = React.useRef<HTMLInputElement>(null);
