@@ -83,7 +83,6 @@ CUSTOM_PROPS_PARTNAME = "/docProps/custom.xml"
 PROP_GENERATED = "AIGenerated"
 PROP_GENERATED_BY = "AIGeneratedBy"
 PROP_GENERATED_AT = "AIGeneratedAt"
-PROP_MODEL_PROVIDER = "AIModelProvider"
 PROP_SOURCE_TYPE = "AIDigitalSourceType"
 PROP_MARKING_SPEC = "AIMarkingSpec"
 
@@ -91,7 +90,6 @@ CUSTOM_PROP_NAMES: tuple[str, ...] = (
     PROP_GENERATED,
     PROP_GENERATED_BY,
     PROP_GENERATED_AT,
-    PROP_MODEL_PROVIDER,
     PROP_SOURCE_TYPE,
     PROP_MARKING_SPEC,
 )
@@ -103,7 +101,6 @@ def provenance_properties(provenance: Provenance) -> dict[str, str]:
         PROP_GENERATED: "true",
         PROP_GENERATED_BY: f"{provenance.generator} {provenance.generator_version}",
         PROP_GENERATED_AT: provenance.generated_at,
-        PROP_MODEL_PROVIDER: provenance.model_provider,
         PROP_SOURCE_TYPE: provenance.digital_source_type,
         PROP_MARKING_SPEC: MARKING_SPEC,
     }

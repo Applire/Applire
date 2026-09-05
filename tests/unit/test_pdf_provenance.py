@@ -35,6 +35,7 @@ that looked correct and passed everything else:
   see, because nothing ever raises.
 """
 import ast
+import dataclasses
 import io
 from pathlib import Path
 from xml.etree import ElementTree
@@ -62,7 +63,6 @@ _PROVENANCE = Provenance(
     generator="Applire",
     generator_version="0.0.0-test",
     generated_at="2026-09-04T12:00:00+00:00",
-    model_provider="mistral",
 )
 
 
@@ -90,9 +90,8 @@ def test_xmp_values_that_would_break_the_packet_are_neutralised():
     """A value carrying markup or a control character must not produce broken XML."""
     hostile = Provenance(
         generator="Applire",
-        generator_version="</applireAI:generatorVersion><evil/>",
+        generator_version="</applireAI:generatorVersion><evil/>\x00 & co <script>",
         generated_at="2026-09-04T12:00:00+00:00",
-        model_provider="mis\x00tral & co <script>",
     )
     packet = build_xmp_packet(hostile).decode("utf-8")
     inner = packet[
@@ -109,19 +108,62 @@ def test_marked_pdf_carries_both_carriers_and_reads_back():
 
     assert found["xmp"][f"{APPLIRE_NS_PREFIX}:aiGenerated"] == "true"
     assert found["xmp"][f"{APPLIRE_NS_PREFIX}:generatorVersion"] == "0.0.0-test"
-    assert found["xmp"][f"{APPLIRE_NS_PREFIX}:modelProvider"] == "mistral"
     assert found["xmp"]["Iptc4xmpExt:DigitalSourceType"] == DIGITAL_SOURCE_TYPE
     assert set(found["info"]) == set(INFO_KEYS)
     assert is_marked(marked)
 
 
-def test_the_mark_never_carries_a_key_or_a_model_id():
-    """ADR-085 clause 3 — what the mark must NOT say."""
-    provenance = current_provenance(model_provider="openrouter")
+def test_the_mark_never_carries_a_key_a_model_id_or_the_provider_name():
+    """ADR-085 clause 3, amended by founder ruling 15 (2026-09-05).
+
+    The mark used to name the configured LLM provider family on both carriers.
+    Ruling 15 dropped that property entirely — the mark now carries only
+    generator, version, timestamp, DigitalSourceType and the marking spec.
+
+    The set comparisons below are **equality** against literals spelled out
+    right here, not against this module's own constants — a mutation that
+    reintroduces a provider key consistently in both a module constant and
+    its user would sail past a check phrased as "matches the constant", so
+    the ground truth is hardcoded independently of ``INFO_KEYS`` too.
+    """
+    provenance = Provenance(
+        generator="Applire",
+        generator_version="0.0.0-test",
+        generated_at="2026-09-04T12:00:00+00:00",
+    )
+    field_names = {f.name for f in dataclasses.fields(Provenance)}
+    assert field_names == {
+        "generator",
+        "generator_version",
+        "generated_at",
+        "digital_source_type",
+    }, field_names
+
     marked = mark_pdf_bytes(_blank_pdf(), provenance)
+    found = read_provenance(marked)
+
+    expected_xmp_keys = {
+        f"{APPLIRE_NS_PREFIX}:aiGenerated",
+        f"{APPLIRE_NS_PREFIX}:generator",
+        f"{APPLIRE_NS_PREFIX}:generatorVersion",
+        f"{APPLIRE_NS_PREFIX}:generatedAt",
+        f"{APPLIRE_NS_PREFIX}:markingSpec",
+        "Iptc4xmpExt:DigitalSourceType",
+        "xmp:CreatorTool",
+    }
+    assert set(found["xmp"]) == expected_xmp_keys, found["xmp"]
+
+    expected_info_keys = {
+        "/AIGenerated",
+        "/AIGeneratedBy",
+        "/AIGeneratedAt",
+        "/AIDigitalSourceType",
+    }
+    assert set(found["info"]) == expected_info_keys, found["info"]
+    assert set(found["info"]) == set(INFO_KEYS), found["info"]
+
     blob = marked.decode("latin-1")
-    assert "openrouter" in blob
-    for forbidden in ("sk-", "api_key", "Bearer ", "openrouter/"):
+    for forbidden in ("sk-", "api_key", "Bearer ", "mistral", "openrouter", "openai"):
         assert forbidden not in blob, forbidden
 
 
