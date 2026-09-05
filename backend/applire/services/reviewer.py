@@ -214,7 +214,12 @@ from applire.services.review_compliance import (
     aggregate_by_signal_class,
     measure_corrector_compliance,
 )
-from applire.services.review_issues import measure_reviewer_issues, normalize_issues
+from applire.services.review_issues import (
+    ReviewIssue,
+    ReviewSettle,
+    measure_reviewer_issues,
+    normalize_issues,
+)
 from applire.services.signal_disposition import ExhaustionDisposition, get_signal_disposition
 
 logger = logging.getLogger(__name__)
@@ -240,6 +245,8 @@ async def review_and_refine(
     settle_guard: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]] | None = None,
     structured_output: bool = False,
     signal_ids: Sequence[str] | None = None,
+    signal_issues_fn: Callable[[dict[str, Any]], Sequence[ReviewIssue]] | None = None,
+    on_settle: Callable[[ReviewSettle], None] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -352,6 +359,46 @@ async def review_and_refine(
                   over — which is the ONE way this parameter can make the loop raise
                   where it otherwise never does; it only triggers when a caller
                   explicitly opts in with a bad id, never for the production default.
+        signal_issues_fn: Optional (#542, ADR-076 clause 5) DETERMINISTIC signal source.
+                  Called once per round with the draft that round reviewed, and its
+                  ``ReviewIssue``s are folded into the corrector's ``feedback``
+                  alongside the reviewer's own blocking issues, through ADR-083 clause
+                  4's single transport (``corrector_feedback.fold_issues_into_feedback``
+                  — one implementation, five chains, ADR-066). Never an LLM call.
+
+                  **Evaluated only AFTER the ``approved`` and ``minor_only`` early
+                  returns** — i.e. only once this loop has already decided to call the
+                  corrector. That placement is the whole safety argument and it is
+                  structural, not a convention: a deterministic signal here can never
+                  create a round, flip ``approved``, change the retry count, or supply
+                  exhaustion fuel. The 2026-08-13 precedent ADR-076 restates
+                  ("no structural gate on ``approved`` — signals enter as issues for the
+                  model to judge, they do not force verdicts") is therefore preserved by
+                  construction. The visible consequence, stated rather than hidden: on a
+                  round the reviewer APPROVES, the signal never fires at all, and its
+                  finding ships — which is exactly why every signal wired here must name
+                  a ship-and-report surface (ADR-076 clause 2's floor).
+
+                  Its issues are deliberately kept OUT of ``last_issues``,
+                  ``measure_reviewer_issues`` and ``measure_corrector_compliance``: all
+                  three read REVIEWER-authored issues, and mixing a deterministic
+                  population into them would silently redefine ``REVIEW_EXHAUSTED
+                  issues=N``, the #306(a) precision fraction and the #537 compliance
+                  fractions. They get their own always-on ``REVIEW_SIGNAL_ISSUES`` line.
+                  Fail-safe: a raising ``signal_issues_fn`` is logged and treated as
+                  "no signal issues" (the direction that loses a signal, never the
+                  round). Default ``None`` reproduces today's behaviour bit-for-bit.
+        on_settle: Optional (#563 part D, ADR-021 amended 2026-09-04) report hook,
+                  invoked EXACTLY ONCE per call, at the single ``_settle`` site, with a
+                  ``ReviewSettle`` describing how this loop ended: the settle path
+                  (``None`` for the ``max_retries<=0`` short-circuit — the review layer
+                  did not run), whether the last verdict approved, the last verdict's
+                  blocking and minor issue texts, the rounds used, and the draft that
+                  actually ships. It runs AFTER every selection rule, so ``settled`` is
+                  the delivered draft. It returns nothing and cannot change what ships;
+                  a raising hook is logged and swallowed, because ADR-021's "never
+                  raises" contract must extend to reporting in the direction that loses
+                  the report rather than the document. Default ``None`` is a no-op.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -606,6 +653,36 @@ async def review_and_refine(
             log_signal_fallback_applied(chain_id, signal_id, path)
         return result
 
+    # #563 (D): the last verdict's normalized issues, split by the ADR-021 severity
+    # gate, plus the rounds used — the state `on_settle` reports. A cell rather than a
+    # closure variable because `_settle` is defined before the loop that sets it.
+    verdict_cell: dict[str, Any] = {"blocking": (), "minor": (), "approved": False, "rounds": 0}
+
+    def _report_settle(settled: dict[str, Any], path: str | None) -> None:
+        """Deliver the ``ReviewSettle`` report, once, without ever becoming a new
+        way for this function to raise (ADR-021's standing contract)."""
+        if on_settle is None:
+            return
+        try:
+            on_settle(
+                ReviewSettle(
+                    path=path,
+                    approved=bool(verdict_cell["approved"]),
+                    blocking_issues=tuple(verdict_cell["blocking"]),
+                    minor_issues=tuple(verdict_cell["minor"]),
+                    rounds=int(verdict_cell["rounds"]),
+                    settled=settled,
+                )
+            )
+        except Exception:
+            logger.error(
+                "review_and_refine: chain=%s on_settle raised on settle path=%s; the "
+                "document ships and the report is lost — never the other way round.",
+                chain_id,
+                path,
+                exc_info=True,
+            )
+
     def _settle(final: dict[str, Any], path: str | None = None) -> dict[str, Any]:
         """Apply the optional retention predicate(s), required-fields floor, and
         (#540) signal fallbacks to a draft this function is about to return.
@@ -627,6 +704,8 @@ async def review_and_refine(
             settled = settle_guard(settled, list(draft_history))
         if path is not None:
             settled = _apply_signal_fallbacks(settled, path)
+        # #563 (D): last, so the report describes the draft that actually ships.
+        _report_settle(settled, path)
         return settled
 
     if max_retries <= 0:
@@ -673,6 +752,15 @@ async def review_and_refine(
             issues = normalize_issues(review.get("issues", []))
             blocking = [i for i in issues if i.is_blocking]
             last_issues = [i.text for i in issues]
+            # #563 (D): keep the severity split for the settle report. `last_issues`
+            # keeps its flat, unsplit meaning — it feeds the exhaustion log line and
+            # the #540 fallback matcher, neither of which may change here.
+            verdict_cell.update(
+                blocking=tuple(i.text for i in blocking),
+                minor=tuple(i.text for i in issues if not i.is_blocking),
+                approved=approved,
+                rounds=attempt + 1,
+            )
             # #264: structured, always-on verdict line — every attempt, approved or
             # not, so retry-round distributions are countable without heuristic
             # prompt-matching over the (dev-only) debug log.
@@ -734,6 +822,38 @@ async def review_and_refine(
             # `feedback` unchanged, byte-identical. This is what actually
             # reaches `generator_prompt_fn` — `feedback` itself is untouched.
             corrector_feedback = fold_issues_into_feedback(feedback, issues)
+
+            # #542 (ADR-076 clause 5): deterministic SIGNAL issues join the corrector's
+            # feedback through the SAME transport, and only HERE — past the `approved`
+            # and `minor_only` early returns, so a signal can never create a round or
+            # force a verdict (see the `signal_issues_fn` docstring above). They are
+            # rendered by `fold_issues_into_feedback` exactly like reviewer findings
+            # because to the corrector they ARE findings; they are kept out of
+            # `last_issues` and out of both measurement passes so no existing metric's
+            # population changes underneath it.
+            signal_issues: list[ReviewIssue] = []
+            if signal_issues_fn is not None:
+                try:
+                    signal_issues = [i for i in signal_issues_fn(current_draft) if i.is_blocking]
+                except Exception:
+                    logger.error(
+                        "review_and_refine: chain=%s signal_issues_fn raised on attempt "
+                        "%d; continuing without deterministic signal issues (fail-safe: "
+                        "a lost signal ships what the loop would have shipped anyway).",
+                        chain_id,
+                        attempt + 1,
+                        exc_info=True,
+                    )
+                    signal_issues = []
+            if signal_issues:
+                corrector_feedback = fold_issues_into_feedback(corrector_feedback, signal_issues)
+                logger.info(
+                    "REVIEW_SIGNAL_ISSUES chain=%s attempt=%d raised=%d texts=%r",
+                    chain_id,
+                    attempt + 1,
+                    len(signal_issues),
+                    [i.text for i in signal_issues],
+                )
 
             retry_prompt = generator_prompt_fn(current_draft, corrector_feedback, source)
             logger.info(

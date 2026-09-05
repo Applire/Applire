@@ -29,9 +29,13 @@ class ATSCheck(BaseModel):
     # it out). Counted in its own bucket by `_finish()` — never folded into
     # `passed`/`failed`, and never silently absent, which is worse: an absent
     # check is invisible to both counters and reads as a clean, complete audit
-    # of something that was never examined (the #634 failure class). Nothing
-    # in this codebase constructs a `not_applicable` check yet — this widening
-    # is groundwork only; the producer is a separate, pending decision.
+    # of something that was never examined (the #634 failure class).
+    # Producers, in the order they arrived: `_page_band_not_applicable` on the
+    # `.docx` export (E057, the widening's original reason), and — since
+    # ADR-039 amended 2026-09-04 (#563 part D / #542) — `terminal-review` and
+    # `narrative-evidence` on the PRIMARY report, which is the first time the
+    # PDF-side report can carry this status at all. A renderer that only ever
+    # met it on the `.docx` report must be re-read.
     status: Literal["pass", "fail", "not_applicable"]
     details: Optional[str] = None  # human-readable EN diagnostic; frontend translates labels by id
     # E042 follow-up (ADR-038 chrome discipline): machine-readable variant of `details`
@@ -42,7 +46,9 @@ class ATSCheck(BaseModel):
     details_params: Optional[dict[str, int | str]] = None
     # E056/ADR-077 clause 5: structured driver for a fail band — machine-
     # readable on every door (an agent reading only pass/fail must not be the
-    # design assumption). Currently only {"pinned_facts": N} on page-length.
+    # design assumption). Two keys exist: {"pinned_facts": N} on page-length,
+    # and {"concepts": N} on `narrative-evidence` (ADR-039 amended 2026-09-04).
+    # Read the key, never assume the single one.
     driver: Optional[dict[str, int]] = None
 
 

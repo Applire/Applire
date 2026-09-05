@@ -117,7 +117,16 @@ def test_not_applicable_band_is_counted_in_its_own_bucket(audit, text, data):
     """It must reach neither the pass nor the fail numerator."""
     report = audit(text, data, keywords=[], page_band_not_applicable=True)
 
-    assert report.not_applicable == 1
+    # Scoped to the BAND (2026-09-04). This read `== 1` while the band was the only
+    # producer of the status; ADR-039's 2026-09-04 amendment adds two always-present
+    # checks that are `not_applicable` on a ledger-less, review-outcome-less fixture, so
+    # a bare count would now assert something this test never meant. The invariant it
+    # DOES mean — the band lands in its own bucket and in no other — is unchanged, and
+    # the totals identity below still proves the buckets are exhaustive.
+    assert report.not_applicable == sum(
+        1 for c in report.checks if c.status == "not_applicable"
+    )
+    assert _band(report).status == "not_applicable"
     assert not any(c.status == "pass" and c.id == "page-length" for c in report.checks)
     assert not any(c.status == "fail" and c.id == "page-length" for c in report.checks)
     assert report.passed + report.failed + report.not_applicable == len(report.checks)
@@ -134,7 +143,10 @@ def test_default_is_unchanged_for_a_caller_supplying_a_page_count():
 
     band = _band(report)
     assert band is not None and band.status == "pass"
-    assert report.not_applicable == 0
+    # See the note above: the assertion is about the BAND, not about the report's total.
+    assert not any(
+        c.status == "not_applicable" and c.id == "page-length" for c in report.checks
+    )
 
 
 def test_default_is_unchanged_for_a_caller_supplying_nothing():
@@ -142,7 +154,9 @@ def test_default_is_unchanged_for_a_caller_supplying_nothing():
     report = _audit_cv_text(_CV_TEXT, _CV, keywords=[])
 
     assert _band(report) is None
-    assert report.not_applicable == 0
+    assert not any(
+        c.status == "not_applicable" and c.id == "page-length" for c in report.checks
+    )
 
 
 def test_not_applicable_wins_over_a_page_count_if_both_are_given():

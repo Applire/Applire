@@ -155,7 +155,7 @@ visibility itself is the last in-pipeline signal, not a preview of a later fix.
 
 """
 
-_CHECKS_AND_MANDATE = """\
+_CHECKS = """\
 Check for ALL of the following:
 1. FABRICATED BULLETS: Every bullet in every work entry must be grounded in the CANDIDATE
    PROFILE. Flag any bullet that claims a technology, achievement, project, metric, or
@@ -239,7 +239,13 @@ NEVER grounds anything — a concept is never affirmed by its own denial — and
 to the skills list unchanged: a DO NOT CLAIM concept in the skills list is a fabrication no
 matter where its text appears in the profile. A term the KEYWORD LEDGER lists as CLAIMABLE is
 never a forbidden claim.
+"""
 
+#: The PROSE door's mandate paragraph — byte-for-byte the text that shipped as the tail
+#: of the former ``_CHECKS_AND_MANDATE``. Split out (not edited) so the TERMINAL door can
+#: carry its own; the assembled ``REVIEW_SYSTEM_PROMPT`` below is unchanged, pinned by
+#: test.
+_MANDATE_PROSE = """\
 WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT check 2
 (role ownership is visibility-only — its enforcement is the deterministic audit that follows),
 and nothing else. Those checks are the whole of your mandate — they are the ways this CV can be
@@ -249,6 +255,91 @@ summary phrasing that does not change what is claimed, length, repetition. You a
 editor. You are the check on whether it tells the truth.
 
 """
+
+#: ADR-076 clause 9, BUILT 2026-09-04 (#545) — the whole-document questions, on the
+#: TERMINAL door ONLY. They cannot be asked of a drafting round: the prose draft has no
+#: composed document to read as a whole, no render measure and no letter beside it.
+#:
+#: NAMED checks, not a role sentence: ADR-083 measured an open "find anything that would
+#: weaken this CV" mandate at 0/5 on the class that prompted it, against 5/5 for one
+#: named check on the byte-identical input.
+#:
+#: VISIBILITY ONLY, and the severity is the decision — four reasons, each from an
+#: existing record. (a) Run 17: this reviewer's last blocking widening produced 13 false
+#: blocking findings in 5 rounds and destroyed grounded content through the corrector
+#: while the deterministic audit found zero. (b) Every corrector round is a memoryless
+#: regeneration (ADR-021 wave-6), so a stylistic rewrite mandate is a truthfulness risk.
+#: (c) SF-WRITE.29, measured 2026-09-04: in the terminal round the corrector patches the
+#: PROSE draft while this reviewer reads the COMPOSED document, so a composite finding is
+#: frequently unactionable by the corrector anyway. (d) ADR-076 clause 7 puts the
+#: "does this sound like you?" seat with the human. Visibility-only is only worth having
+#: because #563(D) gave `minor` findings their first reader — the ADR-039
+#: `terminal-review` check reports them at the send seat.
+#:
+#: ONE finding per check for the whole document (ADR-083 clause 5's container bound,
+#: container = the composite): 1 of 5 arm-C runs split one cluster into three blocking
+#: issues on one location, which is the ADR-021 re-litigation pathology in miniature.
+_TERMINAL_CHECKS = """\
+TERMINAL-ROUND CHECKS — the two questions only the finished document can answer. Both are
+VISIBILITY ONLY: report what you find with severity "minor", NEVER "blocking", and never
+instruct the corrector to rewrite for either. What you write here is shown to the candidate
+with their document, and they decide. Report AT MOST ONE finding per check for the whole
+document — each is a property of the composite, and three findings describing one pattern is
+noise, not thoroughness.
+
+8. CLAIM BALANCE — over AND under. Checks 1 and 5 look for claims the profile does not support.
+   This one also looks the other way: is something the CANDIDATE PROFILE clearly supports, and
+   this posting clearly wants, missing from the delivered document — or present only as a skills
+   entry, or reduced to a phrase with its evidence gone? Include material the candidate scoped
+   or limited in their own words: a strength named inside a stated limit ("no IFS/BRC experience,
+   but ten years of ISO-9001 audit practice") is a real strength, and a document that drops it
+   under-sells the candidate. Name the profile evidence that is not represented and where it
+   would belong. Never ask for a skills-list entry — a tag is not evidence — and never ask for
+   anything the profile does not already support.
+
+9. VOICE — does this read as written by a person? The tell is mechanical uniformity, and every
+   pattern below is one of our own quality rules applied without exception:
+   - every bullet carries a number, with none left plain;
+   - the summary reproduces the posting's own requirement list in the posting's order;
+   - one construction repeated — "[measure] from X to Y", four times, near-identical;
+   - the same figures in the same order as the cover letter, so the pair reads as one document
+     and its compressed copy.
+   Report the pattern and quote two examples of it. Two things you must NOT do: never propose
+   removing a figure or a fact to break a pattern — a line vaguer than the truth is the worse
+   defect — and never touch an unprompted admission of a gap or a limit. Blind readers name that
+   admission as the strongest single reason to trust a document; it must survive any voice work.
+
+"""
+
+#: The TERMINAL door's mandate. The prose door's paragraph is byte-identical to what
+#: shipped; this one differs in exactly two ways, both forced.
+#:
+#: (1) It names checks 8 and 9 as visibility-only. Without that the model must infer a
+#: severity for a check that has none, and #563's own triage records this reviewer filing
+#: a "blocking" on check 2 whose text says VISIBILITY ONLY — the inference is not safe.
+#:
+#: (2) Its closing sentence stops saying the mandate IS truthfulness. ADR-062 clause 4
+#: forbids a prompt contradicting itself about one concept, and ADR-083's Context item 1
+#: is the measurement that the model OBEYS such an exclusion rather than the check: the
+#: one production run that noticed redundancy filed it `minor` because this paragraph
+#: required exactly that.
+#:
+#: `repetition` STAYS on the minor list, on both doors. That is ADR-082's decision —
+#: repetition is detected by the ATS audit and never repaired by the loop — and ADR-083
+#: clause 3 is the open counter-proposal, not a licence taken here.
+_MANDATE_TERMINAL = """\
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT checks 2, 8
+and 9, and nothing else. Those three are VISIBILITY ONLY: check 2's enforcement is the
+deterministic audit that follows, and checks 8 and 9 are the candidate's own call, shown to them
+with the document. Anything else you notice is "minor" BY DEFINITION: bullet wording, bullet
+order, which achievement leads an entry, summary phrasing that does not change what is claimed,
+length, repetition — and so is everything you find under checks 8 and 9. You are not the CV's
+editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
+and 3-7 are whether this CV tells the truth; checks 8 and 9 are whether it represents the
+candidate. This is the only round that sees the finished document, so both get answered here.
+
+"""
+
 
 _SCHEMA_AND_CLOSER = review_output_schema(
     issue_hint="specific issue with work_history index and description — empty array if nothing found",
@@ -261,10 +352,23 @@ re-reads the candidate profile itself (ADR-021 amended 2026-06-29). The one exce
 check 7's pinned quote, which goes into the ISSUE text in double quotes; the feedback
 still names the entry id and the first words only."""
 
-REVIEW_SYSTEM_PROMPT = _AUDITOR_INTRO + _SHAPE_NOTE_PROSE + _CHECKS_AND_MANDATE + _SCHEMA_AND_CLOSER
+# ONE definition of the checks; TWO doors, differing only in the shape note and the
+# mandate (v9 kept them byte-identical, which is exactly why clause 9 could not land
+# without this split — the shared blob ended by declaring clause 9's questions "minor"
+# BY DEFINITION, and adding a check without touching that would have been the ADR-062
+# clause-4 self-contradiction ADR-083 measured the model obeying).
+REVIEW_SYSTEM_PROMPT = (
+    _AUDITOR_INTRO + _SHAPE_NOTE_PROSE + _CHECKS + "\n" + _MANDATE_PROSE + _SCHEMA_AND_CLOSER
+)
 
 TERMINAL_REVIEW_SYSTEM_PROMPT = (
-    _AUDITOR_INTRO + _SHAPE_NOTE_TERMINAL + _CHECKS_AND_MANDATE + _SCHEMA_AND_CLOSER
+    _AUDITOR_INTRO
+    + _SHAPE_NOTE_TERMINAL
+    + _CHECKS
+    + "\n"
+    + _TERMINAL_CHECKS
+    + _MANDATE_TERMINAL
+    + _SCHEMA_AND_CLOSER
 )
 
 

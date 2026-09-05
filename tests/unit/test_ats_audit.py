@@ -900,7 +900,12 @@ def test_unicode_extraction_variants():
     # Text contains decomposed form of the name
     text_decomposed = f"Jörg Müller"
     report = _audit_cv_text(text_decomposed, cv_mueller, keywords=[])
-    assert all(c.status == "pass" for c in report.checks), \
+    # Scoped to the checks this test is ABOUT (2026-09-04). The assertion used to read
+    # `all(...)`, which was a convenient shorthand while every check in a minimal report
+    # was a presence check. Since ADR-039's 2026-09-04 amendment two checks are always
+    # present and are `not_applicable` on a fixture with no ledger and no review
+    # outcome, so `all(pass)` would now assert something this test never meant.
+    assert all(c.status == "pass" for c in report.checks if c.id.startswith("contact-")), \
         f"decomposed umlaut in text should still match; checks: {report.checks}"
 
     # Soft hyphen in text: "Pro­fil" (U+00AD between o and f)
@@ -914,7 +919,7 @@ def test_unicode_extraction_variants():
     })
     text_softhyphen = "Pro­fil Expert"
     report2 = _audit_cv_text(text_softhyphen, cv_profil, keywords=[])
-    assert all(c.status == "pass" for c in report2.checks), \
+    assert all(c.status == "pass" for c in report2.checks if c.id.startswith("contact-")), \
         f"soft hyphen in text should be stripped before matching; checks: {report2.checks}"
 
     # Ligature fi (U+FB01): "Proﬁ" (P-r-o-U+FB01) in text, needle is "Profi"
@@ -928,7 +933,7 @@ def test_unicode_extraction_variants():
     })
     text_ligature = "Proﬁ Engineer"  # U+FB01 = ﬁ ligature → NFKC → "fi"
     report3 = _audit_cv_text(text_ligature, cv_profi, keywords=[])
-    assert all(c.status == "pass" for c in report3.checks), \
+    assert all(c.status == "pass" for c in report3.checks if c.id.startswith("contact-")), \
         f"fi-ligature in text should expand to 'fi' before matching; checks: {report3.checks}"
 
 

@@ -1236,7 +1236,9 @@
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",
-      "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug"
+      "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
+      "terminal-review": "Abschlussprüfung des Dokuments",
+      "narrative-evidence": "Belege im Werdegang statt nur als Skill"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
