@@ -34,6 +34,8 @@ System prompt fingerprints:
   "cv profile corrector"           → CV extraction refinement   (aparse_json → dict)
   "profile data corrector"         → profile extraction refinement (aparse_json → dict)
   "tailored cv corrector"          → CV tailoring refinement    (aparse_json → dict)
+  "career analyst. given a candidate's complete experience history"
+                                   → batch skill estimation (aparse_json → dict, prompt-keyed)
   "experience field analyst"       → role field expectations    (aparse_json → dict, prompt-keyed)
   "verifying one narrow claim"     → ADR-061 stance adjudication (aparse_json → dict, prompt-keyed)
   "strict verification function"   → Oracle narrow entailment (#404 retrofit) (aparse_json → dict)
@@ -466,6 +468,54 @@ _STANCE_ADJUDICATION_RE = re.compile(
 _WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
 
+_SKILL_ESTIMATION_RE = re.compile(
+    r"Estimate years of experience for each of the following skills:\n(\[.*?\])\n",
+    re.DOTALL,
+)
+
+
+def _mock_skill_estimation(prompt: str) -> dict[str, Any]:
+    """Deterministic stand-in for the batch skill-estimation call (#658).
+
+    Real response shape (``{"SkillName": integer_or_null, …}``) rather than the
+    generic ``{"mock": …}`` fallback, which ``skill_enrichment`` reads as "no
+    estimate for anything" — so the seam was never exercised on the mock stack
+    at all, in either direction. That is the #264 lesson in a new place (ADR-047:
+    the mock mirrors the response SHAPE, so the mock suites test the same
+    branching as production).
+
+    No randomness, and grounded exactly as the real prompt instructs: a skill
+    gets an integer ONLY when its name occurs literally in the experience
+    history block the caller supplied, and ``null`` otherwise — never a number
+    invented for a skill the input does not support. Both branches of the
+    caller's own handling are therefore reachable on the mock stack.
+    """
+    match = _SKILL_ESTIMATION_RE.search(prompt)
+    if not match:
+        # Prompt shape changed underneath this parser — fail toward the caller's
+        # own safe default (no estimates) rather than guessing.
+        return {"mock": True, "raw_prompt_length": len(prompt)}
+
+    try:
+        skill_names = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {"mock": True, "raw_prompt_length": len(prompt)}
+
+    history = prompt[: match.start()].lower()
+    estimates: dict[str, Any] = {}
+    for name in skill_names:
+        if not isinstance(name, str):
+            continue
+        grounded = re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", history)
+        estimates[name] = _MOCK_SKILL_YEARS if grounded else None
+    return estimates
+
+
+#: Deliberately small and well inside `_max_plausible_years` (#264) for every
+#: realistic career span, so the mock can never trip the caller's own ceiling.
+_MOCK_SKILL_YEARS = 3
+
+
 def _mock_stance_adjudication(prompt: str) -> dict[str, Any]:
     """Deterministic stand-in for the real testimony adjudication call.
 
@@ -678,6 +728,16 @@ class MockLLMProvider(LLMProvider):
             # a shape NO real provider can emit — so CI stayed green while every
             # production clustering call collapsed to [] (false "strong match").
             return {"clusters": list(_CLUSTERING_RESPONSE)}
+
+        # Infra collector #658 — the ONE system prompt that matched no
+        # fingerprint, so `services/skill_enrichment.py:410`'s direct
+        # `aparse_json` degraded to the generic {"mock": ...} fallback and the
+        # whole skill-estimation seam had zero IQ/OQ/PQ coverage. Distinct from
+        # "expert career analyst" (gap clustering) above: this prompt opens with
+        # "You are a career analyst. Given a candidate's complete experience
+        # history …", so neither fingerprint can match the other's prompt.
+        if "career analyst. given a candidate's complete experience history" in system_lower:
+            return _mock_skill_estimation(prompt)
 
         if "three-category gap analysis" in system_lower:
             return dict(_GAP_ANALYSIS_RESPONSE)
