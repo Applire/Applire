@@ -1180,6 +1180,11 @@ def _terminal_review_check(terminal_review, previous_report: dict | None) -> ATS
 #: Stable machine id for ADR-076 clause 5's send-seat report (#542).
 NARRATIVE_EVIDENCE_CHECK_ID = "narrative-evidence"
 
+#: How many concepts the diagnostic NAMES before it starts counting. Six is the point
+#: at which a reader stops reading a list and starts reading a wall; the full count
+#: always survives in `driver.concepts`.
+_NARRATIVE_EVIDENCE_DETAIL_MAX = 6
+
 
 def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, Any]] | None) -> ATSCheck:
     """#542 / ADR-076 clause 5: is the evidence behind the CV's own claims on the page?
@@ -1207,13 +1212,20 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
     missing = verified_narrative_underclaim(tailored.model_dump(mode="json"), ledger)
     if not missing:
         return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
+    # Bounded by RANK, not by a character cap: `verified_narrative_underclaim` returns
+    # `fit_weight`-descending, so the first entries are the ones most central to this
+    # role. A raw character truncation would cut the list at an arbitrary concept and
+    # give no indication that it had. The remainder is counted, never silently dropped
+    # — and `driver.concepts` always carries the full count.
+    shown, rest = missing[:_NARRATIVE_EVIDENCE_DETAIL_MAX], missing[_NARRATIVE_EVIDENCE_DETAIL_MAX:]
     named = ", ".join(
         f"{c.concept} (claimed but not evidenced)" if c.tag_only else f"{c.concept} (absent)"
-        for c in missing
+        for c in shown
     )
+    more = f" …and {len(rest)} more." if rest else ""
     details = (
         "Required capabilities the candidate genuinely supports are not shown in any "
-        f"work-entry or project bullet: {named}. A skills-list entry alone reads to a "
+        f"work-entry or project bullet: {named}.{more} A skills-list entry alone reads to a "
         "hiring reviewer as an unmet requirement."
     )
     return ATSCheck(

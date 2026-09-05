@@ -464,3 +464,23 @@ def test_the_worse_outcome_of_a_delivery_survives_a_clean_later_round():
     assert good.worse_of(bad).status == "fail"
     assert bad.worse_of(good).status == "fail"
     assert good.worse_of(bad).rounds == bad.rounds + good.rounds
+
+
+def test_the_narrative_evidence_details_are_bounded_by_rank_and_count_the_rest():
+    """A raw character truncation would cut the list at an arbitrary concept with no
+    indication that it had. `verified_narrative_underclaim` returns fit_weight-
+    descending, so the named ones are the most role-central; the rest is counted."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    ledger = [
+        {"concept": f"Concept {i}", "claimable": True, "status": "direct",
+         "fit_weight": 1.0 + i, "evidence": "e", "surface_forms": [f"Concept {i}"]}
+        for i in range(10)
+    ]
+    report = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], ledger=ledger)
+    check = next(c for c in report.checks if c.id == "narrative-evidence")
+    assert check.status == "fail"
+    assert check.driver == {"concepts": 10}, "the full count always survives in driver"
+    assert "Concept 9" in (check.details or ""), "the highest-ranked concept is named"
+    assert "…and 4 more." in (check.details or "")
+    assert len(check.details or "") <= 1200
