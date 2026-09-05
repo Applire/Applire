@@ -6,6 +6,123 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.41.0-beta] – 2026-09-05
+
+The Stracciatella release candidate: the document gets the screen and the
+findings get the user's questions, the job posting is treated as data, every
+delivered document declares its provenance, and the review loop learns to say
+what it could not finish. Seven work packages, one database migration (0060).
+
+### Added
+- **The document review surface (E058)** — the generated document is the largest
+  thing on the screen; what the system found about it renders as four questions in
+  a fixed order (in the document but not in my profile · missing although my
+  profile covers it · missing and not covered · is the craft sound) headed by one
+  verdict sentence whose number is the count of rows actually rendered. Two
+  reading modes over one data model, `overview` and `guided`, with `auto`
+  following the document (guided while it still has unwalked findings, keyed on
+  the generated-document id). Group 2 names the length trade and the three
+  existing handles instead of offering a fix that would lie. A producer that did
+  not run reads as *unknown*, never as zero (US299–US302; ADR-081, amended;
+  migration 0060 `user_settings.review_mode`).
+- **Untrusted job-posting text is data, not instructions (ADR-084)** — one
+  boundary helper marks the posting and every posting-derived string at all 33
+  points where they enter a prompt, in two forms (a fence for contiguous
+  third-party text, a provenance note for blocks that interleave our own rules
+  with posting terms the writer must reproduce verbatim); MCP tool results that
+  hand posting-derived text to the user's agent carry an `untrusted_content`
+  marker; a 12-posting injection corpus with benign twins is the measurable
+  control in the real-provider tier (#445, #446, #447).
+- **Every rendered document says, machine-readably, that AI made it (ADR-085,
+  EU AI Act Art. 50(2), in force 2026-12-02)** — an indirect XMP packet (IPTC
+  `DigitalSourceType = trainedAlgorithmicMedia` plus a documented `applireAI`
+  namespace) and Info-dictionary duplicates on every PDF, applied at the single
+  render seam below all templates, both languages and both doors; the `.docx`
+  export carries the same claim in OOXML custom properties and finally a Title.
+  The mark records the generation event and nothing else; downstream
+  re-processing strips it, which is documented and pinned rather than hidden
+  (#577).
+- **The review reports whether the review finished** — a `terminal-review` check
+  on the CV and cover-letter reports carries the terminal review's own outcome
+  (approved / exhausted / cycle) and its unresolved findings, carried forward
+  across re-audits so an edit cannot launder an exhausted review; a
+  `narrative-evidence` check on the CV names claimable, JD-relevant concepts the
+  document carries only as a skills tag (#563, #542; ADR-039 amended).
+- **Under-claiming becomes a bound signal (ADR-076 clause 5)** — a claimable
+  concept present in the vault and absent from the CV's narrative enters the
+  terminal review round as an issue the corrector must act on (bounded to the two
+  highest-weighted, satisfied only by a bullet or sentence, never by a tag), riding
+  the ADR-083 transport; exhaustion disposition ship-and-report (#542).
+- **The terminal review asks the whole-document questions (ADR-076 clause 9)** —
+  named checks for claim balance and voice (mechanical uniformity as the tell),
+  visibility-only, one finding per document; a reviewer replay went from 0/5 to
+  5/5 on the blind panel's own tells with zero findings on a clean document (#545).
+- **Applire installs on a phone and receives a shared posting (E040, US229)** —
+  a web-app manifest, icons and a service worker that caches the app shell and
+  nothing the user owns (`/api/` and `/static/` are never cached, so no Cache
+  Storage entry can outlive the retention TTLs); an Android `share_target` and a
+  `?jd_url=` / `?jd_text=` deep link prefill the Quick Tailor intake — prefill
+  only, analysis stays user-triggered. A posting URL shared from Chrome or
+  LinkedIn arrives inside `text`, and is recognised there (ADR-050 amended).
+- **The remaining pages work at 390 px (E040, US230)** — profile hub, My Documents
+  and the application dossier stack single-column; the mobile lane's overflow
+  predicate was rewritten so it can fire (the old body-scroll assertion could not,
+  and had hidden a squeezed language chip and a clipped Expires column). The CV
+  page's real editing surface opens and saves on a phone, and a sentence that
+  told mobile users to use a computer — which also pushed Save behind the
+  keyboard — is gone (US228, edit/save half; reorder is not claimed).
+
+### Changed
+- **The DO-NOT-CLAIM list can no longer contradict the profile beside it** — the
+  persisted Keyword Ledger is re-derived against the current vault at every
+  generation and report read, so a term the vault has learned since the analysis
+  is not forbidden to the writer and enforced against the candidate's own words
+  (#592; ADR-048 amended). A coverage demand now names the position that owns the
+  evidence, so a corrector cannot weld a term onto the wrong employer (#525).
+- **The cover letter names the employer once per paragraph, not once per
+  sentence** — the position-anchoring rule in the writer, the shared reviewer
+  check, the corrector and the condense prompt is rescoped from "every sentence
+  carrying a figure" to "the first sentence of an employer run in a paragraph";
+  a false justification (a guard that has not dropped unanchored figures since
+  #299) is removed. Replay: the old reviewer door demanded per-sentence anchors
+  5/5, the new door 0/5, while an unanchored paragraph is still caught 4/5 (#565;
+  ADR-021 amended).
+- **A limit the candidate stated in their own words is now an obligation, not a
+  permission (ADR-075, in force)** — the writer receives the denied concepts as
+  its own block, the reviewer has a named check for a missing disclosure, and the
+  positioning inputs carry it; replay on the run that shipped silent: disclosure
+  2/5 → 4/5 (#532).
+- **A cover-letter section override other than  is rejected at the door
+  with 422** instead of being accepted and silently dropped at render (#641), and
+  the letter's identity re-entry now carries the fact pins it used to lose (#601).
+- **The cover-letter dialog prefills the recipient company** from the job
+  analysis, and the upload dropzone lists what the backend actually accepts (#604).
+- **Vault housekeeping** — a targeted `set_field` on an existing entry is no longer
+  reported as a lost import; schema-rejected reconcile ops are logged at WARNING
+  with their type; `skills[].last_used` survives a merge import; an ALL-CAPS
+  employer name from a layout source yields to a mixed-case rendering; a mismatching
+  incoming scalar in personal info raises a conflict instead of vanishing (#602,
+  #620).
+- **The mock provider now recognises the skill-estimation prompt**, so that seam is
+  exercised by the mock-stack E2E tiers; an enumeration test fails when any
+  `*SYSTEM*` prompt lacks a fingerprint (#658).
+
+### Measured, not changed
+- ADR-076 clause 6's rank gate never fired on the CV drafting loop (the coverage
+  measure reads `work_history` while the writer's draft says `work`); the
+  reconcile rule ONE CONTAINER held 14/14 on a real provider; near-duplicate
+  re-adding was confirmed in a production log but not reproduced by replay (0/16);
+  JD extraction stability after PR #623 still varies across identical runs,
+  including the language its terms are rendered in — all recorded as collector
+  lines and FMEA rows, none silently fixed.
+
+### Fixed
+- The `.docx` export identifies itself: a language-correct Title in the document
+  properties (#601).
+- The documented Ollama path said nothing about pulling a model first and nothing
+  about the CPU-inference timeout; both READMEs and `.env.example` now do (found by
+  the pre-release blind install test).
+
 ## [0.40.0-beta] – 2026-08-30
 
 An interim release inside Stracciatella: the vault gets structured editors

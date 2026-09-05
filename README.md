@@ -348,6 +348,9 @@ OPENAI_API_KEY=your-openai-api-key-here
 #OPENAI_BASE_URL=http://host.docker.internal:1234/v1
 
 # Ollama — fully offline (docker compose --profile ollama up)
+# Pull a model once before the first run — the server starts empty:
+#   docker compose exec ollama ollama pull llama3.2      # or set OLLAMA_MODEL to the model you pulled
+# CPU-only inference is slow: raise LLM_TIMEOUT (e.g. 600) so generation is not cut off.
 OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=llama3.2
 
@@ -608,8 +611,16 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.40.0-beta)
+### ✅ Current Release (v0.41.0-beta)
 
+- [x] The generated document owns the screen: one review panel orders every finding by the question you actually have — in the document but not in my profile · missing although my profile covers it · missing and not covered · is the craft sound — headed by one verdict sentence, with an overview and a guided reading mode
+- [x] Every rendered PDF and .docx carries a machine-readable AI-provenance mark (EU AI Act Art. 50(2)): an XMP packet with IPTC `DigitalSourceType` and a documented Applire namespace, applied below all templates and both doors; a downstream re-render strips it, and the docs say so
+- [x] Job-posting text is data, not instructions: one boundary helper marks the posting and every posting-derived string at all 33 points where they enter a prompt, MCP results mark posting-derived text as untrusted, and a prompt-injection corpus is the measurable control
+- [x] The review report says whether the review finished: a `terminal-review` check carries the terminal review's outcome and open findings on both documents, and a `narrative-evidence` check names claimable concepts the CV carries only as a skills tag
+- [x] Under-claiming is a bound signal on the terminal round, and the terminal review asks the whole-document questions (claim balance, voice) as named, visibility-only checks
+- [x] The cover letter names the employer once per paragraph instead of once per sentence, and a limit the candidate stated in their own words is an obligation the writer must disclose
+- [x] The keyword ledger is re-derived against the current vault at every generation read, so a term the profile has learned since the analysis is never forbidden to the writer; a coverage demand names the position that owns the evidence
+- [x] Applire installs on a phone and receives a shared posting (manifest, service worker that caches nothing you own, Android share target with prefill only); profile hub, My Documents and the dossier work at 390 px
 - [x] The document language is your decision, not a detection: a per-application DE/EN control governs every generated document, each document pins its own language, and switching later never repaints an existing one
 - [x] Structured profile editors for work experience, education, skills, languages, certifications and projects — the JSON text field is gone, and an edit made on stale data can be refused instead of silently overwriting
 - [x] Fact pins: mark a fact as required for one application and it keeps its place in the document's budget, with attribution in the review report

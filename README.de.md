@@ -362,6 +362,9 @@ OPENAI_API_KEY=your-openai-api-key-here
 #OPENAI_BASE_URL=http://host.docker.internal:1234/v1
 
 # Ollama — komplett offline (docker compose --profile ollama up)
+# Vor dem ersten Lauf einmal ein Modell laden — der Server startet leer:
+#   docker compose exec ollama ollama pull llama3.2      # oder OLLAMA_MODEL auf das geladene Modell setzen
+# CPU-Inferenz ist langsam: LLM_TIMEOUT erhöhen (z. B. 600), damit die Generierung nicht abbricht.
 OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=llama3.2
 
@@ -621,8 +624,16 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.40.0-beta)
+### ✅ Aktuelle Version (v0.41.0-beta)
 
+- [x] Das erzeugte Dokument bekommt den Bildschirm: ein Prüf-Panel ordnet jeden Befund nach der Frage, die man wirklich hat — im Dokument, aber nicht im Profil · fehlt, obwohl das Profil es abdeckt · fehlt und nicht abgedeckt · ist das Handwerk sauber — mit einem Urteilssatz, als Überblick oder geführt lesbar
+- [x] Jedes gerenderte PDF und .docx trägt eine maschinenlesbare KI-Herkunftsmarkierung (EU AI Act Art. 50(2)): ein XMP-Paket mit IPTC `DigitalSourceType` und einem dokumentierten Applire-Namensraum, unterhalb aller Templates und beider Türen; ein nachgelagertes Neu-Rendern entfernt sie, und die Doku sagt das
+- [x] Stellenanzeigentext ist Daten, nicht Anweisung: ein Grenz-Helfer markiert die Anzeige und jede daraus abgeleitete Zeichenkette an allen 33 Stellen, an denen sie einen Prompt erreichen; MCP-Ergebnisse kennzeichnen anzeigenabgeleiteten Text als nicht vertrauenswürdig; ein Prompt-Injection-Korpus ist die messbare Kontrolle
+- [x] Der Prüfbericht sagt, ob die Prüfung fertig wurde: ein `terminal-review`-Check trägt Ausgang und offene Befunde der Terminal-Review auf beiden Dokumenten, ein `narrative-evidence`-Check nennt belegbare Konzepte, die der Lebenslauf nur als Skill-Tag führt
+- [x] Untertreibung ist ein gebundenes Signal in der Terminal-Runde, und die Terminal-Review stellt die Ganzdokument-Fragen (Anspruchsbalance, Stimme) als benannte, nur sichtbar machende Checks
+- [x] Das Anschreiben nennt den Arbeitgeber einmal pro Absatz statt einmal pro Satz, und eine vom Kandidaten in eigenen Worten benannte Grenze ist eine Offenlegungspflicht für den Writer
+- [x] Das Keyword-Ledger wird bei jedem Generierungs-Lesen gegen den aktuellen Vault neu abgeleitet, damit ein seit der Analyse gelernter Begriff dem Writer nie verboten wird; eine Abdeckungsforderung nennt die Position, die den Beleg besitzt
+- [x] Applire lässt sich auf dem Handy installieren und nimmt geteilte Anzeigen entgegen (Manifest, Service Worker, der nichts Eigenes cacht, Android-Share-Target nur als Vorbefüllung); Profil-Hub, Meine Dokumente und Dossier funktionieren bei 390 px
 - [x] Die Dokumentsprache ist deine Entscheidung, keine Erkennung: Ein DE/EN-Schalter je Bewerbung bestimmt alle erzeugten Dokumente, jedes Dokument hält seine Sprache fest, und ein späterer Wechsel schreibt nie ein bestehendes Dokument um
 - [x] Strukturierte Profil-Editoren für Berufserfahrung, Ausbildung, Fähigkeiten, Sprachen, Zertifikate und Projekte — das JSON-Textfeld ist verschwunden, und eine Bearbeitung auf veralteter Grundlage kann abgelehnt werden, statt still zu überschreiben
 - [x] Angeheftete Fakten: Markiere einen Fakt für eine Bewerbung als gesetzt, und er behält seinen Platz im Budget des Dokuments — mit Ausweisung im Prüfbericht
