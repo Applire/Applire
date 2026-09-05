@@ -18,21 +18,11 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import type { ReactNode } from "react";
-import { DocumentTopBar } from "./DocumentTopBar";
 
 interface DocumentWorkspaceProps {
-  flowId: string;
-  activeDoc: "cv" | "cover-letter";
-  onDownloadPdf: () => void;
-  /** US298 (E057 task 1.5): the office (.docx) export CTA — see
-   *  DocumentTopBar's own prop doc; forwarded unchanged. */
-  onDownloadDocx?: () => void;
-  downloadDisabled?: boolean;
-  /** Rendered document (iframe preview). Fills the left column. */
+  /** Rendered document (iframe preview). Owns the left column's height. */
   preview: ReactNode;
-  /** ATS checks panel, shown directly below the document. Optional. */
-  atsPanel?: ReactNode;
-  /** Right-hand refinement sidebar. Hidden below `md` (E040 / US226). */
+  /** The one document-scope chrome region (ADR-081 cl. 1). Hidden below `md`. */
   sidebar: ReactNode;
   /**
    * Mobile-only floating command bar (E040 / US226). Rendered as a
@@ -40,56 +30,51 @@ interface DocumentWorkspaceProps {
    * the component itself is responsible for its `md:hidden` visibility.
    */
   commandBar?: ReactNode;
-  /** E054/US289: the active document's pinned language — forwarded to the
-   *  top bar's badge (JF-F-G2.2). Absent = no badge. */
-  documentLanguage?: "de" | "en" | null;
 }
 
 /**
- * The single layout shell both result screens render through (E038 / US206).
- * Guarantees structural parity between the CV and cover-letter views: shared top
- * bar, a left preview column with the ATS panel below the document, and a fixed
- * right sidebar. Sits under the global flow AppTopbar (the stepper). Only the
- * slotted content (preview / atsPanel / sidebar) legitimately differs per document.
+ * The layout shell both result screens render through (E038 / US206, rebuilt by
+ * E058 / US299).
+ *
+ * **The #625 mechanism, and why the fix is structural.** This component used to
+ * put the preview and the findings stack in ONE `overflow-y-auto` column with
+ * the preview as `flex-1 min-h-0`. Inside a scroll container `flex-1` does not
+ * mean *take the remaining height* — it means *take whatever the tall sibling
+ * leaves*, and `min-h-0` permits near-zero. So the document got smallest exactly
+ * when the system had found the most: ~45 px of preview against ~600 px of
+ * findings on the reporter's screenshot. Shortening the panels would have moved
+ * the symptom; ADR-081 clause 1 closes the mechanism instead — **the preview
+ * column takes the height unconditionally**, because it has no sibling in that
+ * column any more and the column is no longer a scroll container.
+ *
+ * The findings moved into the workspace panel, which is now the ONE
+ * document-scope chrome region: `DocumentTopBar` is dissolved (the document
+ * switch and the ADR-038 language badge into the panel header, the PDF and
+ * `.docx` exports into its pinned footer — `DocumentIdentityBar` /
+ * `DocumentExportFooter`), and `AppSidebar` collapses to a rail on document
+ * routes. Six chrome regions became three.
+ *
+ * Flow-scope chrome (`AppTopbar`, the cancel row, `resolveFlowRedirect`) is
+ * untouched: it belongs to the flow layout.
  */
-export function DocumentWorkspace({
-  flowId,
-  activeDoc,
-  onDownloadPdf,
-  onDownloadDocx,
-  downloadDisabled = false,
-  preview,
-  atsPanel,
-  sidebar,
-  commandBar,
-  documentLanguage = null,
-}: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ preview, sidebar, commandBar }: DocumentWorkspaceProps) {
   return (
     <div
       className="flex flex-col h-[calc(100vh-56px)] bg-surface-dim"
       data-testid="document-workspace"
     >
-      <DocumentTopBar
-        flowId={flowId}
-        activeDoc={activeDoc}
-        onDownloadPdf={onDownloadPdf}
-        onDownloadDocx={onDownloadDocx}
-        downloadDisabled={downloadDisabled}
-        // E040/US226: a command bar carries its own primary Download action —
-        // hide the top-bar one below `md` so mobile shows a single CTA.
-        hideDownloadBelowMd={Boolean(commandBar)}
-        documentLanguage={documentLanguage}
-      />
       <div className="flex flex-1 min-h-0">
-        {/* Left column: document preview + ATS panel below it.
-            Below md the preview goes full-width (the sidebar is hidden) and the
-            ATS panel moves into the command bar's bottom sheet, so it's hidden
-            here to avoid a duplicate. */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto px-3 py-2 md:px-4 md:py-3 gap-3">
-          <div className="flex-1 min-h-0 flex flex-col">{preview}</div>
-          {atsPanel && <div className="hidden md:block">{atsPanel}</div>}
+        {/* Left column: the document, and nothing else. It is NOT an
+            `overflow-y-auto` container and the preview is its only child, so no
+            sibling's growth can take height from it — that is #625's mechanism
+            closed by construction rather than by shortening anything. */}
+        <div
+          className="flex-1 min-w-0 flex flex-col px-3 py-2 md:px-4 md:py-3"
+          data-testid="document-preview-column"
+        >
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{preview}</div>
         </div>
-        {/* Right column: refinement sidebar — desktop only (E040 / US226).
+        {/* Right column: the workspace panel — desktop only (E040 / US226).
             `hidden md:contents` keeps the aside a direct flex child at md+
             (preserving its width / flex-shrink) while dropping it below md. */}
         {sidebar && <div className="hidden md:contents">{sidebar}</div>}

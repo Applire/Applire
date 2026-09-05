@@ -541,7 +541,12 @@
     "defaultCVLength": "Default CV Length",
     "defaultCVLengthHint": "The starting page target for new CVs, unless you pick something else for a single generation.",
     "saved": "Saved ✓",
-    "back": "← Back"
+    "back": "← Back",
+    "reviewMode": "Review view",
+    "reviewModeHint": "How the findings on a generated document are presented. “Automatic” follows the document: one at a time while it still has unread findings in the top group, all at once afterwards.",
+    "reviewModeAuto": "Automatic",
+    "reviewModeOverview": "Always all at once",
+    "reviewModeGuided": "Always one at a time"
   },
   "dashboard": {
     "newApplication": "New Application",
@@ -1105,7 +1110,9 @@
     "topbarUserInitial": "A",
     "backArrowLabel": "← {label}",
     "openNavAriaLabel": "Open navigation",
-    "navDrawerDescription": "Main navigation"
+    "navDrawerDescription": "Main navigation",
+    "railExpand": "Expand navigation",
+    "railCollapse": "Collapse navigation"
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1462,15 +1469,55 @@
     "languageSwitchConfirm": "Regenerate",
     "languageSwitchCancel": "Cancel",
     "languageSwitchBusy": "Saving …",
-    "languageSwitchError": "Saving failed — please try again."
+    "languageSwitchError": "Saving failed — please try again.",
+    "tabReview": "Review",
+    "tabEdit": "Edit"
   },
   "commandBar": {
-    "atsChecks": "ATS Checks",
+    "atsChecks": "Review",
     "fineTune": "Fine-tune",
     "downloadPdf": "Download PDF",
-    "atsSheetTitle": "ATS Checks",
+    "atsSheetTitle": "Review",
     "fineTuneSheetTitle": "Fine-tune",
     "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}",
     "fineTuneDegradedNotice": "Editing is optimised for a larger screen. You can review here, but for the full editing experience open this CV on your computer."
+  },
+  "documentReview": {
+    "title": "Review",
+    "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
+    "verdictClear": "Every statement in the document is covered by your profile.",
+    "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
+    "verdictUnknown": "Whether every statement is covered was not checked for this document.",
+    "group1Title": "In the document, but not in your profile",
+    "group2Title": "Missing although your profile covers it",
+    "group3Title": "Missing, and your profile does not cover it",
+    "group4Title": "Craft",
+    "producerAts": "ATS report",
+    "producerOracle": "Truthfulness Oracle",
+    "producerCritic": "Coherence advisory",
+    "producerClusters": "Gap analysis",
+    "kindTerm": "Term",
+    "kindCluster": "Cluster",
+    "kindClaim": "Claim",
+    "kindCheck": "Check",
+    "kindAdvisory": "Advisory",
+    "unknownLabel": "unknown",
+    "unknownWhole": "Not checked: {producers} did not run for this document. That is not an all-clear — nothing was measured.",
+    "unknownPartial": "Partly unchecked: {producers} did not run for this document. What you see here is the remainder.",
+    "passedChecks": "{count, plural, one {# check passed} other {# checks passed}}",
+    "modeOverview": "All at once",
+    "modeGuided": "One at a time",
+    "switchToOverview": "Switch to the overview — every finding at once",
+    "switchToGuided": "Walk through them one at a time",
+    "guidedRemaining": "{count, plural, =0 {Nothing left to read} one {# finding still unread} other {# findings still unread}}",
+    "guidedPrev": "Back",
+    "guidedNext": "Next",
+    "guidedDone": "You have seen every finding. The counts above stay put — you can go back at any time.",
+    "guidedNothing": "There is nothing to walk through.",
+    "group2TradeBody": "Your profile covers this — it simply did not fit into the document. The length trade decided it, not the truthfulness check: Applire tried to place these terms while writing, and the page target won. What you see here is what was left over.",
+    "group2HandlesTitle": "Three handles that already exist:",
+    "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
+    "group2HandlePin": "Pin the underlying fact in your profile — a pin beats the length budget, never the truthfulness check. You will find it on the Edit tab.",
+    "group2HandleRegenerate": "Regenerate — the selection is made afresh each time."
   }
 }

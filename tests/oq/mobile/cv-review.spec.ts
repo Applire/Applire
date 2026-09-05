@@ -158,7 +158,9 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.getByTestId("command-ats").tap();
     const sheet = page.getByTestId("command-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
-    await expect(sheet.getByTestId("ats-panel")).toBeVisible();
+    // E058/ADR-081 cl. 7: the sheet now hosts the SAME live ReviewSurface
+    // instance as the desktop "review" tab, never a forked panel.
+    await expect(sheet.getByTestId("review-surface")).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath("cv-review-ats-sheet.png"), fullPage: true });
     await testInfo.attach("cv-review-ats-sheet", {
@@ -196,8 +198,13 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await page.getByTestId("command-ats").tap();
     const sheet = page.getByTestId("command-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
-    // Rendered in its own neutral row — never as a pass, never as a failure.
-    await expect(sheet.getByTestId("ats-notapplicable-page-length")).toBeVisible();
+    // E058/ADR-081 cl. 2/9: the sheet now hosts ReviewSurface, not the compact
+    // ATSChecksPanel — a not_applicable check renders as its own group-4 review
+    // row (lib/review-groups.ts `buildGroup4`, severity "neutral"), never folded
+    // into a pass or a failure. It is the only group with items in this fixture
+    // (no ATS/Oracle/critic/cluster findings elsewhere), so overview mode opens
+    // it by default — no extra click needed.
+    await expect(sheet.getByTestId("review-item-g4-check-na-page-length")).toBeVisible();
 
     await page.screenshot({
       path: testInfo.outputPath("cv-review-ats-sheet-not-applicable.png"),

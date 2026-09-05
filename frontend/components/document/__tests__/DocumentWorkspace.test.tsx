@@ -1,4 +1,5 @@
-// Copyright (C) 2024-2026 Tobias Rosenbaum
+// Copyright (C) 2026 Tobias Rosenbaum
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // This file is part of Applire.
 //
@@ -15,7 +16,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { DocumentWorkspace } from "../DocumentWorkspace";
@@ -25,43 +26,61 @@ vi.mock("next/navigation", () => ({
 }));
 
 const BASE = {
-  flowId: "flow-1",
-  activeDoc: "cv" as "cv" | "cover-letter",
-  onDownloadPdf: vi.fn(),
   preview: <div data-testid="slot-preview">preview</div>,
-  atsPanel: <div data-testid="slot-ats">ats</div>,
   sidebar: <div data-testid="slot-sidebar">sidebar</div>,
 };
 
 describe("DocumentWorkspace", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("renders the shared top bar, preview, ATS and sidebar slots", () => {
+  it("renders the preview and the one document-scope panel", () => {
     render(withIntl(<DocumentWorkspace {...BASE} />));
     expect(screen.getByTestId("document-workspace")).toBeTruthy();
-    expect(screen.getByTestId("document-topbar")).toBeTruthy();
-    expect(screen.getByTestId("slot-preview")).toBeTruthy();
-    expect(screen.getByTestId("slot-ats")).toBeTruthy();
-    expect(screen.getByTestId("slot-sidebar")).toBeTruthy();
-  });
-
-  it("wires the top bar download button to onDownloadPdf", () => {
-    const onDownloadPdf = vi.fn();
-    render(withIntl(<DocumentWorkspace {...BASE} onDownloadPdf={onDownloadPdf} />));
-    fireEvent.click(screen.getByTestId("document-download-btn"));
-    expect(onDownloadPdf).toHaveBeenCalledOnce();
-  });
-
-  it("omits the ATS region when no atsPanel is supplied", () => {
-    render(withIntl(<DocumentWorkspace {...BASE} atsPanel={undefined} />));
-    expect(screen.queryByTestId("slot-ats")).toBeNull();
-    // preview + sidebar still render
     expect(screen.getByTestId("slot-preview")).toBeTruthy();
     expect(screen.getByTestId("slot-sidebar")).toBeTruthy();
   });
 
-  // E040/US226 — responsive layout, jsdom can't evaluate media queries so these
-  // assert the class strings that encode the below-md/md+ behavior.
+  // ADR-081 cl. 1 / US299 — #625's MECHANISM, pinned structurally.
+  //
+  // jsdom performs no layout, so a pixel assertion here would be theatre (the
+  // real height evidence is the OQ spec `document-review-surface.spec.ts`,
+  // which measures the preview against a short AND a long findings payload in
+  // a real browser, plus the committed screenshots). What CAN be pinned here is
+  // the mechanism itself, and it is the whole of the defect: the preview used
+  // to be `flex-1 min-h-0` inside an `overflow-y-auto` column that also held
+  // the findings, so it shrank to whatever the tall sibling left.
+  describe("#625 — the preview column takes the height unconditionally", () => {
+    it("does not make the preview column a scroll container", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const column = screen.getByTestId("document-preview-column");
+      expect(column.className).not.toContain("overflow-y-auto");
+    });
+
+    it("gives the preview the column's whole height", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const wrapper = screen.getByTestId("slot-preview").parentElement!;
+      expect(wrapper.className).toContain("flex-1");
+      expect(wrapper.className).toContain("min-h-0");
+    });
+
+    it("leaves the preview no sibling in its column that could take height from it", () => {
+      render(withIntl(<DocumentWorkspace {...BASE} />));
+      const column = screen.getByTestId("document-preview-column");
+      // Exactly one child: the preview wrapper. A findings stack re-entering
+      // this column is the #625 regression, and it reddens here.
+      expect(column.children).toHaveLength(1);
+      expect(column.firstElementChild!.contains(screen.getByTestId("slot-preview"))).toBe(true);
+    });
+
+    it("accepts no findings slot at all — the findings live in the panel now", () => {
+      // A compile-time guarantee in TS; asserted at runtime so a loosened prop
+      // type cannot quietly restore the old two-children column.
+      expect(Object.keys(BASE)).not.toContain("atsPanel");
+    });
+  });
+
+  // E040/US226 — responsive layout. jsdom can't evaluate media queries, so
+  // these assert the class strings that encode the below-md/md+ behaviour.
   describe("responsive layout classes (E040/US226)", () => {
     it("wraps the sidebar slot in `hidden md:contents` (hidden below md, direct flex child at md+)", () => {
       render(withIntl(<DocumentWorkspace {...BASE} />));
@@ -70,21 +89,14 @@ describe("DocumentWorkspace", () => {
       expect(wrapper?.className).toContain("md:contents");
     });
 
-    it("wraps the inline atsPanel slot in `hidden md:block` (moves into the command bar's sheet below md)", () => {
-      render(withIntl(<DocumentWorkspace {...BASE} />));
-      const wrapper = screen.getByTestId("slot-ats").parentElement;
-      expect(wrapper?.className).toContain("hidden");
-      expect(wrapper?.className).toContain("md:block");
-    });
-
     it("renders the commandBar slot when supplied", () => {
       render(
         withIntl(
           <DocumentWorkspace
             {...BASE}
             commandBar={<div data-testid="slot-commandbar">command bar</div>}
-          />
-        )
+          />,
+        ),
       );
       expect(screen.getByTestId("slot-commandbar")).toBeTruthy();
     });
@@ -93,42 +105,11 @@ describe("DocumentWorkspace", () => {
       render(withIntl(<DocumentWorkspace {...BASE} />));
       expect(screen.queryByTestId("slot-commandbar")).toBeNull();
     });
-
-    it("hides the top-bar Download button below md when a commandBar is supplied (avoids a redundant CTA)", () => {
-      render(
-        withIntl(
-          <DocumentWorkspace
-            {...BASE}
-            commandBar={<div data-testid="slot-commandbar">command bar</div>}
-          />
-        )
-      );
-      const className = screen.getByTestId("document-download-btn").className;
-      expect(className).toContain("hidden");
-      expect(className).toContain("md:inline-flex");
-    });
-
-    it("keeps the top-bar Download button visible below md when no commandBar is supplied", () => {
-      render(withIntl(<DocumentWorkspace {...BASE} />));
-      const className = screen.getByTestId("document-download-btn").className;
-      expect(className).not.toContain("hidden");
-      expect(className).toContain("inline-flex");
-    });
   });
 
-  // US298 (E057 task 1.5): the .docx download affordance passes through the
-  // shared workspace shell exactly like the existing PDF one.
-  describe("US298 — .docx download affordance", () => {
-    it("wires the top bar docx button to onDownloadDocx when supplied", () => {
-      const onDownloadDocx = vi.fn();
-      render(withIntl(<DocumentWorkspace {...BASE} onDownloadDocx={onDownloadDocx} />));
-      fireEvent.click(screen.getByTestId("document-download-docx-btn"));
-      expect(onDownloadDocx).toHaveBeenCalledOnce();
-    });
-
-    it("omits the docx download button when onDownloadDocx is not supplied", () => {
-      render(withIntl(<DocumentWorkspace {...BASE} />));
-      expect(screen.queryByTestId("document-download-docx-btn")).toBeNull();
-    });
+  // ADR-081 cl. 1: three document-scope chrome regions became one.
+  it("renders no document top bar of its own — it was dissolved into the panel", () => {
+    render(withIntl(<DocumentWorkspace {...BASE} />));
+    expect(screen.queryByTestId("document-topbar")).toBeNull();
   });
 });

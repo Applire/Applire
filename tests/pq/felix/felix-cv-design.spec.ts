@@ -73,12 +73,12 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 test.describe("Felix — CV Design tab (PQ)", () => {
   test("Design tab is present after CV generation", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await expect(page.getByTestId("sidebar-tab-design")).toBeVisible();
+    await expect(page.getByTestId("sidebar-tab-edit")).toBeVisible();
   });
 
   test("Design tab shows preset swatch row", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-design").click();
+    await page.getByTestId("sidebar-tab-edit").click();
     // At least 5 color swatches must be present (testid is locale-independent;
     // the aria-label prefix follows the UI locale, so we don't match on it)
     const swatches = page.getByTestId(/^accent-preset-/);
@@ -88,7 +88,7 @@ test.describe("Felix — CV Design tab (PQ)", () => {
 
   test("selecting a different swatch and applying re-renders the CV iframe", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-design").click();
+    await page.getByTestId("sidebar-tab-edit").click();
 
     // Click the Rot (#c0392b) preset — testid is locale-independent
     await page.getByTestId("accent-preset-c0392b").click();

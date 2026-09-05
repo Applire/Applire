@@ -213,7 +213,7 @@ test.describe("Felix — Cover letter: generate, navigate, edit, restyle (PQ)", 
   test("US-CL07: body section is editable and saves", async ({ page }) => {
     await setupCoverLetter(page);
 
-    await page.getByTestId("sidebar-tab-content").click();
+    await page.getByTestId("sidebar-tab-edit").click();
     const textarea = page.getByTestId("cl-body-textarea");
     await expect(textarea).toBeVisible();
 
@@ -229,7 +229,7 @@ test.describe("Felix — Cover letter: generate, navigate, edit, restyle (PQ)", 
 
   test("US-CL09: design tab shows 7 template options", async ({ page }) => {
     await setupCoverLetter(page);
-    await page.getByTestId("sidebar-tab-design").click();
+    await page.getByTestId("sidebar-tab-edit").click();
 
     const templates = [
       "classic_german",

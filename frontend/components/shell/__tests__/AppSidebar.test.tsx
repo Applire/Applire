@@ -180,4 +180,69 @@ describe("AppSidebar", () => {
     expect(aside.className).toContain("hidden");
     expect(aside.className).toContain("md:flex");
   });
+
+  // E058/US299 (ADR-081 cl. 1): on the two document result routes the app nav
+  // collapses to a 56 px icon rail — expandable, NEVER removed. This is the
+  // first time the shell's shape depends on the ROUTE rather than only on the
+  // breakpoint (arc42 §5.3.21), so the route match is pinned in both
+  // directions: it fires on the document routes and on nothing else.
+  describe("document-route icon rail (E058/US299)", () => {
+    it("renders the rail on the CV result route", () => {
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      const aside = screen.getByTestId("app-sidebar");
+      expect(aside.getAttribute("data-variant")).toBe("rail");
+      expect(aside.className).toContain("w-14");
+    });
+
+    it("renders the rail on the cover-letter result route", () => {
+      mockPathname = "/flow/abc-123/cover-letter";
+      render(<AppSidebar />);
+      expect(screen.getByTestId("app-sidebar").getAttribute("data-variant")).toBe("rail");
+    });
+
+    it("keeps the 240 px sidebar on every other route", () => {
+      for (const path of ["/dashboard", "/documents", "/flow/abc-123/gaps", "/flow/abc-123"]) {
+        mockPathname = path;
+        const { unmount } = render(<AppSidebar />);
+        expect(screen.getByTestId("app-sidebar").getAttribute("data-variant")).toBe("full");
+        unmount();
+      }
+    });
+
+    it("keeps every nav destination reachable on the rail — a collapse, not a removal", () => {
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      for (const name of [/dashboard/i, /profile/i, /import/i, /documents/i, /settings/i, /admin/i]) {
+        expect(screen.getByRole("button", { name })).toBeInTheDocument();
+      }
+    });
+
+    it("still navigates from the rail", () => {
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      fireEvent.click(screen.getByRole("button", { name: /documents/i }));
+      expect(mockPush).toHaveBeenCalledWith("/documents");
+    });
+
+    it("expands back to the full sidebar through a NAMED control, and collapses again", () => {
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      const expand = screen.getByTestId("app-sidebar-rail-expand");
+      expect(expand.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(expand);
+      expect(screen.getByTestId("app-sidebar").getAttribute("data-variant")).toBe("full");
+      fireEvent.click(screen.getByTestId("app-sidebar-rail-collapse"));
+      expect(screen.getByTestId("app-sidebar").getAttribute("data-variant")).toBe("rail");
+    });
+
+    it("keeps the rail above slide-over drawers and hidden below md, exactly like the full sidebar", () => {
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      const aside = screen.getByTestId("app-sidebar");
+      expect(aside.className).toContain("z-[60]");
+      expect(aside.className).toContain("hidden");
+      expect(aside.className).toContain("md:flex");
+    });
+  });
 });

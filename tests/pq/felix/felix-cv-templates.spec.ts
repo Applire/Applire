@@ -64,7 +64,7 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 test.describe("Felix — CV Template selection (PQ)", () => {
   test("Design tab opens the template picker with at least 7 options", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-design").click();
+    await page.getByTestId("sidebar-tab-edit").click();
     await page.getByTestId("change-template-btn").click();
     // Template picker should list all 7 registered templates
     const templateOptions = page.getByTestId("template-option");
@@ -74,7 +74,7 @@ test.describe("Felix — CV Template selection (PQ)", () => {
 
   test("selecting executive template and regenerating succeeds", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-design").click();
+    await page.getByTestId("sidebar-tab-edit").click();
     await page.getByTestId("change-template-btn").click();
 
     // Select the executive template

@@ -28,7 +28,8 @@ interface CoverLetterActionsTabProps {
   languageSwitch?: ReactNode;
 }
 
-// PDF download is owned by the shared DocumentTopBar (E038); the Aktionen tab
+// PDF download is owned by the workspace panel's pinned export footer
+// (E038; relocated there by E058/US299, ADR-081 cl. 1); the Aktionen tab
 // only carries regenerate — mirroring CVActionsTab so both documents' Aktionen
 // tabs are structurally consistent.
 export function CoverLetterActionsTab({

@@ -43,9 +43,12 @@ type ActiveSheet = "ats" | "fineTune" | null;
  *
  * Below `md` the desktop RefinementSidebar is hidden; this floating bar carries
  * exactly three actions (Versions was cut — ADR-050 amendment 2026-07-14):
- * ATS Checks (bottom sheet, pass-count badge), Fine-tune (bottom sheet hosting
- * the existing ContentTab, read-degraded), and Download PDF (primary). It opens
- * the live CV-page components (ATSChecksPanel, ContentTab) — no forked panels.
+ * Prüfung/Review (bottom sheet, pass-count badge), Fine-tune (bottom sheet
+ * hosting the existing ContentTab, read-degraded), and Download PDF (primary).
+ * It opens the live CV-page components — no forked panels; since E058 the
+ * review sheet hosts the SAME `ReviewSurface` instance the desktop panel
+ * renders (ADR-081 cl. 7: mobile is unchanged in kind, only the sheet's CONTENT
+ * follows the new grouping).
  *
  * Presentation-only: no new panel content, no API surface. Rendered as a
  * `flex-shrink-0` child at the bottom of the fixed-height DocumentWorkspace
