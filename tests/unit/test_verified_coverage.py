@@ -576,3 +576,129 @@ class TestCoverageReviewerPromptFnRankGated:
                 base, _LEDGER_RANKED, budget=cv_coverage_budget(budget_result)
             )("src", draft)
             assert len(gated) <= len(ungated)
+
+
+def _cv_prose_draft(n_bullets: int) -> dict:
+    """The CV DRAFTING loop's draft: the writer's own response schema
+    (``prompts/cv_tailoring.py``), whose work list is named ``work``, not
+    ``work_history``. Same occupancy as ``_cv_draft(n)``, different key —
+    that difference is the whole of ruling 4's defect."""
+    return {
+        "summary": "Experienced professional.",
+        "work": [
+            {"id": "w1",
+             "bullets": [f"Delivered outcome {i}." for i in range(n_bullets)]},
+        ],
+        "skills": [],
+    }
+
+
+class TestCoverageBudgetMeasureReadsBothDocumentShapes:
+    """Founder ruling 4 (2026-09-05, v0.41.1-beta) — ADR-076 clause 6's rank
+    gate never engaged on the CV drafting loop.
+
+    ``cv_coverage_budget.measure`` read ``work_history`` directly. Two of the
+    three CV reviewer chains (``cv_tailoring``, ``cv_language``) review the
+    writer's PROSE draft, whose work list is named ``work``; only
+    ``cv_terminal_review`` reviews the composed ``TailoredCVData``. So on the
+    two prose loops the measure returned 0 for EVERY draft,
+    ``under_pressure`` was permanently False, and every missing claimable
+    entry — required or not — stayed blocking. A control structurally unable
+    to fire.
+    """
+
+    def _budget(self, max_bullets: int):
+        from applire.services.cv_budget import BudgetResult, RoleBudget
+        from applire.services.keyword_ledger import cv_coverage_budget
+
+        return cv_coverage_budget(
+            BudgetResult(
+                roles={"w1": RoleBudget(work_entry_id="w1", tier="top",
+                                        max_bullets=max_bullets)},
+                tiers={}, target_pages=2, region="DACH",
+            )
+        )
+
+    def test_prose_shaped_draft_measures_its_bullets(self):
+        """Was 0 for every N before the fix — the defect, pinned."""
+        cb = self._budget(5)
+        assert cb.measure(_cv_prose_draft(0)) == 0
+        assert cb.measure(_cv_prose_draft(3)) == 3
+        assert cb.measure(_cv_prose_draft(7)) == 7
+
+    def test_composed_shaped_draft_still_measures_its_bullets(self):
+        """The terminal loop's shape is untouched by the fix."""
+        cb = self._budget(5)
+        assert cb.measure(_cv_draft(3)) == 3
+        assert cb.measure(_cv_draft(7)) == 7
+
+    def test_both_shapes_agree_at_equal_occupancy(self):
+        """One definition of narrative space (ADR-066): the same three bullets
+        measure the same whichever key the document uses."""
+        cb = self._budget(5)
+        for n in (0, 1, 2, 3, 8):
+            assert cb.measure(_cv_prose_draft(n)) == cb.measure(_cv_draft(n))
+
+    def test_nested_project_bullets_count_on_the_prose_shape_too(self):
+        """The corpus rule itself is unchanged and is not re-implemented by the
+        adapter — nested project bullets count on both shapes."""
+        cb = self._budget(5)
+        prose = _cv_prose_draft(1)
+        prose["work"][0]["projects"] = [{"name": "P", "bullets": ["p1", "p2"]}]
+        assert cb.measure(prose) == 3
+
+    def test_rank_gate_engages_on_a_prose_draft_at_capacity(self):
+        """The consequence: at capacity, a below-rank absence stops being a
+        blocking demand on the DRAFTING loop. Before the fix the gate returned
+        all three as blocking here, because measure() said 0 of 2."""
+        from applire.services.keyword_ledger import (
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        cb = self._budget(2)
+        draft = _cv_prose_draft(2)  # occupancy == capacity
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, cb)
+        assert [e["concept"] for e in blocking] == ["Required Thing"]
+        assert {e["concept"] for e in below_rank} == {"Nice Thing", "Keyword Thing"}
+
+    def test_rank_gate_still_open_on_a_prose_draft_below_capacity(self):
+        """Room left: nothing is withheld — the gate did not become eager."""
+        from applire.services.keyword_ledger import (
+            rank_gate_missing_claimable,
+            verified_missing_claimable,
+        )
+
+        cb = self._budget(5)
+        draft = _cv_prose_draft(1)
+        missing = verified_missing_claimable(draft, _LEDGER_RANKED)
+        blocking, below_rank = rank_gate_missing_claimable(missing, draft, cb)
+        assert len(blocking) == 3
+        assert below_rank == []
+
+    def test_reviewer_prompt_on_the_drafting_loop_drops_below_rank_demands(self):
+        """End of the mechanism, at the seam the model actually reads: the
+        VERIFIED COVERAGE block handed to the ``cv_tailoring`` reviewer no
+        longer commands the below-rank terms once the prose draft is full."""
+        from applire.services.keyword_ledger import coverage_reviewer_prompt_fn
+
+        base = lambda source, draft: f"BASE[{source}]"
+        draft = _cv_prose_draft(2)
+        gated = coverage_reviewer_prompt_fn(
+            base, _LEDGER_RANKED, budget=self._budget(2)
+        )("src", draft)
+        ungated = coverage_reviewer_prompt_fn(base, _LEDGER_RANKED)("src", draft)
+
+        assert "Required Thing" in gated
+        assert "Nice Thing" not in gated
+        assert "Keyword Thing" not in gated
+        assert "Nice Thing" in ungated and "Keyword Thing" in ungated
+
+    def test_the_adapter_is_the_shared_one(self):
+        """ADR-066: the under-claim signal and the coverage budget read ONE
+        adapter, not two — ``cv_gap_hints`` re-exports the ledger's."""
+        from applire.services.cv_gap_hints import narrative_corpus_view as hints_view
+        from applire.services.keyword_ledger import narrative_corpus_view as ledger_view
+
+        assert hints_view is ledger_view
