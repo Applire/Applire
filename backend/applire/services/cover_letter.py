@@ -1811,8 +1811,19 @@ async def _render_cover_letter_background(
                     # norm re-entry stays an accepted, logged residual
                     # rather than minting a THIRD condense generation.
                     final_floor=False,
+                    # writer collector #601: the re-entry used to pass no
+                    # pins= and to drop its own pin_floor_hits, so a pin whose
+                    # carrier the compose tail deleted DURING a re-entry was
+                    # removed correctly by hierarchy (truth > pin) and never
+                    # reported — the one thing ADR-077 clause 2 / SF-PIN.6
+                    # forbid. Same pin set as the first invocation: a re-entry
+                    # reviews the same document contract.
+                    pins=letter_pins,
                 )
                 pdf_bytes, measured = tr.pdf_bytes, tr.measured
+                # Fold, never replace — the report call at the TOP of this loop
+                # persists the accumulated set on the next iteration.
+                pin_floor_hits |= tr.pin_floor_hits
                 terminal_rounds += tr.rounds
                 reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
                 condense_used = condense_used or tr.condense_used
