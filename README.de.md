@@ -624,8 +624,10 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.41.0-beta)
+### ✅ Aktuelle Version (v0.41.1-beta)
 
+- [x] Die Herkunftsmarkierung sagt nur, was Applire belegen kann: ein für einen externen Agenten (BYOI) gerendertes Dokument trägt `compositeWithTrainedAlgorithmicMedia`, und die Markierung nennt den Modell-Provider des Betreibers nicht mehr
+- [x] Die Abdeckungsforderung der CV-Entwurfsschleife weicht jetzt dem Längenbudget, wie ADR-076 es vorsieht (das Rank-Gate las den falschen Schlüssel und griff dort nie)
 - [x] Das erzeugte Dokument bekommt den Bildschirm: ein Prüf-Panel ordnet jeden Befund nach der Frage, die man wirklich hat — im Dokument, aber nicht im Profil · fehlt, obwohl das Profil es abdeckt · fehlt und nicht abgedeckt · ist das Handwerk sauber — mit einem Urteilssatz, als Überblick oder geführt lesbar
 - [x] Jedes gerenderte PDF und .docx trägt eine maschinenlesbare KI-Herkunftsmarkierung (EU AI Act Art. 50(2)): ein XMP-Paket mit IPTC `DigitalSourceType` und einem dokumentierten Applire-Namensraum, unterhalb aller Templates und beider Türen; ein nachgelagertes Neu-Rendern entfernt sie, und die Doku sagt das
 - [x] Stellenanzeigentext ist Daten, nicht Anweisung: ein Grenz-Helfer markiert die Anzeige und jede daraus abgeleitete Zeichenkette an allen 33 Stellen, an denen sie einen Prompt erreichen; MCP-Ergebnisse kennzeichnen anzeigenabgeleiteten Text als nicht vertrauenswürdig; ein Prompt-Injection-Korpus ist die messbare Kontrolle

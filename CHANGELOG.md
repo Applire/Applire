@@ -6,6 +6,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.41.1-beta] – 2026-09-06
+
+The Stracciatella release, published as this patch on top of the unpublished
+v0.41.0-beta candidate (everything in that entry ships here). Three founder rulings
+of 2026-09-05 land as code: ADR-076 clause 6's rank gate engages on the CV drafting
+loop, the agent door's provenance mark says what Applire can attest, and the mark no
+longer names the operator's model provider.
+
 ### Changed
 - **The CV coverage rank gate now engages on the drafting loop (ADR-076 clause 6).**
   `cv_coverage_budget`'s occupancy measure read `work_history`, but the two reviewer

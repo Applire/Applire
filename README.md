@@ -611,8 +611,10 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.41.0-beta)
+### ✅ Current Release (v0.41.1-beta)
 
+- [x] The provenance mark states only what Applire can attest: a document rendered for an external agent (BYOI) is marked `compositeWithTrainedAlgorithmicMedia`, and the mark no longer names the operator's model provider
+- [x] The CV drafting loop's coverage demand now yields to the length budget as ADR-076 intends (the rank gate read the wrong key and never engaged there)
 - [x] The generated document owns the screen: one review panel orders every finding by the question you actually have — in the document but not in my profile · missing although my profile covers it · missing and not covered · is the craft sound — headed by one verdict sentence, with an overview and a guided reading mode
 - [x] Every rendered PDF and .docx carries a machine-readable AI-provenance mark (EU AI Act Art. 50(2)): an XMP packet with IPTC `DigitalSourceType` and a documented Applire namespace, applied below all templates and both doors; a downstream re-render strips it, and the docs say so
 - [x] Job-posting text is data, not instructions: one boundary helper marks the posting and every posting-derived string at all 33 points where they enter a prompt, MCP results mark posting-derived text as untrusted, and a prompt-injection corpus is the measurable control
