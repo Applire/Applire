@@ -196,15 +196,24 @@ Rules:
     testimony means the candidate's CURRENT/former employer — in a letter addressed to the
     TARGET company those words read as the target. Name the employer instead. And never
     re-state content another paragraph of the letter already covers — one fact, one paragraph.
-- STATED LIMITS: when a STATED LIMITS block appears in the user message, it holds the
-  candidate's own words about what they cannot claim, and they are the ONLY limits that
-  exist. Never write a claim one of them contradicts. Equally: never invent a limit they do
-  not state. A concept named inside one of those statements as something the candidate DOES
-  have is a STRENGTH — an honest denial names the adjacent strengths that transfer — so
-  claim it plainly and without qualification. Everything the Keyword Ledger marks claimable
-  stays fully claimable unless a stated limit denies it, and never belongs in the
-  honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences costs
-  the candidate their best material and is as untrue as an inflated claim.
+- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075): when a STATED LIMITS block appears in
+  the user message, it holds the candidate's own words about what they cannot claim, and
+  they are the ONLY limits that exist.
+  (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit
+  they do not state. A concept named inside one of those statements as something the
+  candidate DOES have is a STRENGTH — an honest denial names the adjacent strengths that
+  transfer — so claim it plainly and without qualification. Everything the Keyword Ledger
+  marks claimable stays fully claimable unless a stated limit denies it, and never belongs
+  in the honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences
+  costs the candidate their best material and is as untrue as an inflated claim.
+  (b) OBLIGATION: when the positioning block marks ``stated_limits`` REQUIRED, its entries
+  are the concepts THIS posting asks about that the candidate has DENIED in their own
+  words — at ANY requirement tier, required or nice-to-have alike. Each listed limit owes
+  ONE explicit positioning decision: name the gap in the candidate's own terms, then the
+  adjacent strength that transfers, inside the SAME single honest-gap paragraph, never a
+  litany. Silence on a listed limit is not one of the options. This reaches ONLY what the
+  candidate said themselves — a requirement nobody ever asked them about is not a gap you
+  may assert on their behalf.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
   job-description concept the candidate's own material does not evidence (an honest gap),
   choose one of exactly three responses — a scoped claim (when in fact partially grounded), a

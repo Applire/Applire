@@ -630,6 +630,81 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
 SUPPORTED_SECTION_OVERRIDES: frozenset[str] = frozenset({"body"})
 
 
+_STATED_LIMITS_CONSTRAINT = (
+    "These are the candidate's own words about what they cannot claim, and the "
+    "ONLY limits the vault holds. A draft must not contradict one — and must not "
+    "invent one either. A concept named inside a statement as something the "
+    "candidate DOES have is a strength, not a limit: an honest denial names the "
+    "adjacent strengths that transfer. Everything the Keyword Ledger marks "
+    "claimable stays fully claimable unless a statement here denies it."
+)
+
+
+def _constraining_stated_limits_entry(limits: list[str]) -> dict:
+    """The pre-ADR-075 entry: every denial the vault holds, constraint only.
+
+    Kept as the fallback for the case ADR-075 does NOT cover — the candidate has
+    denials, but none of them is a concept this posting's ledger asked about. The
+    letter then owes nothing affirmative and the entry stays what it always was:
+    never contradict a limit, never invent one. It carries no ``required`` flag,
+    so reviewer check 4 does not demand content that does not exist.
+    """
+    return {"limits": limits, "instruction": _STATED_LIMITS_CONSTRAINT}
+
+
+def build_stated_limits_entry(
+    denied_concepts: list[dict] | None,
+    keyword_ledger: list[dict] | None,
+) -> dict | None:
+    """The ADR-075 affirmative entry, or ``None`` when nothing is owed (#532).
+
+    The obligation this builds is the one gate charter run 1 delivered *by
+    accident*: an unprompted honest disclosure of a denied, JD-relevant concept
+    was the single property BOTH blind panel reviewers named as their reason for
+    `ja`, and the 2026-08-13 verification letter — same case, same inputs —
+    carried none, because no component ever required it (SF-WRITE.22).
+
+    Three things make this entry different from the constraint it replaces:
+
+    1. ``required: True``. ADR-021's own 2026-08-13 amendment records that the
+       flag is **not self-enforcing** — the deleted ``unaddressed_hard_
+       requirements`` entry read ``required: true`` for ten rounds while the
+       corrector dropped both its concepts. So the flag ships with the other two
+       hooks (reviewer check 4 by name, a named corrector bullet), never alone.
+    2. ``limits`` is the SELECTED set, not every denial the vault holds —
+       :func:`cross_document.select_jd_relevant_limits`, capped and ranked.
+    3. The instruction is affirmative **and** states its own trap. A reviewer
+       told only "name the limits" will accept an invented limit as compliance;
+       an invented limit is an ungrounded claim in the direction that costs the
+       candidate most (check 1), and it is what run 1's disclosure was a repair
+       *of*.
+
+    Returns ``None`` when no denial is JD-relevant, so the letter is never asked
+    for content the vault cannot ground.
+    """
+    from applire.services.cross_document import select_jd_relevant_limits
+
+    limits = select_jd_relevant_limits(denied_concepts, keyword_ledger)
+    if not limits:
+        return None
+    return {
+        "limits": limits,
+        "required": True,
+        "instruction": (
+            "REQUIRED content (ADR-075). These are the candidate's own words about "
+            "concepts THIS posting asks about and they have denied. Each one gets an "
+            "explicit positioning decision in the body: name the gap in the "
+            "candidate's own terms, then the adjacent strength that transfers — all "
+            "folded into ONE honest paragraph, never a litany, never an apology. "
+            "Silence on a limit listed here is not one of the options. The inverse "
+            "is equally binding: never state a limit that is NOT listed here. "
+            "Everything the Keyword Ledger marks claimable stays fully claimable, "
+            "and disclaiming it would throw away the candidate's own best evidence. "
+            + _STATED_LIMITS_CONSTRAINT
+        ),
+    }
+
+
 async def patch_cover_letter_section(
     cl_id: uuid.UUID,
     section: str,
@@ -1215,19 +1290,12 @@ async def _render_cover_letter_background(
                 ),
             }
             if stated_limits_block:
-                positioning_requested["stated_limits"] = {
-                    "limits": collect_stated_limits(denied_concepts),
-                    "instruction": (
-                        "These are the candidate's own words about what they cannot "
-                        "claim, and the ONLY limits the vault holds. A draft must not "
-                        "contradict one — and must not invent one either. A concept "
-                        "named inside a statement as something the candidate DOES have "
-                        "is a strength, not a limit: an honest denial names the "
-                        "adjacent strengths that transfer. Everything the Keyword "
-                        "Ledger marks claimable stays fully claimable unless a "
-                        "statement here denies it."
-                    ),
-                }
+                positioning_requested["stated_limits"] = (
+                    build_stated_limits_entry(denied_concepts, keyword_ledger)
+                    or _constraining_stated_limits_entry(
+                        collect_stated_limits(denied_concepts)
+                    )
+                )
             # NOTE (ADR-021 amended 2026-08-13, #526): there is deliberately no
             # `positioning_requested["unaddressed_hard_requirements"]` entry. Every
             # other key here is a STANDING obligation, true of the letter regardless

@@ -279,6 +279,19 @@ def test_the_letter_reviewer_ratchets_are_not_raised_by_the_rescope():
 
 def test_the_writer_prompt_does_not_grow_for_the_rescope():
     """The writer prompt is already LARGER than its reviewer (14,333 vs 12,475 at
-    the start of this change) — the 2026-07-30 audit calls that a smell. This
-    change is a correction, so it may not make it worse."""
-    assert len(writer.SYSTEM_PROMPT) <= 14_333, len(writer.SYSTEM_PROMPT)
+    the start of this session) — the 2026-07-30 audit calls that a smell, so #565's
+    rescope had to be a correction that does not make it worse. Measured: the
+    anchoring rule alone took the prompt to **14,299**.
+
+    The ceiling here is 15,050 rather than 14,299 because a SECOND, unrelated
+    change landed in the same PR: #532 / ADR-075's stated-limits obligation
+    (SF-WRITE.22, a High row whose Current-controls cell reads "None"). That
+    growth is new REQUIRED content with a row, not regrowth — and it was itself
+    paid down by merging the obligation INTO the existing STATED LIMITS rule
+    rather than adding a second rule about the same subject (939 chars as a
+    separate rule, 702 merged).
+
+    A change that raises this number again owes the same two things: a row, and a
+    merge attempt first.
+    """
+    assert len(writer.SYSTEM_PROMPT) < 15_050, len(writer.SYSTEM_PROMPT)

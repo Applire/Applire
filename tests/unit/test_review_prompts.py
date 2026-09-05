@@ -2132,10 +2132,20 @@ class TestUnsupportedGeneralizationCheck:
         positive instruction to avoid producing filler in the first place —
         that is where it is cheap. See the sibling tests in this class."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT as p
+        from applire.prompts.cover_letter import SYSTEM_PROMPT as writer_p
         low = _flat(p)
         assert "filler" in low
-        assert "regulated industries share the same discipline" in low
         assert "never justifies regenerating the letter" in low
+
+        # 2026-09-05 (#532): the "Regulated industries share the same
+        # discipline..." example was REMOVED from the reviewer's `minor`
+        # paragraph and is asserted here at its detection site instead. It was a
+        # second copy: the reviewer paragraph only CLASSIFIES filler as minor,
+        # while the writer's NO UNSUPPORTED GENERALIZATIONS rule is what teaches
+        # the shape — and it still carries the example in full. The 55 characters
+        # were spent on ADR-075's required-content entry in check 4, on a door
+        # with 25 characters of ratchet headroom.
+        assert "regulated industries share the same discipline" in _flat(writer_p)
         assert "record it as `minor`" in low
 
     def test_reviewer_prompt_forbids_using_the_check_against_honesty(self):

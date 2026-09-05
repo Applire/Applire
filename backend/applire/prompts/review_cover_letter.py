@@ -139,8 +139,7 @@ another:
   The candidate's own stated inputs are true by definition; never flag them.
 - ``job_description`` (inside the source) — the only basis for a claim about the
   EMPLOYER: their product, market, domain, or achievements.
-- Any DETERMINISTIC BLOCK appended below, each titled in CAPS (VERIFIED COVERAGE CHECK,
-  FIGURE OWNERSHIP, DO-NOT-CLAIM PRESENCE, RECORDED JOB TITLES, and others) — computed
+- Any DETERMINISTIC BLOCK appended below, each titled in CAPS — computed
   before you ran, and GROUND TRUTH. Do not re-derive, second-guess, or extend one. Each
   states a FACT: whether a string is present, who owns a figure, what status the ledger
   holds. None tells you what a sentence MEANS — that is yours.
@@ -153,8 +152,8 @@ someone. Ask only: WHO?
   ``job_description``. The DO NOT CLAIM list does NOT apply: a term on that list is
   perfectly legitimate as an employer fact.
 - Naming a concept as something the candidate does NOT have — an honest gap, a stated
-  limit — is not a claim to it. "While I have not worked in LegalTech directly, my
-  regulated-industry background..." names LegalTech as an absence. Never flag it.
+  limit — is not a claim to it: "While I have not worked in LegalTech directly, ..."
+  names LegalTech as an absence. Never flag it.
 The three branches are exclusive. If you catch yourself flagging a term rather than a
 sentence, you have skipped this test.
 
@@ -214,9 +213,10 @@ or incomplete; anything you notice outside them is `minor` by definition.
 4. REQUIRED CONTENT NOT DELIVERED. The source's ``positioning_requested`` block names
    content the writer was required to produce — ``company_domain_engagement``,
    ``gap_transfer_argument``, ``availability``, ``scope_positioning``,
-   ``pinned_facts``, ``closing``. Each
+   ``pinned_facts``, ``stated_limits`` (when ``required``),
+   ``closing``. Each
    entry carries its own grounding and instruction. A required entry the body does not
-   deliver is an issue: name it BY KEY (e.g. ``company_domain_engagement``) and point
+   deliver is an issue: name it BY KEY and point
    the writer to ONLY that entry's own grounding — NEVER copy ``job_description`` wording
    into your demand; a pasted phrase carrying a DO-NOT-CLAIM term comes back as a
    candidate claim a later round must then flag. ``closing`` is always required: a
@@ -227,6 +227,10 @@ or incomplete; anything you notice outside them is `minor` by definition.
    own figure as the candidate's is.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
+   ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
+   positioning decision — the gap in the candidate's own terms plus the adjacent
+   strength — in one paragraph. BOTH directions are findings: silence on a listed
+   limit, and a limit the letter states that the entry does NOT list (check 1).
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -266,10 +270,7 @@ finding.
 _MINOR_PROSE = """\
 WHAT IS `minor` HERE. Everything not in checks 1-5: repetition of a name or phrase,
 paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
-(e.g. wrong German gender agreement: "Mein Budgetverantwortung" for "Meine
-Budgetverantwortung") — and soft filler
-that asserts nothing checkable about the candidate ("Regulated industries share the same
-discipline..."). Filler is real, and worth recording, but nothing false is stated, so it
+— and soft filler that asserts nothing checkable about the candidate. Filler is real, and worth recording, but nothing false is stated, so it
 never justifies regenerating the letter. Record it as `minor` and move on. Never use it
 to soften, narrow, or cut an honest gap or a scoped limit — trimming padding must never
 become trimming honesty.
@@ -452,9 +453,16 @@ Rules:
   ungrounded claims while keeping the letter coherent and well-written.
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
-  honest gap/transfer argument, availability, ``scope_positioning`` and ``pinned_facts``
+  honest gap/transfer argument, availability, ``scope_positioning``, ``pinned_facts``
+  and — when the entry carries ``required`` — ``stated_limits``
   paragraphs are REQUIRED content — do not strip or dilute them while fixing an
-  unrelated issue. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
+  unrelated issue. A ``required`` ``stated_limits`` entry (ADR-075) lists concepts THIS
+  posting asks about and the candidate has denied in their own words: each owes ONE
+  honest positioning decision — the gap in their terms, then the adjacent strength that
+  transfers — folded into the SAME honest-gap paragraph, never a litany. Never state a
+  limit the entry does not list, and never soften or delete one it does: an unprompted
+  admission of a gap is the single thing blind readers name as the reason to trust a
+  letter. A ``pinned_facts`` quote (ADR-077) is the candidate's own vault
   text pinned by the candidate — keep each pinned fact stated (verbatim in
   substance) and never extend it beyond what the quote says. A
   ``scope_positioning`` statement (ADR-070) states the candidate's own scale evidence — a
