@@ -1479,8 +1479,7 @@
     "downloadPdf": "PDF herunterladen",
     "atsSheetTitle": "Prüfung",
     "fineTuneSheetTitle": "Feinschliff",
-    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}",
-    "fineTuneDegradedNotice": "Die Bearbeitung ist für größere Bildschirme optimiert. Hier kannst du prüfen; für die volle Bearbeitung öffne diesen Lebenslauf am Computer."
+    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}"
   },
   "documentReview": {
     "title": "Prüfung",

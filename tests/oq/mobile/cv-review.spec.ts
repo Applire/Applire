@@ -103,7 +103,35 @@ const MOCK_ATS_REPORT_WITH_NOT_APPLICABLE = {
   },
 };
 
+// US228: ContentTab(variant="sections") is the only consumer of
+// GET /api/cv/{id}/sections, and it was never mocked here — the Fine-tune sheet
+// therefore rendered ContentTab's LOAD-ERROR state, and the old assertion
+// (a degraded notice sitting above it) passed anyway. Mocking it is what makes
+// "the editing surface is real on mobile" a claim this lane can actually check.
+const MOCK_SECTIONS = {
+  sections: [
+    {
+      section_id: "intro",
+      label: "Introduction",
+      content: "Erfahrene Senior Software Engineerin mit zwölf Jahren in verteilten Systemen.",
+      has_override: false,
+      gaps: [],
+    },
+    {
+      section_id: "pos-1",
+      label: "Senior Engineer — SAP",
+      content: "Migration von 40 Legacy-Diensten nach Kubernetes.",
+      has_override: true,
+      gaps: [],
+    },
+  ],
+  general_gaps: [],
+};
+
 async function setupCvMocks(page: import("@playwright/test").Page) {
+  await page.route(`**/api/cv/${CV_ID}/sections`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SECTIONS) })
+  );
   await page.route(`**/api/flow/${FLOW_ID}/state`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_FLOW_STATE) })
   );
@@ -219,17 +247,91 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     await expect(sheet).toBeHidden({ timeout: 5000 });
   });
 
-  test("Fine-tune opens the sheet hosting the degraded-notice content surface", async ({ page }) => {
+  // US228 (E040): the Fine-tune sheet used to lead with "editing is optimised
+  // for a larger screen — open this CV on your computer". Measured at 390x844
+  // and at 390x500 (keyboard-open height), that statement is false: the section
+  // editor opens, Save enables only on a real change, the scope prompt covers
+  // the whole viewport, and the PATCH lands. The notice is retired, and this
+  // asserts its ABSENCE — a leftover would otherwise render as its own key name
+  // (next-intl does not throw on a missing key) and no other test would see it.
+  test("Fine-tune opens the real editing surface with no degraded disclaimer", async ({ page }) => {
     await page.goto(`/flow/${FLOW_ID}/cv`);
     await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
 
     await page.getByTestId("command-finetune").tap();
     const sheet = page.getByTestId("command-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
-    await expect(sheet.getByTestId("command-finetune-degraded")).toBeVisible();
+    await expect(sheet.getByTestId("command-finetune-degraded")).toHaveCount(0);
+    await expect(sheet.getByText("Introduction")).toBeVisible({ timeout: 5000 });
 
     await page.getByTestId("command-sheet-close").tap();
     await expect(sheet).toBeHidden({ timeout: 5000 });
+  });
+
+  // US228 — the whole reason the disclaimer could go. Drives edit -> save at
+  // 390 px: the editor opens, Save is inert until something actually changed,
+  // the scope prompt covers the VIEWPORT (it is `fixed` and not portalled, so a
+  // transform-trapped ancestor would dim only the sheet), and the PATCH lands.
+  test("a section can be edited and saved from the phone", async ({ page }, testInfo) => {
+    let patched: { method: string; body: string | null } | null = null;
+    await page.route(`**/api/cv/${CV_ID}/sections/*`, (route) => {
+      patched = { method: route.request().method(), body: route.request().postData() };
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ html: MOCK_CV_HTML, overrides_applied: ["intro"], resolved_gaps: [] }),
+      });
+    });
+
+    await page.goto(`/flow/${FLOW_ID}/cv`);
+    await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("command-finetune").tap();
+    const sheet = page.getByTestId("command-sheet");
+    await expect(sheet).toBeVisible({ timeout: 5000 });
+
+    await sheet.getByText("Introduction").first().tap();
+    const textarea = page.getByTestId("section-textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+
+    // Inert until a real change — the guard against a fat-fingered save.
+    await expect(page.getByTestId("section-save")).toBeDisabled();
+    await textarea.tap();
+    await textarea.fill("Auf dem Handy bearbeitet — zwölf Jahre in verteilten Systemen.");
+    await expect(page.getByTestId("section-save")).toBeEnabled();
+
+    // The action row must be IN the fold, not merely reachable by scrolling.
+    // Checked at the height a 844 px phone actually leaves while its keyboard is
+    // up: `vh` does not shrink for the keyboard, so a Save button below the fold
+    // at typing time is a Save button behind the keyboard. Measured before
+    // US228 at this height: y=540 in a 500 px viewport, i.e. entirely off-screen.
+    await page.setViewportSize({ width: 390, height: 500 });
+    const save = await page.getByTestId("section-save").boundingBox();
+    expect(save).not.toBeNull();
+    expect(save!.y + save!.height, "Save row sits behind the keyboard").toBeLessThanOrEqual(500);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.getByTestId("section-save").tap();
+    const scopeButton = page.getByTestId("save-cv-only-btn");
+    await expect(scopeButton).toBeVisible({ timeout: 5000 });
+    const overlay = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="save-cv-only-btn"]')?.closest(".fixed");
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { width: Math.round(r.width), height: Math.round(r.height) };
+    });
+    expect(overlay).toEqual({ width: 390, height: 844 });
+
+    await page.screenshot({ path: testInfo.outputPath("cv-finetune-save-scope.png"), fullPage: true });
+    await testInfo.attach("cv-finetune-save-scope", {
+      path: testInfo.outputPath("cv-finetune-save-scope.png"),
+      contentType: "image/png",
+    });
+
+    await scopeButton.tap();
+    await expect.poll(() => patched?.method, { timeout: 5000 }).toBe("PATCH");
+    expect(patched!.body).toContain("Auf dem Handy bearbeitet");
+    // Saved means saved: the unsaved flag clears and Save goes inert again.
+    await expect(page.getByTestId("section-save")).toBeDisabled({ timeout: 5000 });
   });
 
   test("Download PDF triggers the pre-download notice then the download", async ({ page }) => {

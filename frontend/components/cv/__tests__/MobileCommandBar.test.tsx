@@ -79,13 +79,18 @@ describe("MobileCommandBar", () => {
     expect(screen.queryByTestId("slot-ats")).toBeNull();
   });
 
-  it("opens the Fine-tune sheet lazily with a read-degraded notice", () => {
+  it("opens the Fine-tune sheet lazily, and no longer disclaims it", () => {
     renderBar();
     // Not mounted before the sheet is opened
     expect(screen.queryByTestId("slot-finetune")).toBeNull();
     fireEvent.click(screen.getByTestId("command-finetune"));
     expect(screen.getByTestId("slot-finetune")).toBeTruthy();
-    expect(screen.getByTestId("command-finetune-degraded")).toBeTruthy();
+    // US228: the "open this on your computer" notice is retired — the editing
+    // surface is real here now, so the disclaimer would be a false statement,
+    // not a caveat. Asserted as an ABSENCE on purpose: the notice's catalog key
+    // is gone from both locales, and next-intl renders a missing key as its own
+    // name rather than throwing, so nothing else would have caught a leftover.
+    expect(screen.queryByTestId("command-finetune-degraded")).toBeNull();
   });
 
   it("only one sheet is open at a time", () => {
