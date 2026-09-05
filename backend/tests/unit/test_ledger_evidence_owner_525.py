@@ -218,3 +218,23 @@ def test_the_owner_fact_survives_the_api_schema():
     validated = KeywordLedgerEntry.model_validate(row)
     assert validated.evidence_owners == ["Weberit Kunststofftechnik GmbH"]
     assert KeywordLedgerEntry.model_validate(_entry("Lean Management")).evidence_owners == []
+
+
+def test_a_legacy_row_gains_its_owner_through_the_generation_refresh():
+    """Delivery-point property, pinned. `evidence_owners` is stamped at the
+    ledger's CONSTRUCTION sites, so a ledger persisted before #525 carries none.
+    The generation seams run `refresh_ledger_against_vault`, which goes through
+    `reevaluate_gap_ledger_against_vault` — and that annotates unconditionally,
+    not only when it upgraded something. So the writer's coverage demand names
+    the owner even for an analysis that predates the field, and even when
+    nothing about the ledger's statuses changed."""
+    from applire.services.keyword_ledger import refresh_ledger_against_vault
+
+    legacy = [_entry("SAP MM")]  # claimable already, nothing to upgrade
+    assert "evidence_owners" not in legacy[0]
+
+    refreshed, changed = refresh_ledger_against_vault(legacy, _VAULT, seam="test")
+
+    assert changed is False, "no status moved — the annotation must not fake a change"
+    assert refreshed[0]["evidence_owners"] == ["Weberit Kunststofftechnik GmbH"]
+    assert "Weberit Kunststofftechnik GmbH" in render_verified_coverage_block(refreshed)
