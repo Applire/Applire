@@ -485,6 +485,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Amended (2026-09-01):** a check can now be **not applicable**, alongside pass and fail. This exists because the `.docx` export (ADR-079) has no pages until a word processor lays it out, so the page-length band genuinely cannot be measured on it — but the only way to express that previously was to leave the check out, and a check that is simply absent is invisible to both the passed and the failed count. A report would have read "12 passed, 0 failed" while quietly saying nothing about a band it never evaluated, which is the same shape as the bug the previous amendment was written to close. Not-applicable checks are counted in their own bucket and are never folded into an "X of Y" total anywhere the report is displayed or aggregated. Reports stored before this change are distinguishable from reports where the count is genuinely zero, so an older report is never mistaken for a fully-measured one.
 
+**Amended (2026-09-05):** the vocabulary is final at three values — pass, fail, not applicable — and there is deliberately no `warn`. A terminal review that settled with only minor findings reads `pass`, with its observations in the check's `details`; a fourth band would have to cross two REST doors, two MCP tools and the persisted-report compatibility contract, and the human-facing surface for those observations is the review panel, not a new status.
+
 ---
 
 ### ADR-040 — Truthful Output (Attestation & Transparency Tier)
