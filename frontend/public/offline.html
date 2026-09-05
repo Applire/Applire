@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  Copyright (C) 2026 Tobias Rosenbaum
+  SPDX-License-Identifier: AGPL-3.0-or-later
+
+  US229 (E040, ADR-050 amendment 2026-09-05 clause 4a) — the ONLY page the
+  service worker may serve from its cache when a navigation cannot reach the
+  network. It is deliberately a flat static file rather than a Next route:
+  a precached Next page carries hashed script URLs that the next deploy
+  invalidates, so an offline fallback built that way is the one entry that
+  could go stale in a way the user cannot clear.
+
+  It is also the one user-facing surface in the frontend that is NOT a
+  next-intl key, and that is a deviation worth naming rather than hiding: the
+  locale lives behind GET /api/settings (lib/providers/locale-provider.tsx),
+  which is by definition unreachable at the moment this page is shown. So both
+  languages are stated, German first, matching <html lang="de"> elsewhere.
+-->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Applire — offline</title>
+    <link rel="icon" href="/icons/icon-192.png" />
+    <style>
+      :root {
+        --navy: #003399;
+        --ground: #f5f7fa;
+        --ink: #1f2933;
+        --muted: #5b6b7c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--ground);
+        color: var(--ink);
+        font: 400 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 30rem; text-align: center; }
+      img { width: 72px; height: 72px; margin-bottom: 20px; }
+      h1 { font-size: 1.375rem; margin: 0 0 8px; color: var(--navy); }
+      p { margin: 0 0 6px; color: var(--muted); }
+      p.en { font-size: 0.9375rem; }
+      hr { border: 0; border-top: 1px solid #dfe5ec; margin: 20px 0; }
+      button {
+        margin-top: 20px;
+        padding: 10px 22px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--navy);
+        color: #fff;
+        font: 600 0.9375rem system-ui, sans-serif;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="Applire" />
+      <h1>Keine Verbindung</h1>
+      <p>
+        Applire arbeitet mit deinem Profil auf dem Server — offline lässt sich
+        deshalb nichts anzeigen oder erstellen. Sobald du wieder online bist,
+        ist alles unverändert da.
+      </p>
+      <hr />
+      <p class="en">
+        <strong>No connection.</strong> Applire works against your profile on the
+        server, so nothing can be shown or created while you are offline.
+        Everything is unchanged when you are back.
+      </p>
+      <button type="button" onclick="location.reload()">
+        Erneut versuchen · Try again
+      </button>
+    </main>
+  </body>
+</html>
