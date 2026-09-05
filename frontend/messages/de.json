@@ -1058,7 +1058,7 @@
     "dragDropHeading": "Lebensläufe hier ablegen",
     "clickToBrowse": "Datei auswählen",
     "orPrefix": "oder",
-    "formatHint": "PDF, DOCX, DOC bis 10 MB je Datei"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD oder Bild (JPG/PNG) — bis 10 MB je Datei"
   },
   "progressWidget": {
     "done": "fertig"
@@ -1128,10 +1128,10 @@
   },
   "profileImport": {
     "title": "Profil aktualisieren",
-    "subtitle": "Lebenslauf als PDF oder DOCX — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
+    "subtitle": "Lebenslauf als PDF, DOCX, TXT, MD oder Bild — oder LinkedIn-Export als ZIP. Das Format wird automatisch erkannt.",
     "dropTitle": "Datei hier ablegen",
     "browse": "Datei auswählen",
-    "formats": "PDF · DOCX · ZIP bis 10 MB",
+    "formats": "PDF · DOCX · TXT · MD · Bild · ZIP (LinkedIn) bis 10 MB",
     "linkedinCardTitle": "LinkedIn-Datenexport hochladen",
     "linkedinCardDesc": "Vollständiges Archiv (ZIP) aus den LinkedIn-Datenschutzeinstellungen — enthält strukturierte Profildaten für präzisere Extraktion.",
     "progressTitle": "Profil wird aktualisiert",
@@ -1481,8 +1481,7 @@
     "downloadPdf": "PDF herunterladen",
     "atsSheetTitle": "Prüfung",
     "fineTuneSheetTitle": "Feinschliff",
-    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}",
-    "fineTuneDegradedNotice": "Die Bearbeitung ist für größere Bildschirme optimiert. Hier kannst du prüfen; für die volle Bearbeitung öffne diesen Lebenslauf am Computer."
+    "passBadgeLabel": "{count, plural, one {# ATS-Check bestanden} other {# ATS-Checks bestanden}}"
   },
   "documentReview": {
     "title": "Prüfung",

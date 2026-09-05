@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -49,6 +49,36 @@ export function QuickTailorWidget() {
     jobId: string;
     hint: DuplicateOfHint;
   } | null>(null);
+
+  // E040/US229 (ADR-050 amendment 2026-09-05 clauses 4b/4c): the share-target
+  // and deep-link prefill. `/share-target` normalises whatever Android handed it
+  // and redirects here with `?jd_url=` or `?jd_text=`; the same query params are
+  // the documented deep link for iOS and desktop, where no share target exists.
+  //
+  // PREFILL ONLY — this effect fills a field and stops. `POST /api/job/analyze`
+  // stays behind the user's tap: a share intent must never spend provider credit
+  // or create an application (Emma Journey-FMEA JF-E-Q.6).
+  //
+  // Read from `window.location` on mount rather than `useSearchParams()`, which
+  // would force a Suspense boundary on the dashboard for no gain — the same
+  // choice `flow/[flowId]/cv/page.tsx` made for the re-tailor deep link. A share
+  // is always a full navigation (the route handler answers with a 303), so there
+  // is no client-side transition to miss.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = (params.get("jd_url") ?? "").trim();
+    if (/^https?:\/\//i.test(sharedUrl)) {
+      setMode("url");
+      setUrl(sharedUrl);
+      return;
+    }
+    const sharedText = (params.get("jd_text") ?? "").trim();
+    if (sharedText) {
+      setMode("text");
+      setText(sharedText);
+    }
+  }, []);
 
   const canSubmit = (mode === "url" && url.trim()) || (mode === "text" && text.trim());
 

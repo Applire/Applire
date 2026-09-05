@@ -18,6 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { useEffect, useRef, useState } from "react";
+import { CV_UPLOAD_ACCEPT } from "@/components/ui/dropzone";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -295,7 +296,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
             ref={mainInputRef}
             data-testid="main-file-input"
             type="file"
-            accept=".pdf,.docx,.doc,.zip"
+            accept={`${CV_UPLOAD_ACCEPT},.zip`}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];

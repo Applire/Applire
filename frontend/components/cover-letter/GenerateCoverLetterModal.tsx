@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
 type CLTone = "formal" | "professional" | "conversational";
@@ -65,6 +65,44 @@ export function GenerateCoverLetterModal({
   const [tone, setTone] = useState<CLTone>(existingInputs?.tone ?? "formal");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Frontend collector #604 — the recipient-company field is labelled
+  // "(aus Stellenanzeige)" and shipped empty even though the analysis already
+  // knew the employer. A confidence gap rather than a functional one: the
+  // backend re-derives the company independently, so the letter came out right
+  // while the form looked ignorant of the target.
+  //
+  // `prefillRecipientCompany` already existed as a prop and NO caller passed it
+  // — not the CV page, not either of the cover-letter page's two mounts. The
+  // lookup lives here rather than at the three call sites so one fix covers all
+  // three, and because `GET /api/job/{id}` is the endpoint that actually carries
+  // the field: the flow state's `JobAnalysisSummary` has only `job_id` and
+  // `role_title`, so a page-level fix would have had to add this same request.
+  //
+  // Fill only what is still empty (an explicit prop, a stored regenerate value
+  // and anything the user has typed all win), and fail silently — a missing
+  // company must never block generating a letter.
+  useEffect(() => {
+    if (existingInputs?.recipient_company || prefillRecipientCompany) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/job/${jobId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { company_name?: string | null };
+        const company = data.company_name?.trim();
+        if (!cancelled && company) setRecipientCompany((current) => current || company);
+      } catch {
+        /* the field simply stays empty — it is optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Runs once per opened modal; the identity inputs above cannot change while
+    // it is mounted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
 
   const TONE_OPTIONS: { value: CLTone; label: string; sub: string }[] = [
     { value: "formal", label: t("toneFormalLabel"), sub: t("toneFormalSub") },

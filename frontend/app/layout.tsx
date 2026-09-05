@@ -15,14 +15,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { ServiceWorkerRegistration } from "@/components/pwa/ServiceWorkerRegistration";
 import { loadActiveSchemeVars } from "@/lib/active-theme";
 
 export const metadata: Metadata = {
   title: "Applire — DACH CV Tailoring",
   description: "AI-powered Lebenslauf tailoring for the DACH market",
+  // US229 (E040): `app/manifest.ts` is picked up by Next automatically and emits
+  // the <link rel="manifest">. iOS reads neither the manifest's icons nor its
+  // display mode, so the apple-* hints below are the only home-screen affordance
+  // Safari has — and iOS has no `share_target` at all (ADR-050 amendment 4b's
+  // recorded platform limit; `?jd_url=` is the substitute there).
+  icons: { apple: "/icons/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "Applire", statusBarStyle: "default" },
+};
+
+export const viewport: Viewport = {
+  // --color-primary (EU Navy). Matches the manifest's theme_color; a mismatch
+  // shows as a colour change the moment an installed app launches.
+  themeColor: "#003399",
 };
 
 export default async function RootLayout({
@@ -48,6 +62,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="font-body bg-neutral-light text-neutral-dark antialiased">
+        <ServiceWorkerRegistration />
         <Providers>{children}</Providers>
       </body>
     </html>

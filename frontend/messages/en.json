@@ -1058,7 +1058,7 @@
     "dragDropHeading": "Drag & drop CVs here",
     "clickToBrowse": "click to browse",
     "orPrefix": "or",
-    "formatHint": "PDF, DOCX, DOC up to 10MB each"
+    "formatHint": "PDF, DOCX, DOC, TXT, MD or an image (JPG/PNG) — up to 10 MB each"
   },
   "progressWidget": {
     "done": "done"
@@ -1128,10 +1128,10 @@
   },
   "profileImport": {
     "title": "Update Profile",
-    "subtitle": "Upload your CV as PDF or DOCX — or a LinkedIn export as ZIP. The format is detected automatically.",
+    "subtitle": "Upload your CV as PDF, DOCX, TXT, MD or an image — or a LinkedIn export as ZIP. The format is detected automatically.",
     "dropTitle": "Drop file here",
     "browse": "Choose file",
-    "formats": "PDF · DOCX · ZIP up to 10 MB",
+    "formats": "PDF · DOCX · TXT · MD · image · ZIP (LinkedIn) up to 10 MB",
     "linkedinCardTitle": "Upload LinkedIn data export",
     "linkedinCardDesc": "Full archive (ZIP) from LinkedIn privacy settings — provides structured profile data for more accurate extraction.",
     "progressTitle": "Updating your profile",
@@ -1481,8 +1481,7 @@
     "downloadPdf": "Download PDF",
     "atsSheetTitle": "Review",
     "fineTuneSheetTitle": "Fine-tune",
-    "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}",
-    "fineTuneDegradedNotice": "Editing is optimised for a larger screen. You can review here, but for the full editing experience open this CV on your computer."
+    "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}"
   },
   "documentReview": {
     "title": "Review",
