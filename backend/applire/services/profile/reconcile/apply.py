@@ -2420,6 +2420,19 @@ def _apply_set_field(op, resolve, changes):
     changes.append(_updated(_section_for(entity), op.field, current, value))
 
 
+#: `personal_info` fields another writer OWNS — an import may neither write
+#: them nor raise a dispute about them, because the candidate is not the party
+#: who would answer it. `photo_url` belongs to the photo endpoints
+#: (`services/photo.py`: upload records GDPR consent, delete removes the stored
+#: file); a foreign URL there ends up in the CV's `<img src>`, rendered by
+#: headless Chromium. The section door refuses it outright with the same
+#: reasoning (`services/profile/field_edit.py`, adversarial finding 2026-08-26);
+#: this door has always dropped it silently and must keep doing so — a parked
+#: "which photo is right?" question is a question about a file the import never
+#: saw.
+_USER_MANAGED_PERSONAL_INFO_FIELDS = frozenset({"photo_url"})
+
+
 def _apply_set_personal_info(op, profile, source, changes, conflicts):
     # #602/#620 — mirrors _apply_set_summary's exact mechanism (ADR-066: one
     # implementation per capability): an already-populated field that a
@@ -2432,6 +2445,8 @@ def _apply_set_personal_info(op, profile, source, changes, conflicts):
         return
     current = getattr(pi, op.field)
     if not _is_empty(current):
+        if op.field in _USER_MANAGED_PERSONAL_INFO_FIELDS:
+            return  # not ours to write and not ours to dispute — see the constant
         if _is_empty(op.value):
             return  # absence is not an update, and not a conflict either
         if _norm(current) == _norm(op.value):

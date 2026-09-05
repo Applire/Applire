@@ -1410,3 +1410,18 @@ def test_a_personal_info_conflict_is_actually_RESOLVABLE_end_to_end():
     assert answered.profile.personal_info.phone == "+49 222"
     assert answered.profile.metadata.pending_conflicts == []
     assert any(c.section == "personal_info" and c.field == "phone" for c in answered.changes)
+
+
+def test_set_personal_info_never_disputes_a_field_another_writer_owns():
+    """`photo_url` belongs to the photo endpoints, not to an import. The section
+    door refuses it outright; this door drops it silently and must keep doing so
+    — a parked "which photo is right?" question is a question about a file the
+    import never saw, and `tests/unit/test_photo_service.py` pins exactly that.
+    Found by running the full gate after the receipt landed: correct where the
+    change was made, wrong one hop away."""
+    profile = MasterProfileData()
+    profile.personal_info.photo_url = "/uploads/my_photo.jpg"
+    ops = [SetPersonalInfo(field="photo_url", value="/uploads/other_photo.jpg")]
+    result = apply_ops(profile, ops, SOURCE)
+    assert result.profile.personal_info.photo_url == "/uploads/my_photo.jpg"
+    assert result.conflicts == []
