@@ -2184,10 +2184,27 @@ def _keep_whole_token_lifts(
     """
     from applire.services.review_compliance import term_present
 
+    # The pairing is positional because ``reevaluate_gap_ledger_against_vault``
+    # rebuilds the list in order and never adds or removes a row. If that ever
+    # stops being true, a positional zip would SILENTLY DROP the tail — so the
+    # invariant is checked rather than assumed, and a violation fails toward the
+    # refresh's own answer (the unbounded one) with a loud line, never toward a
+    # truncated ledger.
+    if len(original) != len(refreshed):
+        logger.warning(
+            "refresh_ledger_against_vault[%s]: the vault re-evaluation changed the "
+            "ledger's LENGTH (%d -> %d) — the whole-token bound cannot pair rows "
+            "positionally and is skipped for this call (#592)",
+            seam or "unnamed-seam",
+            len(original),
+            len(refreshed),
+        )
+        return list(refreshed), True
+
     out: list[dict[str, Any]] = []
     changed = False
     refused: list[str] = []
-    for was, now in zip(original, refreshed, strict=False):
+    for was, now in zip(original, refreshed, strict=True):
         if not isinstance(was, dict) or not isinstance(now, dict):
             out.append(now)
             continue

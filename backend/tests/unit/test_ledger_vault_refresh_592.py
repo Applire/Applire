@@ -344,3 +344,28 @@ def test_the_refresh_introduces_no_status_outside_the_write_side_allowlists():
     assert statuses <= _VALID_STATUS, f"a status outside the builder's allowlist: {statuses}"
     assert statuses <= set(_FACTOR), f"a status match_score cannot weigh: {statuses}"
     assert statuses == {"direct", "gap"}
+
+
+def test_the_whole_token_bound_pairs_rows_positionally_and_says_so_if_it_cannot():
+    """The bound pairs the persisted row with its refreshed twin by POSITION,
+    which is safe only while the vault re-evaluation neither adds nor removes a
+    row. Checked rather than assumed: a length change fails toward the refresh's
+    own (unbounded) answer with a WARNING, never toward a truncated ledger — a
+    silent `zip` would drop the tail."""
+    from applire.services import keyword_ledger as kl
+
+    ledger = [_gap_row("REST APIs"), _gap_row("GraphQL")]
+    vault = _vault(bullets=["Built and maintained REST APIs in FastAPI."])
+
+    def shorter(_led, _prof):
+        return [_gap_row("REST APIs")], True
+
+    original = kl.reevaluate_gap_ledger_against_vault
+    try:
+        kl.reevaluate_gap_ledger_against_vault = shorter
+        out, changed = kl.refresh_ledger_against_vault(ledger, vault, seam="test")
+    finally:
+        kl.reevaluate_gap_ledger_against_vault = original
+
+    assert changed is True
+    assert [e["concept"] for e in out] == ["REST APIs"]
