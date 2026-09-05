@@ -380,6 +380,19 @@ _NOT_RENDERED_LEAVES: dict[str, str] = {
 }
 
 
+def _document_title(labels: dict, tailored: TailoredCVData) -> str:
+    """``"Lebenslauf – Anna Bauer"`` / ``"Curriculum Vitae – Anna Bauer"``.
+
+    Mirrors the ``<title>`` every CV template renders
+    (``{{ labels.document_title }} – {{ cv.contact.name }}``) so the two
+    delivered formats identify themselves identically. A blank name degrades to
+    the bare document kind rather than a dangling dash.
+    """
+    name = (getattr(tailored.contact, "name", None) or "").strip()
+    kind = labels["document_title"]
+    return f"{kind} – {name}" if name else kind
+
+
 def render_cv_docx(
     tailored: TailoredCVData,
     *,
@@ -394,7 +407,10 @@ def render_cv_docx(
     resolve and pass it based on `tailored.show_photo`.
     """
     labels = cv_labels(lang)
-    document = new_document()
+    # Writer collector #601 / ADR-085 clause 5: the .docx carried no Title at
+    # all while the PDF carried a language-correct one (PR #647 gave the seven
+    # templates a `document_title` label). Same source, same shape.
+    document = new_document(title=_document_title(labels, tailored))
     color: RGBColor = hex_to_rgb_color(accent_color)
 
     for field_name in TailoredCVData.model_fields:

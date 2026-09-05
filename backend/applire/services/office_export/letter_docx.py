@@ -190,6 +190,19 @@ _NOT_RENDERED_LEAVES: dict[str, str] = {
 }
 
 
+def _document_title(labels: dict, letter: LetterData) -> str:
+    """``"Bewerbung – Catherine O'Brien"`` / ``"Application – …"`` (ADR-085 cl. 5).
+
+    The letter templates carry no ``<title>`` at all — an asymmetry with the CV
+    side that is recorded as a collector line, not fixed here — so this uses the
+    same language-keyed ``subject_prefix`` the letter's own subject line uses,
+    which keeps the `.docx` title language-correct without inventing chrome.
+    """
+    name = (getattr(letter.signature, "name", None) or "").strip()
+    kind = labels["subject_prefix"]
+    return f"{kind} – {name}" if name else kind
+
+
 def render_letter_docx(letter: LetterData, *, lang: str, accent_color: str) -> bytes:
     """Render `letter` as a `.docx` file, returned as bytes.
 
@@ -197,7 +210,7 @@ def render_letter_docx(letter: LetterData, *, lang: str, accent_color: str) -> b
     asymmetries with `render_cv_docx`.
     """
     labels = cover_letter_labels(lang)
-    document = new_document()
+    document = new_document(title=_document_title(labels, letter))
     color: RGBColor = hex_to_rgb_color(accent_color)
 
     for field_name in LetterData.model_fields:

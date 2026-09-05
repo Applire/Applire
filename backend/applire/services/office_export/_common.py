@@ -47,6 +47,8 @@ from docx.shared import Mm, Pt, RGBColor
 from docx.text.paragraph import Paragraph
 from pydantic import BaseModel
 
+from applire.services.office_export.provenance import mark_document
+
 # A4 (210mm x 297mm) — the DACH-standard page size the PDF path already
 # renders at (``_html_to_pdf``'s Playwright call uses ``format="A4"``); the
 # docx export follows the same physical page so the two artefacts read the
@@ -67,12 +69,21 @@ _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 _HEADING_STYLES = {1: "Heading 1", 2: "Heading 2", 3: "Heading 3"}
 
 
-def new_document() -> DocxDocument:
+def new_document(title: str | None = None) -> DocxDocument:
     """A fresh ``python-docx`` ``Document`` with A4 page size, standard
     margins and the base font set on the ``Normal`` style — the shared
     starting point every office-export writer builds on.
+
+    It is also the **single seam** where the ADR-085 AI-provenance mark is
+    applied to a `.docx` (core properties + the ``docProps/custom.xml`` part),
+    for the same reason the PDF marks at its render seam: below the document
+    kind, below the language, below both doors. ``title`` is the one part of the
+    mark a caller must supply, because it is language- and name-dependent
+    (writer collector #601).
     """
     document = Document()
+
+    mark_document(document, title=title)
 
     section = document.sections[0]
     section.page_width = PAGE_WIDTH
