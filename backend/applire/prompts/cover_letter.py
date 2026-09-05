@@ -206,9 +206,9 @@ Rules:
   marks claimable stays fully claimable unless a stated limit denies it, and never belongs
   in the honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences
   costs the candidate their best material and is as untrue as an inflated claim.
-  (b) OBLIGATION: when the positioning block marks ``stated_limits`` REQUIRED, its entries
-  are the concepts THIS posting asks about that the candidate has DENIED in their own
-  words — at ANY requirement tier, required or nice-to-have alike. Each listed limit owes
+  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears in
+  the user message, its entries are the concepts THIS posting asks about that the
+  candidate has DENIED in their own words — at ANY requirement tier, required or nice-to-have alike. Each listed limit owes
   ONE explicit positioning decision: name the gap in the candidate's own terms, then the
   adjacent strength that transfers, inside the SAME single honest-gap paragraph, never a
   litany. Silence on a listed limit is not one of the options. This reaches ONLY what the
@@ -237,6 +237,7 @@ def build_cover_letter_prompt(
     gap_testimony: dict[str, Any] | None = None,
     availability_testimony: str | None = None,
     stated_limits_block: str | None = None,
+    required_limits_block: str | None = None,
     unaddressed_requirements_block: str | None = None,
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
@@ -412,6 +413,16 @@ def build_cover_letter_prompt(
     # (services.cross_document.collect_stated_limits); no denials → adds nothing.
     if stated_limits_block:
         lines += ["", stated_limits_block]
+
+    # ADR-075 / #532: the AFFIRMATIVE half — the denials THIS posting asks about,
+    # each owing a positioning decision. Threaded ONLY when
+    # cross_document.select_jd_relevant_limits found one; absent → adds nothing,
+    # so a candidate with no JD-relevant denial is asked for nothing (the
+    # ADR-074 discipline). Rendered separately from stated_limits_block because
+    # that block is shared with the CV writer, whose rule 3a forbids gap
+    # disclosure on a CV.
+    if required_limits_block:
+        lines += ["", required_limits_block]
 
     # #270(c): unmet JD hard requirements (claimable: false, "required") that
     # need an explicit positioning decision (transfer argument or a brief,

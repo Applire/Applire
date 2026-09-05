@@ -230,3 +230,74 @@ def test_the_letter_reviewer_ratchets_still_hold():
     assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_100, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
+
+
+# ── 6. the writer's INPUT carries what the writer's RULE names ──────────────
+#
+# Found by designing the replay, not by reading the code: the writer's user
+# prompt renders the POSITIONING sections and `render_stated_limits_block` — it
+# never carries `positioning_requested`, which is the review loop's `source`. A
+# writer rule keyed on "when the positioning block marks stated_limits REQUIRED"
+# would therefore name a marker the writer cannot see, and would be inert on the
+# ONE call that decides whether the disclosure is drafted at all
+# (`applire-prompt-first` step 3, pattern 6). The obligation reaches the writer
+# as its own rendered block instead.
+
+
+def test_the_affirmative_block_is_rendered_only_when_something_is_owed():
+    from applire.services.cross_document import render_required_limits_block
+
+    assert render_required_limits_block([]) == ""
+    block = render_required_limits_block(["Mit IFS habe ich keine Erfahrung."])
+    low = _flat(block)
+    assert "required" in low
+    assert "silence on one of these is not one of the options" in low
+    assert "never state a limit that is not listed here" in low
+    assert "Mit IFS habe ich keine Erfahrung." in block
+
+
+def test_the_writer_user_prompt_carries_the_block_the_writer_rule_names():
+    """The seam test. The rule says "when a REQUIRED: STATED LIMITS ... block
+    appears in the user message" — so the user message must be able to carry
+    one, under exactly that heading."""
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, build_cover_letter_prompt
+    from applire.services.cross_document import render_required_limits_block
+
+    heading = "REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT"
+    assert heading in SYSTEM_PROMPT.upper() or heading.lower() in _flat(SYSTEM_PROMPT)
+
+    prompt = build_cover_letter_prompt(
+        cv_data={"contact": {"name": "A. Test"}, "summary": "Controller"},
+        jd_text="Senior Controller",
+        pre_gen_inputs={},
+        detected_language="de",
+        required_limits_block=render_required_limits_block(
+            ["Mit IFS oder BRC habe ich keine Erfahrung."]
+        ),
+    )
+    assert heading in prompt
+    assert "Mit IFS oder BRC habe ich keine Erfahrung." in prompt
+
+    # and nothing is added when nothing is owed
+    empty = build_cover_letter_prompt(
+        cv_data={"contact": {"name": "A. Test"}, "summary": "Controller"},
+        jd_text="Senior Controller",
+        pre_gen_inputs={},
+        detected_language="de",
+        required_limits_block="",
+    )
+    assert heading not in empty
+
+
+def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
+    """The call-site seam: `_render_cover_letter_background` must derive the
+    block from `select_jd_relevant_limits(denied_concepts, keyword_ledger)` —
+    the two persisted facts — and pass it to the writer prompt."""
+    import inspect
+
+    from applire.services import cover_letter as svc
+
+    src = inspect.getsource(svc._render_cover_letter_background)
+    assert "render_required_limits_block(" in src
+    assert "select_jd_relevant_limits(denied_concepts, keyword_ledger)" in src
+    assert "required_limits_block=required_limits_block," in src

@@ -534,6 +534,43 @@ def select_jd_relevant_limits(
     return [statement for _, _, _, statement in kept]
 
 
+def render_required_limits_block(limits: list[str]) -> str:
+    """The AFFIRMATIVE half of ADR-075, for the LETTER writer's user prompt only.
+
+    Why this exists as its own block rather than as a flag the writer reads:
+    ``positioning_requested`` is the review loop's ``source`` and never reaches
+    the initial writer call at all — `build_cover_letter_prompt` renders the
+    POSITIONING sections and :func:`render_stated_limits_block`, not that JSON.
+    A writer rule keyed on *"when the positioning block marks stated_limits
+    REQUIRED"* would therefore name a marker the writer cannot see, and would be
+    a no-op on the very call that decides whether the disclosure exists at all
+    (`applire-prompt-first` step 3, pattern 6). Found by writing the replay, not
+    by reading the code.
+
+    It is deliberately NOT folded into :func:`render_stated_limits_block`, which
+    the CV writer also receives (`services/cv.py`): CV writer rule 3a says a CV
+    is not the place to disclose a gap, so the obligation must not reach it.
+
+    Returns ``""`` when nothing is owed, so a candidate with no JD-relevant
+    denial adds nothing — the ADR-074 discipline, applied to this block too.
+    """
+    if not limits:
+        return ""
+    lines = [
+        "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
+        "Each statement below is the candidate's own wording about a concept THIS "
+        "posting asks for and they have denied. Every one of them needs an explicit "
+        "positioning decision in the body — name the gap in their own terms, then the "
+        "adjacent strength that transfers — all folded into the SAME single honest-gap "
+        "paragraph, never a litany and never an apology. Silence on one of these is "
+        "not one of the options.",
+        "Never state a limit that is NOT listed here: an invented limit is as untrue "
+        "as an inflated claim and throws away the candidate's own best evidence.",
+    ]
+    lines.extend(f"  - {text}" for text in limits)
+    return "\n".join(lines)
+
+
 def render_stated_limits_block(limits: list[str]) -> str:
     """Render the candidate's verbatim stated limits for a WRITER prompt.
 

@@ -1152,12 +1152,19 @@ async def _render_cover_letter_background(
             from applire.services.cross_document import (
                 collect_stated_limits,
                 find_unaddressed_hard_requirements,
+                render_required_limits_block,
                 render_stated_limits_block,
+                select_jd_relevant_limits,
                 render_unaddressed_hard_requirements_block,
             )
             # denied_concepts already resolved above (#272 Task 1 hoist).
             stated_limits_block = render_stated_limits_block(
                 collect_stated_limits(denied_concepts)
+            )
+            # ADR-075 / #532 — the affirmative half, selected deterministically
+            # from THIS job's ledger; empty string when nothing is owed.
+            required_limits_block = render_required_limits_block(
+                select_jd_relevant_limits(denied_concepts, keyword_ledger)
             )
 
             # #270(c): unmet JD hard requirements (claimable: false, required) that need
@@ -1431,6 +1438,12 @@ async def _render_cover_letter_background(
                 gap_testimony=gap_testimony,
                 availability_testimony=availability_testimony,
                 stated_limits_block=stated_limits_block,
+                # ADR-075 / #532: the affirmative half reaches the WRITER as its
+                # own block. `positioning_requested` is the review loop's `source`
+                # and never reaches this call, so the obligation would otherwise
+                # exist only from round 2 onwards — on the one call that decides
+                # whether the disclosure is ever drafted at all.
+                required_limits_block=required_limits_block,
                 unaddressed_requirements_block=unaddressed_requirements_block,
                 vault_evidence_block=vault_evidence_block,
                 scope_positioning_block=scope_positioning_block,
