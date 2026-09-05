@@ -95,6 +95,7 @@ from applire.prompts.review_cv_language import (
 from applire.prompts.interview import language_name
 from applire.templates.labels import cv_labels
 from applire.services.load_bearing import bullet_carries_figure
+from applire.services.pdf_provenance import render_marked_pdf
 from applire.services.reviewer import review_and_refine
 from applire.utils.budget_unit import budget_needs_unit
 from applire.utils.language_detection import (
@@ -3386,7 +3387,10 @@ async def _html_to_pdf(html: str) -> bytes:
         browser = await pw.chromium.launch()
         page = await browser.new_page()
         await page.set_content(html, wait_until="networkidle")
-        pdf_bytes = await page.pdf(
+        # ADR-085: the AI-provenance mark is applied at this one seam, so every
+        # template, both document kinds and both doors inherit it.
+        pdf_bytes = await render_marked_pdf(
+            page,
             format="A4",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
