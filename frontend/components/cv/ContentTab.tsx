@@ -67,6 +67,16 @@ interface ContentTabProps {
   flowSummary: FlowStateSummary | null;
   onSectionSave: (updatedHtml: string) => void;
   onUnsavedChange: (hasUnsaved: boolean) => void;
+  /**
+   * E058/US300 (ADR-081 cl. 2). `"full"` is the pre-E058 form — the gap cards
+   * AND the section list — and stays the default so existing callers and tests
+   * are unchanged. `"sections"` renders the SECTION EDITOR only: on the
+   * document pages the gaps are read by `lib/review-groups.ts` and rendered as
+   * groups 2 and 3 of the review surface, and this component keeps the half
+   * that ADR-081 moves to the *Bearbeiten* tab. Rendering both would restore
+   * exactly the "Inhalt" / "Prüfung" duplication the epic exists to remove.
+   */
+  variant?: "full" | "sections";
 }
 
 /**
@@ -83,7 +93,13 @@ function dedupeById(items: GapHintItem[]): GapHintItem[] {
   });
 }
 
-export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }: ContentTabProps) {
+export function ContentTab({
+  cvId,
+  flowSummary,
+  onSectionSave,
+  onUnsavedChange,
+  variant = "full",
+}: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
   const router = useRouter();
@@ -306,7 +322,7 @@ export function ContentTab({ cvId, flowSummary, onSectionSave, onUnsavedChange }
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      {allGaps.length > 0 && (
+      {variant === "full" && allGaps.length > 0 && (
         <>
           <div className="flex items-center gap-2">
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}

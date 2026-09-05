@@ -97,6 +97,10 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "dashboard.jdTabUrl",
   "coverLetter.autoTag",
   "coverLetter.optionalHint",
+  // E058/US300: the origin label ADR-081 cl. 2 names verbatim for group 3's
+  // coarser granularity ("labels each item with its origin (`Cluster` /
+  // `Begriff`)"). "Cluster" is the ordinary German term and the ADR's own word.
+  "documentReview.kindCluster",
   // #626 Health-hub field labels — same two words already allowlisted for the
   // structured editors above (profile.educationEditor.fieldInstitution,
   // profile.projectsEditor.fieldUrl): identical in both languages.

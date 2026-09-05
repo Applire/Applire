@@ -9,61 +9,33 @@ import { useTranslations } from "next-intl";
 import { AlertTriangle, Info, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ATSReport } from "@/components/cv/ATSChecksPanel";
+import {
+  FLAG_VERDICTS,
+  claimableConceptSet,
+  isRelatedClaim,
+  type TruthfulnessClaimResult,
+  type TruthfulnessReport,
+  type Verdict,
+} from "@/lib/truthfulness-display";
 
 // E043/US247 (ADR-052 §4): per-claim truthfulness report panel — sibling of
 // ATSChecksPanel in the document workspace. Red flags (inflated /
 // misattributed / unbacked) stay loud on the compact card; unverifiable soft
 // claims are a single muted note, never a wall of warnings.
 
-type Verdict =
-  | "grounded"
-  | "inflated"
-  | "misattributed"
-  | "unbacked"
-  | "unverifiable"
-  // #237 round-3: statements ABOUT the target employer (sourced from the JD,
-  // validated by the ADR-021 reviewer) — the vault can't ground them, so the
-  // Oracle files them as not_applicable and excludes them from dominance.
-  | "not_applicable";
-
-type TruthfulnessEvidence = {
-  kind: "profile_path" | "enrichment_record";
-  ref: string;
-  excerpt?: string;
-};
-
-export type TruthfulnessClaimResult = {
-  claim: { text: string; location: string; kind: string };
-  verdict: {
-    verdict: Verdict;
-    checker: string;
-    evidence: TruthfulnessEvidence[];
-    detail?: string | null;
-  };
-};
-
-export type TruthfulnessReport = {
-  version: string;
-  document_kind: string;
-  claims: TruthfulnessClaimResult[];
-  counts: Record<string, number>;
-  stated_limit: string;
-  // #249/US266 "louder letter-panel failure copy": a report-level summary
-  // flag (>50% unverifiable) a sibling backend change adds to the
-  // Truthfulness Oracle report schema. Optional/frontend-only widening —
-  // backend/applire/schemas/oracle.py is NOT touched from this branch; older
-  // persisted reports simply lack the field, which must render exactly as
-  // before (absent === false, never a crash or a silent "true").
-  unverifiable_dominated?: boolean;
-  // ADR-068 (SF-ORACLE.3 report-side control): count of claims whose model
-  // judgement (cross_language_judgement / restatement_judgement) could not
-  // run — provider failure/degradation. For those claims "unverifiable" can
-  // also mean "not checked", not just "checked, no evidence". Optional/
-  // frontend-only widening; absent on older reports (=> no notice, ever).
-  judgement_unavailable?: number;
-} | null;
-
-const FLAG_VERDICTS: Verdict[] = ["inflated", "misattributed", "unbacked"];
+// E058/US300: the report SHAPE and the ONE rule that decides which claims count
+// as FLAGGED moved to `lib/truthfulness-display.ts`. ADR-081 cl. 2's group 1 is
+// the union of those flagged claims and the ATS report's `present_unsupported`
+// terms, so the review surface has to ask the same question this panel asks —
+// and asking it with a second copy of the rule is the `SF-DOOR.7` class (a rule
+// duplicated in the UX layer and drifting) that E058 exists to remove. One
+// implementation (ADR-066), imported by both; re-exported here so every
+// existing `import type { TruthfulnessReport } from
+// "@/components/cv/TruthfulnessPanel"` keeps working.
+export type {
+  TruthfulnessClaimResult,
+  TruthfulnessReport,
+} from "@/lib/truthfulness-display";
 
 // ADR-068 clause 5 (SF-ORACLE.6 verdict-provenance ambiguity): checkers whose
 // verdict is a BOUNDED MODEL JUDGEMENT (e.g. translation equivalence,
@@ -146,17 +118,6 @@ function JudgementBadge({ label, tooltip }: { label: string; tooltip: string }) 
   );
 }
 
-// Simple, deterministic client-side fold (#249: "keep it simple and
-// deterministic") — case and surrounding-whitespace only, no fuzzy matching.
-function foldSkillText(s: string): string {
-  return s.trim().toLowerCase();
-}
-
-/** Does this claim's text match a claimable Keyword Ledger concept? */
-function isLedgerClaimable(text: string, claimableSet: Set<string>): boolean {
-  return claimableSet.has(foldSkillText(text));
-}
-
 export default function TruthfulnessPanel({
   report,
   atsReport,
@@ -200,13 +161,8 @@ export default function TruthfulnessPanel({
   // to the ATS panel calling the same concept "claimable" is the exact
   // contradiction #249 reported; rendering it plain green would overclaim.
   // Third state: visible, neutral, excluded from the red-flag headline.
-  const claimableSet = new Set(
-    (atsReport?.keywords.claimable_concepts ?? []).map(foldSkillText),
-  );
-  const isRelated = (c: TruthfulnessClaimResult) =>
-    c.verdict.verdict === "unbacked" &&
-    c.claim.kind === "skill" &&
-    isLedgerClaimable(c.claim.text, claimableSet);
+  const claimableSet = claimableConceptSet(atsReport?.keywords.claimable_concepts);
+  const isRelated = (c: TruthfulnessClaimResult) => isRelatedClaim(c, claimableSet);
 
   const flagged = claims.filter(
     (c) => FLAG_VERDICTS.includes(c.verdict.verdict) && !isRelated(c),

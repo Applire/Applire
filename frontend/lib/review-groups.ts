@@ -46,7 +46,7 @@
  */
 
 import type { GapHintItem } from "@/components/cv/ContentTab";
-import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
+import type { CriticAdvisory, OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import type { ATSCheck, ATSReport } from "./ats-report";
 import { normQuote } from "./norm-quote";
 import {
@@ -83,6 +83,14 @@ export interface ReviewItem {
   clusterId?: string;
   /** For a check row: the check id, so the surface can label it via `ats.checks.*`. */
   checkId?: string;
+  /**
+   * For a check row: the producer's own check object, carried through verbatim
+   * so the surface renders the ATS auditor's `details` / `details_key` rather
+   * than a second rendering of the same fact.
+   */
+  check?: ATSCheck;
+  /** For a critic row: the advisory, carried through verbatim (ADR-060). */
+  advisory?: CriticAdvisory;
   /** For a claim row: where in the document the Oracle found it. */
   location?: string | null;
 }
@@ -114,11 +122,21 @@ export interface ReviewInputs {
   truthReport: TruthfulnessReport;
   criticReport: OutcomeCriticReport;
   /**
-   * The gap-analysis clusters (§5.3.26). `null` means "not loaded / this
-   * document has no cluster producer" → group 3's cluster half is *unknown*,
-   * never silently zero. An empty array means "loaded, none found".
+   * The gap-analysis clusters (§5.3.26). An empty array means "loaded, none
+   * found"; `null` means "the producer exists for this document and did NOT
+   * run", which renders as *unknown* rather than as zero (ADR-081 cl. 9).
    */
   gapClusters: GapHintItem[] | null;
+  /**
+   * Does this document HAVE a gap-cluster producer at all? The cover letter
+   * does not — §5.3.26's clusters are computed against the CV. Passing `false`
+   * removes `clusters` from groups 2 and 3's producer list entirely, so the
+   * surface neither claims the clusters are empty nor claims they are unknown.
+   * "This producer does not apply here" is a third state, and conflating it
+   * with either of the other two would be a lie in one direction or the other.
+   * Defaults to `true`.
+   */
+  hasClusterProducer?: boolean;
 }
 
 /** ADR-060: the outcome critic is an EXCEPTION surface — absent or `ran: false` both mean it did not run. */
@@ -280,6 +298,7 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       producers: ["ats"] as ReviewProducer[],
       severity: "critical" as const,
       checkId: c.id,
+      check: c,
     })),
     ...advisory.map((c) => ({
       key: `check-advisory-${c.id}`,
@@ -288,6 +307,7 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       producers: ["ats"] as ReviewProducer[],
       severity: "info" as const,
       checkId: c.id,
+      check: c,
     })),
     ...notApplicable.map((c) => ({
       key: `check-na-${c.id}`,
@@ -296,6 +316,7 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
       producers: ["ats"] as ReviewProducer[],
       severity: "neutral" as const,
       checkId: c.id,
+      check: c,
     })),
   ];
 
@@ -307,6 +328,7 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
         kind: "advisory",
         producers: ["critic"],
         severity: "info",
+        advisory: a,
       });
     });
   }
@@ -331,10 +353,13 @@ export function buildReviewGroups(inputs: ReviewInputs): ReviewGroup[] {
 
   const g4 = buildGroup4(inputs);
 
+  const clusterProducers: ReviewProducer[] =
+    inputs.hasClusterProducer === false ? ["ats"] : ["ats", "clusters"];
+
   const specs: Array<{ id: 1 | 2 | 3 | 4; producers: ReviewProducer[]; items: ReviewItem[]; passedChecks: number }> = [
     { id: 1, producers: ["ats", "oracle"], items: buildGroup1(inputs), passedChecks: 0 },
-    { id: 2, producers: ["ats", "clusters"], items: buildGroup2(inputs), passedChecks: 0 },
-    { id: 3, producers: ["ats", "clusters"], items: buildGroup3(inputs), passedChecks: 0 },
+    { id: 2, producers: clusterProducers, items: buildGroup2(inputs), passedChecks: 0 },
+    { id: 3, producers: clusterProducers, items: buildGroup3(inputs), passedChecks: 0 },
     { id: 4, producers: ["ats", "critic"], items: g4.items, passedChecks: g4.passedChecks },
   ];
 

@@ -28,23 +28,28 @@ import { GenerationProgress } from "@/components/cv/GenerationProgress";
 import { CVDocument, type CVDocumentHandle } from "@/components/cv/CVDocument";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
+import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
+import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
+import { ReviewSurface } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
-import { ContentTab } from "@/components/cv/ContentTab";
+import { ContentTab, type GapHintItem } from "@/components/cv/ContentTab";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
-import { FileText, Palette, Zap } from "lucide-react";
+import { ClipboardCheck, Palette, Zap } from "lucide-react";
 import { WhatNext } from "@/components/cv/WhatNext";
 import { PhotoPromptStep } from "@/components/cv/PhotoPromptStep";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
+import type { ReviewModePreference } from "@/lib/review-walked";
+import { buildReviewGroups } from "@/lib/review-groups";
 import { getApplication } from "@/lib/api/applications";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
 import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
-import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
-import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
+import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
+import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
 
@@ -127,6 +132,15 @@ export default function CVPage({
   // E054/US289: the previewed CV's PINNED language (ADR-038 clause 3b) — badge
   // + language-switch state. null = legacy row without a pin (no badge).
   const [docLanguage, setDocLanguage] = useState<"de" | "en" | null>(null);
+  // E058/US301 (ADR-081 cl. 5): the stored review-mode preference. `auto` is
+  // the default and also the degraded value — a settings failure must never
+  // decide the mode for the user.
+  const [reviewMode, setReviewMode] = useState<ReviewModePreference>("auto");
+  // E058/US300 (ADR-081 cl. 2, group 3): the gap-analysis clusters.
+  // `null` means NOT LOADED, and the surface renders that as *unknown* rather
+  // than as zero (clause 9) — an empty array is the different statement
+  // "loaded, none found".
+  const [gapClusters, setGapClusters] = useState<GapHintItem[] | null>(null);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
@@ -141,7 +155,9 @@ export default function CVPage({
     let cancelled = false;
     getSettings()
       .then((s) => {
-        if (!cancelled) setTargetPages(s.target_cv_pages ?? 2);
+        if (cancelled) return;
+        setTargetPages(s.target_cv_pages ?? 2);
+        setReviewMode(s.review_mode ?? "auto");
       })
       .catch(() => {});
     return () => {
@@ -267,9 +283,29 @@ export default function CVPage({
         // Non-fatal — advisory panel simply doesn't render
       }
     }
+    // ADR-081 cl. 2 group 3 / cl. 9: the gap-analysis clusters. This is the
+    // SAME door ContentTab reads for the section editor; the surface reads it
+    // for the cluster half of groups 2 and 3. A failure leaves the state at
+    // `null`, which renders as *unknown* — never as "no gaps found".
+    async function fetchGapClusters() {
+      try {
+        const res = await fetch(`${API_BASE}/api/cv/${cvId}/sections`);
+        if (!res.ok) return;
+        const data: { sections?: Array<{ gaps?: GapHintItem[] }>; general_gaps?: GapHintItem[] } =
+          await res.json();
+        const all = [
+          ...(data.sections ?? []).flatMap((s) => s.gaps ?? []),
+          ...(data.general_gaps ?? []),
+        ];
+        setGapClusters(all);
+      } catch {
+        // Non-fatal — the group renders *unknown*, which is the honest state.
+      }
+    }
     void fetchAtsReport();
     void fetchTruthReport();
     void fetchCriticReport();
+    void fetchGapClusters();
   }, [cvId, phase, atsRefresh]);
 
   // E054/US289: read the previewed CV's pinned document_language (badge +
@@ -442,26 +478,84 @@ export default function CVPage({
       cv_summary: { sections: flowState?.cv_summary?.sections ?? [] },
     };
 
+    // ADR-081 cl. 2 (E058/US300): the findings, grouped by the user's question.
+    // Built once and reused by the desktop panel and the mobile sheet — ADR-050's
+    // "mount the live component, never a forked panel" rule (cl. 7).
+    const reviewSurface = (
+      <ReviewSurface
+        documentKind="cv"
+        documentId={cvId}
+        atsReport={atsReport}
+        truthReport={truthReport}
+        criticReport={criticReport}
+        gapClusters={gapClusters}
+        modePreference={reviewMode}
+        onResolveCluster={(gapId) => {
+          // The EXISTING path for a gap cluster, unchanged: an honest gap can
+          // only close through profile enrichment (#117 / ADR-019), so the
+          // surface routes there rather than inviting a written claim. This is
+          // not a new editing pass (ADR-076).
+          void gapId;
+          router.push("/profile");
+        }}
+      />
+    );
+
+    // ADR-081 cl. 6, carried onto the tab strip and the collapsed rail: group
+    // 1's count is the one send-blocking number and may never be invisible.
+    const group1Count = buildReviewGroups({
+      atsReport,
+      truthReport,
+      criticReport,
+      gapClusters,
+    }).find((g) => g.id === 1)!.items.length;
+
     const sidebarTabs: SidebarTab[] = [
       {
-        id: "content",
-        label: t("contentTab"),
-        icon: <FileText className="w-4 h-4" aria-hidden="true" />,
-        body: (
-          <ContentTab
-            cvId={cvId}
-            flowSummary={flowSummary}
-            onSectionSave={refreshPreviewAndAts}
-            onUnsavedChange={() => {}}
-          />
-        ),
+        id: "review",
+        label: tDoc("tabReview"),
+        icon: <ClipboardCheck className="w-4 h-4" aria-hidden="true" />,
+        badge:
+          group1Count > 0 ? (
+            <span
+              data-testid="tab-badge-review"
+              className="inline-flex min-w-4 items-center justify-center rounded-full bg-critical-container px-1 text-[10px] font-bold text-critical"
+            >
+              {group1Count}
+            </span>
+          ) : undefined,
+        body: reviewSurface,
       },
       {
-        id: "design",
-        label: t("designTab"),
+        id: "edit",
+        label: tDoc("tabEdit"),
         icon: <Palette className="w-4 h-4" aria-hidden="true" />,
         body: (
-          <DesignTab
+          <div className="flex flex-col gap-3">
+            {/* What remains of the old *Inhalt* tab: the section editor. Its
+                gap cards moved into groups 2 and 3 of the review surface, which
+                is what dissolves the "Inhalt" / "Prüfung" duplication (SF-DOOR.7's
+                sibling) without either subsystem losing ownership of its data. */}
+            <ContentTab
+              cvId={cvId}
+              flowSummary={flowSummary}
+              onSectionSave={refreshPreviewAndAts}
+              onUnsavedChange={() => {}}
+              variant="sections"
+            />
+            {/* ADR-081 cl. 3: fact pins live HERE, outside the finding groups,
+                application-scoped. No finding row links one as its remedy and
+                no finding's rendering branches on pinned-ness (ADR-077 cl. 2). */}
+            <ATSChecksPanel report={atsReport} variant="pins" />
+            {flowState?.application_id && (
+              <PinnedFactsPanel
+                applicationId={flowState.application_id}
+                apiBase={API_BASE}
+                cvId={cvId}
+                coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
+              />
+            )}
+            <DesignTab
             cvId={cvId}
             templateLabel={template === "classic_german" ? t("templateClassic") : t("templateModern")}
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
@@ -469,7 +563,8 @@ export default function CVPage({
             onColorApplied={refreshPreviewAndAts}
             onChangeTemplate={() => setPhase("template_select")}
             onRegenerateSame={() => void handleGenerate(template)}
-          />
+            />
+          </div>
         ),
       },
       {
@@ -507,27 +602,6 @@ export default function CVPage({
       },
     ];
 
-    // #580 (ADR-077 amended 2026-08-26): ONE ATS panel body for the desktop
-  // workspace and the mobile command bar (rule-against-one-of-N), and the pin
-  // CONTROL mounted on the CV page — a completed flow redirects every other
-  // step to /cv, so the gaps-page mount alone was unreachable after generation
-  // (JF-F-I.3: the fate marker must be where Felix stands after generating).
-  const atsPanelBody = (
-    <div className="space-y-2">
-      <ATSChecksPanel report={atsReport} />
-      <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
-      <CriticAdvisoryPanel report={criticReport} />
-      {flowState?.application_id && (
-        <PinnedFactsPanel
-          applicationId={flowState.application_id}
-          apiBase={API_BASE}
-          cvId={cvId}
-          coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
-        />
-      )}
-    </div>
-  );
-
   return (
       <div data-testid="cv-page">
         {/* E039/US221: the freshly re-tailored version explains itself —
@@ -558,13 +632,7 @@ export default function CVPage({
           </div>
         )}
         <DocumentWorkspace
-          flowId={flowId}
-          activeDoc="cv"
-          documentLanguage={docLanguage}
-          onDownloadPdf={() => void requestDownload("pdf")}
-          onDownloadDocx={() => void requestDownload("docx")}
           preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
-          atsPanel={atsPanelBody}
           sidebar={
             <RefinementSidebar
               matchScore={
@@ -576,18 +644,36 @@ export default function CVPage({
               tabs={sidebarTabs}
               collapsed={!panelOpen}
               onToggleCollapse={() => setPanelOpen((o) => !o)}
+              initialTabId="review"
+              identityBar={
+                <DocumentIdentityBar
+                  flowId={flowId}
+                  activeDoc="cv"
+                  documentLanguage={docLanguage}
+                />
+              }
+              pinnedFooter={
+                <DocumentExportFooter
+                  onDownloadPdf={() => void requestDownload("pdf")}
+                  onDownloadDocx={() => void requestDownload("docx")}
+                />
+              }
             />
           }
           commandBar={
+            /* ADR-081 cl. 7 / ADR-050: mobile keeps its bottom command bar and
+               its sheets; only the sheet's CONTENT follows the new grouping —
+               the SAME live ReviewSurface instance, never a forked panel. */
             <MobileCommandBar
               atsReport={atsReport}
-              atsPanel={atsPanelBody}
+              atsPanel={reviewSurface}
               fineTuneSurface={
                 <ContentTab
                   cvId={cvId}
                   flowSummary={flowSummary}
                   onSectionSave={refreshPreviewAndAts}
                   onUnsavedChange={() => {}}
+                  variant="sections"
                 />
               }
               onDownloadPdf={() => void requestDownload("pdf")}

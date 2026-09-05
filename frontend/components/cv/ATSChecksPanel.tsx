@@ -22,91 +22,20 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  baseId,
+  usesLocalizedDetail,
+  type ATSCheck,
+  type ATSReport,
+} from "@/lib/ats-report";
 
-type ATSCheck = {
-  id: string;
-  // E057/ADR-079 clause 4: a THIRD status for a check that genuinely cannot
-  // be evaluated on this artefact (e.g. the page-length band on a .docx
-  // export). Counted in its own bucket by the backend's `_finish()` — never
-  // a pass, never a fail. Rendered distinctly wherever the panel shows a
-  // status (see the `notApplicable`-prefixed testids below).
-  status: "pass" | "fail" | "not_applicable";
-  details?: string | null;
-  // E042 follow-up (ADR-038): machine-readable twin of `details` for bands the
-  // frontend localises; `details` stays the EN fallback for legacy reports.
-  details_key?: string | null;
-  details_params?: Record<string, string | number> | null;
-  // E056/ADR-077 clause 5: structured driver for a fail band — currently only
-  // {"pinned_facts": N} on the page-length check (N present pinned facts).
-  driver?: Record<string, number> | null;
-};
-// E056/ADR-077 clauses 3+5: one fact pin's measured fate on THIS document —
-// present in the tailored twin, stale (excluded from generation), or removed
-// by a truth floor (hierarchy: truth > pin, never silent). Ship-and-report,
-// never a gate.
-export type PinnedFactReportEntry = {
-  pin_id: string;
-  entry_type: string;
-  quote: string;
-  present: boolean;
-  stale: boolean;
-  removed_by_truth_floor?: boolean;
-  // #580: the job's do-not-claim terms this pinned quote carries — a fact
-  // about the quote, never a statement about why the pin is absent. Optional
-  // for back-compat with reports persisted before this field existed.
-  ledger_conflict?: string[];
-};
-export type ATSReport = {
-  checks: ATSCheck[];
-  // null/absent = audited without pin context (legacy reports, no pins).
-  pinned_facts?: PinnedFactReportEntry[] | null;
-  keywords: {
-    present: string[];
-    missing: string[];
-    // US203 (ADR-048): a missing keyword the candidate HAS per the Keyword Ledger
-    // (a surfacing miss — fixable) vs one they genuinely lack (an honest gap, never
-    // something to fabricate). Optional for back-compat with legacy reports.
-    missing_claimable?: string[];
-    missing_honest_gap?: string[];
-    // #117 (ADR-048 fourth quadrant): present in the document WITHOUT profile backing —
-    // an unsupported claim (truthfulness warning). Optional for back-compat.
-    present_unsupported?: string[];
-    // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
-    // forms (concept name included), regardless of presence in the document —
-    // lets TruthfulnessPanel join an Oracle "unbacked" skill claim against a
-    // ledger concept the candidate supports only via semantic adjacency, so
-    // that case renders as a distinct honest "related evidence" state instead
-    // of a contradiction between the two panels. Optional for back-compat.
-    claimable_concepts?: string[];
-  };
-} | null;
-
-// Strip trailing numeric index (e.g. "work-1" → "work", "education-2" → "education", "body-3" → "body")
-const baseId = (id: string) => id.replace(/-\d+$/, "");
-
-// E042 follow-up (ADR-038): detail keys with a translation under ats.checkDetails.
-// Only whitelisted keys go through t() — an unknown key from a newer backend falls
-// back to the EN `details` string instead of rendering a raw key path.
-const LOCALIZED_DETAIL_KEYS = new Set([
-  "page-length-target",
-  // #238 (founder-acceptance F4): an explicit page target the condense loop
-  // could not hit — a genuine miss, never dressed up as senior-profile
-  // advice. Ships with status="fail" (see ats_audit.py), so it renders
-  // through the existing failed-check path — red, inline, no new UI state.
-  "page-length-target-missed",
-  "page-length-senior",
-  "page-length-exhausted",
-  "page-length-exceeds",
-  "page-length-letter",
-  // ADR-079 cl. 4 (E057): the .docx export has no intrinsic pagination, so the
-  // band is neither pass nor fail. Carries an empty-but-present details_params
-  // — the message takes no ICU variables.
-  "page-length-not-applicable",
-  // #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory —
-  // ships as a passing check with a localized `details` sentence, same shape
-  // as the page-length advisory branches above.
-  "skills-weak-vault-tie",
-]);
+// E058/US300: the report SHAPE and the two rules that read it moved to
+// `lib/ats-report.ts` so the document review surface can read the same report
+// without importing this component — one implementation of the check-id and
+// detail-key rules (ADR-066), not two. Re-exported here so every existing
+// `import type { ATSReport } from "@/components/cv/ATSChecksPanel"` keeps
+// working.
+export type { ATSCheck, ATSReport, PinnedFactReportEntry } from "@/lib/ats-report";
 
 type CheckGroup = { base: string; checks: ATSCheck[] };
 
@@ -163,7 +92,27 @@ function KeywordRing({ present, total, label }: { present: number; total: number
   );
 }
 
-export default function ATSChecksPanel({ report }: { report: ATSReport }) {
+/**
+ * Which slice of the report this mount renders.
+ *
+ * E058/US300 splits the panel's two jobs across the new review surface:
+ * `"full"` is the pre-E058 form and is kept as the default so every existing
+ * caller and test is unchanged; `"pins"` renders ONLY the per-pin fate section
+ * (E056/ADR-077 cl. 3+5), which ADR-081 cl. 3 moves to the EDITING tab —
+ * "fact pins stay outside the finding groups entirely". The keyword buckets and
+ * the structure checks themselves are read by `lib/review-groups.ts` and
+ * rendered as groups 1-4, so this component no longer renders them on the
+ * document pages.
+ */
+export type ATSChecksPanelVariant = "full" | "pins";
+
+export default function ATSChecksPanel({
+  report,
+  variant = "full",
+}: {
+  report: ATSReport;
+  variant?: ATSChecksPanelVariant;
+}) {
   const t = useTranslations("ats");
   const tCommon = useTranslations("common");
   const [open, setOpen] = useState(false);
@@ -195,9 +144,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
   // variable — it renders the raw key path — so a keyed check without params
   // (partially-migrated persisted report) must take the fallback, not t().
   const detailText = (c: ATSCheck) =>
-    c.details_key && c.details_params && LOCALIZED_DETAIL_KEYS.has(c.details_key)
-      ? t(`checkDetails.${c.details_key}`, c.details_params)
-      : c.details;
+    usesLocalizedDetail(c) ? t(`checkDetails.${c.details_key}`, c.details_params!) : c.details;
   const failed = report.checks.filter((c) => c.status === "fail");
   // E042/US239 (ADR-051): a PASSING check can carry a non-null `details` string
   // (e.g. page-length passing "beyond the norm by choice"/"acceptable for senior
@@ -233,6 +180,91 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
 
   // E056/ADR-077: null/absent = audited without pin context (legacy reports).
   const pinnedFacts = report.pinned_facts ?? [];
+
+  // E056/ADR-077 clauses 3+5, extracted by E058/US300: ADR-081 cl. 3 moves
+  // fact pins OUT of the finding groups and onto the editing tab, so this
+  // block has to be renderable on its own (`variant="pins"`). Same markup,
+  // same test ids — a relocation, not a re-write.
+  // Per-pin presence measurement on THIS document — ship-and-report, never a
+  // gate. Rendered whenever the report carries pin context, independent of
+  // pass/fail status.
+  const pinnedFactsBlock =
+    pinnedFacts.length > 0 ? (
+          <div
+            data-testid="ats-pinned-facts"
+            className="mt-2 space-y-1 border-t border-outline-variant pt-2"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+              {t("pinnedFacts.title")}
+            </p>
+            <ul className="space-y-1">
+              {pinnedFacts.map((pin) => (
+                <li
+                  key={pin.pin_id}
+                  data-testid={`ats-pinned-fact-${pin.pin_id}`}
+                  className="flex items-start gap-2 text-sm text-on-surface"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 shrink-0 text-xs font-bold ${
+                      pin.present ? "text-success" : "text-critical"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
+                    {pin.present ? "✓" : "✗"}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate" title={pin.quote}>
+                      {pin.quote}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5 text-xs text-on-surface-variant">
+                      {!pin.present && (
+                        <span data-testid={`ats-pinned-fact-unmet-${pin.pin_id}`}>
+                          {t("pinnedFacts.unmet")}
+                          {pin.ledger_conflict && pin.ledger_conflict.length > 0 && (
+                            <>
+                              {" "}
+                              {t("pinnedFacts.ledgerConflict", {
+                                terms: pin.ledger_conflict.join(", "),
+                              })}
+                            </>
+                          )}
+                        </span>
+                      )}
+                      {pin.stale && (
+                        <span
+                          data-testid={`ats-pinned-fact-stale-${pin.pin_id}`}
+                          className="rounded-full bg-warning-container px-2 py-0.5 font-medium text-on-surface"
+                        >
+                          {t("pinnedFacts.stale")}
+                        </span>
+                      )}
+                      {pin.removed_by_truth_floor && (
+                        <span data-testid={`ats-pinned-fact-floor-${pin.pin_id}`}>
+                          {t("pinnedFacts.removedByTruthFloor")}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null;
+
+  // ADR-081 cl. 3: on the document pages the pins render on the EDITING
+  // tab, never inside a finding group, and never as a finding's remedy.
+  if (variant === "pins") {
+    return pinnedFactsBlock ? (
+      <section
+        data-testid="ats-panel-pins"
+        aria-label={t("pinnedFacts.title")}
+        className="rounded-xl border border-outline-variant surface-glass px-4 py-2.5"
+      >
+        {pinnedFactsBlock}
+      </section>
+    ) : null;
+  }
 
   return (
     <>
@@ -414,71 +446,7 @@ export default function ATSChecksPanel({ report }: { report: ATSReport }) {
           </ul>
         )}
 
-        {/* E056/ADR-077 clauses 3+5: per-pin presence measurement on THIS
-            document — ship-and-report, never a gate. Rendered whenever the
-            report carries pin context, independent of pass/fail status. */}
-        {pinnedFacts.length > 0 && (
-          <div
-            data-testid="ats-pinned-facts"
-            className="mt-2 space-y-1 border-t border-outline-variant pt-2"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
-              {t("pinnedFacts.title")}
-            </p>
-            <ul className="space-y-1">
-              {pinnedFacts.map((pin) => (
-                <li
-                  key={pin.pin_id}
-                  data-testid={`ats-pinned-fact-${pin.pin_id}`}
-                  className="flex items-start gap-2 text-sm text-on-surface"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`mt-0.5 shrink-0 text-xs font-bold ${
-                      pin.present ? "text-success" : "text-critical"
-                    }`}
-                  >
-                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- decorative pass/fail glyphs */}
-                    {pin.present ? "✓" : "✗"}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate" title={pin.quote}>
-                      {pin.quote}
-                    </span>
-                    <span className="flex flex-wrap items-center gap-1.5 text-xs text-on-surface-variant">
-                      {!pin.present && (
-                        <span data-testid={`ats-pinned-fact-unmet-${pin.pin_id}`}>
-                          {t("pinnedFacts.unmet")}
-                          {pin.ledger_conflict && pin.ledger_conflict.length > 0 && (
-                            <>
-                              {" "}
-                              {t("pinnedFacts.ledgerConflict", {
-                                terms: pin.ledger_conflict.join(", "),
-                              })}
-                            </>
-                          )}
-                        </span>
-                      )}
-                      {pin.stale && (
-                        <span
-                          data-testid={`ats-pinned-fact-stale-${pin.pin_id}`}
-                          className="rounded-full bg-warning-container px-2 py-0.5 font-medium text-on-surface"
-                        >
-                          {t("pinnedFacts.stale")}
-                        </span>
-                      )}
-                      {pin.removed_by_truth_floor && (
-                        <span data-testid={`ats-pinned-fact-floor-${pin.pin_id}`}>
-                          {t("pinnedFacts.removedByTruthFloor")}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {pinnedFactsBlock}
       </section>
 
       {open && (

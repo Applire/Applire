@@ -27,19 +27,24 @@ import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesig
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
+import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
+import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
+import { ReviewSurface } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
-import { FileText, Palette, Zap } from "lucide-react";
+import { ClipboardCheck, Palette, Zap } from "lucide-react";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
 import { ProgressWidget } from "@/components/ui/progress-widget";
 import { buildClProgressSteps } from "./cover-letter-utils";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
-import TruthfulnessPanel, { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
-import CriticAdvisoryPanel, { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
+import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
+import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import UnaskedRequirementsPanel, {
   type UnaskedRequirement,
 } from "@/components/gaps/UnaskedRequirementsPanel";
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
+import { buildReviewGroups } from "@/lib/review-groups";
+import type { ReviewModePreference } from "@/lib/review-walked";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 
 type CLTemplate =
@@ -108,6 +113,22 @@ export default function CoverLetterPage({
   // report column on this letter — it cannot drift past a post-interview
   // recompute, and it clears itself once the candidate is asked and answers.
   const [unasked, setUnasked] = useState<UnaskedRequirement[]>([]);
+  // E058/US301 (ADR-081 cl. 5): the stored review-mode preference. `auto` is
+  // both the default and the degraded value — a settings failure must never
+  // decide the mode for the user.
+  const [reviewMode, setReviewMode] = useState<ReviewModePreference>("auto");
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((s) => {
+        if (!cancelled) setReviewMode(s.review_mode ?? "auto");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const init = useCallback(async () => {
@@ -434,29 +455,72 @@ export default function CoverLetterPage({
         }
       : null;
 
+  // ADR-081 cl. 2 (E058/US300): the findings, grouped by the user's question.
+  // The letter has no gap-analysis cluster producer — §5.3.26's clusters are
+  // computed against the CV — so that producer is declared absent rather than
+  // reported as empty (which would claim there are none) or unknown (which
+  // would claim it failed).
+  const reviewSurface = (
+    <ReviewSurface
+      documentKind="cover-letter"
+      documentId={clState?.coverLetterId ?? null}
+      atsReport={atsReport}
+      truthReport={truthReport}
+      criticReport={criticReport}
+      gapClusters={[]}
+      hasClusterProducer={false}
+      modePreference={reviewMode}
+    >
+      {/* Not one of ADR-081's four producers — rendered after the groups so it
+          can never be mistaken for one of them. */}
+      <UnaskedRequirementsPanel requirements={unasked} />
+    </ReviewSurface>
+  );
+
+  const group1Count = buildReviewGroups({
+    atsReport,
+    truthReport,
+    criticReport,
+    gapClusters: [],
+    hasClusterProducer: false,
+  }).find((g) => g.id === 1)!.items.length;
+
   const sidebarTabs: SidebarTab[] = [
     {
-      id: "content",
-      label: t("contentTab"),
-      icon: <FileText className="w-4 h-4" aria-hidden="true" />,
-      body: (
-        <CoverLetterContentTab
-          coverLetterId={clState!.coverLetterId}
-          letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
-          onSectionSaved={handleSectionSaved}
-        />
-      ),
+      id: "review",
+      label: tDoc("tabReview"),
+      icon: <ClipboardCheck className="w-4 h-4" aria-hidden="true" />,
+      badge:
+        group1Count > 0 ? (
+          <span
+            data-testid="tab-badge-review"
+            className="inline-flex min-w-4 items-center justify-center rounded-full bg-critical-container px-1 text-[10px] font-bold text-critical"
+          >
+            {group1Count}
+          </span>
+        ) : undefined,
+      body: reviewSurface,
     },
     {
-      id: "design",
-      label: t("designTab"),
+      id: "edit",
+      label: tDoc("tabEdit"),
       icon: <Palette className="w-4 h-4" aria-hidden="true" />,
       body: (
-        <CoverLetterDesignTab
-          flowId={flowId}
-          currentTemplate={clState!.template}
-          onTemplateChange={handleTemplateChange}
-        />
+        <div className="flex flex-col gap-3">
+          <CoverLetterContentTab
+            coverLetterId={clState!.coverLetterId}
+            letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+            onSectionSaved={handleSectionSaved}
+          />
+          {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
+              finding groups, application-scoped (ADR-077 cl. 1). */}
+          <ATSChecksPanel report={atsReport} variant="pins" />
+          <CoverLetterDesignTab
+            flowId={flowId}
+            currentTemplate={clState!.template}
+            onTemplateChange={handleTemplateChange}
+          />
+        </div>
       ),
     },
     {
@@ -488,21 +552,7 @@ export default function CoverLetterPage({
   return (
     <div data-testid="cover-letter-page">
       <DocumentWorkspace
-        flowId={flowId}
-        activeDoc="cover-letter"
-        documentLanguage={clState?.documentLanguage ?? null}
-        onDownloadPdf={() => void requestDownload("pdf")}
-        onDownloadDocx={() => void requestDownload("docx")}
-        downloadDisabled={downloading || phase !== "ready"}
         preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}
-        atsPanel={
-          <div className="space-y-2">
-            <ATSChecksPanel report={atsReport} />
-            <TruthfulnessPanel report={truthReport} atsReport={atsReport} />
-            <CriticAdvisoryPanel report={criticReport} />
-            <UnaskedRequirementsPanel requirements={unasked} />
-          </div>
-        }
         sidebar={
           <RefinementSidebar
             matchScore={clState?.matchScore ?? null}
@@ -510,6 +560,21 @@ export default function CoverLetterPage({
             tabs={sidebarTabs}
             collapsed={!panelOpen}
             onToggleCollapse={() => setPanelOpen((o) => !o)}
+            initialTabId="review"
+            identityBar={
+              <DocumentIdentityBar
+                flowId={flowId}
+                activeDoc="cover-letter"
+                documentLanguage={clState?.documentLanguage ?? null}
+              />
+            }
+            pinnedFooter={
+              <DocumentExportFooter
+                onDownloadPdf={() => void requestDownload("pdf")}
+                onDownloadDocx={() => void requestDownload("docx")}
+                downloadDisabled={downloading || phase !== "ready"}
+              />
+            }
           />
         }
       />

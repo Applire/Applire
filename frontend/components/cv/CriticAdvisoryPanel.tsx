@@ -63,7 +63,11 @@ export type OutcomeCriticReport = {
 // report that didn't run, or ran and found nothing, renders NOTHING — no
 // empty-state box, no "all clear" headline. Never invert this into a
 // falsy-look green state; the correct behaviour is to mount nothing at all.
-function localizedMessage(message: Record<string, string>, locale: string): string {
+// E058/US300: exported so the document review surface renders group 4's critic
+// rows through the SAME server-localised message this panel uses — one
+// implementation of "which language does this advisory speak" (ADR-066), never
+// a second re-translation on the surface.
+export function localizedMessage(message: Record<string, string>, locale: string): string {
   return message[locale] ?? message.de ?? message.en ?? Object.values(message)[0] ?? "";
 }
 

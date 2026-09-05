@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import type { ReviewModePreference } from "@/lib/review-walked";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -26,6 +28,11 @@ export interface AppSettings {
   hide_predownload_notice: boolean;
   // E042/US239 (ADR-051 §1): the user's default CV page target. null = region standard.
   target_cv_pages: number | null;
+  // E058/US301 (ADR-081 cl. 5): how the document review surface presents its
+  // findings. `auto` — the default — makes the mode a property of the DOCUMENT
+  // rather than of the person. Optional here for back-compat with a backend
+  // that predates the column; the reader falls back to `auto`.
+  review_mode?: ReviewModePreference;
 }
 
 /** GET /api/settings — the current user's preferences. */
@@ -56,5 +63,18 @@ export async function setTargetCvPages(pages: number | null): Promise<void> {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ target_cv_pages: pages }),
+  });
+}
+
+/**
+ * Persist the user's review-mode preference (E058/US301, ADR-081 cl. 5).
+ * Deliberately NOT on the agent door (cl. 8, an explicit SF-DOOR.4 carve-out):
+ * an agent consumes the structured report, it has no reading preference.
+ */
+export async function setReviewMode(mode: ReviewModePreference): Promise<void> {
+  await fetch(`${API_BASE}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_mode: mode }),
   });
 }
