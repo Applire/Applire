@@ -1474,10 +1474,10 @@
     "tabEdit": "Edit"
   },
   "commandBar": {
-    "atsChecks": "ATS Checks",
+    "atsChecks": "Review",
     "fineTune": "Fine-tune",
     "downloadPdf": "Download PDF",
-    "atsSheetTitle": "ATS Checks",
+    "atsSheetTitle": "Review",
     "fineTuneSheetTitle": "Fine-tune",
     "passBadgeLabel": "{count, plural, one {# ATS check passing} other {# ATS checks passing}}",
     "fineTuneDegradedNotice": "Editing is optimised for a larger screen. You can review here, but for the full editing experience open this CV on your computer."
