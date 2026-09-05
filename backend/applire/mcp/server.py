@@ -120,7 +120,12 @@ from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTra
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
 # Date-stamped revision of AGENT_GUIDE.md so callers can cache (ADR-056).
-GUIDE_VERSION = "2026-08-25"
+# #603 (agent collector): this constant and the guide's own "*Revision …*"
+# header line are ONE fact and had drifted a month apart — `get_guide` reported
+# 2026-08-25 while the document it returned said 2026-07-25. An agent that
+# caches by version could not tell it had a stale document. Pinned in both
+# directions by `test_guide_version_matches_the_guides_own_revision_line`.
+GUIDE_VERSION = "2026-09-04"
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +228,70 @@ def _profile_summary(profile_response) -> dict:
         "merge_status": data.get("merge_status"),
         "not_applied": data.get("not_applied") or [],
     }
+
+
+# ── ADR-084 clause 4 / threat-model SEC-12 — the agent door's untrusted marking ──
+#
+# Applire's internal LLM is tool-less. The product's PRIMARY consumer of its
+# outputs is not: under BYOI (ADR-054) the user's own agent reads these payloads
+# and DOES have tools — Applire's 27 plus whatever its harness grants. A hostile
+# job posting is therefore a classic indirect prompt-injection payload against a
+# system Applire neither controls nor sees. Applire's duty is the CHANNEL, not
+# the agent: never launder untrusted text as trusted tool output. The agent's own
+# hardening belongs to its vendor (threat model §4.2b).
+#
+# The marking is an ADDITIVE top-level `untrusted_content` key naming the field
+# paths that carry job-posting text. It costs NOTHING against the ADR-056 §4
+# tool-surface budget (15,951 / 16,000): that budget measures tool names,
+# descriptions and input schemas, never return payloads — which is exactly why
+# the explanation lives in AGENT_GUIDE.md and not in a tool description.
+#
+# Tools NOT in this map carry no JD-derived string and are deliberately unmarked
+# (get_guide, get_profile, update_profile, import_cv, submit_testimony, add_role,
+# generate_cv, generate_cover_letter, get_cv_status, get_cover_letter_status,
+# audit_document). Marking everything would make the marker mean nothing.
+_JD_DERIVED_FIELDS: dict[str, list[str]] = {
+    "analyze_jd": [
+        "role_title", "company_name", "required_skills", "nice_to_have_skills",
+        "keywords", "company_culture_signals", "language_requirement",
+        "scope_requirements[].quote", "leadership_emphasis.quote",
+    ],
+    "analyze_gaps": [
+        "critical_gaps", "minor_gaps", "keyword_gaps", "category_a", "category_b",
+        "category_c", "keyword_ledger[].concept", "keyword_ledger[].surface_forms",
+        "keyword_ledger[].evidence", "requirement_breakdown[].requirement",
+        "requirement_breakdown[].reason", "gap_clusters[].label",
+        "gap_clusters[].jd_skills", "gap_clusters[].jd_context",
+        "keyword_liabilities", "unasked_requirements",
+    ],
+    "ats_report": [
+        "keywords.present", "keywords.missing", "keywords.missing_claimable",
+        "keywords.missing_honest_gap", "keywords.present_unsupported",
+        "keywords.claimable_concepts", "keywords.keyword_liability_concepts",
+    ],
+    "session": ["current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question"],
+    "resolve_gap": ["gap_id", "question_asked"],
+    "submit_claims": ["ledger_upgraded", "results[].detail"],
+    "flow": ["job_summary.role_title"],
+    "application": ["company_name", "role_title"],
+    "render_document": [
+        "ats_report.keywords.present", "ats_report.keywords.missing",
+        "ats_report.keywords.missing_claimable", "ats_report.keywords.missing_honest_gap",
+        "ats_report.keywords.present_unsupported",
+    ],
+}
+
+
+def _marked(payload, kind: str):
+    """Attach the ADR-084 `untrusted_content` object for *kind*.
+
+    One line at each door's `return`; a non-dict payload passes through
+    untouched, because a marking helper must never become a new way for a door
+    to fail.
+    """
+    from applire.services.untrusted_text import mark_tool_result
+
+    return mark_tool_result(payload, _JD_DERIVED_FIELDS[kind])
 
 
 async def _current_user_id(db) -> uuid.UUID:
@@ -348,7 +417,7 @@ async def analyze_jd(
             )
         except Exception:
             pass
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "analyze_jd")
 
 
 @mcp.tool(description="Return the current MasterProfile.")
@@ -356,7 +425,12 @@ async def get_profile() -> dict:
     async with get_db() as db:
         result = await profile_svc.get_profile(db)
     if result is None:
-        raise not_found("No profile found — import a CV first via POST /api/profile/import")
+        # #603 (agent collector): the message used to name a REST path the agent
+        # cannot call. An error an agent reads must name the TOOL that fixes it.
+        raise not_found(
+            "No profile found — call import_cv first with the candidate's CV "
+            "(base64 PDF or plain text)."
+        )
     return result.model_dump(mode="json")
 
 
@@ -428,7 +502,7 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "submit_claims")
 
 
 @mcp.tool(
@@ -470,7 +544,7 @@ async def analyze_gaps(job_id: str) -> dict:
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "analyze_gaps")
 
 
 @mcp.tool(
@@ -491,7 +565,7 @@ async def run_interview(job_id: str) -> dict:
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "session")
 
 
 @mcp.tool(
@@ -521,7 +595,7 @@ async def send_message(session_id: str, message: str) -> dict:
             )
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "session")
 
 
 @mcp.tool(
@@ -630,7 +704,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         out["pending_confirmations"] = pending
     if conflicts:
         out["pending_conflicts"] = conflicts
-    return out
+    return _marked(out, "resolve_gap")
 
 
 @mcp.tool(
@@ -697,7 +771,7 @@ async def get_cv_ats_report(cv_id: str) -> dict:
             result = await cv_svc.get_cv_ats_report(cid, db)
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "ats_report")
 
 
 async def _audit_stored_document(record, kind: str, db) -> dict:
@@ -851,7 +925,7 @@ async def render_document(
                     result["docx_url"] = f"{base}/api/cv/{record.id}/docx"
                     result["docx_base64"] = base64.b64encode(docx_bytes).decode("ascii")
                     result["docx_filename"] = await cv_svc.get_docx_filename(record.id, db)
-                return result
+                return _marked(result, "render_document")
             cl = await cover_letter_svc.render_agent_letter(
                 content, jid, db, template=tmpl
             )
@@ -876,7 +950,7 @@ async def render_document(
                 result["docx_filename"] = await cover_letter_svc.get_cover_letter_docx_filename(
                     cl.id, db
                 )
-            return result
+            return _marked(result, "render_document")
         except LookupError as exc:
             raise not_found(str(exc))
         except (ValidationError, ValueError) as exc:
@@ -945,7 +1019,7 @@ async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
             result = await cover_letter_svc.get_cover_letter_ats_report(cid, db)
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "ats_report")
 
 
 @mcp.tool(
@@ -968,7 +1042,7 @@ async def start_flow(job_id: str | None = None) -> dict:
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "flow")
 
 
 @mcp.tool(
@@ -992,7 +1066,7 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "flow")
 
 
 @mcp.tool(description="Get the current state of a flow session, including available actions.")
@@ -1003,7 +1077,7 @@ async def get_flow_state(flow_id: str) -> dict:
             result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "flow")
 
 
 # Valid user_status values, derived from the enum so tool descriptions and
@@ -1045,7 +1119,9 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
             )
         except Exception as exc:
             raise internal(str(exc))
-    return [item.model_dump(mode="json") for item in result.items]
+    return [
+        _marked(item.model_dump(mode="json"), "application") for item in result.items
+    ]
 
 
 @mcp.tool(
@@ -1067,7 +1143,7 @@ async def get_application(application_id: str) -> dict:
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "application")
 
 
 @mcp.tool(
@@ -1110,7 +1186,7 @@ async def create_application(
             raise not_found(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "application")
 
 
 @mcp.tool(
@@ -1209,7 +1285,7 @@ async def update_application(
             raise invalid_input(str(exc))
         except Exception as exc:
             raise internal(str(exc))
-    return result.model_dump(mode="json")
+    return _marked(result.model_dump(mode="json"), "application")
 
 
 @mcp.tool(
@@ -1376,7 +1452,10 @@ async def resource_job(job_id: str) -> str:
         record = result.scalar_one_or_none()
     if record is None:
         raise not_found(f"Job analysis {job_id} not found")
-    return json.dumps(JobAnalysisResponse.model_validate(record).model_dump(mode="json"))
+    # ADR-084 cl. 4: the resource form of `analyze_jd` — same payload, same marking.
+    return json.dumps(
+        _marked(JobAnalysisResponse.model_validate(record).model_dump(mode="json"), "analyze_jd")
+    )
 
 
 @mcp.resource(

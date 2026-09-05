@@ -225,8 +225,18 @@ async def _llm_color_fallback(company_name: str) -> str | None:
     """Ask the LLM for the brand primary color. ~50 tokens total."""
     try:
         from applire.providers import get_provider
+        from applire.services.untrusted_text import fence_inline
+
         provider = get_provider()
-        prompt = f'Brand primary color of "{company_name}" as JSON with one key: {{"primary":"#hex"}}'
+        # ADR-084 embedding point 27 (Form A, inline). Harm here is bounded by
+        # the `#RRGGBB` regex below — the response is discarded unless it is a
+        # hex colour — but the point is in the positive set and marking it costs
+        # one call. An unmarked embedding point is a hole in the enumeration,
+        # not a judgement about how bad that particular hole is.
+        prompt = (
+            f'Brand primary color of {fence_inline(company_name)} as JSON with '
+            'one key: {"primary":"#hex"}'
+        )
         result = await provider.aparse_json(prompt, system="Return only the JSON.", temperature=0.0, max_tokens=20)
         color = result.get("primary", "")
         if re.fullmatch(r"#[0-9a-fA-F]{6}", color):

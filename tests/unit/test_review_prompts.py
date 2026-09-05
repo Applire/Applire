@@ -1072,9 +1072,14 @@ class TestCoverLetterPositioningIntegration:
             await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
 
         generation_prompt = mock_provider.aparse_json.call_args.args[0]
+        from applire.services.untrusted_text import is_covered
+
         assert "POSITIONING: COMPANY & DOMAIN ENGAGEMENT" in generation_prompt
-        assert "TARGET COMPANY: Roche Diagnostics" in generation_prompt
-        assert "diagnostics instruments" in generation_prompt  # the JD's own domain text
+        assert "TARGET COMPANY:" in generation_prompt
+        # ADR-084 points 13 + 24: both the company name and the JD's own domain
+        # text still reach the writer, and both are now inside the marking.
+        assert is_covered(generation_prompt, "Roche Diagnostics")
+        assert is_covered(generation_prompt, "diagnostics instruments")
 
     @pytest.mark.asyncio
     async def test_render_threads_gap_testimony_when_category_c_story_matches(self):
@@ -1433,6 +1438,17 @@ class TestCoverLetterPositioningIntegration:
         # invented (an invented product/market NOT in this text has nowhere to ground).
         assert "diagnostics instruments" in src
         assert "job_description" in src
+        # ADR-084 embedding point 14 — the NAMED seam test for the highest
+        # fan-out marking in the system: this one string is handed to the letter
+        # REVIEWER and the CORRECTOR unchanged on every round, so one mark here
+        # covers three prompts. Registry entry: `14_letter_grounding_source`
+        # in tests/unit/test_untrusted_embedding_points.py.
+        from applire.services.untrusted_text import is_covered
+
+        assert is_covered(src, "diagnostics instruments"), (
+            "ADR-084 point 14: grounding_source['job_description'] reached the "
+            "reviewer unmarked"
+        )
 
     def test_review_system_prompt_flags_invented_employer_facts(self):
         """The reviewer's own instructions must name employer/company facts not

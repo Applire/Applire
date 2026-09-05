@@ -138,4 +138,16 @@ Only provide a code you are confident about; set both fields to null if the occu
 
 
 def build_user_prompt(jd_text: str) -> str:
-    return f"Analyse the following job description and return the structured JSON:\n\n{jd_text}"
+    """ADR-084 embedding point 1 (Form A): the raw posting, fenced.
+
+    This is the one call that is SUPPOSED to read the posting adversarially, and
+    the least dangerous of the twenty points for exactly that reason — but it is
+    where the posting's derivatives are minted, so an instruction obeyed here is
+    an instruction the whole flow inherits (``SF-UNTRUSTED.1``).
+    """
+    from applire.services.untrusted_text import fence
+
+    return (
+        "Analyse the following job description and return the structured JSON.\n\n"
+        + fence(jd_text, header="JOB DESCRIPTION")
+    )

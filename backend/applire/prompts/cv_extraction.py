@@ -301,10 +301,18 @@ def build_jd_aware_prompt(raw_text: str, job_analysis: dict) -> str:
     """
     import json
 
-    jd_context = json.dumps(job_analysis, ensure_ascii=False, indent=2)
+    from applire.services.untrusted_text import fence
+
+    # ADR-084 embedding point 21 (Form A). The JD-aware extraction path is the
+    # earliest place a posting can reach the VAULT side of the system: an
+    # instruction obeyed here shapes what is extracted from the candidate's own
+    # CV. The block already said "context only"; the fence says the part that
+    # sentence could not — that it is not a source of instructions either.
     return (
-        "Job Description Analysis (for context only — do not invent data):\n"
-        + jd_context
+        fence(
+            json.dumps(job_analysis, ensure_ascii=False, indent=2),
+            header="Job Description Analysis (for context only — do not invent data)",
+        )
         + "\n\nExtract the structured profile from the following CV text and return the JSON:\n\n"
         + raw_text
     )
