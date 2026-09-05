@@ -79,7 +79,17 @@ export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus 
         {t("journeyZoneTitle")}
       </h2>
 
-      <ol className="flex items-center" data-testid="dossier-journey-strip">
+      {/* US230 (E040): at 390 px the four steps do not fit one row. Each `li` got
+          ~80 px of a 107-122 px `whitespace-nowrap` chip, so the labels painted
+          over each other ("3 Interview" ran into "4 CV") — found by the mobile
+          lane's per-element overflow sweep, not by the body-width assertion,
+          which cannot fire inside the shell's `overflow-hidden`. Below `sm` the
+          strip WRAPS and the connector rules are hidden (they are decorative and
+          already `aria-hidden`); the desktop rail is unchanged from `sm` up. */}
+      <ol
+        className="flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-x-0"
+        data-testid="dossier-journey-strip"
+      >
         {STEP_ORDER.map((step, idx) => {
           const state: MilestoneState = isComplete
             ? "done"
@@ -90,7 +100,10 @@ export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus 
                 : "pending";
 
           return (
-            <li key={step} className="flex items-center flex-1 min-w-0 last:flex-initial">
+            <li
+              key={step}
+              className="flex items-center flex-initial sm:flex-1 sm:min-w-0 last:flex-initial"
+            >
               <span
                 data-testid="dossier-journey-milestone"
                 data-state={state}
@@ -108,7 +121,10 @@ export function DossierJourneyZone({ flowSessionId, currentStep, workflowStatus 
                 {tFlow(STEP_LABEL_KEYS[step])}
               </span>
               {idx < STEP_ORDER.length - 1 && (
-                <span className="h-px flex-1 min-w-[16px] bg-outline-variant" aria-hidden="true" />
+                <span
+                  className="hidden sm:block h-px flex-1 min-w-[16px] bg-outline-variant"
+                  aria-hidden="true"
+                />
               )}
             </li>
           );

@@ -219,7 +219,14 @@ export function DossierDocumentsZone({
                 key={cv.cv_id}
                 data-testid="dossier-doc-row"
                 className={cn(
-                  "flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+                  // US230 (E040): below `sm` the row STACKS. Measured at 390 px,
+                  // the `shrink-0` action group (Open PDF + Mark as sent) plus the
+                  // padding left 31 px for a 66 px label, so the row said which
+                  // buttons it had and not which document it was — the language
+                  // chip rendered as "Engli". The body never grew (the shell clips),
+                  // so no overflow assertion could see it.
+                  "flex flex-col items-stretch gap-2 rounded-lg border px-4 py-3",
+                  "sm:flex-row sm:items-center sm:justify-between sm:gap-3",
                   isPinned
                     ? "bg-success/10 border-success/20"
                     : "bg-surface-container border-outline-variant"
@@ -278,7 +285,7 @@ export function DossierDocumentsZone({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                   {isReady && (
                     <button
                       type="button"
@@ -331,7 +338,10 @@ export function DossierDocumentsZone({
                 <div
                   data-testid="dossier-cl-row"
                   className={cn(
-                    "flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+                    // US230 — same stack as the CV rows above; this row carries one
+                    // more action (Draft link), so it is the tighter of the two.
+                    "flex flex-col items-stretch gap-2 rounded-lg border px-4 py-3",
+                    "sm:flex-row sm:items-center sm:justify-between sm:gap-3",
                     isClPinned
                       ? "bg-success/10 border-success/20"
                       : "bg-surface-container border-outline-variant"
@@ -373,7 +383,7 @@ export function DossierDocumentsZone({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                     {application.flow_session_id && (
                       <Link
                         href={`/flow/${application.flow_session_id}/cover-letter`}

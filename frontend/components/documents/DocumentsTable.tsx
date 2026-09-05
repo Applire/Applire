@@ -155,9 +155,18 @@ export function DocumentsTable({ items, total, page, pageSize, onPageChange }: D
         </select>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-[14px] border-[1.5px] border-gray-200 overflow-hidden">
-        <table className="w-full border-collapse">
+      {/* Table — US230 (E040, ADR-050 §1/§5): at 390 px the five columns do not
+          fit, and the wrapper's `overflow-hidden` did not squeeze them, it CLIPPED
+          them: measured 324 px of box against 446 px of content, which put the
+          Expires column and the row's own Open button outside the viewport with no
+          way to reach either. Nothing reported it, because `document.body` never
+          grew — the (shell) layout wraps every page in `overflow-hidden` too, so
+          the mobile lane's inherited body-width assertion is structurally unable to
+          fire here. The AC's remedy is the literal one: wide content scrolls inside
+          its own container. `min-w` keeps the columns at a readable width instead of
+          letting auto-layout wrap "Senior Software Engineer" over three lines. */}
+      <div className="bg-white rounded-[14px] border-[1.5px] border-gray-200 overflow-x-auto">
+        <table className="w-full min-w-[680px] border-collapse">
           <thead>
             <tr className="bg-surface-dim border-b-[1.5px] border-gray-100">
               <th className="text-left px-4 py-2.5 text-[11px] font-bold text-gray-500 uppercase tracking-wider">{t("colDocument")}</th>
