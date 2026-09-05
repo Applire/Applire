@@ -250,3 +250,60 @@ def test_refresh_reproduces_the_592_capture(concept: str, should_heal: bool):
     _claimable, forbidden = split_ledger_for_prompt(refreshed)
 
     assert (concept not in forbidden) is should_heal
+
+
+# ── the substring bound, found by measuring the change over the whole corpus ──
+
+
+def test_refresh_refuses_a_lift_the_vault_carries_only_as_a_SUBSTRING():
+    """Measured, not imagined. Replaying this refresh over all 932 captured
+    writer prompts lifted 23 forbidden terms, and three of them were wrong for
+    one reason: ``reevaluate_gap_ledger_against_vault`` grounds with
+    ``surface_present``, a SUBSTRING match, because it is THE shared coverage
+    predicate and the loop that grades a document may not disagree with the loop
+    that heals a ledger row about "present". Real hits from the corpus:
+    ``Bias`` inside *Tobias Rosenbaum*, and ``ML`` inside *UML*.
+
+    A substring is enough to say a term is COVERED; it is not enough to say the
+    candidate may CLAIM it. This seam therefore keeps only the lifts whose cited
+    vault sentence carries the term at a token boundary (``term_present``, the
+    predicate ``pin_ledger_conflicts`` and ``annotate_evidence_owners`` use for
+    the same question). Strictly narrowing, and only here — the shared predicate
+    is untouched, and a refused lift keeps its persisted row exactly.
+    """
+    ledger = [_gap_row("Bias"), _gap_row("ML")]
+    vault = {
+        "personal_info": {"name": "Tobias Rosenbaum"},
+        "work_experience": [
+            {
+                "id": "w1",
+                "company": "Acme",
+                "responsibilities": ["Modelled the domain in UML before implementation."],
+                "achievements": [],
+            }
+        ],
+        "skills": [],
+        "metadata": {"denied_concepts": []},
+    }
+
+    refreshed, changed = refresh_ledger_against_vault(ledger, vault, seam="test")
+
+    assert changed is False
+    assert [e["status"] for e in refreshed] == ["gap", "gap"]
+    assert [e["claimable"] for e in refreshed] == [False, False]
+    _claimable, forbidden = split_ledger_for_prompt(refreshed)
+    assert forbidden == ["Bias", "ML"]
+
+
+def test_refresh_still_lifts_a_term_carried_as_a_whole_token():
+    """The bound must not cost the fix its own case — all six legitimate lifts
+    in the captured corpus are whole-token hits."""
+    ledger = [_gap_row("Supply Chain")]
+    vault = _vault(
+        bullets=["Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain."]
+    )
+
+    refreshed, changed = refresh_ledger_against_vault(ledger, vault, seam="test")
+
+    assert changed is True
+    assert refreshed[0]["status"] == "direct"

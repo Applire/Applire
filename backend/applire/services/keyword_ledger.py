@@ -2149,6 +2149,75 @@ def reevaluate_gap_ledger_against_vault(
     return ledger, changed
 
 
+def _keep_whole_token_lifts(
+    original: list[dict[str, Any]],
+    refreshed: list[dict[str, Any]],
+    *,
+    seam: str = "",
+) -> tuple[list[dict[str, Any]], bool]:
+    """Keep only the lifts whose cited vault sentence carries the term as a
+    WHOLE TOKEN; restore the persisted row for every other one (#592).
+
+    Found by measurement, not by reasoning. Replaying
+    :func:`refresh_ledger_against_vault` over all 932 captured writer prompts
+    lifted 23 forbidden terms; three of them were wrong, and all three for one
+    reason: ``reevaluate_gap_ledger_against_vault`` grounds with
+    ``ats_audit.surface_present``, a SUBSTRING match. Real hits from that corpus:
+    ``Bias`` inside *Tobias Rosenbaum*, ``ML`` inside *UML*.
+
+    That predicate is not a defect where it lives. It is THE shared coverage
+    predicate, and its own contract is that "the loop that grades a document and
+    the loop that heals a ledger entry must never disagree on present" — so it
+    is deliberately generous, and it is not changed here. But a substring is
+    enough to say a term is COVERED and not enough to say the candidate may
+    CLAIM it, and this seam decides the second question. The bound is
+    ``review_compliance.term_present`` — token-boundary, the same predicate
+    ``pin_reach.pin_ledger_conflicts`` and :func:`annotate_evidence_owners` use
+    for "does this text carry this term as a term".
+
+    Strictly narrowing, and only at the seams this function serves: a refused
+    lift keeps its persisted row byte-for-byte, so the failure direction is
+    "forbid a term the candidate could have claimed" — the same direction the
+    ledger already fails in, and the one ADR-062 clause 5 sanctions for a
+    fail-safe. **The interview seam (``services/session.py``) does NOT carry this
+    bound**; that asymmetry is deliberate for this change and recorded.
+    """
+    from applire.services.review_compliance import term_present
+
+    out: list[dict[str, Any]] = []
+    changed = False
+    refused: list[str] = []
+    for was, now in zip(original, refreshed, strict=False):
+        if not isinstance(was, dict) or not isinstance(now, dict):
+            out.append(now)
+            continue
+        if was.get("status") == now.get("status") and was.get("claimable") == now.get("claimable"):
+            out.append(now)
+            continue
+        evidence = str(now.get("evidence") or "")
+        forms = [
+            f
+            for f in ([now.get("concept", "")] + list(now.get("surface_forms") or []))
+            if isinstance(f, str) and f.strip()
+        ]
+        if evidence and any(term_present(f, evidence) for f in forms):
+            out.append(now)
+            changed = True
+        else:
+            out.append(was)
+            refused.append(str(now.get("concept", "")))
+    if refused:
+        logger.info(
+            "refresh_ledger_against_vault[%s]: %d lift(s) refused — the vault carries "
+            "the term only as a substring, which grounds coverage but not a claim "
+            "(#592): %s",
+            seam or "unnamed-seam",
+            len(refused),
+            refused,
+        )
+    return out, changed
+
+
 def refresh_ledger_against_vault(
     keyword_ledger: list[dict[str, Any]] | None,
     profile_json: dict[str, Any] | None,
@@ -2219,6 +2288,8 @@ def refresh_ledger_against_vault(
         return list(keyword_ledger or []), False
     before = [(e.get("concept"), e.get("status")) for e in keyword_ledger if isinstance(e, dict)]
     ledger, changed = reevaluate_gap_ledger_against_vault(keyword_ledger, profile_json)
+    if changed:
+        ledger, changed = _keep_whole_token_lifts(keyword_ledger, ledger, seam=seam)
     if changed:
         after = [(e.get("concept"), e.get("status")) for e in ledger if isinstance(e, dict)]
         moved = [
