@@ -161,9 +161,7 @@ sentence, you have skipped this test.
 YOU NEVER PERFORM LITERAL STRING MATCHING. Do not count occurrences, and do not decide
 whether a phrase appears verbatim — a deterministic check already did that, and its
 blocks are above. If you are writing "X does not appear in the text", stop: either a
-block says so, or you are guessing. (A prior round of this reviewer called a term absent
-from the job_description while quoting a phrase containing it — its own evidence refuted
-it, because the prompt had asked a model to do a string operation.)
+block says so, or you are guessing.
 
 BLOCKING CHECKS — these five, and nothing else. Each is a way this letter can be untrue
 or incomplete; anything you notice outside them is `minor` by definition.
@@ -191,20 +189,25 @@ or incomplete; anything you notice outside them is `minor` by definition.
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure that belongs to one
-   specific employer must name that employer in the SAME sentence — not rely on an
-   earlier sentence to imply it. Flag both misattribution to the wrong employer and an
-   unanchored position-owned claim, especially when the letter names more than one
-   employer. The two halves reach you with different evidence:
-   2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE: where it names the
-       employer a figure's own sentence names, you may NOT report that figure as
-       unanchored. Whether that is the RIGHT employer, against the same line's owner
-       list, stays yours. Where it states no anchor, nothing is settled — judge as 2b.
+   specific employer must be attributable to it, and the unit that carries the attribution
+   is the EMPLOYER RUN inside one PARAGRAPH, not the sentence (#565). The first sentence
+   of a run names the employer; later sentences of the SAME paragraph may refer back
+   ("Dort", "There"); the carry never crosses a paragraph break. Flag misattribution to
+   the wrong employer, a paragraph that states a position-owned claim and names no
+   employer at all, and a paragraph that switches employer without naming the new one —
+   never a back-referring sentence inside an already-anchored run. The two halves reach
+   you with different evidence:
+   2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE, per SENTENCE: where
+       it names the employer a figure's own sentence names, you may NOT report that
+       figure as unanchored. Whether that is the RIGHT employer, against the same line's
+       owner list, stays yours. Where it states no anchor nothing is settled — the
+       sentence may be carrying its paragraph's anchor; judge as 2b.
    2b. NO FIGURE — a tenure, a title, a scope of duty, an outcome stated without a
        number. No block covers this half, and 2a being answered says nothing about it;
-       ask the same question of the sentence itself.
-   The remedy is always to ADD the anchor in place. Never instruct the writer
-   to delete the achievement or figure to make the problem go away — a figure dropped for
-   lack of an anchor is a worse letter, not a safer one.
+       ask the paragraph question of it.
+   The remedy is always to ADD the anchor to the run's first sentence. Never instruct the
+   writer to delete the achievement or figure to make the problem go away — a figure
+   dropped for lack of an anchor is a worse letter, not a safer one.
 3. INVENTED EMPLOYER FACT. A claim about the target employer's product, market, domain,
    or achievements that is not in ``job_description``. Treat it exactly like an invented
    candidate fact.
@@ -241,13 +244,10 @@ or incomplete; anything you notice outside them is `minor` by definition.
      in either document — if the CV asserts it and the letter disclaims it, the LETTER
      is what is wrong, because the ledger says the vault supports the claim. A concept
      is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
-     the candidate's own words. Judge this by reading the two documents; there is no
-     block listing conflicts for you, because the rule below is what the block used to
-     approximate and got wrong.
-     A sentence that admits one thing and affirms another — "no IFS/BRC experience, but
-     ten years of ISO 9001 audit practice" — is an honest transfer argument, not a
-     denial of the second half. It is the correct shape for a gap. Never flag it, and
-     never ask the writer to remove, soften, or split it.
+     the candidate's own words. Judge this by reading the two documents; no block lists
+     conflicts for you. The admit-and-affirm sentence check 1 describes is the CORRECT
+     shape for a gap, not a denial of its second half: never flag it, never soften it,
+     never ask for it to be split.
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
@@ -491,18 +491,21 @@ Rules:
   ``evidence`` field) — never introduce a number, team size, budget, or metric that is not
   verbatim there. If the evidence carries no figure, describe the experience qualitatively
   instead of inventing one.
-- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE (#283): when you add, keep, or patch a
-  sentence that states an achievement, responsibility, or figure/metric belonging to ONE
-  specific employer or position, name that employer within the SAME sentence — e.g. "At
-  Northwind Labs, I delivered the lab-systems rollout in 9 months across 4 sites" — never leave
-  the employer to an earlier sentence or paragraph to imply, especially when patching in NEW
-  content to satisfy a coverage issue. An unanchored claim is the one shape nothing
-  downstream can check: in a letter naming more than one employer, the post-generation
-  attribution guards FAIL OPEN on a sentence that names none (#299), so a borrowed claim
-  left vague survives every check that runs after you, and the reviewer's check 2 flags it
-  again next round. A vaguer letter is not a safer one — never let an achievement/figure
-  ship unanchored and never quietly delete it to sidestep this rule; restore it WITH its
-  correct anchor instead.
+- ANCHOR EVERY POSITION-OWNED ACHIEVEMENT OR FIGURE — ONE ANCHOR PER EMPLOYER RUN, PER
+  PARAGRAPH (#283, scope corrected #565): when you add, keep, or patch a sentence that states
+  an achievement, responsibility, or figure/metric belonging to ONE specific employer or
+  position, that employer must be named in the FIRST sentence of its run inside that
+  paragraph — e.g. "At Northwind Labs, I delivered the lab-systems rollout in 9 months across
+  4 sites" — after which the later sentences of the SAME paragraph may refer back ("Dort",
+  "There"). Do NOT repeat the name in every sentence; do NOT let a back-reference cross a
+  paragraph break, and do NOT patch NEW content into a paragraph whose run belongs to a
+  different employer — open a new paragraph, or name the employer again. An unanchored
+  PARAGRAPH is the one shape nothing downstream can check: in a letter naming more than one
+  employer, the post-generation attribution guards FAIL OPEN on a sentence that names none
+  (#299), so a borrowed claim left vague survives every check that runs after you, and the
+  reviewer's check 2 flags it again next round. A vaguer letter is not a safer one — never
+  let an achievement/figure ship in an unanchored paragraph and never quietly delete it to
+  sidestep this rule; restore it WITH its correct anchor instead.
 - SPECIFICITY OUTRANKS COVERAGE TOO (#282): when correcting a coverage issue, never respond by
   stringing three or more claimable terms together as a flat list ("team management,
   mentoring, cross-functional collaboration, engineering standards..."). Fold at most one or

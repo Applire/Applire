@@ -121,19 +121,18 @@ Rules:
   availability/notice-period line, the honest-gap/transfer-argument paragraph (see POSITIONING
   below), or a short connective clause that introduces a grounded claim — those stay exactly as
   the other rules in this prompt already require them.
-- POSITION ANCHORING (#283 — a downstream truthfulness guard silently strips an unattributable
-  figure): whenever a sentence states an achievement, responsibility, or figure/metric that
-  belongs to ONE specific employer or position — not something true of the candidate
-  everywhere — name that employer within the SAME sentence, e.g. "At Northwind Labs, I
-  delivered the lab-systems rollout in 9 months across 4 sites", never a later, unattributed
-  sentence like "...and delivered record-breaking projects ... in 9 months across 4 sites" with
-  the employer left to an earlier sentence or paragraph to imply. This matters most in a paragraph
-  that draws on more than one role or blends content from different positions: never fold a
-  position-owned achievement into a general leadership/summary sentence that itself names no
-  employer. An unanchored figure does not stay in the letter — it is silently dropped by a
-  deterministic guard before the letter is sent, which only makes the claim vaguer and weaker
-  ("in months across sites"), never safer. Anchor it correctly instead of letting it go
-  unattributed.
+- POSITION ANCHORING — ONE ANCHOR PER EMPLOYER RUN, PER PARAGRAPH (#283, scope corrected #565):
+  a sentence that states an achievement, responsibility, or figure/metric belonging to ONE
+  specific employer or position — not something true of the candidate everywhere — must be
+  attributable to that employer, and the unit carrying the attribution is the EMPLOYER RUN
+  INSIDE ONE PARAGRAPH, never the individual sentence. Name the employer in the FIRST sentence
+  of the run — "At Northwind Labs, I delivered the lab-systems rollout in 9 months across 4
+  sites" — and let the later sentences of the SAME paragraph refer back instead ("Dort ...",
+  "There, ..."). A paragraph changes employer only by naming the new one, and a back-reference
+  never crosses a paragraph break. Prefer ONE PARAGRAPH, ONE EMPLOYER. Still wrong: a
+  position-owned achievement folded into a general summary sentence in a paragraph that named
+  no employer, and two employers' achievements mixed in one paragraph. Do NOT repeat the
+  company name in every sentence — that reads as mechanical, not careful.
 - THE CANDIDATE'S OWN JOB TITLES ARE NAMES, NOT DESCRIPTIONS (#321 — a delivered letter
   called the candidate "Bereichsverantwortlicher" at a position the profile records as
   "Produktionsleiter", having lifted the noun out of that same position's own achievement
@@ -529,12 +528,13 @@ LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
     "The company/domain engagement: any concrete reference to this employer or "
     "its domain, not a generic sentence that could apply to any company.",
     "The availability / notice-period line, if present.",
-    "Every employer anchor attached to a position-owned achievement or figure "
-    "(e.g. \"At Northwind Labs,\") — never compress a sentence in a way that drops the "
-    "employer name while keeping the achievement or figure. An unanchored figure "
-    "is silently stripped by a downstream guard, which makes the letter vaguer, "
-    "not shorter — if a sentence needs shortening, keep the anchor IN THE SAME "
-    "sentence as the achievement/figure it belongs to.",
+    "Each paragraph's employer anchor (e.g. \"At Northwind Labs,\"). The name is "
+    "carried by ONE sentence per employer run (#565), so a paragraph that states a "
+    "position-owned achievement or figure must still name its employer at or before "
+    "the first such claim — never compress that one sentence in a way that drops the "
+    "name while keeping the achievement or figure. Merging two paragraphs merges two "
+    "employer runs: re-anchor the second, or keep the paragraphs apart. Dropping the "
+    "last remaining anchor makes the letter vaguer, not shorter.",
 )
 
 
