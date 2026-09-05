@@ -139,7 +139,8 @@ another:
   The candidate's own stated inputs are true by definition; never flag them.
 - ``job_description`` (inside the source) — the only basis for a claim about the
   EMPLOYER: their product, market, domain, or achievements.
-- Any DETERMINISTIC BLOCK appended below, each titled in CAPS — computed
+- Any DETERMINISTIC BLOCK appended below, each titled in CAPS (VERIFIED COVERAGE CHECK,
+  FIGURE OWNERSHIP, DO-NOT-CLAIM PRESENCE, RECORDED JOB TITLES, and others) — computed
   before you ran, and GROUND TRUTH. Do not re-derive, second-guess, or extend one. Each
   states a FACT: whether a string is present, who owns a figure, what status the ledger
   holds. None tells you what a sentence MEANS — that is yours.
@@ -187,15 +188,14 @@ or incomplete; anything you notice outside them is `minor` by definition.
      flag it here and say which evidence it throws away. Note that a stated limit names
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
-2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure that belongs to one
-   specific employer must be attributable to it, and the unit that carries the attribution
-   is the EMPLOYER RUN inside one PARAGRAPH, not the sentence (#565). The first sentence
-   of a run names the employer; later sentences of the SAME paragraph may refer back
-   ("Dort", "There"); the carry never crosses a paragraph break. Flag misattribution to
-   the wrong employer, a paragraph that states a position-owned claim and names no
-   employer at all, and a paragraph that switches employer without naming the new one —
-   never a back-referring sentence inside an already-anchored run. The two halves reach
-   you with different evidence:
+2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
+   specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
+   one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
+   later sentences of the SAME paragraph may refer back ("Dort", "There"); the carry
+   never crosses a paragraph break. Flag misattribution, a paragraph stating a
+   position-owned claim that names no employer at all, and a paragraph switching employer
+   without naming the new one — never a back-referring sentence inside an already-anchored
+   run. The two halves reach you with different evidence:
    2a. A FIGURE. The FIGURE OWNERSHIP block settles anchor PRESENCE, per SENTENCE: where
        it names the employer a figure's own sentence names, you may NOT report that
        figure as unanchored. Whether that is the RIGHT employer, against the same line's
@@ -228,9 +228,9 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``pinned_facts`` (ADR-077): the candidate's own pinned vault quotes — each
    must appear, never extended; flag a missing one by key with its text.
    ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
-   positioning decision — the gap in the candidate's own terms plus the adjacent
-   strength — in one paragraph. BOTH directions are findings: silence on a listed
-   limit, and a limit the letter states that the entry does NOT list (check 1).
+   positioning decision in one paragraph — the gap in the candidate's own terms plus the
+   adjacent strength. BOTH directions are findings: silence on a listed limit, and a
+   limit the letter states that the entry does NOT list (check 1).
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -250,8 +250,7 @@ or incomplete; anything you notice outside them is `minor` by definition.
      is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
      the candidate's own words. Judge this by reading the two documents; no block lists
      conflicts for you. The admit-and-affirm sentence check 1 describes is the CORRECT
-     shape for a gap, not a denial of its second half: never flag it, never soften it,
-     never ask for it to be split.
+     shape for a gap, not a denial of its second half: never flag, soften or split it.
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
