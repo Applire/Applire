@@ -543,7 +543,7 @@ describe("ATSChecksPanel", () => {
 
     it("localises the pinned-facts section and statuses into German", () => {
       render(withIntl(<ATSChecksPanel report={REPORT_WITH_PINNED_FACTS} />, "de"));
-      expect(screen.getByTestId("ats-pinned-facts").textContent).toContain("Angeheftete Fakten");
+      expect(screen.getByTestId("ats-pinned-facts").textContent).toContain("Festgelegte Fakten");
       expect(screen.getByTestId("ats-pinned-fact-unmet-p2").textContent).toContain(
         "nicht im Dokument",
       );
@@ -568,7 +568,7 @@ describe("ATSChecksPanel", () => {
     it("localises the page-length driver line into German (ICU plural)", () => {
       render(withIntl(<ATSChecksPanel report={REPORT_PAGE_LENGTH_WITH_PIN_DRIVER} />, "de"));
       const driverLine = screen.getByTestId("ats-check-page-length-pin-driver");
-      expect(driverLine.textContent).toContain("angeheftete Fakten");
+      expect(driverLine.textContent).toContain("festgelegte Fakten");
     });
 
     it("does not render the driver line when the check carries no driver", () => {

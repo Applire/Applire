@@ -51,6 +51,28 @@ class SettingsResponse(BaseModel):
     # ADR-081 clause 5 (US301): 'auto' follows the document; 'overview'/
     # 'guided' are fixed overrides. Not exposed over MCP (clause 8).
     review_mode: Literal["auto", "overview", "guided"] = "auto"
+    # #679 (US309): ids of the first-use explainers this user dismissed.
+    # Write order; empty when nothing was dismissed. Never null.
+    dismissed_explainers: list[str] = []
+
+
+# #679 (US309) — the allowlist of first-use explainer ids a client may dismiss.
+# A server-side allowlist rather than a free-form string: an id that no
+# frontend reads is dead state in a row nobody audits, and a typo in one
+# build would write it forever. Adding an explainer = one entry here plus its
+# consumer below; it costs no migration (the storage is one JSON set,
+# `user_settings.dismissed_explainers`, migration 0061).
+#
+#   fact_pins_intro
+#       The fact-pin first-use explainer (COPY.md §D). Consumer:
+#       `frontend/components/explainers/FirstUseExplainer`, opened by the
+#       fact-pin teaser/panel add button on the gaps page and the CV
+#       "Bearbeiten" tab (`frontend/components/pins/**`). Shown once per
+#       user until the "Nicht mehr anzeigen" checkbox writes this id.
+#
+# Not exposed over MCP (ADR-081 clause 8 / SF-DOOR.4, the `review_mode`
+# precedent): an ADR-054 BYOI agent has no explainer to dismiss.
+EXPLAINER_IDS = frozenset({"fact_pins_intro"})
 
 
 class SettingsPatchRequest(BaseModel):
@@ -60,6 +82,11 @@ class SettingsPatchRequest(BaseModel):
     # E042/US236: >= 1, no upper cap (users may deliberately exceed the norm).
     target_cv_pages: int | None = Field(default=None, ge=1)
     review_mode: Literal["auto", "overview", "guided"] | None = None
+    # #679 (US309): dismiss ONE first-use explainer. Additive and idempotent —
+    # there is no "un-dismiss" over this field (a user who wants the explainer
+    # back is a settings-screen concern #679 will decide, not a PATCH verb).
+    # A body carrying only this field is a valid request.
+    dismiss_explainer: str | None = None
 
 
 async def get_settings(db: AsyncSession) -> dict:
@@ -86,6 +113,10 @@ async def get_settings(db: AsyncSession) -> dict:
     # or the in-memory default not yet reflected before commit) is served
     # as 'auto', never None.
     review_mode = getattr(row, "review_mode", None) or "auto"
+    # #679 (US309): never NULL on read. Migration 0061 back-fills every real
+    # row to '[]', so a None here is only the transient in-Python state before
+    # the server_default is applied — same guarantee as review_mode above.
+    dismissed_explainers = list(getattr(row, "dismissed_explainers", None) or [])
 
     if row is None or row.default_color_profile_id is None:
         return {
@@ -96,6 +127,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
             "review_mode": review_mode,
+            "dismissed_explainers": dismissed_explainers,
         }
 
     cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -108,6 +140,7 @@ async def get_settings(db: AsyncSession) -> dict:
             "hide_predownload_notice": hide_predownload_notice,
             "target_cv_pages": target_cv_pages,
             "review_mode": review_mode,
+            "dismissed_explainers": dismissed_explainers,
         }
 
     return {
@@ -118,6 +151,7 @@ async def get_settings(db: AsyncSession) -> dict:
         "hide_predownload_notice": hide_predownload_notice,
         "target_cv_pages": target_cv_pages,
         "review_mode": review_mode,
+        "dismissed_explainers": dismissed_explainers,
     }
 
 
@@ -129,6 +163,7 @@ async def update_settings(
     target_cv_pages: int | None = None,
     clear_target_cv_pages: bool = False,
     review_mode: str | None = None,
+    dismiss_explainer: str | None = None,
 ) -> dict:
     """Service logic — upsert user settings. All fields are optional.
 
@@ -157,6 +192,14 @@ async def update_settings(
     if review_mode is not None and review_mode not in _VALID_REVIEW_MODES:
         raise ValueError(
             f"Invalid review_mode: {review_mode!r}. Must be one of {_VALID_REVIEW_MODES}."
+        )
+
+    # #679 (US309): validated BEFORE the upsert, so a rejected id leaves the
+    # row — and the absence of a row — exactly as it was.
+    if dismiss_explainer is not None and dismiss_explainer not in EXPLAINER_IDS:
+        raise ValueError(
+            f"Unknown explainer id: {dismiss_explainer!r}. "
+            f"Must be one of {sorted(EXPLAINER_IDS)}."
         )
 
     result = await db.execute(
@@ -188,6 +231,14 @@ async def update_settings(
     if review_mode is not None:
         row.review_mode = review_mode
 
+    if dismiss_explainer is not None:
+        current = list(row.dismissed_explainers or [])
+        if dismiss_explainer not in current:
+            # Re-ASSIGN, never append in place: a plain JSON/JSONB column is
+            # not MutableList-tracked, so an in-place append is invisible to
+            # the unit of work and would be silently dropped at commit.
+            row.dismissed_explainers = current + [dismiss_explainer]
+
     await db.commit()
 
     response: dict = {
@@ -198,6 +249,11 @@ async def update_settings(
         # Same NULL-safety as get_settings(): the in-memory server_default
         # is not reflected before commit on a freshly-created row.
         "review_mode": getattr(row, "review_mode", None) or "auto",
+        # #679 (US309): same NULL-safety, plus a copy so the caller cannot
+        # reach back into the ORM row's list through the response dict.
+        "dismissed_explainers": list(
+            getattr(row, "dismissed_explainers", None) or []
+        ),
     }
     if row.default_color_profile_id:
         cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -241,6 +297,7 @@ async def api_patch_settings(
             target_cv_pages=body.target_cv_pages,
             clear_target_cv_pages=clear_target_cv_pages,
             review_mode=body.review_mode,
+            dismiss_explainer=body.dismiss_explainer,
         )
         return SettingsResponse(**result)
     except ValueError as exc:

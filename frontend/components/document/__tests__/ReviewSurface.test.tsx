@@ -302,7 +302,8 @@ describe("clause 3 — group 2 states the trade, with no action", () => {
     const trade = screen.getByTestId("review-group2-trade");
     expect(trade.textContent).toMatch(/length trade/i);
     expect(screen.getByTestId("review-group2-handle-pages").textContent).toMatch(/page target/i);
-    expect(screen.getByTestId("review-group2-handle-pin").textContent).toMatch(/pin/i);
+    expect(screen.getByTestId("review-group2-handle-pin").textContent).toContain("Pin the fact behind it");
+    expect(screen.getByTestId("review-group2-handle-pin").textContent).toContain("never cut");
     expect(screen.getByTestId("review-group2-handle-regenerate").textContent).toMatch(/regenerate/i);
   });
 

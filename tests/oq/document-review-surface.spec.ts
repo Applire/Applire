@@ -125,6 +125,7 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
       ui_language: 'en',
       ui_language_explicit: true,
       hide_predownload_notice: false,
+      dismissed_explainers: [],
       target_cv_pages: 2,
       review_mode: reviewMode,
     }),

@@ -193,15 +193,18 @@
     "docLanguageAutoDetected": "automatisch erkannt",
     "docLanguageSaveError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
     "pins": {
-      "title": "Angeheftete Fakten ({count}/{max})",
-      "subtitle": "Aus Deinem Vault — unverändert. Pins schlagen das Längen-Budget, nie die Wahrheitsprüfung.",
-      "addButton": "Fakt anheften",
-      "capReachedTitle": "Maximum von {max} angehefteten Fakten erreicht",
-      "empty": "Noch keine Fakten angeheftet.",
-      "loadError": "Angeheftete Fakten konnten nicht geladen werden.",
+      "title": "Muss in diesem Dokument stehen",
+      "counter": "{count} von max. {max} · nur für diese Bewerbung",
+      "addButton": "Fakt aus dem Profil auswählen",
+      "capReachedTitle": "Maximum von {max} festgelegten Fakten erreicht",
+      "empty": "Noch kein Fakt festgelegt.",
+      "howLink": "Wie funktioniert das?",
+      "howBody": "Ein festgelegter Fakt ist ein Satz aus deinem Profil, der in Lebenslauf oder Anschreiben dieser Bewerbung auf jeden Fall vorkommen soll. Applire übernimmt ihn wörtlich und kürzt ihn nie weg. Wird das Dokument dadurch länger als üblich, sagt dir der Prüfbericht das offen, statt still zu kürzen. Am besten für die ein oder zwei Dinge, die dieser Arbeitgeber auf keinen Fall übersehen darf.",
+      "loadError": "Festgelegte Fakten konnten nicht geladen werden.",
       "remove": "Entfernen",
-      "removeAria": "Diesen angehefteten Fakt entfernen",
+      "removeAria": "Diesen festgelegten Fakt entfernen",
       "stale": "Veraltet",
+      "quoteWrapped": "„{quote}“",
       "targetCv": "Lebenslauf",
       "targetLetter": "Anschreiben",
       "entryTypes": {
@@ -215,25 +218,33 @@
         "language": "Sprache",
         "publication": "Publikation"
       },
-      "dialogTitle": "Fakt anheften",
-      "dialogChooseEntry": "Eintrag auswählen",
-      "dialogChooseQuote": "Zitat auswählen",
-      "dialogChooseTargets": "Gilt für",
-      "dialogCvTargetUnavailable": "Der Lebenslauf hat keinen Abschnitt für diesen Eintragstyp — nur fürs Anschreiben anheften.",
-      "dialogBack": "Zurück",
+      "teaserKicker": "Optional, vor dem Generieren",
+      "teaserTitle": "Gibt es Fakten, die unbedingt in deinen Dokumenten stehen müssen?",
+      "teaserBody": "Wähle Aussagen aus deinem Profil, die auf jeden Fall in Lebenslauf oder Anschreiben dieser Bewerbung stehen sollen, auch wenn das Dokument dadurch länger wird.",
+      "teaserButton": "Fakten festlegen",
+      "teaserCount": "{count, plural, one {# Fakt festgelegt} other {# Fakten festgelegt}}",
+      "teaserEdit": "Bearbeiten",
+      "dialogTitle": "Fakt aus dem Profil auswählen",
+      "dialogIntro": "Der Fakt wird wörtlich übernommen und in dieser Bewerbung nie weggekürzt.",
+      "dialogChooseEntry": "Aus welchem Eintrag deines Profils?",
+      "dialogChooseQuote": "Welche Aussage soll drinstehen?",
+      "dialogChooseTargets": "Soll stehen in:",
+      "dialogTargetsHint": "Gilt nur für diese Bewerbung. Ob es geklappt hat, siehst du nach dem Generieren im Prüfbericht.",
+      "dialogCvTargetUnavailable": "Der Lebenslauf hat keinen Abschnitt für diesen Eintragstyp — nur fürs Anschreiben festlegen.",
+      "dialogBack": "Anderer Eintrag",
       "dialogLoading": "Dein Profil wird geladen…",
       "dialogLoadError": "Dein Profil konnte nicht geladen werden.",
-      "dialogNoEntries": "In deinem Profil wurde kein anheftbarer Text gefunden.",
+      "dialogNoEntries": "In deinem Profil wurde kein passender Text gefunden.",
       "dialogCancel": "Abbrechen",
-      "dialogConfirm": "Fakt anheften",
-      "dialogBusy": "Wird angeheftet…",
-      "pinError": "Anheften fehlgeschlagen:",
-      "pinErrorGeneric": "Anheften fehlgeschlagen. Bitte erneut versuchen.",
+      "dialogConfirm": "Festlegen",
+      "dialogBusy": "Wird festgelegt…",
+      "pinError": "Festlegen fehlgeschlagen:",
+      "pinErrorGeneric": "Festlegen fehlgeschlagen. Bitte erneut versuchen.",
+      "pinDuplicate": "Dieser Fakt ist für diese Bewerbung schon festgelegt.",
+      "chip": "{target} · {fate}",
       "fate": {
-        "cvPresent": "im Lebenslauf",
-        "cvUnmet": "nicht im Lebenslauf",
-        "letterPresent": "im Anschreiben",
-        "letterUnmet": "nicht im Anschreiben",
+        "present": "enthalten",
+        "unmet": "nicht enthalten",
         "removedByTruthFloor": "durch Wahrheitsprüfung entfernt",
         "notMeasured": "noch nicht gemessen",
         "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
@@ -1251,11 +1262,11 @@
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {
-      "title": "Angeheftete Fakten",
+      "title": "Festgelegte Fakten",
       "unmet": "nicht im Dokument",
       "stale": "Veraltet",
       "removedByTruthFloor": "durch Wahrheits-Prüfung entfernt",
-      "driverLine": "Länge u. a. durch {count, plural, one {einen angehefteten Fakt} other {# angeheftete Fakten}} bedingt",
+      "driverLine": "Länge u. a. durch {count, plural, one {einen festgelegten Fakt} other {# festgelegte Fakten}} bedingt",
       "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
     }
   },
@@ -1359,6 +1370,17 @@
     "page": "Seite {page} von {total}",
     "showing": "{from}–{to} von {total} Dokumenten",
     "agentAuthored": "Agent-erstellt"
+  },
+  "explainers": {
+    "dontShowAgain": "Nicht mehr anzeigen",
+    "cancel": "Abbrechen",
+    "factPins": {
+      "title": "Bevor du Fakten festlegst",
+      "p1": "Ein festgelegter Fakt ist ein Satz aus deinem Profil, der in Lebenslauf oder Anschreiben dieser Bewerbung auf jeden Fall vorkommen soll. Applire übernimmt ihn wörtlich und kürzt ihn nie weg.",
+      "p2": "Wird das Dokument dadurch länger als üblich, sagt dir der Prüfbericht das offen, statt still zu kürzen.",
+      "p3": "Am besten für die ein oder zwei Dinge, die dieser Arbeitgeber auf keinen Fall übersehen darf.",
+      "continue": "Weiter zur Auswahl"
+    }
   },
   "predownload": {
     "title": "Vor dem Download",
@@ -1518,7 +1540,7 @@
     "group2TradeBody": "Dein Profil deckt das ab — es hat nur nicht ins Dokument gepasst. Der Längen-Kompromiss hat entschieden, nicht die Wahrheitsprüfung: Applire hat beim Schreiben versucht, diese Begriffe unterzubringen, und die Seitenzahl hat gewonnen. Was hier steht, ist der Rest danach.",
     "group2HandlesTitle": "Drei Hebel, die es schon gibt:",
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
-    "group2HandlePin": "Die zugrunde liegende Tatsache im Profil anpinnen — ein Pin schlägt das Längen-Budget, nie die Wahrheitsprüfung. Zu finden im Reiter Bearbeiten.",
+    "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Bearbeiten.",
     "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
   }
 }
