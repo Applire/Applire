@@ -240,6 +240,7 @@
       "dialogBusy": "Wird festgelegt…",
       "pinError": "Festlegen fehlgeschlagen:",
       "pinErrorGeneric": "Festlegen fehlgeschlagen. Bitte erneut versuchen.",
+      "pinDuplicate": "Dieser Fakt ist für diese Bewerbung schon festgelegt.",
       "chip": "{target} · {fate}",
       "fate": {
         "present": "enthalten",

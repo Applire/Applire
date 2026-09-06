@@ -576,6 +576,38 @@ describe("PinnedFactsPanel", () => {
       );
       expect(screen.getByTestId("pinned-facts-dialog")).toBeInTheDocument();
     });
+
+    // Finding #1 (adversarial pass, 2026-09-06): the duplicate-pin ValueError
+    // (backend/applire/services/fact_pins.py:210, mapped to 422 by add_pin)
+    // was rendered verbatim — raw English inside the German UI. 422 is shared
+    // with the cap/claim-gate/quote-resolution errors above, which keep their
+    // raw passthrough; only THIS exact backend detail gets localised.
+    it("a duplicate-pin 422 renders the localised message, not the raw backend text, dialog stays open", async () => {
+      mockFetch({
+        pins: [],
+        dismissedExplainers: [EXPLAINER_ID],
+        onPost: () => ({
+          status: 422,
+          body: { detail: "This fact is already pinned on this application." },
+        }),
+      });
+      render(withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" />, "de"));
+      await waitFor(() => expect(screen.getByTestId("pinned-facts-empty")).toBeInTheDocument());
+      await settle();
+
+      fireEvent.click(screen.getByTestId("pinned-facts-add"));
+      await waitFor(() => expect(screen.getByTestId("pin-entry-skill-s1")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("pin-entry-skill-s1"));
+      fireEvent.click(screen.getByTestId("pin-dialog-confirm"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-facts-dialog-error")).toBeInTheDocument(),
+      );
+      const errorText = screen.getByTestId("pinned-facts-dialog-error").textContent;
+      expect(errorText).toContain("Dieser Fakt ist für diese Bewerbung schon festgelegt.");
+      expect(errorText).not.toContain("already pinned on this application");
+      expect(screen.getByTestId("pinned-facts-dialog")).toBeInTheDocument();
+    });
   });
 
   // COPY.md §B — before generation the control is an offer, not a list (D-2:
@@ -652,6 +684,33 @@ describe("PinnedFactsPanel", () => {
       expect(screen.getByTestId("pinned-facts-teaser").textContent).toContain(
         "Optional, vor dem Generieren",
       );
+    });
+
+    // Finding #2 (adversarial pass, 2026-09-06): a failed pins fetch left
+    // `pinList` at [] with `loadError` true, and the teaser's empty branch
+    // only checked `pinList.length === 0` — an unknown state rendered
+    // byte-identical to "zero pins", inviting the user to pin on top of it.
+    it("a failed pins fetch renders the load-error text and no CTA", async () => {
+      const fn = vi.fn(async (url: string) => {
+        if (url.endsWith("/api/settings")) {
+          return { ok: true, json: async () => settingsBody([]) } as Response;
+        }
+        if (url === "/api/profile") {
+          return { ok: true, json: async () => PROFILE } as Response;
+        }
+        return { ok: false, status: 500, json: async () => ({}) } as Response;
+      });
+      vi.stubGlobal("fetch", fn);
+      render(
+        withIntl(<PinnedFactsPanel applicationId={APP_ID} apiBase="" variant="teaser" />),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("pinned-facts-load-error")).toBeInTheDocument(),
+      );
+      expect(screen.getByTestId("pinned-facts-load-error").textContent).toBe(
+        "Pinned facts could not be loaded.",
+      );
+      expect(screen.queryByTestId("pinned-facts-teaser-add")).toBeNull();
     });
   });
 

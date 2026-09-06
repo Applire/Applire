@@ -240,6 +240,7 @@
       "dialogBusy": "Pinning…",
       "pinError": "Pinning failed:",
       "pinErrorGeneric": "Pinning failed. Please try again.",
+      "pinDuplicate": "This fact is already pinned for this application.",
       "chip": "{target} · {fate}",
       "fate": {
         "present": "included",

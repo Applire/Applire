@@ -245,6 +245,14 @@ async function apiErrorMessage(res: Response): Promise<string> {
   }
 }
 
+// Finding #1 (adversarial pass, 2026-09-06): add_fact_pin's duplicate-pin
+// ValueError (backend/applire/services/fact_pins.py:210) is mapped to 422 by
+// the router (applire/routers/application.py add_pin) — the SAME status the
+// cap, claim-gate and quote-resolution errors use, so a status check alone
+// cannot tell them apart. Match this exact backend detail text and localise
+// it; every other 422 keeps today's raw passthrough.
+const DUPLICATE_PIN_DETAIL = "This fact is already pinned on this application.";
+
 // #580 — per-document fate marker. Fetches ONE document's ATS report and
 // indexes its pinned_facts by pin_id. Tolerant by design: a 404/failed fetch,
 // a null report (document pending/failed), or a null/absent pinned_facts
@@ -545,7 +553,12 @@ export function PinnedFactsPanel({
         }),
       });
       if (!res.ok) {
-        setSubmitError(await apiErrorMessage(res));
+        const detail = await apiErrorMessage(res);
+        setSubmitError(
+          res.status === 422 && detail === DUPLICATE_PIN_DETAIL
+            ? t("pins.pinDuplicate")
+            : detail,
+        );
         return;
       }
       const created: FactPin = await res.json();
@@ -1017,19 +1030,35 @@ export function PinnedFactsPanel({
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
                 {t("pins.teaserKicker")}
               </p>
-              <h3 className="font-heading text-base font-bold text-on-surface">
-                {t("pins.teaserTitle")}
-              </h3>
-              <p className="mt-1 text-sm text-on-surface-variant">{t("pins.teaserBody")}</p>
+              {/* Finding #2 (adversarial pass, 2026-09-06): this branch used to
+                  fire on `pinList.length === 0` alone, so a failed pins fetch
+                  (loadError, pins stays []) rendered byte-identical to an
+                  honest "zero pins" — inviting a pin on top of an unknown
+                  state. When the read failed, show the load error and drop
+                  the CTA instead of the question/body/button. */}
+              {loadError ? (
+                <p className="text-sm text-critical" data-testid="pinned-facts-load-error">
+                  {t("pins.loadError")}
+                </p>
+              ) : (
+                <>
+                  <h3 className="font-heading text-base font-bold text-on-surface">
+                    {t("pins.teaserTitle")}
+                  </h3>
+                  <p className="mt-1 text-sm text-on-surface-variant">{t("pins.teaserBody")}</p>
+                </>
+              )}
             </div>
-            <button
-              type="button"
-              data-testid="pinned-facts-teaser-add"
-              onClick={startAdd}
-              className="shrink-0 rounded-xl border border-outline-variant bg-white px-6 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container"
-            >
-              {t("pins.teaserButton")}
-            </button>
+            {!loadError && (
+              <button
+                type="button"
+                data-testid="pinned-facts-teaser-add"
+                onClick={startAdd}
+                className="shrink-0 rounded-xl border border-outline-variant bg-white px-6 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container"
+              >
+                {t("pins.teaserButton")}
+              </button>
+            )}
           </div>
         ) : (
           <>
