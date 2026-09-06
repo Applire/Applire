@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
+
 ## [0.41.1-beta] – 2026-09-06
 
 The Stracciatella release, published as this patch on top of the unpublished
