@@ -120,6 +120,10 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "match.strengthPrefix",
   "match.gapPrefix",
   "gaps.matchScoreDisplay",
+  // E056 UX pass: the merged target/fate chip is nothing but its two
+  // placeholders and a middle dot — both halves are themselves catalog values,
+  // so there is no German word left to translate here.
+  "gaps.pins.chip",
   "interview.matchScorePercent",
   "cv.matchScorePercent",
   "cv.completenessPercent",
