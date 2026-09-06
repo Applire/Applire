@@ -18,10 +18,14 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
+
+# ADR-002 pattern: JSONB on PostgreSQL, plain JSON on SQLite (unit tests).
+_JSON = JSONB().with_variant(JSON(), "sqlite")
 
 
 class UserSettings(Base):
@@ -56,6 +60,18 @@ class UserSettings(Base):
     # overrides. Deliberately NOT exposed over MCP (clause 8, SF-DOOR.4).
     review_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="auto", default="auto"
+    )
+    # #679 (US309): the ids of first-use explainers this user dismissed via
+    # "Nicht mehr anzeigen". ONE additive set for every explainer that comes
+    # after the pre-download notice, instead of a new boolean column each time.
+    # `hide_predownload_notice` above keeps its own column (ADR-040 §4) — it
+    # predates the mechanism and is not migrated into it.
+    # Ids are validated against routers.settings.EXPLAINER_IDS at write time;
+    # order is write order, so a reader can tell which explainer was dismissed
+    # first. Like `review_mode`, deliberately NOT exposed over MCP
+    # (ADR-081 clause 8, SF-DOOR.4): an agent has no explainer to dismiss.
+    dismissed_explainers: Mapped[list] = mapped_column(
+        _JSON, nullable=False, server_default="[]", default=list
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
