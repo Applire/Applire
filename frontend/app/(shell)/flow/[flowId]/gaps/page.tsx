@@ -950,16 +950,6 @@ export default function GapsPage({
                   />
                 </div>
               )}
-              {/* E056/ADR-077: fact pins — a verbatim vault quote the user
-                  pins to this application (truth > pin > budget). */}
-              {flowState?.application_id && (
-                <PinnedFactsPanel
-                  applicationId={flowState.application_id}
-                  apiBase={API_BASE}
-                  cvId={flowState.cv_summary?.cv_id ?? null}
-                  coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
-                />
-              )}
             </>
           );
         })()}
@@ -1147,6 +1137,23 @@ export default function GapsPage({
           scrollable column, it pinned as soon as the page loaded, overlapping
           the match-score card above it instead of waiting for real scroll.
           md and up: unchanged inline layout. */}
+      {/* E056/ADR-077 cl. 6 — fact pins, met as an OFFER before generation
+          (COPY.md §B, mock/Main): the last card of the scroll flow, directly
+          above the decision cluster, so "is there anything that must be in
+          there?" is asked while the answer can still change the documents.
+          D-1: below md it stays in the scroll flow above the spacer — it never
+          joins the fixed bottom bar, which is reserved for the pursue-or-not
+          decision. */}
+      {flowState?.application_id && (
+        <PinnedFactsPanel
+          variant="teaser"
+          applicationId={flowState.application_id}
+          apiBase={API_BASE}
+          cvId={flowState.cv_summary?.cv_id ?? null}
+          coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
+        />
+      )}
+
       <div aria-hidden="true" className="md:hidden" style={{ height: decisionBarHeight }} />
       <div
         ref={decisionBarRef}

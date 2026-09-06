@@ -35,8 +35,11 @@ const FLOW_ID = "flow-mobile-gaps-0000-0000-000000000001";
 const JOB_ID = "job-mobile-gaps-0000-0000-000000000002";
 const GAP_ID = "gap-mobile-gaps-0000-0000-000000000003";
 
+const APP_ID = "app-mobile-gaps-0000-0000-000000000004";
+
 const MOCK_FLOW_STATE = {
   job_id: JOB_ID,
+  application_id: APP_ID,
   user_type: "new",
   available_actions: {},
   gap_summary: { gap_analysis_id: GAP_ID },
@@ -78,6 +81,22 @@ async function setupGapsMocks(page: import("@playwright/test").Page) {
   );
   await page.route("**/api/profile", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_PROFILE) })
+  );
+  // E056 UX pass: the fact-pin teaser reads the application (its pins) and the
+  // settings (whether the first-use explainer is still owed).
+  await page.route(`**/api/applications/${APP_ID}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: APP_ID, language_override: null, pinned_facts: [] }),
+    })
+  );
+  await page.route("**/api/settings", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ui_language: "en", dismissed_explainers: [] }),
+    })
   );
 }
 
@@ -124,6 +143,58 @@ test.describe("Mobile gap triage (390x844)", () => {
     await page.screenshot({ path: testInfo.outputPath("gaps-mobile-390x844.png"), fullPage: true });
     await testInfo.attach("gaps-mobile-390x844", {
       path: testInfo.outputPath("gaps-mobile-390x844.png"),
+      contentType: "image/png",
+    });
+  });
+
+  // D-1 (E056 UX pass): below md the fact-pin teaser stays in the SCROLL FLOW
+  // as the last card above the decision-bar spacer. It must never join the
+  // fixed bottom bar, which is reserved for the pursue-or-not decision, and it
+  // must still be fully reachable once the user scrolls to the end.
+  test("the fact-pin teaser is the last scroll-flow card, outside the fixed decision bar", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(page.getByTestId("gap-analysis-page")).toBeVisible({ timeout: 10000 });
+
+    const teaser = page.getByTestId("pinned-facts-teaser");
+    await expect(teaser).toBeVisible();
+
+    // Not a descendant of the fixed bar.
+    const insideBar = await page.evaluate(() => {
+      const bar = document.querySelector('[data-testid="gaps-decision-bar"]');
+      const card = document.querySelector('[data-testid="pinned-facts-teaser"]');
+      return Boolean(bar && card && bar.contains(card));
+    });
+    expect(insideBar).toBe(false);
+
+    // Scrolled to the end of the flow column, the whole card clears the bar.
+    await page.evaluate(() => {
+      for (const el of Array.from(document.querySelectorAll("*"))) {
+        const s = getComputedStyle(el);
+        if ((s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 10) {
+          el.scrollTop = el.scrollHeight;
+        }
+      }
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    const boxes = await page.evaluate(() => {
+      const bar = document.querySelector('[data-testid="gaps-decision-bar"]')!.getBoundingClientRect();
+      const card = document.querySelector('[data-testid="pinned-facts-teaser"]')!.getBoundingClientRect();
+      return { barTop: bar.top, cardBottom: card.bottom, cardTop: card.top };
+    });
+    expect(boxes.cardTop).toBeGreaterThanOrEqual(0);
+    expect(boxes.cardBottom).toBeLessThanOrEqual(boxes.barTop + 1);
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.body.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+
+    await page.screenshot({ path: testInfo.outputPath("gaps-pin-teaser-390x844.png") });
+    await testInfo.attach("gaps-pin-teaser-390x844", {
+      path: testInfo.outputPath("gaps-pin-teaser-390x844.png"),
       contentType: "image/png",
     });
   });
