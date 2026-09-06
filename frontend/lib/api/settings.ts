@@ -33,6 +33,11 @@ export interface AppSettings {
   // rather than of the person. Optional here for back-compat with a backend
   // that predates the column; the reader falls back to `auto`.
   review_mode?: ReviewModePreference;
+  // #679 — first-use explainers the user has dismissed for good, by id
+  // (`fact_pins_intro` is the first). Optional here for back-compat with a
+  // backend that predates the column; a reader that gets nothing must treat
+  // it as "nothing dismissed" and SHOW the explainer (fail-open, D-3).
+  dismissed_explainers?: string[];
 }
 
 /** GET /api/settings — the current user's preferences. */
@@ -77,4 +82,34 @@ export async function setReviewMode(mode: ReviewModePreference): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ review_mode: mode }),
   });
+}
+
+/**
+ * Dismiss one first-use explainer for good (#679). Additive and idempotent on
+ * the backend, which validates the id against its own allowlist (D-7) — the
+ * response carries the updated list, which this caller does not need.
+ *
+ * Best-effort by design (D-3): the user has already seen the explainer and
+ * clicked past it, so a failed write must never surface as an error. One
+ * silent retry covers the transient case; a second failure just means the
+ * explainer appears once more.
+ */
+export async function dismissExplainer(explainerId: string): Promise<void> {
+  const send = () =>
+    fetch(`${API_BASE}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dismiss_explainer: explainerId }),
+    });
+  try {
+    const res = await send();
+    if (res.ok) return;
+  } catch {
+    // fall through to the single retry
+  }
+  try {
+    await send();
+  } catch {
+    // swallowed: never a user-visible error (D-3)
+  }
 }
