@@ -163,7 +163,7 @@ test.describe("#604 — Health hub conflict card", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ ui_language: "de", ui_language_explicit: true }),
+        body: JSON.stringify({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] }),
       }),
     );
     await openProfileWith(page, HEALTH_WITH_ENTITY_CONFLICT);

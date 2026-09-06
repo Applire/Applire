@@ -43,7 +43,7 @@ test.describe("CV Design tab", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ default_color_profile_id: null, default_accent_hex: null, ui_language: "de" }),
+        body: JSON.stringify({ default_color_profile_id: null, default_accent_hex: null, ui_language: "de", dismissed_explainers: [] }),
       });
     });
     await page.route(`**/api/flow/${TEST_FLOW_ID}/state`, async (route) => {
