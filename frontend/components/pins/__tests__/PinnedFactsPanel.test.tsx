@@ -511,6 +511,10 @@ describe("PinnedFactsPanel", () => {
       expect(screen.getByTestId("pinned-facts-dialog-single-quote").textContent).toBe(
         "Kubernetes",
       );
+      // …and the entry label is not printed above a statement identical to it.
+      expect(
+        screen.getByTestId("pinned-facts-dialog-quotes").textContent!.match(/Kubernetes/g),
+      ).toHaveLength(1);
       expect(screen.getByTestId("pin-dialog-confirm")).not.toBeDisabled();
 
       fireEvent.click(screen.getByTestId("pin-dialog-confirm"));
@@ -904,6 +908,10 @@ describe("PinnedFactsPanel", () => {
       await waitFor(() => expect(screen.getByTestId("pin-entry-volunteer-v1")).toBeInTheDocument());
       fireEvent.click(screen.getByTestId("pin-entry-volunteer-v1"));
 
+      // Single statement, but the label is NOT the statement — it stays.
+      expect(screen.getByTestId("pinned-facts-dialog-quotes").textContent).toContain(
+        "Mentor · Coding for Kids",
+      );
       const cvCheckbox = screen.getByTestId("pin-target-cv") as HTMLInputElement;
       expect(cvCheckbox.disabled).toBe(true);
       expect(cvCheckbox.checked).toBe(false);

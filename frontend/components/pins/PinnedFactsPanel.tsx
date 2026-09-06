@@ -593,10 +593,15 @@ export function PinnedFactsPanel({
   // card, never a navigation or a modal).
   const panelBody = (
     <>
-      <div className="mb-1 flex items-start justify-between gap-3">
+      {/* Wraps rather than squeezes: in the CV page's ~400 px refinement
+          sidebar the title and the add button do not fit on one line, and a
+          five-word promise broken over three lines beside a button reads as a
+          layout accident. Above ~560 px (the mock's width) they sit side by
+          side as designed. */}
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h3
           data-testid="pinned-facts-title"
-          className="font-heading text-lg font-bold text-on-surface"
+          className="min-w-[13rem] flex-1 font-heading text-lg font-bold text-on-surface"
         >
           {t("pins.title")}
         </h3>
@@ -862,7 +867,12 @@ export function PinnedFactsPanel({
                     {"← "}
                     {t("pins.dialogBack")}
                   </button>
-                  <p className="text-sm font-medium text-on-surface">{selectedEntry.label}</p>
+                  {/* Same rule as the row's label line: for a skill or a
+                      certification the entry label IS the statement, and
+                      printing it twice above itself reads as a mistake. */}
+                  {!(singleStatement && selectedEntry.label === selectedEntry.quotes[0]) && (
+                    <p className="text-sm font-medium text-on-surface">{selectedEntry.label}</p>
+                  )}
 
                   {singleStatement ? (
                     <p
