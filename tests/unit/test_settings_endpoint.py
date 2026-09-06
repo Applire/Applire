@@ -410,3 +410,214 @@ class TestReviewModeSetting:
             ]
         )
         assert "review_mode" not in surface
+
+
+class TestDismissedExplainers:
+    # #679 / US309 (COPY.md §F): ONE per-user set of dismissed first-use
+    # explainers, additive over PATCH, guarded by a server-side allowlist —
+    # instead of one boolean column per notice. `hide_predownload_notice`
+    # (ADR-040 §4) stays exactly as it is; this is the mechanism for every
+    # explainer that comes after it, starting with `fact_pins_intro`.
+    @pytest_asyncio.fixture
+    async def client(self, db):
+        from applire.auth import get_auth_provider
+        from applire.db.session import get_db
+        from applire.routers.settings import router
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from unittest.mock import MagicMock
+
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+
+    @pytest.mark.asyncio
+    async def test_get_settings_defaults_to_empty_list_when_no_row(self, db):
+        from applire.routers.settings import get_settings
+
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == []
+
+    @pytest.mark.asyncio
+    async def test_patch_adds_the_explainer_id(self, db):
+        from applire.routers.settings import get_settings, update_settings
+
+        written = await update_settings(db, dismiss_explainer="fact_pins_intro")
+        assert written["dismissed_explainers"] == ["fact_pins_intro"]
+
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_dismissing_twice_is_idempotent(self, db):
+        from applire.routers.settings import get_settings, update_settings
+
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_two_ids_accumulate_in_write_order(self, db, monkeypatch):
+        # The allowlist holds exactly one id today, so the accumulate-and-keep-
+        # order property is pinned against a widened allowlist — the shape #679
+        # will have as soon as the second explainer ships.
+        from applire.routers import settings as settings_module
+
+        monkeypatch.setattr(
+            settings_module,
+            "EXPLAINER_IDS",
+            frozenset({"fact_pins_intro", "second_explainer"}),
+        )
+        await settings_module.update_settings(db, dismiss_explainer="second_explainer")
+        await settings_module.update_settings(db, dismiss_explainer="fact_pins_intro")
+
+        result = await settings_module.get_settings(db)
+        assert result["dismissed_explainers"] == ["second_explainer", "fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_id_rejected_over_http_and_row_unchanged(self, db, client):
+        from applire.routers.settings import get_settings, update_settings
+
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+
+        resp = await client.patch(
+            "/api/settings", json={"dismiss_explainer": "not_an_explainer"}
+        )
+        assert resp.status_code == 422
+
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_update_settings_raises_on_unknown_id(self, db):
+        # Service-layer allowlist guard, pinned independently of the route.
+        from applire.routers.settings import update_settings
+
+        with pytest.raises(ValueError, match="explainer"):
+            await update_settings(db, dismiss_explainer="not_an_explainer")
+
+    @pytest.mark.asyncio
+    async def test_unknown_id_creates_no_settings_row(self, db):
+        # The allowlist check runs BEFORE the upsert, so a rejected PATCH must
+        # not leave a freshly-created row behind.
+        from applire.models.user_settings import UserSettings
+        from applire.routers.settings import update_settings
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from sqlalchemy import select
+
+        with pytest.raises(ValueError):
+            await update_settings(db, dismiss_explainer="not_an_explainer")
+
+        rows = await db.execute(
+            select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        )
+        assert rows.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_patch_with_only_dismiss_explainer_is_a_valid_request(self, db, client):
+        # COPY.md §F / D-3: the frontend writes the dismissal on its own, with
+        # no other field in the body.
+        resp = await client.patch(
+            "/api/settings", json={"dismiss_explainer": "fact_pins_intro"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["dismissed_explainers"] == ["fact_pins_intro"]
+
+        resp = await client.get("/api/settings")
+        assert resp.status_code == 200
+        assert resp.json()["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_hide_predownload_notice_round_trip_unchanged(self, db):
+        # ADR-040 §4: the pre-download notice keeps its own boolean; the new
+        # set neither reads nor writes it.
+        from applire.routers.settings import get_settings, update_settings
+
+        await update_settings(db, hide_predownload_notice=True)
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+
+        result = await get_settings(db)
+        assert result["hide_predownload_notice"] is True
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_dismissal_does_not_disturb_other_fields(self, db):
+        from applire.routers.settings import get_settings, update_settings
+
+        await update_settings(db, ui_language="de", target_cv_pages=3)
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+
+        result = await get_settings(db)
+        assert result["ui_language"] == "de"
+        assert result["target_cv_pages"] == 3
+        assert result["review_mode"] == "auto"
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    @pytest.mark.asyncio
+    async def test_legacy_row_with_null_column_reads_as_empty_list(self, db):
+        # A row written before migration 0061 carries no value for the column.
+        # The column is NOT NULL with server_default '[]' (the migration
+        # back-fills real rows), so a literal NULL can only exist as the
+        # transient in-Python state before that default is applied — the same
+        # situation review_mode guards against a few classes up. Forced via
+        # __dict__ so SQLAlchemy's autoflush does not try to persist a NULL.
+        from applire.models.user_settings import UserSettings
+        from applire.routers.settings import get_settings, update_settings
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from sqlalchemy import select
+
+        await update_settings(db, ui_language="de")
+        row = (
+            await db.execute(
+                select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+            )
+        ).scalar_one()
+        row.__dict__["dismissed_explainers"] = None
+
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == []
+
+    @pytest.mark.asyncio
+    async def test_dismissing_on_a_legacy_null_row_starts_a_fresh_list(self, db):
+        from applire.models.user_settings import UserSettings
+        from applire.routers.settings import get_settings, update_settings
+        from applire.services.color_detection import _CE_STUB_USER_ID
+        from sqlalchemy import select
+
+        await update_settings(db, ui_language="de")
+        row = (
+            await db.execute(
+                select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+            )
+        ).scalar_one()
+        row.__dict__["dismissed_explainers"] = None
+
+        await update_settings(db, dismiss_explainer="fact_pins_intro")
+        result = await get_settings(db)
+        assert result["dismissed_explainers"] == ["fact_pins_intro"]
+
+    def test_dismissed_explainers_not_exposed_on_mcp_tool_surface(self):
+        # COPY.md §F, ADR-081 clause 8 / SF-DOOR.4 precedent (review_mode):
+        # user settings govern presentation only and stay off the agent door —
+        # an ADR-054 BYOI agent has no first-use explainer to dismiss.
+        import asyncio
+        import json
+
+        from applire.mcp.server import mcp
+
+        tools = asyncio.run(mcp.list_tools())
+        surface = json.dumps(
+            [
+                {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+                for t in tools
+            ]
+        )
+        assert "dismissed_explainers" not in surface
+        assert "dismiss_explainer" not in surface
