@@ -177,6 +177,33 @@ def parse_release(value: str | None) -> tuple[int, int, int] | None:
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
+def current_environment(env_file: str = ".env") -> dict[str, str]:
+    """What this operator has actually set — `os.environ` PLUS the `.env` file.
+
+    `Settings` reads `.env` through pydantic-settings, which does **not** export
+    those values into `os.environ`. Asking `os.environ` alone would therefore
+    report every variable an operator set in their `.env` as *unset*, and the
+    version-jump notice would tell them to configure things they had configured
+    — the loudest possible way for this feature to be wrong.
+
+    `os.environ` wins where both carry a key, matching pydantic-settings'
+    precedence.
+    """
+    import os
+
+    merged: dict[str, str] = {}
+    try:
+        from dotenv import dotenv_values
+
+        for key, value in dotenv_values(env_file).items():
+            if value is not None:
+                merged[key] = value
+    except Exception:  # pragma: no cover - dotenv missing or unreadable file
+        pass
+    merged.update(os.environ)
+    return merged
+
+
 def compute_upgrade_notice(
     *,
     last_seen: str | None,

@@ -18,6 +18,15 @@
 # Development overrides — auto-applied by Docker Compose when present alongside docker-compose.yml.
 # Builds images from source, mounts code for hot-reload, and adds nginx at port 80.
 # Developers: cp .env.example .env  (fill in real API keys)
+#
+# THIS FILE IS THE DEV TOPOLOGY, and Compose applies it automatically whenever it
+# sits beside docker-compose.yml — i.e. in every source clone. It publishes the API
+# on :8001 without authentication and PostgreSQL on :5433 with the compose default
+# credentials, and runs the backend with hot reload. That is a debugging topology,
+# not an install. For a real install: `docker compose -f docker-compose.yml up -d`.
+# The backend therefore reports APPLIRE_TOPOLOGY=dev — a startup WARNING and
+# GET /health.topology — so "which topology am I running?" has an answer that does
+# not depend on remembering which files are on disk (ADR-087 cl. 9, JF-O-1.2).
 
 services:
   postgres:
@@ -30,6 +39,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8000"
+    environment:
+      APPLIRE_TOPOLOGY: dev
     volumes:
       - ./backend:/app:z
     command: uvicorn applire.main:app --host 0.0.0.0 --port 8000 --reload

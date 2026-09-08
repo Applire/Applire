@@ -27,6 +27,7 @@ from applire.models import (  # noqa: F401
     gap,
     gap_job,
     import_job,
+    instance_state,
     job,
     profile,
     session,

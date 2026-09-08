@@ -28,6 +28,22 @@
 #
 # The reverse proxy config is baked into the applire-nginx image (ADR-033), so there
 # is no nginx config to fetch or mount. To update: docker compose pull && up -d.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+#  NEVER run `docker compose down -v` on a real install.
+#
+#  `-v` deletes the named volumes below, and there is no undo: postgres_data is
+#  the vault (profile, applications, generated documents) and applire_uploads
+#  holds every uploaded CV and profile photo. `docker compose down` on its own
+#  is safe and keeps both. To update an install: `docker compose pull && up -d`.
+#  Back up first — docs/SELF-HOSTING.md, scripts/backup.sh.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Database credentials come from the environment with today's values as defaults,
+# so an existing install that changes nothing behaves exactly as before. Set
+# POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in .env on any host where the
+# database could be reachable — note that PostgreSQL reads them only when the data
+# volume is FIRST created (docs/SELF-HOSTING.md, Secrets).
 
 # Bounded container logs — without rotation the docker json-file driver grows
 # without limit and can fill the host disk (which takes PostgreSQL down with it).
@@ -43,9 +59,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      POSTGRES_USER: applire
-      POSTGRES_PASSWORD: applire
-      POSTGRES_DB: applire
+      POSTGRES_USER: ${POSTGRES_USER:-applire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-applire}
+      POSTGRES_DB: ${POSTGRES_DB:-applire}
     # No host port: the database is reachable only on the internal compose network.
     # The dev override publishes 5433 for local tooling.
     volumes:
@@ -56,7 +72,7 @@ services:
     # fast (probes every 2s during start_period) so `backend` isn't held back waiting
     # for postgres. Requires Docker Engine 25+ (start_interval).
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U applire"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-applire} -d ${POSTGRES_DB:-applire}"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -68,7 +84,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/${POSTGRES_DB:-applire}
     env_file:
       - path: .env
         required: false
@@ -141,7 +157,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/${POSTGRES_DB:-applire}
     env_file:
       - path: .env
         required: false
@@ -163,7 +179,7 @@ services:
     profiles: [mcp]
     logging: *default-logging
     environment:
-      DATABASE_URL: postgresql+asyncpg://applire:applire@postgres:5432/applire
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/${POSTGRES_DB:-applire}
     env_file:
       - path: .env
         required: false

@@ -266,6 +266,46 @@ async def update_settings(
     return response
 
 
+class UpgradeNoticeDismissResponse(BaseModel):
+    """What the instance now considers seen (US310, ADR-087 cl. 7)."""
+
+    last_seen_version: str
+    upgrade_notice: dict | None = None
+
+
+@router.post("/upgrade-notice/dismiss", response_model=UpgradeNoticeDismissResponse)
+async def api_dismiss_upgrade_notice(
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> UpgradeNoticeDismissResponse:
+    """Record the running version as seen and clear the version-jump notice.
+
+    This — not a restart — is what advances `instance_state.last_seen_version`
+    (ADR-087 cl. 7). `upgrade_notice_dismissed_for` is written alongside it so
+    `/health.upgrade_notice` goes null immediately, without waiting for the next
+    process start to recompute.
+
+    Instance-scoped, not user-scoped: the notice is about the installation, and
+    ADR-022 makes "the user" singular anyway. Deliberately not on the MCP
+    surface (ADR-054 / SF-DOOR.4): an agent has no instance to operate.
+    """
+    from applire._version import __version__
+    from applire.routers.health import set_upgrade_notice
+    from applire.services.instance_state import (
+        KEY_LAST_SEEN_VERSION,
+        KEY_UPGRADE_NOTICE_DISMISSED_FOR,
+        write_state,
+    )
+
+    await write_state(db, KEY_LAST_SEEN_VERSION, __version__)
+    await write_state(db, KEY_UPGRADE_NOTICE_DISMISSED_FOR, __version__)
+    await db.commit()
+    set_upgrade_notice(None)
+    return UpgradeNoticeDismissResponse(
+        last_seen_version=__version__, upgrade_notice=None
+    )
+
+
 @router.get("", response_model=SettingsResponse)
 async def api_get_settings(
     db: AsyncSession = Depends(get_db),
