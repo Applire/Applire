@@ -619,6 +619,31 @@ def configure_env(provider: str, model: str | None, timeout: int | None) -> None
         sys.path.insert(0, backend)
 
 
+def settings_snapshot() -> dict[str, Any]:
+    """The behaviour-changing settings this run used — never a key or a URL."""
+    from applire.config import settings
+
+    return {
+        name: getattr(settings, name, None)
+        for name in (
+            "llm_provider",
+            "mistral_model",
+            "openrouter_model",
+            "requesty_model",
+            "anthropic_model",
+            "openai_model",
+            "ollama_model",
+            "llm_timeout",
+            "llm_max_output_tokens",
+            "openrouter_disable_thinking",
+            "openrouter_reasoning_effort",
+            "requesty_disable_thinking",
+            "requesty_reasoning_effort",
+        )
+        if hasattr(settings, name)
+    }
+
+
 def install_log_readers() -> None:
     """Attach the log readers once — a second handler would double every count."""
     for name, level, propagate in (
@@ -819,6 +844,10 @@ def main(argv: list[str] | None = None) -> int:
         "shapes": shapes,
         "fixtures_version": fixtures.version,
         "wall_s": round(time.time() - started, 1),
+        # A published row is only reproducible if the knobs that change model
+        # behaviour are recorded with it. Never a key — only names and values
+        # that are already public settings.
+        "settings": settings_snapshot(),
     }
     cost = token_cost(summary["usage"], args.price_in, args.price_out) or {}
     credits_after = (
