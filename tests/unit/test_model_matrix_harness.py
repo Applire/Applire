@@ -307,12 +307,64 @@ def test_score_mode_reads_the_spike_record_format(tmp_path, capsys, fixtures):
     assert len(records[1]["metrics"]["wrong_slot"]) == 1
 
 
+def test_rejection_is_explained_by_field_and_error_type():
+    """"12 malformed ops" is not actionable; "ref missing" and "team_size not an
+    int" are different prompt problems with different fixes."""
+    missing_ref = mm.explain_rejection(
+        "upsert_work", "{'op': 'upsert_work', 'company': 'NovaRNA', 'role': 'Lead'}"
+    )
+    assert missing_ref["errors"] == ["upsert_work.ref:missing"]
+    assert missing_ref["keys"] == ["company", "op", "role"]
+
+    bad_type = mm.explain_rejection(
+        "upsert_work",
+        "{'op': 'upsert_work', 'ref': 'w1', 'company': 'X', 'role': 'Y', 'team_size': '38 people'}",
+    )
+    assert bad_type["errors"] == ["upsert_work.team_size:int_parsing"]
+
+    # An unparseable payload degrades, it never raises.
+    assert "explain_error" in mm.explain_rejection("upsert_work", "not a literal <object>")
+
+
+def test_log_reader_captures_the_engines_dropped_op_warning():
+    """`ReconcileResult.rejected_ops` carries only the op LABEL — the payload
+    survives nowhere but engine.py's #602 warning line."""
+    import logging
+
+    mm.install_log_readers()
+    sink: list[dict] = []
+    token = mm._reject_sink.set(sink)
+    try:
+        logging.getLogger("applire.services.profile.reconcile.engine").warning(
+            "reconcile: dropped malformed op (op=%s): %r",
+            "upsert_work",
+            {"op": "upsert_work", "company": "NovaRNA", "role": "Lead"},
+        )
+    finally:
+        mm._reject_sink.reset(token)
+    assert len(sink) == 1
+    assert sink[0]["errors"] == ["upsert_work.ref:missing"]
+
+    records = [
+        {
+            "shape": "S6_incident_shape_all_present",
+            "run": 1,
+            "elapsed_s": 1.0,
+            "metrics": _record("S6_incident_shape_all_present", 1, malformed_ops=1)["metrics"],
+            "rejected_detail": sink,
+            "usage": {"calls": 1},
+        }
+    ]
+    summary = mm.summarise(records, ["S6_incident_shape_all_present"])
+    assert summary["rejection_reasons"] == {"upsert_work.ref:missing": 1}
+
+
 def test_usage_handler_reads_the_providers_own_token_line():
     """The counts come from the provider's `response.usage` INFO line — the
     harness adds no seam in ``providers/llm/`` (WP-O1's territory this flavour)."""
     import logging
 
-    mm.install_usage_handler()
+    mm.install_log_readers()
     sink: list[dict] = []
     token = mm._usage_sink.set(sink)
     try:

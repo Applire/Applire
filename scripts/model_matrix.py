@@ -87,12 +87,20 @@ _USAGE_RE = re.compile(
     r"LLM response \[(?P<method>\w+)\] model=(?P<model>\S+) latency=(?P<latency>[\d.]+)s "
     r"prompt_tokens=(?P<prompt>\S+) completion_tokens=(?P<completion>\S+)"
 )
+# engine.py's #602 WARNING — the only place the REJECTED op's payload survives.
+# `ReconcileResult.rejected_ops` carries the op's label and nothing else, so
+# without this the matrix could say "12 malformed ops" and never say which field
+# the model drifted off — which is the whole input to the step-3 prompt review.
+_REJECT_RE = re.compile(r"reconcile: dropped malformed op \(op=(?P<label>[^)]*)\): (?P<payload>.*)")
 
-# Per-task sink so a concurrent run still attributes its own token usage.
+# Per-task sinks so a concurrent run still attributes its own records.
 # ContextVars propagate into the asyncio task that copies the context, and the
 # provider's `logger.info` runs inside that same task.
 _usage_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
     "model_matrix_usage_sink", default=None
+)
+_reject_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "model_matrix_reject_sink", default=None
 )
 
 
@@ -187,12 +195,13 @@ def canonical_prompt(text: str) -> str:
 # --------------------------------------------------------------------------- #
 # Measurement
 # --------------------------------------------------------------------------- #
-class _UsageHandler(logging.Handler):
-    """Read the provider's own usage fields off its INFO response line.
+class _LogReader(logging.Handler):
+    """Read what the run already logs, instead of adding seams to read it.
 
-    ``providers/llm/`` is WP-O1's file territory this flavour, so the harness does
-    not add a usage seam of its own: it reads the counts the OpenRouter/Requesty
-    providers already log from ``response.usage``.
+    Two lines matter and both exist in production code: the provider's own usage
+    line (``response.usage``) and the engine's #602 warning naming a dropped op.
+    ``providers/llm/`` is WP-O1's file territory this flavour and the engine is
+    WP-V's, so the harness touches neither.
     """
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -200,21 +209,56 @@ class _UsageHandler(logging.Handler):
             message = record.getMessage()
         except Exception:  # noqa: BLE001 — instrumentation must never break a run
             return
-        match = _USAGE_RE.search(message)
-        if not match:
+        usage = _USAGE_RE.search(message)
+        if usage:
+            sink = _usage_sink.get()
+            if sink is not None:
+                sink.append(
+                    {
+                        "method": usage.group("method"),
+                        "model": usage.group("model"),
+                        "latency_s": _num(usage.group("latency")),
+                        "prompt_tokens": _num(usage.group("prompt")),
+                        "completion_tokens": _num(usage.group("completion")),
+                    }
+                )
             return
-        sink = _usage_sink.get()
-        if sink is None:
-            return
-        sink.append(
-            {
-                "method": match.group("method"),
-                "model": match.group("model"),
-                "latency_s": _num(match.group("latency")),
-                "prompt_tokens": _num(match.group("prompt")),
-                "completion_tokens": _num(match.group("completion")),
-            }
-        )
+        reject = _REJECT_RE.search(message)
+        if reject:
+            sink = _reject_sink.get()
+            if sink is not None:
+                sink.append(explain_rejection(reject.group("label"), reject.group("payload")))
+
+
+def explain_rejection(label: str, payload: str) -> dict[str, Any]:
+    """Name WHY the op schema rejected this op, from the logged payload.
+
+    The engine logs the raw item with ``%r``, so the payload is a Python literal.
+    Re-validating it through the same ``ReconcileOp`` adapter the engine used gives
+    the exact ``loc`` + error type per field — "``ref`` missing" and "``team_size``
+    is not an int" are different prompt problems with different fixes, and the
+    rejected-op label alone cannot tell them apart.
+    """
+    detail: dict[str, Any] = {"label": label, "payload": payload[:2000]}
+    try:
+        import ast
+
+        from pydantic import TypeAdapter, ValidationError
+
+        from applire.services.profile.reconcile.ops import ReconcileOp
+
+        item = ast.literal_eval(payload)
+        detail["keys"] = sorted(item) if isinstance(item, dict) else None
+        try:
+            TypeAdapter(ReconcileOp).validate_python(item)
+            detail["errors"] = []  # re-validated clean: the schema moved since the run
+        except ValidationError as exc:
+            detail["errors"] = sorted(
+                {f"{'.'.join(str(p) for p in e['loc'])}:{e['type']}" for e in exc.errors()}
+            )
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never fail a run
+        detail["explain_error"] = f"{type(exc).__name__}: {exc}"
+    return detail
 
 
 def _num(raw: str) -> int | float | None:
@@ -337,7 +381,9 @@ async def run_one(
 
     async with semaphore:
         usage: list[dict[str, Any]] = []
+        rejected_detail: list[dict[str, Any]] = []
         _usage_sink.set(usage)
+        _reject_sink.set(rejected_detail)
         started = time.time()
         record: dict[str, Any] = {"shape": shape, "run": index}
         try:
@@ -352,6 +398,7 @@ async def run_one(
             ops = [dump_op(op) for op in result.ops]
             record["ops"] = ops
             record["rejected_ops"] = list(result.rejected_ops or [])
+            record["rejected_detail"] = rejected_detail
             record["denials"] = list(result.denials or [])
             record["ambiguities"] = len(result.ambiguities or [])
             applied = None
@@ -419,6 +466,18 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
             "latency_p50_s": latencies[len(latencies) // 2] if latencies else None,
         }
 
+    # WHY the schema rejected what it rejected — the step-3 prompt review reads
+    # this, not the op labels.
+    reasons: dict[str, int] = {}
+    for record in records:
+        for detail in record.get("rejected_detail") or []:
+            for reason in detail.get("errors") or ["<unexplained>"]:
+                # A pydantic loc already names the op tag ("upsert_work.ref");
+                # only a loc-less error (a payload with no recognisable `op`)
+                # needs the logged label to identify it.
+                key = reason if reason.split(":")[0] else f"{detail.get('label')}{reason}"
+                reasons[key] = reasons.get(key, 0) + 1
+
     usage = {
         "calls": sum(r.get("usage", {}).get("calls", 0) for r in records),
         "prompt_tokens": sum(r.get("usage", {}).get("prompt_tokens", 0) for r in records),
@@ -426,7 +485,12 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
             r.get("usage", {}).get("completion_tokens", 0) for r in records
         ),
     }
-    return {"per_shape": per_shape, "usage": usage, "verdict": verdict(per_shape)}
+    return {
+        "per_shape": per_shape,
+        "usage": usage,
+        "rejection_reasons": dict(sorted(reasons.items(), key=lambda kv: -kv[1])),
+        "verdict": verdict(per_shape),
+    }
 
 
 def verdict(per_shape: dict[str, Any]) -> dict[str, Any]:
@@ -479,6 +543,10 @@ def print_summary(summary: dict[str, Any], header: str) -> None:
         f"prompt tokens: {usage['prompt_tokens']}  "
         f"completion tokens: {usage['completion_tokens']}"
     )
+    if summary.get("rejection_reasons"):
+        print("\nwhy the schema rejected an op (field:error x turns):")
+        for reason, count in summary["rejection_reasons"].items():
+            print(f"  {count:>3}x  {reason}")
     if summary.get("cost"):
         cost = summary["cost"]
         for key, value in cost.items():
@@ -551,13 +619,20 @@ def configure_env(provider: str, model: str | None, timeout: int | None) -> None
         sys.path.insert(0, backend)
 
 
-def install_usage_handler() -> None:
-    """Attach the usage reader once — a second handler would double every count."""
-    logger = logging.getLogger("applire.providers.llm")
-    if not any(isinstance(h, _UsageHandler) for h in logger.handlers):
-        logger.addHandler(_UsageHandler())
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
+def install_log_readers() -> None:
+    """Attach the log readers once — a second handler would double every count."""
+    for name, level, propagate in (
+        # INFO on every call — swallowed, or it drowns the per-run progress lines.
+        ("applire.providers.llm", logging.INFO, False),
+        # The dropped-op WARNING stays visible: an operator watching a live run
+        # should see it, and it is the finding, not noise.
+        ("applire.services.profile.reconcile.engine", logging.WARNING, True),
+    ):
+        logger = logging.getLogger(name)
+        if not any(isinstance(h, _LogReader) for h in logger.handlers):
+            logger.addHandler(_LogReader())
+        logger.setLevel(level)
+        logger.propagate = propagate
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -666,6 +741,7 @@ def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], li
                     raw.get("rejected_ops") or [],
                     None,
                 )
+                record["rejected_detail"] = raw.get("rejected_detail") or []
                 if raw.get("apply_error"):
                     record["apply_error"] = raw["apply_error"]
             records.append(record)
@@ -725,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
         return 0
 
-    install_usage_handler()
+    install_log_readers()
     credits_before = (
         None
         if args.no_credits_probe or args.provider != "openrouter"
