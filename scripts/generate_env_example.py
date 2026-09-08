@@ -88,6 +88,10 @@ _SECTION_BLURB = {
 }
 
 
+#: The first public release. Anything introduced in it is "always been there",
+#: so the generated file does not repeat it 50 times.
+BASELINE_RELEASE = "0.31.0"
+
 #: Comment width, "# " included. Long prose wraps; a description that already
 #: carries its own line breaks keeps them (those were laid out by hand).
 _WIDTH = 88
@@ -123,6 +127,14 @@ def render_entry(entry: SettingEntry) -> list[str]:
     ):
         shown_default = entry.default or "(empty)"
         lines.append(f"# code default: {shown_default}")
+    # Provenance, so an operator comparing their .env against a newer template can
+    # see at a glance what is new to them and what has changed under them. BASELINE
+    # is the first public release, and printing "since 0.31.0" on two thirds of the
+    # file would be noise, so only later arrivals say so.
+    if entry.introduced_in != BASELINE_RELEASE:
+        lines.append(f"# since: {entry.introduced_in}")
+    if entry.semantics_changed_in:
+        lines.append(f"# meaning changed in: {entry.semantics_changed_in}")
     prefix = "#" if entry.commented else ""
     lines.append(f"{prefix}{entry.env_var}={entry.shown_value}")
     return lines

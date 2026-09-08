@@ -290,6 +290,8 @@ So aktualisierst du auf die neueste Version:
 docker compose pull && docker compose up -d
 ```
 
+> **Niemals `docker compose down -v`.** Das `-v`-Flag löscht die benannten Volumes — `postgres_data` (der Vault) und `applire_uploads` (jeder hochgeladene Lebenslauf und jedes Profilfoto) — und das lässt sich nicht rückgängig machen. `docker compose down` allein ist sicher und behält beide. Zum Aktualisieren genügt `pull` und `up -d` wie oben; du musst den Stack dafür nie herunterfahren. Sichere deine Daten vor jedem Upgrade: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
 > **Du aktualisierst von einer Version älter als `v0.37.0-beta`?** Gehe zuerst über
 > `v0.37.2-beta`. Profile, die vor der Reconciliation-Engine (E035) importiert wurden,
 > können flache Doppel-Arbeitgeber und verwaiste Projekte enthalten; der einmalige Lauf
@@ -322,13 +324,34 @@ docker compose -f docker-compose.yml up -d
 
 > **Mitwirken?** Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für das Entwickler-Setup mit Build aus dem Quellcode.
 
+### 💾 Datensicherung
+
+Zwei benannte Volumes enthalten alles: `postgres_data` (der Vault — Profil, Bewerbungen, generierte Dokumente) und `applire_uploads` (hochgeladene Lebensläufe und Profilfotos). Eine Sicherung, die nur eines der beiden abdeckt, ist keine Sicherung.
+
+```bash
+# Datenbank und Uploads-Volume nach ./backups sichern
+scripts/backup.sh
+
+# Ein Archiv prüfen, ohne es wiederherzustellen
+scripts/backup.sh --verify backups/applire-backup-<timestamp>.tar.gz
+
+# In einen frischen Stack wiederherstellen
+scripts/restore.sh backups/applire-backup-<timestamp>.tar.gz
+```
+
+Aus den Release-Assets installiert, ohne zu klonen? Die Skripte liegen im Repository, nicht im Release-Archiv — hole sie dir oder klone das Repo, bevor du sie brauchst; siehe das Runbook unten.
+
+Vollständiges Runbook — Datensicherung, Wiederherstellung, Secrets, TLS, Speicherplatz, Fehlerbehebung: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
+Eine Sicherung, die du noch nie wiederhergestellt hast, ist eine Hoffnung, keine Sicherung — stelle sie einmal bewusst wieder her, bevor du sie brauchst.
+
 ---
 
 ## ⚙️ Konfiguration
 
 ### Umgebungsvariablen
 
-Applire ist **Bring Your Own Key**: Wähle einen unterstützten Anbieter und stelle dessen Schlüssel bereit — deine Daten gehen nur zum Anbieter deiner Wahl. Kopiere `.env.example` nach `.env` und konfiguriere:
+Applire ist **Bring Your Own Key**: Wähle einen unterstützten Anbieter und stelle dessen Schlüssel bereit — deine Daten gehen nur zum Anbieter deiner Wahl. Die maßgebliche Liste jeder Einstellung, die Applire liest, mit ihrem Standardwert und dem Release, in dem sie erstmals auftauchte, wird direkt aus dem Code in [`.env.example`](.env.example) erzeugt; der folgende Block ist ein kürzerer Auszug der Einstellungen, die die meisten Installationen betreffen. Kopiere `.env.example` nach `.env` und konfiguriere:
 
 ```env
 # Datenbank
@@ -378,8 +401,9 @@ AUTH_PROVIDER=none
 # Standard "*" (alle erlauben) ist für Einzelnutzer-Self-Hosting mit AUTH_PROVIDER=none in Ordnung
 #CORS_ORIGINS=*
 
-# nginx-Proxy-Timeout — muss größer als LLM_TIMEOUT sein
-#NGINX_PROXY_TIMEOUT=300
+# Der Lese-Timeout des Reverse-Proxys beträgt 300 s und ist fest im
+# applire-nginx-Image eingebacken. Halte LLM_TIMEOUT darunter, oder binde eine
+# eigene nginx-Konfiguration ein, um ihn zu erhöhen.
 
 # Frontend-API-URL
 # docker compose: leer lassen — nginx auf :80 leitet /api/* an das Backend

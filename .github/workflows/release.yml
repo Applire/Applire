@@ -117,9 +117,33 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # ADR-032 amended 2026-09-08 (founder ruling F13 / JF-O-1.3): the `:latest` tag
+  # may not move on a release whose install assets are missing. v0.41.1-beta was
+  # published without them; the compose guard fired, but only AFTER the merge jobs
+  # had already moved `:latest`, so the documented install 404ed for everyone in
+  # the meantime. `releases/latest` and Docker's `:latest` move on the same publish
+  # by the same `prerelease == false` predicate, so at the moment the `released`
+  # event fires the assets either exist or the install is already broken — the
+  # check belongs UPSTREAM of the tag. It runs in parallel with the (long) image
+  # builds and only gates the three jobs that publish tags.
+  #
+  # `advisory` is true for every event that does NOT move `:latest` (a pre-release
+  # publish, a manual dispatch): there `releases/latest` describes some earlier
+  # release, and blocking this build on that release's assets would punish the
+  # wrong thing. The job still runs and still reports, so it never becomes a
+  # skipped dependency that silently un-gates the merge jobs.
+  assets-gate:
+    name: Install assets present (gates :latest)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/compose-guard.yml
+    with:
+      assets_only: true
+      advisory: ${{ !(github.event_name == 'release' && github.event.release.prerelease == false) }}
+
   merge-backend:
     name: Merge backend manifest
-    needs: build-backend
+    needs: [build-backend, assets-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -252,7 +276,7 @@ jobs:
 
   merge-frontend:
     name: Merge frontend manifest
-    needs: build-frontend
+    needs: [build-frontend, assets-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -316,6 +340,7 @@ jobs:
   # :latest nor :{{major}}.{{minor}}.
   build-nginx:
     name: Build nginx (multi-arch)
+    needs: assets-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read

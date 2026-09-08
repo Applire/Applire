@@ -722,14 +722,15 @@ _register_all(
             section="Operations",
             introduced_in="0.42.0",
             description=(
-                "Which compose topology this instance is running: 'production'\n"
-                "(docker-compose.yml alone — nginx on :80 is the only published port) or\n"
-                "'dev' (docker-compose.override.yml is also applied — builds from source,\n"
-                "hot-reload backend, and 3000/8001/5433 published).\n"
-                "Do NOT set this by hand. The override file sets it; leaving it unset is\n"
-                "what makes 'production' true. A 'dev' value logs a WARNING at startup and\n"
-                "appears at GET /health — running a clone with a plain `docker compose up`\n"
-                "silently applies the override, which is a debugging topology."
+                "Which compose topology this instance runs — set by the compose files, "
+                "never by hand.\n"
+                "'production' (docker-compose.yml alone — nginx on :80 is the only "
+                "published port) or 'dev' (docker-compose.override.yml is also applied — "
+                "builds from source, hot-reload backend, and 3000/8001/5433 published).\n"
+                "The override file sets it; leaving it unset is what makes 'production' "
+                "true. A 'dev' value logs a WARNING at startup and appears at GET /health "
+                "— running a clone with a plain `docker compose up` silently applies the "
+                "override, which is a debugging topology."
             ),
         ),
     ]

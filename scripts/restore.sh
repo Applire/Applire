@@ -132,10 +132,12 @@ UPLOADS_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app
 [ -n "$UPLOADS_VOLUME" ] || fail "could not find the uploads volume on the backend container"
 log "  uploads volume: $UPLOADS_VOLUME"
 
-docker run --rm \
+# Extract from STDIN as root: the files in the uploads volume are owned by the
+# backend container's root user, and a bind mount for reading the archive would
+# need an SELinux relabel on some hosts. Piping needs neither.
+docker run --rm -i --user 0:0 \
   -v "$UPLOADS_VOLUME":/dst \
-  -v "$TMP":/src:ro \
-  --entrypoint sh "$PG_IMAGE" -c 'cd /dst && tar -xf /src/uploads.tar'
+  --entrypoint sh "$PG_IMAGE" -c 'cd /dst && tar -xf -' < "$TMP/uploads.tar"
 log "  uploads restored"
 
 log ""

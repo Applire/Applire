@@ -96,8 +96,12 @@ verify_archive() {
   tar -xzf "$archive" -C "$tmp" db.dump manifest.txt 2>/dev/null \
     || tar -xzf "$archive" -C "$tmp" db.dump
 
-  if ! docker run --rm -v "$tmp":/v:ro "$PG_IMAGE" \
-        pg_restore --list /v/db.dump > "$tmp/listing.txt" 2>"$tmp/listing.err"; then
+  # The dump is piped IN on stdin rather than bind-mounted: a bind mount of a host
+  # directory into this image is denied outright on an SELinux host unless it is
+  # relabelled, and a verify step must not be the thing that needs `:z` to work.
+  if ! docker run --rm -i --entrypoint sh "$PG_IMAGE" \
+        -c 'cat > /tmp/verify.dump && pg_restore --list /tmp/verify.dump' \
+        < "$tmp/db.dump" > "$tmp/listing.txt" 2>"$tmp/listing.err"; then
     sed 's/^/    /' "$tmp/listing.err" >&2 || true
     fail "pg_restore --list could not read db.dump — the dump is unusable"
   fi
@@ -157,12 +161,16 @@ docker compose exec -T postgres \
   > "$TMP/db.dump"
 [ -s "$TMP/db.dump" ] || fail "pg_dump produced an empty file"
 
+# tar writes to STDOUT and the host redirects it. A bind mount for writing would
+# fail whenever the container's user id does not own the host directory (it does
+# not: the image runs as `postgres`), and under SELinux it would need a relabel.
+# Reading the volume needs no such thing, and the archive lands with the invoking
+# user's ownership, which is what an operator's backup should have.
 log "  archiving the uploads volume ..."
 docker run --rm \
   -v "$UPLOADS_VOLUME":/src:ro \
-  -v "$TMP":/out \
-  --entrypoint sh "$PG_IMAGE" -c 'cd /src && tar -cf /out/uploads.tar .'
-[ -f "$TMP/uploads.tar" ] || fail "the uploads archive was not produced"
+  --entrypoint sh "$PG_IMAGE" -c 'cd /src && tar -cf - .' > "$TMP/uploads.tar"
+[ -s "$TMP/uploads.tar" ] || fail "the uploads archive was empty or not produced"
 
 APP_VERSION="$(docker compose exec -T backend python -c 'from applire._version import __version__; print(__version__)' 2>/dev/null | tr -d '\r' || echo unknown)"
 {

@@ -276,6 +276,8 @@ To update to the latest release:
 docker compose pull && docker compose up -d
 ```
 
+> **Never `docker compose down -v`.** The `-v` flag deletes the named volumes — `postgres_data` (the vault) and `applire_uploads` (every uploaded CV and profile photo) — and there is no undo. `docker compose down` on its own is safe and keeps both. To update, `pull` and `up -d` as above; you never need to take the stack down first. Back up before you upgrade: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
 > **Updating from a release older than `v0.37.0-beta`?** Step through
 > `v0.37.2-beta` first. Profiles imported before the reconciliation engine
 > (E035) can hold flat duplicate employers and orphaned projects, and the
@@ -308,13 +310,34 @@ docker compose -f docker-compose.yml up -d
 
 > **Contributing?** See [CONTRIBUTING.md](CONTRIBUTING.md) for the build-from-source developer setup.
 
+### 💾 Back up
+
+Two named volumes hold everything: `postgres_data` (the vault — profile, applications, generated documents) and `applire_uploads` (uploaded CVs and profile photos). A backup that covers only one of them is not a backup.
+
+```bash
+# Back up the database and the uploads volume into ./backups
+scripts/backup.sh
+
+# Check an archive without restoring it
+scripts/backup.sh --verify backups/applire-backup-<timestamp>.tar.gz
+
+# Restore into a fresh stack
+scripts/restore.sh backups/applire-backup-<timestamp>.tar.gz
+```
+
+Installed from the release assets without cloning? The scripts live in the repository, not in the release archive — fetch or clone it before you need them; see the runbook below.
+
+Full runbook — backup, restore, secrets, TLS, disk, troubleshooting: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
+A backup you have never restored is a hope, not a backup — restore it once, on purpose, before you need to.
+
 ---
 
 ## ⚙️ Configuration
 
 ### Environment Variables
 
-Applire is **bring-your-own-key**: pick any supported provider and supply its key — your data goes only to the provider you choose. Copy `.env.example` to `.env` and configure:
+Applire is **bring-your-own-key**: pick any supported provider and supply its key — your data goes only to the provider you choose. The authoritative list of every setting Applire reads, complete with its default and the release it first appeared in, is generated straight from the code into [`.env.example`](.env.example); the block below is a shorter excerpt of the ones most installs touch. Copy `.env.example` to `.env` and configure:
 
 ```env
 # Database
@@ -364,8 +387,8 @@ AUTH_PROVIDER=none
 # Default "*" (allow all) is fine for single-user self-hosting with AUTH_PROVIDER=none
 #CORS_ORIGINS=*
 
-# nginx proxy timeout — must be greater than LLM_TIMEOUT
-#NGINX_PROXY_TIMEOUT=300
+# The reverse proxy's read timeout is 300s, baked into the applire-nginx image.
+# Keep LLM_TIMEOUT below it, or bind-mount your own nginx config to raise it.
 
 # Frontend API URL
 # docker compose: leave empty — nginx at :80 routes /api/* to the backend
