@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     ocr_backend: str = "mistral_vision"
     cors_origins: str = "*"
     log_level: str = "INFO"  # DEBUG | INFO | WARNING | ERROR — applied to all applire.* loggers
+    # Which compose topology this instance runs (ADR-087 cl. 9, JF-O-1.2).
+    # "production" is the code default and therefore true of docker-compose.yml
+    # alone; docker-compose.override.yml — which Compose auto-applies whenever
+    # it sits beside the compose file, i.e. in every source clone — sets "dev".
+    # A "dev" value logs a startup WARNING and is reported at GET /health, because
+    # the dev topology publishes :8001 (unauthenticated API) and :5433 (Postgres
+    # with the default credentials) and today said so nowhere. Never set by hand.
+    applire_topology: str = "production"
     # Interview question-count budget (issue #259 / PO: "if the ceiling is a
     # bottleneck, it's artificial"). This is now a COST GUARD, not the primary
     # termination driver: the interview ends on sufficiency (every JD-critical
