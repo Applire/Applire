@@ -268,6 +268,45 @@ def test_end_to_end_against_the_mock_provider(tmp_path, capsys):
     assert "VERDICT:" in capsys.readouterr().out
 
 
+def test_score_mode_reads_the_spike_record_format(tmp_path, capsys, fixtures):
+    """`--score` must accept a raw spike record (ops + rejected_ops, no metrics),
+    because the published table's baseline rows are re-derived from those files."""
+    shape = "S7_incident_shape_current_only"
+    path = tmp_path / "spike.jsonl"
+    path.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {"shape": shape, "run": 1, "ops": [], "rejected_ops": ["upsert_work"], "elapsed_s": 1.3},
+                {
+                    "shape": shape,
+                    "run": 2,
+                    "elapsed_s": 1.1,
+                    "ops": [
+                        {
+                            "op": "add_bullets",
+                            "target": "w-nova",
+                            "achievements": ["blood bags at the blood donation service"],
+                        }
+                    ],
+                    "rejected_ops": [],
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert mm.main(["--score", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "re-scored" in out
+    records, shapes = mm.score_file(fixtures, path)
+    assert shapes == [shape]
+    assert records[0]["metrics"]["zero_op"] is True
+    assert records[0]["metrics"]["malformed_ops"] == 1
+    # The second turn parks two other employers' facts on the current station.
+    assert len(records[1]["metrics"]["wrong_slot"]) == 1
+
+
 def test_usage_handler_reads_the_providers_own_token_line():
     """The counts come from the provider's `response.usage` INFO line — the
     harness adds no seam in ``providers/llm/`` (WP-O1's territory this flavour)."""

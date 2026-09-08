@@ -588,6 +588,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="print prompt sizes per shape and exit — no provider call",
     )
+    parser.add_argument(
+        "--score",
+        default=None,
+        metavar="JSONL",
+        help=(
+            "re-score an existing record file instead of running a model — this "
+            "harness's own --out, or the 2026-09-06 spike's runs*.jsonl"
+        ),
+    )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
     return parser.parse_args(argv)
 
@@ -617,6 +626,50 @@ def do_dry_run(fixtures: Fixtures, shapes: list[str]) -> int:
             f"{len(system):>9}{len(user):>9}{total:>9}{total // 4:>9}"
         )
     return 0
+
+
+def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Re-score records that already exist — no provider, no credit.
+
+    Accepts this harness's own ``--out`` file and, deliberately, the raw record
+    format of the spike this harness generalises: those runs are the baseline the
+    published table's first two rows rest on, and re-deriving them here is what
+    proves the classifier agrees with the numbers already reported in #688.
+    """
+    records: list[dict[str, Any]] = []
+    shapes: list[str] = []
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            raw = json.loads(line)
+            shape = raw.get("shape")
+            if shape not in fixtures.shapes:
+                raise SystemExit(f"{path}: unknown shape {shape!r}")
+            if shape not in shapes:
+                shapes.append(shape)
+            record = {
+                "shape": shape,
+                "run": raw.get("run"),
+                "elapsed_s": raw.get("elapsed_s") or 0.0,
+                "usage": raw.get("usage")
+                or {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0},
+            }
+            if raw.get("error"):
+                record["error"] = raw["error"]
+            else:
+                record["metrics"] = raw.get("metrics") or classify(
+                    fixtures,
+                    shape,
+                    raw.get("ops") or [],
+                    raw.get("rejected_ops") or [],
+                    None,
+                )
+                if raw.get("apply_error"):
+                    record["apply_error"] = raw["apply_error"]
+            records.append(record)
+    return records, sorted(shapes)
 
 
 async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> dict[str, Any]:
@@ -664,6 +717,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         return do_dry_run(fixtures, shapes)
+
+    if args.score:
+        records, scored_shapes = score_file(fixtures, Path(args.score))
+        summary = summarise(records, scored_shapes)
+        summary["meta"] = {"scored_from": args.score, "turns": len(records)}
+        print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
+        return 0
 
     install_usage_handler()
     credits_before = (
