@@ -43,6 +43,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     _coerce_partial_date,
+    render_localized_confirmation,
 )
 
 
@@ -324,11 +325,70 @@ class FlagConflict(BaseModel):
     incoming: Any = None
 
 
+# ADR-063 amended 2026-09-05, BUILT 2026-09-08 (#669) — the stable option
+# vocabulary. A confirmation's OPTIONS are the IDENTITY the candidate's answer
+# is matched on, so the identity may not be a rendered English string.
+#
+# Extended per ask family; every value that ever reaches
+# ``session._skill_confirmation_decision`` must be a member.
+OPTION_KEYS = ("distinct", "merge", "keep")
+
+#: Keys the localized-payload fields occupy. Stripped from raw model output at
+#: ``engine._parse_ops`` — see ``RequestConfirmation``'s docstring.
+ADAPTER_ONLY_CONFIRMATION_FIELDS = (
+    "question_i18n",
+    "options_i18n",
+    "option_keys",
+)
+
+
 class RequestConfirmation(BaseModel):
+    """A targeted question the reconciler asks instead of guessing (US185).
+
+    **Two emitters, and only one of them may fill the localized half.** The
+    model emits this op (prompt rule 6) with a plain ``question`` and plain
+    ``options`` in the session's language — that is its whole vocabulary. The
+    nine DETERMINISTIC builders (``apply.py`` x8, ``attribution.py`` x1) fill
+    ``question_i18n`` / ``options_i18n`` / ``option_keys`` instead, and those
+    three fields are **stripped from raw model output before validation**
+    (``engine._parse_ops``), so a hallucinated ``option_keys`` cannot exist.
+
+    That is ADR-063's own governing rule — *never widen an op the model can emit
+    with a more powerful parameter* — applied to the 2026-09-05 amendment. The
+    amendment's sketch said ``question``/``options`` "become {de, en} payloads";
+    written that way the model would be filling a locale payload it cannot be
+    held to, and ``option_keys`` (the identity a vault WRITE resolves on) would
+    be model-supplied. The three decided clauses are unchanged: stable keys, a
+    language-independent persisted form, door parity.
+
+    ``options`` and ``options_i18n``/``option_keys`` are positionally paired
+    when the localized half is present: index *i* of each names the same choice.
+    """
+
     op: Literal["request_confirmation"] = "request_confirmation"
     question: str
     options: list[str] = Field(default_factory=list)
     context: dict = Field(default_factory=dict)
+    #: ``{"de": …, "en": …}`` — the language-independent question. Adapter-only.
+    question_i18n: dict[str, str] | None = None
+    #: One ``{"de": …, "en": …}`` per entry of ``options``. Adapter-only.
+    options_i18n: list[dict[str, str]] | None = None
+    #: One stable key per entry of ``options`` (``OPTION_KEYS``). Adapter-only.
+    #: Empty means "resolve by the pre-#669 English substring matcher", which is
+    #: exactly the back-compat path a model-emitted confirmation takes.
+    option_keys: list[str] = Field(default_factory=list)
+
+    def rendered(self, lang: str) -> tuple[str, list[str]]:
+        """This reader's view of the ask — see
+        :func:`applire.schemas.profile.render_localized_confirmation`, which is
+        the one implementation all three carriers of this form delegate to."""
+        return render_localized_confirmation(
+            question=self.question,
+            options=list(self.options),
+            question_i18n=self.question_i18n,
+            options_i18n=self.options_i18n,
+            lang=lang,
+        )
 
 
 class ReplaceSection(BaseModel):

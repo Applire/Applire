@@ -67,6 +67,11 @@ from applire.services.profile.reconcile.dedupe import (
     classify_education_dupe,
     classify_engagement_dupe,
 )
+from applire.services.profile.reconcile.confirmations import (
+    entity_dupe_confirmation,
+    skill_containment_confirmation,
+    skill_overlap_confirmation,
+)
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     AddRole,
@@ -1752,12 +1757,10 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
             # the incoming label must degrade to the employer alone rather than
             # rendering "' at Acme'".
             incoming_label = f"{op.role} at {op.company}" if op.role else op.company
-            pending.append(RequestConfirmation(
-                question=(
-                    f"'{incoming_label}' looks close to an existing "
-                    f"position ({'; '.join(related)}). Is it the same position?"
-                ),
-                options=["Same position — merge them", "Different — keep both"],
+            pending.append(entity_dupe_confirmation(
+                section="work_experience",
+                incoming_label=incoming_label,
+                existing_labels=related,
                 context={"section": "work_experience",
                          "incoming": op.model_dump(exclude={"op"}), "existing": related},
             ))
@@ -1881,12 +1884,10 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
             target = verdict.match
         elif verdict.ambiguous:
             related = [f"{p.role} at {p.name}" for p in verdict.ambiguous]
-            pending.append(RequestConfirmation(
-                question=(
-                    f"'{op.role} at {op.name}' looks close to an existing "
-                    f"project ({'; '.join(related)}). Is it the same project?"
-                ),
-                options=["Same project — merge them", "Different — keep both"],
+            pending.append(entity_dupe_confirmation(
+                section="projects",
+                incoming_label=f"{op.role} at {op.name}" if op.role else op.name,
+                existing_labels=related,
                 context={"section": "projects",
                          "incoming": op.model_dump(exclude={"op"}), "existing": related},
             ))
@@ -1944,12 +1945,10 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
             target = verdict.match
         elif verdict.ambiguous:
             related = [f"{v.role} at {v.organization}" for v in verdict.ambiguous]
-            pending.append(RequestConfirmation(
-                question=(
-                    f"'{op.role} at {op.organization}' looks close to an existing "
-                    f"volunteer activity ({'; '.join(related)}). Is it the same activity?"
-                ),
-                options=["Same activity — merge them", "Different — keep both"],
+            pending.append(entity_dupe_confirmation(
+                section="volunteer_activities",
+                incoming_label=f"{op.role} at {op.organization}",
+                existing_labels=related,
                 context={"section": "volunteer_activities",
                          "incoming": op.model_dump(exclude={"op"}), "existing": related},
             ))
@@ -2154,12 +2153,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         names = [s.name for s in near]
         joined = ", ".join(names)
         pending.append(
-            RequestConfirmation(
-                question=(
-                    f"'{op.name}' overlaps several skills already on your profile "
-                    f"({joined}). Should it replace them or be kept as a separate skill?"
-                ),
-                options=[f"Merge into '{op.name}'", "Keep the existing skills"],
+            skill_overlap_confirmation(
+                incoming_skill=op.name,
+                overlapping=names,
                 context={"incoming_skill": op.name, "overlapping_skills": names},
             )
         )
@@ -2179,16 +2175,9 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             related = [s.name for s in containment]
             joined = ", ".join(related)
             pending.append(
-                RequestConfirmation(
-                    question=(
-                        f"'{op.name}' shares a word with skills already on your "
-                        f"profile ({joined}) but may be a distinct skill. Add it "
-                        f"separately, or merge it into an existing one?"
-                    ),
-                    options=[
-                        f"Add '{op.name}' as a separate skill",
-                        "Merge into the existing skill",
-                    ],
+                skill_containment_confirmation(
+                    incoming_skill=op.name,
+                    related=related,
                     context={
                         "incoming_skill": op.name,
                         "related_skills": related,
@@ -2300,14 +2289,11 @@ def _apply_upsert_certification(op, profile, changes, pending):
         return
     if verdict.ambiguous:
         related = [c.name for c in verdict.ambiguous]
-        pending.append(RequestConfirmation(
-            question=(
-                f"'{op.name}' shares a word with certifications already on your "
-                f"profile ({', '.join(related)}) but may be distinct. Add it "
-                f"separately, or is it the same certification?"
-            ),
-            options=[f"Add '{op.name}' as a separate certification",
-                     "Same certification — merge"],
+        pending.append(entity_dupe_confirmation(
+            section="certifications",
+            incoming_label=op.name,
+            existing_labels=related,
+            merge_first=False,
             context={"section": "certifications", "incoming": op.model_dump(exclude={"op"}),
                      "existing": related},
         ))
@@ -2377,13 +2363,10 @@ def _apply_upsert_education(op, profile, changes, pending):
         return
     if verdict.ambiguous:
         existing = [f"{e.degree} — {e.institution}" for e in verdict.ambiguous]
-        pending.append(RequestConfirmation(
-            question=(
-                f"'{op.degree} — {op.institution}' looks close to an education "
-                f"entry already on your profile ({'; '.join(existing)}). Is it "
-                f"the same qualification?"
-            ),
-            options=["Same entry — merge them", "Different — keep both"],
+        pending.append(entity_dupe_confirmation(
+            section="education",
+            incoming_label=f"{op.degree} — {op.institution}",
+            existing_labels=existing,
             context={"section": "education", "incoming": op.model_dump(exclude={"op"}),
                      "existing": existing},
         ))
@@ -2415,12 +2398,10 @@ def _apply_upsert_publication(op, profile, changes, pending):
         return
     if verdict.ambiguous:
         related = [p.title for p in verdict.ambiguous]
-        pending.append(RequestConfirmation(
-            question=(
-                f"'{op.title}' shares its wording with a publication already on "
-                f"your profile ({'; '.join(related)}). Is it the same publication?"
-            ),
-            options=["Same publication — merge", "Different — keep both"],
+        pending.append(entity_dupe_confirmation(
+            section="publications",
+            incoming_label=op.title,
+            existing_labels=related,
             context={"section": "publications", "incoming": op.model_dump(exclude={"op"}),
                      "existing": related},
         ))

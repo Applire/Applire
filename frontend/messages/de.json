@@ -249,6 +249,14 @@
         "notMeasured": "noch nicht gemessen",
         "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
       }
+    },
+    "decisions": {
+      "title": "{count, plural, one {# Entscheidung nötig, um dein Profil zu aktualisieren} other {# Entscheidungen nötig, um dein Profil zu aktualisieren}}",
+      "body": "Deine Antwort berührt etwas, das dein Profil bereits sagt. Wähle, welche Fassung stimmt — das dauert einen Moment.",
+      "cta": "Jetzt entscheiden",
+      "dismiss": "Ausblenden",
+      "dismissAria": "Diesen Hinweis ausblenden",
+      "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen."
     }
   },
   "interview": {
@@ -1454,7 +1462,8 @@
       "role_added": "Als neu angetretene Position ergänzt.",
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
-      "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert."
+      "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
+      "denial_noted": "Noted as a limit you told us about."
     }
   },
   "mergeGate": {

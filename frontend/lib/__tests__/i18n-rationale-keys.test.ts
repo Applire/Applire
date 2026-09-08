@@ -40,6 +40,8 @@ const BACKEND_RATIONALE_KEYS = [
   // backend/applire/services/profile/reconcile/apply.py
   "confirmation_resolved",
   "conflict_resolved",
+  // #669 / vault collector #602 — reconcile/stance.py's "Noted limit: …"
+  "denial_noted",
   "denial_probe_asked",
   "gap_marked_na",
   "manual_section_added",

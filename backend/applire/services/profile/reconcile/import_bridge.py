@@ -88,6 +88,13 @@ def _to_pending_confirmation(rc: RequestConfirmation, source: str) -> PendingCon
         options=list(rc.options),
         context=dict(rc.context),
         source=source,
+        # #669 — the language-independent half travels with the record. Without
+        # this line the durable park would be English-only exactly where it
+        # matters most: an import ambiguity is answered in the profile-review
+        # interview, often days later and possibly in the other language.
+        question_i18n=dict(rc.question_i18n) if rc.question_i18n else None,
+        options_i18n=[dict(o) for o in rc.options_i18n] if rc.options_i18n else None,
+        option_keys=list(rc.option_keys),
     )
 
 

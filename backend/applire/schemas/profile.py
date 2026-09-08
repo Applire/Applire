@@ -800,6 +800,45 @@ class DeniedConcept(BaseModel):
     probe_asked: bool = False
 
 
+def render_localized_confirmation(
+    *,
+    question: str,
+    options: list[str],
+    question_i18n: dict[str, str] | None,
+    options_i18n: list[dict[str, str]] | None,
+    lang: str,
+) -> tuple[str, list[str]]:
+    """ONE rendering of a confirmation's language-independent form (#669).
+
+    ADR-063 amended 2026-09-05 clause 2: the STORED form is language-independent
+    and rendering happens at the projection against the reader's current
+    ``ui_language``. Three shapes carry that form — ``RequestConfirmation`` (the
+    op), ``PendingConfirmation`` (the durable park) and the session-state dict —
+    and ADR-066 says one capability gets one implementation, so all three
+    delegate here rather than each growing its own fallback chain.
+
+    Fallback: ``[lang] ?? de ?? en ?? the plain field``. A record persisted
+    before this change carries neither payload and renders exactly as it always
+    did. ``options_i18n`` is used only when it is positionally aligned with
+    ``options`` — a length mismatch means the record is malformed, and showing
+    the plain options is strictly better than pairing the wrong texts with the
+    wrong keys on a surface whose answer decides a vault write.
+    """
+    def pick(payload: dict[str, str] | None, plain: str) -> str:
+        if not payload:
+            return plain
+        return payload.get(lang) or payload.get("de") or payload.get("en") or plain
+
+    rendered_question = pick(question_i18n, question)
+    if options_i18n and len(options_i18n) == len(options):
+        rendered_options = [
+            pick(payload, plain) for payload, plain in zip(options_i18n, options)
+        ]
+    else:
+        rendered_options = list(options)
+    return rendered_question, rendered_options
+
+
 class PendingConfirmation(BaseModel):
     """E037 PQ #4 — an import-time reconciler ambiguity (a ``RequestConfirmation``)
     persisted so the user can answer it later in the profile-review interview.
@@ -817,6 +856,34 @@ class PendingConfirmation(BaseModel):
     source: str = ""
     resolved: bool = False
     chosen_option: str | None = None
+    # ADR-063 amended 2026-09-05, BUILT 2026-09-08 (#669) — the STORED form is
+    # language-independent, and rendering happens at the projection against the
+    # reader's current `ui_language`. A confirmation parked while the candidate
+    # was reading German and answered after they switch to English is then
+    # simply a different render of the same record — the persisted record is
+    # testimony about what was asked, and it may not be testimony in only one
+    # language.
+    #
+    # `option_keys` is the identity the ANSWER resolves on (see
+    # `session._skill_confirmation_decision`), positionally paired with
+    # `options`. Empty on a record persisted before this change and on any
+    # model-emitted confirmation, both of which resolve through the back-compat
+    # English substring matcher. All three default so an older persisted record
+    # loads unchanged.
+    question_i18n: dict[str, str] | None = None
+    options_i18n: list[dict[str, str]] | None = None
+    option_keys: list[str] = Field(default_factory=list)
+
+    def rendered(self, lang: str) -> tuple[str, list[str]]:
+        """This reader's view of the parked ask — see
+        :func:`render_localized_confirmation`."""
+        return render_localized_confirmation(
+            question=self.question,
+            options=list(self.options),
+            question_i18n=self.question_i18n,
+            options_i18n=self.options_i18n,
+            lang=lang,
+        )
 
 
 class ProfileMetadata(BaseModel):
