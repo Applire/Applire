@@ -554,7 +554,7 @@ def apply_ops(
 
     for op in ops:
         if isinstance(op, UpsertWork):
-            _apply_upsert_work(op, new_profile, ref_map, changes, pending)
+            _apply_upsert_work(op, new_profile, ref_map, changes, pending, source)
         elif isinstance(op, UpsertProject):
             _apply_upsert_project(op, new_profile, ref_map, resolve, changes, pending)
         elif isinstance(op, UpsertVolunteer):
@@ -595,7 +595,9 @@ def apply_ops(
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
-            _apply_set_summary(op, new_profile, source, changes, conflicts)
+            _apply_set_summary(
+                op, new_profile, source, changes, conflicts, not_applied
+            )
         elif isinstance(op, FlagConflict):
             # #633 — resolve() is deliberately experience-only (parent/evidence/
             # add_bullets referents); flag_conflict's target legitimately IS any
@@ -1717,7 +1719,7 @@ def _apply_escalate_denial_level(
     )
 
 
-def _apply_upsert_work(op, profile, ref_map, changes, pending):
+def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
     target = None
     if op.target is not None:
         target = next(
@@ -1742,10 +1744,17 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending):
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
-            related = [f"{w.role} at {w.company}" for w in verdict.ambiguous]
+            related = [
+                f"{w.role} at {w.company}" if w.role else w.company
+                for w in verdict.ambiguous
+            ]
+            # #684 — `role` is optional since ADR-061's 2026-09-08 amendment, so
+            # the incoming label must degrade to the employer alone rather than
+            # rendering "' at Acme'".
+            incoming_label = f"{op.role} at {op.company}" if op.role else op.company
             pending.append(RequestConfirmation(
                 question=(
-                    f"'{op.role} at {op.company}' looks close to an existing "
+                    f"'{incoming_label}' looks close to an existing "
                     f"position ({'; '.join(related)}). Is it the same position?"
                 ),
                 options=["Same position — merge them", "Different — keep both"],
@@ -1755,9 +1764,47 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending):
             return
 
     if target is None:
+        # ADR-061 amended 2026-09-08 (#684, RULING V-0) — the absent-station gate.
+        #
+        # The ruling: a station named in an answer that has no matching vault
+        # entry is created "dateless with only the stated fields, `role` empty
+        # when the candidate did not say it", and the existing field-gap
+        # follow-up asks for the dates. The prompt teaches it; this is the half
+        # that makes the fabrication impossible.
+        #
+        # Three field-presence tests, so it is a FACT and not a judgement
+        # (ADR-062 clause 1) — deterministic code cannot tell whether a phrase
+        # was stated AS this person's job title, and the measured invented role
+        # proves the point: on the compact absent-station shape the model minted
+        # "Manufacturing IT" (3/5) out of words the answer really did contain,
+        # so no presence check over the turn text can separate it from a stated
+        # title. What CAN be read off the op is the shape the ruling itself
+        # names: a brand-new employer, from the candidate SPEAKING, mentioned
+        # with no dates at all. A station described fully enough to date is a
+        # different shape and keeps its role.
+        #
+        # Cost, stated rather than hidden: a candidate who states a title but no
+        # dates loses the title here and is asked for it by the same field-gap
+        # follow-up that is already going to ask for the dates. One extra field
+        # in one question, against a fabricated job title in the vault.
+        stated_role = op.role or ""
+        if (
+            source in _STATEMENT_SOURCES
+            and stated_role
+            and not op.start_date
+            and not op.end_date
+        ):
+            logger.warning(
+                "reconcile: cleared role %r on a NEW dateless work entry (%s) "
+                "from a %s intake — a role for a station the candidate mentioned "
+                "without dates is not a stated fact (ADR-061 amended "
+                "2026-09-08 / RULING V-0); the field-gap follow-up asks.",
+                stated_role, op.company, source,
+            )
+            stated_role = ""
         entry = WorkEntry(
             company=op.company or "",
-            role=op.role or "",
+            role=stated_role,
             start_date=op.start_date,
             end_date=op.end_date,
             is_current=op.is_current,
@@ -1975,6 +2022,48 @@ def _apply_add_bullets(op, resolve, changes, pending):
             changes.append(_merged(section, field, None, incoming))
 
 
+def _apply_transcribed_years(existing: Skill, op) -> None:
+    """ADR-061 amended 2026-09-08 (#684) — write a TRANSCRIBED span onto a skill.
+
+    One implementation for all four write sites of ``_apply_upsert_skill``
+    (ADR-066): the two merge branches and the two append branches. A transcribed
+    span WINS over a computed one; a computed one is left in place only where
+    the transcription is absent. That is ADR-061 clause 5's ceiling read one
+    field to the left — where the candidate speaks they win, where they are
+    silent a derivation may fill the gap — and it is why this overwrites even a
+    non-null ``years_experience``: the value already there was written by
+    ``skill_enrichment``'s date arithmetic, which clause 6 of the same ADR
+    already refuses to let decide anything about the candidate's own claim.
+
+    ``source`` moves with the number, never separately: a bare
+    ``years_experience`` with a stale ``"computed"`` label would tell every
+    downstream reader the opposite of the truth.
+    """
+    if op.years_experience is None:
+        return
+    existing.years_experience = op.years_experience
+    existing.source = "transcribed"
+
+
+def _new_skill_kwargs(op, evidence_ids: list[str]) -> dict[str, Any]:
+    """The append branches' constructor payload — one place, so a field added to
+    ``UpsertSkill`` cannot reach one append site and miss the other."""
+    kwargs: dict[str, Any] = {
+        "name": op.name, "experience_refs": evidence_ids, "status": op.status,
+    }
+    if op.category:
+        kwargs["category"] = op.category
+    if op.proficiency:
+        kwargs["proficiency"] = op.proficiency
+    if op.last_used:
+        kwargs["last_used"] = op.last_used
+    if op.years_experience is not None:
+        # See _apply_transcribed_years: the number and its provenance move together.
+        kwargs["years_experience"] = op.years_experience
+        kwargs["source"] = "transcribed"
+    return kwargs
+
+
 def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirmed=None):
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
@@ -2041,6 +2130,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 )
             # #602/#620 — see _merge_last_used: the more recent date wins.
             existing.last_used = _merge_last_used(existing.last_used, op.last_used)
+            # ADR-061 amended 2026-09-08 (#684) — a transcribed span wins.
+            _apply_transcribed_years(existing, op)
             # ADR-061 clause 3 + the 2026-08-08 amendment (#485) — promote-only,
             # and never OUT of `denied`. See _promote_to_confirmed.
             _promote_to_confirmed(existing, op.status)
@@ -2051,16 +2142,7 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             changes.append(_merged("skills", "name", None, existing.name))
             return
         # "distinct", or "merge" with nothing to merge into: append a new skill.
-        skill_kwargs: dict[str, Any] = {
-            "name": op.name, "experience_refs": evidence_ids, "status": op.status,
-        }
-        if op.category:
-            skill_kwargs["category"] = op.category
-        if op.proficiency:
-            skill_kwargs["proficiency"] = op.proficiency
-        if op.last_used:
-            skill_kwargs["last_used"] = op.last_used
-        profile.skills.append(Skill(**skill_kwargs))
+        profile.skills.append(Skill(**_new_skill_kwargs(op, evidence_ids)))
         changes.append(_added("skills", "name", op.name))
         return
 
@@ -2128,6 +2210,8 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             )
         # #602/#620 — see _merge_last_used: the more recent date wins.
         existing.last_used = _merge_last_used(existing.last_used, op.last_used)
+        # ADR-061 amended 2026-09-08 (#684) — a transcribed span wins.
+        _apply_transcribed_years(existing, op)
         # ADR-061 clause 3 + the 2026-08-08 amendment: promote-only, and never
         # out of `denied` (see _promote_to_confirmed for the full rationale).
         _promote_to_confirmed(existing, op.status)
@@ -2138,16 +2222,7 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         changes.append(_merged("skills", "name", None, existing.name))
         return
 
-    skill_kwargs: dict[str, Any] = {
-        "name": op.name, "experience_refs": evidence_ids, "status": op.status,
-    }
-    if op.category:
-        skill_kwargs["category"] = op.category
-    if op.proficiency:
-        skill_kwargs["proficiency"] = op.proficiency
-    if op.last_used:
-        skill_kwargs["last_used"] = op.last_used
-    profile.skills.append(Skill(**skill_kwargs))
+    profile.skills.append(Skill(**_new_skill_kwargs(op, evidence_ids)))
     changes.append(_added("skills", "name", op.name))
 
 
@@ -2468,7 +2543,20 @@ def _apply_set_personal_info(op, profile, source, changes, conflicts):
     changes.append(_updated("personal_info", op.field, current, value))
 
 
-def _apply_set_summary(op, profile, source, changes, conflicts):
+# ADR-063 §5.3.19a's INTAKE axis, as the applier can see it. `source` is the
+# durable ``EnrichmentRecord.source`` literal (``CommitProvenance.source``), so
+# these three are exactly the Statement intakes: the candidate speaking, through
+# either door (ADR-058 — `interview` and `agent_interview` are the same act on
+# the REST and MCP channels; `testimony` is the pasted-dossier door).
+#
+# Everything NOT in this set is treated as a Document intake by
+# ``_apply_set_summary``, which is the fail-safe direction: an unknown source
+# (``migration``, a future intake) keeps the pre-2026-09-08 behaviour — the
+# dispute — rather than silently dropping a value.
+_STATEMENT_SOURCES = frozenset({"interview", "agent_interview", "testimony"})
+
+
+def _apply_set_summary(op, profile, source, changes, conflicts, not_applied):
     # #113(b) / ADR-061. This was the one write in this applier with no
     # "already populated" gate — its SetField and SetPersonalInfo siblings both
     # have one — so a second CV import replaced the stored summary outright.
@@ -2485,12 +2573,49 @@ def _apply_set_summary(op, profile, source, changes, conflicts):
     # ProfileReviewDrawer → POST /api/profile/conflicts/{id}/resolve, whose
     # generic dict-section branch writes straight back into
     # professional_summary[lang]. No new confirmation path is invented.
+    #
+    # ADR-061 amended 2026-09-08 (#683/#684) — the dispute is scoped by INTAKE.
+    # The paragraph above is the DOCUMENT case and is unchanged: two CVs, two
+    # self-descriptions, a real either/or the candidate settles.
+    #
+    # It is wrong as the first line against a STATEMENT intake. Answering one
+    # gap question ("do you have experience with pharmaceutical manufacturing in
+    # IT?") with a fifteen-year narrative asked the founder, on his own install,
+    # "Your profile has two values for professional_summary.en … Which is
+    # correct?" — Keep current / Use imported / keep both. The two texts were
+    # never alternatives: one is his self-description, the other is a fact about
+    # three employers. Every offered branch was wrong, and the facts reached the
+    # entries they belong to in none of them.
+    #
+    # So on a Statement intake the write is DROPPED, with a receipt. Not
+    # silence: the drop rides the existing ``not_applied`` fact channel (#370 /
+    # #615, ADR-063 amended 2026-08-28) so the door's fact and the hub's count
+    # can never disagree about the same turn — ADR-066, one implementation per
+    # capability. It is a FACT and not a judgement (ADR-062 clause 1): the slot
+    # was non-empty and the incoming text differed. Nothing here decides which
+    # text is better.
     old = getattr(profile.professional_summary, op.lang)
     if _is_empty(op.text):
         return  # absence is not an update, and not a conflict either
     if not _is_empty(old):
         if _norm(old) == _norm(op.text):
             return  # a restatement of what is already stored
+        if source in _STATEMENT_SOURCES:
+            logger.warning(
+                "reconcile: dropped set_summary(%s) on a populated slot from a "
+                "%s intake — the summary is write-once for machines "
+                "(ADR-061 amended 2026-09-08); the answer's facts belong on the "
+                "entries it is about. Receipted as not_applied/summary_populated.",
+                op.lang, source,
+            )
+            not_applied.append(
+                ImportNotApplied(
+                    section="professional_summary",
+                    label=op.lang,
+                    reason="summary_populated",
+                )
+            )
+            return
         conflicts.append(
             Conflict(
                 section="professional_summary",

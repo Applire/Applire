@@ -319,6 +319,23 @@ def _match_and_enrich(
         ]
 
         if matched_ranges:
+            # ADR-061 amended 2026-09-08 (#684) — a TRANSCRIBED span outranks a
+            # computed one. Since that amendment the reconciler may carry a span
+            # the candidate actually STATED ("15+ years in GMP-regulated
+            # pharmaceutical manufacturing IT") on `UpsertSkill.years_experience`,
+            # and the applier stamps `source = "transcribed"` for it. This pass
+            # runs AFTER `apply_ops` on the import seam (`reconcile_import`), so
+            # without this branch its date arithmetic would silently replace the
+            # candidate's own words with a number derived from role dates —
+            # which is clause 6 ("elapsed time is not proficiency") read one
+            # field to the left, and the inflation direction clause 5 exists to
+            # forbid. `experience_refs` still updates: that is evidence, not the
+            # span, and more evidence is never worse.
+            if skill.source == _TRANSCRIBED and skill.years_experience is not None:
+                enriched.append(skill.model_copy(update={
+                    "experience_refs": matched_orgs,
+                }))
+                continue
             years = _calculate_years(matched_ranges)
             # ADR-061 clauses 5 & 6 (#304/#317): proficiency is NOT touched here.
             # years_experience and experience_refs are code-computed from the

@@ -74,6 +74,17 @@ from applire.utils.display import format_display_value
 
 # Sections included in a MODE B guided build, in default priority order.
 # JD-relevance weighting is applied in gap_detector_mode_b() at session creation.
+#
+# `professional_summary` is deliberately NOT here (ADR-028 amended 2026-09-08,
+# epic #683 / founder ruling 2026-09-06): the summary is the candidate's own
+# self-description and a write-once positioning seed (ADR-061 amended the same
+# day), so the one interview mode that may ask for it is MODE C, where it is
+# the SUBJECT of the session. Mode B is job-driven; a prose answer to one of its
+# JD-derived questions is a statement about work the candidate did, and listing
+# the section here made the job-driven interview solicit free prose into that
+# slot. Mode C is untouched — its question lives in `prompts/interview.py` and
+# its gap list comes from `completeness.field_gaps`, which this list does not
+# feed.
 _MODE_B_CORE_SECTIONS = [
     "work_experience",
     "skills",
@@ -81,7 +92,6 @@ _MODE_B_CORE_SECTIONS = [
     "personal_info",
     "languages",
     "certifications",
-    "professional_summary",
 ]
 
 # Sections added to MODE B only when the JD signals relevance

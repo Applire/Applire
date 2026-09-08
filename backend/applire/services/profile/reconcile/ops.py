@@ -54,7 +54,22 @@ class UpsertWork(BaseModel):
     ref: str
     target: str | None = None
     company: str
-    role: str
+    # ADR-061 amended 2026-09-08 (#684, RULING V-0) — OPTIONAL, matching the
+    # vault's own ``ExperienceBase.role: str = ""``.
+    #
+    # This was a required ``str`` while the slot it writes into has always
+    # accepted an empty one, so the ruled shape — a station the candidate named
+    # without giving it a title, created dateless with only the stated fields —
+    # was *unemittable*. A model in that position had exactly two moves: invent
+    # a title (which rule 4 forbids by name), or emit an op that failed
+    # validation and was dropped at ``engine._parse_ops``. Both were measured on
+    # the summary-seed spike: an invented role 3/5 on the compact absent-station
+    # shape, and EVERY parse-rejected op across 80 runs on two models was an
+    # ``upsert_work``.
+    #
+    # ``company`` stays required: a station with no employer is not a station,
+    # and there would be nothing for the field-gap follow-up to ask about.
+    role: str = ""
     start_date: str | None = None
     end_date: str | None = None
     # #155 — tri-state current-position marker (None = unknown). True records
@@ -120,11 +135,55 @@ class UpsertSkill(BaseModel):
     # matched by name/near-dupe) silently dropped a last-used date the source
     # actually stated — never validated, never written, no trace.
     last_used: date | None = None
+    # ADR-061 amended 2026-09-08 (#684) — a TRANSCRIBED span, never a computed
+    # one. The applier stamps ``Skill.source = "transcribed"`` for a value that
+    # arrives here (ADR-061 clause 7's vocabulary: computed | llm_estimated |
+    # transcribed, where transcribed means "read off the source; nothing was
+    # inferred").
+    #
+    # Why this field exists at all, against a recorded decision that it should
+    # not: ``import_bridge.reconcile_import`` says, at ``_carry_skill_enrichment``
+    # (#327), *"Adding those fields to the op is the wrong fix: the reconciler
+    # LLM would then be emitting computed provenance, which ADR-062 reserves for
+    # code."* That is correct for a COMPUTED span and does not reach a
+    # transcribed one — which is the very distinction ADR-061 clause 7 drew. The
+    # measured cost of having no home for a stated span: on the summary-seed
+    # spike a cross-entry claim ("15+ years in GMP-regulated pharmaceutical
+    # manufacturing IT") was DROPPED 10/10 on the detailed answer shapes and
+    # welded onto the FIRST-NAMED station as a bullet 10/10 on the compact one —
+    # a fifteen-year claim stored as a fact of a 2005-2011 position and
+    # thereafter "grounded" for the Oracle.
+    #
+    # Precedence, pinned by test at both writers: a transcribed span WINS over a
+    # computed one, and ``skill_enrichment``'s derivation fills only where the
+    # transcription is absent. That is ADR-061 clause 5's ceiling logic read one
+    # field to the left — where the candidate speaks, they win; where they are
+    # silent, a derivation may fill the gap.
+    years_experience: int | None = None
 
     @field_validator("last_used", mode="before")
     @classmethod
     def _coerce_last_used(cls, v: Any) -> Any:
         return _coerce_partial_date(v)
+
+    @field_validator("years_experience", mode="before")
+    @classmethod
+    def _coerce_years(cls, v: Any) -> Any:
+        """Accept ``"15"`` / ``15.0`` / ``"15+"``; refuse anything else to None.
+
+        A model asked for a number will sometimes render the candidate's own
+        "15+" verbatim. Refusing the whole op over that would drop the skill;
+        refusing the FIELD keeps the skill and loses only the span, which is the
+        direction every guard in this file fails in.
+        """
+        if v is None or isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        if isinstance(v, str):
+            digits = "".join(c for c in v if c.isdigit())
+            return int(digits) if digits else None
+        return None
 
 
 class DemoteSkill(BaseModel):

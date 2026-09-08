@@ -1459,13 +1459,20 @@ async def _create_guided_session(
     )
     critical_gaps = gate_ids + sections
 
-    # ADR-080 — same derivation as every other mode plan. For MODE B it
-    # REPRODUCES the historical constant rather than changing it: `gap_detector_
-    # mode_b` returns 7 core sections plus up to 2 JD-signalled ones, so an
-    # ungated 9-section plan derives 2*9+2 = 20, exactly the old
-    # INTERVIEW_HARD_CEILING_GUIDED. That the guided ceiling was already sized
-    # this way, and the targeted one was not, is the evidence in ADR-080 that
-    # this formula is the law the system had been following unevenly.
+    # ADR-080 — same derivation as every other mode plan.
+    #
+    # This comment used to say the MODE B derivation REPRODUCES the historical
+    # constant: 7 core sections plus up to 2 JD-signalled ones, so an ungated
+    # 9-section plan derives 2*9+2 = 20, exactly INTERVIEW_HARD_CEILING_GUIDED.
+    # That coincidence was the evidence in ADR-080 that the formula is the law
+    # the system had been following unevenly — and it ENDED on 2026-09-08, when
+    # ADR-028's amendment dropped `professional_summary` from
+    # `_MODE_B_CORE_SECTIONS` (epic #683). Six core sections plus up to two
+    # signalled ones derives 2*8+2 = 18; the constant stays 20 and is now what
+    # ADR-080 clause 4 says it is — the operator's cap, applied after the
+    # derivation, not the budget. One section fewer costs two questions of
+    # budget, which is exactly what the formula is for; the constant is not
+    # re-tuned to hide the change.
     hard_ceiling = derive_hard_ceiling(
         len(critical_gaps), cap=settings.interview_max_questions_guided
     )

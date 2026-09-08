@@ -371,7 +371,13 @@ class Skill(BaseModel):
     proficiency: Literal["basic", "intermediate", "advanced", "expert"] = "intermediate"
     years_experience: int | None = None
     # Provenance of ``years_experience`` (ADR-061 clause 7 — transcribed vs
-    # computed), written only by services/skill_enrichment.py. Exactly one of:
+    # computed). Two writers since ADR-061's 2026-09-08 amendment (#684):
+    # ``services/skill_enrichment.py`` (all three values) and the reconcile
+    # applier (``"transcribed"`` only, for a span the new information itself
+    # states — ``UpsertSkill.years_experience``). The precedence between them is
+    # part of that amendment and is pinned by test at both sites: a transcribed
+    # span WINS, and the deterministic derivation fills only where the
+    # transcription is absent. Exactly one of:
     #   "computed"      — derived from the dated roles whose own text evidences
     #                     this skill
     #   "llm_estimated" — the phase-2 estimator produced the number
@@ -693,7 +699,22 @@ class ImportNotApplied(BaseModel):
     #: ``"Universität Stuttgart / M.Sc."``), or — for ``reason="op_rejected"``
     #: — the rejected raw op's own declared ``"op"`` type string.
     label: str
-    reason: Literal["no_op_carried_entry", "op_rejected"]
+    #: ``summary_populated`` (ADR-061 amended 2026-09-08, #684) is the one
+    #: reason a STATEMENT intake can produce, and the only one whose ``section``
+    #: is not a list-valued content section: a ``set_summary`` against an
+    #: already-populated ``professional_summary`` slot from an interview /
+    #: testimony / agent-claims turn is dropped rather than disputed (the
+    #: summary is the candidate's own self-description, not an alternative to
+    #: their own answer), and ``label`` carries the language slot (``"de"`` /
+    #: ``"en"``) instead of a natural-key label. Still a FACT, on the same
+    #: doctrine as its two siblings: the slot was non-empty and the incoming
+    #: text differed — never a judgement about which text is better.
+    #:
+    #: Widening this Literal is load-bearing for four response schemas that
+    #: carry the type; ``EnrichmentRecord`` deliberately has no
+    #: ``extra="forbid"``, so records persisted before this value existed load
+    #: unchanged.
+    reason: Literal["no_op_carried_entry", "op_rejected", "summary_populated"]
 
 
 class EnrichmentRecord(BaseModel):
