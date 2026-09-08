@@ -2401,7 +2401,11 @@ class TestPerEntryGroundingAndRoleOwnership:
         numbers = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. [A-Z]", p, re.M)]
         assert numbers == list(range(1, len(numbers) + 1))
         # 7 since #580 (ADR-077 amended 2026-08-26): check 7 PINNED FACT NOT DELIVERED.
-        assert len(numbers) == 7
+        # 8 since #668 (2026-09-08, founder ruling 3 of 2026-09-05): check 8 REDUNDANCY —
+        # `repetition` left the minor-by-definition line and became a named, blocking
+        # check on BOTH doors, because `_CHECKS` is shared and ADR-062 clause 4 forbids
+        # the two doors disagreeing about one concept.
+        assert len(numbers) == 8
 
     def test_the_check_states_the_profile_shape_facts(self):
         """Run 17's reviewer misread the MES *project* id as a foreign

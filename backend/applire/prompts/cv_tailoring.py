@@ -276,7 +276,12 @@ def build_user_prompt(
     )
 
 
-def build_retry_prompt(previous_draft: dict, feedback: str, source: str) -> str:
+def build_retry_prompt(
+    previous_draft: dict,
+    feedback: str,
+    source: str,
+    delivered: dict | None = None,
+) -> str:
     """Build the retry user prompt after a reviewer rejection of a tailored CV.
 
     The candidate profile (``source``) IS re-sent so the corrector can re-read the
@@ -285,13 +290,43 @@ def build_retry_prompt(previous_draft: dict, feedback: str, source: str) -> str:
     profile verbatim — so the corrector must consult the source to fix a fabricated
     skill or an ungrounded bullet correctly. This keeps the reviewer's output small
     and cap-safe while still grounding the correction.
+
+    ``delivered`` (SF-WRITE.29, #668 — ADR-076 clause 3 amended 2026-09-08) is the
+    COMPOSED document the reviewer's findings are about, rendered read-only. It is
+    supplied by the TERMINAL chain only; the drafting rounds pass ``None`` because no
+    composed document exists yet, and the prompt is then byte-identical to what shipped.
+
+    Why the block exists, measured rather than reasoned (captured RC delivery run
+    2026-09-05, ``backend/logs/llm/2026-09-05.jsonl`` records 660–663,
+    ``openai/gpt-5.6-luna``): the terminal reviewer's subject is the composed artefact
+    while ``PREVIOUS OUTPUT`` is the prose draft, and the divergence runs in BOTH
+    directions. Composed-only content (nested project bullets, education,
+    certifications, joined role facts) is invisible to the corrector — the 0/5
+    ``projects`` result ADR-083 recorded. And content the deterministic tail DELETED is
+    still visible to it: round 1's corrector added the two bullets the reviewer's own
+    blocking coverage finding demanded, ``_cap_bullets`` cut both in the compose that
+    followed, and round 2's reviewer re-raised the finding while round 2's corrector was
+    shown a ``PREVIOUS OUTPUT`` that still contained the answer — so a true blocking
+    finding read as false at the seat asked to act on it, and 2 of 3 repairs never
+    reached the document. The block makes the reviewer's subject and the corrector's
+    subject the same artefact; the corrector still RECEIVES and RETURNS only the prose
+    shape, so ADR-067 clause 2/3 is untouched and no vault-verbatim field is ever
+    LLM-authored.
     """
+    delivered_section = ""
+    if delivered is not None:
+        delivered_section = (
+            "DELIVERED DOCUMENT (read-only — the composed artefact the review feedback "
+            "is about):\n"
+            f"{json.dumps(delivered, ensure_ascii=False, indent=2)}\n\n"
+        )
     return (
         "A quality review of your previous CV tailoring identified the following issues. "
         "Patch the JSON to address every issue, using the CANDIDATE PROFILE as the only "
         "source of truth, and return the corrected object in the SAME schema.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
         f"CANDIDATE PROFILE (source of truth):\n{source}\n\n"
+        f"{delivered_section}"
         f"PREVIOUS OUTPUT:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )
@@ -317,6 +352,19 @@ Rules:
   feedback does not name must survive into your output unchanged — fixing a skills-list
   issue never removes a bullet or a figure, and fixing one bullet never rewrites its
   neighbours.
+- DELIVERED DOCUMENT (terminal round only, SF-WRITE.29): the CANDIDATE PROFILE may be
+  followed by a DELIVERED DOCUMENT block — the composed artefact exactly as it would
+  ship, and the document the REVIEW FEEDBACK is about. Read every finding against THAT,
+  never against your PREVIOUS OUTPUT; the two differ, and both differences are normal.
+  Employers, dates, education, certifications, languages, quantified role facts and
+  nested project bullets appear only there — code joins them from the profile after you,
+  and you never emit them. A line of your PREVIOUS OUTPUT that is absent from the
+  DELIVERED DOCUMENT was cut by the length budget after your last round: it is genuinely
+  not in the document the reviewer read, so a finding naming it is correct, not stale.
+  To change a nested project's bullets, emit that project yourself under its work entry
+  with its name exactly as the DELIVERED DOCUMENT spells it — a project you omit is
+  re-joined from the profile unchanged. Your OUTPUT is still the prose schema of your
+  PREVIOUS OUTPUT and nothing else.
 - PINNED FACTS (ADR-077): the CANDIDATE PROFILE may end with a PINNED FACTS block — vault
   quotes required WORD-FOR-WORD. A pin the feedback names as missing: add its full quote
   verbatim as its own bullet under the named entry `id` (a skill pin verbatim into

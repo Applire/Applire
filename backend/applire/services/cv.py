@@ -3861,6 +3861,13 @@ async def _terminal_review(
     the gap loudly logged (ship-and-report — never a delivery gate, the
     2026-08-13 precedent: no structural gate on ``approved``).
 
+    **SF-WRITE.29 (#668, clause 3 amended 2026-09-08):** the corrector is shown
+    that SAME composition as read-only context (``_corrector_prompt`` below),
+    so a finding about composed-only content is actionable and a finding about
+    content the tail deleted is not contradicted by the corrector's own last
+    output. The corrector's INPUT and OUTPUT schema are unchanged — the prose
+    shape, and only that.
+
     The subject cache is seeded with ``record.tailored_data`` AS IS: on the
     normal path that equals ``compose(prose_draft)`` post-condense; on a
     subject-identity re-entry (a detected post-verdict mutation) it is the
@@ -3938,13 +3945,39 @@ async def _terminal_review(
     )
     ensure_pinned_fact_signal_registered()
 
-    def _reviewer_prompt(source: str, draft: dict) -> str:
+    def _subject_for(draft: dict) -> TailoredCVData:
+        """The COMPOSED document for ``draft`` — computed once, cached by draft."""
         key = _canon(draft)
         subject = subject_by_draft.get(key)
         if subject is None:
             subject = _compose(draft)
             subject_by_draft[key] = subject
-        return _subject_fn(source, subject.model_dump(mode="json"))
+        return subject
+
+    def _reviewer_prompt(source: str, draft: dict) -> str:
+        return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
+
+    def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
+        """SF-WRITE.29 (#668, ADR-076 clause 3 amended 2026-09-08): the corrector is
+        shown the SAME artefact the reviewer judged.
+
+        ``review_and_refine`` calls ``reviewer_prompt_fn(source, current_draft)`` and
+        ``generator_prompt_fn(current_draft, feedback, source)`` with the SAME draft in
+        the same round, so ``_subject_for`` here is a cache HIT on the composition the
+        reviewer just read — the adjacency is exact, and no shared-loop signature
+        changes (ADR-066: the one loop keeps its contract; the terminal chain supplies
+        its own closure, exactly as it already does for the reviewer side).
+
+        The corrector still receives and returns the PROSE shape; the composed document
+        is read-only context (ADR-067 clauses 2/3 — no vault-verbatim field is ever
+        routed through a writer LLM).
+        """
+        return _build_cv_retry_prompt(
+            previous_draft,
+            feedback,
+            source,
+            delivered=_subject_for(previous_draft).model_dump(mode="json"),
+        )
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
@@ -3968,7 +4001,7 @@ async def _terminal_review(
         settled = await review_and_refine(
             source=source_material,
             draft=current,
-            generator_prompt_fn=_build_cv_retry_prompt,
+            generator_prompt_fn=_corrector_prompt,
             generator_system=CV_TAILORING_REFINEMENT_PROMPT,
             reviewer_prompt_fn=_reviewer_prompt,
             reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
