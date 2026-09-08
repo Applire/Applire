@@ -403,8 +403,14 @@ def _note_error() -> None:
 
 
 def _provider_family(provider: LLMProvider) -> str:
-    """'OpenRouterProvider' -> 'openrouter'; the same family label ADR-085 uses."""
-    name = type(provider).__name__
+    """'OpenRouterProvider' -> 'openrouter'; the same family label ADR-085 uses.
+
+    Pinned for all six real providers by
+    ``test_llm_usage_seam.py::test_the_family_label_matches_the_provider_names``
+    — the label is what the operator matches against their invoice, so it may
+    not drift when a class is renamed.
+    """
+    name = type(provider).__name__.lstrip("_")
     for suffix in ("LLMProvider", "Provider"):
         if name.endswith(suffix):
             name = name[: -len(suffix)]

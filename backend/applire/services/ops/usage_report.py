@@ -59,6 +59,11 @@ async def _totals(db: AsyncSession, *where: Any) -> dict[str, Any]:
             select(
                 func.coalesce(func.sum(LlmUsage.prompt_tokens), 0),
                 func.coalesce(func.sum(LlmUsage.completion_tokens), 0),
+                # The STORED total, not prompt+completion recomputed here: the
+                # per-document breakdown below sums the same column, and two
+                # aggregations of one fact that disagree is a defect waiting to
+                # be reported as a bug against the panel.
+                func.coalesce(func.sum(LlmUsage.total_tokens), 0),
                 func.count(LlmUsage.id),
                 # Portable "how many of them were estimates" — a CAST, not a
                 # dialect-specific FILTER clause: these queries run on SQLite in
@@ -67,11 +72,11 @@ async def _totals(db: AsyncSession, *where: Any) -> dict[str, Any]:
             ).where(*where)
         )
     ).one()
-    prompt, completion, calls, estimated = row
+    prompt, completion, total, calls, estimated = row
     return {
         "prompt_tokens": int(prompt),
         "completion_tokens": int(completion),
-        "total_tokens": int(prompt) + int(completion),
+        "total_tokens": int(total),
         "calls": int(calls),
         "estimated_calls": int(estimated),
         # The one fact an operator needs before trusting the number.
