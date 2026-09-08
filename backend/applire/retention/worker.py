@@ -45,6 +45,7 @@ Technical debt note: Retention Worker is architecturally isolated but co-located
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text, update
@@ -640,8 +641,109 @@ async def _release_fact_pins(db: AsyncSession) -> int:
         return 0
 
 
+async def _purge_llm_usage(db: AsyncSession) -> int:
+    """Delete token-usage rows past LLM_USAGE_RETENTION_DAYS (ADR-086 cl. 10).
+
+    Not a GDPR clock — `llm_usage` carries counters and opaque ids, never prompt
+    or completion text (the table has no text column at all, SF-OPS.9). This is
+    a growth bound on a table the ops layer's own disk probe watches.
+    """
+    try:
+        from applire.services.ops.config import LLM_USAGE_RETENTION_DAYS
+        from applire.services.ops.usage_report import purge_old_usage
+
+        return await purge_old_usage(db, LLM_USAGE_RETENTION_DAYS)
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_purge_llm_usage skipped: %s", exc)
+        await db.rollback()
+        return 0
+
+
+async def _trim_retention_runs(db: AsyncSession) -> int:
+    """Keep only the newest OPS_RETENTION_RUNS_KEEP run records."""
+    try:
+        from applire.services.ops.config import OPS_RETENTION_RUNS_KEEP
+
+        if OPS_RETENTION_RUNS_KEEP <= 0:
+            return 0
+        result = await db.execute(
+            text(
+                "DELETE FROM retention_runs WHERE id NOT IN ("
+                " SELECT id FROM retention_runs ORDER BY run_at DESC LIMIT :keep)"
+            ),
+            {"keep": OPS_RETENTION_RUNS_KEEP},
+        )
+        await db.commit()
+        return result.rowcount or 0  # type: ignore[return-value]
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_trim_retention_runs skipped: %s", exc)
+        await db.rollback()
+        return 0
+
+
+async def record_run(report: dict, *, duration_ms: int, ok: bool, error: str | None) -> None:
+    """Persist one run record — the stdout report's first consumer (ADR-086 cl. 5).
+
+    Since this worker was built its JSON report has gone to stdout and nothing
+    has read it; `SF-RET.1`/`SF-RET.2` say so in their control cells, and the
+    2026-07-12 founder ruling settled that *an unread signal is not a detection
+    mechanism*. This is the consumer.
+
+    Its own session, and every failure swallowed: the worker's job is deleting
+    data on a legal clock, and a monitoring insert may never be the reason a
+    GDPR sweep aborts.
+    """
+    try:
+        from applire.models.retention_run import RetentionRun
+
+        async with AsyncSessionLocal() as db:
+            db.add(
+                RetentionRun(
+                    report=report,
+                    duration_ms=duration_ms,
+                    ok=ok,
+                    error=error,
+                )
+            )
+            await db.commit()
+            await _trim_retention_runs(db)
+    except Exception as exc:
+        logger.warning(
+            "retention run not recorded (%s: %s) — the sweep itself is unaffected",
+            type(exc).__name__,
+            exc,
+        )
+
+
 async def run() -> None:
-    """Execute all TTL rules and emit a structured JSON report to stdout."""
+    """Execute all TTL rules, emit a JSON report to stdout AND persist it."""
+    started = time.monotonic()
+    try:
+        report = await _sweep()
+    except Exception as exc:
+        # A crashed sweep still leaves a record, so the ops layer can say "the
+        # last run FAILED" rather than only "no run for N hours" (SF-RET.1).
+        # The exception type and message only — never a value from a row.
+        await record_run(
+            {},
+            duration_ms=int((time.monotonic() - started) * 1000),
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}"[:500],
+        )
+        raise
+    # The stdout line is unchanged and stays: every existing log-reading habit
+    # keeps working. The row beside it is what the ops layer reads (ADR-086 cl. 5).
+    print(json.dumps(report), flush=True)
+    await record_run(
+        report,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        ok=True,
+        error=None,
+    )
+
+
+async def _sweep() -> dict:
+    """Run every TTL rule and build the report. Raises on an unhandled failure."""
     async with AsyncSessionLocal() as db:
         uploads_deleted = await _purge_uploads(db)
         sessions_deleted = await _purge_sessions(db)
@@ -672,6 +774,8 @@ async def run() -> None:
         # double-counted; anything its file pass failed to remove ages past the
         # grace period and is reclaimed here on a later run.
         orphan_files_deleted = await _scan_orphan_files(db)
+        # ADR-086 clause 10 — a growth bound, not a PII clock.
+        llm_usage_deleted = await _purge_llm_usage(db)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -692,5 +796,6 @@ async def run() -> None:
         "gap_analysis_jobs_deleted": gap_jobs_deleted,
         "submitted_exempt": submitted_exempt,
         "orphan_files_deleted": orphan_files_deleted,
+        "llm_usage_deleted": llm_usage_deleted,
     }
-    print(json.dumps(report), flush=True)
+    return report
