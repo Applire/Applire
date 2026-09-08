@@ -766,6 +766,37 @@ def is_scope_entry(entry: dict[str, Any] | None) -> bool:
     return bool((entry or {}).get("bar"))
 
 
+def underclaim_candidate_entries(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """The ledger entries the ADR-076 clause-5 under-claim signal is allowed to demand.
+
+    Filtered exactly as ``_coverage_split`` filters the coverage universe, so the
+    demand can never name something the coverage gate has already ruled out: honest
+    gaps (they must stay absent), an ADJACENT ``partial`` (ADR-048 amended
+    2026-07-27 — the candidate does not hold the JD's term, so demanding it
+    literally is a demand to over-claim), and an ADR-069 scope entry (its concept
+    embeds the JD's own figure).
+
+    **Why it lives here (#666, 2026-09-08).** The universe moved out of
+    ``cv_gap_hints`` when the ADR-072 clause-4 cap exemption became a second reader of
+    the same question — "may this concept be demanded at all?". A cap that decides
+    which demands it honours must not be able to disagree with the mechanism that
+    raises them: a limit reconciled with its producer by construction rather than by a
+    comment (ADR-066, one implementation per capability). ``cv_gap_hints`` re-exports
+    it under its original private name so that module's callers and tests are
+    unchanged.
+    """
+    return [
+        e
+        for e in (keyword_ledger or [])
+        if e.get("claimable")
+        and not is_positioning_only(e)
+        and not is_scope_entry(e)
+        and (e.get("concept") or "").strip()
+    ]
+
+
 def retention_forms(entry: dict[str, Any]) -> list[str]:
     """The surface forms that mark a CV bullet as carrying this entry's evidence.
 

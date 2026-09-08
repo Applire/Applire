@@ -288,22 +288,15 @@ from applire.services.keyword_ledger import narrative_corpus_view  # noqa: E402,
 def _underclaim_candidates(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """The entry universe, filtered exactly as ``_coverage_split`` filters it.
 
-    Same exclusions, same reasons, so this signal can never demand something the
-    coverage gate has already ruled out: honest gaps (they must stay absent), an
-    ADJACENT ``partial`` (ADR-048 amended 2026-07-27 — the candidate does not hold the
-    JD's term, so demanding it literally is a demand to over-claim), and an ADR-069
-    scope entry (its concept embeds the JD's own figure).
+    **Moved to ``keyword_ledger.underclaim_candidate_entries`` on 2026-09-08 (#666)**
+    and re-exported here under its original name, unchanged: the ADR-072 clause-4 cap
+    exemption now reads the SAME universe, and a cap that decides which demands it will
+    honour must not be able to disagree with the mechanism that raises them (ADR-066,
+    one implementation per capability).
     """
-    from applire.services.keyword_ledger import is_positioning_only
+    from applire.services.keyword_ledger import underclaim_candidate_entries
 
-    return [
-        e
-        for e in (keyword_ledger or [])
-        if e.get("claimable")
-        and not is_positioning_only(e)
-        and not is_scope_entry(e)
-        and (e.get("concept") or "").strip()
-    ]
+    return underclaim_candidate_entries(keyword_ledger)
 
 
 def _entry_forms(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -423,13 +416,28 @@ def underclaim_signal_issues_fn(
     keyword_ledger: list[dict[str, Any]] | None,
     *,
     limit: int = UNDERCLAIM_ISSUE_LIMIT,
+    on_demand: Callable[[Sequence[UnderclaimedConcept]], None] | None = None,
 ) -> Callable[[dict[str, Any]], Sequence[ReviewIssue]]:
     """Bind a ledger to :func:`underclaim_signal_issues` for ``review_and_refine``'s
     ``signal_issues_fn`` parameter — recomputed per round on the CURRENT draft, exactly
     like ``coverage_reviewer_prompt_fn``'s wrapper, so a concept the corrector has since
-    surfaced stops being demanded without any state of its own."""
+    surfaced stops being demanded without any state of its own.
+
+    ``on_demand`` (#666, ADR-072 clause 4 amended 2026-09-08) is called with THIS
+    round's demanded concepts — the same objects the issues are minted from, never a
+    re-derivation — so the deterministic tail can exempt the bullets they produce from
+    the per-role cap. It is a REPORT, exactly like ``review_and_refine``'s ``on_settle``:
+    it returns nothing and cannot change which issues are raised, and it is called on
+    every evaluation including the empty one, so a caller can see that a round demanded
+    nothing rather than having to infer it.
+    """
 
     def fn(draft: dict[str, Any]) -> Sequence[ReviewIssue]:
-        return underclaim_signal_issues(draft, keyword_ledger, limit=limit)
+        concepts = verified_narrative_underclaim(draft, keyword_ledger)[:limit]
+        if on_demand is not None:
+            on_demand(concepts)
+        return [
+            ReviewIssue(text=_issue_text(c), severity=SEVERITY_BLOCKING) for c in concepts
+        ]
 
     return fn

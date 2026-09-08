@@ -956,6 +956,8 @@ def _cap_bullets(
     external_text: str = "",
     context: dict | None = None,
     pinned: set[int] = frozenset(),
+    demanded_groups: Sequence[Sequence[str]] = (),
+    narrative_external_text: str = "",
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -1016,6 +1018,10 @@ def _cap_bullets(
         external_text=external_text,
         # ADR-077 clause 4: fact-pin carriers never enter the removable set.
         pinned=pinned,
+        # ADR-072 clause 4 amended 2026-09-08 (#666): neither does the earliest
+        # narrative carrier of a concept this round's demands will raise again.
+        demanded_groups=demanded_groups,
+        narrative_external_text=narrative_external_text,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -1129,6 +1135,7 @@ def _restore_ledger_bullets(
     # the entries already processed plus the ones still untouched, so a cut
     # made in an earlier entry is correctly absent from the picture.
     concept_groups = budget.claimable_concepts if budget is not None else ()
+    demanded_groups = budget.demanded_concepts if budget is not None else ()
     non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
     pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
 
@@ -1144,6 +1151,29 @@ def _restore_ledger_bullets(
             return ""
         others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
         return stringify_draft({**non_work, "work_history": others})
+
+    def _narrative_external_text(index: int, entry_dict: dict) -> str:
+        """The same slice, restricted to NARRATIVE text — work-entry bullets and
+        nested-project bullets, nothing else (#666).
+
+        Built through ``keyword_ledger._tailored_narrative_texts``, the ONE definition
+        of "narrative space" the under-claim signal and ``cv_coverage_budget`` already
+        share (ADR-066). The distinction is load-bearing: the whole-document
+        ``_external_text`` above counts a skills tag as coverage, and a cap that does
+        cannot honour a demand whose own rule is *"a skills-list entry does NOT satisfy
+        this"*.
+        """
+        if not concept_groups:
+            return ""
+        from applire.services.keyword_ledger import (
+            _tailored_narrative_texts,
+            narrative_corpus_view,
+        )
+
+        others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
+        return "\n".join(
+            _tailored_narrative_texts(narrative_corpus_view({"work_history": others}))
+        )
 
     for w_index, w in enumerate(tailored.work_history):
         w_dict = w.model_dump(mode="json")
@@ -1242,6 +1272,12 @@ def _restore_ledger_bullets(
                     pinned=bullet_pin_carrier_indices(
                         ordered, entry_id=eid, pins=pins
                     ),
+                    # ADR-072 clause 4 amended 2026-09-08 (#666): so is the earliest
+                    # narrative carrier of a concept the round's demands will raise
+                    # again. Both ceiling enforcers in this function get it, or the
+                    # restore path would silently undo what the cap path protects.
+                    demanded_groups=demanded_groups,
+                    narrative_external_text=_narrative_external_text(w_index, w_dict),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1290,6 +1326,8 @@ def _restore_ledger_bullets(
                 pinned=bullet_pin_carrier_indices(
                     existing_bullets, entry_id=eid, pins=pins
                 ),
+                demanded_groups=demanded_groups,
+                narrative_external_text=_narrative_external_text(w_index, w_dict),
             )
             if capped != existing_bullets:
                 changed = True
@@ -3889,13 +3927,32 @@ async def _terminal_review(
     def _canon(d: dict) -> str:
         return _json.dumps(d, sort_keys=True, default=str)
 
+    # ADR-072 clause 4 amended 2026-09-08 (#666, founder ruling 1 of 2026-09-05):
+    # the retention forms of the concepts THIS round's under-claim signal demanded.
+    # A cell rather than a closure variable because `_compose` is defined before the
+    # wrapper that fills it, and because the loop below re-reads it every round.
+    demanded_cell: dict[str, tuple[tuple[str, ...], ...]] = {"groups": ()}
+
+    def _budget_for_round() -> "BudgetResult":
+        """``budget`` carrying this round's demanded concepts.
+
+        `dataclasses.replace` on a frozen dataclass rather than a new parameter on
+        `_compose_document`: the demand has to reach TWO consumers that already take
+        the budget — the cap inside `_restore_ledger_bullets` and
+        `condense_to_budget` on the re-entry measure — and threading one value through
+        two signatures is how the #540 cap-vs-condense seam was created the first time.
+        """
+        from dataclasses import replace
+
+        return replace(budget, demanded_concepts=demanded_cell["groups"])
+
     def _compose(draft: dict) -> TailoredCVData:
         return _compose_document(
             draft,
             profile_json,
             raw_profile_json=raw_profile_json,
             keyword_ledger=keyword_ledger,
-            budget=budget,
+            budget=_budget_for_round(),
             job_dict=job_dict,
             language=language,
             # ADR-077 clause 4: a terminal-round re-compose keeps the same
@@ -3991,7 +4048,29 @@ async def _terminal_review(
             settle, chain_id="cv_terminal_review"
         ).worse_of(outcome_cell["outcome"])
 
-    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger)
+    def _record_demand(concepts) -> None:
+        """#666: remember what the signal asked for, so the tail that runs after the
+        corrector does not delete the answer.
+
+        ACCUMULATES across this terminal review's rounds rather than replacing.
+        The ruling's words are *"a bullet the same round's signal demanded"*, and
+        same-round-only was built first and measured: with the captured RC run's
+        provenance (round 1 demanded Produktionsverantwortung + ISO 9001, round 2
+        demanded Deutsch), a round-scoped set protects the round-1 answers through
+        round 1's compose and then hands them to round 2's cap unprotected — the loop
+        deletes its own repair one round late, which is the same defect one step
+        along. The set is bounded by construction: at most
+        ``UNDERCLAIM_ISSUE_LIMIT`` concepts per round over at most
+        ``CV_TERMINAL_REVIEW_MAX_RETRIES`` x (1 + ``CV_TERMINAL_REENTRY_MAX``)
+        rounds, and it is per-invocation — a new document starts empty."""
+        demanded_cell["groups"] = tuple(
+            dict.fromkeys(
+                demanded_cell["groups"]
+                + tuple(tuple(c.surface_forms) for c in concepts if c.surface_forms)
+            )
+        )
+
+    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger, on_demand=_record_demand)
 
     current = prose_draft
     rounds = 0
@@ -4028,7 +4107,13 @@ async def _terminal_review(
         record.tailored_data = recomposed.model_dump()
         record.content_snapshot = build_content_snapshot(recomposed)
         try:
-            measure_cell["measured"] = await _measure_and_condense(record, db, condense_ctx)
+            # #666: the page-overrun condense runs on the SAME round's demand set —
+            # otherwise it re-deletes exactly what the cap two lines above protected.
+            from dataclasses import replace as _dc_replace
+
+            measure_cell["measured"] = await _measure_and_condense(
+                record, db, _dc_replace(condense_ctx, budgets=_budget_for_round())
+            )
             # Condense may have trimmed the recomposition — the next round's
             # subject must be the post-condense truth, not the pre-condense one.
             subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)
