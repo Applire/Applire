@@ -263,6 +263,11 @@ def test_end_to_end_against_the_mock_provider(tmp_path, capsys):
 
     summary = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
     assert summary["meta"]["provider"] == "mock"
+    # The provider the run actually built, not the one it was asked for: inside a
+    # suite that has already imported applire.config, setting the environment is
+    # too late and --provider was silently ignored (a run mislabelled as another
+    # model). force_settings() makes the singleton agree or refuses to run.
+    assert summary["meta"]["settings"]["llm_provider"] == "mock"
     assert summary["per_shape"]["S6_incident_shape_all_present"]["n"] == 1
     assert summary["verdict"]["label"] in ("qualified", "caveat", "sub-par")
     assert "VERDICT:" in capsys.readouterr().out
@@ -305,6 +310,37 @@ def test_score_mode_reads_the_spike_record_format(tmp_path, capsys, fixtures):
     assert records[0]["metrics"]["malformed_ops"] == 1
     # The second turn parks two other employers' facts on the current station.
     assert len(records[1]["metrics"]["wrong_slot"]) == 1
+
+
+def test_provider_override_wins_over_an_already_imported_settings(tmp_path):
+    """The regression the full unit suite found: with ``applire.config`` already
+    imported, setting the environment is too late — the singleton kept
+    ``LLM_PROVIDER=mistral``, ``--provider mock`` was ignored, and the "mock" run
+    built a MistralProvider and reached for the network. A matrix row that can be
+    mislabelled with another model is worse than no row."""
+    from applire.config import settings
+
+    before = (settings.llm_provider, settings.mistral_model)
+    settings.llm_provider = "mistral"
+    settings.mistral_model = "mistral-large-latest"
+    out = tmp_path / "override.jsonl"
+    try:
+        assert (
+            mm.main(
+                ["--provider", "mock", "--n", "1", "--shapes", "S6", "--concurrency", "1",
+                 "--out", str(out)]
+            )
+            == 0
+        )
+    finally:
+        settings.llm_provider, settings.mistral_model = before
+
+    summary = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
+    assert summary["meta"]["settings"]["llm_provider"] == "mock"
+    record = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    # The mock answered; the un-overridden path produced an empty result instead.
+    assert not record.get("error")
+    assert record["metrics"]["n_ops"] > 0
 
 
 def test_rejection_is_explained_by_field_and_error_type():

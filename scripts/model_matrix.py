@@ -62,6 +62,9 @@ MODEL_ENV = {
     "ollama": "OLLAMA_MODEL",
     "mock": "",
 }
+MODEL_FIELD = {
+    provider: env.lower() for provider, env in MODEL_ENV.items() if env
+}
 
 # Proposed qualification thresholds (docs/llm-models.md "Which models work").
 # A rate is measured PER SHAPE; the worst shape decides the model's verdict.
@@ -619,6 +622,37 @@ def configure_env(provider: str, model: str | None, timeout: int | None) -> None
         sys.path.insert(0, backend)
 
 
+def force_settings(provider: str, model: str | None, timeout: int | None) -> None:
+    """Make the settings singleton agree with the CLI, and refuse to run if it can't.
+
+    ``configure_env`` sets the environment before any ``applire.`` import, which is
+    enough when this script owns the process. It is NOT enough when something has
+    already imported ``applire.config``: ``Settings`` is read once at import time,
+    so the singleton keeps whatever the ambient environment said and ``--provider``
+    is silently ignored — the run then measures a different model than the row it
+    produces claims. (Observed: the smoke test inside the full unit suite built a
+    ``MistralProvider`` for ``--provider mock`` and attempted a real network call.)
+
+    A matrix whose rows can be mislabelled is worse than no matrix, so the mismatch
+    is fatal rather than warned about.
+    """
+    from applire.config import settings
+
+    settings.llm_provider = provider
+    if model:
+        field = MODEL_FIELD.get(provider)
+        if not field:
+            raise SystemExit(f"--model is not applicable to provider '{provider}'")
+        setattr(settings, field, model)
+    if timeout:
+        settings.llm_timeout = timeout
+
+    if settings.llm_provider != provider:
+        raise SystemExit(f"settings.llm_provider is {settings.llm_provider!r}, not {provider!r}")
+    if model and getattr(settings, MODEL_FIELD[provider]) != model:
+        raise SystemExit(f"settings.{MODEL_FIELD[provider]} did not take {model!r}")
+
+
 def settings_snapshot() -> dict[str, Any]:
     """The behaviour-changing settings this run used — never a key or a URL."""
     from applire.config import settings
@@ -826,6 +860,7 @@ def main(argv: list[str] | None = None) -> int:
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
         return 0
 
+    force_settings(args.provider, args.model, args.timeout)
     install_log_readers()
     credits_before = (
         None
