@@ -37,6 +37,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.usage import note_usage
 
 _retry = retry(
     retry=retry_if_exception_type(openai.RateLimitError),
@@ -153,6 +154,7 @@ class OpenAIProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
@@ -169,6 +171,7 @@ class OpenAIProvider(LLMProvider):
             max_tokens=max_tokens,
             **kwargs,
         )
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content

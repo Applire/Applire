@@ -21,6 +21,7 @@ import pytest
 def test_factory_returns_mistral_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.mistral import MistralProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "mistral")
@@ -29,12 +30,13 @@ def test_factory_returns_mistral_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "mistral_model", "mistral-small-latest")
     with patch("applire.providers.llm.mistral.Mistral"):
         provider = get_provider()
-    assert isinstance(provider, MistralProvider)
+    assert isinstance(unwrap_provider(provider), MistralProvider)
 
 
 def test_factory_returns_openai_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.openai import OpenAIProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "openai")
@@ -44,12 +46,13 @@ def test_factory_returns_openai_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "openai_model", "gpt-4o")
     with patch("openai.AsyncOpenAI"):
         provider = get_provider()
-    assert isinstance(provider, OpenAIProvider)
+    assert isinstance(unwrap_provider(provider), OpenAIProvider)
 
 
 def test_factory_returns_ollama_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.ollama import OllamaProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "ollama")
@@ -57,12 +60,13 @@ def test_factory_returns_ollama_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "ollama_base_url", "http://localhost:11434")
     monkeypatch.setattr(cfg.settings, "ollama_model", "llama3.2")
     provider = get_provider()
-    assert isinstance(provider, OllamaProvider)
+    assert isinstance(unwrap_provider(provider), OllamaProvider)
 
 
 def test_factory_raises_on_unknown_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "unknownprovider")
     with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
@@ -72,6 +76,7 @@ def test_factory_raises_on_unknown_provider(monkeypatch):
 def test_factory_is_case_insensitive(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.mistral import MistralProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "Mistral")
@@ -80,7 +85,7 @@ def test_factory_is_case_insensitive(monkeypatch):
     monkeypatch.setattr(cfg.settings, "mistral_model", "mistral-small-latest")
     with patch("applire.providers.llm.mistral.Mistral"):
         provider = get_provider()
-    assert isinstance(provider, MistralProvider)
+    assert isinstance(unwrap_provider(provider), MistralProvider)
 
 
 # ---------------------------------------------------------------------------

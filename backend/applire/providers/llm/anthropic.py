@@ -50,6 +50,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated
+from applire.providers.llm.usage import note_usage
 
 _retry = retry(
     retry=retry_if_exception_type(anthropic.RateLimitError),
@@ -159,6 +160,7 @@ class AnthropicProvider(LLMProvider):
         t0 = time.monotonic()
         response = await self._client.messages.create(**kwargs)
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         usage = getattr(response, "usage", None)
         logger.info(
             "LLM response [anthropic] model=%s latency=%.2fs input_tokens=%s output_tokens=%s",

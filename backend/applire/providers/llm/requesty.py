@@ -52,6 +52,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://router.eu.requesty.ai/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -245,6 +246,7 @@ class RequestyProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         usage = response.usage
         logger.info(
             "LLM response [acomplete] model=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s",
@@ -270,6 +272,7 @@ class RequestyProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         usage = response.usage
         logger.info(
             "LLM response [aparse_json] model=%s latency=%.2fs prompt_tokens=%s completion_tokens=%s",

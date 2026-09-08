@@ -51,6 +51,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -259,6 +260,7 @@ class OpenRouterProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage
@@ -293,6 +295,7 @@ class OpenRouterProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage

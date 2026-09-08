@@ -27,6 +27,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.providers.llm.usage import note_usage
 
 
 def _completion_text(data: dict, *, model: str) -> str:
@@ -152,6 +153,7 @@ class OllamaProvider(LLMProvider):
             )
             response.raise_for_status()
         data = response.json()
+        note_usage(data)  # ADR-086 clause 7 — token accounting seam
         raise_if_truncated(data.get("done_reason"), model=self._model)
         return _completion_text(data, model=self._model)
 
@@ -170,6 +172,7 @@ class OllamaProvider(LLMProvider):
             )
             response.raise_for_status()
         data = response.json()
+        note_usage(data)  # ADR-086 clause 7 — token accounting seam
         raise_if_truncated(data.get("done_reason"), model=self._model)
         return _completion_text(data, model=self._model)
 
