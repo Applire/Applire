@@ -42,6 +42,78 @@ A model at or above this floor will run every Applire flow comfortably:
   (most OpenRouter models, OpenAI/Anthropic) give the cleanest results; reasoning-mandatory
   models are handled automatically but spend more tokens.
 
+## Which models work — measured (2026-09-08)
+
+The capability floor above is a *specification*. This section is a **measurement**: the
+same interview turn, replayed on each model, counted. It exists because a model can meet
+every stated requirement — big context, JSON mode, bounded reasoning — and still quietly
+drop what you told Applire about yourself.
+
+> **This does not introduce a default model.** Applire ships no recommendation and
+> privileges no provider; the table says what was measured, and the choice stays yours.
+
+### What is measured, and why this seam
+
+The **reconcile seam** — the single LLM call (ADR-046) that turns one interview answer
+into a batch of typed operations against your vault. It is the sharpest test in the
+product for three reasons: it is a *write* path (a mistake changes your stored profile,
+not a document you can regenerate), it demands a large structured output against a
+14-rule prompt, and its failures are **silent** — an empty operation batch looks exactly
+like "nothing new in that answer".
+
+Each measured turn feeds the model a synthetic vault plus one gap answer that names three
+different employers, and reads back what it emitted. Four failure classes are counted:
+
+| Rate | What went wrong | Why it matters |
+|---|---|---|
+| **zero-op** | the model returned no operations at all | your answer is gone, with nothing on screen to say so |
+| **malformed-op** | it emitted an operation the schema rejects | the same loss one layer down; Applire logs a warning and drops it |
+| **wrong-slot** | a fact landed on a different employer than the one the answer named | your CV would credit the wrong job |
+| **error** | the call failed (timeout, unparseable output, truncation) | visible and retried, so the least severe |
+
+### The bar *(proposed — pending sign-off)*
+
+Rates are measured per input shape; the **worst** shape decides the model's verdict.
+
+| Verdict | Meaning |
+|---|---|
+| **qualified** | every shape clean: no lost turn, no malformed operation, no wrong slot |
+| **usable, with caveats** | losses occurred but stayed under every bar below |
+| **sub-par** | any bar crossed on any shape |
+
+Bars: **zero-op > 5 %** · **malformed-op > 10 %** · **wrong-slot > 10 %** · **error > 10 %**.
+
+zero-op carries the tightest bar because it is the one failure the product cannot show you.
+
+### Results
+
+<!-- Rows are filled from a real run of scripts/model_matrix.py; never from a datasheet,
+     a benchmark score, or a reputation. An unmeasured model has no row. -->
+
+| Model | Provider | n | shapes | zero-op | malformed | wrong-slot | error | Verdict | Cost/run | Measured |
+|---|---|---|---|---|---|---|---|---|---|---|
+| _(pending — first run 2026-09-08)_ | | | | | | | | | | |
+
+### Reproduce it yourself
+
+The harness is in the repository and opt-in — it never runs in CI, and it needs your own
+API key:
+
+```bash
+# what the model is asked to read, without spending anything
+PYTHONPATH=backend python3 scripts/model_matrix.py --dry-run
+
+# measure one model (this spends real credit on your key)
+PYTHONPATH=backend python3 scripts/model_matrix.py \
+  --provider openrouter --model <model-id> --n 10 --shapes S6,S7,S8 \
+  --out matrix.jsonl
+```
+
+Inputs are synthetic and committed (`tests/files/model_matrix/`), so two runs of the same
+model on the same fixtures are comparable. The numbers describe *these* shapes on *this*
+seam at the date given — a model that fails here may be perfectly good elsewhere, and
+model behaviour changes under the same name over time.
+
 ## Models to watch: forced ("mandatory") reasoning
 
 A few models — mostly seen on OpenRouter — are *forced* to "think" before every answer, and
