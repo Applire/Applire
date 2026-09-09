@@ -101,8 +101,21 @@ def _inside_json_string(text: str, pos: int) -> bool:
     nuisance the debug-log WARNING still surfaces), never a corrupted vault
     write.
     """
+    # A JSON string can only be open once the payload has begun: count from the
+    # first `{`/`[`, never from the start of the completion. A bare trace that
+    # PRECEDES the payload ("orphan-close", or a paired span in front of it)
+    # may contain any number of quotes — an odd count there would otherwise
+    # read as "inside a string", keep the trace, and hand `json.loads` the
+    # trace as its input: the silent lost turn this module exists to prevent
+    # (main-session refinement of the 2026-09-10 adversarial guard).
+    starts = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    if not starts:
+        return False
+    start = min(starts)
+    if pos <= start:
+        return False
     count = 0
-    i = 0
+    i = start
     while i < pos:
         ch = text[i]
         if ch == "\\":

@@ -205,6 +205,33 @@ def _openai_shaped(prompt: int, completion: int, reasoning: int | None):
     )
 
 
+def test_a_bare_trace_with_an_odd_number_of_quotes_before_the_payload_is_still_stripped():
+    """The JSON-string guard must not read a trace's own quotes as JSON.
+
+    A bare (orphan-close) trace precedes the payload and can quote anything —
+    here an odd number of `"` characters. Parity counted from the start of the
+    completion would call the closing tag "inside a string", keep the trace,
+    and hand `json.loads` prose. Parity counted from the payload's first
+    bracket cannot: nothing before it is JSON.
+
+    MUTATION KILL: count from index 0 instead of the first `{`/`[` and this
+    fails with the trace still in front of the payload.
+    """
+    trace = 'the candidate said "no" to insulin, and "15 years' + " at three places…</think>\n"
+    raw = trace + _JSON
+    answer, got_trace = split_reasoning(raw)
+    assert answer == _JSON
+    assert got_trace.startswith("the candidate said")
+    assert json.loads(answer)
+
+
+def test_a_leading_paired_trace_with_an_odd_number_of_quotes_is_still_stripped():
+    raw = '<think>one " stray quote</think>' + _JSON
+    answer, got_trace = split_reasoning(raw)
+    assert answer == _JSON
+    assert "stray quote" in got_trace
+
+
 def test_openrouter_and_requesty_report_the_split():
     assert extract_reasoning_tokens(_openai_shaped(1000, 4000, 3200)) == 3200
 
