@@ -112,6 +112,12 @@ _USAGE_RE = re.compile(
     r"LLM response \[(?P<method>\w+)\] model=(?P<model>\S+) latency=(?P<latency>[\d.]+)s "
     r"prompt_tokens=(?P<prompt>\S+) completion_tokens=(?P<completion>\S+)"
 )
+# The provider's structured-output fallback WARNING. Without this the harness
+# would swallow it: `install_log_readers` sets `applire.providers.llm` to
+# `propagate=False`, so a row could say `llm_structured_output: auto` while every
+# call after the first ran on plain JSON mode — the same class of instrument
+# defect as the one that hid `provider.aparse_json failed` on the first matrix.
+_SCHEMA_REJECT_RE = re.compile(r"rejected the response json_schema")
 # engine.py's #602 WARNING — the only place the REJECTED op's payload survives.
 # `ReconcileResult.rejected_ops` carries the op's label and nothing else, so
 # without this the matrix could say "12 malformed ops" and never say which field
@@ -127,6 +133,9 @@ _usage_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.C
 _reject_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
     "model_matrix_reject_sink", default=None
 )
+# Process-wide, not per-task: the provider latches the rejection once for the
+# whole process, so the fact belongs to the RUN, not to the turn that hit it.
+_schema_rejections: list[str] = []
 
 
 # --------------------------------------------------------------------------- #
@@ -247,6 +256,9 @@ class _LogReader(logging.Handler):
                         "completion_tokens": _num(usage.group("completion")),
                     }
                 )
+            return
+        if _SCHEMA_REJECT_RE.search(message):
+            _schema_rejections.append(message[:300])
             return
         reject = _REJECT_RE.search(message)
         if reject:
@@ -1009,6 +1021,11 @@ def main(argv: list[str] | None = None) -> int:
         # behaviour are recorded with it. Never a key — only names and values
         # that are already public settings.
         "settings": settings_snapshot(),
+        # Whether the endpoint actually TOOK the schema. `llm_structured_output:
+        # auto` records what was ASKED for; this records what happened, so a row
+        # cannot claim a schema arm it silently fell out of.
+        "schema_rejected": bool(_schema_rejections),
+        "schema_rejection_note": _schema_rejections[0] if _schema_rejections else None,
     }
     cost = token_cost(summary["usage"], args.price_in, args.price_out) or {}
     credits_after = (

@@ -532,3 +532,30 @@ def test_usage_handler_reads_the_providers_own_token_line():
         mm._usage_sink.reset(token)
     assert [(u["prompt_tokens"], u["completion_tokens"]) for u in sink] == [(4321, 876), (10, 20)]
     assert sink[0]["model"] == "z-ai/glm-5.3-flash"
+
+
+def test_a_swallowed_schema_rejection_is_recorded_on_the_summary():
+    """The harness silences `applire.providers.llm` (propagate=False), so the
+    provider's structured-output fallback WARNING would vanish — and a row could
+    say `llm_structured_output: auto` while every call after the first ran on
+    plain JSON mode. Same instrument-defect class that hid
+    `provider.aparse_json failed` on the first matrix.
+
+    MUTATION KILL: remove the `_SCHEMA_REJECT_RE` branch from `_LogReader.emit`
+    and the recorded list stays empty.
+    """
+    import logging
+
+    mm._schema_rejections.clear()
+    reader = mm._LogReader()
+    reader.emit(
+        logging.LogRecord(
+            "applire.providers.llm.openrouter", logging.WARNING, __file__, 1,
+            "model=%s rejected the response json_schema; falling back to plain "
+            "JSON mode for this process (%s)",
+            ("some/model", "400"), None,
+        )
+    )
+    assert mm._schema_rejections, "the fallback WARNING was swallowed"
+    assert "rejected the response json_schema" in mm._schema_rejections[0]
+    mm._schema_rejections.clear()
