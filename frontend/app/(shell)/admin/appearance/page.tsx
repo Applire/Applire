@@ -19,6 +19,7 @@
 
 
 import { useTranslations } from "next-intl";
+import { OperatorPanel } from "@/components/admin/operator-panel";
 import { SchemeEditor } from "@/components/admin/scheme-editor";
 import { ThemePreview } from "@/components/admin/theme-preview";
 import { AppTopbar } from "@/components/shell/AppTopbar";
@@ -34,6 +35,12 @@ export default function AppearancePage() {
         pageTitle={t("appearanceTitle")}
       />
       <main className="flex-1 px-6 py-6 overflow-y-auto">
+        {/* E060/US312 — the operator's instance facts (founder ruling O1-4:
+            the admin page, not the dashboard). One quiet line while the
+            instance is fine; expanded the moment anything is not. */}
+        <div className="max-w-6xl mx-auto mb-5">
+          <OperatorPanel />
+        </div>
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-5">
           <SchemeEditor />
           <ThemePreview />

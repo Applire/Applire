@@ -16,6 +16,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - **The instance says what an upgrade changed, and what you can configure (#687, US310).** Every environment variable the backend reads is declared once in `backend/applire/settings_registry.py` — the 39 typed settings, the 29 that `constants.py` read directly (all five GDPR retention TTLs among them, which `.env.example` never mentioned), and the deployment variables — each with its default, the release it appeared in, and the release its *meaning* changed in. `.env.example` is now **generated** from that registry and a unit test fails when the two drift, so the shipped template can no longer contradict the code the way `MISTRAL_MODEL` did. A second test asserts declared == read in both directions: a new variable costs a registry entry or the suite is red. After an upgrade the backend compares the release that last ran against the running one and names two things — settings introduced since then that your environment does not set, and settings you *do* set whose meaning changed — as a WARNING block on the log, as `upgrade_notice` on `GET /health`, and as a dismissable notice on the dashboard. Dismissing records the running version as seen. New table `instance_state` (Alembic 0062) holds those facts about the installation. `GET /health` also gains `debug_log_on` and `topology`; its four original fields are unchanged, because the compose healthcheck and every uptime probe read them.
 - **Backup and restore, documented and scripted (US314).** New [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md): the two compose topologies and how to tell them apart, backup, verify, restore, secrets, TLS, disk and pruning, upgrading, and troubleshooting. `scripts/backup.sh` archives the database **and** the `applire_uploads` volume in one file — a backup with only one of them is not a backup — records the timestamp in `instance_state`, and `--verify` checks an archive without restoring it (both volumes present, `pg_restore --list` runs, size > 0). `scripts/restore.sh` verifies the archive first, refuses a database that already has tables unless you pass `--force`, and never runs `down -v`. The restore was exercised once end to end on the production compose topology before this shipped. The `down -v` warning now stands where operators actually look: both READMEs' update section, the runbook, the `docker-compose.yml` header and `docs/CI_CD_GUIDE.md`.
+- **The instance says whether it is healthy, and what it costs (E060 / US312 #145, US313; ADR-086).**
+  A self-hosted Applire had no operator-side monitoring at all: `GET /health` returned four static
+  fields and answered "ok" with Postgres gone, the GDPR retention worker printed a JSON report to
+  stdout that nothing read, a provider 402 was once misdiagnosed as latency for hours, and no token
+  was ever counted. New: **`GET /api/ops/health`** aggregates seven probes — database, migration
+  head, retention last-run age plus a deletion-count anomaly check, free disk, last backup age,
+  provider reachability and credit, and a rolling error count — behind one verdict, with the verdict
+  in the HTTP status (200 ok/degraded, 503 down) so an external uptime probe can alert without
+  parsing. `GET /health` keeps its four fields byte-for-byte and gains a cached `ops` summary. The
+  retention worker now writes a `retention_runs` row per run (the same JSON it still prints), which
+  is what makes "the worker has not run for 51 hours" visible at all. Every provider call records its
+  token counts in `llm_usage` — numbers and ids only, never prompt or answer text, kept 365 days —
+  aggregated per day, per document and per application; counts a provider does not report are
+  estimated and **labelled** as estimated. The admin page shows the same facts as one quiet line
+  while the instance is fine. The provider check is configurable
+  (`OPS_PROVIDER_PROBE` = `off` / `reachability` / `credit` / `both`) because a credit check makes no
+  sense for a local Ollama. Alembic 0063.
 - **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
 
 ### Removed

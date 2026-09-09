@@ -45,6 +45,7 @@ def _openai_response(content: str) -> MagicMock:
 def test_factory_returns_requesty_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.requesty import RequestyProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "requesty")
@@ -54,7 +55,7 @@ def test_factory_returns_requesty_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "requesty_base_url", "")
     with patch("openai.AsyncOpenAI"):
         provider = get_provider()
-    assert isinstance(provider, RequestyProvider)
+    assert isinstance(unwrap_provider(provider), RequestyProvider)
 
 
 def test_requesty_defaults_to_eu_base_url(monkeypatch):
@@ -302,6 +303,7 @@ def _anthropic_response(text: str) -> MagicMock:
 def test_factory_returns_anthropic_provider(monkeypatch):
     import applire.config as cfg
     from applire.providers import get_provider
+    from applire.providers.llm import unwrap_provider
     from applire.providers.llm.anthropic import AnthropicProvider
 
     monkeypatch.setattr(cfg.settings, "llm_provider", "anthropic")
@@ -310,7 +312,7 @@ def test_factory_returns_anthropic_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "anthropic_model", "claude-sonnet-4-6")
     with patch("anthropic.AsyncAnthropic"):
         provider = get_provider()
-    assert isinstance(provider, AnthropicProvider)
+    assert isinstance(unwrap_provider(provider), AnthropicProvider)
 
 
 @pytest.mark.asyncio

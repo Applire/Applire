@@ -1554,5 +1554,60 @@
     "moreInfo": "What changed is in the CHANGELOG under “Upgrade notes” and in docs/SELF-HOSTING.md.",
     "debugLogOn": "The LLM debug log is on: every prompt, CV data included, is written to files inside the container, with no size or age cap. Turn it off in production (LLM_DEBUG_LOG=false) and delete the files.",
     "dismissAria": "Dismiss notice"
+  },
+  "ops": {
+    "title": "Instance",
+    "summaryOk": "Everything is fine",
+    "summaryDegraded": "{count, plural, =1 {1 thing to check} other {# things to check}}",
+    "summaryDown": "{count, plural, =1 {1 problem} other {# problems}}",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "checkedAt": "Last checked: {time, date, short}, {time, time, medium}",
+    "unavailable": "The instance status cannot be read right now.",
+    "component": {
+      "database": "Database",
+      "migrations": "Database schema",
+      "retention": "Cleanup run",
+      "disk": "Disk space",
+      "backup": "Backup",
+      "provider": "AI provider",
+      "errors": "Errors"
+    },
+    "status": {
+      "ok": "fine",
+      "degraded": "needs a look",
+      "down": "down",
+      "unknown": "unknown"
+    },
+    "diskFree": "{percent} % free ({free} of {total})",
+    "retentionLastRun": "Last ran {hours} h ago",
+    "retentionNever": "Has never run",
+    "backupAge": "Last backup {days} days ago",
+    "backupNever": "No backup yet — set up scripts/backup.sh",
+    "providerReach": {
+      "ok": "reachable",
+      "unauthorised": "refused (key or credit)",
+      "unreachable": "not reachable",
+      "rate_limited": "rate-limited",
+      "unknown": "not checked yet"
+    },
+    "credit": {
+      "ok": "credit available",
+      "low": "credit nearly used up",
+      "unknown": "credit not checked",
+      "na": "This provider reports no balance"
+    },
+    "errorsInWindow": "{count} in the last {minutes} minutes",
+    "migrationsBehind": "The database is on an older schema — restart the backend",
+    "tokens": {
+      "heading": "Usage",
+      "today": "Today",
+      "window": "Last {days} days",
+      "value": "{tokens, number} tokens across {calls} calls",
+      "estimated": "Includes estimates ({count} calls) — this provider does not report token counts.",
+      "none": "No usage recorded yet.",
+      "byDocument": "Most expensive documents",
+      "byApplication": "Most expensive applications"
+    }
   }
 }

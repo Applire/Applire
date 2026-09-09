@@ -33,6 +33,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.usage import note_usage
 
 
 def _is_rate_limit(exc: BaseException) -> bool:
@@ -156,6 +157,7 @@ class MistralProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
@@ -169,6 +171,7 @@ class MistralProvider(LLMProvider):
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
         )
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
         return response.choices[0].message.content
