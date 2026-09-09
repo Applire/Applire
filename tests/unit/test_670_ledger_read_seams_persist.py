@@ -242,43 +242,70 @@ async def test_seam_cv_generation_persists_the_refreshed_row(db):
 
 
 # ---------------------------------------------------------------------------
-# Seams 3 and 4 — the letter reads. NOT wired in this change; the hole is NAMED.
+# Seams 3 and 4 — the letter reads (RULING W1-4: all four wired)
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_seam_letter_ledger_read_persists_the_refreshed_row(db):
+    """The letter's ATS-report read — the CV twin, and it must not diverge from it:
+    two documents built from one ledger with only one of them writing it back is the
+    same defect this issue closes, wearing the other document's name."""
+    from applire.services.cover_letter import _latest_keyword_ledger
+
+    job_id, _pid, _cid, gap_id = await _seed(db, [dict(_STALE_GAP)])
+    returned = await _latest_keyword_ledger(db, job_id, profile_json=_profile())
+    assert _status(returned, "Kubernetes") == "direct"
+    row = await _row(db, gap_id)
+    assert _status(row.keyword_ledger, "Kubernetes") == "direct"
+
+
+@pytest.mark.asyncio
+async def test_seam_letter_generation_persists_the_refreshed_row(db):
+    """The letter's GENERATION read (`cover_letter.py:1085`). Driven through the helper
+    with the letter seam's own label rather than through `_render_letter_background`:
+    the letter chain needs an application, a CV and a company row to reach its ledger
+    read, and a fixture that heavy would test the chain rather than the seam. The call
+    site itself is covered by the enumeration test below, which is what makes reverting
+    it red."""
+    from applire.models.gap import GapAnalysis
+    from applire.services.keyword_ledger import refresh_persist_and_rescore
+
+    _job_id, _pid, _cid, gap_id = await _seed(db, [dict(_STALE_GAP)])
+    gap = await db.get(GapAnalysis, gap_id)
+    ledger = await refresh_persist_and_rescore(
+        gap, _profile(), db, seam="letter generation"
+    )
+    assert _status(ledger, "Kubernetes") == "direct"
+    row = await _row(db, gap_id)
+    assert _status(row.keyword_ledger, "Kubernetes") == "direct"
 
 
 def test_every_refresh_call_site_is_enumerated_and_its_persistence_named():
     """Prove the coverage by exhausting the POSITIVE set, not by counting what is
     covered (`feedback_prove_absence_by_exhausting_positive_set`).
 
-    ADR-048's amendment names FOUR document-facing read seams. `services/cover_letter.py`
-    is owned by no work package in this session, so its two seams ship as report patches
-    (OWNERSHIP-QUESTION W1-4) — and until they land, a letter can be generated against a
-    refreshed ledger the Gaps screen has not been told about. That is a HOLE, and this
-    test's job is to make it fail loudly the day someone believes it is closed.
+    ADR-048's amendment names FOUR document-facing read seams — two in `cv.py`, two in
+    `cover_letter.py`. All four persist as of RULING W1-4. A seam that reverts to the
+    read-only helper turns this red by file, which is the half a per-seam behavioural
+    test cannot give: `cover_letter.py`'s generation seam sits behind a chain fixture
+    too heavy to stand up here, so the call site is pinned structurally.
     """
     import re
 
     root = Path(__file__).parent.parent.parent / "backend" / "applire" / "services"
-    sites: dict[str, list[str]] = {}
-    for path in ("cv.py", "cover_letter.py"):
+    for path, expected in (("cv.py", 2), ("cover_letter.py", 2)):
         text = (root / path).read_text(encoding="utf-8")
-        sites[path] = re.findall(
-            r"(refresh_persist_and_rescore|refresh_ledger_against_vault)\(", text
+        calls = re.findall(
+            r"(?<!def )(refresh_persist_and_rescore|refresh_ledger_against_vault)\(", text
         )
-    cv_calls = [c for c in sites["cv.py"]]
-    letter_calls = [c for c in sites["cover_letter.py"]]
-
-    assert cv_calls.count("refresh_persist_and_rescore") == 2, (
-        f"the two CV read seams must both persist — found {cv_calls}"
-    )
-    assert "refresh_ledger_against_vault" not in cv_calls, (
-        "a CV seam still reads without persisting — the convergence is half-built"
-    )
-    assert letter_calls.count("refresh_ledger_against_vault") == 2, (
-        "the two LETTER read seams are the KNOWN HOLE (report patches, "
-        "OWNERSHIP-QUESTION W1-4). If they now persist, update this assertion to "
-        "expect `refresh_persist_and_rescore` — do not delete it."
-    )
+        assert calls.count("refresh_persist_and_rescore") == expected, (
+            f"{path}: expected {expected} PERSISTING read seams, found {calls}"
+        )
+        assert "refresh_ledger_against_vault" not in calls, (
+            f"{path}: a read seam still refreshes without persisting — the "
+            "convergence #670 rules on is half-built"
+        )
 
 
 # ---------------------------------------------------------------------------
