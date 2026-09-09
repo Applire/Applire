@@ -17,7 +17,8 @@ Everything here talks about the **production** topology (`docker-compose.yml` al
 9. [Disk and pruning](#9-disk-and-pruning)
 10. [Upgrading](#10-upgrading)
 11. [Troubleshooting](#11-troubleshooting)
-12. [What Applire does not do for you](#12-what-applire-does-not-do-for-you)
+12. [Monitoring from outside](#12-monitoring-from-outside)
+13. [What Applire does not do for you](#13-what-applire-does-not-do-for-you)
 
 ---
 
@@ -264,9 +265,30 @@ See [Section 2](#2-which-topology-am-i-running).
 
 You changed `POSTGRES_USER` (or `POSTGRES_PASSWORD`/`POSTGRES_DB`) against an **existing** volume — Postgres only reads those on first initialisation. See [Section 7](#7-secrets).
 
-## 12. What Applire does not do for you
+## 12. Monitoring from outside
+
+<!-- PLACEHOLDER — WP-O1 (US312, the ops layer) hands over the text for this section
+     at integration: the ops JSON contract that external probes may depend on
+     (RULING O1-3: external probes are a supported path), and the
+     OPS_PROVIDER_PROBE / OPS_PROVIDER_PROBE_INTERVAL_MINUTES /
+     LLM_USAGE_RETENTION_DAYS variables. Until that lands, what is true today: -->
+
+`GET /health` is the endpoint to poll, and four of its fields are a stable contract that
+will not change under you: `status`, `edition`, `version` and `llm_provider`. Point an
+uptime checker (Uptime Kuma, a cron `curl`, your hosting provider's monitor) at it and
+alert on anything other than HTTP 200 with `"status": "ok"`.
+
+Three further fields are additive and safe to read, but a client that does not know them
+should ignore them rather than fail: `upgrade_notice` (`null` when there is nothing to
+report — see [Section 10](#10-upgrading)), `debug_log_on`, and `topology`.
+
+```bash
+curl -fsS http://localhost/health | jq -e '.status == "ok"'
+```
+
+## 13. What Applire does not do for you
 
 - No automated off-host backup. `scripts/backup.sh` writes an archive; getting it off this machine (a NAS, object storage, another host) is on you.
-- No monitoring or alerting beyond `GET /health`. Point an uptime checker at it — four fields are stable and safe to depend on: `status`, `edition`, `version`, `llm_provider`.
+- No monitoring or alerting beyond `GET /health` ([Section 12](#12-monitoring-from-outside)). <!-- WP-O1: revise when the ops layer lands. --> Nothing pages you; nothing watches the disk for you.
 - No multi-user support (Section 1).
 - No built-in TLS (Section 8).

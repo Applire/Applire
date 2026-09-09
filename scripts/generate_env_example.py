@@ -76,7 +76,7 @@ _SECTION_BLURB = {
     "Database": "Database",
     "LLM provider": "LLM provider — bring your own key",
     "LLM behaviour": "LLM behaviour — timeouts, caps, diagnostics",
-    "Operations": "Operations — logging and topology",
+    "Operations": "Operations — logging, topology and instance behaviour",
     "Retention (GDPR)": "Retention — GDPR TTLs enforced by the retention worker (ADR-005)",
     "Storage and uploads": "Storage and uploads",
     "Network and access": "Network and access",

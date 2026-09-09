@@ -110,6 +110,13 @@ class Settings(BaseSettings):
     # the dev topology publishes :8001 (unauthenticated API) and :5433 (Postgres
     # with the default credentials) and today said so nowhere. Never set by hand.
     applire_topology: str = "production"
+    # Seconds after which an unattended in-app notice pop-up hides itself; 0 = never
+    # (founder ruling V-1, 2026-09-09). The candidate's pending-decision pop-up on the
+    # gaps page reads it. Served read-only on GET /api/settings as
+    # `notice_auto_dismiss_seconds` — it is an INSTANCE setting, not a user preference,
+    # so PATCH does not accept it: an operator who needs a longer read (accessibility,
+    # a shared screen) sets it in the environment for the whole instance.
+    notice_auto_dismiss_seconds: int = 30
     # Interview question-count budget (issue #259 / PO: "if the ceiling is a
     # bottleneck, it's artificial"). This is now a COST GUARD, not the primary
     # termination driver: the interview ends on sufficiency (every JD-critical

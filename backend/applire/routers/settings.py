@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.config import settings
 from applire.db.session import get_db
 from applire.services.color_detection import _CE_STUB_USER_ID, derive_tint
 
@@ -54,6 +55,13 @@ class SettingsResponse(BaseModel):
     # #679 (US309): ids of the first-use explainers this user dismissed.
     # Write order; empty when nothing was dismissed. Never null.
     dismissed_explainers: list[str] = []
+    # Founder ruling V-1 (2026-09-09): seconds before an unattended in-app notice
+    # pop-up hides itself; 0 = never. READ-ONLY here on purpose — it is an
+    # INSTANCE setting (`NOTICE_AUTO_DISMISS_SECONDS`, ADR-087's registry), not a
+    # user preference, so it is absent from SettingsPatchRequest and a client
+    # cannot write it. Served on this payload rather than on a new endpoint
+    # because the frontend already fetches this one on every page.
+    notice_auto_dismiss_seconds: int = 30
 
 
 # #679 (US309) — the allowlist of first-use explainer ids a client may dismiss.
@@ -312,6 +320,7 @@ async def api_get_settings(
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SettingsResponse:
     result = await get_settings(db)
+    result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
     return SettingsResponse(**result)
 
 
@@ -339,6 +348,7 @@ async def api_patch_settings(
             review_mode=body.review_mode,
             dismiss_explainer=body.dismiss_explainer,
         )
+        result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
         return SettingsResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

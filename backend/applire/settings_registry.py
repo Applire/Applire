@@ -716,6 +716,19 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="NOTICE_AUTO_DISMISS_SECONDS",
+            source="config",
+            default="30",
+            section="Operations",
+            introduced_in="0.42.0",
+            description=(
+                "Seconds after which an unattended in-app notice pop-up hides itself.\n"
+                "0 = never; the reader closes it. Raise it for a shared screen or for "
+                "anyone who needs longer to read — it applies to the whole instance, not "
+                "per user, and is served read-only on GET /api/settings."
+            ),
+        ),
+        SettingEntry(
             env_var="APPLIRE_TOPOLOGY",
             source="config",
             default="production",

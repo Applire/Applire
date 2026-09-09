@@ -30,6 +30,7 @@ New and re-meant environment variables in this release. Nothing here requires ac
 | `POSTGRES_USER` | `applire` | Database user; the compose file feeds it to postgres and to `DATABASE_URL`. | optional |
 | `POSTGRES_PASSWORD` | `applire` | Database password. Set it on any host where the database port could be reachable. PostgreSQL reads it only when the data volume is first created — see `docs/SELF-HOSTING.md` §Secrets before changing it on an existing install. | optional |
 | `POSTGRES_DB` | `applire` | Database name. | optional |
+| `NOTICE_AUTO_DISMISS_SECONDS` | `30` | Seconds before an unattended in-app notice pop-up hides itself; `0` = never. Instance-wide, served read-only on `GET /api/settings` as `notice_auto_dismiss_seconds`. | optional |
 | `APPLIRE_TOPOLOGY` | `production` | Which compose topology this instance runs. Set by `docker-compose.override.yml` to `dev`, never by hand; surfaced as a startup WARNING and on `GET /health`. | do not set |
 | *(WP-O1's `LLM_USAGE_RETENTION_DAYS` and `OPS_*` variables are added here at integration — placeholder, replace with O1's report patch)* | | | |
 

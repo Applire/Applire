@@ -172,3 +172,43 @@ def test_both_scripts_fail_loudly_rather_than_reporting_a_partial_backup():
     """`set -euo pipefail` is the difference between a backup and a hope."""
     for path in (_BACKUP_SH, _RESTORE_SH):
         assert "set -euo pipefail" in path.read_text(encoding="utf-8"), path.name
+
+
+# --------------------------------------------------------------------------
+# 4. NOTICE_AUTO_DISMISS_SECONDS — an INSTANCE setting on a USER payload
+#    (founder ruling V-1, 2026-09-09)
+# --------------------------------------------------------------------------
+
+
+def test_notice_auto_dismiss_is_served_read_only_on_the_settings_payload():
+    """It rides the user-settings payload but is not a user setting.
+
+    The frontend already fetches `GET /api/settings` on every page, so a new
+    endpoint would have been a second round trip for one integer. The risk that
+    buys is that a client PATCHes it and believes it was saved: the value lives
+    in the environment, so a write would be silently discarded. It is therefore
+    present on the response model and deliberately ABSENT from the patch model —
+    a PATCH carrying it is rejected by Pydantic rather than ignored.
+    """
+    from applire.routers.settings import SettingsPatchRequest, SettingsResponse
+
+    assert "notice_auto_dismiss_seconds" in SettingsResponse.model_fields
+    assert "notice_auto_dismiss_seconds" not in SettingsPatchRequest.model_fields
+
+
+def test_notice_auto_dismiss_response_key_matches_the_declared_env_var():
+    """The response key and the registry entry must not drift apart.
+
+    V's pop-up reads `notice_auto_dismiss_seconds`; the operator sets
+    `NOTICE_AUTO_DISMISS_SECONDS`. Renaming either half without the other leaves
+    the pop-up on its hard-coded default with nothing failing.
+    """
+    from applire.config import Settings
+    from applire.routers.settings import SettingsResponse
+    from applire.settings_registry import get as registry_get
+
+    entry = registry_get("NOTICE_AUTO_DISMISS_SECONDS")
+    assert entry is not None, "NOTICE_AUTO_DISMISS_SECONDS is not in the registry"
+    assert entry.name in Settings.model_fields
+    assert entry.name in SettingsResponse.model_fields
+    assert entry.default == str(Settings.model_fields[entry.name].default)
