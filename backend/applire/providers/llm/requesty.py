@@ -52,6 +52,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://router.eu.requesty.ai/v1"
@@ -256,7 +257,10 @@ class RequestyProvider(LLMProvider):
         )
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
-        return response.choices[0].message.content
+        return finalise_completion(
+            response, response.choices[0].message.content,
+            model=self._model, method="acomplete",
+        )
 
     @_retry
     async def _parse_json(
@@ -282,7 +286,10 @@ class RequestyProvider(LLMProvider):
         )
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
-        return response.choices[0].message.content
+        return finalise_completion(
+            response, response.choices[0].message.content,
+            model=self._model, method="aparse_json",
+        )
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

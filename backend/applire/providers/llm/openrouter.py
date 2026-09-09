@@ -51,6 +51,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -274,7 +275,9 @@ class OpenRouterProvider(LLMProvider):
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
-        return content
+        return finalise_completion(
+            response, content, model=self._model, method="acomplete"
+        )
 
     @_retry
     async def _parse_json(
@@ -309,7 +312,9 @@ class OpenRouterProvider(LLMProvider):
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
-        return content
+        return finalise_completion(
+            response, content, model=self._model, method="aparse_json"
+        )
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

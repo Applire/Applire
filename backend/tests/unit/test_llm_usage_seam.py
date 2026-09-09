@@ -329,6 +329,8 @@ def test_llm_usage_has_no_text_column():
         "method",
         "prompt_tokens",
         "completion_tokens",
+        # M-4: a SUBSET of completion_tokens, still a number, still no text.
+        "reasoning_tokens",
         "total_tokens",
         "estimated",
         "document_kind",

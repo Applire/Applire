@@ -27,6 +27,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
 
 
@@ -42,7 +43,14 @@ def _completion_text(data: dict, *, model: str) -> str:
             f"{model or 'Ollama'} returned no completion (malformed response). "
             "Retry the same request."
         )
-    return content
+    # Ollama's declared reasoning channel (`think: true` models) is a sibling
+    # key, so it never reached the parser — but the same models fall back to an
+    # inline <think> span when the option is off, and that one does. Hand the
+    # declared trace to the debug log and strip the inline one (M-4).
+    thinking = message.get("thinking") if isinstance(message, dict) else None
+    if isinstance(thinking, str) and thinking:
+        note_trace(thinking)
+    return finalise_completion(data, content, model=model, method="ollama")
 
 _CONNECT_TIMEOUT = 5.0   # fail fast if Ollama is not running
 
