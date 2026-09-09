@@ -109,7 +109,13 @@ function factLine(name: ComponentName, c: ComponentReport, t: Translator): strin
     case "provider": {
       const reachability = (d.reachability as string) ?? "unknown";
       const credit = (d.credit as string) ?? "unknown";
-      return `${t(`providerReach.${reachability}`)} · ${t(`credit.${credit}`)}`;
+      // The model id is published (founder ruling O1-2): it is what lets the
+      // operator match their instance against docs/llm-models.md's list. Not a
+      // translatable string — an identifier, shown verbatim.
+      const model = (d.model as string) ?? "";
+      return [t(`providerReach.${reachability}`), t(`credit.${credit}`), model]
+        .filter(Boolean)
+        .join(" · ");
     }
     case "errors": {
       const counts = (d.counts as Record<string, number>) ?? {};

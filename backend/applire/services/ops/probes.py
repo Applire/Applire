@@ -405,10 +405,14 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     credit, credit_detail = await _probe_credit(family)
     detail: dict[str, Any] = {
         "provider": family,
+        # The configured model id IS published (ADR-086 clause 4, founder ruling
+        # O1-2, 2026-09-09). ADR-085 clause 3 keeps the model id OFF the PDF
+        # mark for a different reason: that artefact is handed to a third party.
+        # This one is the operator's own instance, and the model id is what lets
+        # them check their model against US311's published list.
+        "model": _configured_model(family),
         "reachability": reachability,
         "credit": credit,
-        # No model id here — ADR-086 clause 4 keeps it off the unauthenticated
-        # surface, the same line ADR-085 clause 3 drew for the PDF mark.
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
     detail.update(credit_detail)
@@ -428,6 +432,19 @@ async def probe_provider(force: bool = False) -> ProbeResult:
         result,
     )
     return result
+
+
+def _configured_model(family: str) -> str:
+    """The model id the operator configured, for the family in use.
+
+    Published on the ops payload by founder ruling O1-2: the operator needs it
+    to match their instance against US311's published "which models work" list,
+    and a later flavour may flag a sub-par model on the panel directly. It is
+    deployment configuration, not user data.
+    """
+    from applire.config import settings
+
+    return str(getattr(settings, f"{family}_model", "") or "")
 
 
 async def _probe_reachability() -> tuple[str, str]:

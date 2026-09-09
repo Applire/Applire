@@ -55,6 +55,7 @@ const HEALTHY = {
       message: "",
       detail: {
         provider: "openrouter",
+        model: "openai/gpt-5.6-luna",
         reachability: "ok",
         credit: "ok",
         credit_remaining: 25.4,
@@ -172,6 +173,16 @@ test.describe("Operator panel", () => {
     await mount(page, degraded());
     await expect(page.getByTestId("operator-panel-row-provider")).toContainText(
       "This provider reports no balance"
+    );
+  });
+
+  test("the provider row names the configured model id", async ({ page }) => {
+    // Founder ruling O1-2 (2026-09-09): the model id is published so the
+    // operator can match their instance against docs/llm-models.md's list.
+    await mount(page, HEALTHY);
+    await page.getByTestId("operator-panel-toggle").click();
+    await expect(page.getByTestId("operator-panel-row-provider")).toContainText(
+      "openai/gpt-5.6-luna"
     );
   });
 

@@ -148,7 +148,6 @@ async def test_the_payload_discloses_nothing_forbidden(client, monkeypatch):
         "upload_dir": "/sentinel/upload/path",
         "openrouter_base_url": "https://sentinel-base-url.example",
         "ollama_base_url": "http://sentinelhost:11434",
-        "mistral_model": "SENTINELMODELNAME",
         "applire_base_url": "http://sentinelhost:8001",
     }
     for field, value in sentinels.items():
@@ -191,6 +190,25 @@ async def test_the_payload_does_name_the_provider_family_and_version(client, mon
     assert body["llm_provider"] == "openrouter"
     assert body["version"]
     assert body["edition"] in ("community", "cloud")
+
+
+@pytest.mark.asyncio
+async def test_the_payload_names_the_configured_model_id(client, monkeypatch):
+    """Founder ruling O1-2 (2026-09-09) — the model id IS published.
+
+    It is what lets the operator match their instance against US311's published
+    "which models work" list. ADR-085 clause 3 keeps the model id off the PDF
+    mark for the opposite reason: that artefact is handed to a third party;
+    this one is the operator's own instance.
+    """
+    import applire.config as cfg
+    from applire.services.ops import probes as probe_module
+
+    monkeypatch.setattr(cfg.settings, "llm_provider", "openrouter")
+    monkeypatch.setattr(cfg.settings, "openrouter_model", "vendor/some-model-9")
+    probe_module.reset_provider_cache()
+    body = (await client.get("/api/ops/health")).json()
+    assert body["components"]["provider"]["detail"]["model"] == "vendor/some-model-9"
 
 
 @pytest.mark.asyncio
@@ -244,3 +262,47 @@ async def test_a_verdict_change_logs_a_warning(client, monkeypatch, caplog):
         "instance health" in record.message or "instance health" in record.getMessage()
         for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_the_background_refresher_starts_stops_and_fills_the_cache(monkeypatch):
+    """ADR-086 clause 9's push half must not wait for a page load.
+
+    `Personas/Operator.md` Step 5: after hand-over the operator is not watching,
+    so the verdict — and the WARNING that follows a change — has to be computed
+    on a timer, not by a request.
+    """
+    import asyncio
+
+    from applire.services.ops import aggregate as agg
+    from applire.services.ops import config as ops_config
+
+    aggregate.reset_state()
+    calls = {"n": 0}
+
+    async def _fake_collect(_db):
+        calls["n"] += 1
+        agg._remember("ok", {"status": "ok", "components": {}})
+        return {"status": "ok"}
+
+    class _Session:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(agg, "collect", _fake_collect)
+    monkeypatch.setattr("applire.db.session.AsyncSessionLocal", lambda: _Session())
+    monkeypatch.setattr(ops_config, "OPS_REFRESH_SECONDS", 1)
+
+    agg.start_ops_refresh()
+    agg.start_ops_refresh()  # idempotent — a second lifespan call must not double up
+    await asyncio.sleep(0.2)
+    assert calls["n"] >= 1
+    assert agg.cached_summary()["status"] == "ok"
+    await agg.stop_ops_refresh()
+    settled = calls["n"]
+    await asyncio.sleep(0.2)
+    assert calls["n"] == settled  # cancelled, not merely detached
+    aggregate.reset_state()
