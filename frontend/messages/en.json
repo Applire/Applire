@@ -1582,7 +1582,8 @@
     "credit": {
       "ok": "credit available",
       "low": "credit nearly used up",
-      "unknown": "This provider reports no balance"
+      "unknown": "credit not checked",
+      "na": "This provider reports no balance"
     },
     "errorsInWindow": "{count} in the last {minutes} minutes",
     "migrationsBehind": "The database is on an older schema — restart the backend",

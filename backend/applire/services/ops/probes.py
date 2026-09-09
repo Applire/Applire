@@ -380,7 +380,7 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     """Is the configured provider reachable, and is there credit left?
 
     **The only probe that spends money.** Cached for
-    ``OPS_PROVIDER_PROBE_TTL_MINUTES`` and never triggered synchronously by a
+    ``OPS_PROVIDER_PROBE_INTERVAL_MINUTES`` and never triggered synchronously by a
     request — the endpoint reads whatever the background refresher last left
     here, so an unauthenticated caller can neither spend the operator's credit
     nor use the endpoint as an amplifier (``SF-OPS.6``).
@@ -398,10 +398,18 @@ async def probe_provider(force: bool = False) -> ProbeResult:
             "provider",
             UNKNOWN,
             "provider probe switched off",
-            {"provider": family, "reachability": "unknown", "credit": "unknown"},
+            {
+                "provider": family,
+                "model": _configured_model(family),
+                "reachability": "unknown",
+                "credit": "n/a" if family not in _CREDIT_READERS else "unknown",
+            },
         )
 
-    reachability, message = await _probe_reachability()
+    if ops_config.reachability_probe_enabled():
+        reachability, message = await _probe_reachability()
+    else:
+        reachability, message = "unknown", ""
     credit, credit_detail = await _probe_credit(family)
     detail: dict[str, Any] = {
         "provider": family,
@@ -428,7 +436,7 @@ async def probe_provider(force: bool = False) -> ProbeResult:
 
     result = ProbeResult("provider", status, message, detail)
     _provider_cache = (
-        now + ops_config.OPS_PROVIDER_PROBE_TTL_MINUTES * 60,
+        now + ops_config.OPS_PROVIDER_PROBE_INTERVAL_MINUTES * 60,
         result,
     )
     return result
@@ -505,9 +513,20 @@ _CREDIT_READERS: dict[str, str] = {
 
 
 async def _probe_credit(family: str) -> tuple[str, dict[str, Any]]:
+    """`ok` | `low` | `n/a` | `unknown` (founder ruling O1-6, 2026-09-09).
+
+    `n/a` and `unknown` are deliberately different states. **`n/a`** means the
+    question does not apply — Ollama and any OpenAI-compatible endpoint have no
+    balance at all, and reporting "unknown" there would read as a fault the
+    operator should go and fix. **`unknown`** means the question applies and we
+    do not have the answer: the credit half is switched off, or the balance read
+    failed. Both are *displayed*; neither is a hidden field.
+    """
     reader = _CREDIT_READERS.get(family)
     if reader is None:
-        return "unknown", {"credit_reason": "provider publishes no balance"}
+        return "n/a", {"credit_reason": "this provider has no balance to read"}
+    if not ops_config.credit_probe_enabled():
+        return "unknown", {"credit_reason": "credit check switched off"}
     try:
         remaining = await _openrouter_credit()
     except Exception:

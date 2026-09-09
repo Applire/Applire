@@ -1582,7 +1582,8 @@
     "credit": {
       "ok": "Guthaben vorhanden",
       "low": "Guthaben fast aufgebraucht",
-      "unknown": "Dieser Anbieter meldet kein Guthaben"
+      "unknown": "Guthaben nicht geprüft",
+      "na": "Dieser Anbieter meldet kein Guthaben"
     },
     "errorsInWindow": "{count} in den letzten {minutes} Minuten",
     "migrationsBehind": "Die Datenbank ist noch auf einem älteren Stand — Backend neu starten",

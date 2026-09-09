@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { OperatorPanel } from "../OperatorPanel";
+import { OperatorPanel } from "../operator-panel";
 
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
@@ -60,17 +60,19 @@ const HEALTHY = {
       message: "",
       detail: { last_backup_at: "2026-09-01T00:00:00+00:00", age_days: 7, warn_after_days: 30 },
     },
-    // credit: "unknown" — most providers (Ollama, any OpenAI-compatible
-    // endpoint) publish no balance at all. This is the case founder question
-    // O1-6 is about: it must render, not silently vanish.
+    // credit: "n/a" — most providers (Ollama, any OpenAI-compatible endpoint,
+    // Mistral, Anthropic) publish no balance a third party can read. Founder
+    // ruling O1-6 makes this its own state: `n/a` means the question does not
+    // apply, `unknown` means we do not have the answer. Both must RENDER.
     provider: {
       status: "ok",
       message: "",
       detail: {
-        provider: "openrouter",
+        provider: "mistral",
+        model: "mistral-small-latest",
         reachability: "ok",
-        credit: "unknown",
-        credit_reason: "provider publishes no balance",
+        credit: "n/a",
+        credit_reason: "this provider has no balance to read",
         checked_at: "2026-09-08T19:00:00+00:00",
       },
     },
@@ -180,7 +182,36 @@ describe("OperatorPanel", () => {
     );
   });
 
-  it('credit: "unknown" is rendered, not hidden — this is a displayed state', async () => {
+  it('credit: "n/a" is rendered, not hidden — this is a displayed state', async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res(HEALTHY));
+    render(<OperatorPanel />);
+
+    await waitFor(() => expect(screen.getByTestId("operator-panel")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("operator-panel-toggle"));
+
+    // The slash cannot live in a JSON key; `n/a` maps to `credit.na`.
+    expect(screen.getByTestId("operator-panel-row-provider")).toHaveTextContent(
+      "credit.na",
+    );
+  });
+
+  it('credit: "unknown" is a DIFFERENT rendered state from "n/a"', async () => {
+    const body = JSON.parse(JSON.stringify(HEALTHY));
+    body.components.provider.detail.provider = "openrouter";
+    body.components.provider.detail.credit = "unknown";
+    body.components.provider.detail.credit_reason = "credit check switched off";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res(body));
+    render(<OperatorPanel />);
+
+    await waitFor(() => expect(screen.getByTestId("operator-panel")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("operator-panel-toggle"));
+
+    const row = screen.getByTestId("operator-panel-row-provider");
+    expect(row).toHaveTextContent("credit.unknown");
+    expect(row).not.toHaveTextContent("credit.na");
+  });
+
+  it("the provider row names the configured model id (ruling O1-2)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(res(HEALTHY));
     render(<OperatorPanel />);
 
@@ -188,7 +219,7 @@ describe("OperatorPanel", () => {
     await userEvent.click(screen.getByTestId("operator-panel-toggle"));
 
     expect(screen.getByTestId("operator-panel-row-provider")).toHaveTextContent(
-      "credit.unknown",
+      "mistral-small-latest",
     );
   });
 

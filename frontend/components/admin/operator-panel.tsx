@@ -6,12 +6,20 @@
 /**
  * OperatorPanel — instance health summary for the self-hosting operator (E060 / US312).
  *
+ * Lives on the **admin page**, not the dashboard (founder ruling O1-4,
+ * 2026-09-09: that page "is the correct place to show this kind of settings; in
+ * the admin release access to this page is tied to a user right"). The
+ * dashboard is the candidate's pipeline; this is the operator's instance.
+ *
  * Reads `GET /api/ops/health` once on mount (no polling — the backend's own
  * refresher keeps the cache warm; ADR-086 clause 9) and renders the aggregated
  * verdict `aggregate.collect` produces: one line when everything is fine,
  * expanded and attention-coloured the moment anything is not. Plain language
  * throughout (COPY.md, Documents/Runs/Nougat/build-1/o1/COPY.md) — the reader
  * is a person running `docker compose`, not a Kubernetes SRE.
+ *
+ * Kept self-contained and collapsible so a later ruling can reuse it for a
+ * dashboard one-liner that only appears while the instance is degraded.
  *
  * `usage.by_document` / `usage.by_application` are deliberately not rendered
  * yet — their ids are opaque UUIDs and there is nothing human-readable to
@@ -108,12 +116,15 @@ function factLine(name: ComponentName, c: ComponentReport, t: Translator): strin
         : t("backupAge", { days: d.age_days as number });
     case "provider": {
       const reachability = (d.reachability as string) ?? "unknown";
-      const credit = (d.credit as string) ?? "unknown";
+      // `n/a` (this provider has no balance) and `unknown` (we do not have the
+      // answer) are different states — founder ruling O1-6. The JSON key cannot
+      // carry a slash, so `n/a` maps to `credit.na`.
+      const creditState = ((d.credit as string) ?? "unknown").replace("n/a", "na");
       // The model id is published (founder ruling O1-2): it is what lets the
       // operator match their instance against docs/llm-models.md's list. Not a
       // translatable string — an identifier, shown verbatim.
       const model = (d.model as string) ?? "";
-      return [t(`providerReach.${reachability}`), t(`credit.${credit}`), model]
+      return [t(`providerReach.${reachability}`), t(`credit.${creditState}`), model]
         .filter(Boolean)
         .join(" · ");
     }

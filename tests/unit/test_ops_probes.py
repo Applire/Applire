@@ -363,14 +363,57 @@ def _install_provider(monkeypatch, stub, family: str = "mistral"):
 
 
 @pytest.mark.asyncio
-async def test_provider_probe_ok_and_reports_unknown_credit(monkeypatch):
-    """O1-6: `unknown` is a DISPLAYED state, not an absent field."""
-    _install_provider(monkeypatch, _StubProvider())
+async def test_a_provider_without_a_balance_reports_credit_not_applicable(monkeypatch):
+    """Founder ruling O1-6: `n/a`, not `unknown`, and never an absent field.
+
+    Mistral, Anthropic, OpenAI-compatible endpoints and Ollama publish no
+    balance a third party can read. Reporting "unknown" there would read as a
+    fault the operator should go and fix; reporting nothing would read as a bug.
+    """
+    _install_provider(monkeypatch, _StubProvider(), family="mistral")
     result = await probes.probe_provider(force=True)
     assert result.status == probes.OK
     assert result.detail["reachability"] == "ok"
-    assert result.detail["credit"] == "unknown"
+    assert result.detail["credit"] == "n/a"
     assert result.detail["credit_reason"]
+
+
+@pytest.mark.asyncio
+async def test_credit_only_mode_spends_no_model_call(monkeypatch):
+    """`OPS_PROVIDER_PROBE=credit` — the balance is an account endpoint, free."""
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub, family="mistral")
+    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "credit")
+    result = await probes.probe_provider(force=True)
+    assert stub.calls == 0
+    assert result.detail["reachability"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_reachability_only_mode_never_reads_a_balance(monkeypatch):
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub, family="openrouter")
+    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "reachability")
+    called = {"n": 0}
+
+    async def _never():
+        called["n"] += 1
+        return 99.0
+
+    monkeypatch.setattr(probes, "_openrouter_credit", _never)
+    result = await probes.probe_provider(force=True)
+    assert stub.calls == 1
+    assert called["n"] == 0
+    assert result.detail["credit"] == "unknown"
+    assert "switched off" in result.detail["credit_reason"]
+
+
+@pytest.mark.asyncio
+async def test_the_probe_mode_tolerates_the_old_on_off_spelling(monkeypatch):
+    stub = _StubProvider()
+    _install_provider(monkeypatch, stub, family="mistral")
+    monkeypatch.setattr(ops_config, "OPS_PROVIDER_PROBE", "on")
+    assert (await probes.probe_provider(force=True)).detail["reachability"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -457,7 +500,10 @@ async def test_provider_probe_spends_nothing_when_switched_off(monkeypatch):
     result = await probes.probe_provider(force=True)
     assert stub.calls == 0
     assert result.status == probes.UNKNOWN
-    assert result.detail["credit"] == "unknown"
+    # `mistral` publishes no balance, so the credit half is `n/a` even when the
+    # whole probe is off — the answer does not become unknowable, it stays
+    # inapplicable.
+    assert result.detail["credit"] == "n/a"
 
 
 @pytest.mark.asyncio

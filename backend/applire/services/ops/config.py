@@ -61,13 +61,24 @@ OPS_ERROR_WINDOW_MINUTES: int = int(os.environ.get("OPS_ERROR_WINDOW_MINUTES", "
 
 # ── Provider probe (the only probe that spends money) ─────────────────────────
 
-# "on" | "off". While on, a minimal reachability call runs at most once per
-# OPS_PROVIDER_PROBE_TTL_MINUTES — about 96 chrome-sized calls a day, against
-# 89-105 for a single application. Set to "off" and SF-LLM.1's detection score
-# goes back to D=3; that trade is stated in the ADR and in this description.
-OPS_PROVIDER_PROBE: str = os.environ.get("OPS_PROVIDER_PROBE", "on").strip().lower()
-OPS_PROVIDER_PROBE_TTL_MINUTES: int = int(
-    os.environ.get("OPS_PROVIDER_PROBE_TTL_MINUTES", "15")
+# Which halves of the provider probe run (founder ruling O1-6, 2026-09-09 —
+# "offer all methods and let the operator configure per need; a credit check
+# makes no sense for Ollama"):
+#
+#   "both"          reachability + credit                              (default)
+#   "reachability"  a small real call only — never reads a balance
+#   "credit"        the free balance endpoint only — spends NO model call
+#   "off"           neither; SF-LLM.1's detection score goes back to D=3
+#
+# The reachability half costs about 96 chrome-sized calls a day at the default
+# interval, against 89-105 for a single application. The credit half costs
+# nothing: it is an account endpoint, not a model call.
+OPS_PROVIDER_PROBE: str = os.environ.get("OPS_PROVIDER_PROBE", "both").strip().lower()
+OPS_PROVIDER_PROBE_MODES = ("off", "reachability", "credit", "both")
+# Minimum minutes between two provider probes; the result is cached for this
+# long and the endpoint only ever serves the cache.
+OPS_PROVIDER_PROBE_INTERVAL_MINUTES: int = int(
+    os.environ.get("OPS_PROVIDER_PROBE_INTERVAL_MINUTES", "15")
 )
 # Remaining provider credit (in the provider's own currency unit) below which
 # the `credit` fact reports "low" rather than "ok". Only meaningful for the
@@ -91,9 +102,29 @@ LLM_USAGE_TRACKING: str = os.environ.get("LLM_USAGE_TRACKING", "on").strip().low
 LLM_USAGE_RETENTION_DAYS: int = int(os.environ.get("LLM_USAGE_RETENTION_DAYS", "365"))
 
 
+def _probe_mode() -> str:
+    """The configured mode, tolerating the two obvious spellings of "on"/"off"."""
+    value = OPS_PROVIDER_PROBE
+    if value in ("on", "true", "1", "yes"):
+        return "both"
+    if value in ("false", "0", "no"):
+        return "off"
+    return value if value in OPS_PROVIDER_PROBE_MODES else "both"
+
+
 def provider_probe_enabled() -> bool:
-    """Whether the reachability/credit probe may spend a provider call."""
-    return OPS_PROVIDER_PROBE not in ("off", "false", "0", "no")
+    """Whether either half of the provider probe runs at all."""
+    return _probe_mode() != "off"
+
+
+def reachability_probe_enabled() -> bool:
+    """Whether a small real model call may be spent to test reachability."""
+    return _probe_mode() in ("reachability", "both")
+
+
+def credit_probe_enabled() -> bool:
+    """Whether the provider's free balance endpoint may be read."""
+    return _probe_mode() in ("credit", "both")
 
 
 def usage_tracking_enabled() -> bool:
@@ -192,23 +223,27 @@ def ops_registry_entries() -> list[dict[str, object]]:
             "env_var": "OPS_PROVIDER_PROBE",
             "introduced_in": "0.42.0",
             "semantics_changed_in": None,
-            "default": "on",
+            "default": "both",
+            "example": "both",
             "source": "constants",
             "description": (
-                "Whether the ops layer sends a small reachability call to the "
-                "LLM provider (about 96 tiny calls a day). Set to 'off' to "
-                "spend nothing; the instance then cannot tell you your "
-                "provider credit ran out."
+                "Which checks the instance runs against your LLM provider: "
+                "'both' (default), 'reachability' (a tiny test call, about 96 a "
+                "day), 'credit' (reads your balance where the provider offers "
+                "one - costs nothing), or 'off'. With 'off' the instance cannot "
+                "tell you that your provider credit ran out. Ollama and other "
+                "local endpoints have no balance to read; the credit check "
+                "reports 'not applicable' for them."
             ),
         },
         {
-            "name": "ops_provider_probe_ttl_minutes",
-            "env_var": "OPS_PROVIDER_PROBE_TTL_MINUTES",
+            "name": "ops_provider_probe_interval_minutes",
+            "env_var": "OPS_PROVIDER_PROBE_INTERVAL_MINUTES",
             "introduced_in": "0.42.0",
             "semantics_changed_in": None,
             "default": 15,
             "source": "constants",
-            "description": "Minimum minutes between two provider reachability calls.",
+            "description": "Minimum minutes between two provider probes.",
         },
         {
             "name": "ops_provider_credit_low_threshold",

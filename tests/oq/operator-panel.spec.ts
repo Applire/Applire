@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * OperatorPanel on the dashboard (E060 / US312, ADR-086 clause 11).
+ * OperatorPanel on the admin page (E060 / US312, ADR-086 clause 11).
+ *
+ * Founder ruling O1-4 (2026-09-09): the operator panel lives on the existing
+ * admin surface, not on the dashboard — the dashboard is the candidate's
+ * pipeline, and in the Strawberry admin release access to /admin is tied to a
+ * user right.
  *
  * Mocked API — no backend, no provider. The panel is the operator's *pull*
- * surface; the log line is the push half and is covered by the backend tests.
- *
- * NOTE FOR INTEGRATION: the panel's mount in
- * `frontend/app/(shell)/dashboard/page.tsx` is a two-line patch delivered in
- * O1's report, because that page belongs to work package O2 this run. These
- * tests fail — loudly, by design — until that patch is applied.
+ * surface; the WARNING log line is the push half and is covered by the backend
+ * tests.
  */
 
 import { test, expect } from "@playwright/test";
@@ -105,8 +106,8 @@ function degraded() {
   body.components.backup.message = "no backup has ever been recorded";
   body.components.backup.detail.last_backup_at = null;
   body.components.backup.detail.age_days = null;
-  body.components.provider.detail.credit = "unknown";
-  body.components.provider.detail.credit_reason = "provider publishes no balance";
+  body.components.provider.detail.credit = "n/a";
+  body.components.provider.detail.credit_reason = "this provider has no balance to read";
   return body;
 }
 
@@ -114,13 +115,10 @@ async function mount(page: import("@playwright/test").Page, body: unknown) {
   await page.route("**/api/ops/health", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
   );
-  await page.route("**/api/applications", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) })
+  await page.route("**/api/admin/color-schemes**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
   );
-  await page.route("**/api/profile", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ profile: {} }) })
-  );
-  await page.goto("/dashboard");
+  await page.goto("/admin/appearance");
 }
 
 test.describe("Operator panel", () => {
@@ -167,9 +165,9 @@ test.describe("Operator panel", () => {
   });
 
   test("a provider without a balance says so instead of hiding the field", async ({ page }) => {
-    // Founder question O1-6: `unknown` is a DISPLAYED state. Ollama and any
-    // OpenAI-compatible endpoint have no balance at all, and a field that
-    // disappears for four of six providers reads as a bug.
+    // Founder ruling O1-6: `n/a` is a DISPLAYED state, distinct from `unknown`.
+    // Ollama and any OpenAI-compatible endpoint have no balance at all, and a
+    // field that disappears for four of six providers reads as a bug.
     await mount(page, degraded());
     await expect(page.getByTestId("operator-panel-row-provider")).toContainText(
       "This provider reports no balance"
@@ -194,13 +192,10 @@ test.describe("Operator panel", () => {
 
   test("an unreachable endpoint degrades to one honest line", async ({ page }) => {
     await page.route("**/api/ops/health", (route) => route.abort());
-    await page.route("**/api/applications", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) })
+    await page.route("**/api/admin/color-schemes**", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
     );
-    await page.route("**/api/profile", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ profile: {} }) })
-    );
-    await page.goto("/dashboard");
+    await page.goto("/admin/appearance");
     await expect(page.getByTestId("operator-panel")).toContainText(
       "The instance status cannot be read right now."
     );
