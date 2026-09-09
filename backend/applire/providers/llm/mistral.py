@@ -123,6 +123,7 @@ class MistralProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
 

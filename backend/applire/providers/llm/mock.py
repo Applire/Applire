@@ -644,6 +644,7 @@ class MockLLMProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> Any:
         system_lower = (system or "").lower()
 

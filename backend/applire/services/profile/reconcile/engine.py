@@ -95,6 +95,9 @@ async def reconcile(
             system=RECONCILE_SYSTEM_PROMPT,
             temperature=0.1,
             max_tokens=RECONCILE_MAX_TOKENS,
+            # M-3 — the op union as a SCHEMA, not only as prose, when the
+            # operator has turned it on. `None` keeps today's JSON mode exactly.
+            json_schema=_structured_output_schema(),
         )
     except LLMTruncatedError:
         # Data loss — never mask as an empty merge. Let the caller surface it.
@@ -143,6 +146,29 @@ async def reconcile(
     return ReconcileResult(
         ops=ops, ambiguities=ambiguities, denials=denials, rejected_ops=rejected_ops
     )
+
+
+def _structured_output_schema() -> dict[str, Any] | None:
+    """The reconciler's JSON schema when `LLM_STRUCTURED_OUTPUT=auto`, else None.
+
+    Read at call time rather than at import: an operator who flips the setting
+    should not have to know that a module-level constant cached the old answer.
+    Never raises — a schema is an optimisation, and failing to build one may not
+    fail a vault write.
+    """
+    try:
+        from applire.config import settings
+
+        if (settings.llm_structured_output or "off").lower() != "auto":
+            return None
+        from applire.services.profile.reconcile.schema_out import (
+            reconcile_json_schema_param,
+        )
+
+        return reconcile_json_schema_param()
+    except Exception:  # noqa: BLE001 — never let schema construction break a turn
+        logger.debug("reconcile: could not build the response schema; using JSON mode")
+        return None
 
 
 def _strip_adapter_only(item: Any) -> Any:
