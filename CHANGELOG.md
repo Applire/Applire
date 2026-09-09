@@ -7,6 +7,54 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **The reviewer and the corrector are shown the same document, and repetition may now block (#668).**
+  In the terminal round the reviewer read the composed CV while the corrector patched the
+  prose draft, and the gap ran both ways: the corrector could not see the assembled
+  sections a finding named, **and** it could still see bullets the length budget had
+  deleted — so a true blocking finding read as false and 2 of 3 corrections never reached
+  the document. The corrector now receives the composed document read-only beside its own
+  draft; it still returns only the prose shape, so no vault-verbatim field is ever
+  LLM-authored. With that closed, `repetition` leaves the minor-by-definition line on both
+  CV doors and becomes named check 8, REDUNDANCY. Replay of the captured exchange that
+  shipped the six near-duplicate bullets, n=5 per arm: blocking redundancy findings 0/5 →
+  4/5, corrector emitted a `projects` array 0/5 → 5/5, delivered near-duplicate pairs
+  2.0 → 1.0. **Halved, not cleared — #659's acceptance criterion is not claimed.** The
+  cover letter is deliberately unchanged (it ships with #664).
+- **The per-role bullet cap yields to a bullet the round's review loop asked for (#666, ADR-072 clause 4).**
+  The under-claim signal asked for a bullet and the cap deleted it inside the same round,
+  so no retry budget could help — 1 of 4 demanded bullets survived on the 2026-09-05
+  delivery run. A demanded bullet is now outside the cap's reach (a partition, not a
+  ranking tier, which a tight ceiling silently defeats) and the cap takes an unrequested
+  bullet instead; where the ceiling still binds it yields under a
+  `BUDGET_VS_SIGNAL_CONFLICT` warning naming both producers. Coverage for a demanded
+  concept is read over the bullet corpus, not the whole document, because a skills tag is
+  what the demand said was insufficient. Measured at the delivery point on the captured
+  run: implementation fraction 2 of 4 → 3 of 4 on identical inputs, with the per-role
+  ceiling intact in both arms.
+- **The loop stops asking for a bullet the document already delivers (#666).**
+  Honouring every demand bought the bullet "Deutsch als Muttersprache." at the price of a
+  quantified safety figure and a budget bullet, on a CV whose Languages section already
+  said it. A concept the composed document carries in a vault-joined structured section —
+  languages, certifications, education — is delivered, not under-claimed. The skills list
+  is deliberately not in that set.
+- **Reading the keyword ledger now fixes and re-scores it (#670, ADR-048).**
+  All four document-facing reads persist the refreshed row and re-source the match score,
+  so a generated document, the Gaps screen and the score cannot disagree. ADR-061's
+  affirmative invariant runs at a read for the first time, which catches a profile that
+  **shrank** since the analysis before the document is written. **A score you have already
+  been shown may move, down as well as up** — the monotonic-up clamp that applies where
+  evidence can only be added is deliberately not applied here.
+- **The vault-evidence digest offers every sense of a concept, not the wordiest one (#415).**
+  For each claimable concept the digest picked "the longest matching vault sentence", and
+  on a coarse concept longest is not most specific: for `HGB` it picked the *Monatsabschluss*
+  sentence over "Betreuung der Wirtschaftsprüfer im **Jahresabschluss** (HGB)" — 134
+  characters against 57 — and the delivered CV contained neither `Jahresabschluss` nor
+  `Wirtschaftsprüfer` while the blind reviewer scored the role's first-named duty only
+  partly met. Choosing between two qualifying sentences is a judgement, so the selector
+  stops choosing: it offers up to three and the writer decides. The CV chain's digest
+  ceiling rises with it, because widening per concept under the old ceiling buys the
+  answering sentence by starving the others. Measured on the captured run: the answering
+  sentence absent → present, represented concepts 8 → 9, +3.6 % on that writer prompt.
 - **Fact pins, said plainly (#680).** The pin control changed what it says, not what it does. On the gaps page it is now a teaser card directly above the decision buttons ("Gibt es Fakten, die unbedingt in deinen Dokumenten stehen müssen?" · *Fakten festlegen*) instead of a "(0/10)" panel inside the job-ad block; the panel's title is the promise (*Muss in diesem Dokument stehen*), the counter appears only once a pin exists, a collapsed *Wie funktioniert das?* carries the explanation, each quote shows the profile entry it comes from, and target and fate are one chip (*Lebenslauf · enthalten*). The picker asks plain questions and skips the statement step for single-statement entries. A first-use explainer (*Bevor du Fakten festlegst*) with *Nicht mehr anzeigen* precedes the first pin. German says *festlegen* everywhere; *Vault* left the user-facing copy in both languages. Two incidental fixes: the at-cap tooltip rendered next-intl's error fallback, and the picker repeated a skill's name as its statement.
 
 ### Added

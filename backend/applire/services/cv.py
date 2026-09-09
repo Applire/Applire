@@ -2954,6 +2954,7 @@ async def _render_cv_background(
             # a presence PREDICATE may not be built here.
             from applire.services.jd_excerpt import build_jd_excerpt
             from applire.services.vault_evidence import (
+                CV_DIGEST_CAP,
                 render_vault_evidence_block,
                 select_vault_evidence,
             )
@@ -2970,6 +2971,12 @@ async def _render_cv_background(
                 vault_evidence_items = select_vault_evidence(
                     keyword_ledger,
                     build_jd_excerpt(jd_raw),
+                    # #415 / RULING W1-6: the CV chain's own digest ceiling. The anchor now
+                    # offers up to three qualifying senses per concept, and under the shared
+                    # default of 10 that would buy the answering sentence by starving
+                    # concept breadth (measured on run 13: 8 represented concepts → 4). At
+                    # 24 the bug is fixed AND breadth is wider than before (9). The letter
+                    # chain keeps the default — see `vault_evidence.CV_DIGEST_CAP`.
                     # Already `exclude_unconfirmed`-filtered above (ADR-061
                     # clause 3) — an unconfirmed entry cannot back a CV line
                     # and must not be offered as evidence either.
@@ -2981,6 +2988,7 @@ async def _render_cv_background(
                     # marker check inside the selector. Same selector, same
                     # facet as the letter (ADR-066).
                     leadership_emphasis=getattr(job, "leadership_emphasis", None),
+                    cap=CV_DIGEST_CAP,
                 )
                 vault_evidence_block = (
                     render_vault_evidence_block(vault_evidence_items, chain="cv") or None
