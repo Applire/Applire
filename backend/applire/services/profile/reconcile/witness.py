@@ -185,6 +185,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Sequence
 
+from applire.schemas.profile import ImportNotApplied
 from applire.schemas.testimony import NotApplied
 from applire.services.profile.reconcile.ops import CommitOp
 
@@ -457,3 +458,113 @@ def compute_not_applied(
         )
 
     return items
+
+
+# ── M-1c — the no-write witness (founder ruling M-1, 2026-09-09) ─────────────
+
+#: Negation markers, DE + EN, word-bounded. A clause carrying one of these is
+#: read as a DENIAL clause and does not count towards the positive residue.
+#: Deliberately blunt: this is a fact-level test ("does this clause contain a
+#: negation word"), never a judgement about what the sentence asserts.
+_NEGATION_MARKERS = (
+    "not", "no", "never", "none", "nothing", "without", "lack", "lacks",
+    "lacking", "hardly", "barely", "n't",
+    "nicht", "nie", "niemals", "kein", "keine", "keinen", "keinem", "keiner",
+    "keines", "nichts", "ohne", "fehlt", "fehlen", "weder", "kaum",
+)
+_NEGATION_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _NEGATION_MARKERS) + r")\b",
+    re.IGNORECASE,
+)
+#: The pivots a mixed answer turns on ("I have not X, BUT I have Y"). Splitting
+#: on them is what makes the denial clause separable from the statement that
+#: follows it — the whole point of ruling M-1.
+_PIVOT_RE = re.compile(
+    r"(?:[,;]\s*)?\b(?:but|however|although|though|aber|jedoch|allerdings|"
+    r"dafür|dennoch|trotzdem)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+#: A LEADING concessive subordinator ends at its first comma — "While I have not
+#: worked with insulin in particular, I have 15+ years …" is one sentence with
+#: two clauses, and the denial lives entirely in the first. Without this split
+#: the whole sentence carries the negation word and the statement after the comma
+#: disappears with it, which is the very reading ruling M-1 exists to stop the
+#: MODEL from making. Only a LEADING one: a comma inside the statement half must
+#: not fragment it ("I have not worked with insulin, Azure or Kubernetes" stays
+#: ONE denial clause, so a list of denied items cannot read as a statement).
+_CONCESSIVE_RE = re.compile(
+    r"\A\s*(?:while|although|though|whereas|even\s+though|"
+    r"obwohl|obgleich|w\u00e4hrend|zwar|auch\s+wenn)\b[^,]*,",
+    re.IGNORECASE,
+)
+#: A residual clause shorter than this is not a statement — "Yes", "Just saying
+#: hello" (#371's own example of a turn that legitimately produces nothing).
+_MIN_RESIDUE_WORDS = 4
+#: How much of the residue rides on the receipt as its label.
+_RESIDUE_LABEL_CHARS = 120
+
+
+def positive_residue(text: str) -> list[str]:
+    """The clauses of ``text`` that are NOT denials — a FACT, not a reading.
+
+    The answer is split at sentence ends and at the pivots a mixed answer turns
+    on; a clause containing a negation marker is dropped, and what remains is
+    the part of the answer that STATES something. ``["…"]`` non-empty means the
+    candidate said something positive; ``[]`` means the answer only denies (or
+    says nothing of substance), which is a turn that correctly writes nothing.
+
+    ADR-062 clause 1: this decides "does this clause contain a negation word and
+    at least four words", never "is this claim true" or "did it matter".
+    """
+    if not text or not text.strip():
+        return []
+    clauses: list[str] = []
+    for sentence in _SENTENCE_END_RE.split(text.strip()):
+        parts: list[str] = []
+        concessive = _CONCESSIVE_RE.match(sentence)
+        if concessive:
+            parts.append(concessive.group(0))
+            sentence = sentence[concessive.end():]
+        parts.append(sentence)
+        for part in parts:
+            for clause in _PIVOT_RE.split(part):
+                clause = clause.strip(" \t\n,;:—-")
+                if not clause:
+                    continue
+                if _NEGATION_RE.search(clause):
+                    continue
+                if len(clause.split()) < _MIN_RESIDUE_WORDS:
+                    continue
+                clauses.append(clause)
+    return clauses
+
+
+def compute_no_write(turn_text: str) -> list[ImportNotApplied]:
+    """The receipt for a turn that stated something and wrote nothing (M-1c).
+
+    Eight of eleven models in the 2026-09-09 model matrix lost at least one
+    whole turn to the denial-opening shape: the answer denies the question's
+    topic, then names three employers' worth of facts, and the reconciler
+    returns an empty batch. Nothing surfaced — ``reconcile()`` swallows an
+    empty result exactly like a transport failure, so from the interview UI the
+    turn reads as "nothing changed" rather than "your answer was dropped"
+    (``o3/failure-taxonomy-2026-09-09.md`` §3.1).
+
+    The CALLER decides whether the turn wrote anything; this function only
+    answers "did the answer state something positive at all", so the two halves
+    of the condition stay separately testable. Returns at most ONE item: the
+    candidate submitted one answer, and three receipts about one answer are
+    three worries about one event (the same rule ``health._not_applied_issue``
+    already applies one level up).
+
+    Not proof of loss, like every other item on this channel: a model can
+    legitimately produce no op for a statement the vault already carries
+    verbatim. It is proof that the candidate said something and the product
+    said nothing back.
+    """
+    residue = positive_residue(turn_text)
+    if not residue:
+        return []
+    label = " ".join(residue)[:_RESIDUE_LABEL_CHARS]
+    return [ImportNotApplied(section=None, label=label, reason="no_write")]

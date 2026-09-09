@@ -191,3 +191,67 @@ def test_a_real_answer_is_returned_even_when_reasoning_was_expensive():
         response, f"<think>a very long trace</think>{_JSON}", model="m", method="aparse_json"
     )
     assert json.loads(out)["ops"] == []
+
+
+# ── the mandatory-reasoning latch (M-4) ──────────────────────────────────────
+
+
+class _FakeBadRequest(Exception):
+    """Shaped like `openai.BadRequestError` for `_is_reasoning_mandatory_error`."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Error code: 400 - Reasoning is mandatory for this endpoint and "
+            "cannot be disabled."
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_mandatory_reasoning_model_is_asked_to_disable_exactly_once():
+    """Measured 2026-09-09: `z-ai/glm-5.3-flash` rejects `reasoning:{enabled:false}`
+    with a 400, so an operator running `OPENROUTER_DISABLE_THINKING=true` paid a
+    wasted round-trip on EVERY call. Requesty has latched this since #181.
+
+    MUTATION KILL: remove `self._reasoning_rejected = True` in `_create`'s
+    except-branch (or the pre-emptive strip at its top) and this test fails with
+    4 attempts instead of 3.
+    """
+    import openai as openai_sdk
+
+    from applire.providers.llm.openrouter import OpenRouterProvider
+
+    provider = OpenRouterProvider.__new__(OpenRouterProvider)
+    provider._model = "z-ai/glm-5.3-flash"
+    provider._reasoning_effort = ""
+    provider._reasoning_rejected = False
+
+    attempts: list[dict | None] = []
+
+    class _Client:
+        class chat:  # noqa: N801 - mirrors the SDK's attribute shape
+            class completions:
+                @staticmethod
+                async def create(**kwargs):
+                    attempts.append(kwargs.get("extra_body"))
+                    body = kwargs.get("extra_body") or {}
+                    if body.get("reasoning", {}).get("enabled") is False:
+                        raise _err()
+                    return "ok"
+
+    def _err():
+        exc = openai_sdk.BadRequestError.__new__(openai_sdk.BadRequestError)
+        Exception.__init__(
+            exc,
+            "Error code: 400 - Reasoning is mandatory for this endpoint and "
+            "cannot be disabled.",
+        )
+        return exc
+
+    provider._client = _Client()
+
+    disable = {"reasoning": {"enabled": False}}
+    for _ in range(2):
+        assert await provider._create(max_tokens=1024, extra_body=dict(disable)) == "ok"
+
+    # Call 1: the doomed request + the fallback. Call 2: the fallback only.
+    assert attempts == [disable, None, None], attempts

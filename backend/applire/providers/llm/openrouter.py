@@ -117,6 +117,18 @@ class OpenRouterProvider(LLMProvider):
             reasoning_effort if reasoning_effort is not None
             else settings.openrouter_reasoning_effort
         ) or ""
+        # Once this model has 400'd on `reasoning: {enabled: false}` we know it
+        # always will, so stop re-sending the doomed parameter. Requesty has had
+        # this latch since #181 (`requesty.py:110-114`) and OpenRouter did not,
+        # which cost a wasted round-trip on EVERY call for an operator running a
+        # mandatory-reasoning model with `OPENROUTER_DISABLE_THINKING=true`.
+        # Measured 2026-09-09 (WP-P, M-4): `z-ai/glm-5.3-flash` rejects the
+        # disable outright ("Reasoning is mandatory for this endpoint and cannot
+        # be disabled"), so a 30-turn matrix run made 60 requests where 30 would
+        # do — and the doubled wall-clock inside one `LLM_TIMEOUT` produced two
+        # turns that never returned at all. The operator's switch was buying
+        # latency and timeout risk in exchange for nothing.
+        self._reasoning_rejected = False
 
     async def acomplete(
         self,
@@ -214,7 +226,19 @@ class OpenRouterProvider(LLMProvider):
         """Call the chat-completions endpoint, degrading gracefully when the model
         mandates reasoning. If we asked to disable reasoning and the model 400s for
         that reason, retry once with reasoning left on and a budget floor — so a
-        thinking model the operator chose still works without any configuration."""
+        thinking model the operator chose still works without any configuration.
+
+        The rejection is LATCHED (M-4): after the first 400 the disable is not
+        sent again for this provider instance, so the fallback costs one wasted
+        request in the life of the process instead of one per call."""
+        if self._reasoning_rejected and extra_body and (
+            extra_body.get("reasoning", {}).get("enabled") is False
+        ):
+            base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
+            if self._reasoning_effort:
+                base_extra["reasoning"] = {"effort": self._reasoning_effort}
+            extra_body = base_extra or None
+            max_tokens = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
         try:
             return await self._client.chat.completions.create(
                 max_tokens=max_tokens, extra_body=extra_body, **kwargs
@@ -224,6 +248,7 @@ class OpenRouterProvider(LLMProvider):
                 extra_body and extra_body.get("reasoning", {}).get("enabled") is False
             )
             if tried_disable and _is_reasoning_mandatory_error(exc):
+                self._reasoning_rejected = True
                 # The model won't let us turn reasoning off. Retry with it bounded to
                 # the configured effort (so it doesn't run away), or — if no effort is
                 # configured — drop the block and rely on the raised budget floor.

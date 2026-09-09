@@ -463,6 +463,7 @@ async def commit_ops(
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
     user_confirmed_skill: UserConfirmedSkill | None = None,
     user_confirmed_engagement: UserConfirmedEngagement | None = None,
+    turn_text: str = "",
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
@@ -491,6 +492,10 @@ async def commit_ops(
             applier's own. Parking is UNCONDITIONAL since #480 PR 5 — see the
             note at the park site.
         enrichment: which half of the skill enrichment to run.
+        turn_text: founder ruling M-1c — the candidate's own words behind this
+            batch, threaded to `apply_ops` for the no-write witness. Empty for a
+            batch with no single human utterance behind it (an import merge, a
+            resolution turn), which switches the witness off.
         user_confirmed_engagement: founder ruling V-5 — the same capability for
             a parked WORK / PROJECT / VOLUNTEER near-dupe confirmation. See
             :class:`UserConfirmedEngagement`.
@@ -580,6 +585,7 @@ async def commit_ops(
         provenance.source,
         user_confirmed_skill=user_confirmed_skill,
         user_confirmed_engagement=user_confirmed_engagement,
+        turn_text=turn_text,
     )
     profile = applied.profile
     if profile.metadata is None:  # apply never strips metadata; belt & braces

@@ -243,6 +243,10 @@ _NOT_APPLIED_REASON = {
     "no_op_carried_entry": "no change carried it",
     "op_rejected": "the change was malformed and dropped",
     "summary_populated": "your summary was already written, so it was left alone",
+    # M-1c (founder ruling M-1, 2026-09-09): the candidate stated something and
+    # the turn produced nothing at all. Named as the loss it is, not as the
+    # mechanism that caused it — the candidate did not choose the model.
+    "no_write": "nothing was recorded from what you said",
 }
 
 

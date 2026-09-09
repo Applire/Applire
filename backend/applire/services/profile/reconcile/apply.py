@@ -73,6 +73,7 @@ from applire.services.profile.reconcile.confirmations import (
     skill_containment_confirmation,
     skill_overlap_confirmation,
 )
+from applire.services.profile.reconcile.witness import compute_no_write
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     AddRole,
@@ -505,6 +506,7 @@ def apply_ops(
     *,
     user_confirmed_skill: UserConfirmedSkill | None = None,
     user_confirmed_engagement: UserConfirmedEngagement | None = None,
+    turn_text: str = "",
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 
@@ -520,6 +522,12 @@ def apply_ops(
         user_confirmed_engagement: the same, for a parked WORK / PROJECT /
             VOLUNTEER near-dupe confirmation (founder ruling V-5) — see
             :class:`UserConfirmedEngagement`.
+        turn_text: the candidate's own words for this turn (an interview answer,
+            a testimony body). Supplied by the doors so the M-1c no-write
+            witness can tell "the answer stated something and nothing landed"
+            from "the answer only denied, so nothing should land". Empty for
+            every batch with no single human utterance behind it (an import
+            merge, a resolution turn), which switches the witness off.
     """
     new_profile = profile.model_copy(deep=True)
     changes: list[FieldChange] = []
@@ -746,6 +754,25 @@ def apply_ops(
         op_types=[type(op).__name__ for op in ops],
         source=source,
     )
+
+    # ── M-1c — the no-write witness (founder ruling M-1, 2026-09-09) ─────────
+    #
+    # A turn that STATED something and produced nothing at all: no change, no
+    # confirmation, no conflict, no demotion, no denial receipt, and no other
+    # not-applied item. Today that turn is invisible — `reconcile()` swallows an
+    # empty batch exactly like a transport failure, so the interview UI shows
+    # "nothing changed" for an answer the candidate spent a paragraph on
+    # (`o3/failure-taxonomy-2026-09-09.md` §3.1: 8 of 11 models on the
+    # denial-opening shape). The receipt rides the SAME `not_applied` channel
+    # V-6's Health-hub thread already reads, so no new surface is invented.
+    #
+    # Every other outcome above is a signal the candidate can already see, which
+    # is why each of them switches the witness off: the loss is only silent when
+    # there is nothing else to show.
+    if turn_text and not any(
+        (changes, pending, conflicts, demotions, denials, not_applied)
+    ):
+        not_applied.extend(compute_no_write(turn_text))
 
     return ApplyResult(
         profile=new_profile,
