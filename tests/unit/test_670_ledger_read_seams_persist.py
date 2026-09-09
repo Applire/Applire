@@ -281,6 +281,77 @@ async def test_seam_letter_generation_persists_the_refreshed_row(db):
     assert _status(row.keyword_ledger, "Kubernetes") == "direct"
 
 
+@pytest.mark.asyncio
+async def test_a_letter_generated_after_a_vault_edit_reads_and_persists_the_refresh(db):
+    """Adversarial pass (Nougat build-1, `wt-adv-writer`) on W1's own residual: the two
+    tests above cover the letter's TWO call sites, but neither drives them through the
+    real generation entrypoint — `test_seam_letter_generation_persists_the_refreshed_row`
+    calls `refresh_persist_and_rescore` directly and says explicitly why: "the letter
+    chain needs an application, a CV and a company row... a fixture that heavy would
+    test the chain rather than the seam." That leaves the actual question the ruling is
+    about — does a LETTER GENERATED after a vault edit read (and persist) the refreshed
+    ledger — untested end to end.
+
+    It does not, in fact, need an application/CV/company row: `_render_cover_letter_
+    background`'s only DB dependency beyond job/profile/gap is `get_application_for_job`,
+    called inside a fail-safe `try/except` (ADR-077) that degrades to "no pins" when no
+    Application row exists — confirmed here by *not* seeding one and reading that the
+    generation still completes. The provider/PDF/review-loop mocking mirrors the
+    pre-existing `test_ledger_refresh_generation_seams_592.py::_run_letter` recipe
+    (a fully-mocked DB), swapped for the REAL `db` fixture this suite already uses so
+    persistence can be read back afterward, the way #670 is actually specified.
+    """
+    from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
+    from applire.services.cover_letter import _render_cover_letter_background
+
+    job_id, _pid, cv_id, gap_id = await _seed(db, [dict(_STALE_GAP)])
+    cl_id = uuid.uuid4()
+    db.add(GeneratedCoverLetter(
+        id=cl_id, job_analysis_id=job_id, profile_id=_pid, template="classic_german",
+        letter_data={}, pre_gen_inputs={}, status=CoverLetterStatus.pending.value,
+    ))
+    await db.commit()
+
+    sample_letter = {
+        "header": {"name": "Anna Bauer"},
+        "recipient": {"name": None, "company": "Acme GmbH", "date": None},
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,",
+                                 "Mit freundlichen Grüßen"]},
+        "signature": {"closing": None, "name": None},
+    }
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = dict(sample_letter)
+
+    with patch(
+        "applire.services.cover_letter.AsyncSessionLocal"
+    ) as msl, patch(
+        "applire.services.cover_letter.get_provider", return_value=mock_provider
+    ), patch(
+        "applire.services.cover_letter.review_and_refine",
+        new=AsyncMock(side_effect=lambda **kw: kw["draft"]),
+    ), patch(
+        "applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0
+    ), patch(
+        "applire.services.cover_letter.resolve_jd_language", return_value="de"
+    ), patch(
+        "applire.services.cover_letter.extract_recipient_from_jd",
+        return_value={"name": None},
+    ), patch(
+        "applire.services.cover_letter._update_ats_report_letter", new=AsyncMock()
+    ), patch(
+        "applire.services.cover_letter_pdf.render_pdf",
+        new=AsyncMock(return_value=b"%PDF-fake"),
+    ):
+        msl.return_value.__aenter__.return_value = db
+        await _render_cover_letter_background(cl_id=cl_id, cv_id=cv_id, job_id=job_id)
+
+    row = await _row(db, gap_id)
+    assert _status(row.keyword_ledger, "Kubernetes") == "direct", (
+        "a letter generated end-to-end after the vault answered a gap must persist "
+        "the refreshed ledger — the same row the Gaps screen and the CV read"
+    )
+
+
 def test_every_refresh_call_site_is_enumerated_and_its_persistence_named():
     """Prove the coverage by exhausting the POSITIVE set, not by counting what is
     covered (`feedback_prove_absence_by_exhausting_positive_set`).
