@@ -4070,7 +4070,15 @@ async def _terminal_review(
             )
         )
 
-    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger, on_demand=_record_demand)
+    _underclaim_fn = underclaim_signal_issues_fn(
+        keyword_ledger,
+        on_demand=_record_demand,
+        # #666 (founder ruling, 2026-09-08): the demand reads the COMPOSED document's
+        # vault-joined structured sections too — a cache HIT on the composition the
+        # reviewer just read, since `review_and_refine` evaluates the signal on the same
+        # `current_draft` it handed the reviewer.
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
 
     current = prose_draft
     rounds = 0

@@ -303,10 +303,13 @@ def test_the_corrector_system_prompt_tells_it_which_document_the_findings_are_ab
     omitted project is re-joined from the profile unchanged, so silence is not a fix."""
     flat = _flat(CV_TAILORING_REFINEMENT_PROMPT)
     assert "DELIVERED DOCUMENT" in flat
-    assert "Read every finding against THAT, never against your PREVIOUS OUTPUT" in flat
-    assert "cut by the length budget after your last round" in flat
+    assert "it — not your PREVIOUS OUTPUT — is what the REVIEW FEEDBACK is about" in flat
+    assert "was cut by the length budget, so a finding naming it is correct, not stale" in flat
     assert "a project you omit is re-joined from the profile unchanged" in flat
-    assert "Your OUTPUT is still the prose schema of your PREVIOUS OUTPUT" in flat
+    # The output shape is stated ONCE, by the rule that already stated it — ADR-062
+    # clause 4: one prompt may not say one thing twice.
+    assert "Output ONLY the corrected prose JSON in the same schema as the input" in flat
+    assert flat.count("prose JSON in the same schema") == 1
 
 
 # ---------------------------------------------------------------------------

@@ -296,3 +296,74 @@ def test_a_demand_nothing_carries_protects_nothing(groups):
         BULLETS, concept_groups=GROUPS, demanded_groups=groups,
         narrative_external_text=NARRATIVE_EXTERNAL,
     ) == set()
+
+
+# ---------------------------------------------------------------------------
+# The demand's own scope: a structured section is DELIVERY, a tag is not
+# ---------------------------------------------------------------------------
+
+
+def _prose(*bullets: str) -> dict:
+    return {"work": [{"id": "w1", "bullets": list(bullets)}], "skills": ["Deutsch"]}
+
+
+_LANG_LEDGER = [
+    {"concept": "Deutsch", "surface_forms": ["Deutsch"], "claimable": True,
+     "status": "direct", "fit_weight": 1.0, "evidence": "Deutsch als Muttersprache."},
+]
+
+
+def test_a_concept_the_languages_section_delivers_is_not_under_claimed():
+    """Founder ruling on W1-3 (2026-09-08): measured on the captured RC state, honouring
+    the `Deutsch` demand under the new cap exemption bought the bullet "Deutsch als
+    Muttersprache." at the price of the LTIF 8,2 -> 3,1 safety bullet AND the 6 Mio. EUR
+    budget bullet — on a document whose LANGUAGES section already stated it. The demand,
+    not the cap, was wrong on that shape."""
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    draft = _prose("Ausschussquote von 4,1 % auf 2,3 % gesenkt.")
+    assert [c.concept for c in verified_narrative_underclaim(draft, _LANG_LEDGER)] == ["Deutsch"]
+    composed = {"languages": [{"name": "Deutsch", "level": "Muttersprache"}]}
+    assert verified_narrative_underclaim(
+        draft, _LANG_LEDGER, structured_document=composed
+    ) == []
+
+
+def test_the_skills_list_is_deliberately_not_a_structured_section():
+    """The signal's founding rule — "a skills-list entry does NOT satisfy this" — is
+    exactly what must NOT be relaxed here. The draft above already carries `Deutsch` in
+    `skills`, and the demand fires anyway."""
+    from applire.services.cv_gap_hints import _STRUCTURED_SECTIONS, verified_narrative_underclaim
+
+    assert "skills" not in _STRUCTURED_SECTIONS
+    assert "summary" not in _STRUCTURED_SECTIONS
+    composed = {"skills": ["Deutsch"], "summary": "Deutsch als Muttersprache."}
+    assert [c.concept for c in verified_narrative_underclaim(
+        _prose("Ausschussquote gesenkt."), _LANG_LEDGER, structured_document=composed
+    )] == ["Deutsch"]
+
+
+def test_certifications_and_education_count_the_same_way():
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    ledger = [
+        {"concept": "ISO 9001 Lead Auditor", "surface_forms": ["ISO 9001 Lead Auditor"],
+         "claimable": True, "status": "direct", "fit_weight": 1.0, "evidence": "x"},
+    ]
+    draft = {"work": [{"id": "w1", "bullets": ["Nichts einschlägiges."]}], "skills": []}
+    assert [c.concept for c in verified_narrative_underclaim(draft, ledger)]
+    for section in ("certifications", "education"):
+        composed = {section: [{"name": "ISO 9001 Lead Auditor", "issuer": "TÜV"}]}
+        assert verified_narrative_underclaim(
+            draft, ledger, structured_document=composed
+        ) == [], section
+
+
+def test_without_a_composed_document_the_demand_is_unchanged():
+    """Every non-terminal caller passes None — the prose shape has no structured
+    sections to read, and the demand must behave exactly as before."""
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    draft = _prose("Ausschussquote gesenkt.")
+    assert verified_narrative_underclaim(draft, _LANG_LEDGER) == \
+        verified_narrative_underclaim(draft, _LANG_LEDGER, structured_document=None)

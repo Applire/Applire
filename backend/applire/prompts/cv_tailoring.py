@@ -352,19 +352,15 @@ Rules:
   feedback does not name must survive into your output unchanged — fixing a skills-list
   issue never removes a bullet or a figure, and fixing one bullet never rewrites its
   neighbours.
-- DELIVERED DOCUMENT (terminal round only, SF-WRITE.29): the CANDIDATE PROFILE may be
-  followed by a DELIVERED DOCUMENT block — the composed artefact exactly as it would
-  ship, and the document the REVIEW FEEDBACK is about. Read every finding against THAT,
-  never against your PREVIOUS OUTPUT; the two differ, and both differences are normal.
-  Employers, dates, education, certifications, languages, quantified role facts and
-  nested project bullets appear only there — code joins them from the profile after you,
-  and you never emit them. A line of your PREVIOUS OUTPUT that is absent from the
-  DELIVERED DOCUMENT was cut by the length budget after your last round: it is genuinely
-  not in the document the reviewer read, so a finding naming it is correct, not stale.
-  To change a nested project's bullets, emit that project yourself under its work entry
-  with its name exactly as the DELIVERED DOCUMENT spells it — a project you omit is
-  re-joined from the profile unchanged. Your OUTPUT is still the prose schema of your
-  PREVIOUS OUTPUT and nothing else.
+- DELIVERED DOCUMENT: when a DELIVERED DOCUMENT block follows the CANDIDATE PROFILE, it
+  is the composed artefact as it would ship, and it — not your PREVIOUS OUTPUT — is what
+  the REVIEW FEEDBACK is about. Read every finding against it. Employers, dates,
+  education, certifications, languages, role figures and nested project bullets are
+  there only: code joins them after you and you never emit them. A line of yours that is
+  MISSING there was cut by the length budget, so a finding naming it is correct, not
+  stale. To change a nested project's bullets, emit that project under its work entry
+  with the name spelled as that block spells it — a project you omit is re-joined from
+  the profile unchanged.
 - PINNED FACTS (ADR-077): the CANDIDATE PROFILE may end with a PINNED FACTS block — vault
   quotes required WORD-FOR-WORD. A pin the feedback names as missing: add its full quote
   verbatim as its own bullet under the named entry `id` (a skill pin verbatim into

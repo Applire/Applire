@@ -192,7 +192,13 @@ def test_the_only_seventh_check_is_the_bounded_pinned_fact_check():
     prompt = _reviewer_prompt()
     checks = prompt.split("WHAT IS BLOCKING IN THIS PASS")[0]
     assert checks.count("\n7. ") == 1, "exactly one seventh check"
-    assert "\n8. " not in checks, "no eighth check — the de-escalation stands"
+    # An EIGHTH check landed on 2026-09-08 (#668, founder ruling 3 of 2026-09-05):
+    # REDUNDANCY, blocking, arm C of ADR-083's replay verbatim (5/5 blocking, 0 false
+    # positives). It is the de-escalation's one sanctioned exception and it replaced a
+    # concept rather than adding one — `repetition` left the minor-by-definition line in
+    # the same change. A NINTH still needs its own ruling.
+    assert "\n8. REDUNDANCY" in checks, "the sanctioned eighth check"
+    assert "\n9. " not in checks, "no ninth check — the de-escalation stands"
     seventh = checks.split("\n7. ", 1)[1]
     assert seventh.startswith("PINNED FACT NOT DELIVERED (ADR-077)")
     assert "truth outranks a pin" in seventh

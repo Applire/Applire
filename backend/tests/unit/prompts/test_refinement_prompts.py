@@ -66,7 +66,14 @@ def test_cv_tailoring_refinement_prompt_exists_and_is_distinct():
     # 1500 → 1900 with #580 (ADR-077 amended 2026-08-26): the PINNED FACTS rule —
     # insert a demanded pin verbatim under the named id, keep pins intact, a truth
     # finding wins. Mapped to SF-PIN.2; the ceiling again sits just above the size.
-    assert len(CV_TAILORING_REFINEMENT_PROMPT) <= 1900
+    # Ratchet moved 1,900 -> 2,600 ONCE, on 2026-09-08, for #668's DELIVERED DOCUMENT
+    # rule (1,896 -> 2,539). It is the largest single addition this prompt has taken and
+    # it is the only one with a measured effect on the corrector's OUTPUT: replaying the
+    # captured #659 exchange (2026-09-02 recs 53/54, luna, n=5 per arm) the corrector
+    # emitted a `projects` array 0/5 as shipped and 5/5 with the block, and the delivered
+    # near-duplicate pairs fell from 2.0 to 1.0. Map the next addition to an SF-WRITE row
+    # and REPLACE, do not append.
+    assert len(CV_TAILORING_REFINEMENT_PROMPT) <= 2600
 
 
 def test_all_reviewer_prompts_use_referential_critique():

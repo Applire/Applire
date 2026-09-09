@@ -307,11 +307,38 @@ def _entry_forms(entry: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(forms))
 
 
+#: ADR-040 / ADR-067 clause 2-3 sections: joined VERBATIM from the vault by code after
+#: the writer, and rendered by every template as their own headed block. A recruiter
+#: reads "Deutsch — Muttersprache" under LANGUAGES as evidence; the same word in the
+#: skills list is a tag. That distinction is the whole reason this signal exists, and it
+#: cuts both ways — see :func:`_structured_norm`.
+_STRUCTURED_SECTIONS = ("languages", "certifications", "education")
+
+
+def _structured_norm(document: dict[str, Any] | None) -> str:
+    """Normalised text of the COMPOSED document's vault-joined structured sections.
+
+    Empty string when no composed document is available (every non-terminal caller),
+    in which case the demand behaves exactly as it did before #666.
+    """
+    if not document:
+        return ""
+    out: list[str] = []
+    for section in _STRUCTURED_SECTIONS:
+        for item in document.get(section) or []:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                out.extend(str(v) for v in item.values() if isinstance(v, str))
+    return _norm("\n".join(out))
+
+
 def verified_narrative_underclaim(
     draft: dict[str, Any] | None,
     keyword_ledger: list[dict[str, Any]] | None,
     *,
     min_fit_weight: float | None = None,
+    structured_document: dict[str, Any] | None = None,
 ) -> list[UnderclaimedConcept]:
     """Claimable, JD-required concepts absent from the document's NARRATIVE corpus.
 
@@ -339,11 +366,22 @@ def verified_narrative_underclaim(
 
     narrative_norm = _norm("\n".join(_tailored_narrative_texts(narrative_corpus_view(draft))))
     document_norm = _norm("\n".join(_draft_strings(draft or {})))
+    # #666 (founder ruling, 2026-09-08): a concept the COMPOSED document already carries
+    # in a vault-joined structured section is DELIVERED, not under-claimed, and demanding
+    # a narrative bullet for it is a demand the document does not need. Measured on the
+    # captured RC state: with the demand honoured by ADR-072 clause 4's new exemption,
+    # "Deutsch" bought the bullet "Deutsch als Muttersprache." at the price of the LTIF
+    # 8,2 -> 3,1 safety bullet AND the 6 Mio. EUR budget bullet, on a document whose
+    # LANGUAGES section already stated it. The `skills` list is deliberately NOT in this
+    # set: a tag is not evidence, which is this signal's own founding rule.
+    structured_norm = _structured_norm(structured_document)
 
     out: list[UnderclaimedConcept] = []
     for index, entry in enumerate(candidates):
         forms = _entry_forms(entry)
         if any(surface_present(f, narrative_norm) for f in forms):
+            continue
+        if structured_norm and any(surface_present(f, structured_norm) for f in forms):
             continue
         out.append(
             UnderclaimedConcept(
@@ -417,11 +455,18 @@ def underclaim_signal_issues_fn(
     *,
     limit: int = UNDERCLAIM_ISSUE_LIMIT,
     on_demand: Callable[[Sequence[UnderclaimedConcept]], None] | None = None,
+    structured_document_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> Callable[[dict[str, Any]], Sequence[ReviewIssue]]:
     """Bind a ledger to :func:`underclaim_signal_issues` for ``review_and_refine``'s
     ``signal_issues_fn`` parameter — recomputed per round on the CURRENT draft, exactly
     like ``coverage_reviewer_prompt_fn``'s wrapper, so a concept the corrector has since
     surfaced stops being demanded without any state of its own.
+
+    ``structured_document_fn`` maps the prose draft to the COMPOSED document, so the
+    demand can see the vault-joined LANGUAGES / CERTIFICATIONS / EDUCATION sections the
+    prose shape does not carry. Only the terminal chain supplies it (it is the only
+    chain that HAS a composed document); every other caller passes None and the demand
+    is computed exactly as it was.
 
     ``on_demand`` (#666, ADR-072 clause 4 amended 2026-09-08) is called with THIS
     round's demanded concepts — the same objects the issues are minted from, never a
@@ -433,7 +478,10 @@ def underclaim_signal_issues_fn(
     """
 
     def fn(draft: dict[str, Any]) -> Sequence[ReviewIssue]:
-        concepts = verified_narrative_underclaim(draft, keyword_ledger)[:limit]
+        structured = structured_document_fn(draft) if structured_document_fn else None
+        concepts = verified_narrative_underclaim(
+            draft, keyword_ledger, structured_document=structured
+        )[:limit]
         if on_demand is not None:
             on_demand(concepts)
         return [
