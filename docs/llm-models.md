@@ -185,9 +185,11 @@ is a statement about a model *and* a schema, not about the model alone.
 ### After the prompt was fixed (2026-09-09, prompt v2)
 
 The table above measures the prompt as it stood when the eleven models were run. The
-prompt was then **changed twice**, and both changes were measured before and after on the
-same shapes, the same fixture set and the same `n`. Two of the three models re-measured
-moved verdict. The rows below are the state this release ships.
+prompt was then **changed three times**, and every change was measured before and after on
+the same shapes, the same fixture set and the same `n`, with each arm carrying its own change
+and all earlier ones. Two of the three models re-measured moved verdict. The rows below are
+the state this release ships: the changed prompt **with the schema on** (`LLM_STRUCTURED_OUTPUT=auto`,
+the default — see the next section for what it costs).
 
 **What changed in the prompt.** (1) The rule about denials said that an answer which does
 not address the question contributes nothing about the question's topic, and stated its
@@ -196,13 +198,26 @@ particular, but I have 15+ years at A, at B and now at C"* therefore gave the mo
 explicit reasons to record nothing. It now says a denial is about its own item and nothing
 else, and the escape is stated once. (2) The rule about entity identity said nothing about
 a sentence naming several employers; it now says each clause binds to the employer that
-clause names, with a worked example.
+clause names, with a worked example. (3) Each operation now lists the fields that are
+required *also when merging into an existing entry* — on its own this line bought nothing
+measurable, but with the schema on it is the difference between 4 and 19 rejected operations
+on the weakest model measured; the two are complements.
 
 | Model | Gateway | Reasoning | n | lost turn S6/S7/S8 | malformed | wrong-slot | Tier 1 **before** | Tier 1 **after** | tokens in/out |
 |---|---|---|---|---|---|---|---|---|---|
-| `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 185,460 / 29,947 |
-| `z-ai/glm-5.3-flash` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 190,311 / 42,364 |
-| `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 0% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 226,323 / 18,836 |
+| `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 260,790 / 26,510 |
+| `z-ai/glm-5.3-flash` | OpenRouter | on (model default, cannot be disabled there) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 257,451 / 42,163 |
+| `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 10% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 233,294 / 19,337 |
+| `glm-5.3-flash` | **Requesty** (an operator's actual route, run inside that install's container) | off (route default; the route does not reason even when asked) | 10 | **40%** / **30%** / 0% | 0% / 10% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 193,777 / 6,763 |
+| `glm-5.3-flash` | **Requesty**, schema off (control) | off | 10 | **50%** / **20%** / **20%** | 0% / 10% / 10% | 0% / 0% / 0% | sub-par | **sub-par** | 190,431 / 5,678 |
+
+The same model on the two gateways is the sharpest row in this table: over OpenRouter
+`z-ai/glm-5.3-flash` reasons on every call (the gateway will not let it stop) and is clean;
+over Requesty it does not reason (about 110 output tokens per call, and `REQUESTY_REASONING_EFFORT`
+does not change that) and records nothing on 30–50 % of denial-opening answers with either
+prompt — the prompt fix moved that silence between shapes rather than removing it. The
+schema is accepted on that route and does not degrade it (the control row is the same prompt
+with the schema off). If your install runs this model over Requesty, that is the row to read.
 
 `openai/gpt-5.6-luna`'s move happened in two steps and only one of them is the prompt
 review: the schema change that made a job title optional (a model that correctly refuses to
