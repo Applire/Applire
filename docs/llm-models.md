@@ -118,6 +118,7 @@ is not put through tier 2.
 | `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 10% | 0% / 20% / 20% | 0% / 10% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 224,180 / 16,813 | $0.0361 |
 | `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 20% / 0% | 0% / 0% / 0% | 0% / 30% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 155,934 / 20,359 | $0.0251 |
 | `z-ai/glm-5.3-flash` | OpenRouter | on (model default) | 10 | 20% / 0% / 0% | 0% / 40% / 0% | 0% / 10% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 169,933 / 152,569 | $0.0509 |
+| `glm-5.3-flash` | **Requesty** (an operator's actual route, run inside that install's container) | off (route default) | 10 | 20% / **70%** / 30% | 10% / 20% / 20% | 0% / 10% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 158,497 / 4,824 | ≈ $0.013 |
 | `openai/gpt-5-nano` | OpenRouter | on (model default) | 10 | 10% / 20% / 40% | 0% / 0% / 0% | 0% / 60% / 10% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 161,562 / 116,042 | $0.0545 |
 | `nvidia/nemotron-3-super-120b-a12b:free` | OpenRouter | on (model default) | 10 | 60% / 60% / 60% | 0% / 0% / 0% | 0% / 20% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 166,462 / 51,340 | $0 (free tier) |
 | `deepseek/deepseek-v4-flash-0731` | OpenRouter | on (model default) | 10 | 30% / 14% / 89% | 0% / 0% / 0% | 0% / 0% / 0% | 4/30 | **sub-par** | n/a (sub-par on tier 1) | 150,002 / 223,345 | $0.0432 |

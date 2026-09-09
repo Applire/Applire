@@ -330,8 +330,13 @@ def test_dry_run_needs_no_provider(capsys):
     assert mm.main(["--dry-run", "--shapes", "all"]) == 0
     out = capsys.readouterr().out
     assert "S8_incident_shape_big_profile" in out
-    # The system prompt's measured size (#688's table) — a sanity anchor, not a pin.
-    assert " 15118" in out
+    # The system prompt's size is printed per shape — a sanity anchor, not a pin:
+    # #684 (Nougat) grew the reconcile prompt from 15,118 to 16,244 chars, and the
+    # harness must report whatever the tree's prompt measures today.
+    import re as _re
+    from applire.prompts.reconcile import RECONCILE_SYSTEM_PROMPT as _sys_prompt
+    sizes = {int(m) for m in _re.findall(r"lena_\w+\s+(\d{4,6})\s+\d+", out)}
+    assert sizes == {len(_sys_prompt)}, (sizes, len(_sys_prompt))
 
 
 def test_end_to_end_against_the_mock_provider(tmp_path, capsys):
