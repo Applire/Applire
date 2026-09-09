@@ -7,10 +7,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **`docker-compose.yml` takes its database credentials from the environment.** `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` feed both the postgres service and `DATABASE_URL`. The defaults are today's values, so an install that changes nothing behaves identically; setting real credentials is now a three-line `.env` edit instead of a compose-file edit. PostgreSQL reads them only when the data volume is first created — the runbook says how to change them on an install that already has data.
+- **`docker-compose.override.yml` announces itself.** It sets `APPLIRE_TOPOLOGY=dev`, so the backend logs a startup WARNING and `GET /health` reports `"topology": "dev"`. Compose applies that override automatically whenever it sits beside the compose file — i.e. in every source clone — which publishes an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now said so nowhere. The production file never sets the variable.
+- **While `LLM_DEBUG_LOG` is on, the instance says so** at every startup and on `GET /health`. That log records CV and interview PII and deliberately has no size or age cap: a cap on a diagnostic tool truncates evidence silently, so you are told instead.
+- **`:latest` can no longer move on a release whose install assets are missing.** `release.yml` runs the compose install guard as a gate *before* the jobs that publish tags, and in full afterwards. `v0.41.1-beta` was published without its `docker-compose.yml` and `env.example`; the guard fired, but only after `:latest` had already moved, so the documented install 404ed for everyone in the meantime.
 - **Fact pins, said plainly (#680).** The pin control changed what it says, not what it does. On the gaps page it is now a teaser card directly above the decision buttons ("Gibt es Fakten, die unbedingt in deinen Dokumenten stehen müssen?" · *Fakten festlegen*) instead of a "(0/10)" panel inside the job-ad block; the panel's title is the promise (*Muss in diesem Dokument stehen*), the counter appears only once a pin exists, a collapsed *Wie funktioniert das?* carries the explanation, each quote shows the profile entry it comes from, and target and fate are one chip (*Lebenslauf · enthalten*). The picker asks plain questions and skips the statement step for single-statement entries. A first-use explainer (*Bevor du Fakten festlegst*) with *Nicht mehr anzeigen* precedes the first pin. German says *festlegen* everywhere; *Vault* left the user-facing copy in both languages. Two incidental fixes: the at-cap tooltip rendered next-intl's error fallback, and the picker repeated a skill's name as its statement.
 
 ### Added
+- **The instance says what an upgrade changed, and what you can configure (#687, US310).** Every environment variable the backend reads is declared once in `backend/applire/settings_registry.py` — the 39 typed settings, the 29 that `constants.py` read directly (all five GDPR retention TTLs among them, which `.env.example` never mentioned), and the deployment variables — each with its default, the release it appeared in, and the release its *meaning* changed in. `.env.example` is now **generated** from that registry and a unit test fails when the two drift, so the shipped template can no longer contradict the code the way `MISTRAL_MODEL` did. A second test asserts declared == read in both directions: a new variable costs a registry entry or the suite is red. After an upgrade the backend compares the release that last ran against the running one and names two things — settings introduced since then that your environment does not set, and settings you *do* set whose meaning changed — as a WARNING block on the log, as `upgrade_notice` on `GET /health`, and as a dismissable notice on the dashboard. Dismissing records the running version as seen. New table `instance_state` (Alembic 0062) holds those facts about the installation. `GET /health` also gains `debug_log_on` and `topology`; its four original fields are unchanged, because the compose healthcheck and every uptime probe read them.
+- **Backup and restore, documented and scripted (US314).** New [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md): the two compose topologies and how to tell them apart, backup, verify, restore, secrets, TLS, disk and pruning, upgrading, and troubleshooting. `scripts/backup.sh` archives the database **and** the `applire_uploads` volume in one file — a backup with only one of them is not a backup — records the timestamp in `instance_state`, and `--verify` checks an archive without restoring it (both volumes present, `pg_restore --list` runs, size > 0). `scripts/restore.sh` verifies the archive first, refuses a database that already has tables unless you pass `--force`, and never runs `down -v`. The restore was exercised once end to end on the production compose topology before this shipped. The `down -v` warning now stands where operators actually look: both READMEs' update section, the runbook, the `docker-compose.yml` header and `docs/CI_CD_GUIDE.md`.
 - **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
+
+### Removed
+- **`NGINX_PROXY_TIMEOUT` is gone from the documentation, because it was never read by anything.** Both READMEs and the old env template offered it; the reverse proxy's `proxy_read_timeout` is 300 s and is baked into the `applire-nginx` image. Keep `LLM_TIMEOUT` below 300, or bind-mount your own nginx config.
+
+### Upgrade notes
+
+New and re-meant environment variables in this release. Nothing here requires action on an existing install — every default reproduces current behaviour.
+
+| Variable | Code default | What it does | Required? |
+|---|---|---|---|
+| `POSTGRES_USER` | `applire` | Database user; the compose file feeds it to postgres and to `DATABASE_URL`. | optional |
+| `POSTGRES_PASSWORD` | `applire` | Database password. Set it on any host where the database port could be reachable. PostgreSQL reads it only when the data volume is first created — see `docs/SELF-HOSTING.md` §Secrets before changing it on an existing install. | optional |
+| `POSTGRES_DB` | `applire` | Database name. | optional |
+| `APPLIRE_TOPOLOGY` | `production` | Which compose topology this instance runs. Set by `docker-compose.override.yml` to `dev`, never by hand; surfaced as a startup WARNING and on `GET /health`. | do not set |
+| *(WP-O1's `LLM_USAGE_RETENTION_DAYS` and `OPS_*` variables are added here at integration — placeholder, replace with O1's report patch)* | | | |
+
+**Re-meant since your last release** — these keep their names and no longer mean what they did:
+
+| Variable | Changed in | What changed |
+|---|---|---|
+| `INTERVIEW_MAX_QUESTIONS_TARGETED` | 0.41.0 | It is now a **cap** applied on top of a budget derived from the session's own gap plan, not the budget itself (ADR-080). Setting it below the derived budget truncates interviews on gap-rich jobs. This shipped in v0.41.0-beta without a changelog line; it is recorded here so the instance's own upgrade notice and this file agree. |
+| `INTERVIEW_MAX_QUESTIONS_GUIDED` | 0.41.0 | Same change, for guided (MODE B) interviews. |
+
 
 ## [0.41.1-beta] – 2026-09-06
 
