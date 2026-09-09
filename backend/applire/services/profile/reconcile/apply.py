@@ -2072,6 +2072,23 @@ def _apply_upsert_project(
         return
 
     ref_map[op.ref] = target
+    # Adversarial finding (2026-09-09, WP-adv-vault) — the work_experience
+    # applier receipts a candidate-confirmed merge's declined field
+    # (`_record_merge_divergence`, founder ruling V-5) but this one and
+    # `_apply_upsert_volunteer` did not: the exact #177 asymmetry V-5's own
+    # commit message warns against ("the three appliers were already three
+    # copies of one near-dupe block, and a resolution turn landing on one of
+    # them would have been the asymmetry again"), reproduced here for a
+    # divergent `start_date` — silently dropped, no conflict, no receipt.
+    # `role` is included (unlike work's own list) because ProjectEntry carries
+    # no `role_aliases` mechanism — a differing role has no OTHER receipt path.
+    if _engagement_waiver(op, confirmed) == ("merge", getattr(target, "id", None)):
+        _record_merge_divergence(
+            op, target, "projects",
+            {"role": op.role, "start_date": op.start_date, "end_date": op.end_date,
+             "url": op.url, "description": op.description},
+            conflicts,
+        )
     _fill_empties(
         target,
         {
@@ -2157,6 +2174,19 @@ def _apply_upsert_volunteer(
     # VolunteerActivity has no role_aliases — a differing role can only fill an
     # empty role; it is never folded into an alias list (ADR-013 Rule 1 is
     # WorkEntry-specific).
+    #
+    # Adversarial finding (2026-09-09, WP-adv-vault) — same asymmetry as
+    # `_apply_upsert_project`: a candidate-confirmed merge's declined field was
+    # silently dropped here with no conflict receipt, unlike the
+    # work_experience applier (`_record_merge_divergence`, founder ruling
+    # V-5). `role` is included because it has no other receipt path either.
+    if _engagement_waiver(op, confirmed) == ("merge", getattr(target, "id", None)):
+        _record_merge_divergence(
+            op, target, "volunteer_activities",
+            {"role": op.role, "cause": op.cause, "start_date": op.start_date,
+             "end_date": op.end_date, "description": op.description},
+            conflicts,
+        )
     _fill_empties(
         target,
         {

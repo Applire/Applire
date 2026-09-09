@@ -204,6 +204,43 @@ describe("HealthPanel", () => {
     expect(screen.getByText("Offene Rückfrage")).toBeInTheDocument();
   });
 
+  // Adversarial finding (2026-09-09, WP-adv-vault) — a real DE-locale
+  // screenshot of the profile page showed a parked confirmation's body text
+  // in raw English directly beneath the fully-German conflict/not_applied
+  // cards next to it: exactly V-7's own reported shape, on a THIRD thread
+  // V-7's audit missed. The test above only ever asserted on the translated
+  // CHROME (the "Offene Rückfrage" thread label) — never on the card BODY —
+  // which is how this stayed invisible to the suite. `question` here is
+  // deliberately German-unreadable (unlike the fixture above, whose English
+  // text happens to read fine either way) so a future composed rendering
+  // fails this test loudly instead of coincidentally passing.
+  //
+  // This pins the CURRENT, KNOWN gap — it is not a regression to "fix" by
+  // relaxing the assertion. See the Frontend collector (#604): `confirmation`
+  // needs the same backend `question_i18n`/`options_i18n` treatment
+  // `not_applied` got (V-7), which is out of this pin's scope.
+  it("KNOWN GAP — a parked confirmation still renders the server's raw English question under the de locale", () => {
+    const englishOnlyConfirmation: ProfileHealth = {
+      issues: [
+        {
+          id: "confirmation:c-2",
+          thread: "confirmation",
+          profile_mismatch_severity: "review",
+          summary: "'Senior Systems Engineer at Helvetia Pharma' looks close to a position already on your profile. Is it the same one?",
+          field_ref: null,
+          source_record_ref: "testimony",
+        },
+      ],
+      completeness: { score: 0.9, gaps: [], field_gaps: [] },
+    };
+    render(withIntl(<HealthPanel health={englishOnlyConfirmation} onResolve={vi.fn()} />, "de"));
+
+    // The chrome IS translated (this part works) ...
+    expect(screen.getByText("Offene Rückfrage")).toBeInTheDocument();
+    // ... but the body is not — this is the defect, pinned rather than hidden.
+    expect(screen.getByText(/looks close to a position already on your profile/)).toBeInTheDocument();
+  });
+
   it("calls onResolve with the issue when Resolve is clicked", () => {
     const onResolve = vi.fn();
     render(withIntl(<HealthPanel health={REVIEW_HEALTH} onResolve={onResolve} />, "en"));
