@@ -10,6 +10,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Fact pins, said plainly (#680).** The pin control changed what it says, not what it does. On the gaps page it is now a teaser card directly above the decision buttons ("Gibt es Fakten, die unbedingt in deinen Dokumenten stehen müssen?" · *Fakten festlegen*) instead of a "(0/10)" panel inside the job-ad block; the panel's title is the promise (*Muss in diesem Dokument stehen*), the counter appears only once a pin exists, a collapsed *Wie funktioniert das?* carries the explanation, each quote shows the profile entry it comes from, and target and fate are one chip (*Lebenslauf · enthalten*). The picker asks plain questions and skips the statement step for single-statement entries. A first-use explainer (*Bevor du Fakten festlegst*) with *Nicht mehr anzeigen* precedes the first pin. German says *festlegen* everywhere; *Vault* left the user-facing copy in both languages. Two incidental fixes: the at-cap tooltip rendered next-intl's error fallback, and the picker repeated a skill's name as its statement.
 
 ### Added
+- **The instance says whether it is healthy, and what it costs (E060 / US312 #145, US313; ADR-086).**
+  A self-hosted Applire had no operator-side monitoring at all: `GET /health` returned four static
+  fields and answered "ok" with Postgres gone, the GDPR retention worker printed a JSON report to
+  stdout that nothing read, a provider 402 was once misdiagnosed as latency for hours, and no token
+  was ever counted. New: **`GET /api/ops/health`** aggregates seven probes — database, migration
+  head, retention last-run age plus a deletion-count anomaly check, free disk, last backup age,
+  provider reachability and credit, and a rolling error count — behind one verdict, with the verdict
+  in the HTTP status (200 ok/degraded, 503 down) so an external uptime probe can alert without
+  parsing. `GET /health` keeps its four fields byte-for-byte and gains a cached `ops` summary. The
+  retention worker now writes a `retention_runs` row per run (the same JSON it still prints), which
+  is what makes "the worker has not run for 51 hours" visible at all. Every provider call records its
+  token counts in `llm_usage` — numbers and ids only, never prompt or answer text, kept 365 days —
+  aggregated per day, per document and per application; counts a provider does not report are
+  estimated and **labelled** as estimated. The admin page shows the same facts as one quiet line
+  while the instance is fine. The provider check is configurable
+  (`OPS_PROVIDER_PROBE` = `off` / `reachability` / `credit` / `both`) because a credit check makes no
+  sense for a local Ollama. Alembic 0063.
 - **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
 
 ## [0.41.1-beta] – 2026-09-06
