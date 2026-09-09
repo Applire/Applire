@@ -646,16 +646,20 @@ _register_all(
         SettingEntry(
             env_var="LLM_STRUCTURED_OUTPUT",
             source="config",
-            default="off",
+            default="auto",
             section="LLM behaviour",
             introduced_in="0.42.0",
             description=(
-                "off | auto. 'auto' hands the model the reconciler's 15-op union as "
-                "a JSON schema instead of only describing it in prose, on the one "
-                "call whose output is a typed union. Costs ~2,500 extra input tokens "
-                "per interview turn; helps models that drop a required field or "
-                "mangle an op name. An endpoint that does not support schemas "
-                "rejects it once and falls back for the rest of the process."
+                "auto | off. ON by default. 'auto' hands your model the reconciler's "
+                "15-operation vocabulary as a JSON schema instead of only describing "
+                "it in prose, on the one call that writes your vault. It costs about "
+                "2,300 extra input tokens per interview turn and helps a model that "
+                "drops a required field or mangles an operation name — measured, one "
+                "model's station coverage on a one-employer answer went from 0.10 to "
+                "1.00. An endpoint that does not support schemas rejects it once and "
+                "the instance falls back to plain JSON mode for the rest of that "
+                "process; the turn it happens on still completes. Set 'off' to save "
+                "the input tokens."
             ),
         ),
         SettingEntry(

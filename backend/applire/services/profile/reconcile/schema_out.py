@@ -139,7 +139,14 @@ def reconcile_response_schema() -> dict[str, Any]:
     branches = op_schema.pop("oneOf", None) or op_schema.pop("anyOf", None) or []
     op_schema.pop("discriminator", None)
 
-    confirmation = _hide(_clean(RequestConfirmation.model_json_schema()))
+    # Read through a `TypeAdapter`, the same idiom as the op union above — not
+    # `RequestConfirmation.model_json_schema()`. `test_669_confirmation_option_keys`
+    # guards the tree against any attribute call on this class, because eight of
+    # the nine sites that touch it BUILD a confirmation and must route through
+    # `confirmations.py` instead. Reading a schema is not building an op, but
+    # using one idiom for both reads keeps that guard as strict as it is rather
+    # than adding an exception entry to it.
+    confirmation = _hide(_clean(TypeAdapter(RequestConfirmation).json_schema()))
     defs.update(confirmation.pop("$defs", {}))
     confirmation_ref = {"$ref": "#/$defs/RequestConfirmation"}
     defs.setdefault("RequestConfirmation", confirmation)

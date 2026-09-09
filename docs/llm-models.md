@@ -128,6 +128,12 @@ is not put through tier 2.
 | `mistralai/mistral-small-2603` | OpenRouter | on (model default) | 10 | 100% / 100% / 30% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,150 / 3,009 | $0.0263 |
 | `cohere/command-r7b-12-2024` | OpenRouter | on (model default) | 10 | 100% / 100% / 10% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,044 / 4,692 | $0.0068 |
 
+**These rows were measured against the prompt as it stood on the morning of 2026-09-09.**
+That prompt was changed the same day, and three of these models were re-measured against
+the new one with different results — see *After the prompt was fixed* below. A row here is
+a statement about a model **and** a prompt version, exactly as a malformed-op rate is a
+statement about a model and a schema.
+
 All rows measured 2026-09-09 through OpenRouter from a clean checkout with no `.env`, so
 every knob sat at its code default — in particular reasoning was **left on**, which is what
 an operator who never touches the setting gets. `n` = 10 turns per shape, 30 per model.
@@ -211,6 +217,30 @@ the same call.
 The remaining nine models in the table above have **not** been re-measured against the new
 prompt. A row that says sub-par there is a statement about the old prompt; re-run the
 harness before trusting it.
+
+### The vault call now carries a schema (`LLM_STRUCTURED_OUTPUT`, on by default)
+
+The single call that writes your profile is handed the 15 operations it may emit as a JSON
+schema, not only as prose in the prompt. The schema is generated from the same types that
+validate the answer, so the two cannot drift apart, and it lists exactly the fields the
+prompt asks for — nothing more, so it cannot invite a field the prompt deliberately avoids.
+
+What it bought, on the same fixtures as the table above: `mistralai/ministral-8b-2512`'s
+station coverage on the one-employer answer went from 0.10 to 1.00 (it had been dropping
+whole stations) and its malformed-operation rate halved. Neither of the two models that
+were already clean regressed.
+
+What it costs: **about 2,300 extra input tokens per interview turn** — roughly a third more
+input on that one call, unchanged output, unchanged latency. To turn it off:
+
+```bash
+LLM_STRUCTURED_OUTPUT=off
+```
+
+If your model's endpoint does not support schemas it rejects the request once; Applire
+notes that, falls back to plain JSON mode for the rest of that process, and the turn it
+happened on still completes. You do not have to know in advance whether your model
+supports it.
 
 ### One more thing about "turn reasoning off"
 

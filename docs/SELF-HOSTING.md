@@ -233,6 +233,25 @@ Usually **provider credit exhausted — an HTTP 402**, not slowness. This has be
 docker compose logs backend | grep -i "402\|quota\|credit"
 ```
 
+### Interview turns cost more input tokens than you expected
+
+`LLM_STRUCTURED_OUTPUT` is `auto` by default. On the one call that writes your vault — the
+interview/testimony reconciler — Applire sends your model the 15 operations it may emit as
+a JSON schema alongside the prompt. That is **about 2,300 extra input tokens per turn**
+(roughly a third more input on that call; output and latency are unchanged). It measurably
+helps a model that drops a required field or loses whole entries; on the models that were
+already clean it changes nothing but the bill.
+
+```bash
+# in .env — save the tokens, keep today's plain JSON mode
+LLM_STRUCTURED_OUTPUT=off
+```
+
+If your model's endpoint does not support schemas it rejects the request once, the backend
+logs a WARNING naming the model, falls back to plain JSON mode for the rest of that process
+and completes the turn — so `auto` is safe to leave on even on a model you have not
+checked. `docs/llm-models.md` carries the measured numbers.
+
 ### The backend keeps restarting after an upgrade
 
 A database migration failed at startup. The backend deliberately refuses to serve on a schema it doesn't recognise, so it exits rather than run against half-migrated tables — which `restart: unless-stopped` then retries in a loop.

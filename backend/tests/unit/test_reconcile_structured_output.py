@@ -114,17 +114,26 @@ def test_a_field_the_prompt_never_asks_for_is_not_in_the_schema():
     assert "evidence" in defs["UpsertSkill"]["properties"]
 
 
-def test_the_engine_sends_no_schema_unless_the_operator_turns_it_on():
-    """Default `off` keeps today's `json_object` behaviour byte-for-byte."""
-    from applire.config import settings
+def test_the_schema_is_on_by_default_and_off_is_an_exact_opt_out():
+    """Founder ruling P-4: the default is `auto`, taken against this package's own
+    recommendation with the +2,269-input-token price stated. `off` must restore
+    today's `json_object` behaviour byte-for-byte, so an operator who does not
+    want to pay for it has an exact way out."""
+    from applire.config import Settings, settings
     from applire.services.profile.reconcile.engine import _structured_output_schema
+
+    assert Settings.model_fields["llm_structured_output"].default == "auto"
 
     original = settings.llm_structured_output
     try:
-        settings.llm_structured_output = "off"
-        assert _structured_output_schema() is None
         settings.llm_structured_output = "auto"
         assert _structured_output_schema()["name"] == "applire_reconcile_batch"
+        settings.llm_structured_output = "off"
+        assert _structured_output_schema() is None
+        # An unrecognised value must not silently mean "on" — anything that is
+        # not exactly "auto" leaves the vault write path as it was.
+        settings.llm_structured_output = "yes"
+        assert _structured_output_schema() is None
     finally:
         settings.llm_structured_output = original
 
