@@ -1542,5 +1542,59 @@
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
     "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Bearbeiten.",
     "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
+  },
+  "ops": {
+    "title": "Instanz",
+    "summaryOk": "Alles in Ordnung",
+    "summaryDegraded": "{count, plural, =1 {1 Hinweis} other {# Hinweise}}",
+    "summaryDown": "{count, plural, =1 {1 Problem} other {# Probleme}}",
+    "showDetails": "Details anzeigen",
+    "hideDetails": "Details ausblenden",
+    "checkedAt": "Zuletzt geprüft: {time, date, short}, {time, time, medium}",
+    "unavailable": "Der Instanz-Status ist gerade nicht abrufbar.",
+    "component": {
+      "database": "Datenbank",
+      "migrations": "Datenbank-Stand",
+      "retention": "Aufräum-Lauf",
+      "disk": "Speicherplatz",
+      "backup": "Sicherung",
+      "provider": "KI-Anbieter",
+      "errors": "Fehler"
+    },
+    "status": {
+      "ok": "in Ordnung",
+      "degraded": "prüfen",
+      "down": "ausgefallen",
+      "unknown": "unbekannt"
+    },
+    "diskFree": "{percent} % frei ({free} von {total})",
+    "retentionLastRun": "Zuletzt vor {hours} h gelaufen",
+    "retentionNever": "Noch nie gelaufen",
+    "backupAge": "Letzte Sicherung vor {days} Tagen",
+    "backupNever": "Noch keine Sicherung — scripts/backup.sh einrichten",
+    "providerReach": {
+      "ok": "erreichbar",
+      "unauthorised": "abgewiesen (Schlüssel oder Guthaben)",
+      "unreachable": "nicht erreichbar",
+      "rate_limited": "gedrosselt",
+      "unknown": "noch nicht geprüft"
+    },
+    "credit": {
+      "ok": "Guthaben vorhanden",
+      "low": "Guthaben fast aufgebraucht",
+      "unknown": "Dieser Anbieter meldet kein Guthaben"
+    },
+    "errorsInWindow": "{count} in den letzten {minutes} Minuten",
+    "migrationsBehind": "Die Datenbank ist noch auf einem älteren Stand — Backend neu starten",
+    "tokens": {
+      "heading": "Verbrauch",
+      "today": "Heute",
+      "window": "Letzte {days} Tage",
+      "value": "{tokens, number} Tokens in {calls} Aufrufen",
+      "estimated": "Enthält geschätzte Werte ({count} Aufrufe) — dieser Anbieter meldet keine Tokenzahlen.",
+      "none": "Noch kein Verbrauch aufgezeichnet.",
+      "byDocument": "Teuerste Dokumente",
+      "byApplication": "Teuerste Bewerbungen"
+    }
   }
 }

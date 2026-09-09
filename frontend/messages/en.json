@@ -1542,5 +1542,59 @@
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
     "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Edit tab.",
     "group2HandleRegenerate": "Regenerate — the selection is made afresh each time."
+  },
+  "ops": {
+    "title": "Instance",
+    "summaryOk": "Everything is fine",
+    "summaryDegraded": "{count, plural, =1 {1 thing to check} other {# things to check}}",
+    "summaryDown": "{count, plural, =1 {1 problem} other {# problems}}",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "checkedAt": "Last checked: {time, date, short}, {time, time, medium}",
+    "unavailable": "The instance status cannot be read right now.",
+    "component": {
+      "database": "Database",
+      "migrations": "Database schema",
+      "retention": "Cleanup run",
+      "disk": "Disk space",
+      "backup": "Backup",
+      "provider": "AI provider",
+      "errors": "Errors"
+    },
+    "status": {
+      "ok": "fine",
+      "degraded": "needs a look",
+      "down": "down",
+      "unknown": "unknown"
+    },
+    "diskFree": "{percent} % free ({free} of {total})",
+    "retentionLastRun": "Last ran {hours} h ago",
+    "retentionNever": "Has never run",
+    "backupAge": "Last backup {days} days ago",
+    "backupNever": "No backup yet — set up scripts/backup.sh",
+    "providerReach": {
+      "ok": "reachable",
+      "unauthorised": "refused (key or credit)",
+      "unreachable": "not reachable",
+      "rate_limited": "rate-limited",
+      "unknown": "not checked yet"
+    },
+    "credit": {
+      "ok": "credit available",
+      "low": "credit nearly used up",
+      "unknown": "This provider reports no balance"
+    },
+    "errorsInWindow": "{count} in the last {minutes} minutes",
+    "migrationsBehind": "The database is on an older schema — restart the backend",
+    "tokens": {
+      "heading": "Usage",
+      "today": "Today",
+      "window": "Last {days} days",
+      "value": "{tokens, number} tokens across {calls} calls",
+      "estimated": "Includes estimates ({count} calls) — this provider does not report token counts.",
+      "none": "No usage recorded yet.",
+      "byDocument": "Most expensive documents",
+      "byApplication": "Most expensive applications"
+    }
   }
 }

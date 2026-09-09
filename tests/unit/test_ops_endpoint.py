@@ -154,9 +154,31 @@ async def test_the_payload_discloses_nothing_forbidden(client, monkeypatch):
     for field, value in sentinels.items():
         monkeypatch.setattr(cfg.settings, field, value)
 
-    body = json.dumps((await client.get("/api/ops/health")).json())
+    payload = (await client.get("/api/ops/health")).json()
+    body = json.dumps(payload)
     leaked = [value for value in sentinels.values() if value in body]
     assert leaked == [], f"the unauthenticated ops payload leaked: {leaked}"
+
+    # The sentinel sweep above only catches a CONFIGURED value echoed verbatim.
+    # A derived one slips through it — the disk probe's path resolves to an
+    # existing ancestor of `upload_dir`, so leaking it would leak "/" and not
+    # the sentinel. Found by mutating the probe to include its path (kill #4,
+    # 2026-09-08): the sentinel assertion stayed green. Hence the shape check.
+    shaped = list(_shaped_like_a_path_or_url(payload))
+    assert shaped == [], f"the ops payload carries a path or URL: {shaped}"
+
+
+def _shaped_like_a_path_or_url(node, trail: str = "$"):
+    """Yield (json path, value) for anything that reads as a filesystem path or URL."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _shaped_like_a_path_or_url(value, f"{trail}.{key}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _shaped_like_a_path_or_url(value, f"{trail}[{index}]")
+    elif isinstance(node, str):
+        if "://" in node or node.startswith("/") or node.startswith("\\\\"):
+            yield (trail, node)
 
 
 @pytest.mark.asyncio
