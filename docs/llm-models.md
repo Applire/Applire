@@ -122,6 +122,7 @@ is not put through tier 2.
 | `nvidia/nemotron-3-super-120b-a12b:free` | OpenRouter | on (model default) | 10 | 60% / 60% / 60% | 0% / 0% / 0% | 0% / 20% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 166,462 / 51,340 | $0 (free tier) |
 | `deepseek/deepseek-v4-flash-0731` | OpenRouter | on (model default) | 10 | 30% / 14% / 89% | 0% / 0% / 0% | 0% / 0% / 0% | 4/30 | **sub-par** | n/a (sub-par on tier 1) | 150,002 / 223,345 | $0.0432 |
 | `qwen/qwen3.8-flash` | OpenRouter | on (model default) | 10 | 17% / 0% / 43% | 0% / 0% / 0% | 0% / 0% / 0% | 17/30 | **sub-par** | n/a (sub-par on tier 1) | 83,609 / 103,556 | $0.0612 |
+| `qwen/qwen3.8-flash` (600 s timeout) | OpenRouter | on (model default) | 10 | 40% / 20% / 40% | 0% / 20% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 184,360 / 341,405 | $0.1881 |
 | `anthropic/claude-haiku-4.5` | OpenRouter | on (model default) | 10 | 100% / 0% / 0% | 0% / 0% / 0% | 0% / 100% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 172,478 / 7,060 | $0.2078 |
 | `mistralai/mistral-small-2603` | OpenRouter | on (model default) | 10 | 100% / 100% / 30% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,150 / 3,009 | $0.0263 |
 | `cohere/command-r7b-12-2024` | OpenRouter | on (model default) | 10 | 100% / 100% / 10% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,044 / 4,692 | $0.0068 |
@@ -153,8 +154,10 @@ Read the columns as different diseases, not one score:
   that emitted operations the schema rejected; in glm's case by creating an employer the
   answer named but gave no job title for, which the schema currently requires.
 - **Not finishing.** `qwen/qwen3.8-flash` did not return at all on 17 of 30 calls at the
-  180 s client timeout this run used (`LLM_TIMEOUT`); `deepseek/deepseek-v4-flash-0731` spent the entire 32k output
-  budget on 4 turns and emitted nothing usable.
+  180 s client timeout this run used (`LLM_TIMEOUT`). Re-measured with a 600 s timeout it does
+  return — and then loses 40 % / 20 % / 40 % of turns anyway, so the timeout was hiding a
+  second problem rather than being the only one. `deepseek/deepseek-v4-flash-0731` spent the
+  entire 32k output budget on 4 turns and emitted nothing usable.
 
 Cost is not the deciding factor: the spread across this table is about 30× in price and the
 outcomes do not follow it.
