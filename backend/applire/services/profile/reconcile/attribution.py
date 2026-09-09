@@ -364,8 +364,45 @@ def _employers_named_in(text: str, candidates: dict[str, str]) -> set[str]:
     }
 
 
+# A bullet naming another company as a business RELATIONSHIP — a client, an
+# account, an acquirer/acquiree, a parent or a supplier — is not naming a
+# place it worked. "Key account manager for the Siemens account" while
+# employed at Bosch names Siemens as the candidate's CLIENT, not their
+# employer; "migrated the platform after the acquisition by NordPharm" names
+# the buyer, not a second job. Channel 2 (below) has no ambiguity fail-open
+# of its own — unlike the owning-sentence channel (#243), which already lets
+# a sentence naming two-or-more employers pass unguessed — so without this
+# exclusion it re-flags exactly the shape #243's own test suite documents as
+# the correct, deliberate non-guess (`test_ambiguous_two_employers_in_one_
+# clause_fails_open`) the moment the same two names land in one BULLET
+# instead of one sentence (adversarial pass 2026-09-10, found and fixed on
+# this branch: `test_a_bullet_naming_a_client_or_acquirer_is_not_rerouted`).
+#
+# A fixed, closed vocabulary — the same "narrow, closed, documented list"
+# idiom `_LEGAL_FORM_RE` / `_ABBREVIATIONS` already use above — never an
+# open-ended judgement about what a mention "means" (ADR-062 clause 1): a
+# bullet containing one of these words is read as describing a RELATIONSHIP
+# to the other company, a fact about the bullet's own text, not a claim about
+# whether the mention is innocent in any particular case.
+_RELATIONAL_MARKER_RE = re.compile(
+    r"\b(?:account|client|customer|vendor|supplier|partner|on behalf of|"
+    r"acquisition|acquisitions|acquired|acquires?|acquiring|merger|mergers|"
+    r"merged|subsidiary|subsidiaries|parent company|brand of|"
+    r"kunde|kunden|kundenbetreuung|lieferant|übernahme|übernommen|"
+    r"tochtergesellschaft|muttergesellschaft|fusion|im auftrag von)\b",
+    re.IGNORECASE,
+)
+
+
 def _foreign_employers(text: str, candidates: dict[str, str], target_core: str) -> set[str]:
-    """The employers ``text`` names that are NOT the op's target."""
+    """The employers ``text`` names that are NOT the op's target.
+
+    Suppressed entirely when ``text`` also carries a relational marker (see
+    ``_RELATIONAL_MARKER_RE``) — a bullet mentioning a client/acquirer/parent
+    by name is not thereby claiming to have worked there.
+    """
+    if _RELATIONAL_MARKER_RE.search(text or ""):
+        return set()
     return {core for core in _employers_named_in(text, candidates) if core != target_core}
 
 

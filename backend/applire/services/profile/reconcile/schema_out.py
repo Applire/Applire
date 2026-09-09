@@ -81,6 +81,55 @@ _PROMPT_HIDDEN_FIELDS = frozenset(
     {"status", "last_used", "question_i18n", "options_i18n", "option_keys"}
 )
 
+#: The other direction of the same "second specification" class (adversarial
+#: pass 2026-09-10) — a field the PROMPT's own per-op ``REQUIRED:`` line (M-3a)
+#: names, that pydantic's OWN required-field inference disagrees with, because
+#: the field carries an ``Any = None`` / ``default_factory=list`` default for
+#: constructor convenience (existing unit tests build these ops without every
+#: field filled), not because the prompt considers it optional. Left alone,
+#: the rendered schema tells the model the OPPOSITE of what the prompt's
+#: REQUIRED: line says, for the field that carries the entire point of the op:
+#: a ``set_field``/``set_personal_info`` with no ``value`` sets nothing, a
+#: ``flag_conflict`` with neither ``existing`` nor ``incoming`` shows the user
+#: a conflict with nothing to compare, a ``request_confirmation`` with no
+#: ``options`` is a choice question with no choices.
+#:
+#: Keyed by the schema's ``$defs`` name (== the op's pydantic class name).
+#: **Known, accepted limit** (same one the module docstring already states for
+#: ``strict=False``): JSON Schema ``required`` only forces the KEY to be
+#: present, never a non-null/non-empty VALUE — a model can still satisfy this
+#: with ``"value": null`` or ``"options": []``. Closing that needs the
+#: strict-mode redesign ADR-063 already reserves; this closes the cheaper,
+#: still-real half — the schema no longer flatly CONTRADICTS the prompt.
+_PROMPT_REQUIRED_EXTRA: dict[str, tuple[str, ...]] = {
+    "SetField": ("value",),
+    "SetPersonalInfo": ("value",),
+    "FlagConflict": ("existing", "incoming"),
+    "RequestConfirmation": ("options",),
+}
+
+
+def _add_prompt_required_fields(defs: dict[str, Any]) -> None:
+    """Add each ``_PROMPT_REQUIRED_EXTRA`` field to its op's ``required`` list.
+
+    In place, after ``defs`` is fully assembled — this looks up definitions by
+    name rather than walking the tree (unlike ``_hide``/``_clean``) because the
+    fields to add are keyed by WHICH op, not by field name alone (``value`` is
+    required on ``SetField`` and ``SetPersonalInfo`` but stays untouched on
+    ``FlagConflict``, where it does not exist at all).
+    """
+    for name, extra_fields in _PROMPT_REQUIRED_EXTRA.items():
+        definition = defs.get(name)
+        if not isinstance(definition, dict):
+            continue
+        properties = definition.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        required = definition.setdefault("required", [])
+        for field in extra_fields:
+            if field in properties and field not in required:
+                required.append(field)
+
 
 def _clean(node: Any) -> Any:
     """Drop presentation-only keys and give an untyped property a type."""
@@ -150,6 +199,10 @@ def reconcile_response_schema() -> dict[str, Any]:
     defs.update(confirmation.pop("$defs", {}))
     confirmation_ref = {"$ref": "#/$defs/RequestConfirmation"}
     defs.setdefault("RequestConfirmation", confirmation)
+
+    # The other half of the "second specification" discipline `_hide` already
+    # applies — see `_PROMPT_REQUIRED_EXTRA`'s docstring.
+    _add_prompt_required_fields(defs)
 
     return {
         "$defs": defs,

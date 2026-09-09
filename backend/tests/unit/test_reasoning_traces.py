@@ -101,6 +101,94 @@ def test_a_trace_is_never_returned_to_the_caller():
     assert "secret chain of thought" not in answer
 
 
+# ── adversarial pass 2026-09-10 — a tag-shaped literal INSIDE the JSON ────────
+# The three patterns above are not JSON-string-aware: they match a tag-like
+# substring wherever it sits. A candidate's own words can legitimately contain
+# a literal "<think>...</think>" span (a workshop titled "Design Thinking", a
+# quip about "stop </think>ing"), and the reconciler paraphrases it straight
+# into a bullet's own text. Each shape below is a COMPLETE, VALID JSON
+# completion before the strip runs (asserted) — the strip must not be the
+# reason it stops being one.
+
+
+def test_a_paired_tag_inside_a_json_string_is_not_eaten():
+    """The bullet keeps its own words — a wrapping trace and a JSON-internal
+    tag-shaped substring are not the same shape, and only the first is trace.
+
+    MUTATION KILL: drop the `_inside_json_string` guard in `_keep` and the
+    bullet's "Design Thinking" is silently deleted while the JSON still
+    parses — the single worst shape, because nothing signals the loss.
+    """
+    raw = json.dumps({
+        "ops": [{
+            "op": "add_bullets", "target": "w1",
+            "responsibilities": [
+                "Led a workshop called <think>Design Thinking</think> for the product team"
+            ],
+            "achievements": [], "technologies": [],
+        }],
+        "ambiguities": [], "denials": [],
+    })
+    json.loads(raw)  # the fixture itself is valid JSON before any stripping
+    answer, trace = split_reasoning(raw)
+    assert answer == raw, "a JSON-internal tag-shaped substring must survive untouched"
+    assert trace == ""
+    parsed = json.loads(answer)
+    assert "Design Thinking" in parsed["ops"][0]["responsibilities"][0]
+
+
+def test_an_unclosed_looking_tag_inside_a_json_string_does_not_truncate_the_payload():
+    """`<think>` with no close, inside a string value, must not read as "the
+    budget ran out" and delete everything after it — that is the WHOLE rest
+    of the JSON batch, not a trace.
+
+    MUTATION KILL: drop the `_inside_json_string` guard on the UNCLOSED branch
+    and `answer` becomes an unterminated JSON string (`json.loads` raises),
+    which is exactly the silent-loss failure M-4 exists to close, caused by
+    the fix itself.
+    """
+    raw = json.dumps({
+        "ops": [{
+            "op": "add_bullets", "target": "w1",
+            "responsibilities": [
+                "Wrote a blog post about <think>ing outside the box for engineers"
+            ],
+            "achievements": [], "technologies": [],
+        }],
+        "ambiguities": [], "denials": [],
+    })
+    json.loads(raw)
+    answer, trace = split_reasoning(raw)
+    assert answer == raw
+    assert trace == ""
+    json.loads(answer)  # must still parse
+
+
+def test_an_orphan_close_looking_tag_inside_a_json_string_does_not_eat_the_prefix():
+    """A bare `</think>`-shaped substring deep inside a bullet must not read
+    as "the trace ended here" and delete the entire JSON payload before it.
+
+    MUTATION KILL: drop the `_inside_json_string` guard on the ORPHAN_CLOSE
+    branch and `answer` is left starting mid-string with no opening brace —
+    `json.loads` raises "Expecting value".
+    """
+    raw = json.dumps({
+        "ops": [{
+            "op": "add_bullets", "target": "w1",
+            "responsibilities": [
+                "Coined the motto 'Stop </think>ing, start doing' for the sprint retro"
+            ],
+            "achievements": [], "technologies": [],
+        }],
+        "ambiguities": [], "denials": [],
+    })
+    json.loads(raw)
+    answer, trace = split_reasoning(raw)
+    assert answer == raw
+    assert trace == ""
+    json.loads(answer)
+
+
 # ── the token split ───────────────────────────────────────────────────────────
 
 
