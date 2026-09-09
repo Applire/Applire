@@ -210,11 +210,20 @@ class LLMProvider(ABC):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send a prompt and return a parsed JSON dict.
 
         Args:
             disable_thinking: see acomplete.
+            json_schema: an OpenAI-style ``json_schema`` block (``{"name",
+                "strict", "schema"}``) describing the expected output. Founder
+                ruling M-3: the one call whose output is a typed union
+                (`services/profile/reconcile/schema_out.py`) hands the model the
+                shape instead of only describing it in prose. Honoured by the
+                OpenAI-compatible gateways that support structured output and
+                LATCHED off on the first rejection; accepted and ignored by every
+                other provider, so a caller never has to ask who supports it.
 
         Raises:
             LLMRateLimitError: provider is rate-limiting after all retries.

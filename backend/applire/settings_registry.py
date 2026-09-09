@@ -392,7 +392,11 @@ _register_all(
                 "                                Claude/GPT/Gemini via their EU deployments)\n"
                 "  openrouter, anthropic, openai US-hosted\n"
                 "Choosing a model? See docs/llm-models.md (capability floor + recommendations).\n"
-                "One of: mistral | requesty | openrouter | anthropic | openai | ollama"
+                # "choose one:" is not a stylistic choice — `scripts/check_provider_docs_parity.py`
+                # anchors on it to prove the shipped template names exactly the providers the
+                # factory accepts. The generated template dropped the anchor and the gate went
+                # red on the integration branch (found 2026-09-09, WP-P).
+                "choose one: mistral | requesty | openrouter | anthropic | openai | ollama"
             ),
         ),
         SettingEntry(
@@ -637,6 +641,25 @@ _register_all(
                 "timeout (300 s, baked into the applire-nginx image) or the proxy cuts "
                 "the connection first and the operator sees a 504 instead of the real "
                 "error."
+            ),
+        ),
+        SettingEntry(
+            env_var="LLM_STRUCTURED_OUTPUT",
+            source="config",
+            default="auto",
+            section="LLM behaviour",
+            introduced_in="0.42.0",
+            description=(
+                "auto | off. ON by default. 'auto' hands your model the reconciler's "
+                "15-operation vocabulary as a JSON schema instead of only describing "
+                "it in prose, on the one call that writes your vault. It costs about "
+                "2,300 extra input tokens per interview turn and helps a model that "
+                "drops a required field or mangles an operation name — measured, one "
+                "model's station coverage on a one-employer answer went from 0.10 to "
+                "1.00. An endpoint that does not support schemas rejects it once and "
+                "the instance falls back to plain JSON mode for the rest of that "
+                "process; the turn it happens on still completes. Set 'off' to save "
+                "the input tokens."
             ),
         ),
         SettingEntry(

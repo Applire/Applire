@@ -59,6 +59,12 @@ class LlmUsage(Base):
     method: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # A SUBSET of completion_tokens, not an addition: how many of them the
+    # provider says went to a reasoning trace Applire strips and discards
+    # (founder ruling M-4, `providers/llm/reasoning.py`). 0 means "the provider
+    # reported no split" — Anthropic bills thinking inside output_tokens with no
+    # separate field, Ollama has none — never "no reasoning happened".
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # True when the provider reported no usage and the counts are a
     # character-length estimate. An estimate that does not say it is an

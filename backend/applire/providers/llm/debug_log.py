@@ -60,6 +60,7 @@ from typing import Any, Iterator
 
 from applire.config import settings
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.reasoning import take_trace
 
 # Per-task pipeline-stage label (e.g. "cv_extraction", "reconcile"). ContextVars are
 # copied per asyncio task, so concurrent requests never clobber each other's stage.
@@ -493,6 +494,11 @@ class _LoggingProvider(LLMProvider):
                 ok=error is None,
                 error=error,
                 response=_truncate(result),
+                # M-4: the reasoning trace the provider seam stripped before
+                # parsing. It reaches THIS artefact and no other — the answer
+                # the caller got never contained it, and `llm_usage` counts it
+                # without storing it. Absent (None) when the model emitted none.
+                reasoning=_truncate(take_trace()),
             )
 
 

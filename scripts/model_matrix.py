@@ -66,6 +66,21 @@ MODEL_FIELD = {
     provider: env.lower() for provider, env in MODEL_ENV.items() if env
 }
 
+# `--reasoning on|off` (WP-P, founder ruling M-4). The 11-model matrix ran every
+# row at the code default (reasoning ON) while the founder's own edge route
+# behaved as if reasoning were off, and the paired glm-5.3-flash rows differ by up
+# to 70 points on one shape (`o3/failure-taxonomy-2026-09-09.md` §4). Reasoning is
+# therefore a measured ARM of this harness, not an ambient condition: the flag
+# binds the provider's `*_disable_thinking` setting, and `settings_snapshot()`
+# already writes the resulting value into every summary, so a published row can
+# never be read without it. Only the two gateways that expose the toggle as a
+# setting are supported — the other providers take it per call only.
+REASONING_ENV = {
+    "openrouter": "OPENROUTER_DISABLE_THINKING",
+    "requesty": "REQUESTY_DISABLE_THINKING",
+}
+REASONING_FIELD = {provider: env.lower() for provider, env in REASONING_ENV.items()}
+
 # Proposed qualification thresholds (docs/llm-models.md "Which models work").
 # A rate is measured PER SHAPE; the worst shape decides the model's verdict.
 #
@@ -97,6 +112,12 @@ _USAGE_RE = re.compile(
     r"LLM response \[(?P<method>\w+)\] model=(?P<model>\S+) latency=(?P<latency>[\d.]+)s "
     r"prompt_tokens=(?P<prompt>\S+) completion_tokens=(?P<completion>\S+)"
 )
+# The provider's structured-output fallback WARNING. Without this the harness
+# would swallow it: `install_log_readers` sets `applire.providers.llm` to
+# `propagate=False`, so a row could say `llm_structured_output: auto` while every
+# call after the first ran on plain JSON mode — the same class of instrument
+# defect as the one that hid `provider.aparse_json failed` on the first matrix.
+_SCHEMA_REJECT_RE = re.compile(r"rejected the response json_schema")
 # engine.py's #602 WARNING — the only place the REJECTED op's payload survives.
 # `ReconcileResult.rejected_ops` carries the op's label and nothing else, so
 # without this the matrix could say "12 malformed ops" and never say which field
@@ -112,6 +133,9 @@ _usage_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.C
 _reject_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
     "model_matrix_reject_sink", default=None
 )
+# Process-wide, not per-task: the provider latches the rejection once for the
+# whole process, so the fact belongs to the RUN, not to the turn that hit it.
+_schema_rejections: list[str] = []
 
 
 # --------------------------------------------------------------------------- #
@@ -232,6 +256,9 @@ class _LogReader(logging.Handler):
                         "completion_tokens": _num(usage.group("completion")),
                     }
                 )
+            return
+        if _SCHEMA_REJECT_RE.search(message):
+            _schema_rejections.append(message[:300])
             return
         reject = _REJECT_RE.search(message)
         if reject:
@@ -661,7 +688,9 @@ def openrouter_credits() -> float | None:
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-def configure_env(provider: str, model: str | None, timeout: int | None) -> None:
+def configure_env(
+    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+) -> None:
     """Point the ADR-009 factory at the requested provider BEFORE applire imports.
 
     ``applire.config.Settings`` is read once at import time, so the environment
@@ -676,12 +705,22 @@ def configure_env(provider: str, model: str | None, timeout: int | None) -> None
         os.environ[env_var] = model
     if timeout:
         os.environ["LLM_TIMEOUT"] = str(timeout)
+    if reasoning != "default":
+        env_var = REASONING_ENV.get(provider)
+        if not env_var:
+            raise SystemExit(
+                f"--reasoning is not applicable to provider '{provider}' "
+                f"(supported: {', '.join(sorted(REASONING_ENV))})"
+            )
+        os.environ[env_var] = "false" if reasoning == "on" else "true"
     backend = str(REPO_ROOT / "backend")
     if backend not in sys.path:
         sys.path.insert(0, backend)
 
 
-def force_settings(provider: str, model: str | None, timeout: int | None) -> None:
+def force_settings(
+    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+) -> None:
     """Make the settings singleton agree with the CLI, and refuse to run if it can't.
 
     ``configure_env`` sets the environment before any ``applire.`` import, which is
@@ -706,10 +745,26 @@ def force_settings(provider: str, model: str | None, timeout: int | None) -> Non
     if timeout:
         settings.llm_timeout = timeout
 
+    if reasoning != "default":
+        field = REASONING_FIELD.get(provider)
+        if not field:
+            raise SystemExit(f"--reasoning is not applicable to provider '{provider}'")
+        setattr(settings, field, reasoning == "off")
+
     if settings.llm_provider != provider:
         raise SystemExit(f"settings.llm_provider is {settings.llm_provider!r}, not {provider!r}")
     if model and getattr(settings, MODEL_FIELD[provider]) != model:
         raise SystemExit(f"settings.{MODEL_FIELD[provider]} did not take {model!r}")
+    if reasoning != "default":
+        want = reasoning == "off"
+        got = getattr(settings, REASONING_FIELD[provider])
+        if got is not want:
+            # Same failure class as a mislabelled model: an arm that did not bind
+            # publishes a reasoning-off row measured with reasoning on.
+            raise SystemExit(
+                f"settings.{REASONING_FIELD[provider]} is {got!r}, not {want!r} "
+                f"(--reasoning {reasoning})"
+            )
 
 
 def settings_snapshot() -> dict[str, Any]:
@@ -728,6 +783,9 @@ def settings_snapshot() -> dict[str, Any]:
             "ollama_model",
             "llm_timeout",
             "llm_max_output_tokens",
+            # M-3: whether the run handed the model the op union as a schema.
+            # A row measured with structured output on is a different row.
+            "llm_structured_output",
             "openrouter_disable_thinking",
             "openrouter_reasoning_effort",
             "requesty_disable_thinking",
@@ -769,6 +827,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", default=None, help="JSONL file for the per-run records")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=None, help="LLM_TIMEOUT seconds")
+    parser.add_argument(
+        "--reasoning",
+        choices=("on", "off", "default"),
+        default="default",
+        help=(
+            "bind the gateway's reasoning toggle for this run (openrouter/requesty "
+            "only); 'default' leaves the code default. The value reached is written "
+            "into the summary's settings block."
+        ),
+    )
     parser.add_argument("--price-in", type=float, default=None, help="$ per 1M input tokens")
     parser.add_argument("--price-out", type=float, default=None, help="$ per 1M output tokens")
     parser.add_argument(
@@ -915,7 +983,7 @@ async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    configure_env(args.provider, args.model, args.timeout)
+    configure_env(args.provider, args.model, args.timeout, args.reasoning)
     fixtures = Fixtures(Path(args.fixtures))
     shapes = resolve_shapes(fixtures, args.shapes)
 
@@ -929,7 +997,7 @@ def main(argv: list[str] | None = None) -> int:
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
         return 0
 
-    force_settings(args.provider, args.model, args.timeout)
+    force_settings(args.provider, args.model, args.timeout, args.reasoning)
     install_log_readers()
     credits_before = (
         None
@@ -946,12 +1014,18 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "n": args.n,
         "shapes": shapes,
+        "reasoning_arm": args.reasoning,
         "fixtures_version": fixtures.version,
         "wall_s": round(time.time() - started, 1),
         # A published row is only reproducible if the knobs that change model
         # behaviour are recorded with it. Never a key — only names and values
         # that are already public settings.
         "settings": settings_snapshot(),
+        # Whether the endpoint actually TOOK the schema. `llm_structured_output:
+        # auto` records what was ASKED for; this records what happened, so a row
+        # cannot claim a schema arm it silently fell out of.
+        "schema_rejected": bool(_schema_rejections),
+        "schema_rejection_note": _schema_rejections[0] if _schema_rejections else None,
     }
     cost = token_cost(summary["usage"], args.price_in, args.price_out) or {}
     credits_after = (

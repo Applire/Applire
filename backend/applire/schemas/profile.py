@@ -714,7 +714,18 @@ class ImportNotApplied(BaseModel):
     #: carry the type; ``EnrichmentRecord`` deliberately has no
     #: ``extra="forbid"``, so records persisted before this value existed load
     #: unchanged.
-    reason: Literal["no_op_carried_entry", "op_rejected", "summary_populated"]
+    #: ``no_write`` (founder ruling M-1c, 2026-09-09) is the second reason a
+    #: STATEMENT intake can produce, and the second whose ``section`` is not a
+    #: content section (it is ``None``): the answer STATED something — its
+    #: non-denial clauses are non-empty — and the turn produced no vault write,
+    #: no confirmation, no conflict and no other receipt at all. ``label``
+    #: carries the answer's own positive residue, truncated. Still a FACT
+    #: (``reconcile.witness.compute_no_write``): a negation-word test over the
+    #: clauses plus "did anything land", never a judgement about whether the
+    #: statement was worth recording.
+    reason: Literal[
+        "no_op_carried_entry", "op_rejected", "summary_populated", "no_write"
+    ]
 
 
 class EnrichmentRecord(BaseModel):

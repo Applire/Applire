@@ -85,6 +85,22 @@ class Settings(BaseSettings):
     # timeout (ADR-047 §2, cap-aware budgeting). Optional: segmentation already handles
     # capped models with no metadata; this lets an operator who knows the cap pre-empt it.
     llm_max_output_tokens: int = 0
+    # Founder rulings M-3 and P-4 (2026-09-09) — structured output on the ONE
+    # call whose response is a typed union (the ADR-046 reconciler). "auto"
+    # sends the op union as a JSON schema alongside the prompt and latches it
+    # off for the process the first time an endpoint rejects it; "off" keeps
+    # free-form JSON mode.
+    #
+    # Default "auto" is a FOUNDER RULING taken against this package's own
+    # recommendation of "off", with the price in front of him: it costs
+    # +2,269 measured input tokens per reconcile call (~35 % more input on that
+    # call), the schema is non-strict, and the Requesty route was unmeasured at
+    # the time. What it buys, measured on the same fixtures: `ministral-8b`'s
+    # station coverage on the one-employer shape went 0.10 -> 1.00 and its
+    # malformed-op rate 20 % -> 10 %, with no regression on the two models that
+    # were already qualified. See docs/llm-models.md for the row and for how to
+    # turn it off. Only the OpenAI-compatible gateways act on it.
+    llm_structured_output: str = "auto"  # "auto" | "off"
     # Developer-only: when True, every LLM call's full input/output is appended as a
     # JSON line to <llm_debug_log_dir>/<date>.jsonl (records CV PII — keep OFF in prod).
     llm_debug_log: bool = False

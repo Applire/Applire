@@ -52,6 +52,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://router.eu.requesty.ai/v1"
@@ -113,6 +114,36 @@ class RequestyProvider(LLMProvider):
         # on every subsequent call — a wasted API round-trip each time on that path.
         self._reasoning_rejected = False
 
+    # ── M-3: structured output, with the rejection latched ───────────────────
+    _json_schema_rejected = False
+
+    @staticmethod
+    def _response_format(json_schema: dict | None) -> dict:
+        """`json_schema` when the caller supplied one, else today's `json_object`."""
+        if json_schema:
+            return {"type": "json_schema", "json_schema": json_schema}
+        return {"type": "json_object"}
+
+    def _note_schema_rejection(self, exc: Exception) -> bool:
+        """True when this 400 is about the response schema, and latch it.
+
+        Same shape and same reason as the mandatory-reasoning latch above: an
+        endpoint that cannot take a schema will never take one, so it costs a
+        single wasted request per process instead of one per call. Latched on
+        the SCHEMA wording only — an unrelated 400 that happens to co-occur
+        must not permanently disable structured output for this instance.
+        """
+        msg = str(getattr(exc, "message", None) or exc).lower()
+        if "json_schema" in msg or "response_format" in msg or "structured output" in msg:
+            self._json_schema_rejected = True
+            logger.warning(
+                "model=%s rejected the response json_schema; falling back to "
+                "plain JSON mode for this process (%s)",
+                self._model, exc,
+            )
+            return True
+        return False
+
     async def acomplete(
         self,
         prompt: str,
@@ -158,13 +189,17 @@ class RequestyProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         extra_body = self._extra_body(disable_thinking)
+        # M-3: schema guidance, latched off after the first rejection so an
+        # endpoint without structured output costs one 400 per process.
+        schema = None if self._json_schema_rejected else json_schema
 
         async def attempt(budget: int) -> str:
             return await asyncio.wait_for(
-                self._parse_json(messages, temperature, budget, extra_body),
+                self._parse_json(messages, temperature, budget, extra_body, schema),
                 timeout=self._timeout,
             )
 
@@ -211,6 +246,17 @@ class RequestyProvider(LLMProvider):
                 max_tokens=max_tokens, extra_body=extra_body, **kwargs
             )
         except openai.BadRequestError as exc:
+            # M-3 — a schema-shaped 400 retries the SAME call without the
+            # schema, so structured output can never cost a turn.
+            if (
+                isinstance(kwargs.get("response_format"), dict)
+                and kwargs["response_format"].get("type") == "json_schema"
+                and self._note_schema_rejection(exc)
+            ):
+                retry_kwargs = {**kwargs, "response_format": {"type": "json_object"}}
+                return await self._client.chat.completions.create(
+                    max_tokens=max_tokens, extra_body=extra_body, **retry_kwargs
+                )
             if extra_body and "reasoning_effort" in extra_body:
                 # Latch the rejection only when the 400 is actually about reasoning —
                 # an unrelated 400 (context-length, bad response_format) that merely
@@ -256,11 +302,19 @@ class RequestyProvider(LLMProvider):
         )
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
-        return response.choices[0].message.content
+        return finalise_completion(
+            response, response.choices[0].message.content,
+            model=self._model, method="acomplete",
+        )
 
     @_retry
     async def _parse_json(
-        self, messages: list, temperature: float, max_tokens: int, extra_body: dict | None
+        self,
+        messages: list,
+        temperature: float,
+        max_tokens: int,
+        extra_body: dict | None,
+        json_schema: dict | None = None,
     ) -> str:
         t0 = time.monotonic()
         response = await self._create(
@@ -268,7 +322,7 @@ class RequestyProvider(LLMProvider):
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"},
+            response_format=self._response_format(json_schema),
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
@@ -282,7 +336,10 @@ class RequestyProvider(LLMProvider):
         )
         raise_if_no_completion(response, model=self._model)
         raise_if_truncated(response.choices[0].finish_reason, model=self._model)
-        return response.choices[0].message.content
+        return finalise_completion(
+            response, response.choices[0].message.content,
+            model=self._model, method="aparse_json",
+        )
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

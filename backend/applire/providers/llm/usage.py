@@ -54,6 +54,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Iterator
 
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.reasoning import extract_reasoning_tokens
 from applire.services.ops.config import usage_tracking_enabled
 
 logger = logging.getLogger(__name__)
@@ -76,9 +77,19 @@ class Usage:
     prompt_tokens: int
     completion_tokens: int
     estimated: bool = False
+    # How many of `completion_tokens` the provider says went to reasoning
+    # rather than to the answer (founder ruling M-4). Providers that bill
+    # thinking inside the completion total without splitting it (Anthropic) and
+    # providers with no reasoning at all (Ollama, mock) report 0 — an unknown
+    # split is never invented, because the number's only job is to tell the
+    # operator what reasoning costs them.
+    reasoning_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
+        # `reasoning_tokens` is a SUBSET of `completion_tokens` on every
+        # provider that reports it, never an addition — adding it here would
+        # double-count the thinking against the operator's invoice.
         return self.prompt_tokens + self.completion_tokens
 
 
@@ -149,7 +160,11 @@ def extract_usage(response: Any) -> Usage | None:
                 )
         if prompt is None and completion is None:
             return None
-        return Usage(prompt or 0, completion or 0)
+        return Usage(
+            prompt or 0,
+            completion or 0,
+            reasoning_tokens=extract_reasoning_tokens(response) or 0,
+        )
 
     usage = getattr(response, "usage", None)
     if usage is None:
@@ -163,7 +178,11 @@ def extract_usage(response: Any) -> Usage | None:
         completion = _as_int(getattr(usage, "output_tokens", None))
     if prompt is None and completion is None:
         return None
-    return Usage(prompt or 0, completion or 0)
+    return Usage(
+        prompt or 0,
+        completion or 0,
+        reasoning_tokens=extract_reasoning_tokens(response) or 0,
+    )
 
 
 def note_usage(response: Any) -> None:
@@ -379,6 +398,7 @@ class UsageRecordingProvider(LLMProvider):
             "method": method[:16],
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
             "total_tokens": usage.total_tokens,
             "estimated": usage.estimated,
             "document_kind": attribution.document_kind[:16],

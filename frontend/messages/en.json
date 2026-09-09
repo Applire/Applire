@@ -972,7 +972,8 @@
     "notAppliedReason": {
       "no_op_carried_entry": "no change carried it",
       "op_rejected": "the change came back malformed and was dropped",
-      "summary_populated": "your self-description was already written, so it was left alone"
+      "summary_populated": "your self-description was already written, so it was left alone",
+      "no_write": "nothing was recorded from what you said"
     }
   },
   "profileReview": {

@@ -185,6 +185,8 @@ async def submit_testimony(
             record=record,
             # §7.4 — a turn-based intake passes its turn text; stance/attribution
             # already ran over it inside `reconcile()` above.
+            # M-1c — see the interview door; same words, same receipt.
+            turn_text=text,
             grounding=TurnGrounding(text=text, denials=list(rc.denials)),
             ambiguities=list(rc.ambiguities),
             snapshot=None,

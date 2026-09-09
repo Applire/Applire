@@ -128,6 +128,12 @@ is not put through tier 2.
 | `mistralai/mistral-small-2603` | OpenRouter | on (model default) | 10 | 100% / 100% / 30% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,150 / 3,009 | $0.0263 |
 | `cohere/command-r7b-12-2024` | OpenRouter | on (model default) | 10 | 100% / 100% / 10% | 0% / 0% / 0% | 0% / 0% / 0% | 0/30 | **sub-par** | n/a (sub-par on tier 1) | 163,044 / 4,692 | $0.0068 |
 
+**These rows were measured against the prompt as it stood on the morning of 2026-09-09.**
+That prompt was changed the same day, and three of these models were re-measured against
+the new one with different results — see *After the prompt was fixed* below. A row here is
+a statement about a model **and** a prompt version, exactly as a malformed-op rate is a
+statement about a model and a schema.
+
 All rows measured 2026-09-09 through OpenRouter from a clean checkout with no `.env`, so
 every knob sat at its code default — in particular reasoning was **left on**, which is what
 an operator who never touches the setting gets. `n` = 10 turns per shape, 30 per model.
@@ -175,6 +181,84 @@ Tier-1 rows were measured against the operation schema as of `main` @ `24ee8cd6`
 harness stores the exact validation error per rejected operation, so every row can be
 re-scored (`--score`, no new provider calls) when that schema changes — a malformed-op rate
 is a statement about a model *and* a schema, not about the model alone.
+
+### After the prompt was fixed (2026-09-09, prompt v2)
+
+The table above measures the prompt as it stood when the eleven models were run. The
+prompt was then **changed twice**, and both changes were measured before and after on the
+same shapes, the same fixture set and the same `n`. Two of the three models re-measured
+moved verdict. The rows below are the state this release ships.
+
+**What changed in the prompt.** (1) The rule about denials said that an answer which does
+not address the question contributes nothing about the question's topic, and stated its
+"emit nothing" escape a second time. An answer like *"I have not worked with insulin in
+particular, but I have 15+ years at A, at B and now at C"* therefore gave the model two
+explicit reasons to record nothing. It now says a denial is about its own item and nothing
+else, and the escape is stated once. (2) The rule about entity identity said nothing about
+a sentence naming several employers; it now says each clause binds to the employer that
+clause names, with a worked example.
+
+| Model | Gateway | Reasoning | n | lost turn S6/S7/S8 | malformed | wrong-slot | Tier 1 **before** | Tier 1 **after** | tokens in/out |
+|---|---|---|---|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 185,460 / 29,947 |
+| `z-ai/glm-5.3-flash` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 190,311 / 42,364 |
+| `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 0% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 226,323 / 18,836 |
+
+`openai/gpt-5.6-luna`'s move happened in two steps and only one of them is the prompt
+review: the schema change that made a job title optional (a model that correctly refuses to
+invent one could not create a station at all) already took it to a clean sheet, and the
+prompt changes held it there. `z-ai/glm-5.3-flash` moved on the denial rule alone — **and
+spent 48 % fewer output tokens doing it** (109,253 → 57,202 for the same 30 turns, and
+again to 42,364 after the second change), with its median turn falling from 45 s to 6 s.
+The model had been spending its reasoning budget deliberating a contradiction in the
+instructions; removing the contradiction removed the deliberation. Better and cheaper on
+the same call.
+
+The remaining nine models in the table above have **not** been re-measured against the new
+prompt. A row that says sub-par there is a statement about the old prompt; re-run the
+harness before trusting it.
+
+### The vault call now carries a schema (`LLM_STRUCTURED_OUTPUT`, on by default)
+
+The single call that writes your profile is handed the 15 operations it may emit as a JSON
+schema, not only as prose in the prompt. The schema is generated from the same types that
+validate the answer, so the two cannot drift apart, and it lists exactly the fields the
+prompt asks for — nothing more, so it cannot invite a field the prompt deliberately avoids.
+
+What it bought, on the same fixtures as the table above: `mistralai/ministral-8b-2512`'s
+station coverage on the one-employer answer went from 0.10 to 1.00 (it had been dropping
+whole stations) and its malformed-operation rate halved. Neither of the two models that
+were already clean regressed.
+
+What it costs: **about 2,300 extra input tokens per interview turn** — roughly a third more
+input on that one call, unchanged output, unchanged latency. To turn it off:
+
+```bash
+LLM_STRUCTURED_OUTPUT=off
+```
+
+If your model's endpoint does not support schemas it rejects the request once; Applire
+notes that, falls back to plain JSON mode for the rest of that process, and the turn it
+happened on still completes. You do not have to know in advance whether your model
+supports it.
+
+### One more thing about "turn reasoning off"
+
+`OPENROUTER_DISABLE_THINKING` / `REQUESTY_DISABLE_THINKING` are a **request**, not a
+switch. Two things were measured on 2026-09-09 that are worth knowing before you set them:
+
+- **Some models refuse.** `z-ai/glm-5.3-flash` on OpenRouter answers *"Reasoning is
+  mandatory for this endpoint and cannot be disabled"* (HTTP 400). Applire retries
+  correctly with reasoning left on, so the model still works — but the setting saved you
+  nothing, and until this release it re-sent the rejected request on **every** call, which
+  doubled the round-trips and made timeouts more likely. It is now remembered per process.
+- **Some routes never reason anyway.** The same model through a different gateway produced
+  ~124 output tokens per call against ~2,724 on OpenRouter, with the setting untouched, and
+  asking that route explicitly for `medium` reasoning effort did not change it. Whether a
+  model reasons is a property of the model *and* the gateway, not of this setting.
+
+If the goal is to spend less: the largest saving measured on this seam did not come from
+the reasoning switch at all. It came from fixing the prompt.
 
 ### Reproduce it yourself
 
