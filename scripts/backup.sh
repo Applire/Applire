@@ -117,6 +117,14 @@ verify_archive() {
   log "OK — $archive looks like a usable backup."
 }
 
+# Both paths below run `docker run` (verify_archive's pg_restore --list) or
+# `docker compose` — checked once, here, rather than only on the backup path.
+# Adversarial pass, 2026-09-09: `--verify` used to reach `docker run` with no
+# prior check, so an operator sanity-checking an archive on a host without
+# docker (or with it off PATH) got a raw "command not found" instead of this
+# script's own clean, documented failure.
+command -v docker >/dev/null 2>&1 || fail "docker is not on PATH"
+
 if [ "${1:-}" = "--verify" ]; then
   [ -n "${2:-}" ] || fail "usage: scripts/backup.sh --verify <archive.tar.gz>"
   log "Verifying $2"
@@ -131,8 +139,6 @@ OUTDIR="${1:-./backups}"
 mkdir -p "$OUTDIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ARCHIVE="$OUTDIR/applire-backup-${STAMP}.tar.gz"
-
-command -v docker >/dev/null 2>&1 || fail "docker is not on PATH"
 
 PG_CID="$(docker compose ps -q postgres || true)"
 [ -n "$PG_CID" ] || fail "the postgres container is not running — start the stack first (docker compose up -d)"
