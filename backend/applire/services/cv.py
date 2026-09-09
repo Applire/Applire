@@ -2272,9 +2272,18 @@ async def generate_cv(
     await db.commit()
     await db.refresh(record)
 
+    # ADR-086 / US313 — attribute the generation's llm_usage rows to the
+    # application that requested it. `application` was already resolved above
+    # for document-language pinning; `None` when no application row exists yet
+    # (e.g. a CV generated before the application record is created) and the
+    # rows fall back to document-only attribution (adversarial pass, 2026-09-09).
+    application_id = application.id if application is not None else None
+
     if background_tasks is None:
         # Agent channel: no request lifecycle to defer to — render inline.
-        await _render_cv_background(record.id, job_id, profile.id, template)
+        await _render_cv_background(
+            record.id, job_id, profile.id, template, application_id
+        )
         await db.refresh(record)
     else:
         # REST: enqueue heavy work — runs after the response is sent.
@@ -2284,6 +2293,7 @@ async def generate_cv(
             job_id,
             profile.id,
             template,
+            application_id,
         )
 
     return CVGenerateResponse(
@@ -2721,16 +2731,29 @@ async def _render_cv_background(
     job_id: uuid.UUID,
     profile_id: uuid.UUID,
     template: CVTemplate,
+    application_id: uuid.UUID | None = None,
 ) -> None:
     """LLM tailoring + Playwright PDF rendering — runs outside request lifecycle.
 
     Opens its own DB session. Updates status: pending → generating → ready | failed.
+
+    ``application_id`` (adversarial pass, 2026-09-09 — the O1/O2 integration had
+    dropped it) is resolved by the caller (``generate_cv``) BEFORE this task is
+    scheduled, because by the time this function opens its own session the
+    request's application lookup would have to be repeated. ``None`` when no
+    application row exists yet; the row then carries document-only attribution.
     """
     # ADR-086 / US313 — attribute every provider call of this generation to the
-    # document it produced (set-and-restore, so an audit tail cannot inherit it).
+    # document (and application, where known) it produced — set-and-restore, so
+    # an audit tail cannot inherit it.
     from applire.providers.llm.usage import llm_usage_context
 
-    with llm_usage_context(document_kind="cv", document_id=cv_id):
+    with llm_usage_context(
+        stage="cv",
+        document_kind="cv",
+        document_id=cv_id,
+        application_id=application_id,
+    ):
         async with AsyncSessionLocal() as db:
             record = await db.get(GeneratedCV, cv_id)
             if record is None:

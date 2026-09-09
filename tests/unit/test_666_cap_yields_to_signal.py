@@ -329,6 +329,39 @@ def test_a_concept_the_languages_section_delivers_is_not_under_claimed():
     ) == []
 
 
+def test_a_bilingual_language_name_is_still_recognised_as_delivered():
+    """Adversarial pass (Nougat build-1, `wt-adv-writer`) — a DACH candidate's vault
+    carries the LANGUAGES section verbatim in ITS OWN language (ADR-067 clause 3), while
+    the clause-5 ledger's surface forms come from the JD's own language. An English-
+    language posting requiring "English" against a vault section stating "Englisch" is
+    the realistic instance: before the fix, `_structured_norm` never found "english" as a
+    substring of "englisch", so W1-3's own suppression did not fire and the concept stayed
+    demanded — reproducing the exact cost W1-3 exists to prevent (a demand bought at the
+    price of another bullet) for a fact the document already carries. Fixed by reusing
+    `cv._LANGUAGE_NAME_CANON`, the already-established ADR-062 clause-1 fact table for
+    exactly this ("a finite lookup, not a judgement")."""
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    ledger = [
+        {"concept": "English", "surface_forms": ["English"], "claimable": True,
+         "status": "direct", "fit_weight": 1.0, "evidence": "Englisch: C1"},
+    ]
+    draft = _prose("Ausschussquote von 4,1 % auf 2,3 % gesenkt.")
+    assert [c.concept for c in verified_narrative_underclaim(draft, ledger)] == ["English"]
+
+    composed_german_name = {"languages": [{"language": "Englisch", "level": "C1"}]}
+    assert verified_narrative_underclaim(
+        draft, ledger, structured_document=composed_german_name
+    ) == [], "the vault's OWN-language name for the concept must still count as delivered"
+
+    # The direct-match case must keep working too — the fix only ADDS a translated
+    # reading, it must never remove the literal one.
+    composed_english_name = {"languages": [{"language": "English", "level": "C1"}]}
+    assert verified_narrative_underclaim(
+        draft, ledger, structured_document=composed_english_name
+    ) == []
+
+
 def test_the_skills_list_is_deliberately_not_a_structured_section():
     """The signal's founding rule — "a skills-list entry does NOT satisfy this" — is
     exactly what must NOT be relaxed here. The draft above already carries `Deutsch` in

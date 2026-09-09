@@ -174,6 +174,34 @@ def test_both_scripts_fail_loudly_rather_than_reporting_a_partial_backup():
         assert "set -euo pipefail" in path.read_text(encoding="utf-8"), path.name
 
 
+def test_backup_sh_verify_checks_for_docker_before_running_it():
+    """Adversarial pass, 2026-09-09 — `--verify` used to reach `docker run`
+    (inside `verify_archive`'s `pg_restore --list` step) with NO prior check
+    that docker is even on PATH. An operator who copies just the archive and
+    this script to a host without docker — to sanity-check a backup before,
+    say, uploading it offsite — got a raw shell "command not found" instead
+    of the script's own clean, documented failure. The full-backup path
+    already checked this; `--verify` alone did not.
+
+    Pinned as an ORDERING property on the source text (`--verify`'s own
+    `docker run` sits inside `verify_archive`, called from both branches, so
+    a plain substring-presence check cannot tell "checked before" from
+    "checked after" — the regex requires the docker check to appear strictly
+    before the `--verify` branch that can exit(0) without ever reaching the
+    line the full-backup path added it for).
+    """
+    script = _BACKUP_SH.read_text(encoding="utf-8")
+    docker_check = script.find('command -v docker >/dev/null 2>&1 || fail "docker is not on PATH"')
+    verify_branch = script.find('if [ "${1:-}" = "--verify" ]; then')
+    assert docker_check != -1, "scripts/backup.sh no longer checks docker is on PATH"
+    assert verify_branch != -1, "scripts/backup.sh no longer has a --verify branch"
+    assert docker_check < verify_branch, (
+        "the docker-on-PATH check must come BEFORE the --verify branch — "
+        "otherwise `backup.sh --verify <archive>` can reach `docker run` "
+        "with no check at all, on a host where docker is not on PATH"
+    )
+
+
 # --------------------------------------------------------------------------
 # 4. NOTICE_AUTO_DISMISS_SECONDS — an INSTANCE setting on a USER payload
 #    (founder ruling V-1, 2026-09-09)

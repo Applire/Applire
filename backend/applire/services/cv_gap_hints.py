@@ -320,16 +320,51 @@ def _structured_norm(document: dict[str, Any] | None) -> str:
 
     Empty string when no composed document is available (every non-terminal caller),
     in which case the demand behaves exactly as it did before #666.
+
+    **Adversarial-pass fix (Nougat build-1, `wt-adv-writer`, 2026-09-09).** The
+    LANGUAGES section is transcribed VERBATIM from the vault (ADR-067 clause 3), in
+    whatever language the candidate's profile names it — a DACH candidate's vault
+    typically carries "Englisch"/"Französisch". The clause-5 ledger's surface forms
+    come from the JD's OWN language — "English"/"French" for an English-language
+    posting on a German vault. Measured: a synthetic case with `languages: [{"language":
+    "Englisch", "level": "C1"}]` and a ledger entry `{"concept": "English",
+    "surface_forms": ["English"]}` left the concept DEMANDED even though the composed
+    document's LANGUAGES section already states it — `_structured_norm` never found
+    "english" as a substring of "englisch". That reproduces exactly the cost W1-3 (the
+    RULING this suppression exists to satisfy) was built to prevent: the corrector
+    spends one of its two per-round demand slots, and the ADR-072 clause-4 exemption
+    then protects a bullet at the price of another, genuinely-needed one — "Deutsch als
+    Muttersprache." bought at the price of the LTIF and budget bullets, but this time for
+    a fact the document already carries.
+
+    ``services/cv._LANGUAGE_NAME_CANON`` is the ALREADY-ESTABLISHED, ADR-062
+    clause-1-legitimised fact table for exactly this ("mapping a language's German name
+    to its English name is a finite lookup — a FACT, not a judgement", `_dedup_languages`
+    docstring) — reused here (ADR-066: one implementation) rather than a second table,
+    function-local import to avoid a cv.py <-> cv_gap_hints.py cycle (cv.py already
+    imports this module locally, inside `_terminal_review`).
     """
     if not document:
         return ""
+    from applire.services.cv import _LANGUAGE_NAME_CANON
+
     out: list[str] = []
     for section in _STRUCTURED_SECTIONS:
         for item in document.get(section) or []:
             if isinstance(item, str):
                 out.append(item)
+                if section == "languages":
+                    canon = _LANGUAGE_NAME_CANON.get(item.strip().casefold())
+                    if canon:
+                        out.append(canon)
             elif isinstance(item, dict):
-                out.extend(str(v) for v in item.values() if isinstance(v, str))
+                values = [v for v in item.values() if isinstance(v, str)]
+                out.extend(values)
+                if section == "languages":
+                    for v in values:
+                        canon = _LANGUAGE_NAME_CANON.get(v.strip().casefold())
+                        if canon:
+                            out.append(canon)
     return _norm("\n".join(out))
 
 

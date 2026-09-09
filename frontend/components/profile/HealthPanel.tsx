@@ -207,9 +207,19 @@ function IssueCard({
           fully-German conflict card, which `applire-i18n` makes a defect rather
           than a rough edge.
 
-          `accuracy` is the ONE thread still falling through to the server's
-          English `summary`. Named on the Frontend collector (#604) rather than
-          left as an unremarked inconsistency. */}
+          Adversarial finding (2026-09-09, WP-adv-vault): this comment used to
+          claim `accuracy` was the ONE thread still falling through. It is not
+          — `confirmation` does too (`services/profile/health.py::
+          _confirmation_issue` sets `summary=confirmation.question`, always the
+          English plain field per #669's `_build`), and V-7's own screenshot
+          pass never rendered a `confirmation` issue to catch it. A real DE
+          screenshot of the profile page with a parked confirmation shows the
+          identical raw-English pattern the V-7 fix was written for. Both
+          threads are on the Frontend collector (#604) now, not just one —
+          fixing `confirmation` needs a backend change too
+          (`HealthIssue` carries no `question_i18n`/`options_i18n` for it, only
+          `not_applied` got that treatment), which is why it is deferred
+          alongside `accuracy` rather than built here. */}
       {conflict ? (
         <div data-testid="health-issue-conflict">
           <p className="text-sm font-medium text-neutral-dark">{conflict.heading}</p>
