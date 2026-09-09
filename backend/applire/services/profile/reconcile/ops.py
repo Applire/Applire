@@ -70,6 +70,15 @@ class UpsertWork(BaseModel):
     #
     # ``company`` stays required: a station with no employer is not a station,
     # and there would be nothing for the field-gap follow-up to ask about.
+    #
+    # A DEFAULT is not enough, and the difference was measured: O3's first
+    # model-matrix run (`glm-5.3-flash`, 30 turns, 2026-09-09) found all eight
+    # parse-rejected ops were `upsert_work.role:string_type` — the model does not
+    # omit the key, it emits ``"role": null``, which a bare ``str = ""`` still
+    # refuses. So the coercion below mirrors ``ExperienceBase.coerce_role``
+    # (#619), which exists for this exact reason one layer down: *"a null role
+    # must not reject the whole entry"*. The op and the entity it writes into now
+    # agree about what "no role" looks like.
     role: str = ""
     start_date: str | None = None
     end_date: str | None = None
@@ -80,6 +89,17 @@ class UpsertWork(BaseModel):
     team_size: int | None = None
     industry_context: str | None = None
     budget_managed: str | None = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _coerce_role(cls, v: Any) -> str:
+        """``null`` means "the candidate did not say", not "reject this station".
+
+        Same coercion, same reason, as ``ExperienceBase.coerce_role`` (#619).
+        Without it a model honouring RULING V-0 — creating an absent station with
+        only the stated fields — has its whole op dropped at ``_parse_ops``.
+        """
+        return v if isinstance(v, str) else ""
 
 
 class UpsertProject(BaseModel):

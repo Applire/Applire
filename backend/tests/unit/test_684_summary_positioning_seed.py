@@ -401,3 +401,45 @@ def test_mode_b_drops_professional_summary_while_mode_c_keeps_it():
         "professional_summary": "",
     }
     assert "professional_summary" in field_gaps(profile)
+
+
+# ── RULING V-0, the half O3's matrix run measured (added 2026-09-09) ─────────
+
+
+def test_a_role_less_upsert_work_for_a_new_station_is_parsed_and_applied_dateless():
+    """The shape RULING V-0 asks for must be EMITTABLE, not only survivable.
+
+    O3's first model-matrix run (`glm-5.3-flash` over OpenRouter, 30 turns)
+    found all eight parse-rejected ops were `upsert_work.role:string_type`: the
+    model creates the absent station with `role: None` because the answer never
+    states one — exactly what V-0 asks for — and a required `role: str` made
+    `engine._parse_ops` drop the WHOLE op, with no witness and no receipt. The
+    station vanished.
+
+    This pins both halves of the fix at once: the op VALIDATES with `role`
+    absent or null, and the applier creates the entry dateless with the stated
+    fields. It reddens if `UpsertWork.role` is ever made required again.
+    """
+    from applire.services.profile.reconcile.engine import _parse_ops
+
+    raw = [
+        {"op": "upsert_work", "ref": "w1", "company": "Blutspendedienst Nord gGmbH"},
+        {"op": "upsert_work", "ref": "w2", "company": "BioNTech SE", "role": None},
+    ]
+    rejected: list[str] = []
+    ops = _parse_ops(raw, rejected=rejected)
+    assert rejected == []           # neither shape is dropped any more
+    assert len(ops) == 2
+    assert [o.role for o in ops] == ["", ""]
+
+    profile = MasterProfileData.model_validate(
+        {"personal_info": {"name": "Lena Fischer"}, "work_experience": []}
+    )
+    result = apply_ops(profile, ops, "interview")
+
+    created = {w.company: w for w in result.profile.work_experience}
+    assert set(created) == {"Blutspendedienst Nord gGmbH", "BioNTech SE"}
+    for entry in created.values():
+        assert entry.role == ""          # nothing invented
+        assert entry.start_date is None  # dateless — the follow-up asks
+        assert entry.end_date is None
