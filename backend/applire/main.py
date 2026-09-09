@@ -42,7 +42,7 @@ if not _applire_logger.handlers:
     )
     _applire_logger.addHandler(_applire_handler)
 from applire.db.session import AsyncSessionLocal
-from applire.routers import application, cover_letter, cv, cv_color, documents as documents_router, flow, health, job, jobs, profile, profile_enrich, profile_roles, session
+from applire.routers import application, cover_letter, cv, cv_color, documents as documents_router, flow, health, job, jobs, ops, profile, profile_enrich, profile_roles, session
 from applire.routers import settings as settings_router
 from applire.routers.admin import color_schemes as admin_color_schemes
 from applire.services.thumbnails import ensure_thumbnails
@@ -149,7 +149,12 @@ async def lifespan(app: FastAPI):
         await backfill_entry_ids(db)
         await db.commit()
     await ensure_thumbnails(STATIC_DIR)
+    # ADR-086 clause 9 — the ops verdict (and the WARNING that follows a change) is
+    # computed on a timer, because after hand-over the operator is not watching.
+    from applire.services.ops.aggregate import start_ops_refresh, stop_ops_refresh
+    start_ops_refresh()
     yield
+    await stop_ops_refresh()
 
 
 app = FastAPI(
@@ -169,6 +174,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(health.router)
+app.include_router(ops.router)
 app.include_router(job.router)
 app.include_router(jobs.router)
 app.include_router(profile.router)

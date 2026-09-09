@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from applire._version import __version__
 from applire.config import HAS_CLOUD, settings
+from applire.services.ops.aggregate import cached_summary
 
 router = APIRouter()
 
@@ -73,6 +74,9 @@ class HealthResponse(BaseModel):
     #: "production" (docker-compose.yml alone) or "dev" (the override file is
     #: also applied — 3000/8001/5433 published, hot-reload backend).
     topology: str = "production"
+    #: ADR-086 clause 3 — served from the ops layer's cache, NEVER computed here:
+    #: this endpoint is the container healthcheck (docker-compose.yml).
+    ops: dict[str, Any] | None = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -82,6 +86,7 @@ async def health() -> HealthResponse:
         edition="cloud" if HAS_CLOUD else "community",
         version=__version__,
         llm_provider=settings.llm_provider,
+        ops=cached_summary(),
         upgrade_notice=_upgrade_notice,
         debug_log_on=bool(settings.llm_debug_log),
         topology=settings.applire_topology,

@@ -267,28 +267,68 @@ You changed `POSTGRES_USER` (or `POSTGRES_PASSWORD`/`POSTGRES_DB`) against an **
 
 ## 12. Monitoring from outside
 
-<!-- PLACEHOLDER — WP-O1 (US312, the ops layer) hands over the text for this section
-     at integration: the ops JSON contract that external probes may depend on
-     (RULING O1-3: external probes are a supported path), and the
-     OPS_PROVIDER_PROBE / OPS_PROVIDER_PROBE_INTERVAL_MINUTES /
-     LLM_USAGE_RETENTION_DAYS variables. Until that lands, what is true today: -->
+Applire tells you how it is doing at **`GET /api/ops/health`**. It answers **200** while the
+instance is `ok` or `degraded` and **503** when something is `down`, so a simple uptime check needs
+no JSON parsing at all:
 
-`GET /health` is the endpoint to poll, and four of its fields are a stable contract that
-will not change under you: `status`, `edition`, `version` and `llm_provider`. Point an
-uptime checker (Uptime Kuma, a cron `curl`, your hosting provider's monitor) at it and
-alert on anything other than HTTP 200 with `"status": "ok"`.
+    curl -fsS http://localhost/api/ops/health > /dev/null || echo "Applire is down"
 
-Three further fields are additive and safe to read, but a client that does not know them
-should ignore them rather than fail: `upgrade_notice` (`null` when there is nothing to
-report — see [Section 10](#10-upgrading)), `debug_log_on`, and `topology`.
+Point Uptime Kuma, a Zabbix HTTP agent or a cron job at that URL — this is a **supported** path.
+Applire cannot send you an e-mail or a push message, and it deliberately does not try; your own
+monitoring is the notification channel.
 
-```bash
-curl -fsS http://localhost/health | jq -e '.status == "ok"'
-```
+**The response is a contract.** New fields may appear in any release. A field is never renamed or
+removed without an *Upgrade notes* entry in the release notes, so a dashboard you build on it keeps
+working.
+
+What it reports:
+
+| Field | Means |
+|---|---|
+| `status` | `ok`, `degraded` (something wants a look, nothing is broken) or `down` |
+| `components.database` | the database answers |
+| `components.migrations` | the database schema matches this image. `degraded` after an image pull means the backend has not been restarted |
+| `components.retention` | when the GDPR cleanup last ran, what it deleted, and whether the counts look unusual. `degraded` after two missed nightly runs |
+| `components.disk` | free space on the uploads volume |
+| `components.backup` | how long since `scripts/backup.sh` last succeeded; warns after 30 days |
+| `components.provider` | whether your LLM provider answers, and your remaining credit where the provider publishes one |
+| `components.errors` | failures in the last hour, counted inside this backend process |
+| `usage` | tokens spent today and over the last seven days, and which documents and applications spent them |
+
+The same facts are shown on the **Admin** page of the UI (one quiet line while everything is fine,
+expanded when something is not).
+
+**The provider check is the only one that costs anything**, and you choose how much:
+
+| `OPS_PROVIDER_PROBE` | What runs |
+|---|---|
+| `both` *(default)* | a tiny test call every 15 minutes (about 96 a day — one job application is 89–105) **and** a balance read |
+| `reachability` | the test call only |
+| `credit` | the balance read only — this costs nothing; it is an account endpoint, not a model call |
+| `off` | neither. Your instance can then no longer tell you that your provider credit ran out |
+
+`OPS_PROVIDER_PROBE_INTERVAL_MINUTES` (default 15) sets the minimum gap between two checks. The
+endpoint only ever serves the cached result, so calling it never spends your credit.
+
+Only providers that publish a balance can report one — OpenRouter does. For a local Ollama or any
+OpenAI-compatible endpoint the credit line reads **"this provider reports no balance"**, which is
+the correct answer and not a fault.
+
+**What the endpoint reveals.** There is no login in the Community edition, so treat this URL as
+readable by anything that can reach the port. It reports versions, your provider and model name,
+component statuses and the numeric gauges. It never reports an API key, a file path, a host name, or
+anything from a candidate's documents.
+
+**Token costs.** Every model call is recorded with its token counts — numbers and ids only, never
+the text of a prompt or an answer. (Full text is only ever written when you switch `LLM_DEBUG_LOG`
+on; that log contains personal data and is off by default.) Records are kept for
+`LLM_USAGE_RETENTION_DAYS` days (365 by default; `0` keeps them forever) and are deleted by the same
+nightly cleanup. Where a provider does not report token counts, Applire estimates them and says so
+next to the figure.
 
 ## 13. What Applire does not do for you
 
 - No automated off-host backup. `scripts/backup.sh` writes an archive; getting it off this machine (a NAS, object storage, another host) is on you.
-- No monitoring or alerting beyond `GET /health` ([Section 12](#12-monitoring-from-outside)). <!-- WP-O1: revise when the ops layer lands. --> Nothing pages you; nothing watches the disk for you.
+- No alerting. `GET /api/ops/health` ([Section 12](#12-monitoring-from-outside)) tells you the state of the database, the disk, the nightly cleanup, your backups and your provider — but nothing pages you; point your own monitoring at it.
 - No multi-user support (Section 1).
 - No built-in TLS (Section 8).

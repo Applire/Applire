@@ -1249,3 +1249,11 @@ _register_all(
         ),
     ]
 )
+
+
+# ADR-086 — the ops layer's own settings, defined next to their defaults so a
+# default has exactly one home (services/ops/config.py); registered here so the
+# generated .env.example carries them (WORK-PACKAGES contract 3).
+from applire.services.ops.config import ops_registry_entries as _ops_registry_entries  # noqa: E402
+
+_register_all(SettingEntry(**_e) for _e in _ops_registry_entries())
