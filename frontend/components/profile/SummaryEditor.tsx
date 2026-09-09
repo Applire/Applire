@@ -223,7 +223,12 @@ export function SummaryEditor({
             <div className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-white p-6 shadow-xl md:max-w-lg md:rounded-xl">
               <div aria-hidden="true" className="mx-auto mb-3 h-1 w-10 rounded-full bg-gray-300 md:hidden" />
               <h3 className="mb-2 text-base font-bold text-on-surface">{t("summaryEditor.dialogTitle")}</h3>
-              <p className="mb-4 text-xs text-on-surface-variant">{t("summaryEditor.hint")}</p>
+              {/* #683 founder ruling 3 / #685 — the field is the candidate's own
+                  self-description, and the summary that gets SENT is written per
+                  application from the whole profile. First-contact copy names the
+                  job, not the mechanism. */}
+              <p className="mb-2 text-xs text-on-surface-variant">{t("summaryEditor.hint")}</p>
+              <p className="mb-4 text-xs text-on-surface-variant">{t("summaryEditor.langHint")}</p>
 
               <div className="space-y-3">
                 <div>

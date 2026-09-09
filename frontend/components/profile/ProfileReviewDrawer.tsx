@@ -48,6 +48,21 @@ interface Message {
 const KEEP_BOTH_INTENT =
   "These are two separate roles — keep both (e.g. I was promoted; do not merge them into one).";
 
+/**
+ * #685 — profile-LEVEL sections have no second entry to keep.
+ *
+ * `KEEP_BOTH_INTENT` is a WORK-ENTRY escape hatch (F4/#73): "I was promoted; do
+ * not merge them into one". `professional_summary` has one slot per language and
+ * `personal_info` one value per field, so "keep both" has no meaning there — it
+ * offers the candidate a third option that cannot be carried out, on a dispute
+ * (the summary one) whose other two options are already a false either/or.
+ */
+export const PROFILE_LEVEL_SECTIONS = new Set(["professional_summary", "personal_info"]);
+
+export function keepBothApplies(issue?: { section?: string | null } | null): boolean {
+  return !PROFILE_LEVEL_SECTIONS.has(issue?.section ?? "");
+}
+
 export interface ProfileReviewDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -273,18 +288,23 @@ export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileR
                       {choice}
                     </Button>
                   ))}
-                  {/* F4 (#73): escape the either/or framing — keep both as two roles. */}
-                  <Button
-                    data-testid="profile-review-keep-both"
-                    variant="ghost"
-                    size="sm"
-                    className="justify-start text-left text-teal hover:text-teal/80"
-                    onClick={() => submit(KEEP_BOTH_INTENT, t("keepBoth"))}
-                    disabled={loading}
-                  >
-                    {t("keepBoth")}
-                  </Button>
-                  <p className="text-xs text-gray-500 leading-snug">{t("keepBothHint")}</p>
+                  {/* F4 (#73): escape the either/or framing — keep both as two roles.
+                      #685: not for a profile-level dispute — see keepBothApplies. */}
+                  {keepBothApplies(issue) && (
+                    <>
+                      <Button
+                        data-testid="profile-review-keep-both"
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start text-left text-teal hover:text-teal/80"
+                        onClick={() => submit(KEEP_BOTH_INTENT, t("keepBoth"))}
+                        disabled={loading}
+                      >
+                        {t("keepBoth")}
+                      </Button>
+                      <p className="text-xs text-gray-500 leading-snug">{t("keepBothHint")}</p>
+                    </>
+                  )}
                 </div>
               )}
               <textarea

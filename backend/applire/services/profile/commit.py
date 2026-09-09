@@ -92,6 +92,7 @@ from applire.schemas.profile import (
     ProfileMetadata,
 )
 from applire.services.profile.reconcile.apply import (
+    UserConfirmedEngagement,
     UserConfirmedSkill,
     _ensure_loadable,
     apply_ops,
@@ -461,6 +462,7 @@ async def commit_ops(
     ambiguities: Sequence[RequestConfirmation] = (),
     enrichment: EnrichPolicy = EnrichPolicy.DETERMINISTIC,
     user_confirmed_skill: UserConfirmedSkill | None = None,
+    user_confirmed_engagement: UserConfirmedEngagement | None = None,
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
@@ -489,6 +491,9 @@ async def commit_ops(
             applier's own. Parking is UNCONDITIONAL since #480 PR 5 — see the
             note at the park site.
         enrichment: which half of the skill enrichment to run.
+        user_confirmed_engagement: founder ruling V-5 — the same capability for
+            a parked WORK / PROJECT / VOLUNTEER near-dupe confirmation. See
+            :class:`UserConfirmedEngagement`.
         user_confirmed_skill: #480 PR 7 — the candidate's answer to a parked
             skill-dedupe confirmation, waiving the stateless containment guard
             for the ONE `UpsertSkill` it names (#187). A CALL-PATH capability
@@ -570,7 +575,11 @@ async def commit_ops(
 
     # ── Invariant 1 — apply_ops is the only path from intent to state ────────
     applied = apply_ops(
-        current, list(ops), provenance.source, user_confirmed_skill=user_confirmed_skill
+        current,
+        list(ops),
+        provenance.source,
+        user_confirmed_skill=user_confirmed_skill,
+        user_confirmed_engagement=user_confirmed_engagement,
     )
     profile = applied.profile
     if profile.metadata is None:  # apply never strips metadata; belt & braces

@@ -432,6 +432,14 @@ def record_denials(
                     old_value=None,
                     new_value=text,
                     rationale=f"Noted limit: no hands-on {text} (candidate's own testimony)",
+                    # #669 / vault collector #602 — this sentence is shown
+                    # verbatim inside the German "Was wir aus deinen Antworten
+                    # übernommen haben" summary. It is not a confirmation, so
+                    # `option_keys` cannot reach it; `rationale_key` is the
+                    # instrument ADR-038 already built for exactly this, and the
+                    # concept itself rides `new_value`, so the localized sentence
+                    # needs no interpolation.
+                    rationale_key="denial_noted",
                 )
             )
             continue

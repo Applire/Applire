@@ -43,6 +43,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     _coerce_partial_date,
+    render_localized_confirmation,
 )
 
 
@@ -54,7 +55,31 @@ class UpsertWork(BaseModel):
     ref: str
     target: str | None = None
     company: str
-    role: str
+    # ADR-061 amended 2026-09-08 (#684, RULING V-0) — OPTIONAL, matching the
+    # vault's own ``ExperienceBase.role: str = ""``.
+    #
+    # This was a required ``str`` while the slot it writes into has always
+    # accepted an empty one, so the ruled shape — a station the candidate named
+    # without giving it a title, created dateless with only the stated fields —
+    # was *unemittable*. A model in that position had exactly two moves: invent
+    # a title (which rule 4 forbids by name), or emit an op that failed
+    # validation and was dropped at ``engine._parse_ops``. Both were measured on
+    # the summary-seed spike: an invented role 3/5 on the compact absent-station
+    # shape, and EVERY parse-rejected op across 80 runs on two models was an
+    # ``upsert_work``.
+    #
+    # ``company`` stays required: a station with no employer is not a station,
+    # and there would be nothing for the field-gap follow-up to ask about.
+    #
+    # A DEFAULT is not enough, and the difference was measured: O3's first
+    # model-matrix run (`glm-5.3-flash`, 30 turns, 2026-09-09) found all eight
+    # parse-rejected ops were `upsert_work.role:string_type` — the model does not
+    # omit the key, it emits ``"role": null``, which a bare ``str = ""`` still
+    # refuses. So the coercion below mirrors ``ExperienceBase.coerce_role``
+    # (#619), which exists for this exact reason one layer down: *"a null role
+    # must not reject the whole entry"*. The op and the entity it writes into now
+    # agree about what "no role" looks like.
+    role: str = ""
     start_date: str | None = None
     end_date: str | None = None
     # #155 — tri-state current-position marker (None = unknown). True records
@@ -64,6 +89,17 @@ class UpsertWork(BaseModel):
     team_size: int | None = None
     industry_context: str | None = None
     budget_managed: str | None = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _coerce_role(cls, v: Any) -> str:
+        """``null`` means "the candidate did not say", not "reject this station".
+
+        Same coercion, same reason, as ``ExperienceBase.coerce_role`` (#619).
+        Without it a model honouring RULING V-0 — creating an absent station with
+        only the stated fields — has its whole op dropped at ``_parse_ops``.
+        """
+        return v if isinstance(v, str) else ""
 
 
 class UpsertProject(BaseModel):
@@ -120,11 +156,55 @@ class UpsertSkill(BaseModel):
     # matched by name/near-dupe) silently dropped a last-used date the source
     # actually stated — never validated, never written, no trace.
     last_used: date | None = None
+    # ADR-061 amended 2026-09-08 (#684) — a TRANSCRIBED span, never a computed
+    # one. The applier stamps ``Skill.source = "transcribed"`` for a value that
+    # arrives here (ADR-061 clause 7's vocabulary: computed | llm_estimated |
+    # transcribed, where transcribed means "read off the source; nothing was
+    # inferred").
+    #
+    # Why this field exists at all, against a recorded decision that it should
+    # not: ``import_bridge.reconcile_import`` says, at ``_carry_skill_enrichment``
+    # (#327), *"Adding those fields to the op is the wrong fix: the reconciler
+    # LLM would then be emitting computed provenance, which ADR-062 reserves for
+    # code."* That is correct for a COMPUTED span and does not reach a
+    # transcribed one — which is the very distinction ADR-061 clause 7 drew. The
+    # measured cost of having no home for a stated span: on the summary-seed
+    # spike a cross-entry claim ("15+ years in GMP-regulated pharmaceutical
+    # manufacturing IT") was DROPPED 10/10 on the detailed answer shapes and
+    # welded onto the FIRST-NAMED station as a bullet 10/10 on the compact one —
+    # a fifteen-year claim stored as a fact of a 2005-2011 position and
+    # thereafter "grounded" for the Oracle.
+    #
+    # Precedence, pinned by test at both writers: a transcribed span WINS over a
+    # computed one, and ``skill_enrichment``'s derivation fills only where the
+    # transcription is absent. That is ADR-061 clause 5's ceiling logic read one
+    # field to the left — where the candidate speaks, they win; where they are
+    # silent, a derivation may fill the gap.
+    years_experience: int | None = None
 
     @field_validator("last_used", mode="before")
     @classmethod
     def _coerce_last_used(cls, v: Any) -> Any:
         return _coerce_partial_date(v)
+
+    @field_validator("years_experience", mode="before")
+    @classmethod
+    def _coerce_years(cls, v: Any) -> Any:
+        """Accept ``"15"`` / ``15.0`` / ``"15+"``; refuse anything else to None.
+
+        A model asked for a number will sometimes render the candidate's own
+        "15+" verbatim. Refusing the whole op over that would drop the skill;
+        refusing the FIELD keeps the skill and loses only the span, which is the
+        direction every guard in this file fails in.
+        """
+        if v is None or isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        if isinstance(v, str):
+            digits = "".join(c for c in v if c.isdigit())
+            return int(digits) if digits else None
+        return None
 
 
 class DemoteSkill(BaseModel):
@@ -265,11 +345,70 @@ class FlagConflict(BaseModel):
     incoming: Any = None
 
 
+# ADR-063 amended 2026-09-05, BUILT 2026-09-08 (#669) — the stable option
+# vocabulary. A confirmation's OPTIONS are the IDENTITY the candidate's answer
+# is matched on, so the identity may not be a rendered English string.
+#
+# Extended per ask family; every value that ever reaches
+# ``session._skill_confirmation_decision`` must be a member.
+OPTION_KEYS = ("distinct", "merge", "keep")
+
+#: Keys the localized-payload fields occupy. Stripped from raw model output at
+#: ``engine._parse_ops`` — see ``RequestConfirmation``'s docstring.
+ADAPTER_ONLY_CONFIRMATION_FIELDS = (
+    "question_i18n",
+    "options_i18n",
+    "option_keys",
+)
+
+
 class RequestConfirmation(BaseModel):
+    """A targeted question the reconciler asks instead of guessing (US185).
+
+    **Two emitters, and only one of them may fill the localized half.** The
+    model emits this op (prompt rule 6) with a plain ``question`` and plain
+    ``options`` in the session's language — that is its whole vocabulary. The
+    nine DETERMINISTIC builders (``apply.py`` x8, ``attribution.py`` x1) fill
+    ``question_i18n`` / ``options_i18n`` / ``option_keys`` instead, and those
+    three fields are **stripped from raw model output before validation**
+    (``engine._parse_ops``), so a hallucinated ``option_keys`` cannot exist.
+
+    That is ADR-063's own governing rule — *never widen an op the model can emit
+    with a more powerful parameter* — applied to the 2026-09-05 amendment. The
+    amendment's sketch said ``question``/``options`` "become {de, en} payloads";
+    written that way the model would be filling a locale payload it cannot be
+    held to, and ``option_keys`` (the identity a vault WRITE resolves on) would
+    be model-supplied. The three decided clauses are unchanged: stable keys, a
+    language-independent persisted form, door parity.
+
+    ``options`` and ``options_i18n``/``option_keys`` are positionally paired
+    when the localized half is present: index *i* of each names the same choice.
+    """
+
     op: Literal["request_confirmation"] = "request_confirmation"
     question: str
     options: list[str] = Field(default_factory=list)
     context: dict = Field(default_factory=dict)
+    #: ``{"de": …, "en": …}`` — the language-independent question. Adapter-only.
+    question_i18n: dict[str, str] | None = None
+    #: One ``{"de": …, "en": …}`` per entry of ``options``. Adapter-only.
+    options_i18n: list[dict[str, str]] | None = None
+    #: One stable key per entry of ``options`` (``OPTION_KEYS``). Adapter-only.
+    #: Empty means "resolve by the pre-#669 English substring matcher", which is
+    #: exactly the back-compat path a model-emitted confirmation takes.
+    option_keys: list[str] = Field(default_factory=list)
+
+    def rendered(self, lang: str) -> tuple[str, list[str]]:
+        """This reader's view of the ask — see
+        :func:`applire.schemas.profile.render_localized_confirmation`, which is
+        the one implementation all three carriers of this form delegate to."""
+        return render_localized_confirmation(
+            question=self.question,
+            options=list(self.options),
+            question_i18n=self.question_i18n,
+            options_i18n=self.options_i18n,
+            lang=lang,
+        )
 
 
 class ReplaceSection(BaseModel):

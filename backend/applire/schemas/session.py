@@ -124,6 +124,14 @@ class ConfirmationPrompt(BaseModel):
     question: str
     options: list[str] = []
     context: dict = {}
+    # #669 / ADR-063 amended 2026-09-05 — the stable key of each option,
+    # positionally paired with `options`. `options` is rendered in the reader's
+    # language at the projection; these are what the answer is MATCHED on, and
+    # they are what the agent door (ADR-058 parity) needs so a third-party agent
+    # is not parsing localized prose to decide a vault write. Empty for a
+    # confirmation the model emitted or one persisted before this change — both
+    # resolve through the back-compat English matcher.
+    option_keys: list[str] = []
 
 
 class SessionMessageResponse(BaseModel):

@@ -34,6 +34,7 @@ import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { cn } from "@/lib/utils";
 import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
+import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
 import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
@@ -458,6 +459,8 @@ export default function GapsPage({
   params: Promise<{ flowId: string }>;
 }) {
   const { flowId } = use(params);
+  // #686 — bumped after every answered gap so the decisions card re-reads.
+  const [decisionsToken, setDecisionsToken] = useState(0);
   const router = useRouter();
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
@@ -709,6 +712,13 @@ export default function GapsPage({
     setResolvedGaps((prev) => new Set([...prev, gap]));
     setGapStates((prev) => ({ ...prev, [gap]: { ...EMPTY_GAP_STATE, status: "resolved" } }));
 
+    // #686 (JF-M-3.5) — an answer can park a dispute the candidate never sees.
+    // The gaps page discards `SessionMessageResponse.pending_conflicts` (the
+    // POST handler checks `res.ok` and never reads the body), so the card
+    // re-reads `/api/profile/health` instead of trusting the per-turn response:
+    // the health surface is the durable one, so a reload still shows it.
+    setDecisionsToken((n) => n + 1);
+
     // Refresh match score (19.11)
     if (flowState?.job_id) {
       try {
@@ -870,6 +880,18 @@ export default function GapsPage({
 
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
+      {/* #686 (founder ruling V-1) — a profile dispute raised from a gap answer
+          reaches the user as a corner-anchored toast STACK, not as a card in the
+          page flow: no reserved UI space, one popup per pending decision, and it
+          disappears on its own after the operator's auto-dismiss window. The
+          component renders `position: fixed`, so this mount point only decides
+          WHEN it is alive, never where it sits. */}
+      <ProfileDecisionsCard
+        apiBase={API_BASE}
+        flowId={flowId}
+        refreshToken={decisionsToken}
+        bottomOffsetPx={decisionBarHeight}
+      />
       <JdRecoveryBanner />
       <CvParseBanner />
       <InputWarningsBanner />

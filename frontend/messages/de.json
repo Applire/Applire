@@ -249,6 +249,15 @@
         "notMeasured": "noch nicht gemessen",
         "ledgerConflict": "— Nicht-behaupten-Begriff: {terms}"
       }
+    },
+    "decisions": {
+      "title": "{count, plural, one {# Entscheidung nötig, um dein Profil zu aktualisieren} other {# Entscheidungen nötig, um dein Profil zu aktualisieren}}",
+      "body": "Deine Antwort berührt etwas, das dein Profil bereits sagt. Wähle, welche Fassung stimmt — das dauert einen Moment.",
+      "cta": "Jetzt entscheiden",
+      "dismiss": "Ausblenden",
+      "dismissAria": "Diesen Hinweis ausblenden",
+      "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen.",
+      "more": "+{count, plural, one {# weitere Entscheidung} other {# weitere Entscheidungen}}"
     }
   },
   "interview": {
@@ -773,10 +782,11 @@
     },
     "summaryEditor": {
       "editButton": "Kurzprofil bearbeiten",
-      "dialogTitle": "Kurzprofil bearbeiten",
+      "dialogTitle": "Wie du dich selbst beschreibst",
       "fieldDe": "Deutsch (DE)",
       "fieldEn": "Englisch (EN)",
-      "hint": "Beide Felder speisen die jeweilige Sprachfassung deines Lebenslaufs — fülle mindestens eines aus."
+      "hint": "Das ist deine eigene Beschreibung von dir, in deinen Worten. Für jede Bewerbung schreibt Applire ein neues Kurzprofil aus deinem ganzen Profil — dieses hier ist der Ausgangspunkt, nicht der Text, der verschickt wird.",
+      "langHint": "Fülle mindestens eine Sprache aus."
     },
     "personalInfoEditor": {
       "editButton": "Kontaktdaten bearbeiten",
@@ -953,8 +963,16 @@
       "issuing_organization": "Ausstellende Organisation",
       "credential_id": "Zertifikats-ID",
       "credential_url": "Zertifikats-URL",
-      "summaryDe": "Zusammenfassung (Deutsch)",
-      "summaryEn": "Zusammenfassung (Englisch)"
+      "summaryDe": "deine Selbstbeschreibung (Deutsch)",
+      "summaryEn": "deine Selbstbeschreibung (Englisch)"
+    },
+    "conflictSourceUnknown": "einer späteren Änderung",
+    "threadNotApplied": "Etwas aus deiner Eingabe kam nicht an — und warum",
+    "notAppliedSummary": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam nicht in deinem Profil an ({items}) — {reasons}.",
+    "notAppliedReason": {
+      "no_op_carried_entry": "keine Änderung hat sie übernommen",
+      "op_rejected": "die Änderung kam fehlerhaft zurück und wurde verworfen",
+      "summary_populated": "deine Selbstbeschreibung war schon geschrieben und blieb unverändert"
     }
   },
   "profileReview": {
@@ -1454,7 +1472,8 @@
       "role_added": "Als neu angetretene Position ergänzt.",
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
-      "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert."
+      "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
+      "denial_noted": "Als selbst genannte Einschränkung vermerkt."
     }
   },
   "mergeGate": {

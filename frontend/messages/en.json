@@ -249,6 +249,15 @@
         "notMeasured": "not measured yet",
         "ledgerConflict": "— do-not-claim term: {terms}"
       }
+    },
+    "decisions": {
+      "title": "{count, plural, one {# decision needed to update your profile} other {# decisions needed to update your profile}}",
+      "body": "Your answer touched something your profile already says. Pick which version is right — it takes a moment.",
+      "cta": "Decide now",
+      "dismiss": "Dismiss",
+      "dismissAria": "Dismiss this note",
+      "stillThere": "You can come back to this on your profile page any time.",
+      "more": "+{count, plural, one {# more decision} other {# more decisions}}"
     }
   },
   "interview": {
@@ -773,10 +782,11 @@
     },
     "summaryEditor": {
       "editButton": "Edit summary",
-      "dialogTitle": "Edit professional summary",
+      "dialogTitle": "How you describe yourself",
       "fieldDe": "German (DE)",
       "fieldEn": "English (EN)",
-      "hint": "Both fields feed the matching language version of your CV — fill in at least one."
+      "hint": "This is your own description of yourself, in your words. Applire writes a fresh summary for every application from your whole profile — this one is the starting point, not the text that gets sent.",
+      "langHint": "Fill in at least one language."
     },
     "personalInfoEditor": {
       "editButton": "Edit contact details",
@@ -953,8 +963,16 @@
       "issuing_organization": "Issuing organization",
       "credential_id": "Credential ID",
       "credential_url": "Credential URL",
-      "summaryDe": "Summary (German)",
-      "summaryEn": "Summary (English)"
+      "summaryDe": "your self-description (German)",
+      "summaryEn": "your self-description (English)"
+    },
+    "conflictSourceUnknown": "a later change",
+    "threadNotApplied": "Something you said did not land — and why",
+    "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
+    "notAppliedReason": {
+      "no_op_carried_entry": "no change carried it",
+      "op_rejected": "the change came back malformed and was dropped",
+      "summary_populated": "your self-description was already written, so it was left alone"
     }
   },
   "profileReview": {
@@ -1454,7 +1472,8 @@
       "role_added": "Added as the role you have just started.",
       "role_closed": "Marked this role as ended.",
       "gap_marked_na": "Marked this gap as not applicable to you.",
-      "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged."
+      "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged.",
+      "denial_noted": "Noted as a limit you told us about."
     }
   },
   "mergeGate": {

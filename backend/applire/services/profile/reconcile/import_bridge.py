@@ -88,6 +88,13 @@ def _to_pending_confirmation(rc: RequestConfirmation, source: str) -> PendingCon
         options=list(rc.options),
         context=dict(rc.context),
         source=source,
+        # #669 — the language-independent half travels with the record. Without
+        # this line the durable park would be English-only exactly where it
+        # matters most: an import ambiguity is answered in the profile-review
+        # interview, often days later and possibly in the other language.
+        question_i18n=dict(rc.question_i18n) if rc.question_i18n else None,
+        options_i18n=[dict(o) for o in rc.options_i18n] if rc.options_i18n else None,
+        option_keys=list(rc.option_keys),
     )
 
 
@@ -330,12 +337,23 @@ async def reconcile_import(
     # #327 — deterministic skill-provenance recovery, at the same seam and for
     # the same reason as the certification passthrough above. ``enrich_skills``
     # runs on ``incoming`` BEFORE this call, but the merged profile is rebuilt
-    # from the ADR-046 op vocabulary and ``UpsertSkill`` carries no
+    # from the ADR-046 op vocabulary and ``UpsertSkill`` carried no
     # ``years_experience`` and no ``source`` — so every skill the reconciler
     # minted reached the vault with a null provenance (33 of 67 skills on a
-    # three-document import). Adding those fields to the op is the wrong fix:
-    # the reconciler LLM would then be emitting computed provenance, which
-    # ADR-062 reserves for code.
+    # three-document import).
+    #
+    # This comment used to add: *"Adding those fields to the op is the wrong
+    # fix: the reconciler LLM would then be emitting computed provenance,
+    # which ADR-062 reserves for code."* **Half of that stands and half is
+    # overruled by ADR-061's 2026-09-08 amendment (#684).** It is correct for
+    # a COMPUTED span, which is why ``source`` is still never an op field and
+    # the derivation below still owns it. It does not reach a TRANSCRIBED one
+    # — the distinction ADR-061 clause 7 drew in the first place — so
+    # ``UpsertSkill`` now carries ``years_experience`` for a span the new
+    # information itself STATES, and the applier stamps ``"transcribed"`` for
+    # it. The precedence is enforced in ``skill_enrichment._match_and_enrich``,
+    # not here; this pass is unchanged and already skips any skill that
+    # arrives with a duration.
     #
     # Both passes below are pure — this seam costs NO extra LLM call.
     applied.profile = enrich_skills_deterministic(applied.profile)

@@ -62,7 +62,10 @@ Operations:
 
 - upsert_work — a job / employment. Fields: ref, target, company, role,
   start_date, end_date, is_current (bool), location, team_size (int),
-  industry_context, budget_managed. company and role are required.
+  industry_context, budget_managed. company is required. role is OPTIONAL:
+  when the new information names an employer but never says what the person
+  DID there, leave role out — an entry with only the stated fields is correct
+  and the system asks for the rest. Never compose a plausible job title.
 
 - upsert_project — a project, possibly done WITHIN a job or volunteer role.
   Fields: ref, target, name, parent (the existing id OR the local ref of the
@@ -76,12 +79,20 @@ Operations:
 - add_bullets — attach bullet points to a work/project/volunteer entity.
   Fields: target (an existing id OR a local ref of an entity op in this batch),
   responsibilities (list of str), achievements (list of str),
-  technologies (list of str).
+  technologies (list of str). A bullet carries ONLY the clause about ITS OWN
+  entity — never the opening span of an answer that spans several jobs
+  ("15+ years in X, at A, at B, and now C" is not a fact of A).
 
-- upsert_skill — a skill. Fields: name, category, proficiency, evidence (a list
-  of existing ids or local refs of the experiences that demonstrate this skill).
+- upsert_skill — a skill. Fields: name, category, proficiency, years_experience
+  (int), evidence (a list of existing ids or local refs of the experiences that
+  demonstrate this skill).
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
+  years_experience: ONLY a span the new information itself STATES about this
+  skill ("15+ years in X" -> 15). Never count it from the entries' dates and
+  never estimate it — omit the field when no span is stated. A span that
+  covers several jobs belongs HERE, on the skill, never as a bullet of one of
+  them.
 
 - upsert_certification — Fields: name, issuing_organization, date_obtained,
   expiry_date, credential_id, credential_url.
@@ -114,6 +125,11 @@ Operations:
   Fields: field, value. Same gap-only rule as set_field.
 
 - set_summary — set the professional summary. Fields: lang ("de" or "en"), text.
+  Use ONLY when the slot for that language is EMPTY; NEVER to overwrite. The
+  summary is how the candidate describes THEMSELVES, not a place to put an
+  answer. A statement about their setting, industry, years or through-line
+  belongs on the entry it is about (set_field -> industry_context,
+  add_bullets) or in a signature story (upsert_story); it is not a summary.
 
 - flag_conflict — the new information CONTRADICTS something the profile already
   states. Fields: target, field, existing (the value already on the profile),

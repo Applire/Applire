@@ -75,6 +75,9 @@ from typing import Any
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
 from applire.services.ats_audit import skill_tokens
+from applire.services.profile.reconcile.confirmations import (
+    attribution_confirmation,
+)
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     ReconcileOp,
@@ -290,18 +293,10 @@ def _build_confirmation(
     anchor_text = " / ".join(anchor_displays)
     sample = flagged[0][1]
     section = "work_experience" if isinstance(entity, WorkEntry) else "projects"
-    question = (
-        f"'{sample}' reads like it belongs to {anchor_text}, not "
-        f"{target_display} — the answer named {anchor_text} for this part, "
-        f"but this entry is under {target_display}. Where should it go?"
-    )
-    return RequestConfirmation(
-        question=question,
-        options=[
-            f"Move to {anchor_text}",
-            f"Keep on {target_display}",
-            "Discard it",
-        ],
+    return attribution_confirmation(
+        sample=sample,
+        anchor_text=anchor_text,
+        target_display=target_display,
         context={
             "section": section,
             "target": op.target,

@@ -371,7 +371,13 @@ class Skill(BaseModel):
     proficiency: Literal["basic", "intermediate", "advanced", "expert"] = "intermediate"
     years_experience: int | None = None
     # Provenance of ``years_experience`` (ADR-061 clause 7 — transcribed vs
-    # computed), written only by services/skill_enrichment.py. Exactly one of:
+    # computed). Two writers since ADR-061's 2026-09-08 amendment (#684):
+    # ``services/skill_enrichment.py`` (all three values) and the reconcile
+    # applier (``"transcribed"`` only, for a span the new information itself
+    # states — ``UpsertSkill.years_experience``). The precedence between them is
+    # part of that amendment and is pinned by test at both sites: a transcribed
+    # span WINS, and the deterministic derivation fills only where the
+    # transcription is absent. Exactly one of:
     #   "computed"      — derived from the dated roles whose own text evidences
     #                     this skill
     #   "llm_estimated" — the phase-2 estimator produced the number
@@ -693,7 +699,22 @@ class ImportNotApplied(BaseModel):
     #: ``"Universität Stuttgart / M.Sc."``), or — for ``reason="op_rejected"``
     #: — the rejected raw op's own declared ``"op"`` type string.
     label: str
-    reason: Literal["no_op_carried_entry", "op_rejected"]
+    #: ``summary_populated`` (ADR-061 amended 2026-09-08, #684) is the one
+    #: reason a STATEMENT intake can produce, and the only one whose ``section``
+    #: is not a list-valued content section: a ``set_summary`` against an
+    #: already-populated ``professional_summary`` slot from an interview /
+    #: testimony / agent-claims turn is dropped rather than disputed (the
+    #: summary is the candidate's own self-description, not an alternative to
+    #: their own answer), and ``label`` carries the language slot (``"de"`` /
+    #: ``"en"``) instead of a natural-key label. Still a FACT, on the same
+    #: doctrine as its two siblings: the slot was non-empty and the incoming
+    #: text differed — never a judgement about which text is better.
+    #:
+    #: Widening this Literal is load-bearing for four response schemas that
+    #: carry the type; ``EnrichmentRecord`` deliberately has no
+    #: ``extra="forbid"``, so records persisted before this value existed load
+    #: unchanged.
+    reason: Literal["no_op_carried_entry", "op_rejected", "summary_populated"]
 
 
 class EnrichmentRecord(BaseModel):
@@ -779,6 +800,45 @@ class DeniedConcept(BaseModel):
     probe_asked: bool = False
 
 
+def render_localized_confirmation(
+    *,
+    question: str,
+    options: list[str],
+    question_i18n: dict[str, str] | None,
+    options_i18n: list[dict[str, str]] | None,
+    lang: str,
+) -> tuple[str, list[str]]:
+    """ONE rendering of a confirmation's language-independent form (#669).
+
+    ADR-063 amended 2026-09-05 clause 2: the STORED form is language-independent
+    and rendering happens at the projection against the reader's current
+    ``ui_language``. Three shapes carry that form — ``RequestConfirmation`` (the
+    op), ``PendingConfirmation`` (the durable park) and the session-state dict —
+    and ADR-066 says one capability gets one implementation, so all three
+    delegate here rather than each growing its own fallback chain.
+
+    Fallback: ``[lang] ?? de ?? en ?? the plain field``. A record persisted
+    before this change carries neither payload and renders exactly as it always
+    did. ``options_i18n`` is used only when it is positionally aligned with
+    ``options`` — a length mismatch means the record is malformed, and showing
+    the plain options is strictly better than pairing the wrong texts with the
+    wrong keys on a surface whose answer decides a vault write.
+    """
+    def pick(payload: dict[str, str] | None, plain: str) -> str:
+        if not payload:
+            return plain
+        return payload.get(lang) or payload.get("de") or payload.get("en") or plain
+
+    rendered_question = pick(question_i18n, question)
+    if options_i18n and len(options_i18n) == len(options):
+        rendered_options = [
+            pick(payload, plain) for payload, plain in zip(options_i18n, options)
+        ]
+    else:
+        rendered_options = list(options)
+    return rendered_question, rendered_options
+
+
 class PendingConfirmation(BaseModel):
     """E037 PQ #4 — an import-time reconciler ambiguity (a ``RequestConfirmation``)
     persisted so the user can answer it later in the profile-review interview.
@@ -796,6 +856,34 @@ class PendingConfirmation(BaseModel):
     source: str = ""
     resolved: bool = False
     chosen_option: str | None = None
+    # ADR-063 amended 2026-09-05, BUILT 2026-09-08 (#669) — the STORED form is
+    # language-independent, and rendering happens at the projection against the
+    # reader's current `ui_language`. A confirmation parked while the candidate
+    # was reading German and answered after they switch to English is then
+    # simply a different render of the same record — the persisted record is
+    # testimony about what was asked, and it may not be testimony in only one
+    # language.
+    #
+    # `option_keys` is the identity the ANSWER resolves on (see
+    # `session._skill_confirmation_decision`), positionally paired with
+    # `options`. Empty on a record persisted before this change and on any
+    # model-emitted confirmation, both of which resolve through the back-compat
+    # English substring matcher. All three default so an older persisted record
+    # loads unchanged.
+    question_i18n: dict[str, str] | None = None
+    options_i18n: list[dict[str, str]] | None = None
+    option_keys: list[str] = Field(default_factory=list)
+
+    def rendered(self, lang: str) -> tuple[str, list[str]]:
+        """This reader's view of the parked ask — see
+        :func:`render_localized_confirmation`."""
+        return render_localized_confirmation(
+            question=self.question,
+            options=list(self.options),
+            question_i18n=self.question_i18n,
+            options_i18n=self.options_i18n,
+            lang=lang,
+        )
 
 
 class ProfileMetadata(BaseModel):
@@ -1282,7 +1370,13 @@ class HealthIssue(BaseModel):
     # said, and only the unit that would let a document state it is missing.
     # Option A omits such a value from every delivered document; this thread is
     # the standing condition on that omission — it must reach the user.
-    thread: Literal["conflict", "accuracy", "confirmation", "unit"]
+    # ``not_applied`` (#684 / founder ruling V-6, 2026-09-09) is its own thread
+    # because nothing about it is a mismatch OR a decision the candidate owes:
+    # something they submitted did not reach the vault, and the honest act is to
+    # say so and say WHY. It must never be counted as a decision (the gaps
+    # page's popup stack filters on `conflict`/`confirmation` for that reason) —
+    # there is nothing here to pick between.
+    thread: Literal["conflict", "accuracy", "confirmation", "unit", "not_applied"]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
     # (conflict legibility) could not reach; every updated reader composes its
@@ -1294,6 +1388,29 @@ class HealthIssue(BaseModel):
     summary: str
     field_ref: str | None = None
     source_record_ref: str | None = None
+    # ── founder ruling V-7 (2026-09-09) — structured fields for the
+    #    ``not_applied`` thread, so the reader composes the sentence in the
+    #    candidate's language instead of rendering the server's English
+    #    ``summary``. Same doctrine as #626's conflict fields below and as the
+    #    ``unit`` thread's own key: ``summary`` stays as the fallback, and every
+    #    updated reader ignores it. `applire-i18n` makes an untranslated
+    #    user-facing sentence a defect, and the DE screenshot showed this one
+    #    sitting directly beneath a fully-German conflict card.
+    #    ``None`` on every other thread.
+    not_applied_count: int | None = None
+    #: The ``EnrichmentRecord.source`` KEY (``interview`` / ``cv_upload`` / …),
+    #: which the frontend already localises through ``profile.sources.*``
+    #: (``lib/enrichment-sources.ts``) — never a rendered word.
+    not_applied_source: str | None = None
+    #: The raw ``ImportNotApplied.reason`` keys, localised by the reader through
+    #: ``health.notAppliedReason.*``. Never a sentence.
+    not_applied_reasons: list[str] | None = None
+    #: The items' own labels, capped at three. A natural key ("Universität
+    #: Stuttgart / M.Sc.") is DATA and passes through; a ``professional_summary``
+    #: item's label is the language slot (``"de"``/``"en"``), which the reader
+    #: maps through the same ``health.fieldLabel.summaryDe/summaryEn`` the
+    #: dispute surface uses — one name for one thing.
+    not_applied_labels: list[str] | None = None
     # ── #626 (conflict legibility) — structured fields, populated for the
     # ``conflict`` thread only (every other thread leaves them ``None`` and its
     # existing reader is unaffected). The reported defect: a conflict's summary

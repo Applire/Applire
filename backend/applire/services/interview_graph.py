@@ -74,6 +74,17 @@ from applire.utils.display import format_display_value
 
 # Sections included in a MODE B guided build, in default priority order.
 # JD-relevance weighting is applied in gap_detector_mode_b() at session creation.
+#
+# `professional_summary` is deliberately NOT here (ADR-028 amended 2026-09-08,
+# epic #683 / founder ruling 2026-09-06): the summary is the candidate's own
+# self-description and a write-once positioning seed (ADR-061 amended the same
+# day), so the one interview mode that may ask for it is MODE C, where it is
+# the SUBJECT of the session. Mode B is job-driven; a prose answer to one of its
+# JD-derived questions is a statement about work the candidate did, and listing
+# the section here made the job-driven interview solicit free prose into that
+# slot. Mode C is untouched — its question lives in `prompts/interview.py` and
+# its gap list comes from `completeness.field_gaps`, which this list does not
+# feed.
 _MODE_B_CORE_SECTIONS = [
     "work_experience",
     "skills",
@@ -81,7 +92,6 @@ _MODE_B_CORE_SECTIONS = [
     "personal_info",
     "languages",
     "certifications",
-    "professional_summary",
 ]
 
 # Sections added to MODE B only when the JD signals relevance
@@ -778,24 +788,98 @@ def interpret_gate_answer(answer: str) -> str:
 CONFLICT_CATEGORY = "CONFLICT"
 _CONFLICT_PREFIX = "conflict:"
 
+# #685 — three defects in one template, all founder-observed on a real install
+# (2026-09-06): it showed the RAW KEY ("professional_summary.en"), it said "an
+# import suggested" whatever the source actually was, and it interpolated the
+# values in full, so a ~1,200-character self-description shipped inside a
+# question AND inside both answer buttons.
+#
+# Fixed at the SOURCE rather than in the frontend, because both doors read it
+# (ADR-058 parity): a frontend-only truncation would still hand a third-party
+# agent 1,200-character option strings.
 _CONFLICT_COPY = {
     "en": {
         "question": (
-            "Your profile has two values for {section}.{field}: currently "
-            "'{existing}', but an import suggested '{incoming}'. Which is correct?"
+            "Your profile has two values for {label}: currently "
+            "'{existing}', but {source} said '{incoming}'. Which is correct?"
         ),
         "keep": "Keep current: {existing}",
-        "use": "Use imported: {incoming}",
+        "use": "Use the new value: {incoming}",
     },
     "de": {
         "question": (
-            "Dein Profil hat zwei Werte für {section}.{field}: aktuell "
-            "'{existing}', ein Import schlug aber '{incoming}' vor. Welcher stimmt?"
+            "Dein Profil hat zwei Werte für {label}: aktuell "
+            "'{existing}', aus {source} stammt aber '{incoming}'. Welcher stimmt?"
         ),
         "keep": "Aktuellen behalten: {existing}",
-        "use": "Importierten übernehmen: {incoming}",
+        "use": "Neuen Wert übernehmen: {incoming}",
     },
 }
+
+#: How a dispute's section+field is spoken to the candidate. Mirrors the
+#: frontend's `health.fieldLabel.*` (`lib/conflict-display.ts` already
+#: special-cases `professional_summary`); this is the BACKEND-generated half of
+#: the same surface, which is why it had drifted.
+_SECTION_FIELD_LABEL = {
+    ("professional_summary", "de"): {
+        "en": "your self-description (German)", "de": "deine Selbstbeschreibung (Deutsch)",
+    },
+    ("professional_summary", "en"): {
+        "en": "your self-description (English)", "de": "deine Selbstbeschreibung (Englisch)",
+    },
+}
+
+#: The nine `EnrichmentRecord.source` values, in the candidate's words. Mirrors
+#: `frontend/lib/enrichment-sources.ts` -> `profile.sources.*`; an unmapped
+#: value (e.g. `reconcile/migrate.py`'s "migration") degrades to honest vagueness
+#: rather than to "an import", which is the whole defect.
+_CONFLICT_SOURCE_LABEL = {
+    "cv_upload": {"en": "a CV you uploaded", "de": "einem hochgeladenen Lebenslauf"},
+    "cv_paste": {"en": "a CV you pasted", "de": "einem eingefügten Lebenslauf"},
+    "linkedin_import": {"en": "your LinkedIn import", "de": "deinem LinkedIn-Import"},
+    "xing_import": {"en": "your XING import", "de": "deinem XING-Import"},
+    "interview": {"en": "your interview answer", "de": "deiner Interview-Antwort"},
+    "agent_interview": {"en": "an agent interview", "de": "einem Agent-Interview"},
+    "testimony": {"en": "your own notes", "de": "deinen eigenen Notizen"},
+    "manual_edit": {"en": "an edit you made", "de": "einer Bearbeitung von dir"},
+    "manual_role_add": {"en": "a role you added", "de": "einer von dir ergänzten Rolle"},
+}
+_CONFLICT_SOURCE_FALLBACK = {"en": "a later change", "de": "einer späteren Änderung"}
+
+#: A profile-level dispute can carry a whole self-description on each side. The
+#: question and the two answer buttons take an EXCERPT; the full text stays
+#: reachable on the profile page and in the drawer's own value rows, which
+#: render `existing_value` / `incoming_value` untouched.
+_CONFLICT_VALUE_EXCERPT = 160
+
+
+def _conflict_label(section: str, field: str, lang: str) -> str:
+    """The dispute's subject, in words — never the raw `section.field` key."""
+    entry = _SECTION_FIELD_LABEL.get((section, field))
+    if entry:
+        return entry.get(lang) or entry["en"]
+    return f"{section}.{field}".replace("_", " ")
+
+
+def _conflict_source_label(source: str | None, lang: str) -> str:
+    """Name the REAL source of the incoming value (#685).
+
+    `Conflict.source` carried this all along; `session._open_conflicts` simply
+    never copied it into the cluster dict, so every dispute said "an import".
+    """
+    entry = _CONFLICT_SOURCE_LABEL.get(source or "")
+    if entry:
+        return entry.get(lang) or entry["en"]
+    return _CONFLICT_SOURCE_FALLBACK.get(lang, _CONFLICT_SOURCE_FALLBACK["en"])
+
+
+def _excerpt(value: str, limit: int = _CONFLICT_VALUE_EXCERPT) -> str:
+    """A bounded, word-boundary excerpt with an ellipsis. Never mid-word."""
+    text = (value or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:.")
+    return f"{cut or text[:limit]}…"
 
 # Answer interpretation. "keep" words map to the existing value, "use" words to
 # the incoming one. Symmetric and conservative: a mixed or empty answer that also
@@ -823,13 +907,20 @@ def conflict_question(
     existing_value,
     incoming_value,
     lang: str = "en",
+    source: str | None = None,
 ) -> dict:
-    """Deterministic (no-LLM) correction prompt + the two value choices."""
+    """Deterministic (no-LLM) correction prompt + the two value choices.
+
+    #685: the subject is named in words, the incoming value's REAL source is
+    named, and both values are excerpted — `source` defaults to None so every
+    existing caller keeps working and simply gets the honest fallback wording.
+    """
     copy = _CONFLICT_COPY.get(lang, _CONFLICT_COPY["en"])
     fmt = dict(
-        section=section, field=field,
-        existing=format_display_value(existing_value),
-        incoming=format_display_value(incoming_value),
+        label=_conflict_label(section, field, lang),
+        source=_conflict_source_label(source, lang),
+        existing=_excerpt(format_display_value(existing_value)),
+        incoming=_excerpt(format_display_value(incoming_value)),
     )
     return {
         "question": copy["question"].format(**fmt),
@@ -855,6 +946,7 @@ def build_conflict_clusters(
         q = conflict_question(
             c["section"], c["field"],
             c["existing_value"], c["incoming_value"], lang,
+            source=c.get("source"),
         )
         cluster_ids.append(cid)
         categories[cid] = CONFLICT_CATEGORY

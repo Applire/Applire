@@ -94,7 +94,13 @@ describe("describeConflict (#604)", () => {
         />
       )
     );
-    expect(screen.getByTestId("heading").textContent).toContain("Summary (German)");
+    // #685 — the section is named as WHAT IT IS to the candidate, never the raw
+    // `professional_summary.de` key. The epic's whole point is that this field
+    // is their own description of themselves, not the summary that gets sent.
+    expect(screen.getByTestId("heading").textContent).toContain(
+      "your self-description (German)",
+    );
+    expect(screen.getByTestId("heading").textContent).not.toContain("professional_summary");
   });
 
   it("humanises an unknown field instead of inventing a translation", () => {
