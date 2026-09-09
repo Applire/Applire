@@ -1,0 +1,125 @@
+{
+  "personal_info": {
+    "name": "Lena Fischer",
+    "email": "lena.fischer@example.com",
+    "phone": null,
+    "location": "Mainz",
+    "address": null,
+    "nationality": null,
+    "date_of_birth": null,
+    "photo_url": null,
+    "linkedin_url": null,
+    "xing_url": null,
+    "website_url": null
+  },
+  "professional_summary": {
+    "de": null,
+    "en": "I'm an engineering leader who builds and leads teams that build AI-driven systems people can trust. For several years I have led teams in regulated environments, set technical strategy and roadmaps, and developed talent. My focus is increasingly on applied AI, hands-on rather than only strategic. What I bring to a leadership role is proven engineering leadership in demanding, regulated settings paired with current AI fluency and the judgment to apply it responsibly."
+  },
+  "work_experience": [
+    {
+      "role": "Associate Director Supply Chain Systems",
+      "location": null,
+      "start_date": "2019-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Lead the team building the end-to-end supply-chain systems for individualized therapies",
+        "Own technical strategy and roadmap for manufacturing-adjacent IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "SAP",
+        "Azure",
+        "Python"
+      ],
+      "expected_fields": null,
+      "id": "w-nova",
+      "company": "NovaRNA Biotech GmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "Systems Engineer Manufacturing IT",
+      "location": null,
+      "start_date": "2005-09",
+      "end_date": "2011-12",
+      "is_current": null,
+      "responsibilities": [
+        "Maintained and extended the manufacturing execution system",
+        "Computer system validation for production IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "MES",
+        "SQL"
+      ],
+      "expected_fields": null,
+      "id": "w-helv",
+      "company": "Helvetia Pharma AG",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    }
+  ],
+  "education": [
+    {
+      "id": "271f4ce4-5293-40fe-8fde-7990959e43eb",
+      "institution": "TU Darmstadt",
+      "degree": "Diplom",
+      "field": "Informatik",
+      "start_date": "1999",
+      "end_date": "2005",
+      "grade": null,
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "certifications": [],
+  "skills": [
+    {
+      "id": "7a22496f-0b91-4333-97ad-2afe411d0841",
+      "name": "SAP",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "6986a40d-8d1a-4cff-b656-2b77e19435fc",
+      "name": "Computer System Validation",
+      "category": "domain",
+      "proficiency": "expert",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "0e45ab1e-8818-4668-933c-4e10787277f8",
+      "name": "Team leadership",
+      "category": "soft",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    }
+  ],
+  "languages": [],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": null
+}
