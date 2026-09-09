@@ -1992,10 +1992,25 @@ def _apply_add_bullets(op, resolve, changes, pending):
         # ref_map (see _apply_upsert_work/_project/_volunteer), so a co-batched
         # AddBullets targeting that op's local ref resolves to None here. The
         # confirmation's context carries the op's own `ref` under "incoming" —
-        # if one matches, carry the bullets into the confirmation so the
-        # resolution turn can apply them instead of losing them silently.
+        # if one matches, carry the bullets into the confirmation.
         # Merge (extend), never overwrite: multiple AddBullets ops in one batch
         # may target the same still-unresolved ref.
+        #
+        # **The comment here used to end "so the resolution turn can apply them
+        # instead of losing them silently". THE RESOLUTION TURN DOES NOT EXIST**
+        # (found 2026-09-08, Nougat build 1; reproduced in
+        # `test_confirmation_carried_bullets_are_lost.py`). `pending_bullets` has
+        # exactly one writer — this line — and zero production readers:
+        # `_apply_resolve_confirmation` is bookkeeping by design and never touches
+        # `context`, and `session._apply_interview_confirmation` returns early for
+        # anything that is not a SKILL confirmation ("entity-merge resolution is
+        # out of #187's scope"). So on the interview path the ambiguous ENTITY is
+        # never created or merged either, whichever option the candidate picks —
+        # the loss is wider than these bullets.
+        #
+        # Until that resolution turn is built, the honest thing this line can do
+        # is make the loss diagnosable from the log alone (ADR-061 clause 8)
+        # rather than let the carrier read as a rescue.
         for conf in pending:
             if conf.context.get("incoming", {}).get("ref") == op.target:
                 carried = conf.context.setdefault("pending_bullets", {})
@@ -2007,7 +2022,21 @@ def _apply_add_bullets(op, resolve, changes, pending):
                     if incoming:
                         carried.setdefault(field, [])
                         carried[field].extend(incoming)
+                if carried:
+                    logger.warning(
+                        "reconcile: %d bullet field(s) parked on an ambiguous "
+                        "%s confirmation and NOT applied — nothing reads "
+                        "context['pending_bullets'] today, so answering the "
+                        "question does not recover them (see "
+                        "test_confirmation_carried_bullets_are_lost.py): %r",
+                        len(carried), conf.context.get("section", "entity"), carried,
+                    )
                 return
+        logger.warning(
+            "reconcile: add_bullets targeted an unresolvable ref %r with no "
+            "matching confirmation — the bullets are dropped",
+            op.target,
+        )
         return  # no matching confirmation either — defensive: unknown ref, skip
     section = _section_for(entity)
     for field, incoming in (
