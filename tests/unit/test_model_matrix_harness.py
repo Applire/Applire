@@ -126,6 +126,94 @@ def test_wrong_slot_fires_only_when_the_text_names_another_station(fixtures):
     assert silent["wrong_slot"] == []
 
 
+def test_a_turn_that_only_asks_a_question_back_is_a_lost_turn(fixtures):
+    """`cohere/command-r7b-12-2024` scored "qualified" on the first pass by
+    emitting one `request_confirmation` and nothing else on 21 of 30 turns: it
+    produced ops, so `zero_op` was False, and no bar caught it. The vault got
+    nothing either way."""
+    shape = "S6_incident_shape_all_present"
+    asked = mm.classify(
+        fixtures,
+        shape,
+        [{"op": "request_confirmation", "question": "Do you have insulin experience?",
+          "options": ["Yes", "No"]}],
+        [],
+        None,
+    )
+    assert asked["zero_op"] is False       # it emitted something
+    assert asked["no_write"] is True       # ...that wrote nothing
+    assert asked["n_writing_ops"] == 0
+
+    wrote = mm.classify(
+        fixtures,
+        shape,
+        [{"op": "request_confirmation", "question": "?"},
+         {"op": "add_bullets", "target": "w-helv", "technologies": ["MES"]}],
+        [],
+        None,
+    )
+    assert wrote["no_write"] is False
+
+
+def test_a_transport_failure_is_not_counted_as_model_silence():
+    """`reconcile()` swallows a timeout into an empty result, so a call that never
+    returned looks exactly like a model that chose to say nothing. It made
+    `qwen/qwen3.8-flash` read as 100 % zero-op on a shape where 10 of 10 calls had
+    simply timed out."""
+    shape = "S7_incident_shape_current_only"
+    lost = _record(shape, 1, no_write=True, zero_op=True)
+    lost["usage"] = {"calls": 0, "detail": []}
+    assert mm.is_transport_failure(lost) is True
+
+    answered = _record(shape, 2, no_write=True, zero_op=True)
+    answered["usage"] = {"calls": 1, "detail": [{"completion_tokens": 178}]}
+    assert mm.is_transport_failure(answered) is False
+
+    # An empty body is the same class one layer up.
+    empty = _record(shape, 3)
+    empty["usage"] = {"calls": 1, "detail": [{"completion_tokens": 0}]}
+    assert mm.is_transport_failure(empty) is True
+
+    rows = [lost] * 5 + [
+        dict(answered, run=i, usage={"calls": 1, "detail": [{"completion_tokens": 178}]})
+        for i in range(5, 10)
+    ]
+    rates = mm.summarise(rows, [shape])["per_shape"][shape]
+    assert rates["n"] == 10
+    assert rates["valid"] == 5
+    assert rates["transport_turns"] == 5
+    assert rates["error_rate"] == 0.5
+    # 5 of 5 ANSWERED turns lost the data — not 10 of 10.
+    assert rates["zero_op_rate"] == 1.0
+
+
+def test_score_reclassifies_from_the_ops_not_from_stored_metrics(tmp_path, fixtures):
+    """Re-scoring exists so a classifier change reaches records already paid for."""
+    shape = "S6_incident_shape_all_present"
+    path = tmp_path / "stale.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "shape": shape,
+                "run": 1,
+                "elapsed_s": 1.0,
+                "ops": [{"op": "request_confirmation", "question": "?"}],
+                "rejected_ops": [],
+                # A metrics block from BEFORE `no_write` existed.
+                "metrics": {"n_ops": 1, "zero_op": False, "malformed_ops": 0,
+                            "wrong_slot": [], "disputes": 0, "set_summary": 0,
+                            "station_coverage": 1.0, "skill_evidence_total": 0,
+                            "skills_with_years_experience": 0, "kinds": []},
+                "usage": {"calls": 1, "detail": [{"completion_tokens": 85}]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    records, _ = mm.score_file(fixtures, path)
+    assert records[0]["metrics"]["no_write"] is True
+
+
 def test_zero_op_and_malformed_are_counted_separately(fixtures):
     shape = "S6_incident_shape_all_present"
     empty = mm.classify(fixtures, shape, [], ["upsert_work"], None)
@@ -160,6 +248,8 @@ def test_skill_metrics_read_years_experience_defensively(fixtures):
 def _record(shape, run, **metrics):
     base = {
         "n_ops": 1,
+        "n_writing_ops": 1,
+        "no_write": False,
         "zero_op": False,
         "malformed_ops": 0,
         "wrong_slot": [],
@@ -171,13 +261,24 @@ def _record(shape, run, **metrics):
         "kinds": [],
     }
     base.update(metrics)
-    return {"shape": shape, "run": run, "elapsed_s": 1.0, "metrics": base, "usage": {"calls": 1}}
+    # A usage record with real completion tokens = the model answered. Without it
+    # every synthetic row would classify as a transport failure.
+    return {
+        "shape": shape,
+        "run": run,
+        "elapsed_s": 1.0,
+        "metrics": base,
+        "usage": {"calls": 1, "detail": [{"prompt_tokens": 5000, "completion_tokens": 200}]},
+    }
 
 
 def test_verdict_is_subpar_once_a_threshold_is_crossed():
     shape = "S6_incident_shape_all_present"
-    # 1 zero-op turn in 10 = 10 % > the 5 % zero-op bar.
-    records = [_record(shape, 1, zero_op=True)] + [_record(shape, i) for i in range(2, 11)]
+    # 1 lost turn in 10 = 10 % > the 5 % bar. An empty batch is both zero_op
+    # (nothing emitted) and no_write (nothing reached the vault).
+    records = [_record(shape, 1, zero_op=True, no_write=True, n_writing_ops=0)] + [
+        _record(shape, i) for i in range(2, 11)
+    ]
     summary = mm.summarise(records, [shape])
     assert summary["per_shape"][shape]["zero_op_rate"] == 0.1
     assert summary["verdict"]["label"] == "sub-par"

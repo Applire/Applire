@@ -78,6 +78,13 @@ MODEL_FIELD = {
 #                   names: a fact landed on the wrong station (document harm).
 #   error         — the reconcile call raised (transport, parse, truncation).
 THRESHOLDS = {"zero_op": 0.05, "malformed_op": 0.10, "wrong_slot": 0.10, "error": 0.10}
+
+# Ops that put NOTHING in the vault. A turn whose entire output is a question back
+# to the candidate has lost the answer exactly as completely as an empty batch —
+# and `cohere/command-r7b-12-2024` scored "qualified" on the first pass by emitting
+# one `request_confirmation` and nothing else on 21 of 30 turns (2026-09-09). The
+# zero-op bar is therefore measured on `no_write`, which counts that turn as lost.
+NON_WRITING_OPS = frozenset({"request_confirmation"})
 # A model is `qualified` when no threshold is crossed on any shape and it never
 # lost a turn; `caveat` when it stayed under every threshold but did lose one;
 # `sub-par` as soon as any threshold is crossed on any shape.
@@ -336,8 +343,14 @@ def classify(
     ]
 
     covered = [key for key in expected if per_station.get(key)]
+    writing_ops = [op for op in ops if op.get("op") not in NON_WRITING_OPS]
     metrics: dict[str, Any] = {
         "n_ops": len(ops),
+        "n_writing_ops": len(writing_ops),
+        # The barred metric. `zero_op` stays reported so the two can be compared,
+        # but "the model emitted something" is not the question — "the vault got
+        # something" is.
+        "no_write": len(writing_ops) == 0,
         "kinds": sorted({str(op.get("op")) for op in ops}),
         "zero_op": len(ops) == 0,
         "malformed_ops": len(rejected_ops),
@@ -427,6 +440,29 @@ async def run_one(
 # --------------------------------------------------------------------------- #
 # Summary
 # --------------------------------------------------------------------------- #
+def is_transport_failure(record: dict[str, Any]) -> bool:
+    """True when the MODEL never answered — so the turn says nothing about it.
+
+    ``reconcile()`` swallows every provider/transport/parse error into an empty
+    ``ReconcileResult`` (engine.py: only ``LLMTruncatedError`` is re-raised), so a
+    timed-out call is indistinguishable from a model that chose to emit nothing —
+    both arrive here as a turn with no ops. That made `qwen/qwen3.8-flash` read as
+    "100 % zero-op on S7" when 17 of its 30 calls had simply never returned.
+
+    The provider's own usage line is the discriminator: it is logged from
+    ``response.usage`` AFTER a successful response, so a turn with no usage record
+    never got one. A recorded response with zero completion tokens is the same
+    thing one layer up (an empty body).
+    """
+    usage = record.get("usage") or {}
+    if not usage.get("calls"):
+        return True
+    detail = usage.get("detail") or []
+    if not detail:
+        return True
+    return not (detail[0].get("completion_tokens") or 0)
+
+
 def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any]:
     per_shape: dict[str, Any] = {}
     for shape in shapes:
@@ -435,10 +471,16 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
             continue
         total = len(rows)
         errors = [r for r in rows if r.get("error")]
-        ok = [r for r in rows if not r.get("error")]
+        transport = [r for r in rows if not r.get("error") and is_transport_failure(r)]
+        # Model-behaviour rates are measured over the turns the model actually
+        # answered. A verdict has to be about the model, not about the network.
+        ok = [
+            r for r in rows if not r.get("error") and not is_transport_failure(r)
+        ]
+        valid = len(ok)
 
         def rate(predicate: Any) -> float:
-            return round(sum(1 for r in ok if predicate(r["metrics"])) / total, 3) if total else 0.0
+            return round(sum(1 for r in ok if predicate(r["metrics"])) / valid, 3) if valid else 0.0
 
         coverages = [
             r["metrics"]["station_coverage"]
@@ -448,22 +490,39 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
         latencies = sorted(r["elapsed_s"] for r in rows)
         per_shape[shape] = {
             "n": total,
-            "error_rate": round(len(errors) / total, 3),
-            "zero_op_rate": rate(lambda m: m["zero_op"]),
+            "valid": valid,
+            "transport_turns": len(transport) + len(errors),
+            # Transport and a raised error are the same class for the verdict: the
+            # model did not get to answer. Both go on the `error` bar.
+            "error_rate": round((len(errors) + len(transport)) / total, 3),
+            # A turn that hit the reconcile output budget (32,768 tokens) and still
+            # produced nothing usable — ADR-047's failure mode, not silence.
+            "budget_exhausted": sum(
+                1
+                for r in ok
+                if ((r.get("usage") or {}).get("detail") or [{}])[0].get("completion_tokens", 0)
+                >= 32768
+            ),
+            # THE barred metric: no op that writes anything to the vault.
+            "zero_op_rate": rate(lambda m: m.get("no_write", m["zero_op"])),
+            "empty_batch_rate": rate(lambda m: m["zero_op"]),
+            "questions_only_rate": rate(
+                lambda m: m.get("no_write", False) and not m["zero_op"]
+            ),
             "malformed_op_rate": rate(lambda m: m["malformed_ops"] > 0),
             "wrong_slot_rate": rate(lambda m: bool(m["wrong_slot"])),
             "dispute_rate": rate(lambda m: m["disputes"] > 0),
             "set_summary_rate": rate(lambda m: m["set_summary"] > 0),
             "apply_error_rate": round(
-                sum(1 for r in ok if r.get("apply_error")) / total, 3
-            ),
+                sum(1 for r in ok if r.get("apply_error")) / valid, 3
+            ) if valid else 0.0,
             "station_coverage_mean": round(sum(coverages) / len(coverages), 3)
             if coverages
             else None,
             "skill_evidence_mean": round(
-                sum(r["metrics"]["skill_evidence_total"] for r in ok) / len(ok), 2
+                sum(r["metrics"]["skill_evidence_total"] for r in ok) / valid, 2
             )
-            if ok
+            if valid
             else None,
             "years_experience_rate": rate(lambda m: m["skills_with_years_experience"] > 0),
             "latency_p50_s": latencies[len(latencies) // 2] if latencies else None,
@@ -518,7 +577,7 @@ def verdict(per_shape: dict[str, Any]) -> dict[str, Any]:
 
 def print_summary(summary: dict[str, Any], header: str) -> None:
     cols = [
-        ("zero_op_rate", "zero-op"),
+        ("zero_op_rate", "lost turn"),
         ("malformed_op_rate", "malformed"),
         ("wrong_slot_rate", "wrong-slot"),
         ("dispute_rate", "dispute"),
@@ -528,14 +587,14 @@ def print_summary(summary: dict[str, Any], header: str) -> None:
     print()
     print(header)
     print(
-        f"{'shape':<34}{'n':>4}  "
+        f"{'shape':<34}{'n':>4}{'val':>5}  "
         + "".join(f"{label:>12}" for _, label in cols)
         + f"{'coverage':>10}{'p50 s':>8}"
     )
     for shape, rates in summary["per_shape"].items():
         coverage = rates["station_coverage_mean"]
         print(
-            f"{shape:<34}{rates['n']:>4}  "
+            f"{shape:<34}{rates['n']:>4}{rates.get('valid', rates['n']):>5}  "
             + "".join(f"{rates[key]:>11.0%} " for key, _ in cols)
             + (f"{coverage:>10.2f}" if coverage is not None else f"{'-':>10}")
             + f"{rates['latency_p50_s'] or 0:>8.1f}"
@@ -793,12 +852,22 @@ def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], li
             if raw.get("error"):
                 record["error"] = raw["error"]
             else:
-                record["metrics"] = raw.get("metrics") or classify(
-                    fixtures,
-                    shape,
-                    raw.get("ops") or [],
-                    raw.get("rejected_ops") or [],
-                    None,
+                # Re-derive from the ops whenever they are on the record, rather
+                # than trusting the metrics the run stored: re-scoring exists
+                # precisely so a CLASSIFIER change reaches records already paid
+                # for. Trusting the stored block would have kept
+                # `cohere/command-r7b-12-2024` at "qualified" after the fix that
+                # was written to unmask it.
+                record["metrics"] = (
+                    classify(
+                        fixtures,
+                        shape,
+                        raw.get("ops") or [],
+                        raw.get("rejected_ops") or [],
+                        None,
+                    )
+                    if "ops" in raw
+                    else raw.get("metrics") or {}
                 )
                 record["rejected_detail"] = raw.get("rejected_detail") or []
                 if raw.get("apply_error"):
