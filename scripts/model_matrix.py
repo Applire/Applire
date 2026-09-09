@@ -771,6 +771,9 @@ def settings_snapshot() -> dict[str, Any]:
             "ollama_model",
             "llm_timeout",
             "llm_max_output_tokens",
+            # M-3: whether the run handed the model the op union as a schema.
+            # A row measured with structured output on is a different row.
+            "llm_structured_output",
             "openrouter_disable_thinking",
             "openrouter_reasoning_effort",
             "requesty_disable_thinking",

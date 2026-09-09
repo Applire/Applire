@@ -392,7 +392,11 @@ _register_all(
                 "                                Claude/GPT/Gemini via their EU deployments)\n"
                 "  openrouter, anthropic, openai US-hosted\n"
                 "Choosing a model? See docs/llm-models.md (capability floor + recommendations).\n"
-                "One of: mistral | requesty | openrouter | anthropic | openai | ollama"
+                # "choose one:" is not a stylistic choice — `scripts/check_provider_docs_parity.py`
+                # anchors on it to prove the shipped template names exactly the providers the
+                # factory accepts. The generated template dropped the anchor and the gate went
+                # red on the integration branch (found 2026-09-09, WP-P).
+                "choose one: mistral | requesty | openrouter | anthropic | openai | ollama"
             ),
         ),
         SettingEntry(
