@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.config import settings
 from applire.db.session import get_db
 from applire.services.color_detection import _CE_STUB_USER_ID, derive_tint
 
@@ -54,6 +55,13 @@ class SettingsResponse(BaseModel):
     # #679 (US309): ids of the first-use explainers this user dismissed.
     # Write order; empty when nothing was dismissed. Never null.
     dismissed_explainers: list[str] = []
+    # Founder ruling V-1 (2026-09-09): seconds before an unattended in-app notice
+    # pop-up hides itself; 0 = never. READ-ONLY here on purpose — it is an
+    # INSTANCE setting (`NOTICE_AUTO_DISMISS_SECONDS`, ADR-087's registry), not a
+    # user preference, so it is absent from SettingsPatchRequest and a client
+    # cannot write it. Served on this payload rather than on a new endpoint
+    # because the frontend already fetches this one on every page.
+    notice_auto_dismiss_seconds: int = 30
 
 
 # #679 (US309) — the allowlist of first-use explainer ids a client may dismiss.
@@ -266,12 +274,53 @@ async def update_settings(
     return response
 
 
+class UpgradeNoticeDismissResponse(BaseModel):
+    """What the instance now considers seen (US310, ADR-087 cl. 7)."""
+
+    last_seen_version: str
+    upgrade_notice: dict | None = None
+
+
+@router.post("/upgrade-notice/dismiss", response_model=UpgradeNoticeDismissResponse)
+async def api_dismiss_upgrade_notice(
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> UpgradeNoticeDismissResponse:
+    """Record the running version as seen and clear the version-jump notice.
+
+    This — not a restart — is what advances `instance_state.last_seen_version`
+    (ADR-087 cl. 7). `upgrade_notice_dismissed_for` is written alongside it so
+    `/health.upgrade_notice` goes null immediately, without waiting for the next
+    process start to recompute.
+
+    Instance-scoped, not user-scoped: the notice is about the installation, and
+    ADR-022 makes "the user" singular anyway. Deliberately not on the MCP
+    surface (ADR-054 / SF-DOOR.4): an agent has no instance to operate.
+    """
+    from applire._version import __version__
+    from applire.routers.health import set_upgrade_notice
+    from applire.services.instance_state import (
+        KEY_LAST_SEEN_VERSION,
+        KEY_UPGRADE_NOTICE_DISMISSED_FOR,
+        write_state,
+    )
+
+    await write_state(db, KEY_LAST_SEEN_VERSION, __version__)
+    await write_state(db, KEY_UPGRADE_NOTICE_DISMISSED_FOR, __version__)
+    await db.commit()
+    set_upgrade_notice(None)
+    return UpgradeNoticeDismissResponse(
+        last_seen_version=__version__, upgrade_notice=None
+    )
+
+
 @router.get("", response_model=SettingsResponse)
 async def api_get_settings(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> SettingsResponse:
     result = await get_settings(db)
+    result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
     return SettingsResponse(**result)
 
 
@@ -299,6 +348,7 @@ async def api_patch_settings(
             review_mode=body.review_mode,
             dismiss_explainer=body.dismiss_explainer,
         )
+        result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
         return SettingsResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

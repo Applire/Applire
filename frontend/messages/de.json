@@ -1542,5 +1542,17 @@
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
     "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Bearbeiten.",
     "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
+  },
+  "upgradeNotice": {
+    "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",
+    "versions": "Zuletzt gestartet: {from} · jetzt läuft: {to}",
+    "unsetHeading": "Neu seitdem und bei dir nicht gesetzt — es gilt der neue Standard:",
+    "reMeantHeading": "Diese Werte setzt du, und ihre Bedeutung hat sich geändert:",
+    "introducedIn": "seit {version}, Standard: {defaultValue}",
+    "changedIn": "geändert in {version}",
+    "emptyDefault": "leer",
+    "moreInfo": "Was sich geändert hat, steht im CHANGELOG unter „Upgrade notes“ und in docs/SELF-HOSTING.md.",
+    "debugLogOn": "Das LLM-Debug-Protokoll ist eingeschaltet: Jede Anfrage wird samt Lebenslauf-Daten in Dateien im Container geschrieben, ohne Größen- oder Altersgrenze. Im Produktivbetrieb ausschalten (LLM_DEBUG_LOG=false) und die Dateien löschen.",
+    "dismissAria": "Hinweis schließen"
   }
 }

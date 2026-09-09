@@ -149,6 +149,8 @@ pytest tests/integration/ -v
 docker-compose down -v
 ```
 
+> ⚠️ `down -v` deletes the named volumes. That is fine for the throwaway CI and test stacks this guide is about, and it is **never** right on an install that holds real data — see [SELF-HOSTING.md](SELF-HOSTING.md). If you are reading this guide while operating your own instance, use `docker compose down` without `-v`.
+
 ### E2E Tests
 ```bash
 # Requires running stack (docker-compose up -d)
