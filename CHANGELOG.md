@@ -56,6 +56,13 @@ findings get the user's questions, the job posting is treated as data, every
 delivered document declares its provenance, and the review loop learns to say
 what it could not finish. Seven work packages, one database migration (0060).
 
+> **Completed 2026-09-09.** As first written, this entry covered only the release
+> candidate's seven work packages (PR #663). Roughly ten pull requests merged
+> between 2026-08-31 and 2026-09-04 shipped inside the same tag and were in no
+> entry at all — including the Word export, which is a headline feature. They are
+> folded into the sections below and marked *(backfilled)*. Found while writing the
+> release announcement, by reading the commit range instead of the changelog.
+
 ### Added
 - **The document review surface (E058)** — the generated document is the largest
   thing on the screen; what the system found about it renders as four questions in
@@ -114,6 +121,18 @@ what it could not finish. Seven work packages, one database migration (0060).
   page's real editing surface opens and saves on a phone, and a sentence that
   told mobile users to use a computer — which also pushed Save behind the
   keyboard — is gone (US228, edit/save half; reorder is not claimed).
+- **The Word export — an editable working copy of every document (E057)**
+  *(backfilled)* — CVs and cover letters download as `.docx` alongside the PDF,
+  rendered by a dedicated `office_export` package straight from the tailored data:
+  no HTML, no template engine, no subprocess, and no tables, text boxes, positioned
+  frames or borders, verified by direct XML inspection. The layout is built for
+  editing rather than for reproducing the seven PDF designs — the measurement
+  behind that choice is that automated checks could not separate the two designs
+  that survive conversion from the five that do not, only looking could. Both
+  files carry the same truthfulness and ATS audit, and the download states that
+  edits made afterwards are not re-checked (US296–US298; ADR-079; #642).
+- **A GitHub Sponsors link and a "Support the project" section** in both READMEs
+  *(backfilled)* — the first funding surface the project has had (#572).
 
 ### Changed
 - **The DO-NOT-CLAIM list can no longer contradict the profile beside it** — the
@@ -149,6 +168,40 @@ what it could not finish. Seven work packages, one database migration (0060).
 - **The mock provider now recognises the skill-estimation prompt**, so that seam is
   exercised by the mock-stack E2E tiers; an enumeration test fails when any
   `*SYSTEM*` prompt lacks a fingerprint (#658).
+- **The gap interview's question budget is derived from its own gap plan
+  (ADR-080)** *(backfilled)* — the budget was the flat constant 12 while an
+  analysis produces 5–12 gap clusters costing one to two answers each, so a
+  targeted interview stopped with clusters it had identified itself never asked,
+  and those became honest gaps that both writers then read. It is now
+  `INTERVIEW_MAX_QUESTIONS_PER_GAP × critical gaps + 2`, with the old constants
+  demoted to an upper bound (defaults 12/20 → 30/30). Measured on the real loop
+  before the change: 8 clusters → 6 closed / 2 never asked; 12 → 6 closed / 6
+  never asked (#646, #648).
+- **The gaps page no longer promises three minutes** *(backfilled)* — "Quick
+  Interview (3 min)" was a fixed string connected to nothing, while a 12-cluster
+  posting runs to a worst case of 26 questions; it is now "Full Interview" with no
+  minutes claim, and progress counts against the session's derived budget. The
+  string was the credited time-estimate control on Marcus's journey FMEA row
+  JF-M-5.5, which a wrong figure actively harms (#649).
+- **Prose redundancy in the delivered document is detected, not manufactured
+  (ADR-082)** *(backfilled)* — #659 and #424 both proposed widening
+  `skills_near_dupe` from skills to bullets; measured on the delivered artefact it
+  returns False on all 15 bullet pairs, because a threshold calibrated for
+  2–5-token names does not transfer to 30-token sentences. A prose-shaped
+  detector was built instead, reporting only — repair is deliberately out of
+  scope (#661).
+- **A reviewer's blocking findings reach the corrector that acts on them
+  (ADR-083)** *(backfilled)* — the transport folds them into corrector feedback
+  rather than leaving the corrector to re-derive them; the neighbouring doctrine
+  question (role framing vs. a named check) was measured at 0/5 against 5/5 and
+  settled in favour of the named check (#662).
+- **The data destination is the operator's choice, not a project rule**
+  *(backfilled)* — `.env.example` now states per provider where data goes (Ollama
+  local, Mistral/Requesty EU, OpenRouter/Anthropic/OpenAI US) and marks its own
+  value an example rather than a recommendation (#657).
+- **A document's PDF title follows the document's language**, and My Documents
+  says so when a document failed instead of showing nothing *(backfilled)*
+  (#604, #647).
 
 ### Measured, not changed
 - ADR-076 clause 6's rank gate never fired on the CV drafting loop (the coverage
@@ -165,6 +218,60 @@ what it could not finish. Seven work packages, one database migration (0060).
 - The documented Ollama path said nothing about pulling a model first and nothing
   about the CPU-inference timeout; both READMEs and `.env.example` now do (found by
   the pre-release blind install test).
+- **A tabular Word CV imported as an empty one** *(backfilled)* — the extractor
+  read `document.paragraphs` only, and Word table cells are not paragraphs of the
+  body, so the layout standard across German-speaking Europe lost its entire
+  employment and education history before the extraction model was called; the
+  headings survived, so the text looked structured while carrying nothing. Text
+  boxes, used for contact blocks and side columns, were invisible for the same
+  reason. It now delegates to the document-order walker built for E057, one
+  implementation for one operation. Measured on three real Word CVs: a
+  paragraph-only CV byte-identical, a tabular CV 0/10 → 10/10 facts, a tab-stop CV
+  unchanged bar one character class (#640, #643).
+- **Angle brackets were silently deleted from the delivered document**
+  *(backfilled)* — `select_autoescape(["html"])` decides per filename suffix and
+  every Applire template is `*.html.j2`, so autoescape never fired on a single
+  one. Free text containing angle brackets was emitted verbatim and swallowed by
+  Chromium as an unknown tag: "Koordination mit &lt;Projekt Phoenix&gt; und
+  R&D-Teams" shipped as "Koordination mit und R&D-Teams" — still grammatical,
+  which is why it went unnoticed. Closed at the cause and at detection, with the
+  ATS audit extended to the candidate's own prose (#634; ADR-039 amended, #636).
+- **#547's orphan case, measured rather than assumed** *(backfilled)* — a
+  per-template real-render sweep with a calibrated regression gate; the driver is
+  each template's own page-1 capacity, not the shared signature margin, and two
+  rendered hypotheses were refuted rather than shipped as dead CSS (#636).
+- **An abandoned Gap-Click micro-session was resurrected by the next interview
+  start** *(backfilled)* — `create_session`'s idempotency branch returned any
+  active session for a job regardless of kind, so a micro-session closed without
+  answering came back in place of a full interview. One predicate now separates
+  the two (#627).
+- **Merge conflicts named the field but not the entry** *(backfilled)* — the
+  entity→label ladder moved out of the Health hub into one shared resolver, so the
+  live interview's conflict card and the Health hub speak one convention; the
+  Health-hub conflict card had no E2E coverage at all and now has one (#626,
+  #604, #644, #647).
+- **Vault reconcile gaps** *(backfilled)* — `flag_conflict` reaches all nine
+  id-bearing sections, `set_field` no longer vanishes silently on some of them,
+  certifications and education use their section-aware duplicate classifiers
+  instead of the generic one on two-source imports, and an op batch writes once
+  per entity with one container per project (#633, #618, #424, #632, #644).
+- **The import doors disagreed about which fields exist** *(backfilled)* — the
+  flat and MCP door schemas gained the 17+1 fields the CV extractor already
+  produced, and the profile-extraction door gained projects, publications and
+  volunteer activities; a null project role no longer rejects an import, found by
+  the first real run through the flat door (#228, #619).
+- **LinkedIn reached the delivered document again** in the contact block
+  *(backfilled)* (#644).
+- **A local image rebuild could bake user data into the image** *(backfilled)* —
+  no `.dockerignore` existed anywhere, while the backend Dockerfile does
+  `COPY . .` and the tracked dev override bind-mounts `./backend:/app`, so the
+  running stack wrote its LLM debug log and uploaded CVs straight into its own
+  build context. On a machine that had served real traffic that is prompts and
+  model output plus uploaded CVs, going into the next image. Images published from
+  CI were never affected — verified, not assumed: the `:edge` backend image has no
+  `/app/logs` and no `/app/data` (#660).
+- **Dependency updates** *(backfilled)* — pypdf 6.16.1 (#650), browserslist
+  (#645), brace-expansion (#631).
 
 ## [0.40.0-beta] – 2026-08-30
 
