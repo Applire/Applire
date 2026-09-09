@@ -256,7 +256,8 @@
       "cta": "Jetzt entscheiden",
       "dismiss": "Ausblenden",
       "dismissAria": "Diesen Hinweis ausblenden",
-      "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen."
+      "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen.",
+      "more": "+{count, plural, one {# weitere Entscheidung} other {# weitere Entscheidungen}}"
     }
   },
   "interview": {

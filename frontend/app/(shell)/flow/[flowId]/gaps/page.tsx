@@ -880,15 +880,17 @@ export default function GapsPage({
 
   return (
     <div data-testid="gap-analysis-page" className="max-w-4xl mx-auto">
-      {/* #686 — a profile dispute raised from a gap answer reaches the user.
-          Placed at the top of the page body: the gaps page is a single column
-          with no page-level sidebar anywhere in the product to reuse, and this
-          is the house notice shape (`HealthPanel`'s nudge) that is already
-          correct on a phone. Dismissable; dismissing resolves nothing. */}
+      {/* #686 (founder ruling V-1) — a profile dispute raised from a gap answer
+          reaches the user as a corner-anchored toast STACK, not as a card in the
+          page flow: no reserved UI space, one popup per pending decision, and it
+          disappears on its own after the operator's auto-dismiss window. The
+          component renders `position: fixed`, so this mount point only decides
+          WHEN it is alive, never where it sits. */}
       <ProfileDecisionsCard
         apiBase={API_BASE}
         flowId={flowId}
         refreshToken={decisionsToken}
+        bottomOffsetPx={decisionBarHeight}
       />
       <JdRecoveryBanner />
       <CvParseBanner />

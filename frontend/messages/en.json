@@ -256,7 +256,8 @@
       "cta": "Decide now",
       "dismiss": "Dismiss",
       "dismissAria": "Dismiss this note",
-      "stillThere": "You can come back to this on your profile page any time."
+      "stillThere": "You can come back to this on your profile page any time.",
+      "more": "+{count, plural, one {# more decision} other {# more decisions}}"
     }
   },
   "interview": {
