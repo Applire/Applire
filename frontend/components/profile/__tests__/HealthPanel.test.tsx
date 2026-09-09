@@ -168,7 +168,9 @@ describe("HealthPanel", () => {
     expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
     // `professional_summary` + field "de" is special-cased to a real label.
-    expect(screen.getByText(/Summary \(German\)/)).toBeInTheDocument();
+    // #685 — named in words, never the raw key.
+    expect(screen.getByText(/your self-description \(German\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/professional_summary/)).not.toBeInTheDocument();
     expect(screen.getByText(/Alte Zusammenfassung/)).toBeInTheDocument();
     expect(screen.getByText(/Neue Zusammenfassung/)).toBeInTheDocument();
   });

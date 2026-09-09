@@ -963,6 +963,11 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
             "field": c.field,
             "existing_value": c.existing_value,
             "incoming_value": c.incoming_value,
+            # #685 — `Conflict.source` carried the real provenance all along and
+            # this dict simply dropped it, so `_CONFLICT_COPY` had nothing to say
+            # but "an import suggested" — for an INTERVIEW answer, on the
+            # founder's own install (2026-09-06).
+            "source": c.source,
         }
         for c in profile_data.metadata.pending_conflicts
         if not c.resolved

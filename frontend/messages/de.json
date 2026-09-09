@@ -781,10 +781,11 @@
     },
     "summaryEditor": {
       "editButton": "Kurzprofil bearbeiten",
-      "dialogTitle": "Kurzprofil bearbeiten",
+      "dialogTitle": "Wie du dich selbst beschreibst",
       "fieldDe": "Deutsch (DE)",
       "fieldEn": "Englisch (EN)",
-      "hint": "Beide Felder speisen die jeweilige Sprachfassung deines Lebenslaufs — fülle mindestens eines aus."
+      "hint": "Das ist deine eigene Beschreibung von dir, in deinen Worten. Für jede Bewerbung schreibt Applire ein neues Kurzprofil aus deinem ganzen Profil — dieses hier ist der Ausgangspunkt, nicht der Text, der verschickt wird.",
+      "langHint": "Fülle mindestens eine Sprache aus."
     },
     "personalInfoEditor": {
       "editButton": "Kontaktdaten bearbeiten",
@@ -961,9 +962,10 @@
       "issuing_organization": "Ausstellende Organisation",
       "credential_id": "Zertifikats-ID",
       "credential_url": "Zertifikats-URL",
-      "summaryDe": "Zusammenfassung (Deutsch)",
-      "summaryEn": "Zusammenfassung (Englisch)"
-    }
+      "summaryDe": "deine Selbstbeschreibung (Deutsch)",
+      "summaryEn": "deine Selbstbeschreibung (Englisch)"
+    },
+    "conflictSourceUnknown": "einer späteren Änderung"
   },
   "profileReview": {
     "title": "Profil prüfen",
@@ -1463,7 +1465,7 @@
       "role_closed": "Diese Position als beendet markiert.",
       "gap_marked_na": "Diese Lücke als „nicht zutreffend“ markiert.",
       "denial_probe_asked": "Festgehalten, dass die Rückfrage zu dieser Einschränkung gestellt wurde – deine Angabe selbst bleibt unverändert.",
-      "denial_noted": "Noted as a limit you told us about."
+      "denial_noted": "Als selbst genannte Einschränkung vermerkt."
     }
   },
   "mergeGate": {

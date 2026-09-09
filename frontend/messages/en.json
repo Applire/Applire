@@ -781,10 +781,11 @@
     },
     "summaryEditor": {
       "editButton": "Edit summary",
-      "dialogTitle": "Edit professional summary",
+      "dialogTitle": "How you describe yourself",
       "fieldDe": "German (DE)",
       "fieldEn": "English (EN)",
-      "hint": "Both fields feed the matching language version of your CV — fill in at least one."
+      "hint": "This is your own description of yourself, in your words. Applire writes a fresh summary for every application from your whole profile — this one is the starting point, not the text that gets sent.",
+      "langHint": "Fill in at least one language."
     },
     "personalInfoEditor": {
       "editButton": "Edit contact details",
@@ -961,9 +962,10 @@
       "issuing_organization": "Issuing organization",
       "credential_id": "Credential ID",
       "credential_url": "Credential URL",
-      "summaryDe": "Summary (German)",
-      "summaryEn": "Summary (English)"
-    }
+      "summaryDe": "your self-description (German)",
+      "summaryEn": "your self-description (English)"
+    },
+    "conflictSourceUnknown": "a later change"
   },
   "profileReview": {
     "title": "Review profile",
