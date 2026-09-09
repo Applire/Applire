@@ -48,6 +48,7 @@ from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
     LLMProvider,
+    is_schema_rejection_message,
     raise_if_no_completion,
     raise_if_truncated,
     retry_on_truncation,
@@ -129,12 +130,16 @@ class RequestyProvider(LLMProvider):
 
         Same shape and same reason as the mandatory-reasoning latch above: an
         endpoint that cannot take a schema will never take one, so it costs a
-        single wasted request per process instead of one per call. Latched on
-        the SCHEMA wording only — an unrelated 400 that happens to co-occur
-        must not permanently disable structured output for this instance.
+        single wasted request per process instead of one per call. The wording
+        check itself lives once in ``base.is_schema_rejection_message`` — see
+        that docstring for the adversarial-pass finding it fixes (a bare
+        substring match latching on an UNRELATED 400 that merely lists
+        `response_format` among the request's field names) and its own
+        documented limit (a genuine rejection phrased with none of the
+        matched words still slips through un-latched).
         """
-        msg = str(getattr(exc, "message", None) or exc).lower()
-        if "json_schema" in msg or "response_format" in msg or "structured output" in msg:
+        msg = str(getattr(exc, "message", None) or exc)
+        if is_schema_rejection_message(msg):
             self._json_schema_rejected = True
             logger.warning(
                 "model=%s rejected the response json_schema; falling back to "

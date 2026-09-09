@@ -515,7 +515,15 @@ def positive_residue(text: str) -> list[str]:
     says nothing of substance), which is a turn that correctly writes nothing.
 
     ADR-062 clause 1: this decides "does this clause contain a negation word and
-    at least four words", never "is this claim true" or "did it matter".
+    at least four words", never "is this claim true" or "did it matter" — and,
+    since the adversarial pass 2026-09-10, "does this clause end in a question
+    mark". A candidate asking the interviewer something back ("What exactly do
+    you mean by production experience?") is not testimony — the reconciler
+    correctly writes nothing for it, and without this check the receipt reads
+    the question as a stated fact that "did not reach your profile", which is
+    false: nothing was ever meant to reach it. A trailing "?" is the same kind
+    of fact-level marker the negation check already is, never a reading of
+    whether the sentence is *rhetorical* or *sincere*.
     """
     if not text or not text.strip():
         return []
@@ -531,6 +539,8 @@ def positive_residue(text: str) -> list[str]:
             for clause in _PIVOT_RE.split(part):
                 clause = clause.strip(" \t\n,;:—-")
                 if not clause:
+                    continue
+                if clause.endswith("?"):
                     continue
                 if _NEGATION_RE.search(clause):
                     continue

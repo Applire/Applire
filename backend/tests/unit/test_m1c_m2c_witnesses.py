@@ -180,6 +180,103 @@ def test_a_set_field_on_a_date_is_never_guarded():
     assert out == ops
 
 
+# ── adversarial pass 2026-09-10 — M-2c false positives ───────────────────────
+# Channel 2 has no ambiguity fail-open of its own (unlike #243's owning-sentence
+# channel, which already lets a sentence naming two-or-more employers pass
+# unguessed — `test_ambiguous_two_employers_in_one_clause_fails_open` in
+# `test_reconcile_attribution.py`). Without `_RELATIONAL_MARKER_RE`, naming a
+# CLIENT, an ACQUIRER or a PARENT by name — ordinary phrasing for anyone in
+# sales, account management or post-M&A engineering — re-created exactly the
+# wrong-slot confusion M-2c exists to catch: the candidate's own, correctly
+# targeted bullet got pulled into a confirmation asking "did you mean the
+# other company", which a confused candidate could answer "yes" to and thereby
+# ACTUALLY misfile it — the very defect this witness exists to prevent.
+
+_BOSCH_ID = "w-bosch"
+_SIEMENS_ID = "w-siemens"
+
+
+def _client_account_profile() -> MasterProfileData:
+    return MasterProfileData(
+        personal_info=PersonalInfo(full_name="Jonas Weber"),
+        work_experience=[
+            WorkEntry(id=_SIEMENS_ID, company="Siemens AG", role="Sales Engineer"),
+            WorkEntry(id=_BOSCH_ID, company="Bosch", role="Key Account Manager", is_current=True),
+        ],
+    )
+
+
+def test_a_bullet_naming_a_client_account_is_not_rerouted():
+    """MUTATION KILL: delete the `_RELATIONAL_MARKER_RE` guard in
+    `_foreign_employers` and this bullet — correctly targeting Bosch — is
+    pulled out into a confirmation suggesting it belongs to Siemens instead,
+    even though the answer names BOTH companies (#243's own ambiguity
+    fail-open would have left it alone had channel 2 not overridden it)."""
+    bullet = "Key account manager for the Siemens account, growing YoY revenue by 20%."
+    ops = [AddBullets(target=_BOSCH_ID, achievements=[bullet])]
+    out = enforce_attribution(
+        ops,
+        profile=_client_account_profile(),
+        new_info={"answer": f"At Bosch, I was the key account manager for the Siemens "
+                             f"account, growing YoY revenue by 20%."},
+        source="interview",
+    )
+    assert out == ops, "a correctly targeted client-account bullet must not be rerouted"
+
+
+def test_a_bullet_naming_an_acquirer_is_not_rerouted():
+    """"Migrated the platform after the acquisition by X" names the buyer, not
+    a second employer. MUTATION KILL: same guard as above."""
+    former_id = "w-acme"
+    nordpharm_id = "w-nordpharm"
+    profile = MasterProfileData(
+        personal_info=PersonalInfo(full_name="Jonas Weber"),
+        work_experience=[
+            WorkEntry(id=former_id, company="Acme Biotech", role="Platform Engineer"),
+            WorkEntry(id=nordpharm_id, company="NordPharm", role="Senior Platform Engineer",
+                      is_current=True),
+        ],
+    )
+    bullet = "Migrated the legacy platform to the cloud after the acquisition by Acme Biotech."
+    ops = [AddBullets(target=nordpharm_id, achievements=[bullet])]
+    out = enforce_attribution(
+        ops,
+        profile=profile,
+        new_info={"answer": f"At NordPharm, I {bullet[0].lower()}{bullet[1:]}"},
+        source="interview",
+    )
+    assert out == ops
+
+
+def test_set_field_naming_a_client_account_is_not_rerouted():
+    """`_guard_set_field` shares `_foreign_employers` — same guard, same fix."""
+    ops = [
+        SetField(
+            target=_BOSCH_ID,
+            field="industry_context",
+            value="Managed the Siemens account across the automotive sector.",
+        )
+    ]
+    out = enforce_attribution(
+        ops,
+        profile=_client_account_profile(),
+        new_info={"answer": "Managed the Siemens account across the automotive sector."},
+        source="interview",
+    )
+    assert out == ops
+
+
+def test_the_relational_marker_does_not_blunt_the_real_fold():
+    """The guard must not swallow M-2c's own motivating case: a bullet naming
+    several employers with NO relational marker (a genuine multi-role fold,
+    not a client/acquisition mention) is still caught."""
+    ops = [AddBullets(target=_NOVA_ID, achievements=[_FOLDED_BULLET])]
+    out = enforce_attribution(
+        ops, profile=_three_station_profile(), new_info=_turn(), source="interview"
+    )
+    assert any(isinstance(op, RequestConfirmation) for op in out)
+
+
 def test_a_non_interview_source_is_untouched():
     """#243's interview-turn-only restriction still holds for both channels."""
     ops = [AddBullets(target=_NOVA_ID, achievements=[_FOLDED_BULLET])]
@@ -206,10 +303,32 @@ def test_the_denial_opening_answer_has_a_positive_residue():
         "I have not worked with insulin, Azure or Kubernetes in production systems.",
         "Just saying hello",
         "",
+        # adversarial pass 2026-09-10 — a question back to the interviewer is
+        # not testimony; the reconciler correctly writes nothing for it.
+        "What exactly do you mean by production experience in this context?",
+        "Was genau meinst du mit Produktionserfahrung in diesem Zusammenhang?",
     ],
 )
 def test_an_answer_that_states_nothing_produces_no_receipt(answer):
     assert compute_no_write(answer) == []
+
+
+def test_a_question_back_is_not_read_as_a_statement():
+    """MUTATION KILL: delete the `clause.endswith("?")` guard in
+    `positive_residue` and this fails — the candidate's clarifying question
+    would read as "nothing was recorded from what you said", which is false:
+    a question was never testimony to begin with."""
+    answer = "What exactly do you mean by production experience in this context?"
+    assert positive_residue(answer) == []
+    assert compute_no_write(answer) == []
+
+
+def test_a_question_does_not_swallow_a_real_answer_that_follows_it():
+    """A rhetorical question ahead of the real statement must not eat it —
+    over-drop discipline applies to the new guard too."""
+    answer = "Have I worked with Kubernetes? Yes, for three years at my last job."
+    residue = positive_residue(answer)
+    assert residue == ["Yes, for three years at my last job."]
 
 
 def test_a_german_concessive_opening_still_yields_its_statement():

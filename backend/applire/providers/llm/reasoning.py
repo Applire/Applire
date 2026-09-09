@@ -62,10 +62,56 @@ _PAIRED = re.compile(rf"<\s*({_TAGS})\s*>.*?<\s*/\s*\1\s*>", re.IGNORECASE | re.
 # everything after it is trace, so the answer is whatever came BEFORE it.
 _UNCLOSED = re.compile(rf"<\s*({_TAGS})\s*>.*\Z", re.IGNORECASE | re.DOTALL)
 # A closing tag with no opening one — some models emit the trace bare and only
-# mark where it ended. Everything up to and including it is trace.
-_ORPHAN_CLOSE = re.compile(rf"\A.*?<\s*/\s*({_TAGS})\s*>", re.IGNORECASE | re.DOTALL)
+# mark where it ended. Everything up to and including it is trace. Named group
+# on the tag itself (not the whole match) — see `_inside_json_string`, which
+# needs the position of the `<`, not of the (always-zero) `\A` anchor.
+_ORPHAN_CLOSE = re.compile(
+    rf"\A.*?(?P<closetag><\s*/\s*(?:{_TAGS})\s*>)", re.IGNORECASE | re.DOTALL
+)
 
 _last_trace: ContextVar[str | None] = ContextVar("llm_last_reasoning_trace", default=None)
+
+
+def _inside_json_string(text: str, pos: int) -> bool:
+    """Best-effort guess: does ``text[:pos]`` leave us inside an open JSON string?
+
+    None of the three trace patterns above are JSON-string-aware — they match
+    a tag-like substring wherever it sits, including inside a quoted field
+    value. A candidate's own words can legitimately contain a literal
+    ``<think>...</think>`` span (a workshop titled "Design Thinking", a quote
+    mentioning "stop overthinking"), and a model paraphrases those into a
+    bullet's own text verbatim. Stripping there is not "only the answer is
+    consumed" (the module's own rule) — it is the answer losing content, or
+    (for the UNCLOSED/ORPHAN_CLOSE shapes, which always delete everything to
+    one edge of the string) the whole JSON payload being corrupted into
+    something `json.loads` can no longer parse at all — the exact silent-loss
+    failure this module exists to prevent, self-inflicted.
+
+    This is a parity count, not a parser: an odd number of un-escaped ``"``
+    characters before ``pos`` means we have crossed an odd number of JSON
+    string boundaries, i.e. we are inside one. Cheap, and exactly the signal
+    that distinguishes "this tag sits inside a JSON string value" from "this
+    tag wraps the JSON as a genuine reasoning trace" — every fixture in
+    ``test_reasoning_traces.py`` has the trace OUTSIDE any string (a prefix or
+    a suffix around the whole payload), which parses as an even count.
+    Non-JSON completions (a cover-letter draft) overwhelmingly have a
+    naturally even count too, so this rarely holds back a genuine trace there
+    either — and on the rare unbalanced-prose case, leaving a trace in is the
+    safe failure direction (a stray `<think>` in the output is a cosmetic
+    nuisance the debug-log WARNING still surfaces), never a corrupted vault
+    write.
+    """
+    count = 0
+    i = 0
+    while i < pos:
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == '"':
+            count += 1
+        i += 1
+    return count % 2 == 1
 
 
 def split_reasoning(text: str) -> tuple[str, str]:
@@ -85,17 +131,26 @@ def split_reasoning(text: str) -> tuple[str, str]:
         parts: list[str] = []
 
         def _keep(match: re.Match[str]) -> str:
+            if _inside_json_string(text, match.start()):
+                # A tag-shaped substring living inside a candidate's own JSON
+                # string value, not a wrapping trace — leave it exactly as the
+                # model wrote it (see `_inside_json_string`).
+                return match.group(0)
             parts.append(match.group(0))
             return ""
 
         answer = _PAIRED.sub(_keep, text)
 
         unclosed = _UNCLOSED.search(answer)
+        if unclosed and _inside_json_string(answer, unclosed.start()):
+            unclosed = None  # false hit inside a string value — not a trace
         if unclosed:
             parts.append(unclosed.group(0))
             answer = answer[: unclosed.start()]
         elif not parts:
             orphan = _ORPHAN_CLOSE.match(answer)
+            if orphan and _inside_json_string(answer, orphan.start("closetag")):
+                orphan = None
             if orphan:
                 parts.append(orphan.group(0))
                 answer = answer[orphan.end() :]

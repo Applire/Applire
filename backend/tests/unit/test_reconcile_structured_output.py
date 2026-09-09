@@ -96,6 +96,32 @@ def test_presentation_keys_are_stripped():
     assert "default" not in keys
 
 
+def test_a_field_the_prompt_calls_required_is_required_in_the_schema():
+    """The other direction of the same "second specification" class as the
+    test above: `prompts/reconcile.py`'s per-op REQUIRED: line (M-3a) names
+    `value` on set_field/set_personal_info, both sides of flag_conflict, and
+    `options` on request_confirmation — pydantic's own inference disagrees
+    because each carries an `Any = None` / `default_factory=list` default for
+    constructor convenience, not because the prompt considers it optional.
+
+    Found adversarially 2026-09-10: without this, a structured-output call
+    (`LLM_STRUCTURED_OUTPUT=auto`, the default since P-4) is schema-permitted
+    to emit a `set_field` with no `value`, a `flag_conflict` with neither side
+    to compare, or a `request_confirmation` with no `options` — the field
+    that carries the entire point of the op, contradicting the prompt's own
+    REQUIRED: line for the exact shapes M-3a exists to reinforce.
+
+    MUTATION KILL: drop the `_add_prompt_required_fields` call in
+    `reconcile_response_schema` and every assertion below fails.
+    """
+    defs = reconcile_response_schema()["$defs"]
+    assert "value" in defs["SetField"]["required"]
+    assert "value" in defs["SetPersonalInfo"]["required"]
+    assert "existing" in defs["FlagConflict"]["required"]
+    assert "incoming" in defs["FlagConflict"]["required"]
+    assert "options" in defs["RequestConfirmation"]["required"]
+
+
 def test_a_field_the_prompt_never_asks_for_is_not_in_the_schema():
     """A schema is a second specification: showing `status` would invite the
     model to assert the candidate CONFIRMED a skill (ADR-061 clause 3), and
@@ -192,3 +218,58 @@ def test_an_unrelated_400_does_not_disable_structured_output():
     provider._json_schema_rejected = False
     assert provider._note_schema_rejection(Exception("400 - context length exceeded")) is False
     assert provider._json_schema_rejected is False
+
+
+# ── adversarial pass 2026-09-10 — the latch's own wording match ─────────────
+
+
+@pytest.mark.parametrize("provider_cls_path", [
+    "applire.providers.llm.openrouter.OpenRouterProvider",
+    "applire.providers.llm.requesty.RequestyProvider",
+])
+def test_a_field_name_listed_in_an_unrelated_400_does_not_latch(provider_cls_path):
+    """A context-length error that lists `response_format` among the request's
+    OTHER field names (a gateway echoing what it received) is not a schema
+    rejection — the field is merely present, not refused.
+
+    MUTATION KILL: revert `is_schema_rejection_message` to a bare substring
+    test (drop the `_SCHEMA_REJECTION_VERDICT` proximity requirement) and this
+    fails — the constructed context-length message below latches the schema
+    off for the rest of the process on a misdiagnosis.
+    """
+    module_path, cls_name = provider_cls_path.rsplit(".", 1)
+    import importlib
+
+    cls = getattr(importlib.import_module(module_path), cls_name)
+    provider = cls.__new__(cls)
+    provider._model = "some/model"
+    provider._json_schema_rejected = False
+    msg = (
+        "Error code: 400 - This model's maximum context length is 8192 tokens. "
+        "Your request (model, messages, temperature, response_format, "
+        "max_tokens) resulted in 9000 tokens. Please reduce the length of the "
+        "messages."
+    )
+    assert provider._note_schema_rejection(Exception(msg)) is False
+    assert provider._json_schema_rejected is False
+
+
+@pytest.mark.parametrize("provider_cls_path", [
+    "applire.providers.llm.openrouter.OpenRouterProvider",
+    "applire.providers.llm.requesty.RequestyProvider",
+])
+def test_the_documented_rejection_shape_still_latches_on_both_providers(provider_cls_path):
+    """The proximity requirement must not blunt the ONE shape already measured
+    (the F-B/M-3 wording `test_a_schema_rejection_is_latched_...` pins for
+    OpenRouter) — pinned here for BOTH providers, since the check now lives in
+    one shared function both call."""
+    module_path, cls_name = provider_cls_path.rsplit(".", 1)
+    import importlib
+
+    cls = getattr(importlib.import_module(module_path), cls_name)
+    provider = cls.__new__(cls)
+    provider._model = "some/model"
+    provider._json_schema_rejected = False
+    msg = "Error code: 400 - response_format json_schema is not supported"
+    assert provider._note_schema_rejection(Exception(msg)) is True
+    assert provider._json_schema_rejected is True
