@@ -417,6 +417,32 @@ async def _handle_confirmation_answer(
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
+    # Adversarial finding (2026-09-09, WP-adv-vault) — founder ruling V-5's
+    # resolution turn was wired into `_handle_interview_confirmation_answer`
+    # only (a confirmation raised and answered WITHIN the same interview
+    # turn). This handler is the OTHER, and more common, resolution route: the
+    # standalone profile-review interview (US165) that #686's "Decide now" CTA
+    # opens, which is where an engagement confirmation raised by
+    # `submit_testimony`, `submit_claims` or a CV import is actually answered
+    # — those doors never resolve their own asks in-session. Before this fix,
+    # `_resolve_confirmation_safely` below (`profile.resolve_confirmation`) was
+    # the ONLY thing that ran: it marks the park resolved and receipts the
+    # candidate's raw text, but it is bookkeeping by design
+    # (`_apply_resolve_confirmation`'s own docstring) — it never rebuilds the
+    # parked op, so the station/project/volunteering V-5's own ADR text
+    # describes as "gone" stayed gone on this route, whichever family or door
+    # raised it. `context`/`option_keys` reach `confirmation_entry` now
+    # (`_open_confirmations` / `build_confirmation_clusters`, fixed alongside
+    # this), so the same deterministic turn V-5 built can run here too.
+    context = confirmation_entry.get("context") or {}
+    if context.get("section") in _ENGAGEMENT_OPS:
+        profile_record = await _load_profile(state["profile_id"], db)
+        await _apply_engagement_confirmation(
+            db, profile_record, context, chosen,
+            session_id=str(record.id),
+            option_key=resolve_option_key(confirmation_entry, chosen),
+        )
+
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
 
     current_gap = state["critical_gaps"][current_idx]
@@ -1109,7 +1135,32 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
 
 async def _open_confirmations(profile_record: MasterProfile) -> list[dict]:
     """Unresolved import-time confirmations (E037 PQ #4), shaped for the cluster
-    builder. Each is an N-option ambiguity the reconciler could not auto-resolve."""
+    builder. Each is an N-option ambiguity the reconciler could not auto-resolve.
+
+    Adversarial finding (2026-09-09, WP-adv-vault) — this used to carry only
+    ``{confirmation_id, question, options}``, dropping ``context`` and
+    ``option_keys`` exactly the way ``_open_conflicts`` used to drop
+    ``Conflict.source`` before #685. Two consequences, both silent:
+
+    1. an engagement near-dupe ambiguity raised by ``submit_testimony`` /
+       ``submit_claims`` / a CV import and answered through THIS surface (the
+       standalone profile-review interview, US165 — what #686's "Decide now"
+       CTA opens) could never reach founder ruling V-5's resolution turn
+       (``session._apply_engagement_confirmation``), because that turn is
+       rebuilt from ``context["incoming"]`` / ``context["existing_ids"]``,
+       which never arrived here. The candidate's answer was recorded as
+       "resolved" and the station/project/volunteering was still never
+       created or merged — V-5's own defect, reproduced via the door +
+       resolution-route combination the adversarial brief named explicitly.
+    2. with no ``options_i18n`` either, ``build_confirmation_clusters``
+       rendered the door's ALWAYS-ENGLISH plain ``question``/``options``
+       fields verbatim regardless of the reader's ``ui_language`` — a German
+       session saw an English question (#669's whole point, undone one layer
+       up).
+
+    Both are fixed together: this now carries the full language-independent
+    shape ``PendingConfirmation`` already persists.
+    """
     profile_data = MasterProfileData.model_validate(profile_record.profile_json)
     if profile_data.metadata is None:
         return []
@@ -1118,6 +1169,10 @@ async def _open_confirmations(profile_record: MasterProfile) -> list[dict]:
             "confirmation_id": c.confirmation_id,
             "question": c.question,
             "options": list(c.options),
+            "context": dict(c.context),
+            "question_i18n": dict(c.question_i18n) if c.question_i18n else None,
+            "options_i18n": [dict(o) for o in c.options_i18n] if c.options_i18n else None,
+            "option_keys": list(c.option_keys),
         }
         for c in profile_data.metadata.pending_confirmations
         if not c.resolved

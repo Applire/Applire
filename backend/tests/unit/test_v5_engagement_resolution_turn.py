@@ -173,6 +173,52 @@ def test_a_merge_keeps_the_existing_value_and_receipts_the_divergence():
     assert disputes == [("work_experience", "start_date", "2011-04", "2012-01")]
 
 
+#: Adversarial finding (2026-09-09, WP-adv-vault): `_apply_upsert_project` and
+#: `_apply_upsert_volunteer` did not call `_record_merge_divergence` at all —
+#: only `_apply_upsert_work` did — so a candidate-confirmed MERGE on those two
+#: families silently kept the existing value with NO conflict receipt, exactly
+#: the #177 asymmetry this ADR's own commit message warns against. Reproduced
+#: with a plain script before the fix: `conflicts == []` on both families for a
+#: divergent `start_date`. Fixed by wiring the same call in both appliers.
+_DIVERGENCE_FAMILIES = {
+    "projects": (
+        {"projects": [{"id": "e1", "name": "LucaNet Konsolidierung", "role": "Lead",
+                       "start_date": "2011-04"}]},
+        lambda: UpsertProject(ref="n1", name="LucaNet Konsolidierung", role="Senior Lead",
+                               start_date="2012-01", url="https://example.com"),
+    ),
+    "volunteer_activities": (
+        {"volunteer_activities": [{"id": "e1", "organization": "Tafel Nord e.V.",
+                                    "role": "Helfer", "start_date": "2011-04"}]},
+        lambda: UpsertVolunteer(ref="n1", organization="Tafel Nord", role="Koordinator",
+                                 start_date="2012-01", description="Lebensmittel verteilen"),
+    ),
+}
+
+
+@pytest.mark.parametrize("section", list(_DIVERGENCE_FAMILIES))
+def test_a_merge_on_projects_or_volunteer_also_receipts_the_divergence(section):
+    """The work_experience field policy (previous test) generalises to the
+    other two engagement families — it must, or the divergence receipt is
+    itself the #177 asymmetry. `role` is checked too: unlike WorkEntry,
+    neither ProjectEntry nor VolunteerActivity has a `role_aliases` escape
+    hatch, so a differing role has no OTHER receipt path if this one misses it.
+    """
+    vault, make_op = _DIVERGENCE_FAMILIES[section]
+    result = apply_ops(
+        _profile(**vault),
+        [make_op()],
+        "interview",
+        user_confirmed_engagement=UserConfirmedEngagement(ref="n1", decision="merge", target_id="e1"),
+    )
+    entry = _entries(result.profile, section)[0]
+    assert entry.start_date == "2011-04"  # existing wins
+    assert entry.role in ("Lead", "Helfer")  # existing role wins too
+    disputes = {(c.section, c.field) for c in result.conflicts}
+    assert (section, "start_date") in disputes
+    assert (section, "role") in disputes
+
+
 def test_a_merge_whose_target_was_edited_away_creates_rather_than_loses():
     """The safe direction. Creating a duplicate the candidate can merge later is
     recoverable; silently dropping their answer a second time is not."""

@@ -978,32 +978,63 @@ def is_confirmation_cluster(cluster_id: str) -> bool:
 
 def build_confirmation_clusters(
     confirmations: list[dict],
-    lang: str = "en",  # noqa: ARG001 — question/options are pre-localised by the engine
+    lang: str = "en",
 ) -> tuple[list[str], dict, dict]:
     """Turn unresolved reconciler ambiguities into profile-review pseudo-clusters.
 
-    ``confirmations`` items: ``{confirmation_id, question, options}``. Unlike a
-    conflict cluster (a deterministic 2-choice keep/use prompt), a confirmation
-    carries the engine's own free-text question plus its N options verbatim — each
-    option becomes one selectable choice. Returns the GapDetector-shaped
+    ``confirmations`` items: ``{confirmation_id, question, options, context,
+    question_i18n, options_i18n, option_keys}`` (``session._open_confirmations``).
+    Unlike a conflict cluster (a deterministic 2-choice keep/use prompt), a
+    confirmation carries the engine's own free-text question plus its N options —
+    each option becomes one selectable choice. Returns the GapDetector-shaped
     ``(ids, categories, clusters_by_id)`` so the ids can populate ``critical_gaps``.
+
+    Adversarial finding (2026-09-09, WP-adv-vault) — ``lang`` used to be unused
+    (``# noqa: ARG001 — question/options are pre-localised by the engine``).
+    That comment was true for a confirmation raised WITHIN the same interview
+    turn (rendered once by ``RequestConfirmation.rendered`` before it ever
+    reaches this function) but false for one durably parked on
+    ``metadata.pending_confirmations`` and picked up later here: its ``question``/
+    ``options`` fields are ALWAYS the English rendering (#669's ``_build``, kept
+    for pre-#669 back-compat readers) — the localized text lives in
+    ``question_i18n``/``options_i18n``, which nothing here read. A German
+    profile-review session showed an English question for any testimony/claims/
+    import-raised ambiguity. Rendered here now, exactly like the conflict
+    cluster above renders through ``conflict_question``. ``context`` and
+    ``option_keys`` also now survive onto the cluster dict — without them
+    founder ruling V-5's resolution turn
+    (``session._apply_engagement_confirmation``) has nothing to rebuild the
+    parked op from, and the candidate's merge/distinct answer was silently
+    reduced to bookkeeping (``session._handle_confirmation_answer``).
     """
+    from applire.schemas.profile import render_localized_confirmation
+
     cluster_ids: list[str] = []
     categories: dict[str, str] = {}
     by_id: dict[str, dict] = {}
     for c in confirmations:
         cid = f"{_CONFIRMATION_PREFIX}{c['confirmation_id']}"
-        options = list(c.get("options") or [])
+        question, options = render_localized_confirmation(
+            question=c.get("question", "") or "",
+            options=list(c.get("options") or []),
+            question_i18n=c.get("question_i18n"),
+            options_i18n=c.get("options_i18n"),
+            lang=lang,
+        )
         cluster_ids.append(cid)
         categories[cid] = CONFIRMATION_CATEGORY
         by_id[cid] = {
             "id": cid,
             "kind": "confirmation",
             "confirmation_id": c["confirmation_id"],
-            "question": c["question"],
-            "label": c["question"],
+            "question": question,
+            "label": question,
             "choices": options,
             "options": options,
+            "context": dict(c.get("context") or {}),
+            "option_keys": list(c.get("option_keys") or []),
+            "question_i18n": c.get("question_i18n"),
+            "options_i18n": c.get("options_i18n"),
         }
     return cluster_ids, categories, by_id
 
