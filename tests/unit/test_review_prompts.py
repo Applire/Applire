@@ -944,12 +944,17 @@ class TestCoverLetterServiceReviewIntegration:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        # #670 (ADR-048 amended 2026-09-05): the LETTER ledger read seam now re-runs
+        # ADR-061's affirmative invariant, so a `claimable` row nothing in the vault backs
+        # is demoted before the reviewer sees it — and this fixture claimed Kubernetes
+        # `direct` against a profile whose skills were Python and FastAPI. Corrected at the
+        # VAULT, never by relaxing the assertion: the assertion is what this test is for.
         cv_tailored = {
             "contact": {"name": "Max Muster"}, "summary": "Backend developer.",
             "work_history": [{"company": "Acme GmbH", "role": "Software Developer",
                               "start_date": "2020-01", "end_date": "2022-12",
-                              "bullets": ["Built REST APIs"]}],
-            "skills": ["Python", "FastAPI"],
+                              "bullets": ["Built REST APIs", "Ran the services on Kubernetes"]}],
+            "skills": ["Python", "FastAPI", "Kubernetes"],
         }
         letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
 
