@@ -136,6 +136,16 @@ class BudgetResult:
     # Empty alongside ``claimable_forms`` — nothing is protected and the cut
     # order falls back exactly to #377's figure ranking.
     claimable_concepts: tuple[tuple[str, ...], ...] = ()
+    # ADR-072 clause 4 amended 2026-09-08 (#666, founder ruling 1 of 2026-09-05: THE CAP
+    # YIELDS TO THE SIGNAL). Retention forms of the concepts the ADR-076 clause-5
+    # under-claim signal raised in the round that produced the draft being composed —
+    # PROVENANCE, recorded at the signal's own call and threaded here by
+    # ``cv._terminal_review`` via ``dataclasses.replace``. It is deliberately NOT
+    # computed by :func:`compute_bullet_budgets`: the property form ("every claimable
+    # concept at REQUIRED weight") was measured on the captured RC document and made 7
+    # of 8 bullets exempt against a ceiling of 5. Empty on every other path, which is
+    # the pre-amendment behaviour exactly.
+    demanded_concepts: tuple[tuple[str, ...], ...] = ()
 
 
 def _tier_table(target_pages: int, region: str) -> dict[TierName, BulletTier]:
@@ -563,10 +573,23 @@ def condense_to_budget(
         # absent from the coverage picture — a concept whose only other carrier
         # was just cut from a previous role is protected here.
         external = ""
+        narrative_external = ""
         if concept_groups:
             saved_bullets, saved_projects = entry.get("bullets"), entry.get("projects")
             entry["bullets"], entry["projects"] = [], []
             external = stringify_draft(data)
+            # #666: the NARRATIVE slice of the same picture — bullets only, no skills
+            # list and no summary. `_cap_bullets` and this pass must agree about what
+            # "carried elsewhere in narrative form" means, or one would protect a
+            # demanded bullet and the other would delete it two passes later.
+            from applire.services.keyword_ledger import (
+                _tailored_narrative_texts,
+                narrative_corpus_view,
+            )
+
+            narrative_external = "\n".join(
+                _tailored_narrative_texts(narrative_corpus_view(data))
+            )
             entry["bullets"], entry["projects"] = saved_bullets, saved_projects
 
         # Remove the most-expendable first. Coverage outranks everything
@@ -594,6 +617,12 @@ def condense_to_budget(
             concept_groups=concept_groups,
             external_text=external,
             pinned=pinned_idx,
+            # ADR-072 clause 4 amended 2026-09-08 (#666): the page-overrun path
+            # honours the same exemption. #377's own scope note applies again — the
+            # epic named only `cv._cap_bullets`, and a fix that stops there lets this
+            # pass re-delete the very bullet the other one protected.
+            demanded_groups=budgets.demanded_concepts,
+            narrative_external_text=narrative_external,
         )
         log_cuts(
             "condense_to_budget", cuts,

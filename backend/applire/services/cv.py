@@ -956,6 +956,8 @@ def _cap_bullets(
     external_text: str = "",
     context: dict | None = None,
     pinned: set[int] = frozenset(),
+    demanded_groups: Sequence[Sequence[str]] = (),
+    narrative_external_text: str = "",
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -1016,6 +1018,10 @@ def _cap_bullets(
         external_text=external_text,
         # ADR-077 clause 4: fact-pin carriers never enter the removable set.
         pinned=pinned,
+        # ADR-072 clause 4 amended 2026-09-08 (#666): neither does the earliest
+        # narrative carrier of a concept this round's demands will raise again.
+        demanded_groups=demanded_groups,
+        narrative_external_text=narrative_external_text,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -1129,6 +1135,7 @@ def _restore_ledger_bullets(
     # the entries already processed plus the ones still untouched, so a cut
     # made in an earlier entry is correctly absent from the picture.
     concept_groups = budget.claimable_concepts if budget is not None else ()
+    demanded_groups = budget.demanded_concepts if budget is not None else ()
     non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
     pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
 
@@ -1144,6 +1151,29 @@ def _restore_ledger_bullets(
             return ""
         others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
         return stringify_draft({**non_work, "work_history": others})
+
+    def _narrative_external_text(index: int, entry_dict: dict) -> str:
+        """The same slice, restricted to NARRATIVE text — work-entry bullets and
+        nested-project bullets, nothing else (#666).
+
+        Built through ``keyword_ledger._tailored_narrative_texts``, the ONE definition
+        of "narrative space" the under-claim signal and ``cv_coverage_budget`` already
+        share (ADR-066). The distinction is load-bearing: the whole-document
+        ``_external_text`` above counts a skills tag as coverage, and a cap that does
+        cannot honour a demand whose own rule is *"a skills-list entry does NOT satisfy
+        this"*.
+        """
+        if not concept_groups:
+            return ""
+        from applire.services.keyword_ledger import (
+            _tailored_narrative_texts,
+            narrative_corpus_view,
+        )
+
+        others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
+        return "\n".join(
+            _tailored_narrative_texts(narrative_corpus_view({"work_history": others}))
+        )
 
     for w_index, w in enumerate(tailored.work_history):
         w_dict = w.model_dump(mode="json")
@@ -1242,6 +1272,12 @@ def _restore_ledger_bullets(
                     pinned=bullet_pin_carrier_indices(
                         ordered, entry_id=eid, pins=pins
                     ),
+                    # ADR-072 clause 4 amended 2026-09-08 (#666): so is the earliest
+                    # narrative carrier of a concept the round's demands will raise
+                    # again. Both ceiling enforcers in this function get it, or the
+                    # restore path would silently undo what the cap path protects.
+                    demanded_groups=demanded_groups,
+                    narrative_external_text=_narrative_external_text(w_index, w_dict),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1290,6 +1326,8 @@ def _restore_ledger_bullets(
                 pinned=bullet_pin_carrier_indices(
                     existing_bullets, entry_id=eid, pins=pins
                 ),
+                demanded_groups=demanded_groups,
+                narrative_external_text=_narrative_external_text(w_index, w_dict),
             )
             if capped != existing_bullets:
                 changed = True
@@ -2739,12 +2777,19 @@ async def _render_cv_background(
             # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
             # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
             # no second query — `gap` and `profile` are already loaded.
-            from applire.services.keyword_ledger import refresh_ledger_against_vault
+            # #670 (ADR-048 amended 2026-09-05, founder ruling 9): the read seams
+            # PERSIST and RE-SCORE. #592 left them read-only, which let the generated
+            # document and the Gaps screen disagree; the ruling converges them and
+            # accepts that a score the candidate has already seen may move.
+            from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
-                (gap.keyword_ledger or []) if gap else [],
-                profile.profile_json if profile else None,
-                seam="cv generation",
+            keyword_ledger = (
+                await refresh_persist_and_rescore(
+                    gap, profile.profile_json if profile else None, db,
+                    seam="cv generation",
+                )
+                if gap is not None
+                else []
             )
 
             job_dict = {
@@ -2909,6 +2954,7 @@ async def _render_cv_background(
             # a presence PREDICATE may not be built here.
             from applire.services.jd_excerpt import build_jd_excerpt
             from applire.services.vault_evidence import (
+                CV_DIGEST_CAP,
                 render_vault_evidence_block,
                 select_vault_evidence,
             )
@@ -2925,6 +2971,12 @@ async def _render_cv_background(
                 vault_evidence_items = select_vault_evidence(
                     keyword_ledger,
                     build_jd_excerpt(jd_raw),
+                    # #415 / RULING W1-6: the CV chain's own digest ceiling. The anchor now
+                    # offers up to three qualifying senses per concept, and under the shared
+                    # default of 10 that would buy the answering sentence by starving
+                    # concept breadth (measured on run 13: 8 represented concepts → 4). At
+                    # 24 the bug is fixed AND breadth is wider than before (9). The letter
+                    # chain keeps the default — see `vault_evidence.CV_DIGEST_CAP`.
                     # Already `exclude_unconfirmed`-filtered above (ADR-061
                     # clause 3) — an unconfirmed entry cannot back a CV line
                     # and must not be offered as evidence either.
@@ -2936,6 +2988,7 @@ async def _render_cv_background(
                     # marker check inside the selector. Same selector, same
                     # facet as the letter (ADR-066).
                     leadership_emphasis=getattr(job, "leadership_emphasis", None),
+                    cap=CV_DIGEST_CAP,
                 )
                 vault_evidence_block = (
                     render_vault_evidence_block(vault_evidence_items, chain="cv") or None
@@ -3482,10 +3535,12 @@ async def _latest_keyword_ledger(
     #592 / ADR-048 amended: the persisted row is a statement about the vault as
     it stood when the analysis ran, and the vault keeps moving afterwards. The
     row is re-derived against the CURRENT vault here
-    (:func:`keyword_ledger.refresh_ledger_against_vault` — read its docstring for
+    (:func:`keyword_ledger.refresh_persist_and_rescore` — read its docstring for
     the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
-    the writer is handed. Read-only: the persisted row is not rewritten, so the
-    Gaps screen's score is untouched by generating a document.
+    the writer is handed. **#670 / ADR-048 amended 2026-09-05: no longer read-only.**
+    The refreshed row, the match score and the Gaps screen are persisted here, so the
+    number the candidate sees matches the document they are about to receive — the
+    ruling's accepted price is that a score they have already seen may move.
 
     ``profile_json`` — the caller's already-loaded vault, when it has one (the
     generation path does). Omitted, the profile is loaded from the analysis's own
@@ -3506,12 +3561,11 @@ async def _latest_keyword_ledger(
     if profile_json is None and gap.profile_id is not None:
         profile_row = await db.get(MasterProfile, gap.profile_id)
         profile_json = profile_row.profile_json if profile_row else None
-    from applire.services.keyword_ledger import refresh_ledger_against_vault
+    from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-    ledger, _changed = refresh_ledger_against_vault(
-        gap.keyword_ledger or [], profile_json, seam="cv ledger read"
+    return await refresh_persist_and_rescore(
+        gap, profile_json, db, seam="cv ledger read"
     )
-    return ledger
 
 
 @dataclass
@@ -3861,6 +3915,13 @@ async def _terminal_review(
     the gap loudly logged (ship-and-report — never a delivery gate, the
     2026-08-13 precedent: no structural gate on ``approved``).
 
+    **SF-WRITE.29 (#668, clause 3 amended 2026-09-08):** the corrector is shown
+    that SAME composition as read-only context (``_corrector_prompt`` below),
+    so a finding about composed-only content is actionable and a finding about
+    content the tail deleted is not contradicted by the corrector's own last
+    output. The corrector's INPUT and OUTPUT schema are unchanged — the prose
+    shape, and only that.
+
     The subject cache is seeded with ``record.tailored_data`` AS IS: on the
     normal path that equals ``compose(prose_draft)`` post-condense; on a
     subject-identity re-entry (a detected post-verdict mutation) it is the
@@ -3882,13 +3943,32 @@ async def _terminal_review(
     def _canon(d: dict) -> str:
         return _json.dumps(d, sort_keys=True, default=str)
 
+    # ADR-072 clause 4 amended 2026-09-08 (#666, founder ruling 1 of 2026-09-05):
+    # the retention forms of the concepts THIS round's under-claim signal demanded.
+    # A cell rather than a closure variable because `_compose` is defined before the
+    # wrapper that fills it, and because the loop below re-reads it every round.
+    demanded_cell: dict[str, tuple[tuple[str, ...], ...]] = {"groups": ()}
+
+    def _budget_for_round() -> "BudgetResult":
+        """``budget`` carrying this round's demanded concepts.
+
+        `dataclasses.replace` on a frozen dataclass rather than a new parameter on
+        `_compose_document`: the demand has to reach TWO consumers that already take
+        the budget — the cap inside `_restore_ledger_bullets` and
+        `condense_to_budget` on the re-entry measure — and threading one value through
+        two signatures is how the #540 cap-vs-condense seam was created the first time.
+        """
+        from dataclasses import replace
+
+        return replace(budget, demanded_concepts=demanded_cell["groups"])
+
     def _compose(draft: dict) -> TailoredCVData:
         return _compose_document(
             draft,
             profile_json,
             raw_profile_json=raw_profile_json,
             keyword_ledger=keyword_ledger,
-            budget=budget,
+            budget=_budget_for_round(),
             job_dict=job_dict,
             language=language,
             # ADR-077 clause 4: a terminal-round re-compose keeps the same
@@ -3938,13 +4018,39 @@ async def _terminal_review(
     )
     ensure_pinned_fact_signal_registered()
 
-    def _reviewer_prompt(source: str, draft: dict) -> str:
+    def _subject_for(draft: dict) -> TailoredCVData:
+        """The COMPOSED document for ``draft`` — computed once, cached by draft."""
         key = _canon(draft)
         subject = subject_by_draft.get(key)
         if subject is None:
             subject = _compose(draft)
             subject_by_draft[key] = subject
-        return _subject_fn(source, subject.model_dump(mode="json"))
+        return subject
+
+    def _reviewer_prompt(source: str, draft: dict) -> str:
+        return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
+
+    def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
+        """SF-WRITE.29 (#668, ADR-076 clause 3 amended 2026-09-08): the corrector is
+        shown the SAME artefact the reviewer judged.
+
+        ``review_and_refine`` calls ``reviewer_prompt_fn(source, current_draft)`` and
+        ``generator_prompt_fn(current_draft, feedback, source)`` with the SAME draft in
+        the same round, so ``_subject_for`` here is a cache HIT on the composition the
+        reviewer just read — the adjacency is exact, and no shared-loop signature
+        changes (ADR-066: the one loop keeps its contract; the terminal chain supplies
+        its own closure, exactly as it already does for the reviewer side).
+
+        The corrector still receives and returns the PROSE shape; the composed document
+        is read-only context (ADR-067 clauses 2/3 — no vault-verbatim field is ever
+        routed through a writer LLM).
+        """
+        return _build_cv_retry_prompt(
+            previous_draft,
+            feedback,
+            source,
+            delivered=_subject_for(previous_draft).model_dump(mode="json"),
+        )
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
@@ -3958,7 +4064,37 @@ async def _terminal_review(
             settle, chain_id="cv_terminal_review"
         ).worse_of(outcome_cell["outcome"])
 
-    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger)
+    def _record_demand(concepts) -> None:
+        """#666: remember what the signal asked for, so the tail that runs after the
+        corrector does not delete the answer.
+
+        ACCUMULATES across this terminal review's rounds rather than replacing.
+        The ruling's words are *"a bullet the same round's signal demanded"*, and
+        same-round-only was built first and measured: with the captured RC run's
+        provenance (round 1 demanded Produktionsverantwortung + ISO 9001, round 2
+        demanded Deutsch), a round-scoped set protects the round-1 answers through
+        round 1's compose and then hands them to round 2's cap unprotected — the loop
+        deletes its own repair one round late, which is the same defect one step
+        along. The set is bounded by construction: at most
+        ``UNDERCLAIM_ISSUE_LIMIT`` concepts per round over at most
+        ``CV_TERMINAL_REVIEW_MAX_RETRIES`` x (1 + ``CV_TERMINAL_REENTRY_MAX``)
+        rounds, and it is per-invocation — a new document starts empty."""
+        demanded_cell["groups"] = tuple(
+            dict.fromkeys(
+                demanded_cell["groups"]
+                + tuple(tuple(c.surface_forms) for c in concepts if c.surface_forms)
+            )
+        )
+
+    _underclaim_fn = underclaim_signal_issues_fn(
+        keyword_ledger,
+        on_demand=_record_demand,
+        # #666 (founder ruling, 2026-09-08): the demand reads the COMPOSED document's
+        # vault-joined structured sections too — a cache HIT on the composition the
+        # reviewer just read, since `review_and_refine` evaluates the signal on the same
+        # `current_draft` it handed the reviewer.
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
 
     current = prose_draft
     rounds = 0
@@ -3968,7 +4104,7 @@ async def _terminal_review(
         settled = await review_and_refine(
             source=source_material,
             draft=current,
-            generator_prompt_fn=_build_cv_retry_prompt,
+            generator_prompt_fn=_corrector_prompt,
             generator_system=CV_TAILORING_REFINEMENT_PROMPT,
             reviewer_prompt_fn=_reviewer_prompt,
             reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
@@ -3995,7 +4131,13 @@ async def _terminal_review(
         record.tailored_data = recomposed.model_dump()
         record.content_snapshot = build_content_snapshot(recomposed)
         try:
-            measure_cell["measured"] = await _measure_and_condense(record, db, condense_ctx)
+            # #666: the page-overrun condense runs on the SAME round's demand set —
+            # otherwise it re-deletes exactly what the cap two lines above protected.
+            from dataclasses import replace as _dc_replace
+
+            measure_cell["measured"] = await _measure_and_condense(
+                record, db, _dc_replace(condense_ctx, budgets=_budget_for_round())
+            )
             # Condense may have trimmed the recomposition — the next round's
             # subject must be the post-condense truth, not the pre-condense one.
             subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)

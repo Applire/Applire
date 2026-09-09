@@ -766,6 +766,37 @@ def is_scope_entry(entry: dict[str, Any] | None) -> bool:
     return bool((entry or {}).get("bar"))
 
 
+def underclaim_candidate_entries(
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """The ledger entries the ADR-076 clause-5 under-claim signal is allowed to demand.
+
+    Filtered exactly as ``_coverage_split`` filters the coverage universe, so the
+    demand can never name something the coverage gate has already ruled out: honest
+    gaps (they must stay absent), an ADJACENT ``partial`` (ADR-048 amended
+    2026-07-27 — the candidate does not hold the JD's term, so demanding it
+    literally is a demand to over-claim), and an ADR-069 scope entry (its concept
+    embeds the JD's own figure).
+
+    **Why it lives here (#666, 2026-09-08).** The universe moved out of
+    ``cv_gap_hints`` when the ADR-072 clause-4 cap exemption became a second reader of
+    the same question — "may this concept be demanded at all?". A cap that decides
+    which demands it honours must not be able to disagree with the mechanism that
+    raises them: a limit reconciled with its producer by construction rather than by a
+    comment (ADR-066, one implementation per capability). ``cv_gap_hints`` re-exports
+    it under its original private name so that module's callers and tests are
+    unchanged.
+    """
+    return [
+        e
+        for e in (keyword_ledger or [])
+        if e.get("claimable")
+        and not is_positioning_only(e)
+        and not is_scope_entry(e)
+        and (e.get("concept") or "").strip()
+    ]
+
+
 def retention_forms(entry: dict[str, Any]) -> list[str]:
     """The surface forms that mark a CV bullet as carrying this entry's evidence.
 
@@ -2388,6 +2419,89 @@ def refresh_ledger_against_vault(
             moved,
         )
     return ledger, changed
+
+
+async def refresh_persist_and_rescore(
+    gap_analysis: Any,
+    profile_json: dict[str, Any] | None,
+    db: Any,
+    *,
+    seam: str,
+) -> list[dict[str, Any]]:
+    """ADR-048 amended 2026-09-05 (#670, founder ruling 9): the document-facing READ
+    seams persist the refreshed ledger and re-score it.
+
+    #592 made :func:`refresh_ledger_against_vault` run at the four document-facing
+    reads and deliberately left them READ-ONLY, which left a divergence its own report
+    recorded: a generated document sees the current vault while the persisted row — and
+    with it the match score, the Gaps screen and the interview routing — still sees the
+    old one. **Ruling: persist.** The convergence is worth a moving score; the candidate
+    is shown a score that matches the document they are about to receive.
+
+    Three things happen here, and the second is the one the ruling adds:
+
+    1. the #592 refresh (skip-only lifts of still-open ``gap`` rows the vault now
+       backs — never a demotion, never invented evidence);
+    2. **ADR-061 / #318's affirmative invariant, re-run at a READ.**
+       :func:`refresh_ledger_against_vault`'s own docstring records why #592 did not:
+       it is specified for PERSIST seams, and running it at a read would newly demote
+       claimable rows whenever the vault SHRANK since the analysis. That direction is
+       exactly what the ruling asks for — a vault that shrank is not caught before
+       generation today — and it is why this function persists rather than returning a
+       corrected copy: a demotion the caller sees and the row does not is the divergence
+       one level down;
+    3. the ADR-048 §5 re-score, written with the same fields ``gap.py``'s own persist
+       seams write, so a score never disagrees with the ledger it was computed from.
+
+    **The E037 PQ-#3 monotonic-up clamp is deliberately NOT applied here.** That clamp
+    exists on the ``/gaps/refresh`` path because *adding evidence can only raise the
+    score*; this seam can also REMOVE evidence, and clamping would show the candidate a
+    number the document does not support. The ruling names the moving score as the price
+    it accepts.
+
+    Writes only when something actually changed, flushes rather than commits (the
+    caller's transaction owns the boundary), and NEVER raises: a failed persist logs and
+    returns the corrected ledger anyway, because the document must reflect the current
+    vault whether or not the row could be updated.
+    """
+    ledger, changed = refresh_ledger_against_vault(
+        (getattr(gap_analysis, "keyword_ledger", None) or []), profile_json, seam=seam
+    )
+    ledger, violations = assert_claimable_backed(ledger, profile_json, seam=seam)
+    if not (changed or violations):
+        return ledger
+    try:
+        from applire.services.match_score import compute_match_score_from_ledger
+
+        # JSONB tracking gotcha (mirrors session.py and gap.py): `keyword_ledger` is a
+        # plain _JSON column, not a MutableList — reassign the WHOLE list.
+        gap_analysis.keyword_ledger = ledger
+        scored = compute_match_score_from_ledger(ledger)
+        gap_analysis.match_score = scored["match_score"]
+        gap_analysis.category_a = scored["category_a"]
+        gap_analysis.category_b = scored["category_b"]
+        gap_analysis.category_c = scored["category_c"]
+        gap_analysis.critical_gaps = scored["critical_gaps"]
+        gap_analysis.minor_gaps = scored["minor_gaps"]
+        gap_analysis.requirement_breakdown = scored["requirement_breakdown"]
+        await db.flush()
+        logger.info(
+            "LEDGER_READ_SEAM_PERSISTED (#670, ADR-048 amended) seam=%s lifted=%s "
+            "demoted=%d match_score=%s — the persisted row, the score and the "
+            "delivered document now agree",
+            seam,
+            changed,
+            len(violations),
+            scored["match_score"],
+        )
+    except Exception:
+        logger.exception(
+            "LEDGER_READ_SEAM_PERSIST_FAILED (#670) seam=%s — delivering the corrected "
+            "ledger anyway; the document must reflect the current vault whether or not "
+            "the row could be updated",
+            seam,
+        )
+    return ledger
 
 
 # ── #525 — the coverage demand names the vault entry that OWNS the term ─────

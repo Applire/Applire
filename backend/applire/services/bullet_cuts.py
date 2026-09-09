@@ -118,6 +118,63 @@ def _concepts_carried(text: str, groups: ConceptGroups) -> frozenset[int]:
     )
 
 
+def demanded_exempt_indices(
+    texts: Sequence[str],
+    *,
+    concept_groups: ConceptGroups,
+    demanded_groups: ConceptGroups,
+    narrative_external_text: str,
+) -> set[int]:
+    """ADR-072 clause 4 amended 2026-09-08 (#666) — the indices the cap may not take.
+
+    Founder ruling 1 of 2026-09-05: *the cap yields to the signal.* Two accepted
+    decisions were setting the same number, and the loop could not leave the conflict,
+    because the deletion happens inside the round that made the addition.
+
+    ``demanded_groups`` is PROVENANCE, not a property: the retention forms of the
+    concepts THIS ROUND's ADR-076 clause-5 under-claim signal actually raised, recorded
+    at the signal's own call and threaded through ``BudgetResult.demanded_concepts``.
+    A text is exempt when it is the EARLIEST carrier of such a group that nothing
+    outside this call carries in NARRATIVE form (``narrative_external_text``:
+    work-entry and nested-project bullets only).
+
+    **Provenance rather than "every REQUIRED concept", and the difference was
+    measured.** The property form — exempt the sole narrative carrier of any concept at
+    ``fit_weight >= REQUIRED_WEIGHT`` — was built first and run over the captured RC
+    document: 19 required concepts spread across 8 bullets made **7 of the 8** exempt
+    against a ceiling of 5, i.e. it did not amend the cap, it switched it off. The
+    ruling exempts the bullet a demand produced, and only that.
+
+    The NARRATIVE restriction is the second half, and it is what makes the exemption
+    bite at all: ``rank_cuts``' existing sole-carrier tier computes coverage over the
+    whole document, so a concept sitting in the skills list reads as covered and its
+    only real bullet is cut — SF-WRITE.30's cause ("a bare tag ends the demand")
+    arriving one pass later. The clause-5 demand's own text says *"a skills-list entry
+    does NOT satisfy this"*, so a cap that accepts one cannot honour it.
+
+    EARLIEST carrier, not every carrier: one bullet per concept is what the demand asks
+    for, and the writer's own order is its relevance judgement (this module's standing
+    tie-break). Computed once, because this is a PARTITION — ADR-077 clause 4's
+    precedent, named by the ruling itself — not a ranking tier: a tier is silently
+    defeated by a tight ceiling, which is the whole defect.
+    """
+    if not demanded_groups or not concept_groups:
+        return set()
+    groups = [list(g) for g in concept_groups]
+    demanded_keys = {tuple(g) for g in demanded_groups}
+    per_text = [_concepts_carried(t, groups) for t in texts]
+    narrative_covered = _concepts_carried(narrative_external_text, groups)
+
+    exempt: set[int] = set()
+    for gi, group in enumerate(groups):
+        if tuple(group) not in demanded_keys or gi in narrative_covered:
+            continue
+        carriers = [i for i, carried in enumerate(per_text) if gi in carried]
+        if carriers:
+            exempt.add(carriers[0])
+    return exempt
+
+
 def rank_cuts(
     texts: Sequence[str],
     tiers: Sequence[tuple[Any, ...]],
@@ -126,6 +183,8 @@ def rank_cuts(
     concept_groups: ConceptGroups = (),
     external_text: str = "",
     pinned: Sequence[int] | set[int] = (),
+    demanded_groups: ConceptGroups = (),
+    narrative_external_text: str = "",
 ) -> list[Cut]:
     """Choose which of ``texts`` to remove so that ``keep`` survive.
 
@@ -165,14 +224,38 @@ def rank_cuts(
             len(pinned_set),
             keep,
         )
+    # ADR-072 clause 4 amended 2026-09-08 (#666): a demanded bullet joins the pin
+    # PARTITION rather than a ranking tier. `pinned_set |= …` deliberately, so a
+    # bullet that is both pinned and demanded occupies one slot, not two.
+    exempt_set = demanded_exempt_indices(
+        texts,
+        concept_groups=concept_groups,
+        demanded_groups=demanded_groups,
+        narrative_external_text=narrative_external_text,
+    ) - pinned_set
+    if exempt_set:
+        pinned_set = pinned_set | exempt_set
+        if len(pinned_set) > keep:
+            logger.warning(
+                "BUDGET_VS_SIGNAL_CONFLICT (ADR-072 clause 4 / ADR-076 clause 5) "
+                "demanded=%d pinned=%d keep=%d — the per-role ceiling (ADR-051 §3, "
+                "producer: cv_budget.RoleBudget) is tighter than the set the "
+                "under-claim signal raised THIS round and will raise again "
+                "(producer: cv_gap_hints.verified_narrative_underclaim). "
+                "The ceiling yields — "
+                "founder ruling 1 of 2026-09-05, ADR-077 clause 4's partition precedent.",
+                len(exempt_set),
+                len(pinned_set),
+                keep,
+            )
     keep = max(0, keep - len(pinned_set))
 
     groups = [list(g) for g in concept_groups]
     per_text = [_concepts_carried(t, groups) for t in texts]
     external = _concepts_carried(external_text, groups) if groups else frozenset()
-    # A pinned bullet survives by construction, so the concepts it carries are
-    # covered exactly like external text — a rest bullet repeating them is not
-    # a sole carrier.
+    # A pinned (or #666-exempt) bullet survives by construction, so the concepts it
+    # carries are covered exactly like external text — a rest bullet repeating them is
+    # not a sole carrier.
     for i in pinned_set:
         external = external | per_text[i]
 

@@ -346,21 +346,98 @@ class EvidenceDigestItem:
     owner_ids: frozenset[str] = frozenset()
 
 
-def _anchor_for_concept(
+#: #415 / RULING W1-6 (2026-09-09) — the anchor emits every qualifying unit up to a cap,
+#: instead of the single longest.
+#:
+#: **The defect.** Rule 1 selected "the longest text (most specific/substantive)", and on a
+#: COARSE concept longest is not most specific. Captured run-13
+#: (`backend/logs/llm/2026-08-01.jsonl` rec 361, `controlling_emma_de`): `HGB-Abschluss` has
+#: SIX qualifying vault units, and the one answering the JD's first-named duty
+#: ("Eigenverantwortliche Erstellung von Monats- und **Jahresabschluss**-Reporting (HGB)")
+#: is THIRD by length —
+#:
+#:   134  work_experience[0].responsibilities[0]  "…Monatsabschluss und Reporting (HGB)…"
+#:    98  projects[2].org                         "…Fertigstellungsgrad (HGB-konform)…"
+#:    57  work_experience[0].responsibilities[3]  "Betreuung der Wirtschaftsprüfer im
+#:                                                 Jahresabschluss (HGB)."
+#:
+#: — so it lost on verbosity, every run. `Jahresabschluss` appeared twice in that 55,264-char
+#: prompt, both times buried in the raw profile JSON; the delivered CV carried `HGB` ×4,
+#: `Jahresabschluss` 0 and `Wirtschaftsprüfer` 0, and the blind CFO scored the role's
+#: first-named duty *teilweise* for exactly that. The writer wrote what it was handed.
+#:
+#: **Why the selector stops choosing rather than choosing better.** "Which sense of this
+#: concept answers this posting" is an ADR-062 clause-1 judgement; a character count is a
+#: proxy for it, and #377 already retired one proxy on this exact ground (a keyword-hit
+#: ranking that cut a real quantified safety figure). Ranking the senses by overlap with the
+#: JD's wording would be the same mistake one layer along. So the anchor hands the model up
+#: to :data:`_MAX_UNITS_PER_CONCEPT` qualifying units and lets it choose.
+#:
+#: **Both numbers come from a measurement, and two narrower shapes were built and falsified
+#: first** (`tmp/measure_415_cap.py`, `tmp/replay_415.py`; run-13's 16 claimable concepts and
+#: the RC run's 36 / 107 vault units):
+#:
+#:   * *top-2 by length* — does not reach it: the second unit is `projects[2].org`.
+#:   * *the anchor plus the longest SAME-OWNER sibling* — does not reach it either:
+#:     `projects[2]` is associated with the same work entry, so the owner filter does not
+#:     discriminate here.
+#:   * *top-3 by length* — reaches it, and 3 is the smallest cap that does.
+#:
+#: The per-concept cap alone is not sufficient, and that is the second number. The digest's
+#: shared ceiling truncates from the tail, so widening per concept under the old ceiling of
+#: 10 spends the digest on the first few concepts: on run 13 the represented-concept count
+#: goes 8 → 4 while the answering sentence does arrive. Measured trade space (run 13,
+#: items / distinct concepts / does the answering sentence arrive):
+#:
+#:   per-concept 1, cap 10 → 10 / 8 / no      (today)
+#:   per-concept 3, cap 10 → 10 / 4 / YES
+#:   per-concept 3, cap 18 → 18 / 7 / YES
+#:   per-concept 3, cap 24 → 24 / 9 / YES     (shipped on the CV chain)
+#:
+#: `CV_DIGEST_CAP = 24` therefore fixes the bug AND leaves concept breadth wider than today
+#: (9 vs 8), at roughly +2 k characters on a 55 k-character writer prompt. The LETTER chain
+#: keeps `DEFAULT_DIGEST_CAP` — `services/cover_letter.py` is owned by no work package this
+#: run, and #415 is a CV defect; raising it there without measuring the letter's own digest
+#: would be the "widen a mechanism you have not measured" mistake this comment is about.
+_MAX_UNITS_PER_CONCEPT = 3
+
+#: The CV chain's digest ceiling. Raised from :data:`DEFAULT_DIGEST_CAP` with #415 so a
+#: per-concept widening does not buy the answering sentence by starving concept breadth —
+#: see the measured trade space above. The letter chain is deliberately unchanged.
+CV_DIGEST_CAP = 24
+
+
+def _anchors_for_concept(
     entry: dict[str, Any], units: list[EvidenceUnit]
-) -> EvidenceUnit | None:
+) -> list[EvidenceUnit]:
+    """The qualifying vault units for one claimable concept, best first.
+
+    The FIRST element is byte-identical to what :func:`_anchor_for_concept` returned before
+    #415 — longest text, path as a stable tie-break — so nothing previously selected moves;
+    the change is purely additive. At most :data:`_MAX_UNITS_PER_CONCEPT`.
+    """
     forms = _ledger_forms(entry)
     if not forms:
-        return None
+        return []
     candidates = [
         u for u in units if any(surface_present(f, u.text_norm) for f in forms if f)
     ]
     if not candidates:
-        return None
-    # Deterministic: longest text (most specific/substantive), path as a
-    # stable tie-break so equal-length candidates never depend on dict/list
-    # iteration order.
-    return max(candidates, key=lambda u: (len(u.text), u.path))
+        return []
+    # Deterministic: longest text first, path as a stable tie-break so equal-length
+    # candidates never depend on dict/list iteration order.
+    ordered = sorted(candidates, key=lambda u: (-len(u.text), u.path))
+    return ordered[:_MAX_UNITS_PER_CONCEPT]
+
+
+def _anchor_for_concept(
+    entry: dict[str, Any], units: list[EvidenceUnit]
+) -> EvidenceUnit | None:
+    """The single best qualifying unit — kept as the name every existing caller and test
+    knows, and defined in terms of :func:`_anchors_for_concept` so the two can never
+    disagree about ordering (ADR-066)."""
+    anchors = _anchors_for_concept(entry, units)
+    return anchors[0] if anchors else None
 
 
 def select_vault_evidence(
@@ -410,9 +487,18 @@ def select_vault_evidence(
 
     # ── Channel 1 + 2: claimable-concept anchors, measured-over-target ─────
     for entry in _claimable_entries(keyword_ledger):
-        anchor = _anchor_for_concept(entry, index.units)
-        if anchor is None:
+        concept_anchors = _anchors_for_concept(entry, index.units)
+        if not concept_anchors:
             continue
+        anchor = concept_anchors[0]
+        # #415 / RULING W1-6: a SECOND qualifying sense of the same concept, placed
+        # immediately after its own anchor rather than left to a later pass. That
+        # placement is the run-6 precedent one block down, for the same reason: left to
+        # compete in path-sort order against every other concept's evidence, the fact
+        # that answers the JD's actual sentence is the one silently lost to the shared
+        # cap — which is exactly how #415 shipped a CV with neither `Jahresabschluss`
+        # nor `Wirtschaftsprüfer` in it.
+        extra_anchors = concept_anchors[1:]
         concept = entry.get("concept", "") or ""
         reason = "claimable-concept"
         if anchor.owner_ids and is_target_phrase(anchor.text):
@@ -428,6 +514,17 @@ def select_vault_evidence(
         selected.append(EvidenceDigestItem(concept=concept, reason=reason, path=anchor.path,
                                           text=anchor.text, owner_ids=anchor.owner_ids))
         selected_paths.add(anchor.path)
+
+        for extra in extra_anchors:
+            if extra.path in selected_paths:
+                continue
+            if extra.owner_ids:
+                jd_relevant_owners |= extra.owner_ids
+            selected.append(EvidenceDigestItem(
+                concept=concept, reason="claimable-concept-second-sense",
+                path=extra.path, text=extra.text, owner_ids=extra.owner_ids,
+            ))
+            selected_paths.add(extra.path)
 
         # #271 run-6 follow-up — MEASURED-OUTCOME QUALIFIER, placed
         # immediately after its own anchor (never deferred to the separate

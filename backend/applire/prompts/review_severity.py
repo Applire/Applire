@@ -29,6 +29,17 @@ Every reviewer prompt in this package composes:
   * ONE domain line of its own naming what is blocking IN THAT PASS. That line is the
     per-prompt half of the contract and each prompt owns it.
 
+**`repetition` left the shared minor examples on 2026-09-08 (#668).** It was an
+*example* here and a *definition* on four doors, and the CV doors' definition changed:
+founder ruling 3 (2026-09-05) makes a redundancy finding blocking on the CV, carried by
+named check 8. A shared example that contradicts a door's own named check is the ADR-062
+clause-4 self-contradiction ADR-083's Context item 1 measured the model obeying — and it
+obeys the EXCLUSION, not the check, so leaving the word here would have quietly defeated
+the whole ruling. The word survives where it is still meant: the cover letter's own
+`_MINOR_PROSE` says it in its own voice. **The rule this leaves behind:** this constant
+carries only examples every door agrees on; a concept one door treats differently belongs
+in that door's own line, never in the shared vocabulary.
+
 The loop side lives in ``services/reviewer.py`` (the gate) and
 ``services/review_issues.py`` (parsing + the measurement checks).
 """
@@ -45,7 +56,7 @@ document is regenerated:
   MISATTRIBUTED in front of a reader, or it omits something the source explicitly
   required. Only this severity is worth a rewrite.
 - "minor": the draft is truthful and complete, but you would have written it
-  differently — wording, repetition, ordering, tone, emphasis, length, polish. Record
+  differently — wording, ordering, tone, emphasis, length, polish. Record
   it so it stays visible. It is NOT worth regenerating the document for.
 
 Rules, and they are not optional:
