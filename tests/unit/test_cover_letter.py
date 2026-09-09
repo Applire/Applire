@@ -807,7 +807,7 @@ async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db)
 
     mock_provider = AsyncMock()
 
-    async def _fake_render_inline(cl_id, cv_id, job_id):
+    async def _fake_render_inline(cl_id, cv_id, job_id, application_id=None):
         # Stand-in for the real LLM+Jinja2+Playwright render — flips the
         # record to a terminal status, same observable effect the agent
         # relies on (get_cover_letter_status/generate_cover_letter's own
