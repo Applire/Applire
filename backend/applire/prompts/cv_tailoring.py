@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# NOT a prompt version: #455's proposed rule-9 precedence line ("WHEN THE CEILING BINDS,
+#   REQUIRED CONTENT IS PLACED FIRST") was written on 2026-09-09, measured, and NOT
+#   shipped. Replay of the exact captured writer call that lost the ADR-070 REQUIRED
+#   scope fact (2026-08-06 rec 145, byte-identical user prompt, system prompt the only
+#   variable, n=5 per arm, scorer validated on the same log's rec-138 positive and
+#   rec-145 negative): the prompt AS SHIPPED carried the fact 5/5 on
+#   `openai/gpt-5.6-luna`, and so did the arm with the new line — 5/5 vs 5/5, no measured
+#   effect, at a cost of 532 characters. The captured loss was produced by
+#   `mistralai/mistral-medium-3-5`; on luna the writer honours rule 2's compound clause
+#   and fits the fact plus all seven tracked facts into the same 5-bullet ceiling. A rule
+#   that changes nothing on the model we ship against is not added (the inverse of
+#   ADR-062 clause 3, and of the 2026-08-31 incident where a widened rule reached the
+#   model verbatim and was violated in round 1). #455's remaining half is the ADR-051 §3
+#   budget question, exactly as PR #663's own comment recommended re-anchoring it.
 # Prompt version: v11 (#391, 2026-08-28 — rule 7 gains A REQUIREMENT PHRASE IS NOT A
 #   SKILL. Charter runs 11-13 (2026-07-31…08-01): the writer put JD-requirement phrases
 #   into the skills list with no vault basis — "5 Jahre Controlling-Erfahrung" (a JD

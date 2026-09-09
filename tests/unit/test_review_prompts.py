@@ -648,9 +648,17 @@ class TestCVServiceReviewIntegration:
         import uuid
         from unittest.mock import AsyncMock, MagicMock, patch
 
+        # #670 (ADR-048 amended 2026-09-05): the ledger read seam now re-runs ADR-061's
+        # affirmative invariant, so a `claimable` row whose concept NOTHING in the vault
+        # backs is demoted before the reviewer sees it. This fixture's ledger claimed
+        # Kubernetes `direct` against a profile whose only skill was Python and whose
+        # single work entry had no bullets — a row `assert_claimable_backed` calls
+        # `no_vault_evidence_unit`, i.e. exactly the truthfulness violation #318 exists to
+        # make impossible. The fixture is corrected at the VAULT (the claim is now backed),
+        # not by relaxing the assertion: the assertion is what this test is for.
         profile_json = {
             "work_history": [{"company": "Acme", "role": "Dev", "start_date": "2020", "end_date": None, "bullets": []}],
-            "skills": ["Python"], "education": [], "languages": [],
+            "skills": ["Python", "Kubernetes"], "education": [], "languages": [],
             "contact": {"name": "Max", "email": None, "phone": None, "location": None, "linkedin": None},
             "personal_info": {},
         }

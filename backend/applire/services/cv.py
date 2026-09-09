@@ -2777,12 +2777,19 @@ async def _render_cv_background(
             # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
             # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
             # no second query — `gap` and `profile` are already loaded.
-            from applire.services.keyword_ledger import refresh_ledger_against_vault
+            # #670 (ADR-048 amended 2026-09-05, founder ruling 9): the read seams
+            # PERSIST and RE-SCORE. #592 left them read-only, which let the generated
+            # document and the Gaps screen disagree; the ruling converges them and
+            # accepts that a score the candidate has already seen may move.
+            from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
-                (gap.keyword_ledger or []) if gap else [],
-                profile.profile_json if profile else None,
-                seam="cv generation",
+            keyword_ledger = (
+                await refresh_persist_and_rescore(
+                    gap, profile.profile_json if profile else None, db,
+                    seam="cv generation",
+                )
+                if gap is not None
+                else []
             )
 
             job_dict = {
@@ -3520,10 +3527,12 @@ async def _latest_keyword_ledger(
     #592 / ADR-048 amended: the persisted row is a statement about the vault as
     it stood when the analysis ran, and the vault keeps moving afterwards. The
     row is re-derived against the CURRENT vault here
-    (:func:`keyword_ledger.refresh_ledger_against_vault` — read its docstring for
+    (:func:`keyword_ledger.refresh_persist_and_rescore` — read its docstring for
     the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
-    the writer is handed. Read-only: the persisted row is not rewritten, so the
-    Gaps screen's score is untouched by generating a document.
+    the writer is handed. **#670 / ADR-048 amended 2026-09-05: no longer read-only.**
+    The refreshed row, the match score and the Gaps screen are persisted here, so the
+    number the candidate sees matches the document they are about to receive — the
+    ruling's accepted price is that a score they have already seen may move.
 
     ``profile_json`` — the caller's already-loaded vault, when it has one (the
     generation path does). Omitted, the profile is loaded from the analysis's own
@@ -3544,12 +3553,11 @@ async def _latest_keyword_ledger(
     if profile_json is None and gap.profile_id is not None:
         profile_row = await db.get(MasterProfile, gap.profile_id)
         profile_json = profile_row.profile_json if profile_row else None
-    from applire.services.keyword_ledger import refresh_ledger_against_vault
+    from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-    ledger, _changed = refresh_ledger_against_vault(
-        gap.keyword_ledger or [], profile_json, seam="cv ledger read"
+    return await refresh_persist_and_rescore(
+        gap, profile_json, db, seam="cv ledger read"
     )
-    return ledger
 
 
 @dataclass
