@@ -22,7 +22,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { describeConflict } from "@/lib/conflict-display";
+import { conflictSourceLabel, describeConflict } from "@/lib/conflict-display";
 
 // US160 (E033 / ADR-041 amended) — the deterministic /api/profile/health contract.
 // "confirmation" (#333): an N-option ambiguity the reconciler parked for the
@@ -31,7 +31,16 @@ import { describeConflict } from "@/lib/conflict-display";
 // document may state, because it carries no unit. Its own thread because it is
 // not a mismatch — the value is exactly what the candidate said — and because
 // Option A's condition is that the omission reaches the user.
-export type HealthThread = "conflict" | "accuracy" | "confirmation" | "unit";
+// `not_applied` (#684 / founder ruling V-6) — something the candidate submitted
+// did not reach the vault, with the reason. Not a decision they owe: there is
+// nothing to pick between, which is why the gaps page's popup stack filters on
+// `conflict`/`confirmation` and deliberately excludes this thread.
+export type HealthThread =
+  | "conflict"
+  | "accuracy"
+  | "confirmation"
+  | "unit"
+  | "not_applied";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -52,6 +61,13 @@ export interface HealthIssue {
   incoming_value_display?: string | null;
   existing_source?: string | null;
   incoming_source?: string | null;
+  // founder ruling V-7 — the pieces the `not_applied` sentence is composed
+  // from, so it is written in the reader's language rather than shipped as the
+  // server's English `summary`. Null on every other thread.
+  not_applied_count?: number | null;
+  not_applied_source?: string | null;
+  not_applied_reasons?: string[] | null;
+  not_applied_labels?: string[] | null;
 }
 
 export interface ProfileHealth {
@@ -76,14 +92,63 @@ const SEVERITY_LABEL: Record<HealthSeverity, "severityCritical" | "severityRevie
   info: "severityInfo",
 };
 
+/**
+ * Founder ruling V-7 — the `not_applied` sentence, composed in the reader's
+ * language from the pieces the backend sends.
+ *
+ * Every part is either data or a key: the item labels are natural keys the
+ * candidate wrote themselves (an employer, a degree), the `source` is an
+ * `EnrichmentRecord.source` key localised through the SAME `profile.sources.*`
+ * dictionary the enrichment trail and the conflict rows use, and each reason is
+ * a `health.notAppliedReason.*` key. A `professional_summary` item's label is a
+ * language slot, mapped through `health.fieldLabel.summaryDe/summaryEn` — the
+ * same words the dispute surface uses, so the hub and the dispute never call
+ * one thing by two names.
+ *
+ * Falls back to the server's `summary` when the structured fields are absent
+ * (a record from a backend that predates this), which is exactly what every
+ * other thread does today.
+ */
+export function describeNotApplied(
+  issue: HealthIssue,
+  t: ReturnType<typeof useTranslations>,
+  tProfile: ReturnType<typeof useTranslations>,
+): string {
+  const count = issue.not_applied_count;
+  if (!count) return issue.summary;
+  const isSummarySection = issue.field_ref === "professional_summary";
+  const labels = (issue.not_applied_labels ?? []).map((label) =>
+    isSummarySection
+      ? t(label === "de" ? "fieldLabel.summaryDe" : "fieldLabel.summaryEn")
+      : label,
+  );
+  const reasons = (issue.not_applied_reasons ?? [])
+    .map((reason) =>
+      t.has(`notAppliedReason.${reason}`) ? t(`notAppliedReason.${reason}`) : reason,
+    )
+    .join("; ");
+  return t("notAppliedSummary", {
+    count,
+    source: conflictSourceLabel(tProfile, issue.not_applied_source),
+    items: labels.join(", "),
+    reasons,
+  });
+}
+
+
 const THREAD_LABEL: Record<
   HealthThread,
-  "threadConflict" | "threadAccuracy" | "threadConfirmation" | "threadUnit"
+  | "threadConflict"
+  | "threadAccuracy"
+  | "threadConfirmation"
+  | "threadUnit"
+  | "threadNotApplied"
 > = {
   conflict: "threadConflict",
   accuracy: "threadAccuracy",
   confirmation: "threadConfirmation",
   unit: "threadUnit",
+  not_applied: "threadNotApplied",
 };
 
 type Translator = ReturnType<typeof useTranslations>;
@@ -136,9 +201,15 @@ function IssueCard({
       {/* #626: a `conflict` issue composes a localized heading (naming the
           entry the dispute belongs to) + two provenance-labeled value rows,
           instead of the backend's raw "section.field: 'x' vs 'y'" summary.
-          #382: a `unit` issue is a QUESTION put to the user, asked in their
-          own language. Every other thread keeps the summary as-is — it is
-          server-built English-ish text no translation could reproduce. */}
+          #382: a `unit` issue is a QUESTION put to the user, asked in their own
+          language. V-7: a `not_applied` issue composes the same way — its
+          screenshot showed a raw-English sentence sitting directly beneath a
+          fully-German conflict card, which `applire-i18n` makes a defect rather
+          than a rough edge.
+
+          `accuracy` is the ONE thread still falling through to the server's
+          English `summary`. Named on the Frontend collector (#604) rather than
+          left as an unremarked inconsistency. */}
       {conflict ? (
         <div data-testid="health-issue-conflict">
           <p className="text-sm font-medium text-neutral-dark">{conflict.heading}</p>
@@ -146,10 +217,12 @@ function IssueCard({
           <p className="text-xs text-on-surface-variant">{conflict.incomingRow}</p>
         </div>
       ) : (
-        <p className="text-sm text-neutral-dark">
+        <p className="text-sm text-neutral-dark" data-testid="health-issue-summary">
           {issue.thread === "unit"
             ? t("unitBudgetIssue", { entry: issue.source_record_ref ?? "" })
-            : issue.summary}
+            : issue.thread === "not_applied"
+              ? describeNotApplied(issue, t, tProfile)
+              : issue.summary}
         </p>
       )}
       <div className="mt-2 flex justify-end">

@@ -966,7 +966,14 @@
       "summaryDe": "your self-description (German)",
       "summaryEn": "your self-description (English)"
     },
-    "conflictSourceUnknown": "a later change"
+    "conflictSourceUnknown": "a later change",
+    "threadNotApplied": "Something you said did not land — and why",
+    "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
+    "notAppliedReason": {
+      "no_op_carried_entry": "no change carried it",
+      "op_rejected": "the change came back malformed and was dropped",
+      "summary_populated": "your self-description was already written, so it was left alone"
+    }
   },
   "profileReview": {
     "title": "Review profile",

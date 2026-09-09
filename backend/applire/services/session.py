@@ -505,6 +505,123 @@ def _skill_confirmation_decision(chosen: str, option_key: str | None = None) -> 
     return "distinct"
 
 
+#: The three engagement families whose near-dupe confirmation the candidate can
+#: now resolve deterministically (founder ruling V-5). Keyed by the `section`
+#: the builders put on the confirmation's context.
+_ENGAGEMENT_OPS = {
+    "work_experience": "UpsertWork",
+    "projects": "UpsertProject",
+    "volunteer_activities": "UpsertVolunteer",
+}
+
+
+async def _apply_engagement_confirmation(
+    db: AsyncSession,
+    profile_record: MasterProfile,
+    context: dict,
+    chosen: str,
+    *,
+    session_id: str,
+    option_key: str | None = None,
+) -> bool:
+    """Write the entity the candidate just confirmed (founder ruling V-5).
+
+    Symmetrical with `_apply_interview_confirmation`'s skill arm and built to
+    the same precedent: the op batch is reconstructed from the confirmation's
+    own `context["incoming"]` — the op the reconciler emitted, parked verbatim —
+    and the candidate's answer travels as a CAPABILITY
+    (`UserConfirmedEngagement`) rather than as an op field, so no schema the
+    model can emit gains the power to waive the #177 near-dupe guard
+    (ADR-063 clause 1).
+
+    `"distinct"` creates the entry with the guard skipped; `"merge"` folds it
+    into the id the builder recorded in `context["existing_ids"]` — an ID, never
+    a rendered label, because #669 made the answer's identity
+    language-independent and re-deriving it from prose would undo that.
+
+    `pending_bullets` ride along as an `AddBullets` op against the same local
+    ref, so they land on whichever entity results. That is what the carrier was
+    written for in the first place; it just never had a reader.
+
+    Returns whether anything was applied. `grounding=None`: the candidate
+    answering their own question is a direct act (§7.4). **Flush, not commit** —
+    the caller owns the transaction.
+    """
+    section = context.get("section")
+    incoming = context.get("incoming")
+    if section not in _ENGAGEMENT_OPS or not isinstance(incoming, dict):
+        return False
+
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.apply import UserConfirmedEngagement
+    from applire.services.profile.reconcile import ops as _ops
+
+    op_cls = getattr(_ops, _ENGAGEMENT_OPS[section])
+    payload = {k: v for k, v in incoming.items() if k != "op"}
+    ref = str(payload.get("ref") or "confirmed-1")
+    payload["ref"] = ref
+    try:
+        entity_op = op_cls(**payload)
+    except Exception:  # noqa: BLE001 — a parked op from an older release
+        logger.warning(
+            "interview: could not rebuild the parked %s op from a confirmation "
+            "context; the answer cannot be applied deterministically", section,
+        )
+        return False
+
+    decision = "merge" if _engagement_decision(chosen, option_key) == "merge" else "distinct"
+    existing_ids = [i for i in (context.get("existing_ids") or []) if i]
+    target_id = existing_ids[0] if (decision == "merge" and existing_ids) else None
+
+    batch: list = [entity_op]
+    carried = context.get("pending_bullets") or {}
+    if isinstance(carried, dict) and any(carried.values()):
+        batch.append(
+            _ops.AddBullets(
+                target=ref,
+                responsibilities=list(carried.get("responsibilities") or []),
+                achievements=list(carried.get("achievements") or []),
+                technologies=list(carried.get("technologies") or []),
+            )
+        )
+
+    await commit_ops(
+        db,
+        batch,
+        CommitProvenance(
+            source="interview",
+            intake="interview_confirmation",
+            session_id=session_id,
+            actor="candidate",
+        ),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+        embedding_provider=None,
+        user_confirmed_engagement=UserConfirmedEngagement(
+            ref=ref, decision=decision, target_id=target_id
+        ),
+    )
+    return True
+
+
+def _engagement_decision(chosen: str, option_key: str | None) -> str:
+    """`"merge"` or `"distinct"` for an engagement confirmation (#669 + V-5).
+
+    The stable key decides when present — the whole point of #669. The English
+    substring fallback is the same back-compat path the skill arm keeps, for
+    confirmations persisted before the key existed, and it fails toward
+    `"distinct"`: creating a duplicate the candidate can merge later is
+    recoverable; folding two real positions into one is not.
+    """
+    if option_key in ("merge", "distinct"):
+        return option_key
+    c = (chosen or "").strip().lower()
+    if "same" in c or "merge" in c or "zusammen" in c or "dieselbe" in c or "dasselbe" in c:
+        return "merge"
+    return "distinct"
+
+
 async def _apply_interview_confirmation(
     db: AsyncSession,
     profile_record: MasterProfile,
@@ -547,8 +664,24 @@ async def _apply_interview_confirmation(
     """
     incoming = context.get("incoming_skill")
     if not incoming:
-        # Not a skill confirmation (entity near-dupe etc.) — advancing is enough
-        # to break the loop; entity-merge resolution is out of #187's scope.
+        # Founder ruling V-5 (2026-09-09) — the ENGAGEMENT arm.
+        #
+        # This branch used to read: *"Not a skill confirmation (entity near-dupe
+        # etc.) — advancing is enough to break the loop; entity-merge resolution
+        # is out of #187's scope."* Advancing broke the loop and lost the
+        # answer: the park closed with a receipt saying the candidate's choice
+        # was recorded, and the station, the project or the volunteering — plus
+        # any bullets carried onto `context["pending_bullets"]` — were never
+        # written. Reproduced in `test_confirmation_carried_bullets_are_lost`.
+        applied = await _apply_engagement_confirmation(
+            db, profile_record, context, chosen,
+            session_id=session_id, option_key=option_key,
+        )
+        if applied:
+            return True
+        # Still unresolvable (a shape with no `incoming`, a section outside the
+        # three engagement families): advancing remains the honest exit, and the
+        # applier's WARNING is what makes it diagnosable.
         return False
 
     decision = _skill_confirmation_decision(chosen, option_key)

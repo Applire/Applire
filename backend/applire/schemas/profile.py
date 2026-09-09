@@ -1370,7 +1370,13 @@ class HealthIssue(BaseModel):
     # said, and only the unit that would let a document state it is missing.
     # Option A omits such a value from every delivered document; this thread is
     # the standing condition on that omission — it must reach the user.
-    thread: Literal["conflict", "accuracy", "confirmation", "unit"]
+    # ``not_applied`` (#684 / founder ruling V-6, 2026-09-09) is its own thread
+    # because nothing about it is a mismatch OR a decision the candidate owes:
+    # something they submitted did not reach the vault, and the honest act is to
+    # say so and say WHY. It must never be counted as a decision (the gaps
+    # page's popup stack filters on `conflict`/`confirmation` for that reason) —
+    # there is nothing here to pick between.
+    thread: Literal["conflict", "accuracy", "confirmation", "unit", "not_applied"]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
     # (conflict legibility) could not reach; every updated reader composes its
@@ -1382,6 +1388,29 @@ class HealthIssue(BaseModel):
     summary: str
     field_ref: str | None = None
     source_record_ref: str | None = None
+    # ── founder ruling V-7 (2026-09-09) — structured fields for the
+    #    ``not_applied`` thread, so the reader composes the sentence in the
+    #    candidate's language instead of rendering the server's English
+    #    ``summary``. Same doctrine as #626's conflict fields below and as the
+    #    ``unit`` thread's own key: ``summary`` stays as the fallback, and every
+    #    updated reader ignores it. `applire-i18n` makes an untranslated
+    #    user-facing sentence a defect, and the DE screenshot showed this one
+    #    sitting directly beneath a fully-German conflict card.
+    #    ``None`` on every other thread.
+    not_applied_count: int | None = None
+    #: The ``EnrichmentRecord.source`` KEY (``interview`` / ``cv_upload`` / …),
+    #: which the frontend already localises through ``profile.sources.*``
+    #: (``lib/enrichment-sources.ts``) — never a rendered word.
+    not_applied_source: str | None = None
+    #: The raw ``ImportNotApplied.reason`` keys, localised by the reader through
+    #: ``health.notAppliedReason.*``. Never a sentence.
+    not_applied_reasons: list[str] | None = None
+    #: The items' own labels, capped at three. A natural key ("Universität
+    #: Stuttgart / M.Sc.") is DATA and passes through; a ``professional_summary``
+    #: item's label is the language slot (``"de"``/``"en"``), which the reader
+    #: maps through the same ``health.fieldLabel.summaryDe/summaryEn`` the
+    #: dispute surface uses — one name for one thing.
+    not_applied_labels: list[str] | None = None
     # ── #626 (conflict legibility) — structured fields, populated for the
     # ``conflict`` thread only (every other thread leaves them ``None`` and its
     # existing reader is unaffected). The reported defect: a conflict's summary

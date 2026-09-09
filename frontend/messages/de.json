@@ -966,7 +966,14 @@
       "summaryDe": "deine Selbstbeschreibung (Deutsch)",
       "summaryEn": "deine Selbstbeschreibung (Englisch)"
     },
-    "conflictSourceUnknown": "einer späteren Änderung"
+    "conflictSourceUnknown": "einer späteren Änderung",
+    "threadNotApplied": "Etwas aus deiner Eingabe kam nicht an — und warum",
+    "notAppliedSummary": "{count, plural, one {# Angabe aus} other {# Angaben aus}} {source} kam nicht in deinem Profil an ({items}) — {reasons}.",
+    "notAppliedReason": {
+      "no_op_carried_entry": "keine Änderung hat sie übernommen",
+      "op_rejected": "die Änderung kam fehlerhaft zurück und wurde verworfen",
+      "summary_populated": "deine Selbstbeschreibung war schon geschrieben und blieb unverändert"
+    }
   },
   "profileReview": {
     "title": "Profil prüfen",

@@ -168,12 +168,19 @@ export function ProfileDecisionsCard({
 
   return (
     <>
-      {/* Anchored in a corner, never in the page flow: bottom-right on desktop,
-          full-width bottom on mobile. z-[65] sits above the shell sidebar
-          (z-[60]) and below a full-screen dialog (z-[70]); the stack also hides
-          itself while the drawer is open, so there is no layering contest.
-          `pointer-events-none` on the container keeps the page clickable
-          THROUGH the gaps between popups. */}
+      {/* Anchored in a corner, never in the page flow. z-[65] sits above the
+          shell sidebar (z-[60]) and below a full-screen dialog (z-[70]); the
+          stack also hides itself while the drawer is open, so there is no
+          layering contest. `pointer-events-none` on the container keeps the
+          page clickable THROUGH the gaps between popups.
+
+          **Corner, by viewport (founder ruling V-1b, 2026-09-09, from the
+          screenshot):** a bottom-right stack on desktop overlapped the right
+          edge of the page's own primary CTA ("Generate CV Now"). It is
+          **top-right** on desktop instead — below the header bar, over the
+          job-ad card's empty right part, where nothing is covered. Mobile is
+          unchanged: full-width bottom, offset above the page's fixed CTA bar by
+          its measured height (see `bottomOffsetPx`). */}
       {!autoHidden && !drawerIssue && shown.length > 0 && (
         <div
           data-testid="profile-decisions-stack"
@@ -181,7 +188,7 @@ export function ProfileDecisionsCard({
           // gaps page's own CTA bar stops being `fixed`, so the two elements
           // change layout on the same line rather than overlapping in between.
           style={{ "--stack-bottom": `${bottomOffsetPx + 12}px` } as React.CSSProperties}
-          className="pointer-events-none fixed inset-x-3 bottom-[var(--stack-bottom)] z-[65] flex flex-col gap-2 md:inset-x-auto md:right-4 md:bottom-4 md:w-[22rem]"
+          className="pointer-events-none fixed inset-x-3 bottom-[var(--stack-bottom)] z-[65] flex flex-col gap-2 md:inset-x-auto md:bottom-auto md:right-4 md:top-20 md:w-[22rem]"
         >
           {shown.map((issue) => (
             <div

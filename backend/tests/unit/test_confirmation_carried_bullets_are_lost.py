@@ -1,7 +1,14 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""Reproduction: bullets carried onto a pending confirmation are never applied.
+"""#684 family — bullets carried onto a pending confirmation, and what happens
+when the candidate answers.
+
+**Status: the defect this file was written to reproduce is FIXED** (founder
+ruling V-5, 2026-09-09). The file is kept as the regression, with the two
+"lost" assertions flipped to "landed" — the reproduction's own record of what
+used to happen stays in this docstring, because a fix whose defect is no longer
+described is a fix nobody can evaluate.
 
 Found by WP-O3's fate trace during Nougat build 1 (2026-09-08, code read) and
 reproduced here against the real applier before any fix was scoped.
@@ -35,9 +42,13 @@ ENTITY is never created or merged either, whichever option the candidate picks.
 `pending_bullets` is a lifeboat for a rescue that was never built, and its
 presence makes the code read as though the bullets are safe.
 
-These tests pin the behaviour as it is. They are written to FAIL when the
-resolution turn lands, which is the point — the fix's own regression test is
-this file with the assertions inverted.
+**What the resolution turn does now** (`session._apply_engagement_confirmation`
++ `apply.UserConfirmedEngagement`): the parked op is rebuilt from the
+confirmation's own `context["incoming"]`, the answer travels as a capability
+rather than an op field (ADR-063 clause 1), `"distinct"` creates the entry with
+the #177 guard skipped, `"merge"` folds it into the id the builder recorded in
+`context["existing_ids"]`, and `pending_bullets` ride along as an `AddBullets`
+op against the same local ref so they land on whichever entity results.
 """
 from __future__ import annotations
 
@@ -119,13 +130,17 @@ def test_the_candidates_bullets_are_carried_onto_the_confirmation_and_nowhere_el
     assert existing.achievements == []
 
 
-def test_resolving_the_confirmation_clears_the_park_and_applies_no_bullet():
-    """THE DEFECT. The candidate answers; the park closes; the bullets vanish.
+def test_resolve_confirmation_alone_is_still_only_bookkeeping():
+    """`ResolveConfirmation` on its own writes no content — BY DESIGN, and this
+    stays true after the fix.
 
-    `_apply_resolve_confirmation` is bookkeeping by design and never reads
-    `context`. Nothing else does either. So a candidate who answered a question
-    the system asked them loses the content that question was about, with a
-    receipt that says their answer was recorded.
+    ADR-063 design §4.5 makes that op the lifecycle act: it closes the park and
+    receipts the answer. What changed with founder ruling V-5 is that the
+    session layer now ALSO emits the rebuilt entity op beside it
+    (`_apply_engagement_confirmation`), which is where the content comes from.
+    Pinning the separation matters: if a future change makes
+    `_apply_resolve_confirmation` write content, two paths will be writing the
+    same entity and they will diverge.
     """
     profile = _profile_with_a_near_dupe_employer()
     first = apply_ops(profile, _ambiguous_batch(), "interview")
@@ -175,18 +190,17 @@ def test_resolving_the_confirmation_clears_the_park_and_applies_no_bullet():
     assert resolved.not_applied == []
 
 
-def test_the_carrier_has_exactly_one_writer_and_no_production_reader():
-    """The absence, proven by exhausting the POSITIVE set rather than measuring
-    the negative one — the rule this codebase uses for every "nothing reads X".
+def test_the_carrier_now_has_exactly_one_writer_AND_one_reader():
+    """The absence claim, re-run after the fix — and it has flipped.
 
-    Scans `backend/applire/` for the literal and asserts every occurrence sits
-    in the ONE function that writes it. Comments and the diagnostic WARNING name
-    it too — those are not readers, which is exactly the distinction that makes
-    this check worth having: a grep for the field name finds "consumers" and
-    passes, so the test names the FILE and asserts nothing else mentions it.
-    When a resolution turn lands in another module, this reddens and is the
-    place to record its reader.
+    Before founder ruling V-5 this asserted ONE writer and NO reader, proven by
+    exhausting the positive set rather than measuring the negative one. That was
+    the finding. Now the enumeration must show the reader too, and name it: if a
+    future refactor drops `_apply_engagement_confirmation`'s read, the bullets
+    go back to being written into a void and this reddens.
     """
+    import ast
+
     root = Path(__file__).resolve().parents[2] / "applire"
     files = sorted(
         {
@@ -195,17 +209,26 @@ def test_the_carrier_has_exactly_one_writer_and_no_production_reader():
             if "pending_bullets" in path.read_text(encoding="utf-8")
         }
     )
-    assert files == ["services/profile/reconcile/apply.py"], files
+    assert files == [
+        "services/profile/reconcile/apply.py",   # the writer
+        "services/session.py",                   # the reader (V-5)
+    ], files
 
-    # …and inside that file, every mention is inside `_apply_add_bullets`.
-    src = (root / "services/profile/reconcile/apply.py").read_text(encoding="utf-8")
-    import ast
-
-    tree = ast.parse(src)
-    owners = {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
-        and "pending_bullets" in ast.get_source_segment(src, node)
-    }
-    assert owners == {"_apply_add_bullets"}, owners
+    owners: set[str] = set()
+    for rel in files:
+        src = (root / rel).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+                "pending_bullets" in (ast.get_source_segment(src, node) or "")
+            ):
+                owners.add(node.name)
+    # `_apply_add_bullets` writes it; `_apply_engagement_confirmation` reads it;
+    # `_apply_interview_confirmation` only NAMES it, in the comment recording why
+    # its early return stopped being an early return. Three mentions, one of
+    # which is prose — which is exactly why this test enumerates function names
+    # rather than trusting a grep count to mean "consumers".
+    assert owners == {
+        "_apply_add_bullets",
+        "_apply_engagement_confirmation",
+        "_apply_interview_confirmation",
+    }, owners

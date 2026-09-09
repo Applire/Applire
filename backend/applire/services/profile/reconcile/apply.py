@@ -62,6 +62,7 @@ from applire.schemas.profile import (
 from applire.services.profile.role_facts import project_profile_role_facts
 
 from applire.services.profile.reconcile.dedupe import (
+    DupeVerdict,
     classify_certification_dupe,
     classify_dupe,
     classify_education_dupe,
@@ -255,6 +256,48 @@ class ApplyResult(BaseModel):
     # identical path onto the committer's `EnrichmentRecord`. Set exclusively
     # by `ApplyImportMerge`; empty for every other batch.
     not_applied: list[ImportNotApplied] = []
+
+
+@dataclass(frozen=True)
+class UserConfirmedEngagement:
+    """The candidate's ANSWER to a parked ENGAGEMENT-dupe confirmation.
+
+    Founder ruling V-5 (2026-09-09). Sibling of :class:`UserConfirmedSkill`, and
+    deliberately built to its precedent rather than to a new pattern: a
+    CAPABILITY on the ``apply_ops`` / ``commit_ops`` call path, supplied by the
+    adapter that read the answer out of session state — never a field on an op
+    the model can emit (ADR-063 clause 1's governing rule; what this authorises
+    is a BYPASS of the #177 near-dupe guard, and one hallucinated key must not
+    be able to switch that guard off).
+
+    **The hole it closes.** When ``classify_engagement_dupe`` returned
+    AMBIGUOUS, the applier parked a question and left the op's ``ref``
+    unmapped — correct, "ask, never guess". But nothing ever applied the
+    answer: ``_apply_resolve_confirmation`` is bookkeeping by design and
+    ``session._apply_interview_confirmation`` returned early for anything that
+    was not a SKILL confirmation ("entity-merge resolution is out of #187's
+    scope"). So the candidate answered, the park closed with a receipt saying
+    their answer was recorded, and the station, the project or the volunteering
+    — plus any bullets carried onto ``context["pending_bullets"]`` — were gone.
+    Reproduced before the fix in ``test_confirmation_carried_bullets_are_lost``.
+
+    ``ref`` keys the waiver to ONE op in the batch, for the same reason
+    ``UserConfirmedSkill.name`` does: a bare boolean would make the bypass's
+    reach depend on what else the caller happened to put in the list.
+
+    ``decision`` is the stable ``option_key`` (#669), never a rendered string —
+    the whole point of that build is that the identity is language-independent.
+    ``"distinct"`` creates the entry with the guard waived; ``"merge"`` folds it
+    into ``target_id``.
+    """
+
+    ref: str
+    decision: Literal["distinct", "merge"]
+    #: The existing entity the candidate said this is the same as. Required for
+    #: ``"merge"``; ignored for ``"distinct"``. Carried on the confirmation's
+    #: context as ``existing_ids`` by the builders, so the resolution never has
+    #: to re-run identity matching on a rendered label.
+    target_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -461,6 +504,7 @@ def apply_ops(
     source: str,
     *,
     user_confirmed_skill: UserConfirmedSkill | None = None,
+    user_confirmed_engagement: UserConfirmedEngagement | None = None,
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 
@@ -473,6 +517,9 @@ def apply_ops(
             ONE ``UpsertSkill`` it names (#187). Adapter-supplied and
             deliberately not part of any op schema — see
             :class:`UserConfirmedSkill`.
+        user_confirmed_engagement: the same, for a parked WORK / PROJECT /
+            VOLUNTEER near-dupe confirmation (founder ruling V-5) — see
+            :class:`UserConfirmedEngagement`.
     """
     new_profile = profile.model_copy(deep=True)
     changes: list[FieldChange] = []
@@ -559,11 +606,20 @@ def apply_ops(
 
     for op in ops:
         if isinstance(op, UpsertWork):
-            _apply_upsert_work(op, new_profile, ref_map, changes, pending, source)
+            _apply_upsert_work(
+                op, new_profile, ref_map, changes, pending, source,
+                conflicts, user_confirmed_engagement,
+            )
         elif isinstance(op, UpsertProject):
-            _apply_upsert_project(op, new_profile, ref_map, resolve, changes, pending)
+            _apply_upsert_project(
+                op, new_profile, ref_map, resolve, changes, pending,
+                conflicts, user_confirmed_engagement,
+            )
         elif isinstance(op, UpsertVolunteer):
-            _apply_upsert_volunteer(op, new_profile, ref_map, changes, pending)
+            _apply_upsert_volunteer(
+                op, new_profile, ref_map, changes, pending,
+                conflicts, user_confirmed_engagement,
+            )
         elif isinstance(op, AddBullets):
             _apply_add_bullets(op, resolve, changes, pending)
         elif isinstance(op, UpsertSkill):
@@ -1724,7 +1780,60 @@ def _apply_escalate_denial_level(
     )
 
 
-def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
+def _engagement_waiver(op, confirmed) -> tuple[str, str | None] | None:
+    """The candidate's answer for THIS op, or None (founder ruling V-5).
+
+    One implementation for all three engagement appliers (ADR-066): the three
+    were already three copies of the same near-dupe block, and a resolution turn
+    that landed on one of them would have been the #177 asymmetry all over
+    again. Keyed on ``ref`` so one answered confirmation waives exactly the op
+    it was about.
+    """
+    if confirmed is None or confirmed.ref != getattr(op, "ref", None):
+        return None
+    return confirmed.decision, confirmed.target_id
+
+
+def _record_merge_divergence(op, entity, section, fields, conflicts) -> None:
+    """Founder ruling V-5 — on a candidate-confirmed MERGE, a field where both
+    sides are non-empty and DIFFER keeps the existing value and becomes a
+    dispute.
+
+    ``_fill_empties`` already keeps the existing value (fill-only, unchanged for
+    every other caller). What it does not do is say that something was dropped —
+    on the reconciler's own path the model emits ``flag_conflict`` for that, and
+    a deterministic resolution turn has no model to do it. So the divergence is
+    receipted here, and ONLY here: this runs solely under the waiver, so no
+    existing merge path changes behaviour.
+
+    A FACT, not a judgement (ADR-062 clause 1): both sides are non-empty and
+    their normalised forms differ. Nothing decides which is right — that is the
+    dispute's whole purpose.
+    """
+    if conflicts is None:
+        return
+    for name, incoming in fields.items():
+        if _is_empty(incoming):
+            continue
+        existing = getattr(entity, name, None)
+        if _is_empty(existing) or _norm(existing) == _norm(incoming):
+            continue
+        conflicts.append(
+            Conflict(
+                section=section,
+                field=name,
+                entity_id=getattr(entity, "id", None),
+                existing_value=existing,
+                incoming_value=incoming,
+                source="interview",
+            )
+        )
+
+
+def _apply_upsert_work(
+    op, profile, ref_map, changes, pending, source="",
+    conflicts=None, confirmed=None,
+):
     target = None
     if op.target is not None:
         target = next(
@@ -1742,10 +1851,29 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
         # absent/differing dates is ambiguous (ask, never guess). An ambiguous op's
         # ref stays unmapped, so dependent add_bullets skip defensively — the
         # confirmation context carries the payload for the resolution turn.
-        verdict = classify_engagement_dupe(
-            org=op.company, role=op.role, start_date=op.start_date,
-            existing=profile.work_experience, org_getter=lambda w: w.company,
-        )
+        # Founder ruling V-5 — the candidate ALREADY answered this one. Their
+        # answer outranks the guard that asked the question: `"merge"` targets
+        # the entity they named, `"distinct"` creates the entry with the
+        # near-dupe guard NOT run (re-running it would re-ask the question they
+        # just answered, forever). See `UserConfirmedEngagement`.
+        waiver = _engagement_waiver(op, confirmed)
+        if waiver is not None:
+            _decision, _target_id = waiver
+            if _decision == "merge" and _target_id:
+                target = next(
+                    (e for e in profile.work_experience if getattr(e, "id", None) == _target_id),
+                    None,
+                )
+            # `"distinct"`, or a `"merge"` whose target has since been edited
+            # away: fall through to the create branch below with the guard
+            # skipped. Creating is the safe direction — the alternative is
+            # losing the candidate's answer a second time.
+            verdict = DupeVerdict()
+        else:
+            verdict = classify_engagement_dupe(
+                org=op.company, role=op.role, start_date=op.start_date,
+                existing=profile.work_experience, org_getter=lambda w: w.company,
+            )
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
@@ -1762,7 +1890,9 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
                 incoming_label=incoming_label,
                 existing_labels=related,
                 context={"section": "work_experience",
-                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related,
+                         # V-5 — the answer resolves on an ID, never on a label.
+                         "existing_ids": [getattr(w, "id", None) for w in verdict.ambiguous]},
             ))
             return
 
@@ -1823,6 +1953,16 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
 
     # Merge into existing.
     ref_map[op.ref] = target
+    # Founder ruling V-5 — a candidate-confirmed merge receipts what it did not
+    # take. `_fill_empties` below keeps the existing value either way; this says
+    # so out loud instead of dropping the incoming one in silence.
+    if _engagement_waiver(op, confirmed) == ("merge", getattr(target, "id", None)):
+        _record_merge_divergence(
+            op, target, "work_experience",
+            {"start_date": op.start_date, "end_date": op.end_date,
+             "location": op.location, "industry_context": op.industry_context},
+            conflicts,
+        )
     # ADR-013 Rule 1: a differing role becomes a role alias (never overwrite role).
     if (
         op.role
@@ -1858,7 +1998,10 @@ def _apply_upsert_work(op, profile, ref_map, changes, pending, source=""):
     )
 
 
-def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
+def _apply_upsert_project(
+    op, profile, ref_map, resolve, changes, pending,
+    conflicts=None, confirmed=None,
+):
     parent_id = None
     parent = resolve(op.parent)
     if parent is not None:
@@ -1876,10 +2019,29 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
         # #177: near-dup guard (see _apply_upsert_work). "Website" ⊂ "Website
         # Relaunch" is not identity for open-ended project names, so containment
         # is never auto-merged here.
-        verdict = classify_engagement_dupe(
-            org=op.name, role=op.role, start_date=op.start_date,
-            existing=profile.projects, org_getter=lambda p: p.name,
-        )
+        # Founder ruling V-5 — the candidate ALREADY answered this one. Their
+        # answer outranks the guard that asked the question: `"merge"` targets
+        # the entity they named, `"distinct"` creates the entry with the
+        # near-dupe guard NOT run (re-running it would re-ask the question they
+        # just answered, forever). See `UserConfirmedEngagement`.
+        waiver = _engagement_waiver(op, confirmed)
+        if waiver is not None:
+            _decision, _target_id = waiver
+            if _decision == "merge" and _target_id:
+                target = next(
+                    (e for e in profile.projects if getattr(e, "id", None) == _target_id),
+                    None,
+                )
+            # `"distinct"`, or a `"merge"` whose target has since been edited
+            # away: fall through to the create branch below with the guard
+            # skipped. Creating is the safe direction — the alternative is
+            # losing the candidate's answer a second time.
+            verdict = DupeVerdict()
+        else:
+            verdict = classify_engagement_dupe(
+                org=op.name, role=op.role, start_date=op.start_date,
+                existing=profile.projects, org_getter=lambda p: p.name,
+            )
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
@@ -1889,7 +2051,8 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
                 incoming_label=f"{op.role} at {op.name}" if op.role else op.name,
                 existing_labels=related,
                 context={"section": "projects",
-                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related,
+                         "existing_ids": [getattr(pr, "id", None) for pr in verdict.ambiguous]},
             ))
             return
 
@@ -1924,7 +2087,9 @@ def _apply_upsert_project(op, profile, ref_map, resolve, changes, pending):
     changes.append(_merged("projects", "name", None, op.name))
 
 
-def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
+def _apply_upsert_volunteer(
+    op, profile, ref_map, changes, pending, conflicts=None, confirmed=None,
+):
     target = None
     if op.target is not None:
         target = next(
@@ -1937,10 +2102,29 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
 
     if target is None:
         # #177: near-dup guard (see _apply_upsert_work).
-        verdict = classify_engagement_dupe(
-            org=op.organization, role=op.role, start_date=op.start_date,
-            existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
-        )
+        # Founder ruling V-5 — the candidate ALREADY answered this one. Their
+        # answer outranks the guard that asked the question: `"merge"` targets
+        # the entity they named, `"distinct"` creates the entry with the
+        # near-dupe guard NOT run (re-running it would re-ask the question they
+        # just answered, forever). See `UserConfirmedEngagement`.
+        waiver = _engagement_waiver(op, confirmed)
+        if waiver is not None:
+            _decision, _target_id = waiver
+            if _decision == "merge" and _target_id:
+                target = next(
+                    (e for e in profile.volunteer_activities if getattr(e, "id", None) == _target_id),
+                    None,
+                )
+            # `"distinct"`, or a `"merge"` whose target has since been edited
+            # away: fall through to the create branch below with the guard
+            # skipped. Creating is the safe direction — the alternative is
+            # losing the candidate's answer a second time.
+            verdict = DupeVerdict()
+        else:
+            verdict = classify_engagement_dupe(
+                org=op.organization, role=op.role, start_date=op.start_date,
+                existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+            )
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
@@ -1950,7 +2134,8 @@ def _apply_upsert_volunteer(op, profile, ref_map, changes, pending):
                 incoming_label=f"{op.role} at {op.organization}",
                 existing_labels=related,
                 context={"section": "volunteer_activities",
-                         "incoming": op.model_dump(exclude={"op"}), "existing": related},
+                         "incoming": op.model_dump(exclude={"op"}), "existing": related,
+                         "existing_ids": [getattr(v, "id", None) for v in verdict.ambiguous]},
             ))
             return
 
