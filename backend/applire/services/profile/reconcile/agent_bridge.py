@@ -211,6 +211,9 @@ async def submit_agent_claims(
                 ),
                 record=record,
                 # §7.4 — the claim's own statement is this turn's grounding.
+                # M-1c — the claim's own statement; a claim that stated
+                # something and wrote nothing leaves a receipt.
+                turn_text=claim.statement,
                 grounding=TurnGrounding(
                     text=claim.statement,
                     question=claim.question,

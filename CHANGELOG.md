@@ -7,10 +7,114 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **`docker-compose.yml` takes its database credentials from the environment.** `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` feed both the postgres service and `DATABASE_URL`. The defaults are today's values, so an install that changes nothing behaves identically; setting real credentials is now a three-line `.env` edit instead of a compose-file edit. PostgreSQL reads them only when the data volume is first created — the runbook says how to change them on an install that already has data.
+- **`docker-compose.override.yml` announces itself.** It sets `APPLIRE_TOPOLOGY=dev`, so the backend logs a startup WARNING and `GET /health` reports `"topology": "dev"`. Compose applies that override automatically whenever it sits beside the compose file — i.e. in every source clone — which publishes an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now said so nowhere. The production file never sets the variable.
+- **While `LLM_DEBUG_LOG` is on, the instance says so** at every startup and on `GET /health`. That log records CV and interview PII and deliberately has no size or age cap: a cap on a diagnostic tool truncates evidence silently, so you are told instead.
+- **`:latest` can no longer move on a release whose install assets are missing.** `release.yml` runs the compose install guard as a gate *before* the jobs that publish tags, and in full afterwards. `v0.41.1-beta` was published without its `docker-compose.yml` and `env.example`; the guard fired, but only after `:latest` had already moved, so the documented install 404ed for everyone in the meantime.
+- **The reviewer and the corrector are shown the same document, and repetition may now block (#668).**
+  In the terminal round the reviewer read the composed CV while the corrector patched the
+  prose draft, and the gap ran both ways: the corrector could not see the assembled
+  sections a finding named, **and** it could still see bullets the length budget had
+  deleted — so a true blocking finding read as false and 2 of 3 corrections never reached
+  the document. The corrector now receives the composed document read-only beside its own
+  draft; it still returns only the prose shape, so no vault-verbatim field is ever
+  LLM-authored. With that closed, `repetition` leaves the minor-by-definition line on both
+  CV doors and becomes named check 8, REDUNDANCY. Replay of the captured exchange that
+  shipped the six near-duplicate bullets, n=5 per arm: blocking redundancy findings 0/5 →
+  4/5, corrector emitted a `projects` array 0/5 → 5/5, delivered near-duplicate pairs
+  2.0 → 1.0. **Halved, not cleared — #659's acceptance criterion is not claimed.** The
+  cover letter is deliberately unchanged (it ships with #664).
+- **The per-role bullet cap yields to a bullet the round's review loop asked for (#666, ADR-072 clause 4).**
+  The under-claim signal asked for a bullet and the cap deleted it inside the same round,
+  so no retry budget could help — 1 of 4 demanded bullets survived on the 2026-09-05
+  delivery run. A demanded bullet is now outside the cap's reach (a partition, not a
+  ranking tier, which a tight ceiling silently defeats) and the cap takes an unrequested
+  bullet instead; where the ceiling still binds it yields under a
+  `BUDGET_VS_SIGNAL_CONFLICT` warning naming both producers. Coverage for a demanded
+  concept is read over the bullet corpus, not the whole document, because a skills tag is
+  what the demand said was insufficient. Measured at the delivery point on the captured
+  run: implementation fraction 2 of 4 → 3 of 4 on identical inputs, with the per-role
+  ceiling intact in both arms.
+- **The loop stops asking for a bullet the document already delivers (#666).**
+  Honouring every demand bought the bullet "Deutsch als Muttersprache." at the price of a
+  quantified safety figure and a budget bullet, on a CV whose Languages section already
+  said it. A concept the composed document carries in a vault-joined structured section —
+  languages, certifications, education — is delivered, not under-claimed. The skills list
+  is deliberately not in that set.
+- **Reading the keyword ledger now fixes and re-scores it (#670, ADR-048).**
+  All four document-facing reads persist the refreshed row and re-source the match score,
+  so a generated document, the Gaps screen and the score cannot disagree. ADR-061's
+  affirmative invariant runs at a read for the first time, which catches a profile that
+  **shrank** since the analysis before the document is written. **A score you have already
+  been shown may move, down as well as up** — the monotonic-up clamp that applies where
+  evidence can only be added is deliberately not applied here.
+- **The vault-evidence digest offers every sense of a concept, not the wordiest one (#415).**
+  For each claimable concept the digest picked "the longest matching vault sentence", and
+  on a coarse concept longest is not most specific: for `HGB` it picked the *Monatsabschluss*
+  sentence over "Betreuung der Wirtschaftsprüfer im **Jahresabschluss** (HGB)" — 134
+  characters against 57 — and the delivered CV contained neither `Jahresabschluss` nor
+  `Wirtschaftsprüfer` while the blind reviewer scored the role's first-named duty only
+  partly met. Choosing between two qualifying sentences is a judgement, so the selector
+  stops choosing: it offers up to three and the writer decides. The CV chain's digest
+  ceiling rises with it, because widening per concept under the old ceiling buys the
+  answering sentence by starving the others. Measured on the captured run: the answering
+  sentence absent → present, represented concepts 8 → 9, +3.6 % on that writer prompt.
 - **Fact pins, said plainly (#680).** The pin control changed what it says, not what it does. On the gaps page it is now a teaser card directly above the decision buttons ("Gibt es Fakten, die unbedingt in deinen Dokumenten stehen müssen?" · *Fakten festlegen*) instead of a "(0/10)" panel inside the job-ad block; the panel's title is the promise (*Muss in diesem Dokument stehen*), the counter appears only once a pin exists, a collapsed *Wie funktioniert das?* carries the explanation, each quote shows the profile entry it comes from, and target and fate are one chip (*Lebenslauf · enthalten*). The picker asks plain questions and skips the statement step for single-statement entries. A first-use explainer (*Bevor du Fakten festlegst*) with *Nicht mehr anzeigen* precedes the first pin. German says *festlegen* everywhere; *Vault* left the user-facing copy in both languages. Two incidental fixes: the at-cap tooltip rendered next-intl's error fallback, and the picker repeated a skill's name as its statement.
 
+- **The reconciler stops losing an answer that opens with a denial, and stops crediting one employer's work to another (US311 step 3).** Three changes to the one prompt that writes your vault, each measured before and after on three models. Rule 9 said *"an answer that does not address the question contributes nothing about the question's topic"* and stated its own empty-output escape a second time; a model reading *"I have not worked with insulin in particular, but I have 15+ years at A, at B and now at C"* had two explicit instructions telling it to record nothing, and eight of eleven models measured took one of them. It now says a denial is about its own item and nothing else, and the escape is stated once. Rule 1 gained the missing instruction for a sentence naming several employers — bind each clause to the employer that clause names, never fold the whole sentence onto the one your profile happens to hold — which is the failure that would have credited fifteen years of work at two other companies to your current job. And every operation now states its required fields beside itself, including that they are required when merging into an entry that already exists. Measured on the harness (n=10 per shape, three input shapes): `z-ai/glm-5.3-flash` went from sub-par to qualified on the first change alone, and spent 48 % fewer output tokens doing it; `mistralai/ministral-8b-2512` went from sub-par to usable-with-caveats on the second. The prompt now carries a version header recording each rule change with the number it moved.
+- **A reasoning model's thinking is never mistaken for its answer.** Some models emit a chain of thought inline, in front of the JSON they were asked for. That made the parse fail, and a failed parse on the vault path was swallowed as "nothing to merge" — your answer gone, with nothing on screen to say so. Every provider now strips the trace before parsing, on one shared implementation; Anthropic's thinking blocks and Ollama's `thinking` field route to the same place. The trace is never stored and never fed back into a later turn: it reaches only the developer debug log, which is off by default. A call that bills output tokens and returns no answer at all — a model that spent its whole budget thinking — is now reported as a truncation and retried once, instead of looking like a model that chose to say nothing.
+- **`OPENROUTER_DISABLE_THINKING` stops costing you a wasted request on every call.** Some models refuse to have reasoning turned off and reject the request with an error; Applire has always retried correctly, but it re-sent the doomed parameter on every subsequent call. It now remembers the refusal for the life of the process, as the Requesty provider already did. If you run such a model — `z-ai/glm-5.3-flash` is one — the setting saved you nothing before and cost you latency and a higher chance of timing out; now it costs one wasted request per restart. The setting is a request the model may refuse, not a guarantee.
+
 ### Added
+- **The instance says what an upgrade changed, and what you can configure (#687, US310).** Every environment variable the backend reads is declared once in `backend/applire/settings_registry.py` — the 39 typed settings, the 29 that `constants.py` read directly (all five GDPR retention TTLs among them, which `.env.example` never mentioned), and the deployment variables — each with its default, the release it appeared in, and the release its *meaning* changed in. `.env.example` is now **generated** from that registry and a unit test fails when the two drift, so the shipped template can no longer contradict the code the way `MISTRAL_MODEL` did. A second test asserts declared == read in both directions: a new variable costs a registry entry or the suite is red. After an upgrade the backend compares the release that last ran against the running one and names two things — settings introduced since then that your environment does not set, and settings you *do* set whose meaning changed — as a WARNING block on the log, as `upgrade_notice` on `GET /health`, and as a dismissable notice on the dashboard. Dismissing records the running version as seen. New table `instance_state` (Alembic 0062) holds those facts about the installation. `GET /health` also gains `debug_log_on` and `topology`; its four original fields are unchanged, because the compose healthcheck and every uptime probe read them.
+- **Two silent losses in the vault now leave a receipt (US311 step 3).** A turn where you said something and nothing was recorded — the answer states a fact, and the merge produced no change, no question, no conflict and no other receipt — is recorded as such and shows up on your profile's health hub, instead of the interview simply reading as "nothing changed". And a bullet whose own words name a different employer than the entry it is being attached to is now turned into a question rather than written: the attribution guard reads the bullet's own text as well as the sentence it came from, and knows about employers this same answer is creating, not only the ones already in your profile.
+- **`LLM_STRUCTURED_OUTPUT` — your model is handed the vault's operation vocabulary as a schema, not only as prose. On by default (`auto`).** The one call that writes your profile now carries a JSON schema of the 15 operations it may emit, generated from the same types that validate the answer, so the two cannot drift; it shows exactly what the prompt asks for and nothing more. Measured on the same fixtures as the model table: one model's station coverage on a one-employer answer went from 0.10 to 1.00 and its malformed-operation rate halved, with no regression on the two models that were already clean. It costs about 2,300 extra input tokens per interview turn — set `LLM_STRUCTURED_OUTPUT=off` to save them. An endpoint that does not support schemas rejects it once, Applire falls back to plain JSON mode for the rest of that process, and the turn it happens on still completes.
+- **Backup and restore, documented and scripted (US314).** New [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md): the two compose topologies and how to tell them apart, backup, verify, restore, secrets, TLS, disk and pruning, upgrading, and troubleshooting. `scripts/backup.sh` archives the database **and** the `applire_uploads` volume in one file — a backup with only one of them is not a backup — records the timestamp in `instance_state`, and `--verify` checks an archive without restoring it (both volumes present, `pg_restore --list` runs, size > 0). `scripts/restore.sh` verifies the archive first, refuses a database that already has tables unless you pass `--force`, and never runs `down -v`. The restore was exercised once end to end on the production compose topology before this shipped. The `down -v` warning now stands where operators actually look: both READMEs' update section, the runbook, the `docker-compose.yml` header and `docs/CI_CD_GUIDE.md`.
+- **The instance says whether it is healthy, and what it costs (E060 / US312 #145, US313; ADR-086).**
+  A self-hosted Applire had no operator-side monitoring at all: `GET /health` returned four static
+  fields and answered "ok" with Postgres gone, the GDPR retention worker printed a JSON report to
+  stdout that nothing read, a provider 402 was once misdiagnosed as latency for hours, and no token
+  was ever counted. New: **`GET /api/ops/health`** aggregates seven probes — database, migration
+  head, retention last-run age plus a deletion-count anomaly check, free disk, last backup age,
+  provider reachability and credit, and a rolling error count — behind one verdict, with the verdict
+  in the HTTP status (200 ok/degraded, 503 down) so an external uptime probe can alert without
+  parsing. `GET /health` keeps its four fields byte-for-byte and gains a cached `ops` summary. The
+  retention worker now writes a `retention_runs` row per run (the same JSON it still prints), which
+  is what makes "the worker has not run for 51 hours" visible at all. Every provider call records its
+  token counts in `llm_usage` — numbers and ids only, never prompt or answer text, kept 365 days —
+  aggregated per day, per document and per application; counts a provider does not report are
+  estimated and **labelled** as estimated. The admin page shows the same facts as one quiet line
+  while the instance is fine. The provider check is configurable
+  (`OPS_PROVIDER_PROBE` = `off` / `reachability` / `credit` / `both`) because a credit check makes no
+  sense for a local Ollama. Alembic 0063.
 - **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
+
+### Removed
+- **`NGINX_PROXY_TIMEOUT` is gone from the documentation, because it was never read by anything.** Both READMEs and the old env template offered it; the reverse proxy's `proxy_read_timeout` is 300 s and is baked into the `applire-nginx` image. Keep `LLM_TIMEOUT` below 300, or bind-mount your own nginx config.
+
+### Upgrade notes
+
+New and re-meant environment variables in this release. Nothing here requires action on an existing install — every default reproduces current behaviour.
+
+| Variable | Code default | What it does | Required? |
+|---|---|---|---|
+| `POSTGRES_USER` | `applire` | Database user; the compose file feeds it to postgres and to `DATABASE_URL`. | optional |
+| `POSTGRES_PASSWORD` | `applire` | Database password. Set it on any host where the database port could be reachable. PostgreSQL reads it only when the data volume is first created — see `docs/SELF-HOSTING.md` §Secrets before changing it on an existing install. | optional |
+| `POSTGRES_DB` | `applire` | Database name. | optional |
+| `NOTICE_AUTO_DISMISS_SECONDS` | `30` | Seconds before an unattended in-app notice pop-up hides itself; `0` = never. Instance-wide, served read-only on `GET /api/settings` as `notice_auto_dismiss_seconds`. | optional |
+| `APPLIRE_TOPOLOGY` | `production` | Which compose topology this instance runs. Set by `docker-compose.override.yml` to `dev`, never by hand; surfaced as a startup WARNING and on `GET /health`. | do not set |
+| *(WP-O1's `LLM_USAGE_RETENTION_DAYS` and `OPS_*` variables are added here at integration — placeholder, replace with O1's report patch)* | | | |
+| `LLM_STRUCTURED_OUTPUT` | `auto` | **On by default.** `auto` sends your model the reconciler's operation vocabulary as a JSON schema alongside the prompt, on the one call that writes your vault. It costs about 2,300 extra input tokens per interview turn. An endpoint without schema support rejects it once and Applire falls back to plain JSON mode for that process; the turn still completes. Set `off` to save the tokens. | optional |
+
+**Re-meant since your last release** — these keep their names and no longer mean what they did:
+
+| Variable | Changed in | What changed |
+|---|---|---|
+| `INTERVIEW_MAX_QUESTIONS_TARGETED` | 0.41.0 | It is now a **cap** applied on top of a budget derived from the session's own gap plan, not the budget itself (ADR-080). Setting it below the derived budget truncates interviews on gap-rich jobs. This shipped in v0.41.0-beta without a changelog line; it is recorded here so the instance's own upgrade notice and this file agree. |
+| `INTERVIEW_MAX_QUESTIONS_GUIDED` | 0.41.0 | Same change, for guided (MODE B) interviews. |
+
+**Not re-meant, but worth knowing** — `OPENROUTER_DISABLE_THINKING` and `REQUESTY_DISABLE_THINKING` keep their names, their `false` defaults and their meaning. What changed is the honest description: they are a *request* the model may refuse. On a model that mandates reasoning the setting saves nothing, and until this release it cost a rejected request on every single call. `LLM_MAX_OUTPUT_TOKENS` likewise keeps its meaning — but on a reasoning model, note that it caps the budget the answer and the thinking *share*, so setting it low on such a model can leave no room for the answer.
+
 
 ## [0.41.1-beta] – 2026-09-06
 

@@ -249,6 +249,15 @@
         "notMeasured": "not measured yet",
         "ledgerConflict": "— do-not-claim term: {terms}"
       }
+    },
+    "decisions": {
+      "title": "{count, plural, one {# decision needed to update your profile} other {# decisions needed to update your profile}}",
+      "body": "Your answer touched something your profile already says. Pick which version is right — it takes a moment.",
+      "cta": "Decide now",
+      "dismiss": "Dismiss",
+      "dismissAria": "Dismiss this note",
+      "stillThere": "You can come back to this on your profile page any time.",
+      "more": "+{count, plural, one {# more decision} other {# more decisions}}"
     }
   },
   "interview": {
@@ -773,10 +782,11 @@
     },
     "summaryEditor": {
       "editButton": "Edit summary",
-      "dialogTitle": "Edit professional summary",
+      "dialogTitle": "How you describe yourself",
       "fieldDe": "German (DE)",
       "fieldEn": "English (EN)",
-      "hint": "Both fields feed the matching language version of your CV — fill in at least one."
+      "hint": "This is your own description of yourself, in your words. Applire writes a fresh summary for every application from your whole profile — this one is the starting point, not the text that gets sent.",
+      "langHint": "Fill in at least one language."
     },
     "personalInfoEditor": {
       "editButton": "Edit contact details",
@@ -953,8 +963,17 @@
       "issuing_organization": "Issuing organization",
       "credential_id": "Credential ID",
       "credential_url": "Credential URL",
-      "summaryDe": "Summary (German)",
-      "summaryEn": "Summary (English)"
+      "summaryDe": "your self-description (German)",
+      "summaryEn": "your self-description (English)"
+    },
+    "conflictSourceUnknown": "a later change",
+    "threadNotApplied": "Something you said did not land — and why",
+    "notAppliedSummary": "{count, plural, one {# thing you told us} other {# things you told us}} in {source} did not reach your profile ({items}) — {reasons}.",
+    "notAppliedReason": {
+      "no_op_carried_entry": "no change carried it",
+      "op_rejected": "the change came back malformed and was dropped",
+      "summary_populated": "your self-description was already written, so it was left alone",
+      "no_write": "nothing was recorded from what you said"
     }
   },
   "profileReview": {
@@ -1454,7 +1473,8 @@
       "role_added": "Added as the role you have just started.",
       "role_closed": "Marked this role as ended.",
       "gap_marked_na": "Marked this gap as not applicable to you.",
-      "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged."
+      "denial_probe_asked": "Recorded that the follow-up about this limit has been asked — your stated limit itself is unchanged.",
+      "denial_noted": "Noted as a limit you told us about."
     }
   },
   "mergeGate": {
@@ -1542,5 +1562,72 @@
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
     "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Edit tab.",
     "group2HandleRegenerate": "Regenerate — the selection is made afresh each time."
+  },
+  "upgradeNotice": {
+    "title": "Something about your settings changed since your last start",
+    "versions": "Last started: {from} · now running: {to}",
+    "unsetHeading": "New since then and not set here — the new default applies:",
+    "reMeantHeading": "You set these, and their meaning has changed:",
+    "introducedIn": "since {version}, default: {defaultValue}",
+    "changedIn": "changed in {version}",
+    "emptyDefault": "empty",
+    "moreInfo": "What changed is in the CHANGELOG under “Upgrade notes” and in docs/SELF-HOSTING.md.",
+    "debugLogOn": "The LLM debug log is on: every prompt, CV data included, is written to files inside the container, with no size or age cap. Turn it off in production (LLM_DEBUG_LOG=false) and delete the files.",
+    "dismissAria": "Dismiss notice"
+  },
+  "ops": {
+    "title": "Instance",
+    "summaryOk": "Everything is fine",
+    "summaryDegraded": "{count, plural, =1 {1 thing to check} other {# things to check}}",
+    "summaryDown": "{count, plural, =1 {1 problem} other {# problems}}",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "checkedAt": "Last checked: {time, date, short}, {time, time, medium}",
+    "unavailable": "The instance status cannot be read right now.",
+    "component": {
+      "database": "Database",
+      "migrations": "Database schema",
+      "retention": "Cleanup run",
+      "disk": "Disk space",
+      "backup": "Backup",
+      "provider": "AI provider",
+      "errors": "Errors"
+    },
+    "status": {
+      "ok": "fine",
+      "degraded": "needs a look",
+      "down": "down",
+      "unknown": "unknown"
+    },
+    "diskFree": "{percent} % free ({free} of {total})",
+    "retentionLastRun": "Last ran {hours} h ago",
+    "retentionNever": "Has never run",
+    "backupAge": "Last backup {days} days ago",
+    "backupNever": "No backup yet — set up scripts/backup.sh",
+    "providerReach": {
+      "ok": "reachable",
+      "unauthorised": "refused (key or credit)",
+      "unreachable": "not reachable",
+      "rate_limited": "rate-limited",
+      "unknown": "not checked yet"
+    },
+    "credit": {
+      "ok": "credit available",
+      "low": "credit nearly used up",
+      "unknown": "credit not checked",
+      "na": "This provider reports no balance"
+    },
+    "errorsInWindow": "{count} in the last {minutes} minutes",
+    "migrationsBehind": "The database is on an older schema — restart the backend",
+    "tokens": {
+      "heading": "Usage",
+      "today": "Today",
+      "window": "Last {days} days",
+      "value": "{tokens, number} tokens across {calls} calls",
+      "estimated": "Includes estimates ({count} calls) — this provider does not report token counts.",
+      "none": "No usage recorded yet.",
+      "byDocument": "Most expensive documents",
+      "byApplication": "Most expensive applications"
+    }
   }
 }

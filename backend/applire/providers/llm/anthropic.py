@@ -50,6 +50,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import LLMProvider, raise_if_truncated
+from applire.providers.llm.reasoning import finalise_completion, note_trace
+from applire.providers.llm.usage import note_usage
 
 _retry = retry(
     retry=retry_if_exception_type(anthropic.RateLimitError),
@@ -111,6 +113,7 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         # Assistant-prefill "{" forces the model to continue a JSON object.
         messages = [
@@ -159,6 +162,7 @@ class AnthropicProvider(LLMProvider):
         t0 = time.monotonic()
         response = await self._client.messages.create(**kwargs)
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         usage = getattr(response, "usage", None)
         logger.info(
             "LLM response [anthropic] model=%s latency=%.2fs input_tokens=%s output_tokens=%s",
@@ -178,9 +182,19 @@ def _text(response: Any) -> str:
     crash ``for block in None`` with a raw TypeError; the trailing ``or []``
     covers that shape too.
     """
+    blocks = getattr(response, "content", None) or []
     parts = [
-        block.text
-        for block in (getattr(response, "content", None) or [])
-        if getattr(block, "type", None) == "text"
+        block.text for block in blocks if getattr(block, "type", None) == "text"
     ]
-    return "".join(parts)
+    # The Messages API puts reasoning in its OWN block type, so the filter above
+    # has always dropped it — this only hands it to the debug log so an operator
+    # can see what the thinking budget bought (M-4). `redacted_thinking` blocks
+    # carry no readable text and are counted, not stored.
+    thinking = "".join(
+        getattr(block, "thinking", "") or ""
+        for block in blocks
+        if getattr(block, "type", None) in ("thinking", "redacted_thinking")
+    )
+    if thinking:
+        note_trace(thinking)
+    return finalise_completion(response, "".join(parts), method="anthropic")

@@ -47,10 +47,13 @@ from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
     LLMProvider,
+    is_schema_rejection_message,
     raise_if_no_completion,
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.reasoning import finalise_completion
+from applire.providers.llm.usage import note_usage
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _HTTP_REFERER = "https://applire.community"
@@ -115,6 +118,52 @@ class OpenRouterProvider(LLMProvider):
             reasoning_effort if reasoning_effort is not None
             else settings.openrouter_reasoning_effort
         ) or ""
+        # Once this model has 400'd on `reasoning: {enabled: false}` we know it
+        # always will, so stop re-sending the doomed parameter. Requesty has had
+        # this latch since #181 (`requesty.py:110-114`) and OpenRouter did not,
+        # which cost a wasted round-trip on EVERY call for an operator running a
+        # mandatory-reasoning model with `OPENROUTER_DISABLE_THINKING=true`.
+        # Measured 2026-09-09 (WP-P, M-4): `z-ai/glm-5.3-flash` rejects the
+        # disable outright ("Reasoning is mandatory for this endpoint and cannot
+        # be disabled"), so a 30-turn matrix run made 60 requests where 30 would
+        # do — and the doubled wall-clock inside one `LLM_TIMEOUT` produced two
+        # turns that never returned at all. The operator's switch was buying
+        # latency and timeout risk in exchange for nothing.
+        self._reasoning_rejected = False
+
+    # ── M-3: structured output, with the rejection latched ───────────────────
+    _json_schema_rejected = False
+
+    @staticmethod
+    def _response_format(json_schema: dict | None) -> dict:
+        """`json_schema` when the caller supplied one, else today's `json_object`."""
+        if json_schema:
+            return {"type": "json_schema", "json_schema": json_schema}
+        return {"type": "json_object"}
+
+    def _note_schema_rejection(self, exc: Exception) -> bool:
+        """True when this 400 is about the response schema, and latch it.
+
+        Same shape and same reason as the mandatory-reasoning latch above: an
+        endpoint that cannot take a schema will never take one, so it costs a
+        single wasted request per process instead of one per call. The wording
+        check itself lives once in ``base.is_schema_rejection_message`` — see
+        that docstring for the adversarial-pass finding it fixes (a bare
+        substring match latching on an UNRELATED 400 that merely lists
+        `response_format` among the request's field names) and its own
+        documented limit (a genuine rejection phrased with none of the
+        matched words still slips through un-latched).
+        """
+        msg = str(getattr(exc, "message", None) or exc)
+        if is_schema_rejection_message(msg):
+            self._json_schema_rejected = True
+            logger.warning(
+                "model=%s rejected the response json_schema; falling back to "
+                "plain JSON mode for this process (%s)",
+                self._model, exc,
+            )
+            return True
+        return False
 
     async def acomplete(
         self,
@@ -163,13 +212,17 @@ class OpenRouterProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         messages = _build_messages(prompt, system)
         extra_body = self._extra_body(disable_thinking)
+        # M-3: schema guidance, latched off after the first rejection so an
+        # endpoint without structured output costs one 400 per process.
+        schema = None if self._json_schema_rejected else json_schema
 
         async def attempt(budget: int) -> str:
             return await asyncio.wait_for(
-                self._parse_json(messages, temperature, budget, extra_body),
+                self._parse_json(messages, temperature, budget, extra_body, schema),
                 timeout=self._timeout,
             )
 
@@ -212,16 +265,40 @@ class OpenRouterProvider(LLMProvider):
         """Call the chat-completions endpoint, degrading gracefully when the model
         mandates reasoning. If we asked to disable reasoning and the model 400s for
         that reason, retry once with reasoning left on and a budget floor — so a
-        thinking model the operator chose still works without any configuration."""
+        thinking model the operator chose still works without any configuration.
+
+        The rejection is LATCHED (M-4): after the first 400 the disable is not
+        sent again for this provider instance, so the fallback costs one wasted
+        request in the life of the process instead of one per call."""
+        if self._reasoning_rejected and extra_body and (
+            extra_body.get("reasoning", {}).get("enabled") is False
+        ):
+            base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
+            if self._reasoning_effort:
+                base_extra["reasoning"] = {"effort": self._reasoning_effort}
+            extra_body = base_extra or None
+            max_tokens = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
         try:
             return await self._client.chat.completions.create(
                 max_tokens=max_tokens, extra_body=extra_body, **kwargs
             )
         except openai.BadRequestError as exc:
+            # M-3 — a schema-shaped 400 retries the SAME call without the
+            # schema, so structured output can never cost a turn.
+            if (
+                isinstance(kwargs.get("response_format"), dict)
+                and kwargs["response_format"].get("type") == "json_schema"
+                and self._note_schema_rejection(exc)
+            ):
+                retry_kwargs = {**kwargs, "response_format": {"type": "json_object"}}
+                return await self._client.chat.completions.create(
+                    max_tokens=max_tokens, extra_body=extra_body, **retry_kwargs
+                )
             tried_disable = bool(
                 extra_body and extra_body.get("reasoning", {}).get("enabled") is False
             )
             if tried_disable and _is_reasoning_mandatory_error(exc):
+                self._reasoning_rejected = True
                 # The model won't let us turn reasoning off. Retry with it bounded to
                 # the configured effort (so it doesn't run away), or — if no effort is
                 # configured — drop the block and rely on the raised budget floor.
@@ -259,6 +336,7 @@ class OpenRouterProvider(LLMProvider):
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage
@@ -272,11 +350,18 @@ class OpenRouterProvider(LLMProvider):
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
-        return content
+        return finalise_completion(
+            response, content, model=self._model, method="acomplete"
+        )
 
     @_retry
     async def _parse_json(
-        self, messages: list, temperature: float, max_tokens: int, extra_body: dict | None
+        self,
+        messages: list,
+        temperature: float,
+        max_tokens: int,
+        extra_body: dict | None,
+        json_schema: dict | None = None,
     ) -> str:
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
         logger.debug(
@@ -289,10 +374,11 @@ class OpenRouterProvider(LLMProvider):
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"},
+            response_format=self._response_format(json_schema),
             extra_body=extra_body,
         )
         elapsed = time.monotonic() - t0
+        note_usage(response)  # ADR-086 clause 7 — token accounting seam
         raise_if_no_completion(response, model=self._model)
         content = response.choices[0].message.content
         usage = response.usage
@@ -306,7 +392,9 @@ class OpenRouterProvider(LLMProvider):
         )
         logger.debug("LLM response content (first 500 chars): %.500s", content or "")
         raise_if_truncated(finish, model=self._model)
-        return content
+        return finalise_completion(
+            response, content, model=self._model, method="aparse_json"
+        )
 
 
 def _build_messages(prompt: str, system: str | None) -> list:

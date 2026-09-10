@@ -91,10 +91,31 @@ async def seeded(db):
         language_requirement="en",
     )
     db.add(job)
+    # #670 (ADR-048 amended 2026-09-05): the letter's ledger read seam now re-runs
+    # ADR-061 / #318's affirmative invariant, so a `claimable` ledger row with nothing in
+    # the vault behind it is demoted before the writer or the reviewer sees it. Three tests
+    # in this file put such a row on a profile whose `work_experience` and `skills` were
+    # both empty — a state #318 exists to make impossible, and the demotion is correct.
+    # Corrected at the VAULT: the entry below carries exactly the evidence those ledgers
+    # claim (`Budgetverantwortung`, `SMED`). Never by relaxing the assertions — they are
+    # what those tests are for.
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Anna Bauer", "email": "anna@example.com"},
-        "work_experience": [],
-        "skills": [],
+        "work_experience": [
+            {
+                "id": "c0ffee00-0000-4000-8000-000000000001",
+                "company": "Vector Manufacturing GmbH",
+                "role": "Produktionsleiterin",
+                "start_date": "2017-01",
+                "end_date": None,
+                "is_current": True,
+                "responsibilities": [
+                    "Budgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung).",
+                    "Ruestworkshops nach SMED eingefuehrt und begleitet.",
+                ],
+            }
+        ],
+        "skills": [{"name": "SMED"}, {"name": "Budgetverantwortung"}],
     })
     db.add(profile)
     await db.flush()

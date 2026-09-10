@@ -50,6 +50,7 @@ from applire.schemas.profile import (
     CompletenessBlock,
     Conflict,
     EnrichmentRecord,
+    ImportNotApplied,
     HealthIssue,
     MasterProfileData,
     PendingConfirmation,
@@ -233,6 +234,95 @@ def _accuracy_issue(record: EnrichmentRecord) -> HealthIssue | None:
     )
 
 
+#: How each `ImportNotApplied.reason` is explained to the candidate. The "and
+#: why" half of founder ruling V-6 — a count with no reason is a worry, not a
+#: report. English here for the same reason every other `summary` in this module
+#: is English: it is the server-built fallback, and the localized composition
+#: belongs to the reader (`lib/conflict-display.ts`'s convention).
+_NOT_APPLIED_REASON = {
+    "no_op_carried_entry": "no change carried it",
+    "op_rejected": "the change was malformed and dropped",
+    "summary_populated": "your summary was already written, so it was left alone",
+    # M-1c (founder ruling M-1, 2026-09-09): the candidate stated something and
+    # the turn produced nothing at all. Named as the loss it is, not as the
+    # mechanism that caused it — the candidate did not choose the model.
+    "no_write": "nothing was recorded from what you said",
+}
+
+
+#: The language slots, named the way ruling V-2 named them on the dispute
+#: surface. A hub that says "en" while the dispute says "your self-description
+#: (English)" is two names for one thing, which is the class of drift #685 was
+#: filed against.
+_SUMMARY_SLOT_LABEL = {
+    "de": "your self-description (German)",
+    "en": "your self-description (English)",
+}
+
+
+def _item_label(item: ImportNotApplied) -> str:
+    """One not-applied item, named as the candidate would recognise it."""
+    if item.section == "professional_summary":
+        return _SUMMARY_SLOT_LABEL.get(item.label, item.label)
+    return item.label
+
+
+def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
+    """Founder ruling V-6 (2026-09-09) — the `not_applied` receipt gets a reader.
+
+    `commit_ops` has copied `ApplyResult.not_applied` onto every
+    `EnrichmentRecord` since #615 (2026-08-28) and **nothing read it**: the two
+    import doors derive `merge_status` from `MergeResult.not_applied` instead,
+    the testimony door's wire field is a different computation
+    (`witness.compute_not_applied`'s figure/op channel), and the frontend
+    carried no such field at all. So the product persisted, for a year of
+    releases, a durable record of "this did not land" that no surface showed —
+    the exact shape #684 was filed against ("silent loss becomes visible
+    state"). ADR-061's 2026-09-08 amendment then routed the summary drop onto
+    the same channel and would have inherited the same silence.
+
+    One issue per record rather than one per item: the candidate submitted ONE
+    thing, and three receipts about it are three worries about one event. The
+    items' own labels and reasons ride the summary.
+
+    Severity is always ``review``: nothing is destroyed and nothing is wrong —
+    the vault simply does not carry something the submission did. ``critical``
+    is for values the candidate rejected still standing (SF-PROFILE.9's band).
+    """
+    if not record.not_applied:
+        return None
+    reasons = sorted(
+        {_NOT_APPLIED_REASON.get(i.reason, i.reason) for i in record.not_applied}
+    )
+    labels = [_item_label(i) for i in record.not_applied][:3]
+    # V-7 — the pieces the reader composes from. `summary` below stays as the
+    # English fallback for any consumer that has not been updated.
+    raw_labels = [i.label for i in record.not_applied][:3]
+    raw_reasons = sorted({i.reason for i in record.not_applied})
+    more = len(record.not_applied) - len(labels)
+    named = ", ".join(labels) + (f" and {more} more" if more > 0 else "")
+    count = len(record.not_applied)
+    return HealthIssue(
+        id=f"not_applied:{record.id}",
+        thread="not_applied",
+        profile_mismatch_severity="review",
+        summary=(
+            f"{count} {'item' if count == 1 else 'items'} from your "
+            f"{record.source} did not reach your profile ({named}) — "
+            f"{'; '.join(reasons)}"
+        ),
+        field_ref=", ".join(
+            sorted({i.section for i in record.not_applied if i.section})
+        )
+        or None,
+        source_record_ref=record.id,
+        not_applied_count=count,
+        not_applied_source=record.source,
+        not_applied_reasons=raw_reasons,
+        not_applied_labels=raw_labels,
+    )
+
+
 def assess_health(
     profile: MasterProfileData,
     na_fields: list[str] | None = None,
@@ -263,6 +353,17 @@ def assess_health(
             issue = _accuracy_issue(record)
             if issue is not None:
                 issues.append(issue)
+        # Founder ruling V-6 — the TRAIL HEAD only, as ruled. An item that did
+        # not land two merges ago may well have been supplied by a later one,
+        # and a hub that reported it forever would nag about something already
+        # fixed (the mirror of SF-PROFILE.2's "conflicts age forever"). The
+        # residual is stated rather than hidden: a loss older than the newest
+        # record is NOT surfaced here, and the durable receipt — plus the
+        # WARNING each drop logs — remains the record of it.
+        if metadata.enrichment_history:
+            head = _not_applied_issue(metadata.enrichment_history[-1])
+            if head is not None:
+                issues.append(head)
 
     profile_dict = profile.model_dump()
     if na_fields:

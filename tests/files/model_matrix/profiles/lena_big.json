@@ -1,0 +1,262 @@
+{
+  "personal_info": {
+    "name": "Lena Fischer",
+    "email": "lena.fischer@example.com",
+    "phone": null,
+    "location": "Mainz",
+    "address": null,
+    "nationality": null,
+    "date_of_birth": null,
+    "photo_url": null,
+    "linkedin_url": null,
+    "xing_url": null,
+    "website_url": null
+  },
+  "professional_summary": {
+    "de": "Ich bin eine Engineering- und Architektur-Führungskraft, die Teams aufbaut, die vertrauenswürdige KI-gestützte Systeme bauen. Seit mehreren Jahren leite ich Teams in regulierten Umfeldern, setze technische Strategie und Roadmaps und entwickle Talente.",
+    "en": "I'm an engineering leader who builds and leads teams that build AI-driven systems people can trust. For several years I have led teams in regulated environments, set technical strategy and roadmaps, and developed talent. My focus is increasingly on applied AI, hands-on rather than only strategic. What I bring to a leadership role is proven engineering leadership in demanding, regulated settings paired with current AI fluency and the judgment to apply it responsibly."
+  },
+  "work_experience": [
+    {
+      "role": "Associate Director Supply Chain Systems",
+      "location": null,
+      "start_date": "2019-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Lead the team building the end-to-end supply-chain systems for individualized therapies",
+        "Own technical strategy and roadmap for manufacturing-adjacent IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "SAP",
+        "Azure",
+        "Python"
+      ],
+      "expected_fields": null,
+      "id": "w-nova",
+      "company": "NovaRNA Biotech GmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "IT Systems Lead",
+      "location": null,
+      "start_date": "2012-01",
+      "end_date": "2019-02",
+      "is_current": null,
+      "responsibilities": [
+        "Responsible for the laboratory and production information systems",
+        "Led validation projects under GxP"
+      ],
+      "achievements": [],
+      "technologies": [
+        "LIMS",
+        "Oracle"
+      ],
+      "expected_fields": null,
+      "id": "w-bsd",
+      "company": "Blutspendedienst Nord gGmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "Systems Engineer Manufacturing IT",
+      "location": null,
+      "start_date": "2005-09",
+      "end_date": "2011-12",
+      "is_current": null,
+      "responsibilities": [
+        "Maintained and extended the manufacturing execution system",
+        "Computer system validation for production IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "MES",
+        "SQL"
+      ],
+      "expected_fields": null,
+      "id": "w-helv",
+      "company": "Helvetia Pharma AG",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "Senior IT Consultant Life Sciences",
+      "location": null,
+      "start_date": "2012-03",
+      "end_date": "2014-12",
+      "is_current": null,
+      "responsibilities": [
+        "Delivered validation and process-IT projects for pharmaceutical clients",
+        "Led a team of four consultants"
+      ],
+      "achievements": [],
+      "technologies": [
+        "SAP",
+        "TrackWise"
+      ],
+      "expected_fields": null,
+      "id": "w-cons",
+      "company": "Rhein Consulting GmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "Research Assistant",
+      "location": null,
+      "start_date": "2003-04",
+      "end_date": "2005-08",
+      "is_current": null,
+      "responsibilities": [
+        "Applied machine-learning methods to neuronal recordings for a diploma thesis"
+      ],
+      "achievements": [],
+      "technologies": [
+        "MATLAB",
+        "Python"
+      ],
+      "expected_fields": null,
+      "id": "w-uni",
+      "company": "Universität Mainz",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    }
+  ],
+  "education": [
+    {
+      "id": "2afba14a-df8f-4804-bef7-e1596de10621",
+      "institution": "TU Darmstadt",
+      "degree": "Diplom",
+      "field": "Informatik",
+      "start_date": "1999",
+      "end_date": "2005",
+      "grade": null,
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "certifications": [],
+  "skills": [
+    {
+      "id": "af459042-5e0e-485a-b707-4ff704054399",
+      "name": "SAP",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "43a1a425-ddfc-4e63-af27-31ef891d9211",
+      "name": "Computer System Validation",
+      "category": "domain",
+      "proficiency": "expert",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "f01559fc-8bec-430f-8995-d824efe46ecc",
+      "name": "Team leadership",
+      "category": "soft",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "f2d4e884-fd90-4774-8d1a-6056b4835c5c",
+      "name": "Python",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "d94298a6-9eea-4e28-9d95-2e7769614b93",
+      "name": "Azure",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "7e031ee3-7c88-42eb-a95a-1af15f34d97f",
+      "name": "MES",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "510986f7-74f2-437c-a2c0-7a3baf731355",
+      "name": "LIMS",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "f0211716-8b5a-417a-905f-3b8dd59fc5b6",
+      "name": "GxP validation",
+      "category": "domain",
+      "proficiency": "expert",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "83ee4373-a6f9-4c0d-8834-a09e928aa2d0",
+      "name": "Machine learning",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    }
+  ],
+  "languages": [],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": null
+}

@@ -60,7 +60,7 @@ from applire.providers.llm.base import LLMProvider
 # longer imported here: the interview's last three hand-rolled vault writes (the
 # skill confirmation, the probe flag, the denial escalation) are typed acts
 # through `commit_ops` now, and the trail is invariant 3's, not this module's.
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, render_localized_confirmation
 from applire.schemas.session import (
     ConfirmationPrompt,
     ConflictSummary,
@@ -417,6 +417,32 @@ async def _handle_confirmation_answer(
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
         )
 
+    # Adversarial finding (2026-09-09, WP-adv-vault) — founder ruling V-5's
+    # resolution turn was wired into `_handle_interview_confirmation_answer`
+    # only (a confirmation raised and answered WITHIN the same interview
+    # turn). This handler is the OTHER, and more common, resolution route: the
+    # standalone profile-review interview (US165) that #686's "Decide now" CTA
+    # opens, which is where an engagement confirmation raised by
+    # `submit_testimony`, `submit_claims` or a CV import is actually answered
+    # — those doors never resolve their own asks in-session. Before this fix,
+    # `_resolve_confirmation_safely` below (`profile.resolve_confirmation`) was
+    # the ONLY thing that ran: it marks the park resolved and receipts the
+    # candidate's raw text, but it is bookkeeping by design
+    # (`_apply_resolve_confirmation`'s own docstring) — it never rebuilds the
+    # parked op, so the station/project/volunteering V-5's own ADR text
+    # describes as "gone" stayed gone on this route, whichever family or door
+    # raised it. `context`/`option_keys` reach `confirmation_entry` now
+    # (`_open_confirmations` / `build_confirmation_clusters`, fixed alongside
+    # this), so the same deterministic turn V-5 built can run here too.
+    context = confirmation_entry.get("context") or {}
+    if context.get("section") in _ENGAGEMENT_OPS:
+        profile_record = await _load_profile(state["profile_id"], db)
+        await _apply_engagement_confirmation(
+            db, profile_record, context, chosen,
+            session_id=str(record.id),
+            option_key=resolve_option_key(confirmation_entry, chosen),
+        )
+
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
 
     current_gap = state["critical_gaps"][current_idx]
@@ -428,21 +454,196 @@ async def _handle_confirmation_answer(
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
-def _skill_confirmation_decision(chosen: str) -> str:
-    """Map the user's picked option to a skill-dedupe resolution (#187).
+_SKILL_OPTION_KEYS = frozenset({"distinct", "merge", "keep"})
 
-    Robust to the two skill-confirmation shapes (single-token containment and
-    multi-atom overlap) by matching the answer text, not an option index:
-    ``"distinct"`` keeps the incoming as its own skill, ``"merge"`` folds it into
-    the existing one, ``"keep"`` discards the incoming (keep the existing skills).
-    An unrecognised non-empty answer defaults to ``"distinct"`` — never silently
-    drop the user's skill."""
+
+def resolve_option_key(pending_conf: dict, chosen: str) -> str | None:
+    """The stable key of the option the candidate picked (#669), or ``None``.
+
+    ADR-063 amended 2026-09-05: a confirmation's OPTIONS are the IDENTITY the
+    answer is matched on, so the identity may not be a rendered string. The
+    parked confirmation carries ``option_keys`` positionally paired with
+    ``options``; this finds WHICH option the answer names and returns its key.
+
+    Matched against every rendering the record carries — the plain ``options``
+    AND each language of ``options_i18n`` — so an answer submitted against a
+    German render resolves even if the caller re-rendered in English between
+    ask and answer. Exact (case- and whitespace-folded) equality, never a
+    substring: substring matching on rendered text is the defect this replaces.
+
+    ``None`` means "this record has no keys" (persisted before #669, or
+    model-emitted) — the caller falls back to the English matcher below.
+    """
+    keys = pending_conf.get("option_keys") or []
+    if not keys:
+        return None
+    answer = (chosen or "").strip().casefold()
+    if not answer:
+        return None
+    renderings: list[list[str]] = [list(pending_conf.get("options") or [])]
+    for payload in pending_conf.get("options_i18n") or []:
+        if isinstance(payload, dict):
+            renderings.append([])
+    # Build one list per language present, positionally aligned with `keys`.
+    i18n = pending_conf.get("options_i18n") or []
+    langs = {lang for payload in i18n if isinstance(payload, dict) for lang in payload}
+    for lang in sorted(langs):
+        renderings.append([
+            (payload.get(lang) or "") if isinstance(payload, dict) else ""
+            for payload in i18n
+        ])
+    for rendering in renderings:
+        for idx, text in enumerate(rendering):
+            if idx < len(keys) and text and text.strip().casefold() == answer:
+                return keys[idx]
+    return None
+
+
+def _skill_confirmation_decision(chosen: str, option_key: str | None = None) -> str:
+    """Map the user's answer to a skill-dedupe resolution (#187, #669).
+
+    ``option_key`` is the stable key of the option they picked
+    (``resolve_option_key``). When present it decides outright — matching stops
+    depending on language at all, which is the whole point of ADR-063's
+    2026-09-05 amendment.
+
+    **The English substring matcher below survives only as the back-compat
+    fallback** for confirmations persisted before #669 and for the ones the
+    MODEL emits (which carry no keys by construction —
+    ``engine._strip_adapter_only``). It is the defect the amendment names: a
+    German rendering of *"Keep the existing skills"* contains neither "keep" nor
+    "existing", so it fell to the ``distinct`` default and the vault GAINED a
+    skill the candidate asked it to discard. Pinned in
+    ``test_interview_confirmation_resolution.py``.
+
+    An unrecognised non-empty answer still defaults to ``"distinct"`` — never
+    silently drop the user's skill.
+    """
+    if option_key in _SKILL_OPTION_KEYS:
+        return option_key
     c = (chosen or "").strip().lower()
     if "separate" in c:
         return "distinct"
     if "keep" in c and "existing" in c:
         return "keep"
     if "merge" in c:
+        return "merge"
+    return "distinct"
+
+
+#: The three engagement families whose near-dupe confirmation the candidate can
+#: now resolve deterministically (founder ruling V-5). Keyed by the `section`
+#: the builders put on the confirmation's context.
+_ENGAGEMENT_OPS = {
+    "work_experience": "UpsertWork",
+    "projects": "UpsertProject",
+    "volunteer_activities": "UpsertVolunteer",
+}
+
+
+async def _apply_engagement_confirmation(
+    db: AsyncSession,
+    profile_record: MasterProfile,
+    context: dict,
+    chosen: str,
+    *,
+    session_id: str,
+    option_key: str | None = None,
+) -> bool:
+    """Write the entity the candidate just confirmed (founder ruling V-5).
+
+    Symmetrical with `_apply_interview_confirmation`'s skill arm and built to
+    the same precedent: the op batch is reconstructed from the confirmation's
+    own `context["incoming"]` — the op the reconciler emitted, parked verbatim —
+    and the candidate's answer travels as a CAPABILITY
+    (`UserConfirmedEngagement`) rather than as an op field, so no schema the
+    model can emit gains the power to waive the #177 near-dupe guard
+    (ADR-063 clause 1).
+
+    `"distinct"` creates the entry with the guard skipped; `"merge"` folds it
+    into the id the builder recorded in `context["existing_ids"]` — an ID, never
+    a rendered label, because #669 made the answer's identity
+    language-independent and re-deriving it from prose would undo that.
+
+    `pending_bullets` ride along as an `AddBullets` op against the same local
+    ref, so they land on whichever entity results. That is what the carrier was
+    written for in the first place; it just never had a reader.
+
+    Returns whether anything was applied. `grounding=None`: the candidate
+    answering their own question is a direct act (§7.4). **Flush, not commit** —
+    the caller owns the transaction.
+    """
+    section = context.get("section")
+    incoming = context.get("incoming")
+    if section not in _ENGAGEMENT_OPS or not isinstance(incoming, dict):
+        return False
+
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.apply import UserConfirmedEngagement
+    from applire.services.profile.reconcile import ops as _ops
+
+    op_cls = getattr(_ops, _ENGAGEMENT_OPS[section])
+    payload = {k: v for k, v in incoming.items() if k != "op"}
+    ref = str(payload.get("ref") or "confirmed-1")
+    payload["ref"] = ref
+    try:
+        entity_op = op_cls(**payload)
+    except Exception:  # noqa: BLE001 — a parked op from an older release
+        logger.warning(
+            "interview: could not rebuild the parked %s op from a confirmation "
+            "context; the answer cannot be applied deterministically", section,
+        )
+        return False
+
+    decision = "merge" if _engagement_decision(chosen, option_key) == "merge" else "distinct"
+    existing_ids = [i for i in (context.get("existing_ids") or []) if i]
+    target_id = existing_ids[0] if (decision == "merge" and existing_ids) else None
+
+    batch: list = [entity_op]
+    carried = context.get("pending_bullets") or {}
+    if isinstance(carried, dict) and any(carried.values()):
+        batch.append(
+            _ops.AddBullets(
+                target=ref,
+                responsibilities=list(carried.get("responsibilities") or []),
+                achievements=list(carried.get("achievements") or []),
+                technologies=list(carried.get("technologies") or []),
+            )
+        )
+
+    await commit_ops(
+        db,
+        batch,
+        CommitProvenance(
+            source="interview",
+            intake="interview_confirmation",
+            session_id=session_id,
+            actor="candidate",
+        ),
+        record=profile_record,
+        grounding=None,
+        snapshot=None,
+        embedding_provider=None,
+        user_confirmed_engagement=UserConfirmedEngagement(
+            ref=ref, decision=decision, target_id=target_id
+        ),
+    )
+    return True
+
+
+def _engagement_decision(chosen: str, option_key: str | None) -> str:
+    """`"merge"` or `"distinct"` for an engagement confirmation (#669 + V-5).
+
+    The stable key decides when present — the whole point of #669. The English
+    substring fallback is the same back-compat path the skill arm keeps, for
+    confirmations persisted before the key existed, and it fails toward
+    `"distinct"`: creating a duplicate the candidate can merge later is
+    recoverable; folding two real positions into one is not.
+    """
+    if option_key in ("merge", "distinct"):
+        return option_key
+    c = (chosen or "").strip().lower()
+    if "same" in c or "merge" in c or "zusammen" in c or "dieselbe" in c or "dasselbe" in c:
         return "merge"
     return "distinct"
 
@@ -454,6 +655,7 @@ async def _apply_interview_confirmation(
     chosen: str,
     *,
     session_id: str,
+    option_key: str | None = None,
 ) -> bool:
     """Apply a resolved interview-turn skill confirmation to the profile (#187).
 
@@ -488,11 +690,27 @@ async def _apply_interview_confirmation(
     """
     incoming = context.get("incoming_skill")
     if not incoming:
-        # Not a skill confirmation (entity near-dupe etc.) — advancing is enough
-        # to break the loop; entity-merge resolution is out of #187's scope.
+        # Founder ruling V-5 (2026-09-09) — the ENGAGEMENT arm.
+        #
+        # This branch used to read: *"Not a skill confirmation (entity near-dupe
+        # etc.) — advancing is enough to break the loop; entity-merge resolution
+        # is out of #187's scope."* Advancing broke the loop and lost the
+        # answer: the park closed with a receipt saying the candidate's choice
+        # was recorded, and the station, the project or the volunteering — plus
+        # any bullets carried onto `context["pending_bullets"]` — were never
+        # written. Reproduced in `test_confirmation_carried_bullets_are_lost`.
+        applied = await _apply_engagement_confirmation(
+            db, profile_record, context, chosen,
+            session_id=session_id, option_key=option_key,
+        )
+        if applied:
+            return True
+        # Still unresolvable (a shape with no `incoming`, a section outside the
+        # three engagement families): advancing remains the honest exit, and the
+        # applier's WARNING is what makes it diagnosable.
         return False
 
-    decision = _skill_confirmation_decision(chosen)
+    decision = _skill_confirmation_decision(chosen, option_key)
     if decision == "keep":
         return False  # discard the incoming — the existing skills stand unchanged
 
@@ -582,12 +800,48 @@ def _confirmation_state(confirmation) -> dict:
     question/options/context could never clear its own park — which is exactly
     why durable parking had to wait for this PR.
     """
+    # #669 — the STORED form is language-independent; rendering happens at the
+    # projection against the reader's current `ui_language`. `option_keys` is
+    # what the ANSWER resolves on (`resolve_option_key`), so it has to survive
+    # the round-trip through session state, not only through the durable park.
+    # All three keys are absent from a state dict written before this change,
+    # and every reader below defaults them.
     return {
         "confirmation_id": getattr(confirmation, "confirmation_id", None),
         "question": confirmation.question,
         "options": list(confirmation.options),
         "context": dict(confirmation.context),
+        "question_i18n": (
+            dict(confirmation.question_i18n)
+            if getattr(confirmation, "question_i18n", None)
+            else None
+        ),
+        "options_i18n": (
+            [dict(o) for o in confirmation.options_i18n]
+            if getattr(confirmation, "options_i18n", None)
+            else None
+        ),
+        "option_keys": list(getattr(confirmation, "option_keys", []) or []),
     }
+
+
+def render_confirmation(pending_conf: dict, lang: str) -> tuple[str, list[str]]:
+    """One parked confirmation as this reader's language sees it (#669).
+
+    Mirrors ``RequestConfirmation.rendered`` for the dict form that lives in
+    session state and in ``metadata.pending_confirmations`` — same fallback
+    chain (``[lang] ?? de ?? en ?? the plain field``), so a record persisted
+    before this change renders exactly as it always did.
+    """
+    i18n = pending_conf.get("options_i18n")
+    q_i18n = pending_conf.get("question_i18n")
+    return render_localized_confirmation(
+        question=pending_conf.get("question", "") or "",
+        options=list(pending_conf.get("options") or []),
+        question_i18n=q_i18n if isinstance(q_i18n, dict) else None,
+        options_i18n=i18n if isinstance(i18n, list) else None,
+        lang=lang,
+    )
 
 
 async def _handle_interview_confirmation_answer(
@@ -605,12 +859,12 @@ async def _handle_interview_confirmation_answer(
     Deterministic (no LLM re-run): the user's choice is applied via the carried
     context, then the interview advances. An empty answer re-asks the same
     question + options (never guess)."""
-    options = pending_conf.get("options") or []
+    # #669 — render in the reader's language; resolve on the stable key.
+    question, options = render_confirmation(pending_conf, lang)
     context = pending_conf.get("context") or {}
     chosen = (message or "").strip()
 
     if not chosen:
-        question = pending_conf.get("question", "")
         state["current_question"] = question
         state["current_choices"] = options
         state["messages"].append({"role": "assistant", "content": question})
@@ -629,7 +883,8 @@ async def _handle_interview_confirmation_answer(
 
     profile_record = await _load_profile(state["profile_id"], db)
     await _apply_interview_confirmation(
-        db, profile_record, context, chosen, session_id=str(record.id)
+        db, profile_record, context, chosen, session_id=str(record.id),
+        option_key=resolve_option_key(pending_conf, chosen),
     )
 
     # #480 PR 5 — the turn's ask is parked DURABLY on
@@ -744,14 +999,27 @@ async def _handle_conflict_answer(
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
-def _to_confirmation_prompts(confirmations) -> list[ConfirmationPrompt]:
-    """Map engine RequestConfirmation ops to the API confirmation DTO (US185)."""
-    return [
-        ConfirmationPrompt(
-            question=c.question, options=list(c.options), context=dict(c.context)
+def _to_confirmation_prompts(confirmations, lang: str = "en") -> list[ConfirmationPrompt]:
+    """Map engine RequestConfirmation ops to the API confirmation DTO (US185).
+
+    #669 — rendering happens HERE, at the projection, against the reader's
+    language (ADR-063 amended 2026-09-05, clause 2), and the DTO carries
+    ``option_keys`` so the agent door (ADR-058 parity) sees the same stable
+    identity the UI door does. ``lang`` defaults to ``"en"`` so a caller that
+    has not resolved a language yet behaves exactly as it did before.
+    """
+    prompts: list[ConfirmationPrompt] = []
+    for c in confirmations:
+        question, options = c.rendered(lang)
+        prompts.append(
+            ConfirmationPrompt(
+                question=question,
+                options=options,
+                context=dict(c.context),
+                option_keys=list(c.option_keys),
+            )
         )
-        for c in confirmations
-    ]
+    return prompts
 
 
 async def _ask_confirmation(
@@ -785,16 +1053,21 @@ async def _ask_confirmation(
     now; the tail is persisted in
     ``pending_interview_confirmation_queue`` and promoted one at a time by
     ``_handle_interview_confirmation_answer``."""
+    # #669 — the parked form is language-independent (`_confirmation_state`);
+    # what the candidate SEES is rendered here, against the conversation's
+    # language, exactly like every LLM-generated question on this surface.
+    lang = await get_conversation_language(db, job_id=state.get("job_id"))
     confirmations = [_confirmation_state(c) for c in turn.pending_confirmations]
     confirmation = turn.pending_confirmations[0]
+    question, choices = confirmation.rendered(lang)
     if current_gap not in state.get("addressed_gaps", []):
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
     state["resolving_confirmation"] = True
     state["pending_interview_confirmation"] = confirmations[0]
     state["pending_interview_confirmation_queue"] = confirmations[1:]
-    state["current_question"] = confirmation.question
-    state["current_choices"] = list(confirmation.options)
-    state["messages"].append({"role": "assistant", "content": confirmation.question})
+    state["current_question"] = question
+    state["current_choices"] = list(choices)
+    state["messages"].append({"role": "assistant", "content": question})
     record.state = state
     record.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -803,10 +1076,10 @@ async def _ask_confirmation(
     )
     return SessionMessageResponse(
         complete=False,
-        question=confirmation.question,
+        question=question,
         gaps_remaining=gaps_remaining,
-        choices=list(confirmation.options),
-        pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations),
+        choices=list(choices),
+        pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations, lang),
         pending_conflicts=turn.conflict_summaries or None,
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
@@ -849,6 +1122,11 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
             "field": c.field,
             "existing_value": c.existing_value,
             "incoming_value": c.incoming_value,
+            # #685 — `Conflict.source` carried the real provenance all along and
+            # this dict simply dropped it, so `_CONFLICT_COPY` had nothing to say
+            # but "an import suggested" — for an INTERVIEW answer, on the
+            # founder's own install (2026-09-06).
+            "source": c.source,
         }
         for c in profile_data.metadata.pending_conflicts
         if not c.resolved
@@ -857,7 +1135,32 @@ async def _open_conflicts(profile_record: MasterProfile) -> list[dict]:
 
 async def _open_confirmations(profile_record: MasterProfile) -> list[dict]:
     """Unresolved import-time confirmations (E037 PQ #4), shaped for the cluster
-    builder. Each is an N-option ambiguity the reconciler could not auto-resolve."""
+    builder. Each is an N-option ambiguity the reconciler could not auto-resolve.
+
+    Adversarial finding (2026-09-09, WP-adv-vault) — this used to carry only
+    ``{confirmation_id, question, options}``, dropping ``context`` and
+    ``option_keys`` exactly the way ``_open_conflicts`` used to drop
+    ``Conflict.source`` before #685. Two consequences, both silent:
+
+    1. an engagement near-dupe ambiguity raised by ``submit_testimony`` /
+       ``submit_claims`` / a CV import and answered through THIS surface (the
+       standalone profile-review interview, US165 — what #686's "Decide now"
+       CTA opens) could never reach founder ruling V-5's resolution turn
+       (``session._apply_engagement_confirmation``), because that turn is
+       rebuilt from ``context["incoming"]`` / ``context["existing_ids"]``,
+       which never arrived here. The candidate's answer was recorded as
+       "resolved" and the station/project/volunteering was still never
+       created or merged — V-5's own defect, reproduced via the door +
+       resolution-route combination the adversarial brief named explicitly.
+    2. with no ``options_i18n`` either, ``build_confirmation_clusters``
+       rendered the door's ALWAYS-ENGLISH plain ``question``/``options``
+       fields verbatim regardless of the reader's ``ui_language`` — a German
+       session saw an English question (#669's whole point, undone one layer
+       up).
+
+    Both are fixed together: this now carries the full language-independent
+    shape ``PendingConfirmation`` already persists.
+    """
     profile_data = MasterProfileData.model_validate(profile_record.profile_json)
     if profile_data.metadata is None:
         return []
@@ -866,6 +1169,10 @@ async def _open_confirmations(profile_record: MasterProfile) -> list[dict]:
             "confirmation_id": c.confirmation_id,
             "question": c.question,
             "options": list(c.options),
+            "context": dict(c.context),
+            "question_i18n": dict(c.question_i18n) if c.question_i18n else None,
+            "options_i18n": [dict(o) for o in c.options_i18n] if c.options_i18n else None,
+            "option_keys": list(c.option_keys),
         }
         for c in profile_data.metadata.pending_confirmations
         if not c.resolved
@@ -1459,13 +1766,20 @@ async def _create_guided_session(
     )
     critical_gaps = gate_ids + sections
 
-    # ADR-080 — same derivation as every other mode plan. For MODE B it
-    # REPRODUCES the historical constant rather than changing it: `gap_detector_
-    # mode_b` returns 7 core sections plus up to 2 JD-signalled ones, so an
-    # ungated 9-section plan derives 2*9+2 = 20, exactly the old
-    # INTERVIEW_HARD_CEILING_GUIDED. That the guided ceiling was already sized
-    # this way, and the targeted one was not, is the evidence in ADR-080 that
-    # this formula is the law the system had been following unevenly.
+    # ADR-080 — same derivation as every other mode plan.
+    #
+    # This comment used to say the MODE B derivation REPRODUCES the historical
+    # constant: 7 core sections plus up to 2 JD-signalled ones, so an ungated
+    # 9-section plan derives 2*9+2 = 20, exactly INTERVIEW_HARD_CEILING_GUIDED.
+    # That coincidence was the evidence in ADR-080 that the formula is the law
+    # the system had been following unevenly — and it ENDED on 2026-09-08, when
+    # ADR-028's amendment dropped `professional_summary` from
+    # `_MODE_B_CORE_SECTIONS` (epic #683). Six core sections plus up to two
+    # signalled ones derives 2*8+2 = 18; the constant stays 20 and is now what
+    # ADR-080 clause 4 says it is — the operator's cap, applied after the
+    # derivation, not the budget. One section fewer costs two questions of
+    # budget, which is exactly what the formula is for; the constant is not
+    # re-tuned to hide the change.
     hard_ceiling = derive_hard_ceiling(
         len(critical_gaps), cap=settings.interview_max_questions_guided
     )

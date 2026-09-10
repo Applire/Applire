@@ -38,6 +38,15 @@ export interface AppSettings {
   // backend that predates the column; a reader that gets nothing must treat
   // it as "nothing dismissed" and SHOW the explainer (fail-open, D-3).
   dismissed_explainers?: string[];
+  // #686 (founder ruling V-1, 2026-09-09) — how long the gaps page's decision
+  // popups stay on screen without interaction, in seconds. **0 = never
+  // auto-hide.** Operator-configurable: WP-O2 adds `NOTICE_AUTO_DISMISS_SECONDS`
+  // (default 30) to `config.py`, the settings registry and this payload.
+  // Optional here for back-compat with a backend that predates the column; a
+  // reader that gets nothing falls back to
+  // `ProfileDecisionsCard.DEFAULT_AUTO_DISMISS_SECONDS`, never to 0 — an absent
+  // value must not be read as the deliberate "never hide" setting.
+  notice_auto_dismiss_seconds?: number;
 }
 
 /** GET /api/settings — the current user's preferences. */

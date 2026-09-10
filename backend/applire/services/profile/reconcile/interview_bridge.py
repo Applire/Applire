@@ -143,6 +143,9 @@ async def reconcile_interview_turn(
         # the reconciler's own denial verdict about it (#231), so this bridge no
         # longer calls `record_denials` itself. Stance and attribution already
         # ran over the same text inside `reconcile()` above.
+        # M-1c — the answer's own words, so a turn that stated something and
+        # wrote nothing leaves a receipt instead of silence.
+        turn_text=answer,
         grounding=TurnGrounding(
             text=answer, question=question, gap=gap, denials=list(result.denials)
         ),

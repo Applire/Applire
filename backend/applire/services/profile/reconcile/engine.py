@@ -44,6 +44,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.ops import (
+    ADAPTER_ONLY_CONFIRMATION_FIELDS,
     ReconcileOp,
     ReconcileResult,
     RequestConfirmation,
@@ -94,6 +95,9 @@ async def reconcile(
             system=RECONCILE_SYSTEM_PROMPT,
             temperature=0.1,
             max_tokens=RECONCILE_MAX_TOKENS,
+            # M-3 — the op union as a SCHEMA, not only as prose, when the
+            # operator has turned it on. `None` keeps today's JSON mode exactly.
+            json_schema=_structured_output_schema(),
         )
     except LLMTruncatedError:
         # Data loss — never mask as an empty merge. Let the caller surface it.
@@ -144,6 +148,77 @@ async def reconcile(
     )
 
 
+def _structured_output_schema() -> dict[str, Any] | None:
+    """The reconciler's JSON schema when `LLM_STRUCTURED_OUTPUT=auto`, else None.
+
+    Read at call time rather than at import: an operator who flips the setting
+    should not have to know that a module-level constant cached the old answer.
+    Never raises — a schema is an optimisation, and failing to build one may not
+    fail a vault write.
+    """
+    try:
+        from applire.config import settings
+
+        if (settings.llm_structured_output or "off").lower() != "auto":
+            return None
+        from applire.services.profile.reconcile.schema_out import (
+            reconcile_json_schema_param,
+        )
+
+        return reconcile_json_schema_param()
+    except Exception:  # noqa: BLE001 — never let schema construction break a turn
+        logger.debug("reconcile: could not build the response schema; using JSON mode")
+        return None
+
+
+def _strip_adapter_only(item: Any) -> Any:
+    """Remove the confirmation fields only deterministic code may fill (#669).
+
+    ADR-063's governing rule is *never widen an op the model can emit with a
+    more powerful parameter*. ``RequestConfirmation.option_keys`` is the
+    IDENTITY a vault WRITE resolves the candidate's answer on (ADR-063 amended
+    2026-09-05), and ``question_i18n`` / ``options_i18n`` assert that the text
+    exists in two languages. The model emits ``request_confirmation`` routinely
+    (prompt rule 6), so leaving these fields reachable from raw model output
+    would let a hallucinated key decide a merge, and let the model translate its
+    own question unreviewed.
+
+    Stripped rather than rejected: a model that volunteers the fields still gets
+    a valid, useful confirmation — it just loses the half it is not entitled to.
+    Rejecting the whole op would turn an over-eager model into silent data loss,
+    which is the direction every guard in this module refuses to fail in.
+
+    Non-dicts and every other op type pass through untouched.
+    """
+    if not isinstance(item, dict) or item.get("op") != "request_confirmation":
+        return item
+    return strip_confirmation_extras(item)
+
+
+def strip_confirmation_extras(item: Any) -> Any:
+    """``_strip_adapter_only`` without the op-type guard, for the SECOND raw
+    path: the top-level ``"ambiguities"`` array, whose items are validated
+    straight into ``RequestConfirmation`` by ``_parse_ambiguities`` and
+    therefore carry no ``"op"`` key at all.
+
+    Two raw paths, one rule — a strip applied at only one of them is the hole
+    the guard was written to close (ADR-066: one logical operation, one
+    implementation, at every seam that performs it).
+    """
+    if not isinstance(item, dict):
+        return item
+    if not any(k in item for k in ADAPTER_ONLY_CONFIRMATION_FIELDS):
+        return item
+    stripped = {k: v for k, v in item.items() if k not in ADAPTER_ONLY_CONFIRMATION_FIELDS}
+    logger.warning(
+        "reconcile: stripped adapter-only field(s) %s from a model-emitted "
+        "confirmation — option_keys is a vault-write identity and is never the "
+        "model's to supply (ADR-063 amended 2026-09-05, #669)",
+        sorted(k for k in ADAPTER_ONLY_CONFIRMATION_FIELDS if k in item),
+    )
+    return stripped
+
+
 def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[ReconcileOp]:
     """Validate each op independently; drop the ones that fail, keep the rest.
 
@@ -160,7 +235,7 @@ def _parse_ops(raw: Any, *, rejected: list[str] | None = None) -> list[Reconcile
     ops: list[ReconcileOp] = []
     for item in raw:
         try:
-            ops.append(_OP_ADAPTER.validate_python(item))
+            ops.append(_OP_ADAPTER.validate_python(_strip_adapter_only(item)))
         except ValidationError:
             # #602 — WARNING, not DEBUG: a schema-rejected op is a silent data
             # loss for whichever batch emitted it (an entire incoming section
@@ -190,7 +265,9 @@ def _parse_ambiguities(raw: Any) -> list[RequestConfirmation]:
     ambiguities: list[RequestConfirmation] = []
     for item in raw:
         try:
-            ambiguities.append(RequestConfirmation.model_validate(item))
+            ambiguities.append(
+                RequestConfirmation.model_validate(strip_confirmation_extras(item))
+            )
         except ValidationError:
             logger.debug("reconcile: dropped malformed ambiguity %r", item)
     return ambiguities

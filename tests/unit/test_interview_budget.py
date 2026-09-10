@@ -266,22 +266,49 @@ def test_budget_strictly_exceeds_the_worst_case_question_count(n, per_gap):
     assert derive_hard_ceiling(n, per_gap=per_gap) > worst_case_final_count
 
 
-def test_mode_b_derivation_reproduces_the_historical_guided_ceiling():
-    """ADR-080 Context — the evidence that only the targeted plan was mis-set.
+def test_mode_b_derivation_no_longer_coincides_with_the_historical_ceiling():
+    """ADR-028 amended 2026-09-08 (#683) — the coincidence ADR-080 cited ENDED.
 
-    `gap_detector_mode_b` returns 7 core sections plus up to 2 JD-signalled
-    ones, and 20 (the pre-ADR-080 `INTERVIEW_HARD_CEILING_GUIDED`) is exactly
-    the derivation for its maximum. If this ever stops holding, either the
-    section list or the derivation moved and ADR-080's Context needs revisiting.
+    The predecessor of this test asserted `max_sections == 9` and
+    `derive_hard_ceiling(9, per_gap=2) == 20`: `gap_detector_mode_b` returned 7
+    core sections plus up to 2 JD-signalled ones, and 20 was exactly the
+    pre-ADR-080 `INTERVIEW_HARD_CEILING_GUIDED`. That coincidence was ADR-080's
+    Context — the evidence that only the *targeted* plan had been mis-set. Its
+    own docstring said: *"If this ever stops holding, either the section list or
+    the derivation moved and ADR-080's Context needs revisiting."*
+
+    The section list moved, deliberately: `professional_summary` left
+    `_MODE_B_CORE_SECTIONS` because the summary is the candidate's own
+    self-description and Mode C is the one door that may ask for it. So the
+    ungated guided plan is 8 sections and derives **18**, one gap's worth (two
+    questions) below the 20 it used to reproduce.
+
+    `INTERVIEW_HARD_CEILING_GUIDED` is untouched by this change. It is 30 today
+    — the pre-ADR-080 value the old coincidence was about was 20 — and since
+    ADR-080 clause 4 it is purely the operator's cap, applied AFTER the
+    derivation, so it does not bind here either way.
+
+    This test pins BOTH halves, because the interesting failure is silent
+    re-tuning: a future change that puts the section back, or that moves the
+    constant to restore a coincidence, should redden here and be argued in the
+    ADR rather than absorbed.
     """
+    from applire.constants import INTERVIEW_HARD_CEILING_GUIDED
     from applire.services.interview_graph import (
         _MODE_B_CORE_SECTIONS,
         _MODE_B_EXTENDED_SECTIONS,
     )
 
+    assert "professional_summary" not in _MODE_B_CORE_SECTIONS
+    assert "professional_summary" not in _MODE_B_EXTENDED_SECTIONS
     max_sections = len(_MODE_B_CORE_SECTIONS) + len(_MODE_B_EXTENDED_SECTIONS)
-    assert max_sections == 9
-    assert derive_hard_ceiling(max_sections, per_gap=2) == 20
+    assert max_sections == 8
+    assert derive_hard_ceiling(max_sections, per_gap=2) == 18
+    # The operator cap sits above the derivation, so the derived budget stands.
+    assert INTERVIEW_HARD_CEILING_GUIDED > 18
+    assert derive_hard_ceiling(
+        max_sections, per_gap=2, cap=INTERVIEW_HARD_CEILING_GUIDED
+    ) == 18
 
 
 def test_operator_setting_is_a_cap_not_the_value():

@@ -461,9 +461,15 @@ def test_a_cv_target_on_a_volunteer_or_publication_pin_is_refused():
 def test_cv_reviewer_prompt_size_ratchet():
     """Check 7 landed at 10,476 chars (was 9,408). The ceiling sits just above the
     current size so the NEXT append meets the same question the letter's ratchet
-    asks: map the new content to an SF-WRITE/SF-PIN row and replace, do not append."""
+    asks: map the new content to an SF-WRITE/SF-PIN row and replace, do not append.
+
+    Moved 10,700 → 10,800 ONCE, on 2026-09-08, for #668's named check 8 (REDUNDANCY):
+    +274 chars, mapped to SF-WRITE.26/.27, and the concept it replaces gave 12 back
+    (the word `repetition` leaving the minor-by-definition line). This assertion and
+    its twin in `test_545_terminal_whole_document_checks.py` must move together — two
+    ratchets on one prompt that disagree are one ratchet."""
     from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT
 
-    assert len(REVIEW_SYSTEM_PROMPT) < 10_700, (
+    assert len(REVIEW_SYSTEM_PROMPT) < 10_800, (
         f"CV reviewer prompt is {len(REVIEW_SYSTEM_PROMPT)} chars — it is regrowing."
     )

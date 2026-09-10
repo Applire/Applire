@@ -956,6 +956,8 @@ def _cap_bullets(
     external_text: str = "",
     context: dict | None = None,
     pinned: set[int] = frozenset(),
+    demanded_groups: Sequence[Sequence[str]] = (),
+    narrative_external_text: str = "",
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -1016,6 +1018,10 @@ def _cap_bullets(
         external_text=external_text,
         # ADR-077 clause 4: fact-pin carriers never enter the removable set.
         pinned=pinned,
+        # ADR-072 clause 4 amended 2026-09-08 (#666): neither does the earliest
+        # narrative carrier of a concept this round's demands will raise again.
+        demanded_groups=demanded_groups,
+        narrative_external_text=narrative_external_text,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -1129,6 +1135,7 @@ def _restore_ledger_bullets(
     # the entries already processed plus the ones still untouched, so a cut
     # made in an earlier entry is correctly absent from the picture.
     concept_groups = budget.claimable_concepts if budget is not None else ()
+    demanded_groups = budget.demanded_concepts if budget is not None else ()
     non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
     pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
 
@@ -1144,6 +1151,29 @@ def _restore_ledger_bullets(
             return ""
         others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
         return stringify_draft({**non_work, "work_history": others})
+
+    def _narrative_external_text(index: int, entry_dict: dict) -> str:
+        """The same slice, restricted to NARRATIVE text — work-entry bullets and
+        nested-project bullets, nothing else (#666).
+
+        Built through ``keyword_ledger._tailored_narrative_texts``, the ONE definition
+        of "narrative space" the under-claim signal and ``cv_coverage_budget`` already
+        share (ADR-066). The distinction is load-bearing: the whole-document
+        ``_external_text`` above counts a skills tag as coverage, and a cap that does
+        cannot honour a demand whose own rule is *"a skills-list entry does NOT satisfy
+        this"*.
+        """
+        if not concept_groups:
+            return ""
+        from applire.services.keyword_ledger import (
+            _tailored_narrative_texts,
+            narrative_corpus_view,
+        )
+
+        others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
+        return "\n".join(
+            _tailored_narrative_texts(narrative_corpus_view({"work_history": others}))
+        )
 
     for w_index, w in enumerate(tailored.work_history):
         w_dict = w.model_dump(mode="json")
@@ -1242,6 +1272,12 @@ def _restore_ledger_bullets(
                     pinned=bullet_pin_carrier_indices(
                         ordered, entry_id=eid, pins=pins
                     ),
+                    # ADR-072 clause 4 amended 2026-09-08 (#666): so is the earliest
+                    # narrative carrier of a concept the round's demands will raise
+                    # again. Both ceiling enforcers in this function get it, or the
+                    # restore path would silently undo what the cap path protects.
+                    demanded_groups=demanded_groups,
+                    narrative_external_text=_narrative_external_text(w_index, w_dict),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1290,6 +1326,8 @@ def _restore_ledger_bullets(
                 pinned=bullet_pin_carrier_indices(
                     existing_bullets, entry_id=eid, pins=pins
                 ),
+                demanded_groups=demanded_groups,
+                narrative_external_text=_narrative_external_text(w_index, w_dict),
             )
             if capped != existing_bullets:
                 changed = True
@@ -2234,9 +2272,18 @@ async def generate_cv(
     await db.commit()
     await db.refresh(record)
 
+    # ADR-086 / US313 — attribute the generation's llm_usage rows to the
+    # application that requested it. `application` was already resolved above
+    # for document-language pinning; `None` when no application row exists yet
+    # (e.g. a CV generated before the application record is created) and the
+    # rows fall back to document-only attribution (adversarial pass, 2026-09-09).
+    application_id = application.id if application is not None else None
+
     if background_tasks is None:
         # Agent channel: no request lifecycle to defer to — render inline.
-        await _render_cv_background(record.id, job_id, profile.id, template)
+        await _render_cv_background(
+            record.id, job_id, profile.id, template, application_id
+        )
         await db.refresh(record)
     else:
         # REST: enqueue heavy work — runs after the response is sent.
@@ -2246,6 +2293,7 @@ async def generate_cv(
             job_id,
             profile.id,
             template,
+            application_id,
         )
 
     return CVGenerateResponse(
@@ -2683,560 +2731,535 @@ async def _render_cv_background(
     job_id: uuid.UUID,
     profile_id: uuid.UUID,
     template: CVTemplate,
+    application_id: uuid.UUID | None = None,
 ) -> None:
     """LLM tailoring + Playwright PDF rendering — runs outside request lifecycle.
 
     Opens its own DB session. Updates status: pending → generating → ready | failed.
+
+    ``application_id`` (adversarial pass, 2026-09-09 — the O1/O2 integration had
+    dropped it) is resolved by the caller (``generate_cv``) BEFORE this task is
+    scheduled, because by the time this function opens its own session the
+    request's application lookup would have to be repeated. ``None`` when no
+    application row exists yet; the row then carries document-only attribution.
     """
-    async with AsyncSessionLocal() as db:
-        record = await db.get(GeneratedCV, cv_id)
-        if record is None:
-            logger.error("CV %s not found in background task", cv_id)
-            return
+    # ADR-086 / US313 — attribute every provider call of this generation to the
+    # document (and application, where known) it produced — set-and-restore, so
+    # an audit tail cannot inherit it.
+    from applire.providers.llm.usage import llm_usage_context
 
-        try:
-            record.status = CVGenerationStatus.generating.value
-            await db.commit()
+    with llm_usage_context(
+        stage="cv",
+        document_kind="cv",
+        document_id=cv_id,
+        application_id=application_id,
+    ):
+        async with AsyncSessionLocal() as db:
+            record = await db.get(GeneratedCV, cv_id)
+            if record is None:
+                logger.error("CV %s not found in background task", cv_id)
+                return
 
-            # Load job + profile + optional gap analysis
-            job = await db.get(JobAnalysis, job_id)
-            profile = await db.get(MasterProfile, profile_id)
-
-            # E054 / ADR-038 amendment clause 3a: ONE language for the whole
-            # run — the value generate_cv pinned on the record. Never re-resolve
-            # per pass: the override is user-mutable mid-flight, and a split
-            # would let the language reviewer "correct" the writer's output
-            # against the wrong target. NULL pin (pre-migration row) falls
-            # back to detection.
-            document_language = record.document_language or resolve_jd_language(job)
-
-            # Auto-detect and cache company brand color (best-effort; never blocks CV generation)
             try:
-                from applire.services.color_detection import detect_and_cache_company_color
-                await detect_and_cache_company_color(job, db)
-            except Exception:
-                logger.debug("detect_and_cache_company_color failed silently", exc_info=True)
+                record.status = CVGenerationStatus.generating.value
+                await db.commit()
 
-            gap_result = await db.execute(
-                select(GapAnalysis)
-                .where(
-                    GapAnalysis.job_analysis_id == job_id,
-                    GapAnalysis.deleted_at.is_(None),
+                # Load job + profile + optional gap analysis
+                job = await db.get(JobAnalysis, job_id)
+                profile = await db.get(MasterProfile, profile_id)
+
+                # E054 / ADR-038 amendment clause 3a: ONE language for the whole
+                # run — the value generate_cv pinned on the record. Never re-resolve
+                # per pass: the override is user-mutable mid-flight, and a split
+                # would let the language reviewer "correct" the writer's output
+                # against the wrong target. NULL pin (pre-migration row) falls
+                # back to detection.
+                document_language = record.document_language or resolve_jd_language(job)
+
+                # Auto-detect and cache company brand color (best-effort; never blocks CV generation)
+                try:
+                    from applire.services.color_detection import detect_and_cache_company_color
+                    await detect_and_cache_company_color(job, db)
+                except Exception:
+                    logger.debug("detect_and_cache_company_color failed silently", exc_info=True)
+
+                gap_result = await db.execute(
+                    select(GapAnalysis)
+                    .where(
+                        GapAnalysis.job_analysis_id == job_id,
+                        GapAnalysis.deleted_at.is_(None),
+                    )
+                    .order_by(GapAnalysis.created_at.desc())
+                    .limit(1)
                 )
-                .order_by(GapAnalysis.created_at.desc())
-                .limit(1)
-            )
-            gap = gap_result.scalar_one_or_none()
-            keyword_gaps: list[str] = gap.keyword_gaps if gap else []
-            # E049 (#383 prompt-side half): critical_gaps are no longer fed to the
-            # writer — the CRITICAL GAPS prompt block contradicted the "a CV is not
-            # the place to disclose a gap" rule on every call. Gap handling is the
-            # Keyword Ledger's job (ADR-048).
-            # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
-            # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
-            # #592 (ADR-048 amended): the persisted row states what the vault held
-            # when the analysis ran. Re-derive it against the vault THIS run was
-            # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
-            # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
-            # no second query — `gap` and `profile` are already loaded.
-            from applire.services.keyword_ledger import refresh_ledger_against_vault
+                gap = gap_result.scalar_one_or_none()
+                keyword_gaps: list[str] = gap.keyword_gaps if gap else []
+                # E049 (#383 prompt-side half): critical_gaps are no longer fed to the
+                # writer — the CRITICAL GAPS prompt block contradicted the "a CV is not
+                # the place to disclose a gap" rule on every call. Gap handling is the
+                # Keyword Ledger's job (ADR-048).
+                # ADR-048 / US200: the Keyword Ledger drives claimable-vs-forbidden keyword
+                # surfacing in the tailoring prompt (legacy pre-E037 gap rows have none).
+                # #592 (ADR-048 amended): the persisted row states what the vault held
+                # when the analysis ran. Re-derive it against the vault THIS run was
+                # handed, or the DO-NOT-CLAIM block forbids terms the profile beside it
+                # carries. Same helper as the ATS-report read (`_latest_keyword_ledger`);
+                # no second query — `gap` and `profile` are already loaded.
+                # #670 (ADR-048 amended 2026-09-05, founder ruling 9): the read seams
+                # PERSIST and RE-SCORE. #592 left them read-only, which let the generated
+                # document and the Gaps screen disagree; the ruling converges them and
+                # accepts that a score the candidate has already seen may move.
+                from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-            keyword_ledger, _ledger_refreshed = refresh_ledger_against_vault(
-                (gap.keyword_ledger or []) if gap else [],
-                profile.profile_json if profile else None,
-                seam="cv generation",
-            )
-
-            job_dict = {
-                "role_title": job.role_title,
-                "required_skills": job.required_skills,
-                "nice_to_have_skills": job.nice_to_have_skills,
-                "keywords": job.keywords,
-                "seniority_level": job.seniority_level,
-                "company_culture_signals": job.company_culture_signals,
-                "language_requirement": job.language_requirement,
-            }
-
-            # Sort work experience reverse-chronologically before passing to LLM.
-            # Handles profiles that pre-date the merge-time sort.
-            profile_json: dict = dict(profile.profile_json or {})
-            if profile_json.get("work_experience"):
-                from applire.schemas.profile import WorkEntry
-                we = [WorkEntry.model_validate(e) for e in profile_json["work_experience"]]
-                profile_json["work_experience"] = [
-                    e.model_dump() for e in _sort_work_by_date(we)
-                ]
-            # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
-            # below (certifications passthrough, skill-restoration pools) may see
-            # an unconfirmed vault entry — it cannot back a CV line. The
-            # candidate's own persisted profile is untouched; this is a filtered
-            # COPY used for generation only.
-            from applire.services.profile.reconcile.stance import exclude_unconfirmed
-            profile_json = exclude_unconfirmed(profile_json)
-
-            # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
-            # BEFORE generation, from the profile + Keyword Ledger + this row's resolved
-            # target_pages (Task 1.1 persists it non-NULL for every new row; the fallback
-            # here only guards a pre-E042 legacy record). Threaded into both LLM paths
-            # below so the model aims at the target page count directly.
-            from applire.services.cv_budget import attach_projects, compute_bullet_budgets
-
-            resolved_target_pages = (
-                record.target_pages
-                if record.target_pages is not None
-                else resolve_target_pages(None, None)
-            )
-            budget_work_entries = attach_projects(
-                profile_json.get("work_experience") or [], profile_json.get("projects") or []
-            )
-            budget = compute_bullet_budgets(
-                budget_work_entries, keyword_ledger, resolved_target_pages
-            )
-
-            # STATED LIMITS: the candidate's persisted denial statements, verbatim
-            # (ProfileMetadata.denied_concepts). Threaded into the writer prompt(s) below
-            # so a CV skill tag or summary line never contradicts something the candidate
-            # explicitly said they cannot claim. Facts only — this deliberately does NOT
-            # decide which claimable concept each limit bears on; that pairing used to be
-            # `find_scoped_boundaries` and it was wrong on real data in the one direction
-            # that matters (see services/cross_document.collect_stated_limits).
-            from applire.services.cross_document import (
-                collect_stated_limits,
-                render_stated_limits_block,
-            )
-
-            denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
-            stated_limits_block = render_stated_limits_block(
-                collect_stated_limits(denied_concepts)
-            )
-
-            # ADR-070 clause 2: the candidate's own scale evidence for partial scope
-            # entries (bar.attested + typed values) — the ONLY channel scope material
-            # takes into a document (scope entries are excluded from the ledger block
-            # by is_scope_entry). Empty → adds nothing.
-            from applire.services.scope_requirements import render_scope_positioning_block
-
-            scope_positioning_block = render_scope_positioning_block(
-                keyword_ledger, document_language
-            ) or None
-
-            # ADR-077 (E056): fact pins — generation-start re-verify (clause 7)
-            # + the PINNED FACTS input block (clause 3). Staleness is measured
-            # against the RAW persisted profile (claimability included); a
-            # moved flag is written back on the application row in this same
-            # transaction. Active CV-target pins then partition the cut paths
-            # (clause 4) and feed the writer block. Fail-safe: a pin-load
-            # failure degrades to "no pins", never breaks generation.
-            cv_pins: list = []
-            pinned_facts_block: str | None = None
-            # #580: the corrector's reference variant, folded into the review
-            # loop's `source` (never the writer's REQUIRED/word-for-word header —
-            # the 2026-08-26 replay showed the corrector obeying that header over
-            # the reviewer's "do not insert the conflicted pin").
-            pinned_facts_loop_block: str | None = None
-            try:
-                from applire.schemas.profile import MasterProfileData
-                from applire.services.application import get_application_for_job
-                from applire.services.color_detection import _CE_STUB_USER_ID
-                from applire.services.fact_pins import (
-                    load_pins,
-                    refresh_pin_staleness,
+                keyword_ledger = (
+                    await refresh_persist_and_rescore(
+                        gap, profile.profile_json if profile else None, db,
+                        seam="cv generation",
+                    )
+                    if gap is not None
+                    else []
                 )
+
+                job_dict = {
+                    "role_title": job.role_title,
+                    "required_skills": job.required_skills,
+                    "nice_to_have_skills": job.nice_to_have_skills,
+                    "keywords": job.keywords,
+                    "seniority_level": job.seniority_level,
+                    "company_culture_signals": job.company_culture_signals,
+                    "language_requirement": job.language_requirement,
+                }
+
+                # Sort work experience reverse-chronologically before passing to LLM.
+                # Handles profiles that pre-date the merge-time sort.
+                profile_json: dict = dict(profile.profile_json or {})
+                if profile_json.get("work_experience"):
+                    from applire.schemas.profile import WorkEntry
+                    we = [WorkEntry.model_validate(e) for e in profile_json["work_experience"]]
+                    profile_json["work_experience"] = [
+                        e.model_dump() for e in _sort_work_by_date(we)
+                    ]
+                # ADR-061 clause 3: neither the writer LLM nor any deterministic pass
+                # below (certifications passthrough, skill-restoration pools) may see
+                # an unconfirmed vault entry — it cannot back a CV line. The
+                # candidate's own persisted profile is untouched; this is a filtered
+                # COPY used for generation only.
+                from applire.services.profile.reconcile.stance import exclude_unconfirmed
+                profile_json = exclude_unconfirmed(profile_json)
+
+                # E042/US237 (ADR-051 §3): compute the deterministic per-role bullet budget
+                # BEFORE generation, from the profile + Keyword Ledger + this row's resolved
+                # target_pages (Task 1.1 persists it non-NULL for every new row; the fallback
+                # here only guards a pre-E042 legacy record). Threaded into both LLM paths
+                # below so the model aims at the target page count directly.
+                from applire.services.cv_budget import attach_projects, compute_bullet_budgets
+
+                resolved_target_pages = (
+                    record.target_pages
+                    if record.target_pages is not None
+                    else resolve_target_pages(None, None)
+                )
+                budget_work_entries = attach_projects(
+                    profile_json.get("work_experience") or [], profile_json.get("projects") or []
+                )
+                budget = compute_bullet_budgets(
+                    budget_work_entries, keyword_ledger, resolved_target_pages
+                )
+
+                # STATED LIMITS: the candidate's persisted denial statements, verbatim
+                # (ProfileMetadata.denied_concepts). Threaded into the writer prompt(s) below
+                # so a CV skill tag or summary line never contradicts something the candidate
+                # explicitly said they cannot claim. Facts only — this deliberately does NOT
+                # decide which claimable concept each limit bears on; that pairing used to be
+                # `find_scoped_boundaries` and it was wrong on real data in the one direction
+                # that matters (see services/cross_document.collect_stated_limits).
+                from applire.services.cross_document import (
+                    collect_stated_limits,
+                    render_stated_limits_block,
+                )
+
+                denied_concepts = (profile_json.get("metadata") or {}).get("denied_concepts") or []
+                stated_limits_block = render_stated_limits_block(
+                    collect_stated_limits(denied_concepts)
+                )
+
+                # ADR-070 clause 2: the candidate's own scale evidence for partial scope
+                # entries (bar.attested + typed values) — the ONLY channel scope material
+                # takes into a document (scope entries are excluded from the ledger block
+                # by is_scope_entry). Empty → adds nothing.
+                from applire.services.scope_requirements import render_scope_positioning_block
+
+                scope_positioning_block = render_scope_positioning_block(
+                    keyword_ledger, document_language
+                ) or None
+
+                # ADR-077 (E056): fact pins — generation-start re-verify (clause 7)
+                # + the PINNED FACTS input block (clause 3). Staleness is measured
+                # against the RAW persisted profile (claimability included); a
+                # moved flag is written back on the application row in this same
+                # transaction. Active CV-target pins then partition the cut paths
+                # (clause 4) and feed the writer block. Fail-safe: a pin-load
+                # failure degrades to "no pins", never breaks generation.
+                cv_pins: list = []
+                pinned_facts_block: str | None = None
+                # #580: the corrector's reference variant, folded into the review
+                # loop's `source` (never the writer's REQUIRED/word-for-word header —
+                # the 2026-08-26 replay showed the corrector obeying that header over
+                # the reviewer's "do not insert the conflicted pin").
+                pinned_facts_loop_block: str | None = None
+                try:
+                    from applire.schemas.profile import MasterProfileData
+                    from applire.services.application import get_application_for_job
+                    from applire.services.color_detection import _CE_STUB_USER_ID
+                    from applire.services.fact_pins import (
+                        load_pins,
+                        refresh_pin_staleness,
+                    )
+                    from applire.services.pin_reach import (
+                        active_pins,
+                        render_pinned_facts_block,
+                    )
+
+                    pin_application = await get_application_for_job(
+                        record.job_analysis_id, _CE_STUB_USER_ID, db
+                    )
+                    if pin_application is not None and pin_application.pinned_facts:
+                        raw_profile_data = MasterProfileData.model_validate(
+                            profile.profile_json or {}
+                        )
+                        refreshed, pins_moved = refresh_pin_staleness(
+                            load_pins(pin_application), raw_profile_data
+                        )
+                        if pins_moved:
+                            pin_application.pinned_facts = [
+                                pn.model_dump(mode="json") for pn in refreshed
+                            ]
+                            await db.flush()
+                        cv_pins = active_pins(refreshed, "cv")
+                        pinned_facts_block = (
+                            render_pinned_facts_block(
+                                cv_pins,
+                                raw_profile_data,
+                                target="cv",
+                                language=document_language,
+                            )
+                            or None
+                        )
+                        pinned_facts_loop_block = (
+                            render_pinned_facts_block(
+                                cv_pins,
+                                raw_profile_data,
+                                target="cv",
+                                language=document_language,
+                                audience="corrector",
+                            )
+                            or None
+                        )
+                except Exception:
+                    logger.exception(
+                        "fact-pin load failed for CV %s — generating without pins "
+                        "(ADR-077 fail-safe)", cv_id,
+                    )
+                    cv_pins = []
+                    pinned_facts_block = None
+                    pinned_facts_loop_block = None
+
+                # #303 (#271's CV half): the strongest-vault-evidence digest — for
+                # each claimable ledger concept, the vault's OWN sentence that
+                # answers it, verbatim, with the entry that owns it. The letter
+                # chain has had this since #271; the CV chain never did, and its
+                # only concept→evidence pointer was the ledger's `evidence` field
+                # — the gap classifier's free-text rationale, which quotes no vault
+                # text and names no owner. That asymmetry is why the letter kept
+                # naming figures and daily-use sentences the CV had reduced to a
+                # bare skills keyword (charter runs #7/13/17/18), which every blind
+                # panel read as `aufgeblasen`. Same selector, same items as the
+                # letter (ADR-066); only the instruction wording differs.
+                #
+                # This OFFERS evidence to the writer. It gates nothing, deletes
+                # nothing, and demands no surface form appear anywhere — the
+                # 2026-07-30 revert (ADR-060 amended; #377) is the standing reason
+                # a presence PREDICATE may not be built here.
+                from applire.services.jd_excerpt import build_jd_excerpt
+                from applire.services.vault_evidence import (
+                    CV_DIGEST_CAP,
+                    render_vault_evidence_block,
+                    select_vault_evidence,
+                )
+
+                # Fail-safe by construction: this block only ADDS context to a
+                # prompt, so losing it degrades quality and nothing else. It must
+                # never become a new way for CV generation to fail — the same
+                # boundary guarantee the ADR-071 attribution round below is given,
+                # enforced here rather than trusted to the callee.
+                vault_evidence_items: list = []
+                vault_evidence_block: str | None = None
+                try:
+                    jd_raw = job.raw_text if isinstance(job.raw_text, str) else ""
+                    vault_evidence_items = select_vault_evidence(
+                        keyword_ledger,
+                        build_jd_excerpt(jd_raw),
+                        # #415 / RULING W1-6: the CV chain's own digest ceiling. The anchor now
+                        # offers up to three qualifying senses per concept, and under the shared
+                        # default of 10 that would buy the answering sentence by starving
+                        # concept breadth (measured on run 13: 8 represented concepts → 4). At
+                        # 24 the bug is fixed AND breadth is wider than before (9). The letter
+                        # chain keeps the default — see `vault_evidence.CV_DIGEST_CAP`.
+                        # Already `exclude_unconfirmed`-filtered above (ADR-061
+                        # clause 3) — an unconfirmed entry cannot back a CV line
+                        # and must not be offered as evidence either.
+                        profile_json,
+                        # #271: the posting's own leadership-vs-hands-on weighting,
+                        # extracted at analyse time. Drives rule 3's trigger, its
+                        # sub-cap and the quote the writer positions against; None
+                        # on a pre-migration-0056 row falls back to the legacy JD
+                        # marker check inside the selector. Same selector, same
+                        # facet as the letter (ADR-066).
+                        leadership_emphasis=getattr(job, "leadership_emphasis", None),
+                        cap=CV_DIGEST_CAP,
+                    )
+                    vault_evidence_block = (
+                        render_vault_evidence_block(vault_evidence_items, chain="cv") or None
+                    )
+                except Exception:
+                    logger.exception(
+                        "strongest-vault-evidence selection failed for CV %s — the writer "
+                        "runs without the digest (#303)", cv_id,
+                    )
+                    vault_evidence_items = []
+
+                provider: LLMProvider = get_provider()
+
+                # ADR-078 (#593): what the MODEL sees is the vault's CONTENT, not its
+                # bookkeeping. `profile_json` below is the full generation copy every
+                # deterministic pass in this function reads (assembly, the certifications
+                # passthrough, the role-fact join, the restoration pools, the pin reach) —
+                # unchanged. `prompt_profile` is the same vault with `metadata` reduced to
+                # the ADR-078 allowlist and `_meta` dropped, and it is used at exactly the
+                # two places profile data becomes PROMPT TEXT: the writer call (both the
+                # single-call and segmented paths) and `source_material`, which the
+                # reviewer AND the corrector re-read every round. Before this, 138,946 of
+                # this profile's 144,624 chars were `metadata.enrichment_history` and the
+                # writer prompt measured 211,507 chars — nine calls of one generation over
+                # the debug log's 200,000-char field cap. Distinct from `exclude_unconfirmed`
+                # above (ADR-061 cl. 3), which filters CONTENT for the LLM *and* for the
+                # deterministic passes; this one is prompt-only, because those passes and
+                # the Keyword Ledger read `metadata` on purpose.
+                from applire.services.prompt_view import prompt_profile_view
+
+                prompt_profile = prompt_profile_view(profile_json)
+
+                # Single call on the fast path; segmented (outline-then-expand) as the fallback
+                # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
+                # E049/ADR-067: both paths return the PROSE shape (summary / id-keyed work /
+                # skills) — the vault facts are joined only after both LLM review chains.
+                prose_draft: dict = await _tailor_cv_with_fallback(
+                    job_dict,
+                    prompt_profile,
+                    keyword_gaps,
+                    output_language=document_language,
+                    provider=provider,
+                    keyword_ledger=keyword_ledger,
+                    budget=budget,
+                    stated_limits_block=stated_limits_block,
+                    scope_positioning_block=scope_positioning_block,
+                    vault_evidence_block=vault_evidence_block,
+                    vault_evidence_items=vault_evidence_items,
+                    pinned_facts_block=pinned_facts_block,
+                )
+
+                source_material = _json.dumps(prompt_profile, ensure_ascii=False, indent=2)
+                # #277: fold the SAME scoped-boundary block into the reviewer/retry source —
+                # mirrors the ledger_block fold immediately below (US202+US213 precedent) —
+                # so a review-loop retry (_build_cv_retry_prompt reads `source` as the
+                # candidate's ground truth) has the vault's own scoped wording available to
+                # correct a bare tag back to the scoped form, without adding a new reviewer
+                # check or a new LLM pass.
+                if stated_limits_block:
+                    source_material = f"{source_material}\n\n{stated_limits_block}"
+                # ADR-048 / US202+US213 (#122): route the Keyword Ledger to the reviewer for the
+                # forbidden-claim check, and wrap the reviewer prompt so each iteration carries
+                # the DETERMINISTIC verified-coverage state of the current draft (the LLM no
+                # longer detects absent claimable terms — it only arbitrates grounding waivers).
+                from applire.services.keyword_ledger import (
+                    coverage_reviewer_prompt_fn,
+                    cv_coverage_budget,
+                    render_ledger_reviewer_block,
+                )
+                ledger_block = render_ledger_reviewer_block(keyword_ledger)
+                if ledger_block:
+                    source_material = f"{source_material}\n\n{ledger_block}"
+
+                # ADR-076 clause 6 (#543): the coverage demand yields to the ledger's
+                # own fit_weight once the draft has reached the SAME per-role bullet
+                # budget the post-render condense pass (cv_budget.condense_to_budget)
+                # enforces — one owner, one ranking (ADR-048 amended 2026-08-15).
+                coverage_budget = cv_coverage_budget(budget)
+
+                # ADR-077 amended 2026-08-26 (#580): the PINNED FACTS block joins the
+                # loop's `source` (the ledger-block fold above) so the corrector
+                # re-reads the verbatim quotes every round, and the reviewer prompt is
+                # wrapped with the per-round PINNED FACTS CHECK (check 7): one demand
+                # per pin per loop, ledger-conflicted pins never demanded. The signal's
+                # exhaustion disposition is declared right here (ADR-076 clause 2) —
+                # `signal_ids` makes the registry lookup enforce it at settle time.
                 from applire.services.pin_reach import (
-                    active_pins,
-                    render_pinned_facts_block,
+                    PINNED_FACT_SIGNAL_ID,
+                    ensure_pinned_fact_signal_registered,
+                    pinned_facts_reviewer_prompt_fn,
                 )
 
-                pin_application = await get_application_for_job(
-                    record.job_analysis_id, _CE_STUB_USER_ID, db
+                if pinned_facts_loop_block:
+                    source_material = f"{source_material}\n\n{pinned_facts_loop_block}"
+                reviewer_fn = coverage_reviewer_prompt_fn(
+                    _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
                 )
-                if pin_application is not None and pin_application.pinned_facts:
-                    raw_profile_data = MasterProfileData.model_validate(
-                        profile.profile_json or {}
+                if cv_pins:
+                    reviewer_fn = pinned_facts_reviewer_prompt_fn(
+                        reviewer_fn, cv_pins, profile_json, keyword_ledger
                     )
-                    refreshed, pins_moved = refresh_pin_staleness(
-                        load_pins(pin_application), raw_profile_data
+                ensure_pinned_fact_signal_registered()
+
+                prose_draft = await review_and_refine(
+                    source=source_material,
+                    draft=prose_draft,
+                    generator_prompt_fn=_build_cv_retry_prompt,
+                    generator_system=CV_TAILORING_REFINEMENT_PROMPT,
+                    reviewer_prompt_fn=reviewer_fn,
+                    reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
+                    provider=provider,
+                    max_retries=LLM_REVIEW_MAX_RETRIES,
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+                    chain_id="cv_tailoring",
+                    signal_ids=(PINNED_FACT_SIGNAL_ID,),
+                )
+
+                # ADR-071 clause 3: the Oracle's `misattributed` verdict gains a
+                # generation-side consumer. The audit is DETERMINISTIC-ONLY (no
+                # provider, no entailment) — the attribution red flag is an
+                # id-anchored comparison and needs no model. When it fires, at most
+                # ONE targeted cv_tailoring round asks the writer to RE-PLACE the
+                # bullet: never a strip, never a gate (see the module docstring).
+                #
+                # Runs HERE — after the review loop settles, before the language
+                # pass — for two reasons. The persisted self-audit in
+                # _update_ats_report is far too late (it runs after the whole
+                # deterministic tail, after `status = ready` and after
+                # `tailored_data` is written, with no writer left to ask). And
+                # placing it before _review_cv_language keeps that pass's "this is
+                # the LAST writer" property intact, so a relocated bullet is still
+                # language-checked and still watched by the US213 coverage gate.
+                #
+                # The audit needs the ASSEMBLED shape (claims are stamped with the
+                # rendered position's id), so a throwaway join is built for it. That
+                # join is pure and fail-closed on an unknown id; a failure here must
+                # never become a new way for generation to fail, so it only skips
+                # the round — the real assembly below reports the same error.
+                try:
+                    from applire.services.attribution_round import run_attribution_round
+                    from applire.services.oracle.selfaudit import build_self_audit_report
+
+                    audit_view = assemble_tailored_cv(prose_draft, profile_json)
+                    attribution_report = await build_self_audit_report(
+                        profile_json, tailored_data=audit_view,
                     )
-                    if pins_moved:
-                        pin_application.pinned_facts = [
-                            pn.model_dump(mode="json") for pn in refreshed
-                        ]
-                        await db.flush()
-                    cv_pins = active_pins(refreshed, "cv")
-                    pinned_facts_block = (
-                        render_pinned_facts_block(
-                            cv_pins,
-                            raw_profile_data,
-                            target="cv",
-                            language=document_language,
-                        )
-                        or None
+                    # Inside the try deliberately. ``run_attribution_round`` is
+                    # written never to raise, but "never raises" asserted only by
+                    # one function's own completeness is not a defence — one
+                    # unguarded line added to it later would otherwise become a
+                    # hard failure of CV generation. ADR-052 §5 says this may never
+                    # gate delivery, so the guarantee is enforced at the boundary.
+                    prose_draft = await run_attribution_round(
+                        prose_draft,
+                        report=attribution_report,
+                        profile_json=profile_json,
+                        source_material=source_material,
+                        provider=provider,
                     )
-                    pinned_facts_loop_block = (
-                        render_pinned_facts_block(
-                            cv_pins,
-                            raw_profile_data,
-                            target="cv",
-                            language=document_language,
-                            audience="corrector",
-                        )
-                        or None
+                except Exception:
+                    logger.exception(
+                        "The ADR-071 clause 3 attribution round failed for CV %s — "
+                        "skipped; generation continues with the settled draft", cv_id,
                     )
-            except Exception:
-                logger.exception(
-                    "fact-pin load failed for CV %s — generating without pins "
-                    "(ADR-077 fail-safe)", cv_id,
+
+                # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
+                # are all in the target-job language (the directive alone leaks
+                # discipline-skill phrases — #1). E049/ADR-067: runs on the PROSE shape,
+                # BEFORE assembly — an LLM re-emission can therefore no longer mutate an
+                # employer/date or drop a work-entry id (the #303/GxP custody class).
+                # Vault facts joined below are verbatim by design and are not re-worded.
+                # Carries the ledger: this pass is the LAST writer, so the US213 coverage
+                # gate must also watch its rewording (#122 follow-up).
+                prose_draft = await _review_cv_language(
+                    prose_draft, document_language, provider,
+                    keyword_ledger=keyword_ledger,
+                    budget=budget,
                 )
-                cv_pins = []
-                pinned_facts_block = None
-                pinned_facts_loop_block = None
 
-            # #303 (#271's CV half): the strongest-vault-evidence digest — for
-            # each claimable ledger concept, the vault's OWN sentence that
-            # answers it, verbatim, with the entry that owns it. The letter
-            # chain has had this since #271; the CV chain never did, and its
-            # only concept→evidence pointer was the ledger's `evidence` field
-            # — the gap classifier's free-text rationale, which quotes no vault
-            # text and names no owner. That asymmetry is why the letter kept
-            # naming figures and daily-use sentences the CV had reduced to a
-            # bare skills keyword (charter runs #7/13/17/18), which every blind
-            # panel read as `aufgeblasen`. Same selector, same items as the
-            # letter (ADR-066); only the instruction wording differs.
-            #
-            # This OFFERS evidence to the writer. It gates nothing, deletes
-            # nothing, and demands no surface form appear anywhere — the
-            # 2026-07-30 revert (ADR-060 amended; #377) is the standing reason
-            # a presence PREDICATE may not be built here.
-            from applire.services.jd_excerpt import build_jd_excerpt
-            from applire.services.vault_evidence import (
-                render_vault_evidence_block,
-                select_vault_evidence,
-            )
-
-            # Fail-safe by construction: this block only ADDS context to a
-            # prompt, so losing it degrades quality and nothing else. It must
-            # never become a new way for CV generation to fail — the same
-            # boundary guarantee the ADR-071 attribution round below is given,
-            # enforced here rather than trusted to the callee.
-            vault_evidence_items: list = []
-            vault_evidence_block: str | None = None
-            try:
-                jd_raw = job.raw_text if isinstance(job.raw_text, str) else ""
-                vault_evidence_items = select_vault_evidence(
-                    keyword_ledger,
-                    build_jd_excerpt(jd_raw),
-                    # Already `exclude_unconfirmed`-filtered above (ADR-061
-                    # clause 3) — an unconfirmed entry cannot back a CV line
-                    # and must not be offered as evidence either.
-                    profile_json,
-                    # #271: the posting's own leadership-vs-hands-on weighting,
-                    # extracted at analyse time. Drives rule 3's trigger, its
-                    # sub-cap and the quote the writer positions against; None
-                    # on a pre-migration-0056 row falls back to the legacy JD
-                    # marker check inside the selector. Same selector, same
-                    # facet as the letter (ADR-066).
-                    leadership_emphasis=getattr(job, "leadership_emphasis", None),
-                )
-                vault_evidence_block = (
-                    render_vault_evidence_block(vault_evidence_items, chain="cv") or None
-                )
-            except Exception:
-                logger.exception(
-                    "strongest-vault-evidence selection failed for CV %s — the writer "
-                    "runs without the digest (#303)", cv_id,
-                )
-                vault_evidence_items = []
-
-            provider: LLMProvider = get_provider()
-
-            # ADR-078 (#593): what the MODEL sees is the vault's CONTENT, not its
-            # bookkeeping. `profile_json` below is the full generation copy every
-            # deterministic pass in this function reads (assembly, the certifications
-            # passthrough, the role-fact join, the restoration pools, the pin reach) —
-            # unchanged. `prompt_profile` is the same vault with `metadata` reduced to
-            # the ADR-078 allowlist and `_meta` dropped, and it is used at exactly the
-            # two places profile data becomes PROMPT TEXT: the writer call (both the
-            # single-call and segmented paths) and `source_material`, which the
-            # reviewer AND the corrector re-read every round. Before this, 138,946 of
-            # this profile's 144,624 chars were `metadata.enrichment_history` and the
-            # writer prompt measured 211,507 chars — nine calls of one generation over
-            # the debug log's 200,000-char field cap. Distinct from `exclude_unconfirmed`
-            # above (ADR-061 cl. 3), which filters CONTENT for the LLM *and* for the
-            # deterministic passes; this one is prompt-only, because those passes and
-            # the Keyword Ledger read `metadata` on purpose.
-            from applire.services.prompt_view import prompt_profile_view
-
-            prompt_profile = prompt_profile_view(profile_json)
-
-            # Single call on the fast path; segmented (outline-then-expand) as the fallback
-            # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
-            # E049/ADR-067: both paths return the PROSE shape (summary / id-keyed work /
-            # skills) — the vault facts are joined only after both LLM review chains.
-            prose_draft: dict = await _tailor_cv_with_fallback(
-                job_dict,
-                prompt_profile,
-                keyword_gaps,
-                output_language=document_language,
-                provider=provider,
-                keyword_ledger=keyword_ledger,
-                budget=budget,
-                stated_limits_block=stated_limits_block,
-                scope_positioning_block=scope_positioning_block,
-                vault_evidence_block=vault_evidence_block,
-                vault_evidence_items=vault_evidence_items,
-                pinned_facts_block=pinned_facts_block,
-            )
-
-            source_material = _json.dumps(prompt_profile, ensure_ascii=False, indent=2)
-            # #277: fold the SAME scoped-boundary block into the reviewer/retry source —
-            # mirrors the ledger_block fold immediately below (US202+US213 precedent) —
-            # so a review-loop retry (_build_cv_retry_prompt reads `source` as the
-            # candidate's ground truth) has the vault's own scoped wording available to
-            # correct a bare tag back to the scoped form, without adding a new reviewer
-            # check or a new LLM pass.
-            if stated_limits_block:
-                source_material = f"{source_material}\n\n{stated_limits_block}"
-            # ADR-048 / US202+US213 (#122): route the Keyword Ledger to the reviewer for the
-            # forbidden-claim check, and wrap the reviewer prompt so each iteration carries
-            # the DETERMINISTIC verified-coverage state of the current draft (the LLM no
-            # longer detects absent claimable terms — it only arbitrates grounding waivers).
-            from applire.services.keyword_ledger import (
-                coverage_reviewer_prompt_fn,
-                cv_coverage_budget,
-                render_ledger_reviewer_block,
-            )
-            ledger_block = render_ledger_reviewer_block(keyword_ledger)
-            if ledger_block:
-                source_material = f"{source_material}\n\n{ledger_block}"
-
-            # ADR-076 clause 6 (#543): the coverage demand yields to the ledger's
-            # own fit_weight once the draft has reached the SAME per-role bullet
-            # budget the post-render condense pass (cv_budget.condense_to_budget)
-            # enforces — one owner, one ranking (ADR-048 amended 2026-08-15).
-            coverage_budget = cv_coverage_budget(budget)
-
-            # ADR-077 amended 2026-08-26 (#580): the PINNED FACTS block joins the
-            # loop's `source` (the ledger-block fold above) so the corrector
-            # re-reads the verbatim quotes every round, and the reviewer prompt is
-            # wrapped with the per-round PINNED FACTS CHECK (check 7): one demand
-            # per pin per loop, ledger-conflicted pins never demanded. The signal's
-            # exhaustion disposition is declared right here (ADR-076 clause 2) —
-            # `signal_ids` makes the registry lookup enforce it at settle time.
-            from applire.services.pin_reach import (
-                PINNED_FACT_SIGNAL_ID,
-                ensure_pinned_fact_signal_registered,
-                pinned_facts_reviewer_prompt_fn,
-            )
-
-            if pinned_facts_loop_block:
-                source_material = f"{source_material}\n\n{pinned_facts_loop_block}"
-            reviewer_fn = coverage_reviewer_prompt_fn(
-                _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
-            )
-            if cv_pins:
-                reviewer_fn = pinned_facts_reviewer_prompt_fn(
-                    reviewer_fn, cv_pins, profile_json, keyword_ledger
-                )
-            ensure_pinned_fact_signal_registered()
-
-            prose_draft = await review_and_refine(
-                source=source_material,
-                draft=prose_draft,
-                generator_prompt_fn=_build_cv_retry_prompt,
-                generator_system=CV_TAILORING_REFINEMENT_PROMPT,
-                reviewer_prompt_fn=reviewer_fn,
-                reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
-                provider=provider,
-                max_retries=LLM_REVIEW_MAX_RETRIES,
-                generator_max_tokens=CV_GENERATION_MAX_TOKENS,
-                chain_id="cv_tailoring",
-                signal_ids=(PINNED_FACT_SIGNAL_ID,),
-            )
-
-            # ADR-071 clause 3: the Oracle's `misattributed` verdict gains a
-            # generation-side consumer. The audit is DETERMINISTIC-ONLY (no
-            # provider, no entailment) — the attribution red flag is an
-            # id-anchored comparison and needs no model. When it fires, at most
-            # ONE targeted cv_tailoring round asks the writer to RE-PLACE the
-            # bullet: never a strip, never a gate (see the module docstring).
-            #
-            # Runs HERE — after the review loop settles, before the language
-            # pass — for two reasons. The persisted self-audit in
-            # _update_ats_report is far too late (it runs after the whole
-            # deterministic tail, after `status = ready` and after
-            # `tailored_data` is written, with no writer left to ask). And
-            # placing it before _review_cv_language keeps that pass's "this is
-            # the LAST writer" property intact, so a relocated bullet is still
-            # language-checked and still watched by the US213 coverage gate.
-            #
-            # The audit needs the ASSEMBLED shape (claims are stamped with the
-            # rendered position's id), so a throwaway join is built for it. That
-            # join is pure and fail-closed on an unknown id; a failure here must
-            # never become a new way for generation to fail, so it only skips
-            # the round — the real assembly below reports the same error.
-            try:
-                from applire.services.attribution_round import run_attribution_round
-                from applire.services.oracle.selfaudit import build_self_audit_report
-
-                audit_view = assemble_tailored_cv(prose_draft, profile_json)
-                attribution_report = await build_self_audit_report(
-                    profile_json, tailored_data=audit_view,
-                )
-                # Inside the try deliberately. ``run_attribution_round`` is
-                # written never to raise, but "never raises" asserted only by
-                # one function's own completeness is not a defence — one
-                # unguarded line added to it later would otherwise become a
-                # hard failure of CV generation. ADR-052 §5 says this may never
-                # gate delivery, so the guarantee is enforced at the boundary.
-                prose_draft = await run_attribution_round(
+                # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
+                # ADR-067 join, the ADR-040 compose block, and the not-yet-migrated
+                # SIGNAL passes — is extracted into _compose_document (a pure
+                # function) so the terminal review below closes over the COMPOSED
+                # document, and a terminal-round correction can be re-composed the
+                # same way. Pass order and mechanisms are byte-identical to the
+                # pre-#538 inline sequence; only the position of the terminal
+                # verdict changed.
+                raw_profile_json = profile.profile_json or {}
+                tailored = _compose_document(
                     prose_draft,
-                    report=attribution_report,
-                    profile_json=profile_json,
-                    source_material=source_material,
-                    provider=provider,
-                )
-            except Exception:
-                logger.exception(
-                    "The ADR-071 clause 3 attribution round failed for CV %s — "
-                    "skipped; generation continues with the settled draft", cv_id,
-                )
-
-            # ADR-038 enforcement: ensure skill tags + prose (incl. project bullets)
-            # are all in the target-job language (the directive alone leaks
-            # discipline-skill phrases — #1). E049/ADR-067: runs on the PROSE shape,
-            # BEFORE assembly — an LLM re-emission can therefore no longer mutate an
-            # employer/date or drop a work-entry id (the #303/GxP custody class).
-            # Vault facts joined below are verbatim by design and are not re-worded.
-            # Carries the ledger: this pass is the LAST writer, so the US213 coverage
-            # gate must also watch its rewording (#122 follow-up).
-            prose_draft = await _review_cv_language(
-                prose_draft, document_language, provider,
-                keyword_ledger=keyword_ledger,
-                budget=budget,
-            )
-
-            # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
-            # ADR-067 join, the ADR-040 compose block, and the not-yet-migrated
-            # SIGNAL passes — is extracted into _compose_document (a pure
-            # function) so the terminal review below closes over the COMPOSED
-            # document, and a terminal-round correction can be re-composed the
-            # same way. Pass order and mechanisms are byte-identical to the
-            # pre-#538 inline sequence; only the position of the terminal
-            # verdict changed.
-            raw_profile_json = profile.profile_json or {}
-            tailored = _compose_document(
-                prose_draft,
-                profile_json,
-                raw_profile_json=raw_profile_json,
-                keyword_ledger=keyword_ledger,
-                budget=budget,
-                job_dict=job_dict,
-                language=document_language,
-                pins=cv_pins,
-            )
-
-            from applire.services.cv_section_editor import build_content_snapshot
-            record.content_snapshot = build_content_snapshot(tailored)
-
-            record.tailored_data = tailored.model_dump()
-            record.error_message = None
-            record.error_code = None
-            # ADR-039 + E037 PQ #2 (ATS "not available" race): persist the audit in the
-            # SAME commit that flips status to 'ready', so "ready implies report available".
-            # The frontend fetches the report once with no retry — if status went 'ready'
-            # before the report was written, that single fetch read NULL and showed
-            # "unavailable" permanently. status is set in memory FIRST so get_cv_html
-            # (which is ready-guarded) sees it via autoflush; the commit at the end of
-            # this block persists status + reports together. An audit failure is
-            # non-fatal: it leaves ats_report NULL but still commits status='ready'.
-            # Under READ COMMITTED no reader observes the in-memory 'ready' before
-            # that commit (ADR-076 amendment 3 precision note).
-            record.status = CVGenerationStatus.ready.value
-            # E042/US238 (ADR-051 §4): arm the bounded measure-and-condense loop with the
-            # resolved target + feedforward budget already computed above. ADR-076
-            # clause 3 (#538): the loop runs BEFORE the terminal verdict — no content
-            # write may happen after it — with mechanism, bounds, bail rule and
-            # RENDER_BUDGET_ITERATION instrumentation unchanged.
-            condense_ctx = CondenseContext(
-                budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins)
-            )
-            try:
-                measured = await _measure_and_condense(record, db, condense_ctx)
-            except Exception:
-                logger.exception(
-                    "measure-and-condense failed for CV %s — continuing unmeasured; "
-                    "the audit renders on its own and must never fail generation",
-                    record.id,
-                )
-                measured = None
-
-            # TERMINAL REVIEW (ADR-076 clause 3, #538): the terminal verdict is
-            # rendered over the COMPOSED document with the real render measure.
-            # LLM_REVIEW_MAX_RETRIES=0 disables it with the rest of the review
-            # layer (mirrors review_and_refine's own short-circuit).
-            terminal_rounds = 0
-            reentry_exhausted = False
-            # #563 (D): stays None when the review layer is disabled — which the
-            # ADR-039 check reports as `not_applicable`, never as a clean pass.
-            terminal_outcome = None
-            if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
-                tr = await _terminal_review(
-                    record, db,
-                    prose_draft=prose_draft,
-                    source_material=source_material,
-                    provider=provider,
-                    profile_json=profile_json,
+                    profile_json,
                     raw_profile_json=raw_profile_json,
                     keyword_ledger=keyword_ledger,
                     budget=budget,
                     job_dict=job_dict,
                     language=document_language,
-                    condense_ctx=condense_ctx,
-                    coverage_budget=coverage_budget,
-                    measured=measured,
+                    pins=cv_pins,
                 )
-                prose_draft, measured = tr.prose_draft, tr.measured
-                terminal_rounds = tr.rounds
-                reentry_exhausted = tr.reentry_exhausted
-                terminal_outcome = tr.outcome
 
-            # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
-            # terminal verdict covered must BE the delivered content. The audits
-            # below are measurement-only by contract; a mismatch here means a
-            # write happened after the terminal verdict — the change re-enters
-            # review (clause 3), bounded, then ships loudly (never a gate).
-            verdict_hash = _subject_hash(record.tailored_data)
-            reentered = 0
-            while True:
-                await _update_ats_report(
-                    record, db, measured=measured, commit=False,
-                    terminal_review=terminal_outcome,
+                from applire.services.cv_section_editor import build_content_snapshot
+                record.content_snapshot = build_content_snapshot(tailored)
+
+                record.tailored_data = tailored.model_dump()
+                record.error_message = None
+                record.error_code = None
+                # ADR-039 + E037 PQ #2 (ATS "not available" race): persist the audit in the
+                # SAME commit that flips status to 'ready', so "ready implies report available".
+                # The frontend fetches the report once with no retry — if status went 'ready'
+                # before the report was written, that single fetch read NULL and showed
+                # "unavailable" permanently. status is set in memory FIRST so get_cv_html
+                # (which is ready-guarded) sees it via autoflush; the commit at the end of
+                # this block persists status + reports together. An audit failure is
+                # non-fatal: it leaves ats_report NULL but still commits status='ready'.
+                # Under READ COMMITTED no reader observes the in-memory 'ready' before
+                # that commit (ADR-076 amendment 3 precision note).
+                record.status = CVGenerationStatus.ready.value
+                # E042/US238 (ADR-051 §4): arm the bounded measure-and-condense loop with the
+                # resolved target + feedforward budget already computed above. ADR-076
+                # clause 3 (#538): the loop runs BEFORE the terminal verdict — no content
+                # write may happen after it — with mechanism, bounds, bail rule and
+                # RENDER_BUDGET_ITERATION instrumentation unchanged.
+                condense_ctx = CondenseContext(
+                    budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins)
                 )
-                delivered_hash = _subject_hash(record.tailored_data)
-                match = delivered_hash == verdict_hash
-                _log_subject_identity(
-                    cv_id=record.id,
-                    verdict_hash=verdict_hash,
-                    delivered_hash=delivered_hash,
-                    match=match,
-                    terminal_rounds=terminal_rounds,
-                    reentered=reentered,
-                    reentry_exhausted=reentry_exhausted,
-                )
-                if match or reentered >= CV_TERMINAL_REENTRY_MAX:
-                    break
-                reentered += 1
-                # Re-measure the mutated content, then re-enter the terminal
-                # review over it (the subject cache seeds from the record, so
-                # the reviewer sees the CHANGE — it is not silently reverted).
                 try:
                     measured = await _measure_and_condense(record, db, condense_ctx)
                 except Exception:
                     logger.exception(
-                        "measure-and-condense failed on subject-identity re-entry "
-                        "for CV %s — re-reviewing unmeasured", record.id,
+                        "measure-and-condense failed for CV %s — continuing unmeasured; "
+                        "the audit renders on its own and must never fail generation",
+                        record.id,
                     )
                     measured = None
+
+                # TERMINAL REVIEW (ADR-076 clause 3, #538): the terminal verdict is
+                # rendered over the COMPOSED document with the real render measure.
+                # LLM_REVIEW_MAX_RETRIES=0 disables it with the rest of the review
+                # layer (mirrors review_and_refine's own short-circuit).
+                terminal_rounds = 0
+                reentry_exhausted = False
+                # #563 (D): stays None when the review layer is disabled — which the
+                # ADR-039 check reports as `not_applicable`, never as a clean pass.
+                terminal_outcome = None
                 if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
                     tr = await _terminal_review(
                         record, db,
@@ -3254,26 +3277,84 @@ async def _render_cv_background(
                         measured=measured,
                     )
                     prose_draft, measured = tr.prose_draft, tr.measured
-                    terminal_rounds += tr.rounds
-                    reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
-                    # Fold, never replace: a clean re-entry round must not erase an
-                    # earlier exhaustion that already shipped content.
-                    terminal_outcome = (
-                        tr.outcome.worse_of(terminal_outcome)
-                        if tr.outcome is not None
-                        else terminal_outcome
-                    )
-                verdict_hash = _subject_hash(record.tailored_data)
-            # ADR-039: the single ready-commit — status + reports together.
-            await db.commit()
+                    terminal_rounds = tr.rounds
+                    reentry_exhausted = tr.reentry_exhausted
+                    terminal_outcome = tr.outcome
 
-        except Exception as exc:
-            logger.exception("CV generation failed for %s: %s", cv_id, exc)
-            try:
-                _record_generation_failure(record, exc)
+                # SUBJECT-IDENTITY gate (#538 evidence layer 1): the content the
+                # terminal verdict covered must BE the delivered content. The audits
+                # below are measurement-only by contract; a mismatch here means a
+                # write happened after the terminal verdict — the change re-enters
+                # review (clause 3), bounded, then ships loudly (never a gate).
+                verdict_hash = _subject_hash(record.tailored_data)
+                reentered = 0
+                while True:
+                    await _update_ats_report(
+                        record, db, measured=measured, commit=False,
+                        terminal_review=terminal_outcome,
+                    )
+                    delivered_hash = _subject_hash(record.tailored_data)
+                    match = delivered_hash == verdict_hash
+                    _log_subject_identity(
+                        cv_id=record.id,
+                        verdict_hash=verdict_hash,
+                        delivered_hash=delivered_hash,
+                        match=match,
+                        terminal_rounds=terminal_rounds,
+                        reentered=reentered,
+                        reentry_exhausted=reentry_exhausted,
+                    )
+                    if match or reentered >= CV_TERMINAL_REENTRY_MAX:
+                        break
+                    reentered += 1
+                    # Re-measure the mutated content, then re-enter the terminal
+                    # review over it (the subject cache seeds from the record, so
+                    # the reviewer sees the CHANGE — it is not silently reverted).
+                    try:
+                        measured = await _measure_and_condense(record, db, condense_ctx)
+                    except Exception:
+                        logger.exception(
+                            "measure-and-condense failed on subject-identity re-entry "
+                            "for CV %s — re-reviewing unmeasured", record.id,
+                        )
+                        measured = None
+                    if LLM_REVIEW_MAX_RETRIES > 0 and CV_TERMINAL_REVIEW_MAX_RETRIES > 0:
+                        tr = await _terminal_review(
+                            record, db,
+                            prose_draft=prose_draft,
+                            source_material=source_material,
+                            provider=provider,
+                            profile_json=profile_json,
+                            raw_profile_json=raw_profile_json,
+                            keyword_ledger=keyword_ledger,
+                            budget=budget,
+                            job_dict=job_dict,
+                            language=document_language,
+                            condense_ctx=condense_ctx,
+                            coverage_budget=coverage_budget,
+                            measured=measured,
+                        )
+                        prose_draft, measured = tr.prose_draft, tr.measured
+                        terminal_rounds += tr.rounds
+                        reentry_exhausted = reentry_exhausted or tr.reentry_exhausted
+                        # Fold, never replace: a clean re-entry round must not erase an
+                        # earlier exhaustion that already shipped content.
+                        terminal_outcome = (
+                            tr.outcome.worse_of(terminal_outcome)
+                            if tr.outcome is not None
+                            else terminal_outcome
+                        )
+                    verdict_hash = _subject_hash(record.tailored_data)
+                # ADR-039: the single ready-commit — status + reports together.
                 await db.commit()
-            except Exception:
-                logger.exception("Failed to persist error status for CV %s", cv_id)
+
+            except Exception as exc:
+                logger.exception("CV generation failed for %s: %s", cv_id, exc)
+                try:
+                    _record_generation_failure(record, exc)
+                    await db.commit()
+                except Exception:
+                    logger.exception("Failed to persist error status for CV %s", cv_id)
 
 
 # ---------------------------------------------------------------------------
@@ -3482,10 +3563,12 @@ async def _latest_keyword_ledger(
     #592 / ADR-048 amended: the persisted row is a statement about the vault as
     it stood when the analysis ran, and the vault keeps moving afterwards. The
     row is re-derived against the CURRENT vault here
-    (:func:`keyword_ledger.refresh_ledger_against_vault` — read its docstring for
+    (:func:`keyword_ledger.refresh_persist_and_rescore` — read its docstring for
     the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
-    the writer is handed. Read-only: the persisted row is not rewritten, so the
-    Gaps screen's score is untouched by generating a document.
+    the writer is handed. **#670 / ADR-048 amended 2026-09-05: no longer read-only.**
+    The refreshed row, the match score and the Gaps screen are persisted here, so the
+    number the candidate sees matches the document they are about to receive — the
+    ruling's accepted price is that a score they have already seen may move.
 
     ``profile_json`` — the caller's already-loaded vault, when it has one (the
     generation path does). Omitted, the profile is loaded from the analysis's own
@@ -3506,12 +3589,11 @@ async def _latest_keyword_ledger(
     if profile_json is None and gap.profile_id is not None:
         profile_row = await db.get(MasterProfile, gap.profile_id)
         profile_json = profile_row.profile_json if profile_row else None
-    from applire.services.keyword_ledger import refresh_ledger_against_vault
+    from applire.services.keyword_ledger import refresh_persist_and_rescore
 
-    ledger, _changed = refresh_ledger_against_vault(
-        gap.keyword_ledger or [], profile_json, seam="cv ledger read"
+    return await refresh_persist_and_rescore(
+        gap, profile_json, db, seam="cv ledger read"
     )
-    return ledger
 
 
 @dataclass
@@ -3861,6 +3943,13 @@ async def _terminal_review(
     the gap loudly logged (ship-and-report — never a delivery gate, the
     2026-08-13 precedent: no structural gate on ``approved``).
 
+    **SF-WRITE.29 (#668, clause 3 amended 2026-09-08):** the corrector is shown
+    that SAME composition as read-only context (``_corrector_prompt`` below),
+    so a finding about composed-only content is actionable and a finding about
+    content the tail deleted is not contradicted by the corrector's own last
+    output. The corrector's INPUT and OUTPUT schema are unchanged — the prose
+    shape, and only that.
+
     The subject cache is seeded with ``record.tailored_data`` AS IS: on the
     normal path that equals ``compose(prose_draft)`` post-condense; on a
     subject-identity re-entry (a detected post-verdict mutation) it is the
@@ -3882,13 +3971,32 @@ async def _terminal_review(
     def _canon(d: dict) -> str:
         return _json.dumps(d, sort_keys=True, default=str)
 
+    # ADR-072 clause 4 amended 2026-09-08 (#666, founder ruling 1 of 2026-09-05):
+    # the retention forms of the concepts THIS round's under-claim signal demanded.
+    # A cell rather than a closure variable because `_compose` is defined before the
+    # wrapper that fills it, and because the loop below re-reads it every round.
+    demanded_cell: dict[str, tuple[tuple[str, ...], ...]] = {"groups": ()}
+
+    def _budget_for_round() -> "BudgetResult":
+        """``budget`` carrying this round's demanded concepts.
+
+        `dataclasses.replace` on a frozen dataclass rather than a new parameter on
+        `_compose_document`: the demand has to reach TWO consumers that already take
+        the budget — the cap inside `_restore_ledger_bullets` and
+        `condense_to_budget` on the re-entry measure — and threading one value through
+        two signatures is how the #540 cap-vs-condense seam was created the first time.
+        """
+        from dataclasses import replace
+
+        return replace(budget, demanded_concepts=demanded_cell["groups"])
+
     def _compose(draft: dict) -> TailoredCVData:
         return _compose_document(
             draft,
             profile_json,
             raw_profile_json=raw_profile_json,
             keyword_ledger=keyword_ledger,
-            budget=budget,
+            budget=_budget_for_round(),
             job_dict=job_dict,
             language=language,
             # ADR-077 clause 4: a terminal-round re-compose keeps the same
@@ -3938,13 +4046,39 @@ async def _terminal_review(
     )
     ensure_pinned_fact_signal_registered()
 
-    def _reviewer_prompt(source: str, draft: dict) -> str:
+    def _subject_for(draft: dict) -> TailoredCVData:
+        """The COMPOSED document for ``draft`` — computed once, cached by draft."""
         key = _canon(draft)
         subject = subject_by_draft.get(key)
         if subject is None:
             subject = _compose(draft)
             subject_by_draft[key] = subject
-        return _subject_fn(source, subject.model_dump(mode="json"))
+        return subject
+
+    def _reviewer_prompt(source: str, draft: dict) -> str:
+        return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
+
+    def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
+        """SF-WRITE.29 (#668, ADR-076 clause 3 amended 2026-09-08): the corrector is
+        shown the SAME artefact the reviewer judged.
+
+        ``review_and_refine`` calls ``reviewer_prompt_fn(source, current_draft)`` and
+        ``generator_prompt_fn(current_draft, feedback, source)`` with the SAME draft in
+        the same round, so ``_subject_for`` here is a cache HIT on the composition the
+        reviewer just read — the adjacency is exact, and no shared-loop signature
+        changes (ADR-066: the one loop keeps its contract; the terminal chain supplies
+        its own closure, exactly as it already does for the reviewer side).
+
+        The corrector still receives and returns the PROSE shape; the composed document
+        is read-only context (ADR-067 clauses 2/3 — no vault-verbatim field is ever
+        routed through a writer LLM).
+        """
+        return _build_cv_retry_prompt(
+            previous_draft,
+            feedback,
+            source,
+            delivered=_subject_for(previous_draft).model_dump(mode="json"),
+        )
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
@@ -3958,7 +4092,37 @@ async def _terminal_review(
             settle, chain_id="cv_terminal_review"
         ).worse_of(outcome_cell["outcome"])
 
-    _underclaim_fn = underclaim_signal_issues_fn(keyword_ledger)
+    def _record_demand(concepts) -> None:
+        """#666: remember what the signal asked for, so the tail that runs after the
+        corrector does not delete the answer.
+
+        ACCUMULATES across this terminal review's rounds rather than replacing.
+        The ruling's words are *"a bullet the same round's signal demanded"*, and
+        same-round-only was built first and measured: with the captured RC run's
+        provenance (round 1 demanded Produktionsverantwortung + ISO 9001, round 2
+        demanded Deutsch), a round-scoped set protects the round-1 answers through
+        round 1's compose and then hands them to round 2's cap unprotected — the loop
+        deletes its own repair one round late, which is the same defect one step
+        along. The set is bounded by construction: at most
+        ``UNDERCLAIM_ISSUE_LIMIT`` concepts per round over at most
+        ``CV_TERMINAL_REVIEW_MAX_RETRIES`` x (1 + ``CV_TERMINAL_REENTRY_MAX``)
+        rounds, and it is per-invocation — a new document starts empty."""
+        demanded_cell["groups"] = tuple(
+            dict.fromkeys(
+                demanded_cell["groups"]
+                + tuple(tuple(c.surface_forms) for c in concepts if c.surface_forms)
+            )
+        )
+
+    _underclaim_fn = underclaim_signal_issues_fn(
+        keyword_ledger,
+        on_demand=_record_demand,
+        # #666 (founder ruling, 2026-09-08): the demand reads the COMPOSED document's
+        # vault-joined structured sections too — a cache HIT on the composition the
+        # reviewer just read, since `review_and_refine` evaluates the signal on the same
+        # `current_draft` it handed the reviewer.
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
 
     current = prose_draft
     rounds = 0
@@ -3968,7 +4132,7 @@ async def _terminal_review(
         settled = await review_and_refine(
             source=source_material,
             draft=current,
-            generator_prompt_fn=_build_cv_retry_prompt,
+            generator_prompt_fn=_corrector_prompt,
             generator_system=CV_TAILORING_REFINEMENT_PROMPT,
             reviewer_prompt_fn=_reviewer_prompt,
             reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
@@ -3995,7 +4159,13 @@ async def _terminal_review(
         record.tailored_data = recomposed.model_dump()
         record.content_snapshot = build_content_snapshot(recomposed)
         try:
-            measure_cell["measured"] = await _measure_and_condense(record, db, condense_ctx)
+            # #666: the page-overrun condense runs on the SAME round's demand set —
+            # otherwise it re-deletes exactly what the cap two lines above protected.
+            from dataclasses import replace as _dc_replace
+
+            measure_cell["measured"] = await _measure_and_condense(
+                record, db, _dc_replace(condense_ctx, budgets=_budget_for_round())
+            )
             # Condense may have trimmed the recomposition — the next round's
             # subject must be the post-condense truth, not the pre-condense one.
             subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)

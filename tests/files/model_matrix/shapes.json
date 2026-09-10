@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "source": "Documents/Runs/Nougat/summary-seed-spike-2026-09-06/replay_multistation.py (spike 2026-09-06/07, #684 / #688)",
+  "synthetic": "Invented candidate 'Lena Fischer' (example.com address) at invented employers (NovaRNA Biotech, Blutspendedienst Nord, Helvetia Pharma, Rhein Consulting). No real profile data — see README.md.",
+  "stations": {
+    "helv": {
+      "id": "w-helv",
+      "keywords": [
+        "helvetia"
+      ]
+    },
+    "bsd": {
+      "id": "w-bsd",
+      "keywords": [
+        "blutspende",
+        "blood donation",
+        "blood bag",
+        "blutbeutel",
+        "blutkomponenten"
+      ]
+    },
+    "nova": {
+      "id": "w-nova",
+      "keywords": [
+        "novarna"
+      ]
+    }
+  },
+  "shapes": {
+    "S1_all_present_en": {
+      "profile": "lena_full",
+      "gap": "pharmaceutical manufacturing systems experience (GMP)",
+      "question": "Do you have hands-on experience with IT systems in pharmaceutical manufacturing (GMP environments)? If so, where and in what role?",
+      "answer": "Yes, 15+ years. At Helvetia Pharma I was responsible for the manufacturing IT of the monoclonal antibody production line - MES and electronic batch records. At Blutspendedienst Nord I ran the LIMS and the production systems for blood components, i.e. blood bags. And at NovaRNA I lead the supply-chain systems behind mRNA vaccine manufacturing and the individualized cancer vaccines.",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "bsd",
+        "nova"
+      ]
+    },
+    "S2_bsd_absent_en": {
+      "profile": "lena_no_bsd",
+      "gap": "pharmaceutical manufacturing systems experience (GMP)",
+      "question": "Do you have hands-on experience with IT systems in pharmaceutical manufacturing (GMP environments)? If so, where and in what role?",
+      "answer": "Yes, 15+ years. At Helvetia Pharma I was responsible for the manufacturing IT of the monoclonal antibody production line - MES and electronic batch records. At Blutspendedienst Nord I ran the LIMS and the production systems for blood components, i.e. blood bags. And at NovaRNA I lead the supply-chain systems behind mRNA vaccine manufacturing and the individualized cancer vaccines.",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "nova"
+      ]
+    },
+    "S3_all_present_de_answer": {
+      "profile": "lena_full",
+      "gap": "pharmaceutical manufacturing systems experience (GMP)",
+      "question": "Haben Sie praktische Erfahrung mit IT-Systemen in der pharmazeutischen Produktion (GMP-Umfeld)? Wenn ja, wo und in welcher Rolle?",
+      "answer": "Ja, seit über 15 Jahren. Bei Helvetia Pharma habe ich die Fertigungs-IT für die Antikörperproduktion verantwortet - MES und elektronische Chargenprotokolle. Beim Blutspendedienst Nord war ich für das LIMS und die Produktionssysteme der Blutkomponenten (Blutbeutel) zuständig. Und bei NovaRNA leite ich die Supply-Chain-Systeme hinter der mRNA-Impfstoffherstellung und den individualisierten Krebsimpfstoffen.",
+      "lang": "de",
+      "expected_stations": [
+        "helv",
+        "bsd",
+        "nova"
+      ]
+    },
+    "S4_compact_sentence_all_present": {
+      "profile": "lena_full",
+      "gap": "pharmaceutical manufacturing systems experience (GMP)",
+      "question": "Do you have experience with pharmaceutical manufacturing systems in an IT context?",
+      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at Helvetia Pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines at NovaRNA.",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "bsd",
+        "nova"
+      ]
+    },
+    "S5_compact_sentence_bsd_absent": {
+      "profile": "lena_no_bsd",
+      "gap": "pharmaceutical manufacturing systems experience (GMP)",
+      "question": "Do you have experience with pharmaceutical manufacturing systems in an IT context?",
+      "answer": "15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at Helvetia Pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines at NovaRNA.",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "nova"
+      ]
+    },
+    "S6_incident_shape_all_present": {
+      "profile": "lena_full",
+      "gap": "insulin manufacturing",
+      "question": "Do you have experience with IT systems for insulin manufacturing?",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "bsd",
+        "nova"
+      ]
+    },
+    "S7_incident_shape_current_only": {
+      "profile": "lena_current_only",
+      "gap": "insulin manufacturing",
+      "question": "Do you have experience with IT systems for insulin manufacturing?",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "lang": "en",
+      "expected_stations": [
+        "nova"
+      ]
+    },
+    "S8_incident_shape_big_profile": {
+      "profile": "lena_big",
+      "gap": "insulin manufacturing",
+      "question": "Do you have experience with IT systems for insulin manufacturing?",
+      "answer": "While I have not worked with insulin in particular, I have 15+ years of experience with manufacturing in the pharmaceutical industry - monoclonal antibodies at helvetia pharma, blood bags at the blood donation service and now mRNA vaccines and individualized cancer vaccines",
+      "lang": "en",
+      "expected_stations": [
+        "helv",
+        "bsd",
+        "nova"
+      ]
+    }
+  }
+}

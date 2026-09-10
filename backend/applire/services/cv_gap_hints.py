@@ -288,22 +288,15 @@ from applire.services.keyword_ledger import narrative_corpus_view  # noqa: E402,
 def _underclaim_candidates(keyword_ledger: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """The entry universe, filtered exactly as ``_coverage_split`` filters it.
 
-    Same exclusions, same reasons, so this signal can never demand something the
-    coverage gate has already ruled out: honest gaps (they must stay absent), an
-    ADJACENT ``partial`` (ADR-048 amended 2026-07-27 — the candidate does not hold the
-    JD's term, so demanding it literally is a demand to over-claim), and an ADR-069
-    scope entry (its concept embeds the JD's own figure).
+    **Moved to ``keyword_ledger.underclaim_candidate_entries`` on 2026-09-08 (#666)**
+    and re-exported here under its original name, unchanged: the ADR-072 clause-4 cap
+    exemption now reads the SAME universe, and a cap that decides which demands it will
+    honour must not be able to disagree with the mechanism that raises them (ADR-066,
+    one implementation per capability).
     """
-    from applire.services.keyword_ledger import is_positioning_only
+    from applire.services.keyword_ledger import underclaim_candidate_entries
 
-    return [
-        e
-        for e in (keyword_ledger or [])
-        if e.get("claimable")
-        and not is_positioning_only(e)
-        and not is_scope_entry(e)
-        and (e.get("concept") or "").strip()
-    ]
+    return underclaim_candidate_entries(keyword_ledger)
 
 
 def _entry_forms(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -314,11 +307,73 @@ def _entry_forms(entry: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(forms))
 
 
+#: ADR-040 / ADR-067 clause 2-3 sections: joined VERBATIM from the vault by code after
+#: the writer, and rendered by every template as their own headed block. A recruiter
+#: reads "Deutsch — Muttersprache" under LANGUAGES as evidence; the same word in the
+#: skills list is a tag. That distinction is the whole reason this signal exists, and it
+#: cuts both ways — see :func:`_structured_norm`.
+_STRUCTURED_SECTIONS = ("languages", "certifications", "education")
+
+
+def _structured_norm(document: dict[str, Any] | None) -> str:
+    """Normalised text of the COMPOSED document's vault-joined structured sections.
+
+    Empty string when no composed document is available (every non-terminal caller),
+    in which case the demand behaves exactly as it did before #666.
+
+    **Adversarial-pass fix (Nougat build-1, `wt-adv-writer`, 2026-09-09).** The
+    LANGUAGES section is transcribed VERBATIM from the vault (ADR-067 clause 3), in
+    whatever language the candidate's profile names it — a DACH candidate's vault
+    typically carries "Englisch"/"Französisch". The clause-5 ledger's surface forms
+    come from the JD's OWN language — "English"/"French" for an English-language
+    posting on a German vault. Measured: a synthetic case with `languages: [{"language":
+    "Englisch", "level": "C1"}]` and a ledger entry `{"concept": "English",
+    "surface_forms": ["English"]}` left the concept DEMANDED even though the composed
+    document's LANGUAGES section already states it — `_structured_norm` never found
+    "english" as a substring of "englisch". That reproduces exactly the cost W1-3 (the
+    RULING this suppression exists to satisfy) was built to prevent: the corrector
+    spends one of its two per-round demand slots, and the ADR-072 clause-4 exemption
+    then protects a bullet at the price of another, genuinely-needed one — "Deutsch als
+    Muttersprache." bought at the price of the LTIF and budget bullets, but this time for
+    a fact the document already carries.
+
+    ``services/cv._LANGUAGE_NAME_CANON`` is the ALREADY-ESTABLISHED, ADR-062
+    clause-1-legitimised fact table for exactly this ("mapping a language's German name
+    to its English name is a finite lookup — a FACT, not a judgement", `_dedup_languages`
+    docstring) — reused here (ADR-066: one implementation) rather than a second table,
+    function-local import to avoid a cv.py <-> cv_gap_hints.py cycle (cv.py already
+    imports this module locally, inside `_terminal_review`).
+    """
+    if not document:
+        return ""
+    from applire.services.cv import _LANGUAGE_NAME_CANON
+
+    out: list[str] = []
+    for section in _STRUCTURED_SECTIONS:
+        for item in document.get(section) or []:
+            if isinstance(item, str):
+                out.append(item)
+                if section == "languages":
+                    canon = _LANGUAGE_NAME_CANON.get(item.strip().casefold())
+                    if canon:
+                        out.append(canon)
+            elif isinstance(item, dict):
+                values = [v for v in item.values() if isinstance(v, str)]
+                out.extend(values)
+                if section == "languages":
+                    for v in values:
+                        canon = _LANGUAGE_NAME_CANON.get(v.strip().casefold())
+                        if canon:
+                            out.append(canon)
+    return _norm("\n".join(out))
+
+
 def verified_narrative_underclaim(
     draft: dict[str, Any] | None,
     keyword_ledger: list[dict[str, Any]] | None,
     *,
     min_fit_weight: float | None = None,
+    structured_document: dict[str, Any] | None = None,
 ) -> list[UnderclaimedConcept]:
     """Claimable, JD-required concepts absent from the document's NARRATIVE corpus.
 
@@ -346,11 +401,22 @@ def verified_narrative_underclaim(
 
     narrative_norm = _norm("\n".join(_tailored_narrative_texts(narrative_corpus_view(draft))))
     document_norm = _norm("\n".join(_draft_strings(draft or {})))
+    # #666 (founder ruling, 2026-09-08): a concept the COMPOSED document already carries
+    # in a vault-joined structured section is DELIVERED, not under-claimed, and demanding
+    # a narrative bullet for it is a demand the document does not need. Measured on the
+    # captured RC state: with the demand honoured by ADR-072 clause 4's new exemption,
+    # "Deutsch" bought the bullet "Deutsch als Muttersprache." at the price of the LTIF
+    # 8,2 -> 3,1 safety bullet AND the 6 Mio. EUR budget bullet, on a document whose
+    # LANGUAGES section already stated it. The `skills` list is deliberately NOT in this
+    # set: a tag is not evidence, which is this signal's own founding rule.
+    structured_norm = _structured_norm(structured_document)
 
     out: list[UnderclaimedConcept] = []
     for index, entry in enumerate(candidates):
         forms = _entry_forms(entry)
         if any(surface_present(f, narrative_norm) for f in forms):
+            continue
+        if structured_norm and any(surface_present(f, structured_norm) for f in forms):
             continue
         out.append(
             UnderclaimedConcept(
@@ -423,13 +489,38 @@ def underclaim_signal_issues_fn(
     keyword_ledger: list[dict[str, Any]] | None,
     *,
     limit: int = UNDERCLAIM_ISSUE_LIMIT,
+    on_demand: Callable[[Sequence[UnderclaimedConcept]], None] | None = None,
+    structured_document_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None,
 ) -> Callable[[dict[str, Any]], Sequence[ReviewIssue]]:
     """Bind a ledger to :func:`underclaim_signal_issues` for ``review_and_refine``'s
     ``signal_issues_fn`` parameter — recomputed per round on the CURRENT draft, exactly
     like ``coverage_reviewer_prompt_fn``'s wrapper, so a concept the corrector has since
-    surfaced stops being demanded without any state of its own."""
+    surfaced stops being demanded without any state of its own.
+
+    ``structured_document_fn`` maps the prose draft to the COMPOSED document, so the
+    demand can see the vault-joined LANGUAGES / CERTIFICATIONS / EDUCATION sections the
+    prose shape does not carry. Only the terminal chain supplies it (it is the only
+    chain that HAS a composed document); every other caller passes None and the demand
+    is computed exactly as it was.
+
+    ``on_demand`` (#666, ADR-072 clause 4 amended 2026-09-08) is called with THIS
+    round's demanded concepts — the same objects the issues are minted from, never a
+    re-derivation — so the deterministic tail can exempt the bullets they produce from
+    the per-role cap. It is a REPORT, exactly like ``review_and_refine``'s ``on_settle``:
+    it returns nothing and cannot change which issues are raised, and it is called on
+    every evaluation including the empty one, so a caller can see that a round demanded
+    nothing rather than having to infer it.
+    """
 
     def fn(draft: dict[str, Any]) -> Sequence[ReviewIssue]:
-        return underclaim_signal_issues(draft, keyword_ledger, limit=limit)
+        structured = structured_document_fn(draft) if structured_document_fn else None
+        concepts = verified_narrative_underclaim(
+            draft, keyword_ledger, structured_document=structured
+        )[:limit]
+        if on_demand is not None:
+            on_demand(concepts)
+        return [
+            ReviewIssue(text=_issue_text(c), severity=SEVERITY_BLOCKING) for c in concepts
+        ]
 
     return fn

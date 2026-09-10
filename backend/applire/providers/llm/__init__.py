@@ -34,10 +34,41 @@ from applire.providers.llm.base import LLMProvider
 
 
 def get_provider() -> LLMProvider:
-    """Instantiate the configured LLM provider (wrapped with debug logging if enabled)."""
-    from applire.providers.llm.debug_log import wrap_provider
+    """Instantiate the configured LLM provider.
 
-    return wrap_provider(_build_provider(settings.llm_provider.lower()))
+    Two transparent wrappers, innermost first:
+
+    * ``wrap_usage`` (ADR-086 clause 7) writes one ``llm_usage`` row per call —
+      token counts, a stage label and opaque ids, never any text. On by default;
+      ``LLM_USAGE_TRACKING=off`` returns the bare provider.
+    * ``wrap_provider`` (the debug log) records full prompts and responses. Off
+      by default; it carries CV PII.
+
+    The order matters: the debug logger reads ``self._inner._model``, and the
+    usage wrapper exposes ``_model`` through to the real provider, so the debug
+    records are byte-identical to what they were before the usage seam existed.
+    """
+    from applire.providers.llm.debug_log import wrap_provider
+    from applire.providers.llm.usage import wrap_usage
+
+    return wrap_provider(wrap_usage(_build_provider(settings.llm_provider.lower())))
+
+
+def unwrap_provider(provider: LLMProvider) -> LLMProvider:
+    """Return the concrete provider underneath any transparent wrappers.
+
+    ``get_provider()`` may hand back a usage recorder inside a debug logger
+    (ADR-086 clause 7). Both are pass-throughs, so anything that needs to know
+    *which backend was selected* — a selection test, a capability probe —
+    unwraps first rather than asserting on the outermost type.
+    """
+    seen: set[int] = set()
+    while True:
+        inner = getattr(provider, "_inner", None)
+        if inner is None or id(inner) in seen:
+            return provider
+        seen.add(id(inner))
+        provider = inner
 
 
 def _build_provider(provider: str) -> LLMProvider:

@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
+import { UpgradeNotice } from "@/components/dashboard/UpgradeNotice";
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
@@ -131,6 +132,13 @@ export default function DashboardPage() {
       <AppTopbar mode="section" titleKey="shell.dashboard" />
 
       <main className="flex-1 overflow-y-auto px-4 md:px-8 py-5 md:py-7">
+        {/* US310: the operator's surfaces sit above everything the candidate came
+            here for. The version-jump notice renders only after an upgrade that
+            changed something this environment does not set (or while the LLM debug
+            log is on); on a normal day it renders nothing at all.
+            WP-O1's OperatorPanel mounts directly below this line. */}
+        <UpgradeNotice />
+
         {/* PQ F1: truthful dashboard — CV imports may still be running server-side
             (e.g. after a refresh interrupted onboarding). Say so instead of showing
             a half-imported profile as complete; refresh the strength card when done. */}

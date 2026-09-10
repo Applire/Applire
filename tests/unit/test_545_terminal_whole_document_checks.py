@@ -14,7 +14,8 @@ What CI *can* prove, and what these tests are for:
 * the prompt does not contradict itself about the new checks' severity (ADR-062 clause 4 —
   ADR-083's Context item 1 is the measurement that the model obeys the exclusion, not the
   check, when the two disagree);
-* `repetition` stays `minor` on both doors (ADR-082's decision, not ADR-083 clause 3's);
+* the two doors do not disagree about a check number (`repetition` LEFT the minor line on
+  2026-09-08 — #668 owns that assertion; here only the numbering it moved);
 * both size gates still hold, and the terminal doors get their own ratchet so the next
   append meets the same question.
 """
@@ -83,7 +84,9 @@ def test_the_new_checks_are_absent_from_both_prose_doors():
 
 @pytest.mark.parametrize(
     "prompt,balance_no,voice_no",
-    [(cv.TERMINAL_REVIEW_SYSTEM_PROMPT, "8.", "9."),
+    # The CV's clause-9 checks renumbered 8/9 → 9/10 on 2026-09-08 when #668's shared
+    # check 8 (REDUNDANCY) landed in `_CHECKS`. The letter door is untouched.
+    [(cv.TERMINAL_REVIEW_SYSTEM_PROMPT, "9.", "10."),
      (letter.TERMINAL_REVIEW_SYSTEM_PROMPT, "6.", "7.")],
 )
 def test_both_terminal_doors_carry_two_named_numbered_checks(prompt, balance_no, voice_no):
@@ -146,7 +149,7 @@ def test_both_checks_are_bounded_at_one_finding_per_document(prompt):
 
 def test_the_cv_terminal_mandate_names_all_three_visibility_only_checks():
     m = _flat(cv._MANDATE_TERMINAL)
-    assert "EXCEPT checks 2, 8 and 9" in m
+    assert "EXCEPT checks 2, 9 and 10" in m
     assert "VISIBILITY ONLY" in m
 
 
@@ -166,12 +169,15 @@ def test_the_new_checks_state_their_own_severity_too(prompt):
     assert 'NEVER "blocking"' in flat or "NEVER `blocking`" in flat
 
 
-def test_repetition_stays_minor_by_definition_on_both_cv_doors():
-    """ADR-082's decision — repetition is DETECTED by the ATS audit and never repaired by
-    the loop. ADR-083 clause 3 proposes the opposite and is deliberately NOT taken here;
-    changing this line is that decision, not this one."""
-    assert "repetition" in cv._MANDATE_PROSE
-    assert "repetition" in cv._MANDATE_TERMINAL
+def test_repetition_left_the_minor_line_and_became_named_check_8():
+    """Reversed 2026-09-08 by founder ruling 3 of 2026-09-05 (#668): ADR-083 clause 3
+    beats ADR-082's *detect, never repair*, which is narrowed to the DETERMINISTIC layer.
+    The full assertion set — including the SHARED severity vocabulary, where the word also
+    lived — is `tests/unit/test_668_reviewer_and_corrector_one_document.py`; this one stays
+    so the #545 suite does not silently keep asserting the world it was written in."""
+    assert "repetition" not in cv._MANDATE_PROSE
+    assert "repetition" not in cv._MANDATE_TERMINAL
+    assert "8. REDUNDANCY" in cv._CHECKS
 
 
 def test_the_terminal_mandate_no_longer_says_truthfulness_is_the_whole_mandate():
@@ -197,7 +203,13 @@ def test_the_writer_prompt_is_still_smaller_than_its_reviewer():
 
 
 def test_the_prose_ratchets_are_untouched_because_the_prose_doors_are():
-    assert len(cv.REVIEW_SYSTEM_PROMPT) < 10_700
+    assert len(cv.REVIEW_SYSTEM_PROMPT) < 10_800, (
+        f"CV prose reviewer prompt is {len(cv.REVIEW_SYSTEM_PROMPT)} chars. The ratchet "
+        "moved 10,700 → 10,800 ONCE, on 2026-09-08, for #668's named check 8 "
+        "(REDUNDANCY): +274 chars, of which the concept it replaces gave back 12 — the "
+        "word `repetition` leaving the minor line. Mapped to SF-WRITE.26/.27. Nothing "
+        "else was appended, and the next append meets this question again."
+    )
     assert len(letter.REVIEW_SYSTEM_PROMPT) < 12_500
 
 
@@ -205,9 +217,11 @@ def test_the_cv_terminal_door_gets_its_own_ratchet():
     """The prose doors have had a ratchet since #580 / the letter's precedent; the
     terminal doors never did, which is how a 2,400-character append could land without
     meeting the question the ratchet asks. Clause 9 landed at 13,743 (was 11,317)."""
-    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_000, (
+    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_100, (
         f"CV terminal reviewer prompt is {len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — it is "
-        "regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append."
+        "regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
+        "The ratchet moved 14,000 → 14,100 ONCE, on 2026-09-08, for #668's shared check 8 "
+        "(+296 chars, SF-WRITE.26/.27)."
     )
 
 

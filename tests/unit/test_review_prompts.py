@@ -648,9 +648,17 @@ class TestCVServiceReviewIntegration:
         import uuid
         from unittest.mock import AsyncMock, MagicMock, patch
 
+        # #670 (ADR-048 amended 2026-09-05): the ledger read seam now re-runs ADR-061's
+        # affirmative invariant, so a `claimable` row whose concept NOTHING in the vault
+        # backs is demoted before the reviewer sees it. This fixture's ledger claimed
+        # Kubernetes `direct` against a profile whose only skill was Python and whose
+        # single work entry had no bullets — a row `assert_claimable_backed` calls
+        # `no_vault_evidence_unit`, i.e. exactly the truthfulness violation #318 exists to
+        # make impossible. The fixture is corrected at the VAULT (the claim is now backed),
+        # not by relaxing the assertion: the assertion is what this test is for.
         profile_json = {
             "work_history": [{"company": "Acme", "role": "Dev", "start_date": "2020", "end_date": None, "bullets": []}],
-            "skills": ["Python"], "education": [], "languages": [],
+            "skills": ["Python", "Kubernetes"], "education": [], "languages": [],
             "contact": {"name": "Max", "email": None, "phone": None, "location": None, "linkedin": None},
             "personal_info": {},
         }
@@ -936,12 +944,17 @@ class TestCoverLetterServiceReviewIntegration:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         cl_id, cv_id, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        # #670 (ADR-048 amended 2026-09-05): the LETTER ledger read seam now re-runs
+        # ADR-061's affirmative invariant, so a `claimable` row nothing in the vault backs
+        # is demoted before the reviewer sees it — and this fixture claimed Kubernetes
+        # `direct` against a profile whose skills were Python and FastAPI. Corrected at the
+        # VAULT, never by relaxing the assertion: the assertion is what this test is for.
         cv_tailored = {
             "contact": {"name": "Max Muster"}, "summary": "Backend developer.",
             "work_history": [{"company": "Acme GmbH", "role": "Software Developer",
                               "start_date": "2020-01", "end_date": "2022-12",
-                              "bullets": ["Built REST APIs"]}],
-            "skills": ["Python", "FastAPI"],
+                              "bullets": ["Built REST APIs", "Ran the services on Kubernetes"]}],
+            "skills": ["Python", "FastAPI", "Kubernetes"],
         }
         letter_raw = json.loads(json.dumps(_SAMPLE_LETTER))
 
@@ -2401,7 +2414,11 @@ class TestPerEntryGroundingAndRoleOwnership:
         numbers = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. [A-Z]", p, re.M)]
         assert numbers == list(range(1, len(numbers) + 1))
         # 7 since #580 (ADR-077 amended 2026-08-26): check 7 PINNED FACT NOT DELIVERED.
-        assert len(numbers) == 7
+        # 8 since #668 (2026-09-08, founder ruling 3 of 2026-09-05): check 8 REDUNDANCY —
+        # `repetition` left the minor-by-definition line and became a named, blocking
+        # check on BOTH doors, because `_CHECKS` is shared and ADR-062 clause 4 forbids
+        # the two doors disagreeing about one concept.
+        assert len(numbers) == 8
 
     def test_the_check_states_the_profile_shape_facts(self):
         """Run 17's reviewer misread the MES *project* id as a foreign

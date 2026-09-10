@@ -22,6 +22,57 @@ information and emits a typed batch of ops (see ``services/profile/reconcile/
 ops.py``) that the deterministic applier folds into the profile. One LLM call,
 no tool loop. The distinctive phrase "profile reconciler" is the mock fingerprint
 (``providers/llm/mock.py``) — keep it in the system prompt.
+
+Version history — every rule change with its MEASURED effect
+------------------------------------------------------------
+
+The rule against which this header exists: **a rule may not be added, widened or
+removed without a measurement of what it changed.** The 2026-08-31 incident that
+made it a rule — a rule widened to cover a shape the model was already ignoring,
+668 prompt chars for nothing — is recorded in the ``applire-prompt-first`` skill.
+Numbers below are from ``scripts/model_matrix.py``, n=10 per shape, shapes
+S6/S7/S8, three models over OpenRouter with reasoning on; records in
+``Documents/Runs/Nougat/build-1/p/runs/``. Rates are lost-turn / malformed /
+wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
+
+* **15,118 chars, 14 rules** — the state the 11-model matrix measured
+  (2026-09-09). Every model sub-par; two structural diseases named in
+  ``o3/failure-taxonomy-2026-09-09.md``.
+* **16,244 (#684, ruling V-0/V-6, 2026-09-08).** ``UpsertWork.role`` optional +
+  "role only when stated"; ``add_bullets`` gains "a bullet carries ONLY the
+  clause about ITS OWN entity"; ``upsert_skill.years_experience``.
+  *Measured:* ``glm-5.3-flash`` malformed 40 %→0 % on S7 (all 8 rejected ops had
+  been ``upsert_work.role:string_type``); ``gpt-5.6-luna`` sub-par → **qualified**
+  (S7 lost 20 %→0 %, wrong-slot 30 %→0 %).
+* **16,660 (M-1, 2026-09-09).** Rule 9's "an answer that does not address the
+  question contributes nothing about the question's topic" replaced by "A DENIAL
+  IS ABOUT ITS OWN ITEM AND NOTHING ELSE …", with the S6/S7/S8 sentence as the
+  worked example; rule 9's own empty-output escape deleted, leaving the single
+  one in the output-format preamble (contradiction C2 of ``o3/prompt-health.md``).
+  *Measured:* ``glm-5.3-flash`` sub-par → **qualified** (S7 lost 10 %→0 %), and
+  its completion tokens for the same 30 turns fell 109,253 → 57,202 (-48 %) with
+  S6/S7 p50 latency 45 s→6 s / 63 s→7 s — the model had been spending reasoning
+  budget on the contradiction. ``ministral-8b`` malformed 10/20/10 → 0/20/0.
+  No regression on ``gpt-5.6-luna``.
+* **17,599 (M-2, 2026-09-09).** Rule 1 gains "ONE SENTENCE NAMING SEVERAL
+  EMPLOYERS IS SEVERAL FACTS", the split-per-employer instruction and the worked
+  NovaRNA/Helvetia/Blutspendedienst example (the document-harm class, 7 of 11
+  models — taxonomy §3.3).
+  *Measured:* ``ministral-8b`` sub-par → **caveat** (S7 malformed 20 %→0 %; its
+  remaining rejection is one ``upsert_work.ref:missing``). No regression on the
+  two qualified models.
+* **18,562 (M-3a, 2026-09-09).** Per-op ``REQUIRED:``
+  lines beside each op, stating that required fields are required **also when
+  ``target`` names an existing entity** (the dominant drift shape across two
+  models and two gateways, taxonomy §3.5); ``evidence`` named as a LIST on
+  ``upsert_skill`` and ``upsert_story``; the ``evidence`` / ``experience_refs``
+  naming clash between the op side and the rendered vault named in one clause.
+  *Measured:* see ``p/report.md`` — the A3 row.
+
+Adding a rule here costs the model attention on every turn. Before you add one,
+read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
+data 1.84:1 to 4.17:1, and the failure rates run the same way) and the
+``applire-prompt-first`` narrower-rule check.
 """
 from __future__ import annotations
 
@@ -58,66 +109,97 @@ Every operation object has an "op" field naming its type. Entity operations
   - "target": the `id` of an EXISTING entity this fact belongs to (merge into it),
               or null for a genuinely NEW entity.
 
+REQUIRED FIELDS ARE REQUIRED ON EVERY OP OF THAT TYPE — including when
+"target" names an entity that already exists. Naming a target says WHERE the
+fact goes; it does not make the op's own required fields redundant, and an op
+that leaves one out is dropped whole. Each operation below names its own.
+
 Operations:
 
 - upsert_work — a job / employment. Fields: ref, target, company, role,
   start_date, end_date, is_current (bool), location, team_size (int),
-  industry_context, budget_managed. company and role are required.
+  industry_context, budget_managed. REQUIRED: ref, company — also when
+  "target" is set. role is OPTIONAL:
+  when the new information names an employer but never says what the person
+  DID there, leave role out — an entry with only the stated fields is correct
+  and the system asks for the rest. Never compose a plausible job title.
 
 - upsert_project — a project, possibly done WITHIN a job or volunteer role.
   Fields: ref, target, name, parent (the existing id OR the local ref of the
   parent work/volunteer entity, or null for a standalone project), role,
-  start_date, end_date, url, description. name is required.
+  start_date, end_date, url, description. REQUIRED: ref, name — also when
+  "target" is set.
 
 - upsert_volunteer — a volunteering engagement. Fields: ref, target,
-  organization, role, cause, start_date, end_date, description. organization and
-  role are required.
+  organization, role, cause, start_date, end_date, description. REQUIRED: ref,
+  organization, role — also when "target" is set.
 
 - add_bullets — attach bullet points to a work/project/volunteer entity.
   Fields: target (an existing id OR a local ref of an entity op in this batch),
   responsibilities (list of str), achievements (list of str),
-  technologies (list of str).
+  technologies (list of str). REQUIRED: target. A bullet carries ONLY the clause about ITS OWN
+  entity — never the opening span of an answer that spans several jobs
+  ("15+ years in X, at A, at B, and now C" is not a fact of A).
 
-- upsert_skill — a skill. Fields: name, category, proficiency, evidence (a list
-  of existing ids or local refs of the experiences that demonstrate this skill).
+- upsert_skill — a skill. Fields: name, category, proficiency, years_experience
+  (int), evidence (a LIST of existing ids or local refs of the experiences that
+  demonstrate this skill — a list even for a single id, never a bare string and
+  never null: omit the field instead. On the profile side the same links are
+  rendered under the name "experience_refs"; on an OP the field is "evidence").
+  REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
+  years_experience: ONLY a span the new information itself STATES about this
+  skill ("15+ years in X" -> 15). Never count it from the entries' dates and
+  never estimate it — omit the field when no span is stated. A span that
+  covers several jobs belongs HERE, on the skill, never as a bullet of one of
+  them.
 
 - upsert_certification — Fields: name, issuing_organization, date_obtained,
-  expiry_date, credential_id, credential_url.
+  expiry_date, credential_id, credential_url. REQUIRED: name.
 
-- upsert_language — Fields: language, level.
+- upsert_language — Fields: language, level. REQUIRED: language.
 
 - upsert_education — Fields: institution, degree, field, start_date, end_date,
-  grade.
+  grade. REQUIRED: institution, degree.
 
 - upsert_publication — a publication or patent. Fields: title, type
   ("publication" or "patent"), venue, published_date, doi, url, patent_number,
-  co_authors. title is required.
+  co_authors. REQUIRED: title.
 
 - upsert_story — a SIGNATURE STORY: a self-contained narrative with the arc
   challenge -> mechanism -> outcome (-> benchmark). Fields: title (a short
   label you compose), challenge (what was hard / the situation), mechanism
   (what the person actually did or built), outcome (the measurable result —
   keep stated figures VERBATIM), benchmark (what makes the result meaningful,
-  or null), evidence (existing ids or local refs of the experience the story
-  happened in). title, challenge, mechanism and outcome are required.
+  or null), evidence (a LIST of existing ids or local refs of the experience
+  the story happened in — a list even for a single id, never a bare string and
+  never null: omit the field instead).
+  REQUIRED: title, challenge, mechanism, outcome.
 
 - set_field — fill a single empty scalar field on ANY existing entity, named by
   its id: work, project and volunteer entries, and equally education,
   certifications, languages and publications. Fields: target (an existing id OR
-  a local ref), field (the field name), value. Use ONLY to fill a gap (a
+  a local ref), field (the field name), value. REQUIRED: target, field, value.
+  Use ONLY to fill a gap (a
   currently-empty field); NEVER to overwrite a non-empty value — a value that
   CONTRADICTS a non-empty one is a flag_conflict.
 
 - set_personal_info — fill a single empty field on the user's personal info.
-  Fields: field, value. Same gap-only rule as set_field.
+  Fields: field, value. REQUIRED: field, value. Same gap-only rule as set_field.
 
 - set_summary — set the professional summary. Fields: lang ("de" or "en"), text.
+  REQUIRED: lang, text.
+  Use ONLY when the slot for that language is EMPTY; NEVER to overwrite. The
+  summary is how the candidate describes THEMSELVES, not a place to put an
+  answer. A statement about their setting, industry, years or through-line
+  belongs on the entry it is about (set_field -> industry_context,
+  add_bullets) or in a signature story (upsert_story); it is not a summary.
 
 - flag_conflict — the new information CONTRADICTS something the profile already
   states. Fields: target, field, existing (the value already on the profile),
-  incoming (the new value). It has two shapes:
+  incoming (the new value). REQUIRED: target, field, existing, incoming.
+  It has two shapes:
     * a SCALAR field (company, end_date, team_size, …): emit this INSTEAD of
       set_field whenever the new value would overwrite a different,
       already-populated value.
@@ -128,7 +210,8 @@ Operations:
 
 - request_confirmation — a targeted yes/no (or short-choice) question for the
   user. Fields: question, options (list of short answers), context (a dict with
-  any helpful keys). Emit this when you cannot confidently decide.
+  any helpful keys). REQUIRED: question, options. Emit this when you cannot
+  confidently decide.
 
 # Rules
 
@@ -137,6 +220,18 @@ Operations:
    abbreviations, and a company that is only mentioned in one source. When a new
    fact belongs to an EXISTING entity, set that op's "target" to that entity's
    `id`. Use target: null ONLY for a genuinely new entity.
+   ONE SENTENCE NAMING SEVERAL EMPLOYERS IS SEVERAL FACTS. Bind each clause to
+   the employer THAT CLAUSE names — never fold the whole sentence onto whichever
+   employer the profile happens to hold already. Worked example: the profile
+   holds only "NovaRNA Biotech" and the answer says "15+ years in pharmaceutical
+   manufacturing: monoclonal antibodies at Helvetia Pharma, blood bags at the
+   Blutspendedienst, and now mRNA vaccines at NovaRNA". Emit add_bullets on
+   NovaRNA's `id` for the mRNA clause ONLY; an upsert_work with target: null for
+   Helvetia Pharma and another for the Blutspendedienst, each carrying its own
+   clause; and the "15+ years" span on upsert_skill.years_experience, where a
+   span covering several jobs belongs. Never emit an add_bullets or a set_field
+   whose own words name an employer other than its target — a fact credited to
+   the wrong employer is silent and looks correct on the finished CV.
 
 2. Assign the correct KIND. A job -> upsert_work. A project (especially one done
    WITHIN a job or volunteer role) -> upsert_project with "parent" set to the
@@ -204,10 +299,15 @@ Operations:
    including from add_bullets "technologies" lists. List the name of every
    denied item in the top-level "denials" array. Facts come ONLY from the new
    information itself, never from the question or gap label: a topic merely
-   being ASKED about is not evidence the user has it, and an answer that does
-   not address the question contributes nothing about the question's topic. If
-   the new information only denies, output {"ops": [], "ambiguities": [],
-   "denials": [...]}.
+   being ASKED about is not evidence the user has it.
+   A DENIAL IS ABOUT ITS OWN ITEM AND NOTHING ELSE. An answer that opens by
+   denying the question's topic and then says something else is a FULL answer,
+   not an empty one: name the denied item in "denials" AND record every fact the
+   rest of the answer states, exactly as if the denial were not there. "I have
+   not worked with insulin in particular, but I have 15+ years in pharmaceutical
+   manufacturing at A, at B and now at C" denies insulin and states three
+   employers' worth of facts — encode all of them. Emitting no ops is right ONLY
+   when the answer states no fact at all beyond what it denies.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a

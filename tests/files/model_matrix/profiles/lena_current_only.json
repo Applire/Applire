@@ -1,0 +1,101 @@
+{
+  "personal_info": {
+    "name": "Lena Fischer",
+    "email": "lena.fischer@example.com",
+    "phone": null,
+    "location": "Mainz",
+    "address": null,
+    "nationality": null,
+    "date_of_birth": null,
+    "photo_url": null,
+    "linkedin_url": null,
+    "xing_url": null,
+    "website_url": null
+  },
+  "professional_summary": {
+    "de": null,
+    "en": "I'm an engineering leader who builds and leads teams that build AI-driven systems people can trust. For several years I have led teams in regulated environments, set technical strategy and roadmaps, and developed talent. My focus is increasingly on applied AI, hands-on rather than only strategic. What I bring to a leadership role is proven engineering leadership in demanding, regulated settings paired with current AI fluency and the judgment to apply it responsibly."
+  },
+  "work_experience": [
+    {
+      "role": "Associate Director Supply Chain Systems",
+      "location": null,
+      "start_date": "2019-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Lead the team building the end-to-end supply-chain systems for individualized therapies",
+        "Own technical strategy and roadmap for manufacturing-adjacent IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "SAP",
+        "Azure",
+        "Python"
+      ],
+      "expected_fields": null,
+      "id": "w-nova",
+      "company": "NovaRNA Biotech GmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    }
+  ],
+  "education": [
+    {
+      "id": "a97cbe88-e9c0-4235-a8f2-2549cc633e8e",
+      "institution": "TU Darmstadt",
+      "degree": "Diplom",
+      "field": "Informatik",
+      "start_date": "1999",
+      "end_date": "2005",
+      "grade": null,
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "certifications": [],
+  "skills": [
+    {
+      "id": "b62a8fb2-653b-4e53-b65b-ed0401eb2c0c",
+      "name": "SAP",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "a88f989c-14b4-485b-9286-c509c10c8a34",
+      "name": "Computer System Validation",
+      "category": "domain",
+      "proficiency": "expert",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "4f1adf16-7406-4c37-9452-bf0a0be3c58d",
+      "name": "Team leadership",
+      "category": "soft",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    }
+  ],
+  "languages": [],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": null
+}

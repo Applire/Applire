@@ -157,6 +157,7 @@ class ReplayLLMProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         response = self._take().get("response")
         if isinstance(response, str):

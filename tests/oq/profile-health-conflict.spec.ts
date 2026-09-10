@@ -148,7 +148,9 @@ test.describe("#604 — Health hub conflict card", () => {
       await page.getByTestId("health-issue-conflict").innerText()
     ).replace(/\s+/g, " ");
 
-    expect(text).toContain("Summary (English)");
+    // #685 (Nougat build 1, ruling V-2): the summary reads as self-description,
+    // `health.fieldLabel.summaryEn` — the catalog string, not the field name.
+    expect(text).toContain("your self-description (English)");
     expect(text).toContain("Old summary");
     expect(text).toContain("New summary");
     // A missing entity must read as absent, never as a rendered placeholder.

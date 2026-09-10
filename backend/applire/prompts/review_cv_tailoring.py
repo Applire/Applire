@@ -15,6 +15,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10 (#668 / ADR-082 + ADR-083 reconciled 2026-09-08, founder ruling 3 of
+#   2026-09-05 — `repetition` leaves the minor-by-definition line on BOTH doors and becomes
+#   NAMED check 8, REDUNDANCY, blocking like any other. The clause-9 terminal checks
+#   renumber 8/9 → 9/10 with the mandate line; the prose door gains check 8 too, because
+#   both doors share `_CHECKS` and ADR-062 clause 4 forbids them disagreeing about one
+#   concept. The check's text is arm C of ADR-083's replay VERBATIM — 5/5 blocking, 0 false
+#   positives against arm A (as shipped) 0/5 and arm B (an open role mandate) 0/5 — so the
+#   wording is the evidence and a paraphrase would discard it.
+#   The ruling's blocking PRECONDITION, `SF-WRITE.29`, is closed in the same change and not
+#   by this file: the terminal corrector's prompt now carries the COMPOSED document
+#   read-only beside its PREVIOUS OUTPUT (`prompts/cv_tailoring.build_retry_prompt`'s
+#   `delivered` argument, supplied by `services/cv._terminal_review._corrector_prompt`).
+#   Measured on the captured RC delivery run 2026-09-05 (records 660–663): the divergence
+#   ran BOTH ways — composed-only content invisible to the corrector (ADR-083's 0/5 on
+#   `projects`) AND tail-deleted content still visible to it, so the reviewer's true
+#   blocking finding read as false at the corrector's seat and 2 of 3 repairs never reached
+#   the document. Both CV size ratchets rise by the check's own length, recorded in the
+#   test's assertion message; nothing else was appended.
+#   ADR-062 clause 7: prompt effect; CI pins the wording only.)
 # Prompt version: v9 (#580 / ADR-077 amended 2026-08-26 — check 7, PINNED FACT NOT
 #   DELIVERED, shared by both shape doors. The captured 2026-08-25 run showed the
 #   writer reproducing a pinned vault quote word-for-word and THIS reviewer's check
@@ -228,6 +247,10 @@ Check for ALL of the following:
    demanded; report it as a "minor" issue naming the pin and the check that outranks it.
    A pinned quote is the candidate's own vault text — its verbatim presence is never
    itself a finding.
+8. REDUNDANCY: Flag any place where the document states the same achievement, project or
+   responsibility more than once — within one bullet list, or between a work entry's bullets
+   and the bullets of a project nested under it. A failure of this check is blocking like any
+   other.
 
 SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the WHOLE profile
 by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
@@ -251,7 +274,7 @@ WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXC
 and nothing else. Those checks are the whole of your mandate — they are the ways this CV can be
 untrue, misattributed, or incomplete against what the ledger required. Anything else you notice
 is "minor" BY DEFINITION: bullet wording, bullet order, which achievement leads an entry,
-summary phrasing that does not change what is claimed, length, repetition. You are not the CV's
+summary phrasing that does not change what is claimed, length. You are not the CV's
 editor. You are the check on whether it tells the truth.
 
 """
@@ -287,7 +310,7 @@ with their document, and they decide. Report AT MOST ONE finding per check for t
 document — each is a property of the composite, and three findings describing one pattern is
 noise, not thoroughness.
 
-8. CLAIM BALANCE — over AND under. Checks 1 and 5 look for claims the profile does not support.
+9. CLAIM BALANCE — over AND under. Checks 1 and 5 look for claims the profile does not support.
    This one also looks the other way: is something the CANDIDATE PROFILE clearly supports, and
    this posting clearly wants, missing from the delivered document — or present only as a skills
    entry, or reduced to a phrase with its evidence gone? Include material the candidate scoped
@@ -297,7 +320,7 @@ noise, not thoroughness.
    would belong. Never ask for a skills-list entry — a tag is not evidence — and never ask for
    anything the profile does not already support.
 
-9. VOICE — does this read as written by a person? The tell is mechanical uniformity, and every
+10. VOICE — does this read as written by a person? The tell is mechanical uniformity, and every
    pattern below is one of our own quality rules applied without exception:
    - every bullet carries a number, with none left plain;
    - the summary reproduces the posting's own requirement list in the posting's order;
@@ -324,19 +347,24 @@ noise, not thoroughness.
 #: one production run that noticed redundancy filed it `minor` because this paragraph
 #: required exactly that.
 #:
-#: `repetition` STAYS on the minor list, on both doors. That is ADR-082's decision —
-#: repetition is detected by the ATS audit and never repaired by the loop — and ADR-083
-#: clause 3 is the open counter-proposal, not a licence taken here.
+#: `repetition` LEFT the minor list on both doors on 2026-09-08 (#668, founder ruling 3 of
+#: 2026-09-05): ADR-083 clause 3 beats ADR-082's *detect, never repair*, which is narrowed
+#: to the DETERMINISTIC layer. The blocking form lives in check 8, whose wording is the
+#: arm-C text ADR-083's replay measured at 5/5 blocking with 0 false positives — not a
+#: paraphrase of it, because the measurement is of that wording. The precondition the
+#: ruling named, `SF-WRITE.29`, is closed by the DELIVERED DOCUMENT block the terminal
+#: corrector now receives (`cv._terminal_review._corrector_prompt`).
 _MANDATE_TERMINAL = """\
-WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT checks 2, 8
-and 9, and nothing else. Those three are VISIBILITY ONLY: check 2's enforcement is the
-deterministic audit that follows, and checks 8 and 9 are the candidate's own call, shown to them
+WHAT IS BLOCKING IN THIS PASS: a failure of one of the numbered checks above EXCEPT checks 2, 9
+and 10, and nothing else. Those three are VISIBILITY ONLY: check 2's enforcement is the
+deterministic audit that follows, and checks 9 and 10 are the candidate's own call, shown to them
 with the document. Anything else you notice is "minor" BY DEFINITION: bullet wording, bullet
 order, which achievement leads an entry, summary phrasing that does not change what is claimed,
-length, repetition — and so is everything you find under checks 8 and 9. You are not the CV's
+length — and so is everything you find under checks 9 and 10. You are not the CV's
 editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
-and 3-7 are whether this CV tells the truth; checks 8 and 9 are whether it represents the
-candidate. This is the only round that sees the finished document, so both get answered here.
+and 3-8 are whether this CV tells the truth and says it once; checks 9 and 10 are whether it
+represents the candidate. This is the only round that sees the finished document, so both get
+answered here.
 
 """
 

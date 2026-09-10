@@ -32,6 +32,7 @@ Contract for implementations:
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
@@ -39,6 +40,49 @@ from typing import Any, TypeVar
 from applire.exceptions import LLMProviderUnavailableError, LLMTruncatedError
 
 logger = logging.getLogger(__name__)
+
+# ── M-3 structured-output rejection wording (shared by openrouter.py and
+# requesty.py's `_note_schema_rejection`, so a wording fix lands once) ────────
+#
+# A bare substring test on any of these three words latches structured output
+# off for the rest of the process the moment ANY 400 happens to mention one —
+# including an UNRELATED error whose message merely echoes the request's own
+# field names ("...your request (model, messages, response_format, max_tokens)
+# exceeded the context window..." is a context-length error, not a schema
+# rejection, and a gateway that lists every field it received in its error
+# text is common). Found adversarially 2026-09-10: a constructed context-length
+# 400 naming `response_format` among six other listed fields latched the
+# schema off for the whole process based on a misdiagnosis.
+#
+# Requiring the trigger word to sit near a REJECTION-shaped word — "not
+# support(ed)", "unsupported", "invalid", "cannot", … — keeps every phrasing
+# this codebase has actually observed a gateway use (`response_format
+# json_schema is not supported`, the F-B/M-3 shape the existing tests pin)
+# while no longer firing on a field name that is merely present in an
+# unrelated diagnostic dump. This does not close the OTHER direction (a real
+# rejection phrased with none of these words at all still slips through
+# un-latched, paying a failed round-trip on every call) — that half needs a
+# real captured gateway error body to ground a fix against, which is why it
+# is a collector-line proposal rather than a guess encoded here.
+_SCHEMA_REJECTION_TRIGGER = r"(?:json_schema|response_format|structured output)"
+_SCHEMA_REJECTION_VERDICT = (
+    r"(?:not support(?:ed)?|unsupported|invalid|not allow(?:ed)?|cannot|can't|"
+    r"not compatible|not recogni[sz]ed|unrecogni[sz]ed|not permitted)"
+)
+_SCHEMA_REJECTION_RE = re.compile(
+    rf"(?:{_SCHEMA_REJECTION_TRIGGER}.{{0,60}}?{_SCHEMA_REJECTION_VERDICT})"
+    rf"|(?:{_SCHEMA_REJECTION_VERDICT}.{{0,60}}?{_SCHEMA_REJECTION_TRIGGER})",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def is_schema_rejection_message(msg: str) -> bool:
+    """True when ``msg`` reads as a gateway rejecting the response schema.
+
+    The ONE place both structured-output providers ask this question — see
+    the module comment above for what changed and why.
+    """
+    return bool(_SCHEMA_REJECTION_RE.search(msg or ""))
 
 # Stop/finish reasons that mean "I ran out of token budget", normalised across
 # vendors: OpenAI-style 'length', Anthropic 'max_tokens', Ollama done_reason 'length'.
@@ -210,11 +254,20 @@ class LLMProvider(ABC):
         temperature: float = 0.1,
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send a prompt and return a parsed JSON dict.
 
         Args:
             disable_thinking: see acomplete.
+            json_schema: an OpenAI-style ``json_schema`` block (``{"name",
+                "strict", "schema"}``) describing the expected output. Founder
+                ruling M-3: the one call whose output is a typed union
+                (`services/profile/reconcile/schema_out.py`) hands the model the
+                shape instead of only describing it in prose. Honoured by the
+                OpenAI-compatible gateways that support structured output and
+                LATCHED off on the first rejection; accepted and ignored by every
+                other provider, so a caller never has to ask who supports it.
 
         Raises:
             LLMRateLimitError: provider is rate-limiting after all retries.

@@ -67,6 +67,47 @@ Design (belt AND braces, per #243):
 * A genuine mismatch does NOT silently apply and does NOT silently drop the
   content — it is rerouted into a ``request_confirmation`` op (the existing
   pending-confirmation channel every other reconcile guard already uses).
+
+Second channel — the bullet's OWN words (founder ruling M-2c, 2026-09-09)
+------------------------------------------------------------------------
+
+The sentence-anchor channel above has two documented ways of not firing, and
+the 11-model matrix ran straight through both of them (7 of 11 models put a
+fact on the wrong employer on the one-station shape S7 —
+``o3/failure-taxonomy-2026-09-09.md`` §3.3):
+
+1. ``_company_candidates`` reads employers off the VAULT only. On a vault
+   holding one station, the two employers the answer also names simply are not
+   employers as far as this module is concerned, so a bullet folding all three
+   onto the one that exists anchors to its own target and passes.
+2. The sentence anchor FAILS OPEN when the owning sentence names two or more
+   employers (#243's deliberate choice — "ambiguous, do not guess"). The S7
+   answer names three in one sentence, which is precisely the shape that
+   produces the fold.
+
+So the second channel asks a different, narrower question that cannot be
+ambiguous: **do this bullet's OWN words name an employer other than the entity
+it targets?** A bullet whose text says "monoclonal antibodies at Helvetia
+Pharma, blood bags at the Blutspendedienst, and now mRNA vaccines at NovaRNA"
+while targeting NovaRNA is mis-attributed no matter how many employers it
+names — the count is not evidence of ambiguity here, it is the defect.
+
+Two deliberate widenings, both facts and not judgements (ADR-062 clause 1):
+
+* the candidate set is the vault's employers **plus every employer this same
+  batch creates** (``upsert_work.company`` / ``upsert_volunteer.organization``).
+  That is what makes the M-2 prompt rule and this witness reinforce rather than
+  overlap: the rule asks the model to split the sentence into one op per named
+  employer, and the moment it does, those employers become nameable here.
+* ``set_field`` on a free-text employer-context field is in scope too
+  (``ministral-8b`` produced the same fold through ``industry_context`` rather
+  than through a bullet).
+
+ADR-066 — ONE implementation. Both channels live in this function and share the
+candidate set, the normalisation and the single ``request_confirmation``
+reroute; they differ only in which text they read (the owning SENTENCE vs the
+bullet's OWN words). A separate module would be a second employer-attribution
+implementation, which is the thing that rule forbids.
 """
 from __future__ import annotations
 
@@ -75,10 +116,16 @@ from typing import Any
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
 from applire.services.ats_audit import skill_tokens
+from applire.services.profile.reconcile.confirmations import (
+    attribution_confirmation,
+)
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     ReconcileOp,
     RequestConfirmation,
+    SetField,
+    UpsertVolunteer,
+    UpsertWork,
 )
 from applire.services.profile.reconcile.stance import _grounding_corpus
 
@@ -270,6 +317,95 @@ def _entity_employer_core(entity: Any, profile: MasterProfileData) -> str | None
     return None
 
 
+# ── the bullet's own words (M-2c) ────────────────────────────────────────────
+
+# `set_field` fields whose VALUE is free text about the entity's employer
+# context. `industry_context` is the one `ministral-8b` folded a three-employer
+# span into on S7 (taxonomy §3.3). Deliberately a closed list: `set_field` also
+# fills dates, ids and enum-ish scalars, and a company name inside one of those
+# means something else entirely.
+_GUARDED_SET_FIELDS = frozenset({"industry_context", "description", "summary"})
+
+
+def _batch_company_candidates(ops: list[ReconcileOp]) -> dict[str, str]:
+    """core -> display for every employer THIS BATCH creates.
+
+    The vault cannot name an employer it does not hold, which is exactly the
+    hole the one-station shape falls through. An `upsert_work` in the same
+    batch is the model itself declaring "this is an employer" — a fact on the
+    record, not an inference — so it joins the candidate set for this turn.
+    """
+    found: dict[str, str] = {}
+    for op in ops:
+        name = ""
+        if isinstance(op, UpsertWork):
+            name = (op.company or "").strip()
+        elif isinstance(op, UpsertVolunteer):
+            name = (op.organization or "").strip()
+        if not name:
+            continue
+        core = _core_company_name(name)
+        if core and core not in found:
+            found[core] = name
+    return found
+
+
+def _employers_named_in(text: str, candidates: dict[str, str]) -> set[str]:
+    """Every candidate core whose name appears in ``text``. A FACT: literal,
+    word-bounded, legal-form-insensitive presence — never a judgement about
+    whether the mention "means" the bullet belongs there."""
+    if not text or not candidates:
+        return set()
+    normalized = _normalize_punct(text)
+    return {
+        core
+        for core in candidates
+        if re.search(r"\b" + re.escape(core) + r"\b", normalized, re.IGNORECASE)
+    }
+
+
+# A bullet naming another company as a business RELATIONSHIP — a client, an
+# account, an acquirer/acquiree, a parent or a supplier — is not naming a
+# place it worked. "Key account manager for the Siemens account" while
+# employed at Bosch names Siemens as the candidate's CLIENT, not their
+# employer; "migrated the platform after the acquisition by NordPharm" names
+# the buyer, not a second job. Channel 2 (below) has no ambiguity fail-open
+# of its own — unlike the owning-sentence channel (#243), which already lets
+# a sentence naming two-or-more employers pass unguessed — so without this
+# exclusion it re-flags exactly the shape #243's own test suite documents as
+# the correct, deliberate non-guess (`test_ambiguous_two_employers_in_one_
+# clause_fails_open`) the moment the same two names land in one BULLET
+# instead of one sentence (adversarial pass 2026-09-10, found and fixed on
+# this branch: `test_a_bullet_naming_a_client_or_acquirer_is_not_rerouted`).
+#
+# A fixed, closed vocabulary — the same "narrow, closed, documented list"
+# idiom `_LEGAL_FORM_RE` / `_ABBREVIATIONS` already use above — never an
+# open-ended judgement about what a mention "means" (ADR-062 clause 1): a
+# bullet containing one of these words is read as describing a RELATIONSHIP
+# to the other company, a fact about the bullet's own text, not a claim about
+# whether the mention is innocent in any particular case.
+_RELATIONAL_MARKER_RE = re.compile(
+    r"\b(?:account|client|customer|vendor|supplier|partner|on behalf of|"
+    r"acquisition|acquisitions|acquired|acquires?|acquiring|merger|mergers|"
+    r"merged|subsidiary|subsidiaries|parent company|brand of|"
+    r"kunde|kunden|kundenbetreuung|lieferant|übernahme|übernommen|"
+    r"tochtergesellschaft|muttergesellschaft|fusion|im auftrag von)\b",
+    re.IGNORECASE,
+)
+
+
+def _foreign_employers(text: str, candidates: dict[str, str], target_core: str) -> set[str]:
+    """The employers ``text`` names that are NOT the op's target.
+
+    Suppressed entirely when ``text`` also carries a relational marker (see
+    ``_RELATIONAL_MARKER_RE``) — a bullet mentioning a client/acquirer/parent
+    by name is not thereby claiming to have worked there.
+    """
+    if _RELATIONAL_MARKER_RE.search(text or ""):
+        return set()
+    return {core for core in _employers_named_in(text, candidates) if core != target_core}
+
+
 # ── the guard itself ─────────────────────────────────────────────────────────
 
 # Technologies are short generic nouns ("Databricks", "LangGraph") — the
@@ -290,18 +426,10 @@ def _build_confirmation(
     anchor_text = " / ".join(anchor_displays)
     sample = flagged[0][1]
     section = "work_experience" if isinstance(entity, WorkEntry) else "projects"
-    question = (
-        f"'{sample}' reads like it belongs to {anchor_text}, not "
-        f"{target_display} — the answer named {anchor_text} for this part, "
-        f"but this entry is under {target_display}. Where should it go?"
-    )
-    return RequestConfirmation(
-        question=question,
-        options=[
-            f"Move to {anchor_text}",
-            f"Keep on {target_display}",
-            "Discard it",
-        ],
+    return attribution_confirmation(
+        sample=sample,
+        anchor_text=anchor_text,
+        target_display=target_display,
         context={
             "section": section,
             "target": op.target,
@@ -338,12 +466,18 @@ def enforce_attribution(
     sentences = _split_sentences(corpus)
     if not sentences:
         return ops
-    candidates = _company_candidates(profile)
+    # M-2c: the vault's employers PLUS the ones this batch is creating. On a
+    # one-station vault the second half is the only thing that can name the
+    # employers the answer just introduced.
+    candidates = {**_batch_company_candidates(ops), **_company_candidates(profile)}
     if not candidates:
         return ops
 
     result: list[ReconcileOp] = []
     for op in ops:
+        if isinstance(op, SetField):
+            result.extend(_guard_set_field(op, profile, candidates))
+            continue
         if not isinstance(op, AddBullets):
             result.append(op)
             continue
@@ -360,6 +494,17 @@ def enforce_attribution(
         for field in _GUARDED_FIELDS:
             kept_bullets: list[str] = []
             for bullet in getattr(op, field):
+                # Channel 2 (M-2c) FIRST: the bullet's own words are decisive and
+                # cannot be ambiguous — a bullet naming an employer other than its
+                # target is mis-attributed however many it names.
+                foreign = _foreign_employers(bullet, candidates, target_core)
+                if foreign:
+                    flagged.append(
+                        (field, bullet, " / ".join(sorted(candidates[c] for c in foreign)))
+                    )
+                    continue
+                # Channel 1 (#243): the OWNING SENTENCE, for the common case of a
+                # bullet that names no employer at all in its own text.
                 sentence = _owning_sentence(bullet, sentences)
                 anchor = _anchor_company(sentence, candidates) if sentence else None
                 if anchor is not None and anchor[0] != target_core:
@@ -377,3 +522,42 @@ def enforce_attribution(
         result.append(_build_confirmation(op, entity, flagged, target_display))
 
     return result
+
+
+def _guard_set_field(
+    op: SetField, profile: MasterProfileData, candidates: dict[str, str]
+) -> list[ReconcileOp]:
+    """M-2c for `set_field`: the same question, a whole VALUE instead of a bullet.
+
+    `ministral-8b` folded the three-employer span into `industry_context` rather
+    than into a bullet (taxonomy §3.3), so the same fact reaches the same vault
+    slot through an op the #243 guard never looked at. There is no partial keep
+    here — a scalar is one value — so the op is replaced by the confirmation
+    outright: never silently applied, never silently dropped.
+    """
+    if op.field not in _GUARDED_SET_FIELDS or not isinstance(op.value, str):
+        return [op]
+    entity = _resolve_existing(op.target, profile)
+    target_core = _entity_employer_core(entity, profile) if entity is not None else None
+    if target_core is None:
+        return [op]
+    foreign = _foreign_employers(op.value, candidates, target_core)
+    if not foreign:
+        return [op]
+    anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
+    target_display = candidates.get(target_core, target_core)
+    section = "work_experience" if isinstance(entity, WorkEntry) else "projects"
+    return [
+        attribution_confirmation(
+            sample=op.value,
+            anchor_text=anchor_text,
+            target_display=target_display,
+            context={
+                "section": section,
+                "target": op.target,
+                "target_employer": target_display,
+                "anchor_employer": anchor_text,
+                "flagged": [{"field": op.field, "text": op.value}],
+            },
+        )
+    ]

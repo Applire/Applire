@@ -85,6 +85,22 @@ class Settings(BaseSettings):
     # timeout (ADR-047 §2, cap-aware budgeting). Optional: segmentation already handles
     # capped models with no metadata; this lets an operator who knows the cap pre-empt it.
     llm_max_output_tokens: int = 0
+    # Founder rulings M-3 and P-4 (2026-09-09) — structured output on the ONE
+    # call whose response is a typed union (the ADR-046 reconciler). "auto"
+    # sends the op union as a JSON schema alongside the prompt and latches it
+    # off for the process the first time an endpoint rejects it; "off" keeps
+    # free-form JSON mode.
+    #
+    # Default "auto" is a FOUNDER RULING taken against this package's own
+    # recommendation of "off", with the price in front of him: it costs
+    # +2,269 measured input tokens per reconcile call (~35 % more input on that
+    # call), the schema is non-strict, and the Requesty route was unmeasured at
+    # the time. What it buys, measured on the same fixtures: `ministral-8b`'s
+    # station coverage on the one-employer shape went 0.10 -> 1.00 and its
+    # malformed-op rate 20 % -> 10 %, with no regression on the two models that
+    # were already qualified. See docs/llm-models.md for the row and for how to
+    # turn it off. Only the OpenAI-compatible gateways act on it.
+    llm_structured_output: str = "auto"  # "auto" | "off"
     # Developer-only: when True, every LLM call's full input/output is appended as a
     # JSON line to <llm_debug_log_dir>/<date>.jsonl (records CV PII — keep OFF in prod).
     llm_debug_log: bool = False
@@ -102,6 +118,21 @@ class Settings(BaseSettings):
     ocr_backend: str = "mistral_vision"
     cors_origins: str = "*"
     log_level: str = "INFO"  # DEBUG | INFO | WARNING | ERROR — applied to all applire.* loggers
+    # Which compose topology this instance runs (ADR-087 cl. 9, JF-O-1.2).
+    # "production" is the code default and therefore true of docker-compose.yml
+    # alone; docker-compose.override.yml — which Compose auto-applies whenever
+    # it sits beside the compose file, i.e. in every source clone — sets "dev".
+    # A "dev" value logs a startup WARNING and is reported at GET /health, because
+    # the dev topology publishes :8001 (unauthenticated API) and :5433 (Postgres
+    # with the default credentials) and today said so nowhere. Never set by hand.
+    applire_topology: str = "production"
+    # Seconds after which an unattended in-app notice pop-up hides itself; 0 = never
+    # (founder ruling V-1, 2026-09-09). The candidate's pending-decision pop-up on the
+    # gaps page reads it. Served read-only on GET /api/settings as
+    # `notice_auto_dismiss_seconds` — it is an INSTANCE setting, not a user preference,
+    # so PATCH does not accept it: an operator who needs a longer read (accessibility,
+    # a shared screen) sets it in the environment for the whole instance.
+    notice_auto_dismiss_seconds: int = 30
     # Interview question-count budget (issue #259 / PO: "if the ceiling is a
     # bottleneck, it's artificial"). This is now a COST GUARD, not the primary
     # termination driver: the interview ends on sufficiency (every JD-critical

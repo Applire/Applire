@@ -34,11 +34,43 @@
 # Runs: after every release publish (called from release.yml), weekly (drift on
 # registries/typos/missing assets), on any main push touching the compose or the
 # env template, and on demand.
+#
+# 2026-09-08 (ADR-032 amended, founder ruling F13 / JF-O-1.3): release.yml now
+# calls this workflow TWICE. Once as an assets GATE, before the jobs that move
+# the `:latest` tag (`assets_only: true`) — v0.41.1-beta was published without
+# its two assets, this guard fired, and it fired only after `:latest` had already
+# moved, so for hours `:latest` pointed at a release whose documented install
+# 404ed. `releases/latest` and Docker's `:latest` move on the SAME publish by the
+# same `prerelease == false` predicate, so at the moment the `released` event
+# fires the assets either exist or the install is already broken — the check can
+# therefore run BEFORE the tag rather than after it. And once afterwards, in full,
+# where the image-manifest sweep can see the images this release just published.
+#
+# The two inputs are shaped so that an UNSET input (schedule, push, dispatch —
+# where `inputs.*` is empty and therefore falsy) means "do everything, and fail
+# on a problem". A weakening must be asked for explicitly; it can never be the
+# default that a caller forgot to override.
 
 name: Compose install guard
 
 on:
   workflow_call:
+    inputs:
+      assets_only:
+        description: >-
+          Fetch the release assets and stop — skip the drift report and the
+          image-manifest sweep. Used by the pre-tag gate, where the new images
+          do not exist yet.
+        type: boolean
+        default: false
+      advisory:
+        description: >-
+          Report a missing asset instead of failing. Set by the pre-tag gate for
+          events that do NOT move `:latest` (a pre-release publish, a manual
+          dispatch), where `releases/latest` describes some earlier release and
+          blocking on it would punish the wrong build.
+        type: boolean
+        default: false
   workflow_dispatch:
   schedule:
     - cron: "17 6 * * 1"
@@ -54,24 +86,34 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_DL: https://github.com/Applire/Applire/releases/latest/download
+      ADVISORY: ${{ inputs.advisory && 'true' || 'false' }}
     steps:
       - name: Fetch the files a self-hoster gets (newest release's assets)
         run: |
           set -euo pipefail
+          missing=0
           if ! curl -fsSL "$RELEASE_DL/docker-compose.yml" -o compose-shipped.yml; then
             echo "::error::$RELEASE_DL/docker-compose.yml does not resolve — the newest"
             echo "::error::release has no docker-compose.yml asset, so the README's install"
             echo "::error::path is 404 for every self-hoster. Attach it to the Release."
-            exit 1
+            missing=1
           fi
           if ! curl -fsSL "$RELEASE_DL/env.example" -o env.example.shipped; then
             echo "::error::$RELEASE_DL/env.example does not resolve — the newest release"
             echo "::error::has no env.example asset. Attach it to the Release."
+            missing=1
+          fi
+          if [ "$missing" -eq 0 ]; then
+            echo "Fetched both install assets from the newest published release."
+          elif [ "$ADVISORY" = "true" ]; then
+            echo "::warning::Install assets are missing from the newest release, but this"
+            echo "::warning::event does not move :latest — reporting instead of blocking."
+          else
             exit 1
           fi
-          echo "Fetched both install assets from the newest published release."
 
       - name: Report drift between main and the shipped release (informational)
+        if: ${{ !inputs.assets_only }}
         continue-on-error: true
         run: |
           curl -fsSL https://raw.githubusercontent.com/Applire/Applire/main/docker-compose.yml -o compose-main.yml || exit 0
@@ -87,6 +129,7 @@ jobs:
           done
 
       - name: Verify every image manifest resolves
+        if: ${{ !inputs.assets_only }}
         run: |
           set -euo pipefail
           mapfile -t images < <(
