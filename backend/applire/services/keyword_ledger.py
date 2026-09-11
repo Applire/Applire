@@ -3290,6 +3290,7 @@ def build_keyword_ledger(
     *,
     denied_concepts: list[dict[str, Any]] | list[str] | None = None,
     profile_json: dict[str, Any] | None = None,
+    previous_ledger: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
 
@@ -3310,6 +3311,31 @@ def build_keyword_ledger(
             the vault independently, literally attests. ``None`` (the
             default) reproduces the pre-fix fail-closed behaviour exactly —
             back-compat for every caller that has no profile on hand.
+        previous_ledger: the SAME job's prior ``GapAnalysis.keyword_ledger``
+            (SF-GAP.12, Nougat build-2 delivery-run 2026-09-11), when this
+            build is a recompute rather than the first one. A fresh
+            classification call is free to name a DIFFERENT (or narrower) set
+            of ``surface_forms`` for the same concept than an earlier call
+            did — the 2026-09-11 run reproduced the SF-GAP.10 bug's exact
+            symptom this way: build 1 classified 'Produktion' with
+            ``surface_forms=["Produktion", "Produktionsleiter", "Fertigung"]``
+            (which released the containment-only denial via the vault's own
+            attested "Produktionsleiter" role); a later recompute of the
+            IDENTICAL concept, denial and vault classified it with
+            ``["Produktion", "Fertigungsbereiche", "Fertigung"]`` instead —
+            the releasing form simply absent from THIS call's own output —
+            and the SAME (correct) containment-release logic, given only
+            those forms, legitimately found nothing to release. Per concept
+            (matched by :func:`_norm`), any surface form a previous build
+            already carried is UNIONED into this build's own forms before the
+            denial floor runs — a deterministic set union over two
+            already-computed lists, never a second classifier call and never
+            a new release rule. Monotonic and safe: a carried-forward form is
+            still subject to the SAME :func:`containment_release_form`
+            corpus check, so a stale/no-longer-attested form changes nothing.
+            ``None`` (the default) reproduces the pre-fix behaviour exactly —
+            back-compat for every caller with no prior ledger on hand (a
+            first-ever build has none by construction).
 
     Returns:
         A list of ledger-entry dicts, each:
@@ -3337,6 +3363,23 @@ def build_keyword_ledger(
             entry = union.setdefault(key, {"text": raw, "sources": set()})
             entry["sources"].add(src)
 
+    # SF-GAP.12 — a prior build's own surface_forms per concept, keyed the
+    # same way every other concept lookup in this module is (_norm). Read
+    # once; a fresh classification call unions into this, it never replaces
+    # it wholesale (see the ``previous_ledger`` docstring above).
+    previous_forms_by_concept: dict[str, list[str]] = {}
+    for prev in previous_ledger or []:
+        if not isinstance(prev, dict):
+            continue
+        key = _norm(prev.get("concept", ""))
+        if not key:
+            continue
+        forms = [
+            f for f in (prev.get("surface_forms") or []) if isinstance(f, str) and f.strip()
+        ]
+        if forms:
+            previous_forms_by_concept[key] = forms
+
     covered: set[str] = set()
     ledger: list[dict[str, Any]] = []
 
@@ -3345,6 +3388,13 @@ def build_keyword_ledger(
         if not _norm(concept):
             continue
         surface_forms = item.get("surface_forms") or [concept]
+        # SF-GAP.12 — union in any surface form a PRIOR build of this SAME
+        # concept already carried. A stale/no-longer-attested carried form
+        # changes nothing downstream: it is still subject to the same
+        # containment_release_form corpus check at the denial floor below.
+        carried = previous_forms_by_concept.get(_norm(concept))
+        if carried:
+            surface_forms = list(dict.fromkeys([*surface_forms, *carried]))
         # Match the concept + each surface form against the JD union.
         probes = {_norm(concept)} | {_norm(sf) for sf in surface_forms}
         matched_keys = {
