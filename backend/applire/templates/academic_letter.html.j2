@@ -25,6 +25,8 @@
        CSS pagination cannot guarantee fit without content-aware sizing. */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 5mm; }
     .signature .closing { margin-bottom: 7mm; }
+    .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
+    .signature.has-signature .closing { margin-bottom: 2mm; }
     /* #621 — the visual margin now lives in @page (Chromium's paged-media
        engine re-applies it on every page); .page's own padding/size, which
        used to BE the margin on the print path, is neutralised in print so it
@@ -50,7 +52,7 @@
   <div class="date">{{ letter.recipient.date }}</div>
   <div class="subject">{{ subject }}{% if letter.recipient.company %} — {{ letter.recipient.company }}{% endif %}</div>
   <div class="body">{% for para in letter.body.paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
-  <div class="signature"><div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div><div>{{ letter.signature.name }}</div></div>
+  <div class="signature{% if signature_image %} has-signature{% endif %}"><div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div>{% if signature_image %}<img class="signature-image" src="{{ signature_image }}" alt="">{% endif %}<div>{{ letter.signature.name }}</div></div>
 </div>
 </body>
 </html>

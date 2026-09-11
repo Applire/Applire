@@ -250,6 +250,11 @@
     .lang-name { font-weight: 600; }
     .lang-level { color: var(--muted); }
 
+    /* Signature (#F frontend, Nougat build 2) */
+    .signature-block { break-inside: avoid; page-break-inside: avoid; margin-top: 8mm; }
+    .signature-block .signature-place-date { margin-bottom: 2mm; }
+    .signature-block .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; }
+
     /* #621 — the visual margin now lives in @page (Chromium's paged-media
        engine re-applies it on every page); .page's own padding/size, which
        used to BE the margin on the print path, is neutralised in print so it
@@ -513,6 +518,13 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
+
+  {% if signature_image %}
+  <div class="signature-block">
+    {% if signature_place_date %}<div class="signature-place-date">{{ signature_place_date }}</div>{% endif %}
+    <img class="signature-image" src="{{ signature_image }}" alt="">
+  </div>
   {% endif %}
 
 </div>

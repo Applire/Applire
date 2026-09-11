@@ -28,6 +28,8 @@
        for the full rationale; same fix, N templates — ADR-066). */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
     .signature .closing { margin-bottom: 8mm; }
+    .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
+    .signature.has-signature .closing { margin-bottom: 2mm; }
     /* #621 — .page carries no padding of its own here: the sidebar/main
        columns' OWN padding was doing double duty as both "gap between the two
        columns" and "the page's outer margin" (sidebar top 16mm / left 10mm /
@@ -67,7 +69,7 @@
     <div class="date">{{ letter.recipient.date }}</div>
     <div class="subject">{{ subject }}{% if letter.recipient.company %} — {{ letter.recipient.company }}{% endif %}</div>
     <div class="body">{% for para in letter.body.paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
-    <div class="signature"><div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div><div>{{ letter.signature.name }}</div></div>
+    <div class="signature{% if signature_image %} has-signature{% endif %}"><div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div>{% if signature_image %}<img class="signature-image" src="{{ signature_image }}" alt="">{% endif %}<div>{{ letter.signature.name }}</div></div>
   </div>
 </div>
 </body>
