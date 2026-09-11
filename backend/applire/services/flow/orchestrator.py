@@ -84,6 +84,17 @@ _ARTIFACT_FIELD: dict[str, str] = {
     "complete":       "generated_cv_id",
 }
 
+# Same steps — ORM model the artifact_id must resolve to. #676 line 1 (was #581):
+# the FK used to be written straight from request.artifact_id with no lookup, so a
+# wrong-referent id passed db.commit() through to a raw IntegrityError neither
+# door caught (bare 500). _check_artifact_exists uses this map to turn that into a
+# typed ArtifactNotFoundError before the write.
+_ARTIFACT_MODEL: dict[str, type] = {
+    "gap_analysis":   GapAnalysis,
+    "interview":      InterviewSession,
+    "complete":       GeneratedCV,
+}
+
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -107,6 +118,36 @@ class ArtifactRequiredError(Exception):
         super().__init__(
             f"Advancing to '{step}' requires artifact_id ({field}) but none was provided."
         )
+
+
+class ArtifactNotFoundError(Exception):
+    """artifact_id was provided but no matching row exists for this step's model.
+
+    Raised instead of letting the FK write reach db.commit(), which on a real
+    (FK-enforcing) database raises a raw IntegrityError that neither door catches.
+    """
+
+    def __init__(self, step: str, artifact_id: uuid.UUID) -> None:
+        self.step = step
+        self.artifact_id = artifact_id
+        super().__init__(
+            f"Advancing to '{step}' references artifact_id {artifact_id}, "
+            f"but no matching record exists."
+        )
+
+
+async def _check_artifact_exists(
+    step: str, artifact_id: uuid.UUID, db: AsyncSession
+) -> None:
+    """Look the artifact_id up in its step's model before it is written to the FK.
+
+    #676 line 1 (was #581): db.get() is a PK lookup, not a query — cheap, and it
+    runs on the same session/transaction as the write that follows, so there is
+    no TOCTOU window between the check and the setattr.
+    """
+    model = _ARTIFACT_MODEL[step]
+    if await db.get(model, artifact_id) is None:
+        raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +251,7 @@ async def advance_flow(
     # a re-generated artifact (e.g. a new CV) refresh the recorded FK.
     if target == flow.current_step:
         if target in _ARTIFACT_FIELD and request.artifact_id is not None:
+            await _check_artifact_exists(target, request.artifact_id, db)
             setattr(flow, _ARTIFACT_FIELD[target], request.artifact_id)
             flow.updated_at = datetime.now(timezone.utc)
             await db.commit()
@@ -226,6 +268,7 @@ async def advance_flow(
         field = _ARTIFACT_FIELD[target]
         if request.artifact_id is None:
             raise ArtifactRequiredError(step=target, field=field)
+        await _check_artifact_exists(target, request.artifact_id, db)
         setattr(flow, field, request.artifact_id)
 
     flow.current_step = target

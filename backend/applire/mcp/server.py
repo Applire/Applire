@@ -119,7 +119,11 @@ from applire.services import oracle as oracle_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
 from applire.services.flow import orchestrator as flow_svc
-from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTransitionError
+from applire.services.flow.orchestrator import (
+    ArtifactNotFoundError,
+    ArtifactRequiredError,
+    InvalidTransitionError,
+)
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
@@ -1186,7 +1190,7 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
             result = await flow_svc.advance_flow(
                 fid, AdvanceFlowRequest(step=step, artifact_id=aid), db, settings.applire_base_url
             )
-        except (InvalidTransitionError, ArtifactRequiredError) as exc:
+        except (InvalidTransitionError, ArtifactRequiredError, ArtifactNotFoundError) as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
