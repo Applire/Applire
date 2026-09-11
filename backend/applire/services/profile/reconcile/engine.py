@@ -30,6 +30,7 @@ never raises on LLM noise.
 from __future__ import annotations
 
 import logging
+import typing
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -46,6 +47,7 @@ from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.ops import (
     ADAPTER_ONLY_CONFIRMATION_FIELDS,
+    EmptyReason,
     ReconcileOp,
     ReconcileResult,
     RequestConfirmation,
@@ -56,6 +58,10 @@ from applire.services.profile.reconcile.stance import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: The `empty_reason` vocabulary as a runtime set, derived from the ONE Literal
+#: in `ops.py` — never a second hand-written list that could drift from it.
+_EMPTY_REASONS: frozenset[str] = frozenset(typing.get_args(EmptyReason))
 
 # Validates a single op against the MODEL-EMITTABLE union only (ADR-063 amended
 # 2026-08-09 clause 1). Adapter-only ops (`DecisionOp`: today `DemoteSkill`) are
@@ -146,7 +152,15 @@ async def reconcile(
     # resolves in the retraction's favour — never-claim beats claim (ADR-040).
     ops = list(ops) + demote_ops_for_denials(profile, denials)
     return ReconcileResult(
-        ops=ops, ambiguities=ambiguities, denials=denials, rejected_ops=rejected_ops
+        ops=ops,
+        ambiguities=ambiguities,
+        denials=denials,
+        rejected_ops=rejected_ops,
+        # ADR-046 amended 2026-09-11 — read AFTER the guards, off the raw
+        # payload: `ops` here has already been widened by `demote_skill`
+        # emission, so "did the MODEL emit nothing" is a question only the
+        # payload can answer. The witness gates on what actually landed.
+        empty_reason=_parse_empty_reason(data.get("empty_reason")),
     )
 
 
@@ -258,6 +272,29 @@ def _parse_denials(raw: Any) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, str) and item.strip()]
+
+
+def _parse_empty_reason(raw: Any) -> EmptyReason | None:
+    """The model's own reason for an empty batch, or ``None`` (ADR-046 amended
+    2026-09-11, ruling M5.1.4).
+
+    Fails closed in the direction the receipt can survive: anything that is not
+    one of the three vocabulary values — absent, misspelled, a sentence, a list,
+    a model that ignored the ask — becomes ``None``, and ``None`` is what makes
+    :func:`applire.services.profile.reconcile.witness.compute_no_write` fall
+    back to the original ``no_write`` copy. The candidate is told the turn wrote
+    nothing either way; only the EXPLANATION depends on the model complying.
+
+    Never validated against whether ``ops`` is really empty: the prompt asks for
+    the field only on an empty batch, but a model that volunteers it on a
+    non-empty one costs nothing — the witness only runs when the turn produced
+    no receipt of any kind.
+    """
+    if raw in _EMPTY_REASONS:
+        return raw  # type: ignore[return-value]
+    if raw is not None:
+        logger.debug("reconcile: ignored unrecognised empty_reason %r", raw)
+    return None
 
 
 def _parse_ambiguities(raw: Any) -> list[RequestConfirmation]:

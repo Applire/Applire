@@ -489,6 +489,7 @@ def apply_ops(
     user_confirmed_skill: UserConfirmedSkill | None = None,
     user_confirmed_engagement: UserConfirmedEngagement | None = None,
     turn_text: str = "",
+    empty_reason: str | None = None,
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 
@@ -510,6 +511,10 @@ def apply_ops(
             from "the answer only denied, so nothing should land". Empty for
             every batch with no single human utterance behind it (an import
             merge, a resolution turn), which switches the witness off.
+        empty_reason: ruling M5.1.4 — the reconciler's own `empty_reason`, which
+            selects WHICH no-write receipt copy the candidate reads. `None` (a
+            model that did not answer, an intake with no reconcile call behind
+            it) keeps the original `no_write` copy.
     """
     new_profile = profile.model_copy(deep=True)
     changes: list[FieldChange] = []
@@ -754,7 +759,7 @@ def apply_ops(
     if turn_text and not any(
         (changes, pending, conflicts, demotions, denials, not_applied)
     ):
-        not_applied.extend(compute_no_write(turn_text))
+        not_applied.extend(compute_no_write(turn_text, empty_reason))
 
     return ApplyResult(
         profile=new_profile,

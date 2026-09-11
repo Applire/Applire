@@ -973,7 +973,9 @@
       "no_op_carried_entry": "keine Änderung hat sie übernommen",
       "op_rejected": "die Änderung kam fehlerhaft zurück und wurde verworfen",
       "summary_populated": "deine Selbstbeschreibung war schon geschrieben und blieb unverändert",
-      "no_write": "von dem, was du gesagt hast, wurde nichts übernommen"
+      "no_write": "von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein",
+      "no_write_already_known": "das steht so schon in deinem Profil",
+      "no_write_question_only": "deine Frage ist angekommen — dazu wurde nichts geändert"
     }
   },
   "profileReview": {

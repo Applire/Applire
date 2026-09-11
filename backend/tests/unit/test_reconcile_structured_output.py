@@ -49,11 +49,30 @@ def test_the_union_tag_survives_as_a_const_on_every_branch():
     assert "oneOf" not in json.dumps(schema)
 
 
-def test_the_envelope_is_the_three_keys_the_engine_reads():
+def test_the_envelope_is_the_keys_the_engine_reads():
+    """Four keys, three required. `empty_reason` (ADR-046 amended 2026-09-11,
+    ruling M5.1.4) is the one the prompt asks for ONLY on an empty batch, so
+    putting it in `required` would contradict the prose on every ordinary turn —
+    the same "second specification" discipline `_hide` applies in reverse."""
     schema = reconcile_response_schema()
-    assert list(schema["properties"]) == ["ops", "ambiguities", "denials"]
+    assert list(schema["properties"]) == [
+        "ops", "ambiguities", "denials", "empty_reason",
+    ]
     assert schema["required"] == ["ops", "ambiguities", "denials"]
     assert schema["properties"]["denials"]["items"] == {"type": "string"}
+
+
+def test_the_empty_reason_enum_is_read_from_the_one_literal():
+    """The schema's accepted set and the engine's accepted set are the same
+    object — a fourth value added to `EmptyReason` reaches both, or neither."""
+    from typing import get_args
+
+    from applire.services.profile.reconcile.engine import _EMPTY_REASONS
+    from applire.services.profile.reconcile.ops import EmptyReason
+
+    enum = reconcile_response_schema()["properties"]["empty_reason"]["enum"]
+    assert set(enum) == set(get_args(EmptyReason)) | {None}
+    assert _EMPTY_REASONS == frozenset(get_args(EmptyReason))
 
 
 def test_an_untyped_field_gets_the_json_scalars_rather_than_an_empty_schema():

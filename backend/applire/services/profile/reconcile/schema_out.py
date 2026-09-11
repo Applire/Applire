@@ -44,7 +44,7 @@ costs one 400 per process, not one per call, and falls back to today's
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, get_args
 
 _SCHEMA_NAME = "applire_reconcile_batch"
 
@@ -168,13 +168,22 @@ def reconcile_response_schema() -> dict[str, Any]:
     """The reconciler's output envelope as a JSON Schema, cached per process.
 
     Shape: ``{"ops": [<any of the 15 ops>], "ambiguities": [<confirmation>],
-    "denials": ["..."]}`` — the same three keys ``engine._parse_ops`` /
-    ``_parse_ambiguities`` / ``_parse_denials`` read, in the same order the
-    prompt states them.
+    "denials": ["..."], "empty_reason": <enum|null>}`` — the same four keys
+    ``engine._parse_ops`` / ``_parse_ambiguities`` / ``_parse_denials`` /
+    ``_parse_empty_reason`` read, in the same order the prompt states them.
+
+    ``empty_reason`` is the one OPTIONAL key (ADR-046 amended 2026-09-11,
+    ruling M5.1.4): the prompt asks for it only when ``ops`` is empty, so
+    putting it in ``required`` would contradict the prose on every ordinary
+    turn — the exact "second specification" failure ``_hide`` and
+    ``_PROMPT_REQUIRED_EXTRA`` exist for, in its third shape. Its ``enum`` is
+    read from the ONE ``EmptyReason`` Literal, so the schema cannot drift from
+    the parser's accepted set.
     """
     from pydantic import TypeAdapter
 
     from applire.services.profile.reconcile.ops import (
+        EmptyReason,
         ReconcileOp,
         RequestConfirmation,
     )
@@ -210,6 +219,10 @@ def reconcile_response_schema() -> dict[str, Any]:
             "ops": {"type": "array", "items": {"anyOf": branches}},
             "ambiguities": {"type": "array", "items": confirmation_ref},
             "denials": {"type": "array", "items": {"type": "string"}},
+            "empty_reason": {
+                "type": ["string", "null"],
+                "enum": [*get_args(EmptyReason), None],
+            },
         },
         "required": ["ops", "ambiguities", "denials"],
     }

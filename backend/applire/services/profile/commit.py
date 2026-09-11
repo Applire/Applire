@@ -464,6 +464,7 @@ async def commit_ops(
     user_confirmed_skill: UserConfirmedSkill | None = None,
     user_confirmed_engagement: UserConfirmedEngagement | None = None,
     turn_text: str = "",
+    empty_reason: str | None = None,
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
 ) -> CommitResult:
@@ -496,6 +497,10 @@ async def commit_ops(
             batch, threaded to `apply_ops` for the no-write witness. Empty for a
             batch with no single human utterance behind it (an import merge, a
             resolution turn), which switches the witness off.
+        empty_reason: ruling M5.1.4 — `ReconcileResult.empty_reason`, threaded to
+            `apply_ops` so the no-write receipt carries the model's own reason.
+            `None` for every intake without a reconcile call behind it, and for
+            a model that did not answer: both fall back to the `no_write` copy.
         user_confirmed_engagement: founder ruling V-5 — the same capability for
             a parked WORK / PROJECT / VOLUNTEER near-dupe confirmation. See
             :class:`UserConfirmedEngagement`.
@@ -586,6 +591,7 @@ async def commit_ops(
         user_confirmed_skill=user_confirmed_skill,
         user_confirmed_engagement=user_confirmed_engagement,
         turn_text=turn_text,
+        empty_reason=empty_reason,
     )
     profile = applied.profile
     if profile.metadata is None:  # apply never strips metadata; belt & braces

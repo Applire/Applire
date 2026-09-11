@@ -378,3 +378,68 @@ def test_the_receipt_reaches_the_health_hub_thread():
     from applire.services.profile.health import _NOT_APPLIED_REASON
 
     assert "no_write" in _NOT_APPLIED_REASON
+
+
+# ── M5.1.4 / E-3 — the model names the reason, the fail-safe stays visible ────
+#
+# `critical_gaps` had a reason and `strengths` did not; the no-write receipt had
+# the mirror problem — it told the candidate THAT nothing landed and never WHY,
+# so "I already told you that" and "your answer was dropped" read identically.
+# Ruling M5.1.4 (2026-09-11) lets the reconciler name the reason from a closed
+# vocabulary, and maps it onto three copies. `None` — a model that ignored the
+# ask, a receipt persisted before the amendment — keeps the original copy.
+
+
+@pytest.mark.parametrize(
+    "empty_reason,expected",
+    [
+        ("already_known", "no_write_already_known"),
+        ("question_only", "no_write_question_only"),
+        ("nothing_actionable", "no_write"),
+        (None, "no_write"),
+        ("", "no_write"),
+        ("ALREADY_KNOWN", "no_write"),
+        ("the profile already has it", "no_write"),
+    ],
+)
+def test_the_empty_reason_selects_the_receipt_copy(empty_reason, expected):
+    """Three branches plus the fail-safe. Anything outside the vocabulary — a
+    misspelling, a sentence, an absent field — is the fail-safe, which is the
+    widest and most actionable copy, never silence."""
+    receipts = compute_no_write(_ANSWER, empty_reason)
+    assert [r.reason for r in receipts] == [expected]
+
+
+def test_the_deterministic_half_still_gates_the_receipt():
+    """MUTATION KILL: the model's reason may not conjure a receipt out of an
+    answer that stated nothing. Delete the `positive_residue` guard and this
+    fails — a bare denial would get an `already_known` receipt."""
+    assert compute_no_write("I have never used Azure.", "already_known") == []
+
+
+def test_apply_ops_threads_the_reason_onto_the_receipt():
+    """MUTATION KILL for the thread: drop `empty_reason` from the
+    `compute_no_write` call in `apply_ops` and this falls back to `no_write`."""
+    result = apply_ops(
+        _one_station_profile(),
+        [],
+        "interview",
+        turn_text=_ANSWER,
+        empty_reason="already_known",
+    )
+    assert [i.reason for i in result.not_applied] == ["no_write_already_known"]
+    assert "15+ years" in result.not_applied[0].label
+
+
+def test_every_receipt_reason_has_a_candidate_facing_copy():
+    """The reason vocabulary and the copy table are one surface: a seventh
+    reason added to the Literal without a sentence beside it would reach the
+    Health hub as a raw enum key."""
+    from typing import get_args
+
+    from applire.schemas.profile import ImportNotApplied
+    from applire.services.profile.health import _NOT_APPLIED_REASON
+
+    assert set(get_args(ImportNotApplied.model_fields["reason"].annotation)) == set(
+        _NOT_APPLIED_REASON
+    )

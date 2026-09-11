@@ -99,6 +99,11 @@ the new information explicitly DENIES or disclaims experience with (see rule 9).
 If nothing in the new information should change the profile, output
 {"ops": [], "ambiguities": [], "denials": [...]}.
 
+When "ops" is empty, add one field saying why:
+"empty_reason": "already_known" (the profile already carries it) |
+"question_only" (the new information only asks, states no fact) |
+"nothing_actionable" (anything else). Omit it whenever "ops" carries an op.
+
 # Operation vocabulary
 
 Every operation object has an "op" field naming its type. Entity operations

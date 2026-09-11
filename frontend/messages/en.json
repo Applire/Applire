@@ -973,7 +973,9 @@
       "no_op_carried_entry": "no change carried it",
       "op_rejected": "the change came back malformed and was dropped",
       "summary_populated": "your self-description was already written, so it was left alone",
-      "no_write": "nothing was recorded from what you said"
+      "no_write": "nothing was recorded from what you said — say it again in one sentence, or enter it in your profile",
+      "no_write_already_known": "that is already in your profile, as stated",
+      "no_write_question_only": "your question arrived — nothing was changed for it"
     }
   },
   "profileReview": {

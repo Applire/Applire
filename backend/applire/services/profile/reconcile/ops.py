@@ -1022,6 +1022,13 @@ CommitOp = Annotated[
 ]
 
 
+#: ADR-046 amended 2026-09-11 — the closed vocabulary `empty_reason` may carry.
+#: Kept here, beside the envelope that holds it, so the prompt, the rendered
+#: JSON Schema (`schema_out`), the engine's parser and the witness all read ONE
+#: definition (ADR-066: one logical operation, one implementation).
+EmptyReason = Literal["already_known", "question_only", "nothing_actionable"]
+
+
 class ReconcileResult(BaseModel):
     """The reconcile ENGINE's output: ordered ops + a parallel ambiguity list.
 
@@ -1053,3 +1060,11 @@ class ReconcileResult(BaseModel):
     # empty by default — every pre-#370 caller of `reconcile()` is
     # unaffected.
     rejected_ops: list[str] = Field(default_factory=list)
+    # ADR-046 amended 2026-09-11 (ruling M5.1.4, E-3) — WHY the batch is empty,
+    # in the model's own words from a closed vocabulary. Asked for only when
+    # `ops` is empty; `None` on every other turn AND whenever the model omitted
+    # it or emitted a value outside the vocabulary (`engine._parse_empty_reason`
+    # fails closed). Carries no vault content: its single consumer is the M-1c
+    # no-write witness, which maps it onto the receipt copy the candidate reads
+    # and falls back to the pre-amendment `no_write` wording when it is absent.
+    empty_reason: EmptyReason | None = None
