@@ -174,23 +174,15 @@ not climb a rung above what the ground supports ("Leiter" is Lead, not Executive
 Emit one of the five English tier words or null — never a German rank word, never a
 sentence, never a list.
 
-OUTPUT LANGUAGE (the posting's language, for the extracted terms):
-Emit "required_skills", "nice_to_have_skills", "keywords" and "company_culture_signals"
-in THE LANGUAGE THE POSTING IS WRITTEN IN, using the posting's own words wherever it
-names the concept. A German posting yields German concept terms ("Instandhaltung",
-"Arbeitsvorbereitung", "Schichtführung"), an English posting yields English ones
-("Embeddings", "AI evaluation"). Do not translate, and do not mix the two languages
-across one analysis. Reason: these terms are matched LITERALLY against the candidate's
-CV and letter (the keyword ledger, ADR-048), and those documents follow the posting's
-language by default — a translated term matches nothing and reads as a missing keyword.
-An established loanword the posting itself uses stays as the posting writes it
-("Shopfloor-Management", "Lean", "Cloud").
-This rule is about the EXTRACTED TERMS only. The controlled-vocabulary fields keep their
-fixed English values in every language: "seniority_level" (Junior/Mid/Senior/Lead/
-Executive), "scope_requirements[].kind" (team_size/budget), "[].comparator"
-(approx/min/exact/range), "[].level" (required/nice_to_have) and
-"leadership_emphasis.emphasis" (leadership_led/balanced/hands_on_led). "quote" fields are
-always verbatim from the posting, so they are in the posting's language by construction.
+OUTPUT LANGUAGE: emit "required_skills", "nice_to_have_skills", "keywords" and
+"company_culture_signals" in the posting's own language, in the posting's own words —
+never translated, never two languages in one analysis. The user prompt states which
+language that is. These terms are matched LITERALLY against the candidate's documents
+(the keyword ledger, ADR-048), which follow the posting's language, so a translated term
+matches nothing. The controlled vocabularies are NOT affected and stay English in every
+posting: "seniority_level", "scope_requirements[].kind"/"comparator"/"level",
+"leadership_emphasis.emphasis". "quote" fields are verbatim, so they follow by
+construction.
 
 For berufsbild_code, use the Klassifikation der Berufe 2020 (KldB 2020) from the Bundesagentur für Arbeit.
 Examples: '4311' for Softwareentwicklung, '4321' for IT-Systemanalyse, '7121' for Personalmanagement, '7211' for Finanzmanagement und Controlling.
@@ -206,8 +198,22 @@ def build_user_prompt(jd_text: str) -> str:
     an instruction the whole flow inherits (``SF-UNTRUSTED.1``).
     """
     from applire.services.untrusted_text import fence
+    from applire.utils.language_detection import detect_language
 
+    # #617 axis (a), 2026-09-11 — ADR-064's state-the-fact shape, not more prose.
+    # A general rule about "the posting's language" is ~1,400 chars the model must
+    # re-derive the answer from on every call, and the measurement showed the cost:
+    # on an already-English posting the long rule was a no-op that still diluted the
+    # FIELD SHAPE rule (keywords Jaccard 0.48 -> 0.20, n=5). The language is a fact
+    # we already compute deterministically one line later (`jd_language`), so we
+    # state it instead. Form B (ADR-084): OUR instruction, outside the fence, where
+    # the posting cannot rewrite it.
+    lang = "German" if detect_language(jd_text) == "de" else "English"
     return (
         "Analyse the following job description and return the structured JSON.\n\n"
+        f"POSTING LANGUAGE: {lang}. Emit required_skills, nice_to_have_skills, "
+        f"keywords and company_culture_signals in {lang}, using the posting's own "
+        "words. The controlled vocabularies (seniority_level, scope_requirements "
+        "kinds/comparators/levels, leadership_emphasis) stay English regardless.\n\n"
         + fence(jd_text, header="JOB DESCRIPTION")
     )
