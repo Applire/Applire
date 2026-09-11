@@ -1149,6 +1149,20 @@ It could not be turned on until the reviewer and the corrector were shown the sa
 One detail is worth recording because it nearly made the whole change do nothing: the word "repetition" also appeared, as an example of *minor*, in the shared severity vocabulary every reviewer prompt inherits. A shared example that contradicts a prompt's own named check is obeyed in preference to the check — measured — so it had to go from there too. The cover letter, whose behaviour is deliberately unchanged for now, still says it in its own wording.
 
 ---
+**ADR-075 amended (2026-09-11) — a disclosed limit is checked against the limits you stated.**
+The affirmative obligation shipped in v0.41 with a condition attached: a letter may say "I have
+no direct experience with X" only when you said so. A delivered letter disclaimed a competence
+the vault evidences, and reading the run round by round showed why a reviewer rule could not be
+the whole answer — two deterministic blocks in the same prompt disagreed about the concept, and
+the length floor then discarded the corrector's repair because the repaired letter was longer.
+The catch is therefore a selection rule first and a deletion only as a last resort: the finding
+reaches the corrector every round, the length floor keeps the composition that invents no limit
+regardless of page count, and only a sentence no round could ground is cut — with the
+terminal-review report naming it. The mapping is a fact (does a concept match one of your own
+recorded denials), never a reading of what your denial statement *means*: an honest denial names
+the strengths that transfer, so reading the statement would ground the very claims it does not
+cover.
+
 ### ADR-083 — A Reviewer's Findings Reach the Writer (accepted + partly built 2026-09-04)
 
 **Decision:** when Applire's review loop finds something wrong with a draft, the writer is now told *what* it found — not just that it failed.
