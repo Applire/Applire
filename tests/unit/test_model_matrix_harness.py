@@ -53,14 +53,19 @@ def fixtures():
 # Fixtures
 # --------------------------------------------------------------------------- #
 def test_every_shape_resolves_to_a_committed_profile(fixtures):
-    assert len(fixtures.names()) == 8
+    assert len(fixtures.names()) == 10
     for shape in fixtures.names():
         data = fixtures.profile_data(shape)
         assert data["personal_info"]["name"] == "Lena Fischer"
         info = fixtures.new_info(shape)
         # Key ORDER is what the model reads — the spike's order, not a set.
         assert list(info) == ["gap", "question", "answer"]
-        assert fixtures.expected_stations(shape)
+        # S10 deliberately expects NO stations — its correct outcome is no ops
+        # at all (a restated fact), so an empty list is not a fixture bug there.
+        if shape == "S10_restated_fact_nothing_new":
+            assert fixtures.expected_stations(shape) == []
+        else:
+            assert fixtures.expected_stations(shape)
 
 
 def test_the_vault_fixture_is_synthetic(fixtures):
@@ -83,14 +88,77 @@ def test_fixtures_reproduce_the_spike_prompts_byte_identically(fixtures):
         assert mm.canonical_prompt(user) == golden, f"{shape} drifted from the spike"
 
 
+def test_new_shapes_reproduce_their_own_goldens_byte_identically(fixtures):
+    """S9 and S10 are DRIFT PINS for the two shapes added in Nougat build 2
+    (WP-P2), not a comparison against the 2026-09-06 spike: there was never a
+    spike run for a bullet-conflict turn or a restated-fact turn, so unlike
+    ``test_fixtures_reproduce_the_spike_prompts_byte_identically`` above, this
+    only proves the fixture keeps rendering today what it rendered the day the
+    golden was committed."""
+    for shape in (
+        "S9_bullet_conflict_nova",
+        "S10_restated_fact_nothing_new",
+    ):
+        golden = (mm.FIXTURE_DIR / "golden" / f"{shape}.user_prompt.txt").read_text(
+            encoding="utf-8"
+        )
+        _, user = mm.render_prompts(fixtures, shape)
+        assert mm.canonical_prompt(user) == golden, f"{shape} drifted from its own golden"
+
+
 def test_shape_selection_accepts_prefixes_and_all(fixtures):
     assert mm.resolve_shapes(fixtures, "S6,S7") == [
         "S6_incident_shape_all_present",
         "S7_incident_shape_current_only",
     ]
     assert mm.resolve_shapes(fixtures, "all") == fixtures.names()
+    # "S9" is now a real prefix (S9_bullet_conflict_nova, added build 2) — probe
+    # with a token that stays unknown.
     with pytest.raises(SystemExit):
-        mm.resolve_shapes(fixtures, "S9")
+        mm.resolve_shapes(fixtures, "S99")
+
+
+def test_shape_selection_resolves_s9_and_s10_by_prefix(fixtures):
+    assert mm.resolve_shapes(fixtures, "S9,S10") == [
+        "S9_bullet_conflict_nova",
+        "S10_restated_fact_nothing_new",
+    ]
+
+
+def test_s9_profile_differs_from_lena_full_by_exactly_one_bullet(fixtures):
+    """The S9 fixture (`profiles/lena_bullets.json`) must be a byte-faithful copy
+    of `profiles/lena_full.json` with exactly one change: the `w-nova` entry gains
+    one `achievements` bullet. Nothing else — not the ids, not the key order, not
+    any other field — may differ."""
+    with (mm.FIXTURE_DIR / "profiles" / "lena_full.json").open(encoding="utf-8") as fh:
+        full = json.load(fh)
+    with (mm.FIXTURE_DIR / "profiles" / "lena_bullets.json").open(encoding="utf-8") as fh:
+        bullets = json.load(fh)
+    assert full != bullets
+
+    added = "Reduced batch-release turnaround for individualized therapies by 40%"
+    nova_bullets = next(w for w in bullets["work_experience"] if w["id"] == "w-nova")
+    assert nova_bullets["achievements"] == [added]
+
+    import copy
+
+    stripped = copy.deepcopy(bullets)
+    stripped_nova = next(w for w in stripped["work_experience"] if w["id"] == "w-nova")
+    stripped_nova["achievements"] = []
+    assert stripped == full
+
+
+def test_s10_answer_restates_a_line_already_in_the_vault(fixtures):
+    """S10's correct outcome is no ops at all — verify the shape cannot silently
+    stop being a "restated fact" shape: the vault must already carry, verbatim,
+    the responsibility the answer restates."""
+    shape = "S10_restated_fact_nothing_new"
+    info = fixtures.new_info(shape)
+    data = fixtures.profile_data(shape)
+    nova = next(w for w in data["work_experience"] if w["id"] == "w-nova")
+    restated = "Own technical strategy and roadmap for manufacturing-adjacent IT"
+    assert restated in nova["responsibilities"]
+    assert "technical strategy and roadmap for manufacturing-adjacent IT" in info["answer"]
 
 
 # --------------------------------------------------------------------------- #
@@ -212,6 +280,20 @@ def test_score_reclassifies_from_the_ops_not_from_stored_metrics(tmp_path, fixtu
     )
     records, _ = mm.score_file(fixtures, path)
     assert records[0]["metrics"]["no_write"] is True
+
+
+def test_s10_expects_no_stations_and_classifies_a_correct_empty_turn(fixtures):
+    """S10's correct output is no ops at all. `expected_stations` must stay `[]`
+    so `station_coverage` reads `None` rather than a misleading 0/0, and the
+    resulting turn must classify as `no_write` — NOT as a model failure — so a
+    caller that folds S10 into a `no_write` qualification verdict would
+    misclassify the shape's own correct behaviour as a lost turn."""
+    shape = "S10_restated_fact_nothing_new"
+    assert fixtures.expected_stations(shape) == []
+    metrics = mm.classify(fixtures, shape, [], [], None)
+    assert metrics["station_coverage"] is None
+    assert metrics["no_write"] is True
+    assert metrics["zero_op"] is True
 
 
 def test_zero_op_and_malformed_are_counted_separately(fixtures):
@@ -366,6 +448,10 @@ def test_end_to_end_against_the_mock_provider(tmp_path, capsys):
     assert record["metrics"]["n_ops"] > 0
     assert record["metrics"]["zero_op"] is False
     assert "apply" in record["metrics"]  # apply_ops ran in memory, no DB
+    # ADR-046 amended 2026-09-11 — the key is recorded on every run, `None`
+    # included, so a measurement can tell "the model omitted it" from "the
+    # harness never looked".
+    assert "empty_reason" in record
 
     summary = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
     assert summary["meta"]["provider"] == "mock"

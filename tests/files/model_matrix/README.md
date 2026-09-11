@@ -17,12 +17,13 @@ asserts it (`test_the_vault_fixture_is_synthetic`).
 
 | Path | What it is |
 |---|---|
-| `shapes.json` | the eight input shapes S1–S8, the station map, and which profile each shape uses |
+| `shapes.json` | the ten input shapes S1–S10, the station map, and which profile each shape uses |
 | `profiles/lena_full.json` | three stations (NovaRNA current, Blutspendedienst, Helvetia) |
 | `profiles/lena_no_bsd.json` | the same vault with the Blutspendedienst station **absent** |
 | `profiles/lena_current_only.json` | only the current station — the smallest vault |
 | `profiles/lena_big.json` | five stations, DE+EN summary, nine skills — closer to a used vault |
-| `golden/*.user_prompt.txt` | the rendered reconcile user prompt for S6 and S7, UUIDs canonicalised |
+| `profiles/lena_bullets.json` | `lena_full` with one extra `w-nova` achievement bullet, for the S9 bullet-conflict shape |
+| `golden/*.user_prompt.txt` | the rendered reconcile user prompt for S6, S7, S9 and S10, UUIDs canonicalised |
 
 Profiles are `MasterProfileData.model_dump(mode="json")` dumps, so they load with
 `model_validate` and carry their entity ids (`w-nova`, `w-bsd`, `w-helv`) verbatim —
@@ -40,6 +41,8 @@ the harness's station attribution reads exactly those ids.
 | S6 | full | the incident shape: the answer opens with a denial ("not insulin"), then names three stations |
 | S7 | current only | the incident shape against the smallest vault — the shape `glm-5.3-flash` lost 11/20 times |
 | S8 | big | the incident shape against a five-station vault |
+| S9 | bullets | bullet-vs-bullet contradiction: the vault already has one figure for a NovaRNA achievement, the answer restates it with a changed figure — measures whether reconcile rule 13 (CONTRADICTING BULLETS) fires as `flag_conflict` instead of a silent overwrite or an ordinary `add_bullets` |
+| S10 | full | a restated fact, nothing new: the answer repeats a `w-nova` responsibility the vault already carries verbatim, so the CORRECT output is no ops at all. `expected_stations` is deliberately `[]` — `station_coverage` stays `None` for this shape and it must never be folded into a model's `no_write` qualification verdict, whose bar would misread the correct "wrote nothing" outcome as a lost turn |
 
 ## Provenance and the golden prompts
 
@@ -47,6 +50,13 @@ Generated from `Documents/Runs/Nougat/summary-seed-spike-2026-09-06/replay_multi
 (the spike behind #684/#688). The goldens under `golden/` were rendered from that
 script's own profile builders, not from these fixtures, and the smoke test asserts
 the fixtures reproduce them **byte for byte**.
+
+S9 and S10 (added in Nougat build 2, WP-P2) have no spike counterpart — there was
+no 2026-09-06 script run for a bullet-conflict or a restated-fact turn. Their
+goldens were rendered straight from these fixtures via the harness's own
+`Fixtures` / `render_prompts` / `canonical_prompt`, and the smoke test that pins
+them is a **drift pin**: it proves the fixture keeps rendering the same prompt it
+did the day it was added, not a comparison against an external spike.
 
 One caveat is baked into that claim: the spike minted a fresh random UUID for every
 education entry and every skill on every invocation, so its prompt was never byte-stable

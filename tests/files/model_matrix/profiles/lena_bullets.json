@@ -1,0 +1,151 @@
+{
+  "personal_info": {
+    "name": "Lena Fischer",
+    "email": "lena.fischer@example.com",
+    "phone": null,
+    "location": "Mainz",
+    "address": null,
+    "nationality": null,
+    "date_of_birth": null,
+    "photo_url": null,
+    "linkedin_url": null,
+    "xing_url": null,
+    "website_url": null
+  },
+  "professional_summary": {
+    "de": null,
+    "en": "I'm an engineering leader who builds and leads teams that build AI-driven systems people can trust. For several years I have led teams in regulated environments, set technical strategy and roadmaps, and developed talent. My focus is increasingly on applied AI, hands-on rather than only strategic. What I bring to a leadership role is proven engineering leadership in demanding, regulated settings paired with current AI fluency and the judgment to apply it responsibly."
+  },
+  "work_experience": [
+    {
+      "role": "Associate Director Supply Chain Systems",
+      "location": null,
+      "start_date": "2019-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Lead the team building the end-to-end supply-chain systems for individualized therapies",
+        "Own technical strategy and roadmap for manufacturing-adjacent IT"
+      ],
+      "achievements": [
+        "Reduced batch-release turnaround for individualized therapies by 40%"
+      ],
+      "technologies": [
+        "SAP",
+        "Azure",
+        "Python"
+      ],
+      "expected_fields": null,
+      "id": "w-nova",
+      "company": "NovaRNA Biotech GmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "IT Systems Lead",
+      "location": null,
+      "start_date": "2012-01",
+      "end_date": "2019-02",
+      "is_current": null,
+      "responsibilities": [
+        "Responsible for the laboratory and production information systems",
+        "Led validation projects under GxP"
+      ],
+      "achievements": [],
+      "technologies": [
+        "LIMS",
+        "Oracle"
+      ],
+      "expected_fields": null,
+      "id": "w-bsd",
+      "company": "Blutspendedienst Nord gGmbH",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    },
+    {
+      "role": "Systems Engineer Manufacturing IT",
+      "location": null,
+      "start_date": "2005-09",
+      "end_date": "2011-12",
+      "is_current": null,
+      "responsibilities": [
+        "Maintained and extended the manufacturing execution system",
+        "Computer system validation for production IT"
+      ],
+      "achievements": [],
+      "technologies": [
+        "MES",
+        "SQL"
+      ],
+      "expected_fields": null,
+      "id": "w-helv",
+      "company": "Helvetia Pharma AG",
+      "role_aliases": [],
+      "industry_context": null,
+      "team_size": null,
+      "budget_managed": null,
+      "role_fact_projections": {}
+    }
+  ],
+  "education": [
+    {
+      "id": "55f81719-b31d-45bf-af24-978f67cb62ec",
+      "institution": "TU Darmstadt",
+      "degree": "Diplom",
+      "field": "Informatik",
+      "start_date": "1999",
+      "end_date": "2005",
+      "grade": null,
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "certifications": [],
+  "skills": [
+    {
+      "id": "4b3c15b1-e11d-4722-9b6e-55de15de0936",
+      "name": "SAP",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "c830a582-e95b-41a4-8f39-def1ae8d20ff",
+      "name": "Computer System Validation",
+      "category": "domain",
+      "proficiency": "expert",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    },
+    {
+      "id": "5b581d15-325a-4486-8e08-00ea46543ad9",
+      "name": "Team leadership",
+      "category": "soft",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "source": null,
+      "last_used": null,
+      "experience_refs": [],
+      "status": "confirmed"
+    }
+  ],
+  "languages": [],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": null
+}
