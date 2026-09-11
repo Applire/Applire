@@ -797,6 +797,12 @@ async def erase_profile(
 
     # Collect profile photo path (single-user pattern; no user_id on MasterProfile)
     _photo_url_before_erasure: str | None = None
+    # #359: the signature image lives on user_settings (ADR-088), not in the vault
+    _signature_path_before_erasure: str | None = None
+    from applire.models.user_settings import UserSettings as _US
+    _signature_path_before_erasure = (
+        await db.execute(select(_US.signature_path).limit(1))
+    ).scalar_one_or_none()
     _profile_snap_result = await db.execute(
         select(MasterProfile)
         .where(MasterProfile.deleted_at.is_(None))
@@ -938,6 +944,18 @@ async def erase_profile(
                 "Failed to delete photo file %s after GDPR erasure: %s "
                 "(retention orphan scan reclaims it within 24h)",
                 _photo_url_before_erasure,
+                exc,
+            )
+
+    # Delete signature image (GDPR Art. 17; #359)
+    if _signature_path_before_erasure:
+        try:
+            await storage.delete(_signature_path_before_erasure)
+        except Exception as exc:
+            logger.error(
+                "Failed to delete signature file %s after GDPR erasure: %s "
+                "(retention orphan scan reclaims it within 24h)",
+                _signature_path_before_erasure,
                 exc,
             )
 
