@@ -1558,10 +1558,11 @@
     "guidedDone": "Du hast alle Befunde gesehen. Die Zähler oben bleiben stehen — Du kannst jederzeit zurückgehen.",
     "guidedNothing": "Es gibt nichts durchzugehen.",
     "group2TradeBody": "Dein Profil deckt das ab — es hat nur nicht ins Dokument gepasst. Der Längen-Kompromiss hat entschieden, nicht die Wahrheitsprüfung: Applire hat beim Schreiben versucht, diese Begriffe unterzubringen, und die Seitenzahl hat gewonnen. Was hier steht, ist der Rest danach.",
-    "group2HandlesTitle": "Drei Hebel, die es schon gibt:",
+    "group2HandlesTitle": "Vier Hebel, die es schon gibt:",
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
     "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Bearbeiten.",
-    "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
+    "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu.",
+    "group2HandleEditor": "Den Abschnitt selbst bearbeiten — klicke auf einen Punkt oben, dann landest Du im Reiter Bearbeiten mit genau diesem Abschnitt geöffnet. Was dort steht, schreibst Du."
   },
   "upgradeNotice": {
     "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",

@@ -1558,10 +1558,11 @@
     "guidedDone": "You have seen every finding. The counts above stay put — you can go back at any time.",
     "guidedNothing": "There is nothing to walk through.",
     "group2TradeBody": "Your profile covers this — it simply did not fit into the document. The length trade decided it, not the truthfulness check: Applire tried to place these terms while writing, and the page target won. What you see here is what was left over.",
-    "group2HandlesTitle": "Three handles that already exist:",
+    "group2HandlesTitle": "Four handles that already exist:",
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
     "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Edit tab.",
-    "group2HandleRegenerate": "Regenerate — the selection is made afresh each time."
+    "group2HandleRegenerate": "Regenerate — the selection is made afresh each time.",
+    "group2HandleEditor": "Edit the section yourself — click an item above and you land on the Edit tab with that section open. What goes in is written by you."
   },
   "upgradeNotice": {
     "title": "Something about your settings changed since your last start",

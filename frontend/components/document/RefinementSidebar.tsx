@@ -56,6 +56,19 @@ interface RefinementSidebarProps {
    * contextual footer.
    */
   pinnedFooter?: ReactNode;
+  /**
+   * #667 (ADR-081 cl. 3, amended 2026-09-11): optional CONTROLLED mode for the
+   * tab strip. The panel stays uncontrolled when these are omitted — every
+   * existing caller and test is unchanged — but a page that needs to move the
+   * user between tabs programmatically (the review surface's section-editor
+   * handle lands the user on *Bearbeiten*) owns the state instead.
+   *
+   * Controlled rather than a one-shot `requestTabId`: the user can still click
+   * a tab afterwards, and a page that both reads and writes the active tab has
+   * no way to observe a click through a write-only prop.
+   */
+  activeTabId?: string;
+  onTabChange?: (tabId: string) => void;
 }
 
 function ScoreRing({ score }: { score: number | null }) {
@@ -104,9 +117,19 @@ export function RefinementSidebar({
   initialTabId,
   identityBar,
   pinnedFooter,
+  activeTabId,
+  onTabChange,
 }: RefinementSidebarProps) {
   const t = useTranslations("document");
-  const [activeId, setActiveId] = useState<string>(initialTabId ?? tabs[0]?.id ?? "");
+  const [internalId, setInternalId] = useState<string>(initialTabId ?? tabs[0]?.id ?? "");
+  // #667: controlled when the caller supplies `activeTabId`, otherwise the
+  // pre-existing internal state. Both paths notify `onTabChange` so a caller
+  // can observe a click without taking ownership of the state.
+  const activeId = activeTabId ?? internalId;
+  const setActiveId = (tabId: string) => {
+    if (activeTabId === undefined) setInternalId(tabId);
+    onTabChange?.(tabId);
+  };
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
 
   if (collapsed) {
