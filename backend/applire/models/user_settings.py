@@ -73,6 +73,43 @@ class UserSettings(Base):
     dismissed_explainers: Mapped[list] = mapped_column(
         _JSON, nullable=False, server_default="[]", default=list
     )
+    # #359: whether a stored signature image is rendered on each document kind.
+    # The founder's defaults are the DACH convention as the issue states it —
+    # the Anschreiben is expected to carry a signature, the Lebenslauf's is
+    # traditional but increasingly optional — so the letter is ON and the CV is
+    # OFF, both user-overridable (founder default F-0, 2026-09-11).
+    # Read at RENDER time, not pinned onto the document row: a user may toggle
+    # and re-download without paying for a regeneration. That trade is recorded
+    # in SF-PDF.6's Cause cell rather than left implicit.
+    # Two columns rather than one enum/JSON set, because there are exactly two
+    # document kinds and the settings contract is read by the frontend on every
+    # page — a set would cost a lookup at every read site for no extensibility
+    # the product has asked for.
+    # #359: the stored signature IMAGE's path in the storage provider.
+    # Deliberately NOT in `master_profiles.profile_json.personal_info`, where
+    # the profile photo's path lives (founder ruling F-3, 2026-09-11). Three
+    # reasons, in the order they were found:
+    #   1. The reconcile prompt renders the whole `personal_info` object into
+    #      the model's input view — `photo_url` is in there today. A file path
+    #      is input the model has no business reading; adding a second one made
+    #      the surface worse, not equal.
+    #   2. That render is pinned byte-for-byte by the model-qualification
+    #      goldens (`tests/files/model_matrix/golden/`), whose README states
+    #      that any edit invalidates every published matrix row (#688).
+    #   3. A signature is document CHROME the user attaches at render time, not
+    #      a claim about the candidate. The photo is CV content and Art. 9 data;
+    #      this is neither. It therefore belongs with the settings that decide
+    #      whether it renders, which is exactly where it now is.
+    # The cost — it is outside the vault's own file lifecycle — is paid
+    # explicitly: `retention/worker.py`'s orphan scan reads this column, and the
+    # Art. 17 erasure path deletes the file. Both are named tests, not comments.
+    signature_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    signature_in_letter: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", default=True
+    )
+    signature_in_cv: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

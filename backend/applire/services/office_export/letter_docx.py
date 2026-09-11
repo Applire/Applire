@@ -54,7 +54,11 @@ schema and the seven existing letter templates, not invented here:**
   IS content, just resolved one layer up by the caller), there is no letter
   content this leaf could ever contribute — so this writer takes no photo
   parameter at all, and ``header.photo_url`` is this module's one
-  ``_NOT_RENDERED_LEAVES`` entry.
+  ``_NOT_RENDERED_LEAVES`` entry. (#359 added a ``signature_bytes``
+  parameter, which is NOT the photo's twin: it is the user's own signature
+  image, it IS rendered by all seven letter templates, and it comes from
+  ``personal_info.signature_url`` rather than from ``LetterData`` — so it
+  still corresponds to no schema leaf and this asymmetry stands.)
 * **One heading, not three.** The CV has labelled section headings sourced
   from ``cv_labels()`` (``experience``, ``skills``, ...). ``cover_letter_
   labels()`` has no equivalent key naming a "recipient"/"body"/"signature"
@@ -71,10 +75,11 @@ schema and the seven existing letter templates, not invented here:**
 """
 
 import io
+import logging
 from typing import Callable
 
 from docx.document import Document as DocxDocument
-from docx.shared import RGBColor
+from docx.shared import Cm, RGBColor
 
 from applire.schemas.cover_letter import LetterData
 from applire.services.office_export._common import (
@@ -84,6 +89,8 @@ from applire.services.office_export._common import (
     new_document,
 )
 from applire.templates.labels import cover_letter_labels
+
+logger = logging.getLogger(__name__)
 
 # `_iter_leaf_paths` is not imported here: this module's own code never
 # calls it (only the coverage-guard tests do, importing it straight from
@@ -106,13 +113,14 @@ def _closing_line(closing: str | None, labels: dict) -> str:
 
 # ---------------------------------------------------------------------------
 # Section renderers — one per LetterData field. Every renderer takes the same
-# four arguments so the dispatch loop below stays uniform (no photo_bytes —
-# see module docstring for why the letter writer, unlike the CV's, takes
-# none at all).
+# five arguments so the dispatch loop below stays uniform; renderers that
+# don't need `signature_bytes` simply ignore it (the cv_docx convention). Still
+# no photo_bytes — see module docstring for why the letter writer, unlike the
+# CV's, takes none at all.
 # ---------------------------------------------------------------------------
 
 
-def _render_header(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor) -> None:
+def _render_header(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor, signature_bytes: bytes | None) -> None:
     header = letter.header
     add_heading(document, header.name, 1, color)
     add_paragraph(document, header.address)
@@ -120,7 +128,7 @@ def _render_header(document: DocxDocument, letter: LetterData, labels: dict, col
     add_paragraph(document, header.email)
 
 
-def _render_recipient(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor) -> None:
+def _render_recipient(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor, signature_bytes: bytes | None) -> None:
     recipient = letter.recipient
     add_paragraph(document, recipient.name)
     add_paragraph(document, recipient.title)
@@ -129,14 +137,25 @@ def _render_recipient(document: DocxDocument, letter: LetterData, labels: dict, 
     add_paragraph(document, recipient.date)
 
 
-def _render_body(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor) -> None:
+def _render_body(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor, signature_bytes: bytes | None) -> None:
     for paragraph in letter.body.paragraphs:
         add_paragraph(document, paragraph)
 
 
-def _render_signature(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor) -> None:
+def _render_signature(document: DocxDocument, letter: LetterData, labels: dict, color: RGBColor, signature_bytes: bytes | None) -> None:
     signature = letter.signature
     add_paragraph(document, _closing_line(signature.closing, labels))
+    if signature_bytes:
+        # #359: between the closing and the printed name — the place a
+        # handwritten signature goes on a German Anschreiben, and the same
+        # position all seven letter templates put it in.
+        try:
+            document.add_picture(io.BytesIO(signature_bytes), width=SIGNATURE_WIDTH)
+        except Exception:
+            # python-docx reads only bmp/gif/jpeg/png/tiff while the stored set
+            # includes webp. Degrade to the pre-#359 document rather than 500
+            # the download — an image must never cost the candidate their text.
+            logger.warning("office export: signature omitted, unreadable by python-docx")
     add_paragraph(document, signature.name)
 
 
@@ -152,6 +171,12 @@ _SECTION_RENDERERS: dict[str, Callable] = {
 # (empty) for structural symmetry with cv_docx.py's coverage-guard pattern,
 # so a future non-section field added to LetterData has a documented place
 # to go rather than forcing a new pattern into render_letter_docx's loop.
+# #359: same figure as cv_docx.SIGNATURE_WIDTH — a handwritten signature at
+# roughly its real width on paper, and the two delivered formats must not
+# disagree about how big the user's own signature is.
+SIGNATURE_WIDTH = Cm(5.0)
+
+
 _NON_SECTION_FIELDS: frozenset[str] = frozenset()
 
 
@@ -208,12 +233,18 @@ def render_letter_docx(
     *,
     lang: str,
     accent_color: str,
+    signature_bytes: bytes | None = None,
     digital_source_type: str | None = None,
 ) -> bytes:
     """Render `letter` as a `.docx` file, returned as bytes.
 
     Pure function — no I/O. See module docstring for the two deliberate
     asymmetries with `render_cv_docx`.
+
+    `signature_bytes` (#359) is the photo's SHAPE, not its twin: already
+    resolved by the caller, already gated on the user's `signature_in_letter`
+    setting (which defaults to ON — the Anschreiben is where DACH practice
+    expects a signature), and passed in so this function stays pure.
 
     `digital_source_type` (ADR-085, ruling 14) is passed straight to the
     provenance seam in ``new_document``; ``None`` keeps the uniform default.
@@ -237,7 +268,7 @@ def render_letter_docx(
                 "registered renderer in _SECTION_RENDERERS — a schema field would "
                 "silently go unexported from the .docx writer."
             )
-        renderer(document, letter, labels, color)
+        renderer(document, letter, labels, color, signature_bytes)
 
     buffer = io.BytesIO()
     document.save(buffer)

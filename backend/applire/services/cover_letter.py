@@ -391,12 +391,20 @@ async def get_cover_letter_html(
         subject = f"{labels['subject_prefix']}: {role_title}"
     else:
         subject = labels["subject_prefix"]
+    # #359: resolved at RENDER time from user_settings (default ON for the
+    # letter — the Anschreiben is where DACH practice expects a signature), via
+    # the single seam that also serves the .docx path. None when the toggle is
+    # off, nothing is on file, or the stored file is gone.
+    from applire.services.signature import resolve_signature_data_uri
+
+    signature_image = await resolve_signature_data_uri(db, document="letter")
     return tmpl.render(
         letter=letter_data,
         color=color_ctx,
         lang=lang,
         labels=labels,
         subject=subject,
+        signature_image=signature_image,
     )
 
 
@@ -542,7 +550,12 @@ async def _prepare_cover_letter_docx_render(
         )
         lang = resolve_document_language(application, job) if job else "de"
 
-    return letter, lang, color_ctx["primary"]
+    # #359: resolved HERE, in the shared prep, so the ADR-079 clause 8 audit
+    # renders the same bytes the user downloads (this function's whole reason).
+    from applire.services.signature import resolve_signature_bytes
+
+    signature_bytes = await resolve_signature_bytes(db, document="letter")
+    return letter, lang, color_ctx["primary"], signature_bytes
 
 
 async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
@@ -579,7 +592,9 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
     if cl.status != CoverLetterStatus.ready.value:
         raise ValueError(f"Cover letter not ready (status={cl.status})")
 
-    letter, lang, accent_color = await _prepare_cover_letter_docx_render(cl, db)
+    letter, lang, accent_color, signature_bytes = await _prepare_cover_letter_docx_render(
+        cl, db
+    )
     # ADR-085 / ruling 14: exported from the PERSISTED row at any later time, so
     # the row's own `origin` (ADR-054) is the only carrier of "who authored this
     # content" that reaches this point. Recorded since migration 0051; the mark
@@ -588,6 +603,7 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
 
     return render_letter_docx(
         letter, lang=lang, accent_color=accent_color,
+        signature_bytes=signature_bytes,
         digital_source_type=digital_source_type_for_origin(cl.origin),
     )
 
@@ -3147,13 +3163,16 @@ async def _update_ats_report_letter(
         )
         from applire.services.office_export.letter_docx import render_letter_docx
 
-        docx_letter, docx_lang, docx_accent = await _prepare_cover_letter_docx_render(cl, db)
+        (
+            docx_letter, docx_lang, docx_accent, docx_signature_bytes,
+        ) = await _prepare_cover_letter_docx_render(cl, db)
         # ADR-085 / ruling 14: the same origin-derived mark get_cover_letter_docx
         # stamps, so the audited bytes stay the served bytes (see the CV twin).
         from applire.services.pdf_provenance import digital_source_type_for_origin
 
         docx_bytes = render_letter_docx(
             docx_letter, lang=docx_lang, accent_color=docx_accent,
+            signature_bytes=docx_signature_bytes,
             digital_source_type=digital_source_type_for_origin(cl.origin),
         )
 

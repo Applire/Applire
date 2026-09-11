@@ -1250,6 +1250,20 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 **Nothing here may break what it watches.** No probe writes, no probe may raise — an exception becomes `unknown`, carrying the exception *type* and never its message — and `unknown` never counts as `ok`, so a probe that quietly stops working cannot make the instance look healthy. The retention worker's monitoring row is written in its own session and its failure is caught: a GDPR deletion pass may never fail because a health record could not be saved.
 
 ---
+
+### ADR-088 — A Rendering Asset the User Attaches to a Document Is Not Vault Content (accepted + built 2026-09-11)
+
+**Decision:** the handwritten signature image a user uploads is stored with the settings that decide whether it renders (`user_settings.signature_path`, plus one boolean per document kind), **not** in the Master Profile where the profile photo's path lives. Applire's vault is the Truthfulness Oracle's subject matter — statements about the candidate that can be true or false and must be grounded. A signature is document chrome the user attaches at render time, and it makes no claim at all.
+
+**Why this is a decision and not a shrug.** The obvious implementation was the photo's, one field over, and it was built first and then withdrawn for three reasons found in that order. The vault's `personal_info` object is rendered wholesale into the model's input view during reconciliation, so a storage path kept there is a file path handed to an LLM — the photo's already is, and a second one makes that surface worse rather than equal. That same render is pinned byte-for-byte by the model-qualification fixtures, whose own README states that editing them invalidates every published measurement. And the photo is genuinely a different kind of thing: it is CV *content*, and it is special-category data under GDPR Article 9 with an explicit consent record. A signature is neither.
+
+**What leaving the vault costs, and how it is paid.** The image is outside the vault's own file lifecycle, so two mechanisms name the new column explicitly rather than inheriting it: the retention worker's orphan scan reads it into its referenced set, and the erasure path deletes the file. That is not defensive tidiness — the scan *deletes* every file in the uploads volume it cannot find a reference for, so a stored binary missing from that enumeration is a data-loss bug with a grace-period fuse. Both are covered by named tests. The rule generalises: a future document asset joins both in the same change as its service module, or it does not exist.
+
+**No consent gate.** Article 9's list is closed and a signature image is not on it. It is personal data, and it is biometric *material*, but it is not processed here for the purpose of uniquely identifying a natural person — it is reproduced onto the user's own letter at their instruction. Stated because copying the photo's consent flow would have been the easy, wrong move, and because otherwise the absence reads as an oversight.
+
+**Where it appears.** On the cover letter by default, above the printed name, which is what a DACH application is expected to carry; on the CV only if you ask, with `Ort, Datum` above it — traditional, and increasingly optional. Both are per-user switches read at render time rather than frozen onto the document, so changing one takes effect on your next download without regenerating anything. All seven letter templates and all seven CV templates render it, and both Word exports do too. The agent channel cannot supply it: an inbound signature reference is stripped exactly as a photo one is, because a caller-supplied path would be read off disk and embedded into a PDF by headless Chromium. That leaves the signature alongside the photo as an input the browser can give Applire and an agent cannot — a known gap, documented in the agent guide rather than discovered mid-application.
+
+---
 ---
 ## 4. Data Model Highlights
 

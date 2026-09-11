@@ -55,6 +55,14 @@ class SettingsResponse(BaseModel):
     # #679 (US309): ids of the first-use explainers this user dismissed.
     # Write order; empty when nothing was dismissed. Never null.
     dismissed_explainers: list[str] = []
+    # #359: whether a stored signature image is rendered on each document kind.
+    # Founder default F-0 (2026-09-11) and the issue's own proposal — the
+    # Anschreiben is expected to carry a signature in DACH practice, the
+    # Lebenslauf's is traditional but increasingly optional. Served on this
+    # payload rather than on a new endpoint for the same reason
+    # notice_auto_dismiss_seconds is: the frontend already fetches this one.
+    signature_in_letter: bool = True
+    signature_in_cv: bool = False
     # Founder ruling V-1 (2026-09-09): seconds before an unattended in-app notice
     # pop-up hides itself; 0 = never. READ-ONLY here on purpose — it is an
     # INSTANCE setting (`NOTICE_AUTO_DISMISS_SECONDS`, ADR-087's registry), not a
@@ -95,6 +103,10 @@ class SettingsPatchRequest(BaseModel):
     # back is a settings-screen concern #679 will decide, not a PATCH verb).
     # A body carrying only this field is a valid request.
     dismiss_explainer: str | None = None
+    # #359: per-document-kind signature rendering. Plain optional booleans —
+    # None means "not provided", the shape every other toggle here uses.
+    signature_in_letter: bool | None = None
+    signature_in_cv: bool | None = None
 
 
 async def get_settings(db: AsyncSession) -> dict:
@@ -125,6 +137,15 @@ async def get_settings(db: AsyncSession) -> dict:
     # row to '[]', so a None here is only the transient in-Python state before
     # the server_default is applied — same guarantee as review_mode above.
     dismissed_explainers = list(getattr(row, "dismissed_explainers", None) or [])
+    # #359: no row yet == the DEFAULTS, not "off". `getattr` for the same reason
+    # review_mode uses it — a freshly-created row has not reflected its
+    # server_default yet, and a pre-0065 row has no attribute at all.
+    signature_in_letter = True if row is None else bool(
+        getattr(row, "signature_in_letter", True)
+    )
+    signature_in_cv = False if row is None else bool(
+        getattr(row, "signature_in_cv", False)
+    )
 
     if row is None or row.default_color_profile_id is None:
         return {
@@ -136,6 +157,8 @@ async def get_settings(db: AsyncSession) -> dict:
             "target_cv_pages": target_cv_pages,
             "review_mode": review_mode,
             "dismissed_explainers": dismissed_explainers,
+            "signature_in_letter": signature_in_letter,
+            "signature_in_cv": signature_in_cv,
         }
 
     cp = await db.get(ColorProfile, row.default_color_profile_id)
@@ -149,6 +172,8 @@ async def get_settings(db: AsyncSession) -> dict:
             "target_cv_pages": target_cv_pages,
             "review_mode": review_mode,
             "dismissed_explainers": dismissed_explainers,
+            "signature_in_letter": signature_in_letter,
+            "signature_in_cv": signature_in_cv,
         }
 
     return {
@@ -160,6 +185,8 @@ async def get_settings(db: AsyncSession) -> dict:
         "target_cv_pages": target_cv_pages,
         "review_mode": review_mode,
         "dismissed_explainers": dismissed_explainers,
+        "signature_in_letter": signature_in_letter,
+        "signature_in_cv": signature_in_cv,
     }
 
 
@@ -172,6 +199,8 @@ async def update_settings(
     clear_target_cv_pages: bool = False,
     review_mode: str | None = None,
     dismiss_explainer: str | None = None,
+    signature_in_letter: bool | None = None,
+    signature_in_cv: bool | None = None,
 ) -> dict:
     """Service logic — upsert user settings. All fields are optional.
 
@@ -247,6 +276,13 @@ async def update_settings(
             # the unit of work and would be silently dropped at commit.
             row.dismissed_explainers = current + [dismiss_explainer]
 
+    # #359: no validation clause — a bool has no invalid value, unlike the
+    # enum/hex/id fields above.
+    if signature_in_letter is not None:
+        row.signature_in_letter = signature_in_letter
+    if signature_in_cv is not None:
+        row.signature_in_cv = signature_in_cv
+
     await db.commit()
 
     response: dict = {
@@ -261,6 +297,16 @@ async def update_settings(
         # reach back into the ORM row's list through the response dict.
         "dismissed_explainers": list(
             getattr(row, "dismissed_explainers", None) or []
+        ),
+        # #359: same NULL-safety as the two above — a freshly-created row has
+        # not reflected its server_default at this point.
+        "signature_in_letter": bool(
+            True if getattr(row, "signature_in_letter", None) is None
+            else row.signature_in_letter
+        ),
+        "signature_in_cv": bool(
+            False if getattr(row, "signature_in_cv", None) is None
+            else row.signature_in_cv
         ),
     }
     if row.default_color_profile_id:
@@ -347,6 +393,8 @@ async def api_patch_settings(
             clear_target_cv_pages=clear_target_cv_pages,
             review_mode=body.review_mode,
             dismiss_explainer=body.dismiss_explainer,
+            signature_in_letter=body.signature_in_letter,
+            signature_in_cv=body.signature_in_cv,
         )
         result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
         return SettingsResponse(**result)

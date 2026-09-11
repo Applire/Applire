@@ -2185,6 +2185,15 @@ _PHOTO_MIME: dict[str, str] = {
 }
 
 
+def format_place_date_for_cv(location: str | None, language: str) -> str:
+    """#359: the CV tail's ``Ort, Datum`` line. A thin alias so both CV render
+    paths name the same function; the implementation lives with the rest of the
+    signature logic in ``services/signature.py``."""
+    from applire.services.signature import format_place_date
+
+    return format_place_date(location, language)
+
+
 async def _resolve_photo_data_uri(
     photo_path: str | None,
     storage: "StorageProvider",
@@ -2573,7 +2582,25 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
             record.job_analysis_id, _CE_STUB_USER_ID, db
         )
         lang = resolve_document_language(application, job) if job else "de"
-    return template.render(cv=tailored, color=color_ctx, lang=lang, labels=cv_labels(lang))
+    # #359: the signature is resolved at RENDER time from user_settings, not
+    # pinned onto the row — one seam (services/signature.py) serves this path and
+    # the .docx path, so the toggle cannot be honoured on one and ignored on the
+    # other (SF-PDF.6). None covers every "do not render" case alike.
+    from applire.services.signature import format_place_date, resolve_signature_data_uri
+
+    signature_image = await resolve_signature_data_uri(db, document="cv")
+    return template.render(
+        cv=tailored,
+        color=color_ctx,
+        lang=lang,
+        labels=cv_labels(lang),
+        signature_image=signature_image,
+        signature_place_date=(
+            format_place_date(tailored.contact.location, lang)
+            if signature_image
+            else None
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2681,7 +2708,19 @@ async def _prepare_cv_docx_render(
         )
         lang = resolve_document_language(application, job) if job else "de"
 
-    return tailored, lang, color_ctx.primary, photo_bytes
+    # #359: same single seam as get_cv_html, decoded to bytes for python-docx.
+    # Resolved HERE rather than in get_cv_docx so the ADR-079 clause 8 audit
+    # block renders the same bytes the user downloads — the drift this shared
+    # prep function exists to prevent.
+    from applire.services.signature import resolve_signature_bytes
+
+    signature_bytes = await resolve_signature_bytes(db, document="cv")
+    signature_place_date = (
+        format_place_date_for_cv(tailored.contact.location, lang)
+        if signature_bytes
+        else None
+    )
+    return tailored, lang, color_ctx.primary, photo_bytes, signature_bytes, signature_place_date
 
 
 async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
@@ -2703,13 +2742,16 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
     from applire.services.office_export.cv_docx import render_cv_docx
 
     record = await _load_cv_ready(cv_id, db)
-    tailored, lang, accent_color, photo_bytes = await _prepare_cv_docx_render(record, db)
+    (
+        tailored, lang, accent_color, photo_bytes, signature_bytes, signature_place_date,
+    ) = await _prepare_cv_docx_render(record, db)
     # ADR-085 / ruling 14: the .docx is exported from the PERSISTED row, at any
     # later time, so the row's own `origin` (ADR-054) is the only thing that can
     # tell an agent-authored document from a pipeline-authored one here. It is
     # recorded (models/cv.py, migration 0051) — the mark just never read it.
     return render_cv_docx(
         tailored, lang=lang, accent_color=accent_color, photo_bytes=photo_bytes,
+        signature_bytes=signature_bytes, signature_place_date=signature_place_date,
         digital_source_type=digital_source_type_for_origin(record.origin),
     )
 
@@ -4436,14 +4478,21 @@ async def _update_ats_report(
             record.docx_ats_report if isinstance(record.docx_ats_report, dict) else None
         )
 
-        docx_tailored, docx_lang, docx_accent, docx_photo_bytes = await _prepare_cv_docx_render(
-            record, db
-        )
+        (
+            docx_tailored,
+            docx_lang,
+            docx_accent,
+            docx_photo_bytes,
+            docx_signature_bytes,
+            docx_signature_place_date,
+        ) = await _prepare_cv_docx_render(record, db)
         docx_bytes = render_cv_docx(
             docx_tailored,
             lang=docx_lang,
             accent_color=docx_accent,
             photo_bytes=docx_photo_bytes,
+            signature_bytes=docx_signature_bytes,
+            signature_place_date=docx_signature_place_date,
             # ADR-085 / ruling 14: the same origin-derived mark get_cv_docx
             # stamps. This block's own claim is that it audits the DELIVERED
             # document and never a differently-prepared stand-in; leaving the
