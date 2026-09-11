@@ -71,14 +71,13 @@ _NOISE_KEYS = ("title", "default")
 #:
 #: * ``status`` — ADR-061 clause 3 reserves it for ``enforce_stance``; a model
 #:   that sets it is asserting the candidate CONFIRMED a skill it just invented.
-#: * ``last_used`` — ``o3/prompt-health.md`` §2: written by the import merge and
-#:   read by nobody. The inventory's explicit conclusion was "do not write the
-#:   prompt sentence"; rendering it in the schema would ask for it anyway.
+#:   (``last_used`` stood here until RULING P2-1, 2026-09-11 removed the field
+#:   from ``UpsertSkill`` altogether — the entry went with it.)
 #: * the ``RequestConfirmation`` i18n/key trio — adapter-only (ADR-063 amended
 #:   2026-09-05, ruling V-4); ``engine._strip_adapter_only`` removes them from
 #:   model output, so showing them would advertise a field that is thrown away.
 _PROMPT_HIDDEN_FIELDS = frozenset(
-    {"status", "last_used", "question_i18n", "options_i18n", "option_keys"}
+    {"status", "question_i18n", "options_i18n", "option_keys"}
 )
 
 #: The other direction of the same "second specification" class (adversarial

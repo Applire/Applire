@@ -124,9 +124,10 @@ def test_a_field_the_prompt_calls_required_is_required_in_the_schema():
 
 def test_a_field_the_prompt_never_asks_for_is_not_in_the_schema():
     """A schema is a second specification: showing `status` would invite the
-    model to assert the candidate CONFIRMED a skill (ADR-061 clause 3), and
-    showing `last_used` would ask for a field nothing reads
-    (`o3/prompt-health.md` §2).
+    model to assert the candidate CONFIRMED a skill (ADR-061 clause 3).
+
+    (`last_used` used to be hidden here too; RULING P2-1, 2026-09-11 removed the
+    field from `UpsertSkill` itself, so there is nothing left to hide.)
 
     MUTATION KILL: drop `_hide` from `reconcile_response_schema` and this fails.
     """

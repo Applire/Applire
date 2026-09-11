@@ -31,7 +31,7 @@ the applier against the batch's ref-map first, then against existing entity ids.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
@@ -42,7 +42,6 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MasterProfileData,
-    _coerce_partial_date,
     render_localized_confirmation,
 )
 
@@ -150,12 +149,17 @@ class UpsertSkill(BaseModel):
     # token (LLM said no/unclear, or adjudication failed) — the guard no longer
     # drops the op outright; the vault entity is written but never claimable.
     status: Literal["confirmed", "unconfirmed"] = "confirmed"
-    # #602/#620 — mirrors ``schemas.profile.Skill.last_used`` (same coercion:
-    # a CV/LinkedIn source states month/year precision at best). This op used
-    # to carry no such field at all, so a MERGE import (an existing skill
-    # matched by name/near-dupe) silently dropped a last-used date the source
-    # actually stated — never validated, never written, no trace.
-    last_used: date | None = None
+    # ``last_used`` was REMOVED here (RULING P2-1, 2026-09-11). #602/#620 added
+    # it so a merge import would stop dropping a stated last-used date; step 2b
+    # of the M-5 walk-through (``o3/prompt-health.md`` §2 and §5.8 row 8b) then
+    # traced every consumer of ``Skill.last_used`` and found NONE — not CV
+    # generation, not the Oracle, not completeness scoring, not the frontend.
+    # The reconcile prompt never asked for it and ``schema_out`` already hid it,
+    # so the op only ever carried a value a CV-extraction door had put in the
+    # NEW INFORMATION dump. Removing it is invisible at every read surface.
+    # ``schemas.profile.Skill.last_used`` STAYS: three extraction prompts still
+    # ask for it, and the vault dump's bytes are pinned by the #688 model-matrix
+    # goldens. Whether to read it or drop it too is a Vault collector line.
     # ADR-061 amended 2026-09-08 (#684) — a TRANSCRIBED span, never a computed
     # one. The applier stamps ``Skill.source = "transcribed"`` for a value that
     # arrives here (ADR-061 clause 7's vocabulary: computed | llm_estimated |
@@ -181,11 +185,6 @@ class UpsertSkill(BaseModel):
     # field to the left — where the candidate speaks, they win; where they are
     # silent, a derivation may fill the gap.
     years_experience: int | None = None
-
-    @field_validator("last_used", mode="before")
-    @classmethod
-    def _coerce_last_used(cls, v: Any) -> Any:
-        return _coerce_partial_date(v)
 
     @field_validator("years_experience", mode="before")
     @classmethod
