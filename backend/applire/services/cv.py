@@ -2348,6 +2348,16 @@ async def get_cv_status(
         if record.created_at < cutoff:
             status = CVGenerationStatus.failed
 
+    # F-4b: the effective value accounts for this CV's own override — see
+    # services.signature.resolve_signature_effective's own docstring for why
+    # this must share the render path's precedence seam.
+    from applire.services.signature import resolve_signature_available, resolve_signature_effective
+
+    signature_effective = await resolve_signature_effective(
+        db, document="cv", override=record.signature_override
+    )
+    signature_available = await resolve_signature_available(db)
+
     return CVStatusResponse(
         cv_id=record.id,
         status=status,
@@ -2369,7 +2379,53 @@ async def get_cv_status(
         critic_report=record.critic_report,
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=record.document_language,
+        # F-4b: the stored per-document override (None/True/False) and the
+        # resolved effective state, so the three-state control can render
+        # without a second round trip.
+        signature_override=record.signature_override,
+        signature_effective=signature_effective,
+        signature_available=signature_available,
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/cv/{cv_id}/signature — F-4b per-document signature override
+# ---------------------------------------------------------------------------
+
+
+async def set_cv_signature_override(
+    cv_id: uuid.UUID, override: bool | None, db: AsyncSession
+) -> bool:
+    """Persist ``signature_override`` on one CV and return the resulting
+    ``signature_effective``, mirroring ``routers.cv_color.apply_cv_color``'s
+    shape (service logic here, extracted for unit testability; the router
+    just maps exceptions to status codes).
+
+    ``override`` is ``None``/``True``/``False`` — FastAPI's own schema
+    validation (``Optional[bool]``) rejects anything else with 422 before this
+    is ever called, so this function does not re-validate the type. Requires
+    the CV to be ready, same precondition as the colour override: setting a
+    render preference on a document that has neither content nor a stable id
+    to hand back would be premature — a pending row is still generating and a
+    failed one has nothing to render at all.
+    """
+    from applire.services.signature import resolve_signature_effective
+
+    result = await db.execute(
+        select(GeneratedCV).where(
+            GeneratedCV.id == cv_id,
+            GeneratedCV.deleted_at.is_(None),
+        )
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise LookupError(f"CV {cv_id} not found")
+    if record.status != CVGenerationStatus.ready.value:
+        raise LookupError(f"CV {cv_id} is not ready (status={record.status})")
+
+    record.signature_override = override
+    await db.commit()
+    return await resolve_signature_effective(db, document="cv", override=override)
 
 
 # ---------------------------------------------------------------------------
@@ -2392,26 +2448,41 @@ async def list_cvs_for_job(
         .order_by(GeneratedCV.created_at.desc())
     )
     records = result.scalars().all()
-    return [
-        CVStatusResponse(
-            cv_id=r.id,
-            status=CVGenerationStatus(r.status),
-            html_url=f"{base_url}/api/cv/{r.id}/html" if r.status == CVGenerationStatus.ready.value else None,
-            pdf_url=f"{base_url}/api/cv/{r.id}/pdf" if r.status == CVGenerationStatus.ready.value else None,
-            # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
-            error_code=(
-                r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
-            ),
-            expires_at=r.expires_at,
-            template=r.template,
-            created_at=r.created_at,
-            target_pages=r.target_pages,
-            origin=r.origin,
-            # E054/US289 (clause 3b): pinned language, stored value as-is.
-            document_language=r.document_language,
+    # F-4b: resolved per record — a list entry's signature_effective must
+    # reflect THAT row's own override, same precedence as get_cv_status.
+    # signature_available is the same for every record in the list (it
+    # depends only on user_settings, not on the CV row), so it is resolved
+    # once outside the loop.
+    from applire.services.signature import resolve_signature_available, resolve_signature_effective
+
+    signature_available = await resolve_signature_available(db)
+    out: list[CVStatusResponse] = []
+    for r in records:
+        out.append(
+            CVStatusResponse(
+                cv_id=r.id,
+                status=CVGenerationStatus(r.status),
+                html_url=f"{base_url}/api/cv/{r.id}/html" if r.status == CVGenerationStatus.ready.value else None,
+                pdf_url=f"{base_url}/api/cv/{r.id}/pdf" if r.status == CVGenerationStatus.ready.value else None,
+                # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
+                error_code=(
+                    r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
+                ),
+                expires_at=r.expires_at,
+                template=r.template,
+                created_at=r.created_at,
+                target_pages=r.target_pages,
+                origin=r.origin,
+                # E054/US289 (clause 3b): pinned language, stored value as-is.
+                document_language=r.document_language,
+                signature_override=r.signature_override,
+                signature_effective=await resolve_signature_effective(
+                    db, document="cv", override=r.signature_override
+                ),
+                signature_available=signature_available,
+            )
         )
-        for r in records
-    ]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2586,9 +2657,13 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
     # pinned onto the row — one seam (services/signature.py) serves this path and
     # the .docx path, so the toggle cannot be honoured on one and ignored on the
     # other (SF-PDF.6). None covers every "do not render" case alike.
+    # F-4b: this CV's own signature_override (None = kind default) wins over
+    # the kind-level toggle, ahead of the storage/toggle resolution itself.
     from applire.services.signature import format_place_date, resolve_signature_data_uri
 
-    signature_image = await resolve_signature_data_uri(db, document="cv")
+    signature_image = await resolve_signature_data_uri(
+        db, document="cv", override=record.signature_override
+    )
     return template.render(
         cv=tailored,
         color=color_ctx,
@@ -2712,9 +2787,13 @@ async def _prepare_cv_docx_render(
     # Resolved HERE rather than in get_cv_docx so the ADR-079 clause 8 audit
     # block renders the same bytes the user downloads — the drift this shared
     # prep function exists to prevent.
+    # F-4b: same override precedence as get_cv_html — this is the OTHER of the
+    # two render seams a CV's signature_override must reach (SF-PDF.6).
     from applire.services.signature import resolve_signature_bytes
 
-    signature_bytes = await resolve_signature_bytes(db, document="cv")
+    signature_bytes = await resolve_signature_bytes(
+        db, document="cv", override=record.signature_override
+    )
     signature_place_date = (
         format_place_date_for_cv(tailored.contact.location, lang)
         if signature_bytes

@@ -32,7 +32,7 @@ from applire.providers.llm.base import LLMProvider
 from applire.schemas.ats import ATSReportResponse
 from applire.schemas.oracle import TruthfulnessReportResponse
 from applire.schemas.outcome_critic import OutcomeCriticReportResponse
-from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVProfileDiffResponse, CVStatusResponse
+from applire.schemas.cv import CVGenerateRequest, CVGenerateResponse, CVProfileDiffResponse, CVSignatureOverrideRequest, CVSignatureOverrideResponse, CVStatusResponse
 from applire.schemas.cv_sections import (
     AssistAnswerRequest,
     AssistAnswerResponse,
@@ -44,7 +44,7 @@ from applire.schemas.cv_sections import (
     SectionPatchRequest,
     SectionPatchResponse,
 )
-from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_docx, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_docx_filename, get_pdf_filename, list_cvs_for_job
+from applire.services.cv import generate_cv, get_cv_ats_report, get_cv_critic_report, get_cv_docx, get_cv_html, get_cv_pdf, get_cv_status, get_cv_truthfulness_report, get_docx_filename, get_pdf_filename, list_cvs_for_job, set_cv_signature_override
 from applire.services.cv_diff import get_cv_profile_diff
 from applire.services.cv_assist import rewrite_section, start_assist_session, submit_assist_answer
 from applire.services.cv_section_editor import get_cv_sections, patch_cv_section
@@ -377,3 +377,30 @@ async def patch_section(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.patch("/{cv_id}/signature", response_model=CVSignatureOverrideResponse)
+async def patch_cv_signature(
+    cv_id: uuid.UUID,
+    body: CVSignatureOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> CVSignatureOverrideResponse:
+    """F-4b (founder ruling, 2026-09-11): set this CV's per-document signature
+    override. ``signature_override: null`` resets to the kind default
+    (``signature_in_cv``) rather than turning the signature off — mirrors
+    ``PATCH /{cv_id}/color`` (``routers/cv_color.py``) in shape and auth.
+
+    Read at both render seams of the CV kind (``get_cv_html``,
+    ``_prepare_cv_docx_render``) ahead of the kind default, so toggling and
+    re-downloading takes effect without regenerating.
+    """
+    try:
+        effective = await set_cv_signature_override(cv_id, body.signature_override, db)
+        return CVSignatureOverrideResponse(
+            cv_id=cv_id,
+            signature_override=body.signature_override,
+            signature_effective=effective,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
