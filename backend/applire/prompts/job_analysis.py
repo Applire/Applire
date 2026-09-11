@@ -15,6 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (#617, 2026-09-11 — Nougat build 2, axis (c)): COMPANY CULTURE
+#   SIGNALS gets the grounding sentence every other field already has, and the
+#   schema line stops offering 'Mittelstand' as an example. Measured on 13 full
+#   `analyze_jd` invocations of `operations_marcus_de` (the posting the captured
+#   corpus says has never converged): 10 exhausted the retry budget, and after the
+#   axis-(a)/(b) work the remaining open issues at exhaustion were no longer about
+#   requirements or keywords at all — they were `company_culture_signals` ("Mittelstand"
+#   has no basis in the source posting; "kurze Wege" has no basis) and the
+#   `leadership_emphasis` quote. The schema was OFFERING the model the exact term the
+#   reviewer then flagged: a prompt that supplies an example its own auditor forbids.
+#
 # Prompt version: v7 (#617, 2026-09-11 — Nougat build 2, axes (a) and (b)):
 #   - OUTPUT LANGUAGE: the three concept lists + company_culture_signals are
 #     emitted in the POSTING's language. Unspecified until now, so the same
@@ -73,7 +84,7 @@ Schema:
   "nice_to_have_skills": ["list of optional / preferred skills"],
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
-  "company_culture_signals": ["cultural values and work style signals, e.g. 'Mittelstand', 'remote-first', 'hierarchical', 'Startup-Kultur'"],
+  "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
   "language_requirement": "primary language required, e.g. 'German (C1)', 'English (B2)', 'Bilingual DE/EN'",
   "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null",
@@ -173,6 +184,16 @@ penalised for it. What you must NOT do is guess a tier from what a role like thi
 not climb a rung above what the ground supports ("Leiter" is Lead, not Executive).
 Emit one of the five English tier words or null — never a German rank word, never a
 sentence, never a list.
+
+COMPANY CULTURE SIGNALS (grounded, like everything else):
+Emit only signals the posting's own words state — a value it names ("Wertschätzende
+Führung", "remote-first", "Du-Kultur"), a work-style it describes ("Mehrschichtbetrieb",
+"flache Hierarchien"). Do NOT infer a culture label from something else the posting
+happens to be: "Mittelstand" is not implied by a mid-sized company's address, "kurze
+Wege" is not implied by a flat org chart, "Startup-Kultur" is not implied by a young
+company. Both of those were measured being emitted and then flagged as ungrounded by the
+reviewer, which spends a whole correction round on a field nothing required. An empty
+array is the correct answer for a posting that describes no culture.
 
 OUTPUT LANGUAGE: emit "required_skills", "nice_to_have_skills", "keywords" and
 "company_culture_signals" in the posting's own language, in the posting's own words —
