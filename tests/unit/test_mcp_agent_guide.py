@@ -34,9 +34,19 @@ import pytest
 # it, while still catching a slide back toward the 17.5k-char baseline.
 # A genuinely new tool has irreducible always-on cost (name + params + schema);
 # the ceiling tracks the tool count. 15,000 (25 tools) → 16,000 when resolve_gap
-# (ADR-054, the 26th tool) landed at a lean ~595 chars. Prose bloat on EXISTING
-# tools must still be reclaimed into the guide, not absorbed by raising this.
-TOOL_SURFACE_CHAR_BUDGET = 16_000
+# (ADR-054, the 26th tool) landed at a lean ~595 chars → 17,500 when the three
+# Master-Profile-Health tools landed (#58, ADR-054 amended 2026-09-11: 27 → 30
+# tools at 365 / 329 / 524 chars, measured total 15,951 → 17,169). Prose bloat on
+# EXISTING tools must still be reclaimed into the guide, not absorbed by raising
+# this — which is why the per-tool ceiling below is asserted alongside the total.
+TOOL_SURFACE_CHAR_BUDGET = 17_500
+
+# No single tool may cost more than this. `update_application` (2,053 chars) is
+# the grandfathered exception and the reason the rule exists: the budget went
+# 99.7 % full in Nougat build 1 (Agent collector #676) because one fat tool ate
+# the headroom of every future one. New tools are lean or they do not land.
+PER_TOOL_CHAR_CEILING = 1_100
+_GRANDFATHERED_FAT_TOOLS = {"update_application"}
 
 
 def _guide() -> str:
@@ -158,4 +168,28 @@ def test_serialized_tool_surface_stays_under_budget():
     assert total < TOOL_SURFACE_CHAR_BUDGET, (
         f"serialized tool surface is {total} chars (budget {TOOL_SURFACE_CHAR_BUDGET}); "
         "move guidance prose into AGENT_GUIDE.md instead of tool descriptions (ADR-056 §4)"
+    )
+
+
+def test_no_single_tool_eats_the_shared_headroom():
+    """Agent collector #676: the surface went 99.7 % full because one tool's
+    description grew unchecked, and the next addition then had to pay for it by
+    trimming an unrelated tool's prose — a behaviour change no test measured.
+    The total budget alone cannot catch that; this per-tool ceiling can."""
+    from applire.mcp.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    fat = {
+        t.name: len(
+            json.dumps(
+                {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+            )
+        )
+        for t in tools
+        if t.name not in _GRANDFATHERED_FAT_TOOLS
+    }
+    over = {n: c for n, c in fat.items() if c > PER_TOOL_CHAR_CEILING}
+    assert not over, (
+        f"these tools exceed the per-tool ceiling of {PER_TOOL_CHAR_CEILING} chars: {over}; "
+        "the contract belongs in the description, the guidance in AGENT_GUIDE.md (ADR-056 §4)"
     )

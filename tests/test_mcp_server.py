@@ -71,6 +71,10 @@ _EXPECTED_TOOLS = {
     "update_application",
     "list_applications",
     "get_application",
+    # Master Profile Health on the agent door (#58, ADR-054 amended 2026-09-11)
+    "get_profile_health",
+    "undo_last_merge",
+    "resolve_held_merge",
 }
 
 _EXPECTED_STATIC_RESOURCE_URIS = {
@@ -284,6 +288,39 @@ def test_mcp_tools_list_returns_all_tools():
     names = {t["name"] for t in resp["result"].get("tools", [])}
     assert names == _EXPECTED_TOOLS, (
         f"Tool name mismatch.\nExpected: {sorted(_EXPECTED_TOOLS)}\nGot:      {sorted(names)}"
+    )
+
+
+def test_mcp_profile_health_tools_advertise_their_relay_contract():
+    """#58 / ADR-054 amended — the three Branch-H tools reach the live stdio
+    surface, and `resolve_held_merge` advertises BOTH parameters as required.
+
+    The relay boundary is the whole point of the tool (identity is the user's
+    call, ADR-041 amended), and a tool description is the only thing a naive
+    agent reads at call time — so an optional `decision`, or a description that
+    lost the RELAY line to a future slimming pass, is a product defect, not a
+    cosmetic one. Pinned here rather than only in-process because this is the
+    surface a real client actually sees.
+    """
+    _, responses = _run_mcp(_INIT + _INITIALIZED + _TOOLS_LIST)
+    resp = _find(responses, 2)
+    assert resp and "result" in resp
+    by_name = {t["name"]: t for t in resp["result"].get("tools", [])}
+
+    for name in ("get_profile_health", "undo_last_merge", "resolve_held_merge"):
+        assert name in by_name, f"{name} not advertised on the live stdio surface"
+
+    # Reads take no arguments — an agent must not have to guess a parameter.
+    for name in ("get_profile_health", "undo_last_merge"):
+        assert not by_name[name]["inputSchema"].get("required"), (
+            f"{name} must be callable with no arguments"
+        )
+
+    relay = by_name["resolve_held_merge"]
+    assert set(relay["inputSchema"].get("required", [])) == {"staged_id", "decision"}
+    assert "RELAY" in relay["description"].upper(), (
+        "resolve_held_merge's description must keep the relay-only line: the "
+        "agent passes the human's answer, it never decides identity itself"
     )
 
 
