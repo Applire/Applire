@@ -347,6 +347,17 @@ async def analyze_jd(
         )
         return JobAnalysisResponse.model_validate(existing)
 
+    # Stage label (#538/#539 pattern, applied here for #617). The review loop
+    # labels its own calls — `reviewer.py:715` sets the chain id — but THIS call
+    # fires before the loop starts, so it inherits whatever the contextvar
+    # happens to hold: nothing on a fresh task, or the PREVIOUS chain's label
+    # when a JD analysis follows another chain in the same task. Measured on the
+    # captured corpus: 1,528 of 1,531 extractor records carry no usable stage,
+    # which makes every log-based per-chain count silently wrong about the one
+    # call that produces the draft the whole loop then argues about.
+    from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+    _set_llm_log_stage("job_analysis")
     data: dict = await provider.aparse_json(
         build_user_prompt(text),
         system=SYSTEM_PROMPT,

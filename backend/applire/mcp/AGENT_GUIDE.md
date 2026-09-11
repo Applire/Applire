@@ -296,14 +296,32 @@ apply it.
 
 ## Operational gotchas
 
-- **Generation is async**: `generate_cv`/`generate_cover_letter` return ids —
-  poll `get_cv_status`/`get_cover_letter_status` until `ready`/`failed`.
+- **Generation BLOCKS on this channel — set a long tool timeout.** The guide
+  used to say "async: poll until ready"; over stdio that is not true and the
+  mismatch has killed real runs. There is no request lifecycle here, so
+  `generate_cv` / `generate_cover_letter` render INLINE: the call returns only
+  when the whole document (including its review rounds) is finished, and
+  `get_cv_status` / `get_cover_letter_status` are then terminal on the very
+  first poll. A full CV has taken **over two minutes**. If your client's default
+  tool timeout closes stdin mid-render, the server dies inside the terminal
+  corrector, the row is left `generating` forever, and the provider calls
+  already spent are lost. Raise the timeout for these two tools before you call
+  them. (Poll the status tools anyway — it is the same contract on REST, where
+  generation really is deferred.)
 - **UI visibility**: a rendered or generated document appears in the user's
   dossier and My Documents only after `create_application(job_id)`. Until
   then it is URL-reachable only. Generated documents expire after
   90 days (`GENERATED_DOCUMENTS_TTL_DAYS`); pin the submitted version via
   `update_application(submitted_cv_id=...)` to keep it while the
   application is active.
+- **Round-trip the entry ids you were given.** Every vault entry you read
+  through `get_profile` carries an `id`. When you send that entry back —
+  `update_profile` on a list section, a corrected role, a renamed skill — send
+  its `id` with it. An id-less entry that merely LOOKS like an existing one is
+  not recognised as that entry: it is receipted as a removal plus an addition
+  and the replacement is minted with a NEW id, so anything that referenced the
+  old one (a fact pin, an evidence reference) no longer points at it. Dropping
+  the id is the single easiest way to damage a vault through this channel.
 - **`update_profile` replaces list sections WHOLESALE** — always send the
   complete list, or you will silently delete data. Object sections
   (personal_info, professional_summary) are merge-patched (null clears,
