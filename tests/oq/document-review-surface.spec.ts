@@ -116,7 +116,15 @@ async function stubBackend(page: Page, opts: StubOptions = {}) {
     r.fulfill({ status: 200, contentType: 'text/html', body: CV_HTML }),
   );
   await page.route(`**/api/cv/${CV_ID}/status`, (r) =>
-    json(r, { document_language: 'de', template: 'classic_german' }),
+    json(r, {
+      document_language: 'de',
+      template: 'classic_german',
+      // F-4b (founder ruling, 2026-09-11): no signature uploaded in this
+      // fixture — the three-state control stays hidden.
+      signature_override: null,
+      signature_effective: false,
+      signature_available: false,
+    }),
   );
   await page.route('**/api/settings', (r) =>
     json(r, {
