@@ -567,6 +567,14 @@ async def _run_analysis(
         # independently affirm a broad term against real evidence instead of
         # always fail-closing on a narrow denial's compound-containment rule.
         profile_json=profile.profile_json,
+        # SF-GAP.12 (Nougat build-2 delivery-run 2026-09-11) — this recompute's
+        # own classification call is free to name different surface_forms for
+        # the same concept than the LAST build did; without the prior row on
+        # hand a released containment-only denial can silently re-flip to a
+        # gap on a later recompute of identical denied_concepts/vault state.
+        # `previous` is already loaded above for the idempotency check — reuse
+        # it, never a second query.
+        previous_ledger=(previous.keyword_ledger if previous is not None else None),
     )
 
     # ADR-069 clause 3 — scope entries join the ledger BEFORE the score and the
