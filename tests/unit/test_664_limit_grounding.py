@@ -306,3 +306,71 @@ def test_grounding_reads_the_denial_LABEL_and_never_its_statement():
         "the denial STATEMENT mentions Qualitätssicherung as a STRENGTH; reading it "
         "as grounding is the backwards signal ADR-062 deleted"
     )
+
+
+# ── #664 (adversarial): EN denial register — L measured DE only ────────────
+#
+# `denial_segments` (and therefore `ungrounded_limits`) is a closed literal
+# marker list. Before this package the EN half of the list carried only
+# "have/has/had not[...]", "do/does not have", "i lack", "no direct
+# experience", "never worked/led/managed" and "cannot/do not claim" — an EN
+# calque of the DE "bringe ich nicht mit" register (which IS in the DE list)
+# and a bare "no experience" (the DE list's un-qualified "keine erfahrung" has
+# no EN counterpart) were both silent misses: a candidate's own denial stated
+# this way was invisible to the catch, the unsafe direction (an ungrounded
+# limit ships uncut). Probed directly against `denial_segments` first
+# (`Documents/Runs/Nougat/build-2/adversarial/`), then pinned end-to-end here
+# through `ungrounded_limits` so a regression shows on the consumer's own
+# return value, not just the marker list.
+
+_EN_LEDGER = [
+    # status "gap", never "denied" — a ledger row already marked "denied" is
+    # itself a GROUNDED label per `_denied_labels`, which would make every
+    # "ungrounded" assertion below pass for the wrong reason. Grounding is
+    # exercised separately, via `_EN_DENIED` (the candidate's own statement).
+    {"concept": "Apache Kafka", "surface_forms": ["Kafka"], "claimable": False, "status": "gap"},
+    {"concept": "Kubernetes", "surface_forms": [], "claimable": False, "status": "gap"},
+    {"concept": "SAP", "surface_forms": ["SAP ecosystem"], "claimable": True, "status": "partial"},
+]
+_EN_DENIED = [{"concept": "Apache Kafka", "statement": "…"}, {"concept": "Kubernetes", "statement": "…"}]
+
+
+def test_en_calque_do_not_bring_is_read_as_a_denial():
+    """The exact EN phrasing named in the #664 adversarial brief: a direct
+    calque of the DE 'bringe ich nicht mit' register, previously unrecognised."""
+    letter = {"body": {"paragraphs": ["I do not bring hands-on Kubernetes experience."]}}
+    assert [f.concept for f in ungrounded_limits(letter, _EN_LEDGER, [])] == ["Kubernetes"]
+    # and it grounds correctly once the candidate actually denied it
+    assert ungrounded_limits(letter, _EN_LEDGER, _EN_DENIED) == []
+
+
+def test_en_bare_no_experience_is_read_as_a_denial():
+    """Symmetric with the DE list's un-qualified 'keine erfahrung' — the EN list
+    previously had only the narrower 'no direct experience'."""
+    letter = {"body": {"paragraphs": ["I have no experience with Apache Kafka."]}}
+    assert [f.concept for f in ungrounded_limits(letter, _EN_LEDGER, [])] == ["Apache Kafka"]
+    assert ungrounded_limits(letter, _EN_LEDGER, _EN_DENIED) == []
+
+
+def test_en_unfamiliar_with_is_read_as_a_denial():
+    letter = {"body": {"paragraphs": ["I am unfamiliar with the SAP ecosystem."]}}
+    assert [f.concept for f in ungrounded_limits(letter, _EN_LEDGER, [])] == ["SAP"]
+
+
+def test_en_without_experience_in_is_read_as_a_denial():
+    letter = {"body": {"paragraphs": ["I come to this role without experience in Kubernetes."]}}
+    assert [f.concept for f in ungrounded_limits(letter, _EN_LEDGER, [])] == ["Kubernetes"]
+
+
+def test_a_grounded_en_denial_still_clears_with_the_new_markers():
+    """The new markers must not turn an honestly-disclosed EN limit into a
+    false positive — the module's stated safe direction."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "I do not bring production Kubernetes experience, and I have no "
+                "experience with Apache Kafka either."
+            ]
+        }
+    }
+    assert ungrounded_limits(letter, _EN_LEDGER, _EN_DENIED) == []

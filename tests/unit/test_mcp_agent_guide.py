@@ -80,6 +80,20 @@ def test_guide_loads_and_carries_the_mandated_sections():
         assert marker in lowered, f"guide is missing mandated content: {marker!r}"
 
 
+def test_guide_does_not_promise_a_parking_import_cv_does_not_perform():
+    """#58 (adversarial) / ruling A-4: `evaluate_merge_gate` has exactly ONE
+    call site (`upload_cv`, the browser door) — `import_cv` always auto-merges,
+    open Bug #367. Before this fix the guide described `resolve_held_merge` /
+    `held_merges` right next to `import_cv` with no scoping sentence, which
+    reads as "call import_cv, and a divergent CV will be held for you to
+    relay" — false on this channel. The guide must say so, not imply the gate
+    (ruling A-4's own wording)."""
+    guide = _guide()
+    assert "#367" in guide
+    assert "always merges" in guide
+    assert "never parks" in guide.lower()
+
+
 def test_guide_states_uniform_90d_ttl_and_no_24h_fiction():
     """The 2026-07-19 adversarial fact-check refuted the '24h agent TTL' —
     the guide must state the real, uniform TTL from constants.py and must

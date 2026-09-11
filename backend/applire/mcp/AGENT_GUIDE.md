@@ -202,12 +202,16 @@ ever writes is flying blind.
   plain words — edits they made *after* that merge were dropped, and only they
   can judge whether that matters.
 
-- `resolve_held_merge(staged_id, decision)` — Applire holds an import before it
-  commits when the document does not look like a CV (`gate: "not_a_cv"`) or when
-  the name on it shares no token with the account holder's (`"name_divergence"`).
-  A held import has changed nothing in the vault; it waits. `get_profile_health`
-  lists them with both names, so you can ask precisely: *"your profile says
-  Stefan Brandt, this CV says Maria Klein — is this your document?"*
+- `resolve_held_merge(staged_id, decision)` — Applire holds an import made
+  **through the browser's own upload** before it commits, when the document
+  does not look like a CV (`gate: "not_a_cv"`) or when the name on it shares no
+  token with the account holder's (`"name_divergence"`). This tool relays the
+  human's decision on one of THOSE held imports — it never sees or holds
+  anything `import_cv` brought in on this channel (see `import_cv` above; open
+  Bug #367). A held import has changed nothing in the vault; it waits.
+  `get_profile_health` lists them with both names, so you can ask precisely:
+  *"your profile says Stefan Brandt, this CV says Maria Klein — is this your
+  document?"*
   **This is a relay, not a judgement call.** Put the question to the human and
   pass their answer; never infer "it's probably a maiden name" and merge. The
   gate exists because a document merged in error becomes *grounded* — the Oracle
@@ -367,6 +371,16 @@ apply it.
     two spellings of one employer, two dates for one role. They are questions
     for the candidate, and they stay open until answered; resolve them through
     `update_profile`, never by re-importing.
+  - **`import_cv` always merges — it never parks.** The pre-merge integrity
+    gate that can hold an upload for a human decision (see `held_merges`
+    below) runs only on the browser's own upload path, not on this tool (open
+    Bug #367). A CV that does not look like a CV, or whose name shares no
+    token with the account holder's, still lands in the vault through
+    `import_cv` — it does not surface in `held_merges` and there is nothing
+    to `resolve_held_merge` here. If the candidate is importing someone else's
+    document, or a non-CV file, by mistake, only your own read of the
+    returned summary (and the candidate's own confirmation) catches it —
+    Applire will not hold it for you on this channel.
 - **Stale-CV hint**: a non-null `stale_cv` on `get_application` means the
   profile grew after tailoring — offer a re-generate; never regenerate
   without asking, and never expect a pinned submitted version to be replaced.
