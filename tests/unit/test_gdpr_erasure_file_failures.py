@@ -39,6 +39,16 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 PHOTO_PATH = "/app/data/uploads/deadbeef.jpg"
 UPLOAD_PATH = "/app/data/uploads/cafebabe.pdf"
+# #359 (adversarial): the erasure path added a THIRD managed file — the
+# signature image on user_settings.signature_path (ADR-088) — with the exact
+# same try/except-then-ERROR-log shape as the upload and the photo. Before
+# this file's own `seeded` fixture created no UserSettings row at all, so
+# `_signature_path_before_erasure` was always None and the erasure handler's
+# signature-delete branch (routers/profile.py) was never exercised by the
+# ONE test file whose whole purpose is "does a failing file delete during
+# GDPR erasure still complete and still log at ERROR" — the seam existed in
+# the code and not in a test.
+SIGNATURE_PATH = "/app/data/uploads/beefcafe.png"
 
 USER_ID = uuid.uuid4()
 
@@ -81,9 +91,11 @@ async def db_session():
 
 @pytest_asyncio.fixture
 async def seeded(db_session):
-    """User + upload row + master profile with a photo_url."""
+    """User + upload row + master profile with a photo_url + a signature on
+    file (#359 — the erasure path's third managed file)."""
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from applire.models.user_settings import UserSettings
     from tests.support.profile_factory import make_master_profile
 
     db_session.add(User(id=USER_ID, email="emma@example.com"))
@@ -104,6 +116,7 @@ async def seeded(db_session):
             }
         )
     )
+    db_session.add(UserSettings(user_id=USER_ID, signature_path=SIGNATURE_PATH))
     await db_session.commit()
 
 
@@ -156,9 +169,11 @@ async def test_erasure_completes_despite_file_delete_failure(client_and_storage,
     resp = await client.delete("/api/profile")
 
     assert resp.status_code == 202
-    # Both the upload file and the profile photo were attempted
+    # The upload file, the profile photo, AND the signature image (#359) were
+    # all attempted — three managed files, one erasure request.
     assert UPLOAD_PATH in storage.attempted
     assert PHOTO_PATH in storage.attempted
+    assert SIGNATURE_PATH in storage.attempted
     # DB rows are gone regardless of the storage failure
     uploads_left = (await db_session.execute(text("SELECT COUNT(*) FROM uploads"))).scalar_one()
     profiles_left = (
@@ -183,7 +198,9 @@ async def test_file_delete_failure_logged_at_error(client_and_storage, caplog):
         for rec in caplog.records
         if "Failed to delete" in rec.getMessage()
     ]
-    assert len(failures) == 2, "expected one failure log per file (upload + photo)"
+    assert len(failures) == 3, (
+        "expected one failure log per file (upload + photo + signature, #359)"
+    )
     assert all(rec.levelname == "ERROR" for rec in failures), (
         "file-delete failures after GDPR erasure must be logged at ERROR"
     )
