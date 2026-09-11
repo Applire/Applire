@@ -40,6 +40,7 @@ reconstruction of the issue's ``probe_compound_denial`` sequence.
 
 import pytest
 
+from applire.services.profile.reconcile.stance import denial_release_corpus
 from applire.services.keyword_ledger import (
     DENIAL_FLOOR_EVIDENCE,
     DENIED_EVIDENCE,
@@ -354,3 +355,216 @@ def test_no_writer_asserts_testimony_for_an_undeclared_term(writer):
         out, _ = assert_claimable_backed([dict(row)], _vault(), seam="lockstep-test")
     assert out[0]["evidence"] != DENIED_EVIDENCE
     assert out[0]["claimable"] is False
+
+
+# ── SF-GAP.10 / E-4 — the RELEASE half at the entry's full width ────────────
+#
+# `_entry_is_denied` probes concept AND every surface form; the release half
+# probed the concept alone. Asymmetric, and always failing the same way: every
+# alias could pull an entry INTO the floor, none could carry it out.
+#
+# The 2026-09-10 delivery run (`build-1/delivery-run/artifacts/20-gaps-refresh
+# .json`): the candidate denied "direkte Produktion für Lebensmittelkunden";
+# the JD's bare requirement `Produktion` is a whole word inside that compound,
+# so containment fired, and the German compound `produktionsleiter` — an
+# attested work_experience[].role — is not the token `produktion` at a word
+# boundary, so nothing released it. A met, `direct`, narrative-backed
+# requirement shipped as a critical gap in `category_c` while the same response
+# still listed it under `strengths`.
+#
+# Reconcile rule 9's principle, restored: A DENIAL IS ABOUT ITS OWN ITEM.
+
+NARROW_DENIAL = "direkte Produktion für Lebensmittelkunden"
+BARE_CONCEPT = "Produktion"
+ATTESTED_FORM = "Produktionsleiter"
+
+
+def _production_vault(*, role=ATTESTED_FORM, denial=NARROW_DENIAL):
+    return {
+        "skills": [{"name": "Shopfloor-Management", "category": "technical"}],
+        "work_experience": [
+            {
+                "role": role,
+                "company": "Weberit Kunststofftechnik GmbH",
+                "technologies": [],
+                "responsibilities": ["Verantwortung für zwei Fertigungsbereiche."],
+            }
+        ],
+        "metadata": {"denied_concepts": [_denial(denial, "direct")]},
+    }
+
+
+def _production_row(**kw):
+    return _entry(
+        BARE_CONCEPT,
+        status="direct",
+        claimable=True,
+        evidence="14 Jahre Erfahrung in der diskreten Fertigung.",
+        surface_forms=[BARE_CONCEPT, ATTESTED_FORM, "Fertigung"],
+        **kw,
+    )
+
+
+def test_an_attested_surface_form_releases_a_containment_only_floor():
+    """The E-4 instance. The entry's own attested name (`Produktionsleiter`,
+    a vault role) affirms it outside the denied compound, so the narrow denial
+    about producing FOR FOOD CUSTOMERS does not floor bare `Produktion`."""
+    profile = _production_vault()
+    out = _enforce_denial_stance(
+        [_production_row()],
+        profile["metadata"]["denied_concepts"],
+        denial_release_corpus(profile),
+    )[0]
+    assert out["claimable"] is True
+    assert out["status"] == "direct"
+    assert out["evidence"] != DENIAL_FLOOR_EVIDENCE
+    assert out["evidence"] != DENIED_EVIDENCE
+
+
+def test_without_an_attested_form_the_containment_floor_still_fires():
+    """The contrast case, and the one that keeps #207/#486 intact: the same
+    narrow-denial shape with nothing in the vault attesting any of the entry's
+    names is floored exactly as before."""
+    profile = _production_vault(role="Qualitätsmanager")
+    out = _enforce_denial_stance(
+        [_production_row()],
+        profile["metadata"]["denied_concepts"],
+        denial_release_corpus(profile),
+    )[0]
+    assert out["claimable"] is False
+    assert out["status"] == "gap"
+    assert out["evidence"] == DENIAL_FLOOR_EVIDENCE
+
+
+def test_a_declared_denial_is_absolute_however_loudly_the_vault_attests_it():
+    """ADR-040 never-claim-beats-claim. The release may only ever reach the
+    CONTAINMENT-only case — a denial that NAMES the concept (or one of its
+    surface forms) outranks every vault attestation of the same term."""
+    profile = {
+        "skills": [{"name": "Kubernetes", "category": "technical"}],
+        "work_experience": [{"role": "Platform Engineer", "technologies": ["K8s"]}],
+        "metadata": {"denied_concepts": [_denial("Kubernetes", "direct")]},
+    }
+    row = _entry(
+        "Kubernetes",
+        status="direct",
+        claimable=True,
+        evidence="ran clusters at Acme",
+        surface_forms=["Kubernetes", "K8s"],
+    )
+    out = _enforce_denial_stance(
+        [row], profile["metadata"]["denied_concepts"], denial_release_corpus(profile)
+    )[0]
+    assert out["claimable"] is False
+    assert out["status"] == "denied"
+    assert out["evidence"] == DENIED_EVIDENCE
+
+
+def test_the_denied_compound_in_the_vault_never_releases_the_head_noun():
+    """The vault attesting the DENIED COMPOUND itself is no affirmation of the
+    head noun — `_independently_affirmed` blanks every denied phrase out of the
+    corpus before it looks. #207/#486's floor, unchanged, at full width."""
+    profile = {
+        "skills": [{"name": DENIED_COMPOUND, "category": "technical"}],
+        "metadata": {"denied_concepts": [_denial(DENIED_COMPOUND, "direct")]},
+    }
+    row = _entry(
+        HEAD_NOUN,
+        status="direct",
+        claimable=True,
+        evidence="styled the app",
+        surface_forms=[HEAD_NOUN, "Cascading Style Sheets"],
+    )
+    out = _enforce_denial_stance(
+        [row], profile["metadata"]["denied_concepts"], denial_release_corpus(profile)
+    )[0]
+    assert out["claimable"] is False
+    assert out["evidence"] == DENIAL_FLOOR_EVIDENCE
+
+
+# ── one seam test per call site (ADR-059's every-seam rule) ─────────────────
+
+
+def test_seam_rebuild_releases_the_containment_only_floor():
+    profile = _production_vault()
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls(
+                BARE_CONCEPT,
+                "direct",
+                [BARE_CONCEPT, ATTESTED_FORM, "Fertigung"],
+                evidence="14 Jahre in der diskreten Fertigung.",
+            )
+        ],
+        required_skills=[BARE_CONCEPT],
+        nice_to_have_skills=[],
+        keywords=[],
+        denied_concepts=profile["metadata"]["denied_concepts"],
+        profile_json=profile,
+    )
+    row = _by_concept(ledger)[BARE_CONCEPT]
+    assert row["claimable"] is True
+    assert row["evidence"] != DENIAL_FLOOR_EVIDENCE
+
+
+def test_seam_upgrade_leaves_a_released_entry_as_it_stands():
+    profile = _production_vault()
+    out, _changed = upgrade_ledger_for_concepts(
+        [_production_row()],
+        [BARE_CONCEPT],
+        "Ich habe nie direkt für Lebensmittelkunden produziert.",
+        denied_concepts=profile["metadata"]["denied_concepts"],
+        vault_corpus=denial_release_corpus(profile),
+    )
+    assert out[0]["claimable"] is True
+    assert out[0]["evidence"] != DENIAL_FLOOR_EVIDENCE
+
+
+def test_seam_heal_does_not_call_a_released_entry_denied():
+    profile = _production_vault()
+    healed, violations = assert_claimable_backed(
+        [_production_row()], profile, seam="sf-gap-10-test"
+    )
+    assert "denied_concept" not in violations
+    assert healed[0]["evidence"] != DENIED_EVIDENCE
+    assert healed[0]["evidence"] != DENIAL_FLOOR_EVIDENCE
+
+
+def test_seam_vault_reevaluation_may_heal_a_released_gap_row():
+    """Site 4: the corpus-aware re-evaluation skipped every containment match,
+    so a released row could never heal from the vault either."""
+    from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+    profile = _production_vault()
+    profile["work_experience"][0]["responsibilities"] = [
+        "Leitung der Produktion an zwei Standorten."
+    ]
+    row = _entry(
+        BARE_CONCEPT,
+        status="gap",
+        claimable=False,
+        evidence="",
+        surface_forms=[BARE_CONCEPT, ATTESTED_FORM, "Fertigung"],
+    )
+    healed, changed = reevaluate_gap_ledger_against_vault([row], profile)
+    assert changed is True
+    assert healed[0]["claimable"] is True
+
+
+def test_seam_vault_reevaluation_still_skips_an_unreleased_containment_match():
+    from applire.services.keyword_ledger import reevaluate_gap_ledger_against_vault
+
+    profile = _production_vault(role="Qualitätsmanager")
+    profile["work_experience"][0]["responsibilities"] = [
+        "Leitung der Produktion an zwei Standorten."
+    ]
+    row = _entry(
+        BARE_CONCEPT,
+        status="gap",
+        claimable=False,
+        evidence="",
+        surface_forms=[BARE_CONCEPT, ATTESTED_FORM, "Fertigung"],
+    )
+    healed, changed = reevaluate_gap_ledger_against_vault([row], profile)
+    assert changed is False
+    assert healed[0]["claimable"] is False

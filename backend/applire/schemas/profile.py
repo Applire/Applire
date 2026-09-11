@@ -723,8 +723,20 @@ class ImportNotApplied(BaseModel):
     #: (``reconcile.witness.compute_no_write``): a negation-word test over the
     #: clauses plus "did anything land", never a judgement about whether the
     #: statement was worth recording.
+    #: ``no_write_already_known`` / ``no_write_question_only`` (ADR-046 amended
+    #: 2026-09-11, ruling M5.1.4) are the same no-write event with the model's
+    #: own ``empty_reason`` attached: the answer restated something the profile
+    #: already carries, or asked a question and stated no fact. ``no_write``
+    #: stays as the third branch AND as the fail-safe for a model that emitted
+    #: no reason at all — a receipt persisted before this amendment, or a
+    #: model that ignored the ask, loads and renders unchanged.
     reason: Literal[
-        "no_op_carried_entry", "op_rejected", "summary_populated", "no_write"
+        "no_op_carried_entry",
+        "op_rejected",
+        "summary_populated",
+        "no_write",
+        "no_write_already_known",
+        "no_write_question_only",
     ]
 
 

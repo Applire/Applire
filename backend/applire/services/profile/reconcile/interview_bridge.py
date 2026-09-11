@@ -146,6 +146,9 @@ async def reconcile_interview_turn(
         # M-1c — the answer's own words, so a turn that stated something and
         # wrote nothing leaves a receipt instead of silence.
         turn_text=answer,
+        # M5.1.4 — the reconciler's own reason for an empty batch, so the
+        # no-write receipt says WHY instead of only THAT.
+        empty_reason=result.empty_reason,
         grounding=TurnGrounding(
             text=answer, question=question, gap=gap, denials=list(result.denials)
         ),

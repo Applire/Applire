@@ -141,7 +141,7 @@ def _is_pdf(file: UploadFile) -> bool:
 async def upload_cv_endpoint(
     file: UploadFile,
     request: Request,
-    job_id: uuid.UUID | None = Query(default=None, description="Optional JobAnalysis ID for JD-context-aware extraction"),
+    job_id: uuid.UUID | None = Query(default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"),
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
     storage: StorageProvider = Depends(_get_storage),
@@ -151,8 +151,7 @@ async def upload_cv_endpoint(
     """Upload a CV in any supported format and merge it into the Master Profile.
 
     Supported formats: PDF (text + OCR fallback for scanned), DOCX, JPEG/PNG, plain text.
-    Provide an optional *job_id* to enable JD-context-aware extraction, which produces
-    more accurate relevance scoring for the target role.
+    *job_id* is accepted for API compatibility only; it no longer changes extraction (M5.1.3).
 
     Returns a CVUploadResponse with completeness score, status (DRAFT/COMPLETE),
     any detected conflicts, and the GDPR expiry date for the stored file.
@@ -236,7 +235,7 @@ async def start_cv_import_endpoint(
     background_tasks: BackgroundTasks,
     request: Request,
     job_id: uuid.UUID | None = Query(
-        default=None, description="Optional JobAnalysis ID for JD-context-aware extraction"
+        default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"
     ),
     db: AsyncSession = Depends(get_db),
     auth: AuthProvider = Depends(get_auth_provider),

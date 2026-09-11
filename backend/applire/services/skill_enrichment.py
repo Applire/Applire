@@ -81,6 +81,7 @@ from datetime import date
 
 from applire.constants import SKILL_ESTIMATION_MAX_TOKENS
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.profile import MasterProfileData, Skill
 from applire.prompts.skill_estimation import (
     SKILL_ESTIMATION_SYSTEM_PROMPT,
@@ -424,12 +425,13 @@ async def enrich_skills(
         skill_names = [s.name for s in unmatched_skills]
 
         try:
-            estimates: dict = await provider.aparse_json(
-                build_skill_estimation_prompt(all_exp_dicts, skill_names),
-                system=SKILL_ESTIMATION_SYSTEM_PROMPT,
-                temperature=0.1,
-                max_tokens=SKILL_ESTIMATION_MAX_TOKENS,
-            )
+            with llm_log_stage("skill_estimation"):
+                estimates: dict = await provider.aparse_json(
+                    build_skill_estimation_prompt(all_exp_dicts, skill_names),
+                    system=SKILL_ESTIMATION_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=SKILL_ESTIMATION_MAX_TOKENS,
+                )
         except Exception:
             logger.warning(
                 "Skill estimation LLM call failed — unmatched skills stored without years."

@@ -61,6 +61,71 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   *Measured:* ``ministral-8b`` sub-par → **caveat** (S7 malformed 20 %→0 %; its
   remaining rejection is one ``upsert_work.ref:missing``). No regression on the
   two qualified models.
+* **19,007 (M5.1.1 (3), 2026-09-11).** Rule 4's ``NEVER infer`` scoped to fact
+  CONTENT (+289 chars). The prompt told the model "NEVER infer, embellish, or
+  fabricate" in rule 4 while rule 1 REQUIRES a semantic entity match across
+  DE/EN, synonyms and abbreviations — the one inference the reconciler must make
+  was forbidden by the rule next to it (contradiction C? of
+  ``o3/prompt-health.md``). Rule 4 now states what it governs (WHAT a fact says)
+  and names what it does not (WHICH entity it belongs to), with rule 1's own
+  worked pair as the example. *Measured* (arm A3 vs A2, n=10 × S6/S7/S8 + S9 +
+  S10): **all three models qualified in both arms**; on A3 every model was 0.00
+  on malformed, wrong-slot and error across S6/S7/S8, and ``glm-5.3-flash`` was
+  transport-clean for the first time in the sequence. ``ministral-8b``'s station
+  coverage moved S6 0.90→0.80 / S7 0.90→0.90 / S8 1.00→0.93 — inside this
+  harness's n=10 noise, not claimed as an effect.
+* **NOT SHIPPED — M5.1.1 (2), measured 2026-09-11 (arm A4).** Rules 2's ONE
+  CONTAINER clause, rule 7 and rule 13 were collapsed into ONE rule 7 ("THE SAME
+  THING SAID AGAIN") with three branches — (a) same entity, new name → an upsert,
+  (b) same fact, changed claim → ``flag_conflict``, (c) same fact, same claim →
+  stay silent — removing the forward cross-reference and the three-way verdict.
+  Size-neutral (19,007 → 19,050), 13 rules → 12. **Reverted**, per ruling
+  M5.1.1's own condition that a change degrading a model is not shipped:
+  ``ministral-8b`` crossed the malformed-op threshold on S8 (0.00 → **0.20**),
+  and the rejections are a failure shape that appears NOWHERE in arms A0-A3 —
+  ``upsert_work.ref:missing``, twice, against ``company:missing`` every other
+  time. ``gpt-5.6-luna`` was 0.00 on everything and 10/10 on S9.
+  **This measurement confirms the open hypothesis of ``o3/prompt-health.md`` §2**
+  ("``ref`` is required by the schema on all three entity ops and appears only in
+  the shared preamble and in rule 3 — 1,400-3,300 chars away from the per-op line
+  a model re-reads"): the collapsed rule 7 is 2,634 chars and pushes rule 3's
+  ``ref`` instruction further from the ops that need it, while branch (a)'s own
+  imperative names ``target`` and never ``ref``. **The next attempt** should name
+  ``ref`` inside branch (a) (M-3a's own lesson, per-op REQUIRED lines) and be
+  re-measured; the collapse itself is not refuted, its wording is.
+  *Also measured on the way, and worth keeping:* shape **S9** gives rule 13 —
+  the longest rule in the prompt, never exercised by any shape until now — its
+  first measurement: ``flag_conflict`` on **10/10 turns for all three models**
+  in arm A3, and nothing else emitted. Rule 13 earns its 1,399 chars.
+* **18,819 (M5.1.4, 2026-09-11).** The output envelope gains an OPTIONAL
+  ``empty_reason`` (``already_known`` | ``question_only`` | ``nothing_actionable``),
+  asked for only when ``ops`` is empty (+257 chars in the preamble; the USER
+  prompt's own envelope line is untouched, so the #688 goldens are byte-identical).
+  *Measured* (arm A1 vs A0, n=10 × S6/S7/S8 + the new S10 "restated fact, nothing
+  new"): on S10 ``gpt-5.6-luna`` and ``glm-5.3-flash`` emitted zero ops AND the
+  correct ``already_known`` **10/10 each**; ``ministral-8b`` wrote ops for the
+  restated fact 10/10 (pre-existing behaviour) and therefore correctly omitted the
+  field. No model crossed a threshold on S6/S7/S8 in either arm. Known
+  non-compliance, harmless by construction: ``ministral-8b`` volunteers the field
+  on a NON-empty batch 3 of 40 turns, against the "omit it whenever ops carries an
+  op" clause — the witness only ever reads it when nothing landed.
+* **18,703 (M5.1.1 (1), 2026-09-11).** Rules 12 and 14 merged into ONE quantified-
+  role-facts rule with branches (a) where the figure lives and (b) what
+  ``team_size`` counts (−105 chars, 14 rules → 13; branch (b) keeps the literal
+  phrase ``TEAM_SIZE SEMANTICS``, which
+  ``tests/unit/test_team_size_semantics_prompt_parity.py`` pins across all three
+  emitters — the first cut of this merge dropped it and the parity test caught it.
+  **Arms A2 and A3 measured that first cut**, whose branch heading read "WHAT
+  ``team_size`` COUNTS (#562)"; the shipped text differs from it by that heading
+  alone and is what arm A4 measures). The two halves used to sit
+  ~4,000 chars apart and each restated the other's closing sentence ("the figure
+  still belongs in the bullet text"). *Measured* (arm A2 vs A1, n=10 × S6/S7/S8 +
+  S10): **no model crossed any threshold on either arm** — all three qualified
+  over S6/S7/S8 in both. Movements at n=10 are inside this harness's noise and are
+  NOT claimed as an effect: ``ministral-8b`` S7 malformed 0.0 → 0.1, its station
+  coverage S6 0.93 → 0.90 / S7 0.60 → 0.90 / S8 0.87 → 1.00; ``luna`` 1.00
+  coverage and 0.0 on every rate in both arms. The change is shipped for the
+  structure (one rule, one place, no 4,000-char separation), not for a number.
 * **18,562 (M-3a, 2026-09-09).** Per-op ``REQUIRED:``
   lines beside each op, stating that required fields are required **also when
   ``target`` names an existing entity** (the dominant drift shape across two
@@ -98,6 +163,11 @@ Output ONLY a single JSON object, with no prose and no markdown fences:
 the new information explicitly DENIES or disclaims experience with (see rule 9).
 If nothing in the new information should change the profile, output
 {"ops": [], "ambiguities": [], "denials": [...]}.
+
+When "ops" is empty, add one field saying why:
+"empty_reason": "already_known" (the profile already carries it) |
+"question_only" (the new information only asks, states no fact) |
+"nothing_actionable" (anything else). Omit it whenever "ops" carries an op.
 
 # Operation vocabulary
 
@@ -247,9 +317,12 @@ Operations:
    (add_bullets, upsert_skill evidence, a project parent) can reference an entity
    created in the same response before it has a real id.
 
-4. TRUTHFULNESS (ADR-040). Encode ONLY facts EXPLICITLY present in the new
-   information. NEVER infer, embellish, or fabricate dates, titles, metrics, or
-   any other detail that is not stated.
+4. TRUTHFULNESS (ADR-040). A fact's CONTENT comes only from the new information:
+   encode ONLY what it EXPLICITLY states, and never infer, embellish or fabricate
+   a date, title, metric or any other detail it does not state. This governs WHAT
+   a fact says, not WHICH entity it belongs to — deciding that "Blutspendedienst
+   Nord" and "the blood donation service" are the same employer is rule 1's
+   semantic match, is required of you, and is not an inference this rule forbids.
 
 5. set_field / set_personal_info only FILL a gap (an empty field). For a value
    that CONTRADICTS an existing non-empty value, emit flag_conflict instead.
@@ -337,12 +410,23 @@ Operations:
 
 12. QUANTIFIED ROLE FACTS. `team_size` / `budget_managed` / `industry_context` on `upsert_work`
     (or via `set_field`) are DERIVED PROJECTIONS of a figure the new information's own wording
-    ALSO states — never the only place that figure lives. When the new information's own
-    responsibility/achievement sentence states the underlying number (a team size, a budget
-    amount, an industry), emit or keep that bullet, WITH its figure, via `add_bullets` — do NOT
-    shorten it to a bare label (e.g. keep "Budgetverantwortung ca. 6 Mio. EUR" verbatim; never
-    demote it to just "Budgetverantwortung") merely because the same number is also being lifted
-    into `team_size` / `budget_managed` / `industry_context` structurally.
+    ALSO states. Two halves of one policy:
+    (a) WHERE THE FIGURE LIVES — the typed field is never the only place it lives. When the new
+    information's own responsibility/achievement sentence states the underlying number (a team
+    size, a budget amount, an industry), emit or keep that bullet, WITH its figure, via
+    `add_bullets` — do NOT shorten it to a bare label (e.g. keep "Budgetverantwortung ca.
+    6 Mio. EUR" verbatim; never demote it to just "Budgetverantwortung") merely because the same
+    number is also being lifted into the typed field.
+    (b) TEAM_SIZE SEMANTICS (#562) — `team_size` counts ONLY the people the candidate PERSONALLY led or managed
+    in THAT role (direct reports, or a team/shift they were responsible for), never another
+    quantity that happens to sit near a headcount word in the same sentence: not the employer's
+    total headcount, not a facility's capacity (beds, seats, machines), not mentees/trainees
+    coached WITHOUT line/disciplinary responsibility. When the new information states only such a
+    figure, leave `team_size` null (or omit the field) for that entity — by (a) the figure still
+    belongs in the bullet text, just not in this typed field. Examples: "der GmbH mit 480
+    Mitarbeitenden" (employer headcount) → null; "a 28-bed ward" (facility capacity) → null;
+    "Mentor two mid-level engineers" (mentees, no line responsibility) → null; "mit 38
+    Mitarbeitenden im Dreischichtbetrieb" (people the candidate led) → 38.
 
 13. CONTRADICTING BULLETS. Two bullets can contradict each other without any
     scalar field being touched: the profile already carries "Reduced processing
@@ -364,19 +448,6 @@ Operations:
     genuinely DIFFERENT achievement is not a conflict either — that is an
     ordinary add_bullets. Never settle such a contradiction yourself by quietly
     dropping one of the two versions.
-
-14. TEAM_SIZE SEMANTICS (#562). `team_size` on `upsert_work` (or via `set_field`) counts
-    ONLY the people the candidate PERSONALLY led or managed in THAT role (direct reports, or
-    a team/shift they were responsible for) — never another quantity that happens to sit near
-    a headcount word in the same sentence. It is NOT the employer's total headcount, a
-    facility's capacity (beds, seats, machines), mentees/trainees coached WITHOUT
-    line/disciplinary responsibility, or any other people-count that is not the candidate's
-    own led team. When the new information states only such a figure, leave `team_size` null
-    (or omit the field) for that entity — the figure still belongs in the bullet text via
-    `add_bullets`, just not in this typed field. Examples: "der GmbH mit 480 Mitarbeitenden"
-    (employer headcount) → null; "a 28-bed ward" (facility capacity) → null; "Mentor two
-    mid-level engineers" (mentees, no line responsibility) → null; "mit 38 Mitarbeitenden im
-    Dreischichtbetrieb" (people the candidate led) → 38.
 """
 
 

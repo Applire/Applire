@@ -118,6 +118,25 @@
         "bsd",
         "nova"
       ]
+    },
+    "S9_bullet_conflict_nova": {
+      "profile": "lena_bullets",
+      "gap": "release-testing cycle time for individualized therapies",
+      "question": "By how much did you improve the batch-release turnaround for the individualized therapies at NovaRNA?",
+      "answer": "We cut the batch-release turnaround for the individualized therapies by 65% — that was the big one for us.",
+      "lang": "en",
+      "expected_stations": [
+        "nova"
+      ]
+    },
+    "S10_restated_fact_nothing_new": {
+      "profile": "lena_full",
+      "gap": "ownership of manufacturing-adjacent IT strategy",
+      "question": "Who owns the technical strategy and roadmap for manufacturing-adjacent IT in your current role?",
+      "answer": "That is me — at NovaRNA I own the technical strategy and roadmap for manufacturing-adjacent IT.",
+      "lang": "en",
+      "expected_stations": [],
+      "note": "Deliberately empty expected_stations: the correct output for this turn is NO ops at all (the answer restates a vault line verbatim), so station_coverage must stay None and this shape must never feed a model's no_write qualification verdict."
     }
   }
 }

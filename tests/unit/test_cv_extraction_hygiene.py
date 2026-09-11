@@ -34,10 +34,7 @@ Run:
 
 import pytest
 
-from applire.prompts.cv_extraction import (
-    GENERIC_CV_EXTRACTION_PROMPT,
-    JD_AWARE_CV_EXTRACTION_PROMPT,
-)
+from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 from applire.schemas.profile import _PROFICIENCY_ALIASES
 
 
@@ -48,8 +45,8 @@ from applire.schemas.profile import _PROFICIENCY_ALIASES
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_states_proficiency_scale_rule(prompt):
     """The prompt must carry an explicit proficiency-scale mapping rule."""
@@ -58,8 +55,8 @@ def test_prompt_states_proficiency_scale_rule(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_proficiency_scale_anchors_to_four_levels(prompt):
     """The mapping must name the four canonical levels so the model emits valid enums."""
@@ -70,8 +67,8 @@ def test_prompt_proficiency_scale_anchors_to_four_levels(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_proficiency_scale_gives_dot_examples(prompt):
     """AC example: 4-of-5 dots -> advanced, 5-of-5 -> expert must be stated verbatim enough
@@ -84,8 +81,8 @@ def test_prompt_proficiency_scale_gives_dot_examples(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_proficiency_scale_states_determinism(prompt):
     """The rule must require equal scale positions to yield the same level (determinism)."""
@@ -117,8 +114,8 @@ def test_prompt_proficiency_words_align_with_schema_aliases():
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_excludes_practices_from_technologies(prompt):
     """The prompt must state that practices/standards/methodologies are NOT technologies."""
@@ -130,8 +127,8 @@ def test_prompt_excludes_practices_from_technologies(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_routes_standards_to_domain_skill_or_omit(prompt):
     """A named standard/methodology must route to skills(category=domain) or be omitted.
@@ -146,8 +143,8 @@ def test_prompt_routes_standards_to_domain_skill_or_omit(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_gives_standard_examples(prompt):
     """The rule must give concrete examples (ISO 25010, V-Model) so the model recognises the
@@ -173,8 +170,8 @@ def test_prompt_gives_standard_examples(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_proficiency_scale_teaches_german_words(prompt):
     """The word-scale mapping must teach the German self-declaration tiers, not just
@@ -212,8 +209,8 @@ def test_prompt_german_proficiency_words_align_with_schema_aliases():
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_proficiency_scale_covers_bare_parenthetical_qualifier(prompt):
     """Real run-12 shape: "SAP (Anwender)" is a bare parenthetical qualifier next to a
@@ -241,8 +238,8 @@ def test_prompt_proficiency_scale_covers_bare_parenthetical_qualifier(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_forbids_backfilling_technologies_from_skills_section(prompt):
     """An entry's technologies list must be grounded in THAT entry's own text, never
@@ -255,8 +252,8 @@ def test_prompt_forbids_backfilling_technologies_from_skills_section(prompt):
 
 @pytest.mark.parametrize(
     "prompt",
-    [GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT],
-    ids=["generic", "jd_aware"],
+    [GENERIC_CV_EXTRACTION_PROMPT],
+    ids=["generic"],
 )
 def test_prompt_technologies_grounding_gives_run12_example(prompt):
     """The rule must give the concrete run-12 example (SAP under Company A's own

@@ -550,7 +550,25 @@ def positive_residue(text: str) -> list[str]:
     return clauses
 
 
-def compute_no_write(turn_text: str) -> list[ImportNotApplied]:
+#: ADR-046 amended 2026-09-11 (ruling M5.1.4, E-3) — the model's own
+#: `empty_reason` → the `ImportNotApplied.reason` the candidate's receipt is
+#: written from. `None` is deliberately NOT a key: it is the fail-safe, and the
+#: fail-safe is the pre-amendment `no_write` copy ("nothing was recorded from
+#: what you said — say it again in one sentence, or enter it in your profile"),
+#: which is the widest and most actionable of the three. A model that ignores
+#: the ask, misspells a value or was never asked (an older prompt, a replayed
+#: record) therefore changes only the EXPLANATION, never whether the candidate
+#: is told the turn wrote nothing.
+_EMPTY_REASON_TO_RECEIPT: dict[str, str] = {
+    "already_known": "no_write_already_known",
+    "question_only": "no_write_question_only",
+    "nothing_actionable": "no_write",
+}
+
+
+def compute_no_write(
+    turn_text: str, empty_reason: str | None = None
+) -> list[ImportNotApplied]:
     """The receipt for a turn that stated something and wrote nothing (M-1c).
 
     Eight of eleven models in the 2026-09-09 model matrix lost at least one
@@ -572,9 +590,20 @@ def compute_no_write(turn_text: str) -> list[ImportNotApplied]:
     legitimately produce no op for a statement the vault already carries
     verbatim. It is proof that the candidate said something and the product
     said nothing back.
+
+    ``empty_reason`` (ADR-046 amended 2026-09-11, ruling M5.1.4) is the model's
+    own answer to WHY, from a closed three-value vocabulary, and it selects
+    which of three receipt copies the candidate reads. That answer is a
+    JUDGEMENT and stays the model's (ADR-062 clause 1) — "is this already in
+    the profile" is not a string comparison the deterministic layer may make.
+    The FACT half stays here and still gates the receipt: no positive residue,
+    no receipt, whatever the model said. An absent or unrecognised value maps to
+    the original ``no_write`` copy, so the receipt is never lost to a model that
+    did not comply.
     """
     residue = positive_residue(turn_text)
     if not residue:
         return []
     label = " ".join(residue)[:_RESIDUE_LABEL_CHARS]
-    return [ImportNotApplied(section=None, label=label, reason="no_write")]
+    reason = _EMPTY_REASON_TO_RECEIPT.get(empty_reason or "", "no_write")
+    return [ImportNotApplied(section=None, label=label, reason=reason)]

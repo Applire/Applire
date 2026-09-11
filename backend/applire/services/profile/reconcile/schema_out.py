@@ -44,7 +44,7 @@ costs one 400 per process, not one per call, and falls back to today's
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, get_args
 
 _SCHEMA_NAME = "applire_reconcile_batch"
 
@@ -71,14 +71,13 @@ _NOISE_KEYS = ("title", "default")
 #:
 #: * ``status`` — ADR-061 clause 3 reserves it for ``enforce_stance``; a model
 #:   that sets it is asserting the candidate CONFIRMED a skill it just invented.
-#: * ``last_used`` — ``o3/prompt-health.md`` §2: written by the import merge and
-#:   read by nobody. The inventory's explicit conclusion was "do not write the
-#:   prompt sentence"; rendering it in the schema would ask for it anyway.
+#:   (``last_used`` stood here until RULING P2-1, 2026-09-11 removed the field
+#:   from ``UpsertSkill`` altogether — the entry went with it.)
 #: * the ``RequestConfirmation`` i18n/key trio — adapter-only (ADR-063 amended
 #:   2026-09-05, ruling V-4); ``engine._strip_adapter_only`` removes them from
 #:   model output, so showing them would advertise a field that is thrown away.
 _PROMPT_HIDDEN_FIELDS = frozenset(
-    {"status", "last_used", "question_i18n", "options_i18n", "option_keys"}
+    {"status", "question_i18n", "options_i18n", "option_keys"}
 )
 
 #: The other direction of the same "second specification" class (adversarial
@@ -169,13 +168,22 @@ def reconcile_response_schema() -> dict[str, Any]:
     """The reconciler's output envelope as a JSON Schema, cached per process.
 
     Shape: ``{"ops": [<any of the 15 ops>], "ambiguities": [<confirmation>],
-    "denials": ["..."]}`` — the same three keys ``engine._parse_ops`` /
-    ``_parse_ambiguities`` / ``_parse_denials`` read, in the same order the
-    prompt states them.
+    "denials": ["..."], "empty_reason": <enum|null>}`` — the same four keys
+    ``engine._parse_ops`` / ``_parse_ambiguities`` / ``_parse_denials`` /
+    ``_parse_empty_reason`` read, in the same order the prompt states them.
+
+    ``empty_reason`` is the one OPTIONAL key (ADR-046 amended 2026-09-11,
+    ruling M5.1.4): the prompt asks for it only when ``ops`` is empty, so
+    putting it in ``required`` would contradict the prose on every ordinary
+    turn — the exact "second specification" failure ``_hide`` and
+    ``_PROMPT_REQUIRED_EXTRA`` exist for, in its third shape. Its ``enum`` is
+    read from the ONE ``EmptyReason`` Literal, so the schema cannot drift from
+    the parser's accepted set.
     """
     from pydantic import TypeAdapter
 
     from applire.services.profile.reconcile.ops import (
+        EmptyReason,
         ReconcileOp,
         RequestConfirmation,
     )
@@ -211,6 +219,10 @@ def reconcile_response_schema() -> dict[str, Any]:
             "ops": {"type": "array", "items": {"anyOf": branches}},
             "ambiguities": {"type": "array", "items": confirmation_ref},
             "denials": {"type": "array", "items": {"type": "string"}},
+            "empty_reason": {
+                "type": ["string", "null"],
+                "enum": [*get_args(EmptyReason), None],
+            },
         },
         "required": ["ops", "ambiguities", "denials"],
     }

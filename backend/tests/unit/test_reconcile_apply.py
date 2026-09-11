@@ -517,42 +517,37 @@ def test_upsert_skill_near_dupe_keeps_existing_when_incoming_is_less_specific():
     assert sk.proficiency == "advanced"  # declared ceiling — not raised
 
 
-# ── #602/#620: skills[].last_used survives a MERGE import ────────────────────
+# ── RULING P2-1 (2026-09-11): `UpsertSkill.last_used` is gone ────────────────
+#
+# #602/#620's three tests pinned a merge that carried a stated last-used date
+# from the op onto the vault skill. Step 2b of the M-5 walk-through
+# (`o3/prompt-health.md` §2 / §5.8 row 8b) traced every consumer of
+# `Skill.last_used` and found none, and the reconcile prompt never asked for
+# the field, so the op is removed. `schemas.profile.Skill.last_used` stays —
+# three extraction prompts still populate it on the CV-ingestion doors.
 
 
-def test_upsert_skill_new_carries_last_used():
+def test_upsert_skill_no_longer_carries_last_used():
+    """The field is gone from the op, and a model that emits it anyway is not
+    rejected over it — pydantic's default `extra="ignore"` drops the key, so a
+    stale emission costs the op nothing (the same failure direction every guard
+    in this module takes)."""
+    assert "last_used" not in UpsertSkill.model_fields
+    op = UpsertSkill(name="Rust", last_used="2024-06")
+    assert not hasattr(op, "last_used")
     profile = MasterProfileData()
-    ops = [UpsertSkill(name="Rust", last_used="2024-06")]
-    result = apply_ops(profile, ops, SOURCE)
-    assert result.profile.skills[0].last_used == date(2024, 6, 1)
+    result = apply_ops(profile, [op], SOURCE)
+    assert result.profile.skills[0].name == "Rust"
+    assert result.profile.skills[0].last_used is None
 
 
-def test_upsert_skill_merge_fills_an_empty_last_used():
-    """A skill first seen without a last-used date (e.g. an interview mention)
-    gets one from a later import that names it — the field must not be
-    dropped just because `UpsertSkill` never carried it before."""
-    existing = Skill(name="Python", last_used=None)
-    profile = MasterProfileData(skills=[existing])
-    ops = [UpsertSkill(name="Python", last_used="2023-01")]
-    result = apply_ops(profile, ops, SOURCE)
-    assert result.profile.skills[0].last_used == date(2023, 1, 1)
-
-
-def test_upsert_skill_merge_keeps_the_more_recent_last_used():
-    """Two sources disagree on when a skill was last used — the more recent
-    date is the more informative "still current" signal; an older incoming
-    value never regresses it."""
+def test_an_existing_skills_last_used_survives_a_merge_untouched():
+    """The vault field is not erased by a merge — the applier simply no longer
+    has a channel that could write it."""
     existing = Skill(name="Python", last_used=date(2024, 1, 1))
     profile = MasterProfileData(skills=[existing])
-    ops = [UpsertSkill(name="Python", last_used="2020-01")]
-    result = apply_ops(profile, ops, SOURCE)
+    result = apply_ops(profile, [UpsertSkill(name="Python")], SOURCE)
     assert result.profile.skills[0].last_used == date(2024, 1, 1)
-
-    existing2 = Skill(name="Java", last_used=date(2020, 1, 1))
-    profile2 = MasterProfileData(skills=[existing2])
-    ops2 = [UpsertSkill(name="Java", last_used="2024-01")]
-    result2 = apply_ops(profile2, ops2, SOURCE)
-    assert result2.profile.skills[0].last_used == date(2024, 1, 1)
 
 
 def test_upsert_skill_compound_over_two_atoms_asks_confirmation():

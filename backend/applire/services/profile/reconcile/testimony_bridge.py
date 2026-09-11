@@ -187,6 +187,8 @@ async def submit_testimony(
             # already ran over it inside `reconcile()` above.
             # M-1c — see the interview door; same words, same receipt.
             turn_text=text,
+            # M5.1.4 — see the interview door; same reason, same receipt.
+            empty_reason=rc.empty_reason,
             grounding=TurnGrounding(text=text, denials=list(rc.denials)),
             ambiguities=list(rc.ambiguities),
             snapshot=None,

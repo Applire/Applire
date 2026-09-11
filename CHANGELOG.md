@@ -42,6 +42,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - **A claimable gap on the review surface takes you into the section editor again (#667).** E058 grouped findings by the question they answer and, in doing so, lost the old "click the gap, land in the editor with it selected" path. It is back: a claimable gap cluster in group 2 is a button that opens the *Bearbeiten* tab with that section open and the gap preselected, and group 2's copy now names the section editor as a fourth handle alongside raising the page target, pinning the fact and regenerating. Navigation is not the surface offering a fix it cannot honestly make — the writing is still yours, nothing arrives pre-filled — which is the distinction the ADR-081 amendment records. An honest gap still routes to profile enrichment rather than inviting a written claim.
 - **The document review surface's craft group is pinned by tests, and one premise corrected (#671).** The terminal review's own findings — the voice and claim-balance observations that never block — were believed to be computed and shown to nobody. Measured against the real reports of a full generation run: they were already rendered in group 4 on both document pages. What was missing was the guarantee, so nine tests now hold it, including that a review which settled on minor findings only stays a *pass with observations* and never invents a warning state.
+- **A narrow "no" no longer swallows a broad "yes" in the gap analysis.** A candidate who
+  said they had *never produced directly for food customers* had the job's bare requirement
+  *Produktion* published back to them as a critical gap — while the same screen still listed
+  it under their strengths — because the denial floor asked whether a requirement is denied
+  using every name the analysis has for it, and asked whether the vault affirms it using only
+  one. German compounding did the rest: the role they hold, *Produktionsleiter*, is not the
+  word *Produktion* at a word boundary. Both questions now run over the same set of names,
+  through one instrument used at every place the floor is applied; a denial that names the
+  term itself is still absolute. And `strengths` is now filtered against the same analysis's
+  own ledger, so one response can no longer call a concept a strength and a critical gap at
+  once.
+- **A turn that wrote nothing now says why.** The receipt that appears when you say something
+  and nothing lands used to read "nothing was recorded from what you said" in all three
+  cases. The reconciler now names the reason, and you read the one that fits: *that is
+  already in your profile, as stated* · *your question arrived — nothing was changed for it* ·
+  or, when the reason is anything else or the model does not answer, the original wording plus
+  what to do next. The fail-safe is the wide one, so a model that ignores the question never
+  costs you the receipt.
 - **`docker-compose.yml` takes its database credentials from the environment.** `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` feed both the postgres service and `DATABASE_URL`. The defaults are today's values, so an install that changes nothing behaves identically; setting real credentials is now a three-line `.env` edit instead of a compose-file edit. PostgreSQL reads them only when the data volume is first created — the runbook says how to change them on an install that already has data.
 - **`docker-compose.override.yml` announces itself.** It sets `APPLIRE_TOPOLOGY=dev`, so the backend logs a startup WARNING and `GET /health` reports `"topology": "dev"`. Compose applies that override automatically whenever it sits beside the compose file — i.e. in every source clone — which publishes an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now said so nowhere. The production file never sets the variable.
 - **While `LLM_DEBUG_LOG` is on, the instance says so** at every startup and on `GET /health`. That log records CV and interview PII and deliberately has no size or age cap: a cap on a diagnostic tool truncates evidence silently, so you are told instead.

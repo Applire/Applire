@@ -200,12 +200,6 @@ def _p20_unaddressed_requirements_block() -> str:
     return render_unaddressed_hard_requirements_block([{"concept": "ISO 45001", "evidence": CANARY}])
 
 
-def _p21_jd_aware_cv_extraction() -> str:
-    from applire.prompts.cv_extraction import build_jd_aware_prompt
-
-    return build_jd_aware_prompt("CV TEXT", _job_analysis_dict())
-
-
 def _p22_gap_clustering() -> str:
     from applire.prompts.gap_clustering import build_clustering_prompt
 
@@ -327,6 +321,12 @@ def _p28_cv_assist_role_title() -> str:
 #: lives with the wiring it needs —
 #: ``tests/unit/test_review_prompts.py::TestCoverLetterPositioningIntegration
 #: ::test_render_threads_job_description_into_reviewer_grounding_source``.
+#:
+#: Point 21 (``JD_AWARE_CV_EXTRACTION_PROMPT`` / ``build_jd_aware_prompt``) is also
+#: deliberately NOT here, for a different reason than 14: M5.1.3 (2026-09-11)
+#: retired the constant and its builder outright (see prompts/cv_extraction.py's
+#: version header) — there is no fence left to test because there is no embedding
+#: point left to fence. Unlike 14/23, this is a removal, not a residual.
 EMBEDDING_POINTS: dict[str, Callable[[], str]] = {
     "01_job_analysis_raw_posting": _p01_job_analysis,
     "02_jd_review_source_posting": _p02_review_source_posting,
@@ -347,7 +347,6 @@ EMBEDDING_POINTS: dict[str, Callable[[], str]] = {
     "18_forbidden_presence_block": _p18_forbidden_presence_block,
     "19_coverage_retention_block": _p19_coverage_retention_block,
     "20_unaddressed_requirements_block": _p20_unaddressed_requirements_block,
-    "21_jd_aware_cv_extraction": _p21_jd_aware_cv_extraction,
     "22_gap_clustering": _p22_gap_clustering,
     "24_letter_target_company": _p24_letter_target_company,
     "25a_interview_cluster_context": _p25a_interview_cluster_context,
@@ -455,10 +454,6 @@ def test_point_20_unaddressed_requirements_block_carries_requirements():
     _assert_covered("20_unaddressed_requirements_block")
 
 
-def test_point_21_jd_aware_cv_extraction_embeds_the_job_analysis():
-    _assert_covered("21_jd_aware_cv_extraction")
-
-
 def test_point_22_gap_clustering_embeds_the_gaps_and_jd_skills():
     _assert_covered("22_gap_clustering")
 
@@ -555,10 +550,12 @@ def test_no_registered_builder_leaks_hostile_posting_text_outside_the_marking():
 
 def test_the_registry_covers_every_point_the_adr_lists():
     """The registry and ADR-084 clause 8 are one list, and drift between them is
-    the failure this asserts against. 32 builder points + point 14 (tested with
+    the failure this asserts against. 31 builder points + point 14 (tested with
     its own wiring in ``test_review_prompts.py``) + point 23 (asserted above by
-    its own property) = the ADR's enumeration."""
-    assert len(EMBEDDING_POINTS) == 32
+    its own property) = the ADR's enumeration. Point 21 (JD-aware CV extraction)
+    was retired M5.1.3 (2026-09-11) — 32 builder points before that, 31 since;
+    this assertion must move with the registry or it stops proving anything."""
+    assert len(EMBEDDING_POINTS) == 31
     named = {
         name.split("test_point_")[1].split("_")[0]
         for name in globals()

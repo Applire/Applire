@@ -66,6 +66,7 @@ from applire.prompts.review_question_language import (
     build_question_language_review_prompt,
 )
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.session import InterviewState
 from applire.services.choice_grounding import filter_ungrounded_choices
 from applire.services.interview_quant import detect_unquantified_concepts
@@ -503,19 +504,20 @@ async def question_generator_with_profile(
             # own coverage rule (and filter_ungrounded_choices) reaches the
             # ONE question where partial-versus-denial is the entire point.
             # The "more specific" retry follow-up below is UNCHANGED.
-            data: dict = await provider.aparse_json(
-                build_denial_probe_question_prompt(
-                    gap_label,
-                    follow_up_hint,
-                    profile,
-                    state["messages"],
-                    gap_category=gap_category,
-                ),
-                system=with_language(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT, lang),
-                temperature=0.4,
-                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
-                disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
-            )
+            with llm_log_stage("interview_draft"):
+                data: dict = await provider.aparse_json(
+                    build_denial_probe_question_prompt(
+                        gap_label,
+                        follow_up_hint,
+                        profile,
+                        state["messages"],
+                        gap_category=gap_category,
+                    ),
+                    system=with_language(DENIAL_PROBE_QUESTION_SYSTEM_PROMPT, lang),
+                    temperature=0.4,
+                    max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                    disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
+                )
             question = str(data.get("question", "")).strip()
             raw_choices = data.get("choices")
             draft = {
@@ -538,19 +540,20 @@ async def question_generator_with_profile(
             reviewed["question"] = str(reviewed.get("question", "")).strip()
             return reviewed
 
-        text = await provider.acomplete(
-            build_follow_up_question_prompt(
-                gap_label,
-                follow_up_hint,
-                profile,
-                state["messages"],
-                gap_category=gap_category,
-            ),
-            system=with_language(FOLLOW_UP_QUESTION_SYSTEM_PROMPT, lang),
-            temperature=0.4,
-            max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
-            disable_thinking=True,  # chrome generation (F-B)
-        )
+        with llm_log_stage("interview_draft"):
+            text = await provider.acomplete(
+                build_follow_up_question_prompt(
+                    gap_label,
+                    follow_up_hint,
+                    profile,
+                    state["messages"],
+                    gap_category=gap_category,
+                ),
+                system=with_language(FOLLOW_UP_QUESTION_SYSTEM_PROMPT, lang),
+                temperature=0.4,
+                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                disable_thinking=True,  # chrome generation (F-B)
+            )
         draft = {"question": text.strip(), "choices": None}
         return await _review_question_language(draft, lang, provider)
 
@@ -560,31 +563,33 @@ async def question_generator_with_profile(
         field, label = field.strip(), label.strip()
         entry = _find_work_entry(profile, label)
         if field != "professional_summary" and entry is not None:
-            text = await provider.acomplete(
-                build_field_gap_question_prompt(field, entry, state["messages"]),
-                system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
-                temperature=0.4,
-                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
-                disable_thinking=True,  # chrome generation (F-B)
-            )
+            with llm_log_stage("interview_draft"):
+                text = await provider.acomplete(
+                    build_field_gap_question_prompt(field, entry, state["messages"]),
+                    system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
+                    temperature=0.4,
+                    max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                    disable_thinking=True,  # chrome generation (F-B)
+                )
             draft = {"question": text.strip(), "choices": None}
             return await _review_question_language(draft, lang, provider)
         # professional_summary or unmatched label → fall through to existing path
 
     if mode == "guided":
         section = state["critical_gaps"][state["current_gap_index"]]
-        text = await provider.acomplete(
-            build_guided_question_prompt(
-                section,
-                job_context or {},
-                state["messages"],
-                include_availability=include_availability,
-            ),
-            system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
-            temperature=0.4,
-            max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
-            disable_thinking=True,  # chrome generation (F-B)
-        )
+        with llm_log_stage("interview_draft"):
+            text = await provider.acomplete(
+                build_guided_question_prompt(
+                    section,
+                    job_context or {},
+                    state["messages"],
+                    include_availability=include_availability,
+                ),
+                system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
+                temperature=0.4,
+                max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                disable_thinking=True,  # chrome generation (F-B)
+            )
         draft = {"question": text.strip(), "choices": None}
         return await _review_question_language(draft, lang, provider)
 
@@ -599,18 +604,19 @@ async def question_generator_with_profile(
     # US265 — deterministic, pure detector; empty result is a silent no-op
     # (build_question_prompt appends nothing when quant_concepts is falsy).
     quant_concepts = detect_unquantified_concepts(cluster, profile)
-    data: dict = await provider.aparse_json(
-        build_question_prompt(
-            cluster, profile, state["messages"],
-            gap_category=gap_category,
-            quant_concepts=quant_concepts,
-            include_availability=include_availability,
-        ),
-        system=with_language(QUESTION_SYSTEM_PROMPT, lang),
-        temperature=0.4,
-        max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
-        disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
-    )
+    with llm_log_stage("interview_draft"):
+        data: dict = await provider.aparse_json(
+            build_question_prompt(
+                cluster, profile, state["messages"],
+                gap_category=gap_category,
+                quant_concepts=quant_concepts,
+                include_availability=include_availability,
+            ),
+            system=with_language(QUESTION_SYSTEM_PROMPT, lang),
+            temperature=0.4,
+            max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+            disable_thinking=True,  # chrome generation (F-B); best-effort (#179)
+        )
     question = str(data.get("question", "")).strip()
     raw_choices = data.get("choices")
     draft = {"question": question, "choices": raw_choices if isinstance(raw_choices, list) and raw_choices else None}
