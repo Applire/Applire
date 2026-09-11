@@ -59,6 +59,19 @@ PROBES: dict[str, dict[str, Any]] = {
         "forbidden_tokens": ("sap", "excel"),
         "expected_entries": 2,
     },
+    # The same shape with the general skills section FIRST and the clean role
+    # carrying a technologies list of its OWN (Proficy, Grafana) — so the model
+    # is not choosing between "a tool" and "no tools at all" but between the
+    # role's own stack and a longer list that would swallow it. The soft version
+    # measured 0/10 violations on two models, which is only informative if the
+    # instrument can see a violation at all.
+    "per_entry_tech_hard": {
+        "fixture": "multi_employer_kenntnisse_hard.txt",
+        "clean_company": "kaltenbach",
+        "owning_company": "rheinstahl",
+        "forbidden_tokens": ("sap", "excel"),
+        "expected_entries": 2,
+    },
     "cert_issuer": {
         "fixture": "certification_heavy.txt",
         # The two source lines that DO state an issuer; anything else carrying
@@ -136,7 +149,11 @@ def score_cert_issuer(data: dict[str, Any], door: str, cfg: dict[str, Any]) -> d
     }
 
 
-SCORERS = {"per_entry_tech": score_per_entry_tech, "cert_issuer": score_cert_issuer}
+SCORERS = {
+    "per_entry_tech": score_per_entry_tech,
+    "per_entry_tech_hard": score_per_entry_tech,
+    "cert_issuer": score_cert_issuer,
+}
 
 
 async def run_one(provider: Any, door: str, probe: str, system: str, user: str, index: int) -> dict[str, Any]:

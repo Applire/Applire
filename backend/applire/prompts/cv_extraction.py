@@ -25,6 +25,20 @@
 #   evidence: two models (qwen3.7-max, gpt-5.6-luna) extracted degree="Industriemeister Metall"
 #   AND field="Metall" for the same source line — the schema never told the model "field" means
 #   "not already in degree". NEEDS REAL-PROVIDER RUN EVIDENCE per ADR-062 clause 7 — not yet run.)
+# Prompt version: v6 (M5.1.3, 2026-09-11 — rule 5 (CERTIFICATIONS TAKE PRECEDENCE) gains one
+#   sentence: `issuing_organization` is written ONLY when the source line names the issuer, never
+#   derived from the certificate's own name. Triage: Category B (applire-prompt-first) — the rule
+#   required routing the item to `certifications` and said NOTHING about the issuer field, so an
+#   invented issuer violated no stated instruction. Occurrence: `backend/logs/llm/2026-08-17.jsonl`
+#   ts=2026-08-17T16:37:25.707338+00:00, the extraction REVIEWER's own finding —
+#   "certifications[2] invents the issuing organization as 'Hersteller'; the source only states
+#   'Herstellerschulung'". MEASURED before the change on a certification-heavy synthetic fixture
+#   (`tests/files/extraction_parity/certification_heavy.txt`, n=5 per model, real provider): 0/5
+#   invented issuers on gpt-5.6-luna AND 0/5 on ministral-8b-2512 — the shape did NOT reproduce, so
+#   this sentence is a fail-safe against a fabricated vault write, not a measured repair, and the
+#   after-arm can only show no regression. Stated here rather than implied. Mirrored word-for-word
+#   into prompts/profile_extraction.py rule 5 (door parity, ADR-058/ADR-066).)
+# Prompt version: v5 — see the v4 entry below; numbering corrected at v6.
 # Prompt version: v4 (#407 — PER-ENTRY GROUNDING FOR TECHNOLOGIES rule added; run-12 evidence:
 #   "SAP" was reproducibly attributed to Weberit's technologies list even though Weberit's own
 #   bullets never mention SAP — the model was backfilling a general "Kenntnisse" skills-section
@@ -197,8 +211,13 @@ Rules:
   Computersystemvalidation"): a named certificate is FACTUAL credential data and MUST land in
   "certifications", never be demoted to a skill or dropped. The TECHNOLOGIES-vs-PRACTICES routing
   above governs ONLY an experience's "technologies" list — it never applies to a dedicated
-  certifications listing. You MAY additionally record the underlying competency as a "domain" skill,
+  certifications listing.
+  You MAY additionally record the underlying competency as a "domain" skill,
   but the certification entry itself is mandatory.
+  "issuing_organization" is written ONLY when the source line itself names the issuing body. Never
+  derive one from the certificate's own name — a "Herstellerschulung" does not state an issuer
+  called "Hersteller", and an "IHK-Zertifikat" states one only because the source wrote it. Leave
+  the field null/absent when no issuer is stated; an invented issuer is fabricated credential data.
 - PROFICIENCY SCALE: every skill "proficiency" MUST be exactly one of basic | intermediate |
   advanced | expert. Map a graphical or numeric competency scale deterministically by the filled
   fraction of its maximum, so equal scale positions always yield the same proficiency level:
