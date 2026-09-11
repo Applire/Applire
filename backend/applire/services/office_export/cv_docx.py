@@ -79,6 +79,10 @@ from applire.templates.labels import cv_labels
 logger = logging.getLogger(__name__)
 
 PHOTO_WIDTH = Cm(3.2)
+# #359: a handwritten signature at roughly its real width on paper. Narrower
+# than the photo on purpose — a signature scaled to a portrait's width reads as
+# a logo, and the letter templates use the same ~5 cm figure.
+SIGNATURE_WIDTH = Cm(5.0)
 
 _DASH = " – "  # en dash, date ranges
 _JOIN = " — "  # em dash, e.g. "Company — Role"
@@ -380,6 +384,30 @@ _NOT_RENDERED_LEAVES: dict[str, str] = {
 }
 
 
+def _render_signature_block(
+    document: DocxDocument,
+    signature_bytes: bytes | None,
+    signature_place_date: str | None,
+) -> None:
+    """``Ort, Datum`` plus the signature image at the document tail (#359).
+
+    Renders nothing when there is no signature — the CV default. The image
+    failure is swallowed exactly as _render_contact swallows the photo's, and
+    for the identical reason: python-docx reads only bmp/gif/jpeg/png/tiff,
+    the stored set includes webp, and an image must never cost the candidate
+    their text (that defect shipped once already, as an HTTP 500 on every
+    .docx download for a webp photo).
+    """
+    if not signature_bytes:
+        return
+    if signature_place_date:
+        add_paragraph(document, signature_place_date)
+    try:
+        document.add_picture(io.BytesIO(signature_bytes), width=SIGNATURE_WIDTH)
+    except Exception:
+        logger.warning("office export: signature omitted, unreadable by python-docx")
+
+
 def _document_title(labels: dict, tailored: TailoredCVData) -> str:
     """``"Lebenslauf – Anna Bauer"`` / ``"Curriculum Vitae – Anna Bauer"``.
 
@@ -399,6 +427,8 @@ def render_cv_docx(
     lang: str,
     accent_color: str,
     photo_bytes: bytes | None = None,
+    signature_bytes: bytes | None = None,
+    signature_place_date: str | None = None,
     digital_source_type: str | None = None,
 ) -> bytes:
     """Render `tailored` as a `.docx` file, returned as bytes.
@@ -406,6 +436,12 @@ def render_cv_docx(
     Pure function — no I/O. `photo_bytes` is the already-resolved photo (or
     None if absent/unreadable/not shown); the caller decides whether to
     resolve and pass it based on `tailored.show_photo`.
+
+    `signature_bytes` / `signature_place_date` (#359) are the same shape as
+    `photo_bytes`: already resolved by the caller, already gated on the user's
+    `signature_in_cv` setting, and passed in rather than looked up here — this
+    function stays pure. Both are None when the CV carries no signature, which
+    is the DEFAULT for a Lebenslauf (founder default F-0).
 
     `digital_source_type` (ADR-085, ruling 14) is passed straight to the
     provenance seam in ``new_document``; ``None`` keeps the uniform default.
@@ -432,6 +468,13 @@ def render_cv_docx(
                 "silently go unexported from the .docx writer."
             )
         renderer(document, tailored, labels, color, photo_bytes, lang)
+
+    # #359: the DACH convention puts `Ort, Datum` and the signature at the very
+    # END of the Lebenslauf, after every section — so this is rendered outside
+    # the field-dispatch loop rather than as a section renderer. It is document
+    # chrome, not a TailoredCVData field, which is also why it is absent from
+    # _RENDERED_LEAVES (there is no schema leaf to cover).
+    _render_signature_block(document, signature_bytes, signature_place_date)
 
     buffer = io.BytesIO()
     document.save(buffer)
