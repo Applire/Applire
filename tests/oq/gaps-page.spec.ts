@@ -75,6 +75,19 @@ async function setupGapsPageMocks(page: import("@playwright/test").Page) {
   await page.route(`**/api/profile`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_PROFILE) })
   );
+  // Frontend collector #677: without this route the spec's UI LANGUAGE came
+  // from whatever backend `next.config.ts` proxied `/api/*` to — the English
+  // assertions below passed in CI only because the CI backend happened to
+  // answer `en`. `LocaleProvider` reads it from here, so the locale is now the
+  // spec's own statement rather than the environment's. (The mobile twin,
+  // tests/oq/mobile/gaps-triage.spec.ts, already carried this mock.)
+  await page.route("**/api/settings", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ui_language: "en", dismissed_explainers: [] }),
+    })
+  );
 }
 
 test.describe("Gaps page", () => {

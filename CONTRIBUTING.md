@@ -41,9 +41,21 @@ Open an issue with the label `enhancement`. Describe the use case and why it mat
    # Frontend unit tests
    cd frontend && npm test
 
+   # Frontend production build — its strict type-check is a gate of its own
+   cd frontend && npm run build
+
    # E2E tests (requires running stack)
    npx playwright test
    ```
+   If you have run `npm run dev` in this checkout, delete `frontend/.next`
+   before `npm run build` — the dev server leaves a development-mode build
+   directory behind, and a production build on top of it is not a clean one:
+   ```bash
+   rm -rf frontend/.next && cd frontend && npm run build
+   ```
+   An `Error: ENVIRONMENT_FALLBACK` line during *Generating static pages* is
+   noise, not a failure: it is printed on a clean build too and the build still
+   exits 0. Read the exit status, not the log.
 5. **Follow commit conventions**: `feat:`, `fix:`, `test:`, `chore:`, `docs:`
 6. **Open a pull request** against `main` — CI must pass before review
 

@@ -624,22 +624,30 @@ export default function ApplicationDetailPage() {
                     <dt className="text-on-surface-variant">{t("jdLanguage")}</dt>
                     <dd className="text-neutral-dark mt-0.5">{jobAnalysis.language_requirement}</dd>
                   </div>
-                  {jobAnalysis.required_skills.length > 0 && (
+                  {/* Frontend collector #677: the real API cannot send these
+                      undefined today (non-optional on JobAnalysisResponse,
+                      coerced by a before-validator), but an absent array here
+                      took the WHOLE dossier down through the error boundary —
+                      a blank "Something went wrong", not a degraded card.
+                      Optional chaining costs nothing and bounds the blast
+                      radius to the one row. Reproduced 2026-09-05 by an
+                      incomplete OQ fixture. */}
+                  {(jobAnalysis.required_skills?.length ?? 0) > 0 && (
                     <div className="sm:col-span-2">
                       <dt className="text-on-surface-variant">{t("jdRequiredSkills")}</dt>
-                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.required_skills.join(", ")}</dd>
+                      <dd className="text-neutral-dark mt-0.5">{(jobAnalysis.required_skills ?? []).join(", ")}</dd>
                     </div>
                   )}
-                  {jobAnalysis.nice_to_have_skills.length > 0 && (
+                  {(jobAnalysis.nice_to_have_skills?.length ?? 0) > 0 && (
                     <div className="sm:col-span-2">
                       <dt className="text-on-surface-variant">{t("jdNiceToHave")}</dt>
-                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.nice_to_have_skills.join(", ")}</dd>
+                      <dd className="text-neutral-dark mt-0.5">{(jobAnalysis.nice_to_have_skills ?? []).join(", ")}</dd>
                     </div>
                   )}
-                  {jobAnalysis.keywords.length > 0 && (
+                  {(jobAnalysis.keywords?.length ?? 0) > 0 && (
                     <div className="sm:col-span-2">
                       <dt className="text-on-surface-variant">{t("jdKeywords")}</dt>
-                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.keywords.join(", ")}</dd>
+                      <dd className="text-neutral-dark mt-0.5">{(jobAnalysis.keywords ?? []).join(", ")}</dd>
                     </div>
                   )}
                 </dl>
