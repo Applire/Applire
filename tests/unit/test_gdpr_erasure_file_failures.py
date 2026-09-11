@@ -55,6 +55,7 @@ async def db_session():
     from applire.models.session import InterviewSession
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
+    from applire.models.user_settings import UserSettings
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     tables = [
@@ -67,6 +68,7 @@ async def db_session():
         GeneratedCoverLetter.__table__,
         Application.__table__,
         FlowSession.__table__,
+        UserSettings.__table__,  # #359: the erasure path reads the signature path from user_settings
     ]
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=tables))
