@@ -210,6 +210,7 @@ on the weakest model measured; the two are complements.
 | `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 10% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 233,294 / 19,337 |
 | `glm-5.3-flash` | **Requesty** (an operator's actual route, run inside that install's container) | off (route default; the route does not reason even when asked) | 10 | **40%** / **30%** / 0% | 0% / 10% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 193,777 / 6,763 |
 | `glm-5.3-flash` | **Requesty**, schema off (control) | off | 10 | **50%** / **20%** / **20%** | 0% / 10% / 10% | 0% / 0% / 0% | sub-par | **sub-par** | 190,431 / 5,678 |
+| `openai/gpt-5.6-luna` | **Requesty** (an operator's actual route, run inside that install's container; model id `openai/gpt-5.6-luna`) | off (route default; luna reports no reasoning tokens on either gateway) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | n/a (first measurement) | **qualified** | 260,790 / 25,640 |
 
 The same model on the two gateways is the sharpest row in this table: over OpenRouter
 `z-ai/glm-5.3-flash` reasons on every call (the gateway will not let it stop) and is clean;
