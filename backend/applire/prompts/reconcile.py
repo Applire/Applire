@@ -61,6 +61,42 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   *Measured:* ``ministral-8b`` sub-par → **caveat** (S7 malformed 20 %→0 %; its
   remaining rejection is one ``upsert_work.ref:missing``). No regression on the
   two qualified models.
+* **18,562 (M-3a, 2026-09-09).** Per-op ``REQUIRED:``
+  lines beside each op, stating that required fields are required **also when
+  ``target`` names an existing entity** (the dominant drift shape across two
+  models and two gateways, taxonomy §3.5); ``evidence`` named as a LIST on
+  ``upsert_skill`` and ``upsert_story``; the ``evidence`` / ``experience_refs``
+  naming clash between the op side and the rendered vault named in one clause.
+  *Measured:* see ``p/report.md`` — the A3 row.
+* **18,819 (M5.1.4, 2026-09-11).** The output envelope gains an OPTIONAL
+  ``empty_reason`` (``already_known`` | ``question_only`` | ``nothing_actionable``),
+  asked for only when ``ops`` is empty (+257 chars in the preamble; the USER
+  prompt's own envelope line is untouched, so the #688 goldens are byte-identical).
+  *Measured* (arm A1 vs A0, n=10 × S6/S7/S8 + the new S10 "restated fact, nothing
+  new"): on S10 ``gpt-5.6-luna`` and ``glm-5.3-flash`` emitted zero ops AND the
+  correct ``already_known`` **10/10 each**; ``ministral-8b`` wrote ops for the
+  restated fact 10/10 (pre-existing behaviour) and therefore correctly omitted the
+  field. No model crossed a threshold on S6/S7/S8 in either arm. Known
+  non-compliance, harmless by construction: ``ministral-8b`` volunteers the field
+  on a NON-empty batch 3 of 40 turns, against the "omit it whenever ops carries an
+  op" clause — the witness only ever reads it when nothing landed.
+* **18,703 (M5.1.1 (1), 2026-09-11).** Rules 12 and 14 merged into ONE quantified-
+  role-facts rule with branches (a) where the figure lives and (b) what
+  ``team_size`` counts (−105 chars, 14 rules → 13; branch (b) keeps the literal
+  phrase ``TEAM_SIZE SEMANTICS``, which
+  ``tests/unit/test_team_size_semantics_prompt_parity.py`` pins across all three
+  emitters — the first cut of this merge dropped it and the parity test caught it.
+  **Arms A2 and A3 measured that first cut**, whose branch heading read "WHAT
+  ``team_size`` COUNTS (#562)"; the shipped text differs from it by that heading
+  alone and is what arm A4 measures). The two halves used to sit
+  ~4,000 chars apart and each restated the other's closing sentence ("the figure
+  still belongs in the bullet text"). *Measured* (arm A2 vs A1, n=10 × S6/S7/S8 +
+  S10): **no model crossed any threshold on either arm** — all three qualified
+  over S6/S7/S8 in both. Movements at n=10 are inside this harness's noise and are
+  NOT claimed as an effect: ``ministral-8b`` S7 malformed 0.0 → 0.1, its station
+  coverage S6 0.93 → 0.90 / S7 0.60 → 0.90 / S8 0.87 → 1.00; ``luna`` 1.00
+  coverage and 0.0 on every rate in both arms. The change is shipped for the
+  structure (one rule, one place, no 4,000-char separation), not for a number.
 * **19,007 (M5.1.1 (3), 2026-09-11).** Rule 4's ``NEVER infer`` scoped to fact
   CONTENT (+289 chars). The prompt told the model "NEVER infer, embellish, or
   fabricate" in rule 4 while rule 1 REQUIRES a semantic entity match across
@@ -97,42 +133,6 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   the longest rule in the prompt, never exercised by any shape until now — its
   first measurement: ``flag_conflict`` on **10/10 turns for all three models**
   in arm A3, and nothing else emitted. Rule 13 earns its 1,399 chars.
-* **18,819 (M5.1.4, 2026-09-11).** The output envelope gains an OPTIONAL
-  ``empty_reason`` (``already_known`` | ``question_only`` | ``nothing_actionable``),
-  asked for only when ``ops`` is empty (+257 chars in the preamble; the USER
-  prompt's own envelope line is untouched, so the #688 goldens are byte-identical).
-  *Measured* (arm A1 vs A0, n=10 × S6/S7/S8 + the new S10 "restated fact, nothing
-  new"): on S10 ``gpt-5.6-luna`` and ``glm-5.3-flash`` emitted zero ops AND the
-  correct ``already_known`` **10/10 each**; ``ministral-8b`` wrote ops for the
-  restated fact 10/10 (pre-existing behaviour) and therefore correctly omitted the
-  field. No model crossed a threshold on S6/S7/S8 in either arm. Known
-  non-compliance, harmless by construction: ``ministral-8b`` volunteers the field
-  on a NON-empty batch 3 of 40 turns, against the "omit it whenever ops carries an
-  op" clause — the witness only ever reads it when nothing landed.
-* **18,703 (M5.1.1 (1), 2026-09-11).** Rules 12 and 14 merged into ONE quantified-
-  role-facts rule with branches (a) where the figure lives and (b) what
-  ``team_size`` counts (−105 chars, 14 rules → 13; branch (b) keeps the literal
-  phrase ``TEAM_SIZE SEMANTICS``, which
-  ``tests/unit/test_team_size_semantics_prompt_parity.py`` pins across all three
-  emitters — the first cut of this merge dropped it and the parity test caught it.
-  **Arms A2 and A3 measured that first cut**, whose branch heading read "WHAT
-  ``team_size`` COUNTS (#562)"; the shipped text differs from it by that heading
-  alone and is what arm A4 measures). The two halves used to sit
-  ~4,000 chars apart and each restated the other's closing sentence ("the figure
-  still belongs in the bullet text"). *Measured* (arm A2 vs A1, n=10 × S6/S7/S8 +
-  S10): **no model crossed any threshold on either arm** — all three qualified
-  over S6/S7/S8 in both. Movements at n=10 are inside this harness's noise and are
-  NOT claimed as an effect: ``ministral-8b`` S7 malformed 0.0 → 0.1, its station
-  coverage S6 0.93 → 0.90 / S7 0.60 → 0.90 / S8 0.87 → 1.00; ``luna`` 1.00
-  coverage and 0.0 on every rate in both arms. The change is shipped for the
-  structure (one rule, one place, no 4,000-char separation), not for a number.
-* **18,562 (M-3a, 2026-09-09).** Per-op ``REQUIRED:``
-  lines beside each op, stating that required fields are required **also when
-  ``target`` names an existing entity** (the dominant drift shape across two
-  models and two gateways, taxonomy §3.5); ``evidence`` named as a LIST on
-  ``upsert_skill`` and ``upsert_story``; the ``evidence`` / ``experience_refs``
-  naming clash between the op side and the rendered vault named in one clause.
-  *Measured:* see ``p/report.md`` — the A3 row.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
