@@ -35,6 +35,7 @@ import json
 import logging
 import re
 import uuid
+import dataclasses
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date, timezone
 from pathlib import Path
@@ -1853,6 +1854,11 @@ async def _render_cover_letter_background(
                     measured=measured,
                     reviews_enabled=_reviews_enabled,
                     pins=letter_pins,
+                    # #664 / ADR-075 amended 2026-09-11: the two facts the
+                    # grounding catch needs — this job's ledger and the
+                    # candidate's own persisted denials.
+                    keyword_ledger=keyword_ledger,
+                    denied_concepts=denied_concepts,
                 )
                 pin_floor_hits |= tr.pin_floor_hits
                 letter_data = tr.draft
@@ -1943,6 +1949,8 @@ async def _render_cover_letter_background(
                         # norm re-entry stays an accepted, logged residual
                         # rather than minting a THIRD condense generation.
                         final_floor=False,
+                        keyword_ledger=keyword_ledger,
+                        denied_concepts=denied_concepts,
                         # writer collector #601: the re-entry used to pass no
                         # pins= and to drop its own pin_floor_hits, so a pin whose
                         # carrier the compose tail deleted DURING a re-entry was
@@ -2179,6 +2187,11 @@ class LetterTerminalReviewResult:
     # "the floor did not run" for the one construction site that predates it.
     final_floor_fired: bool = False
     final_floor_selection: str = "none"
+    # #664 / ADR-075 amended 2026-09-11 (clause 2c): sentences this invocation CUT
+    # at settle because they stated a limit the candidate never stated. Empty on
+    # every delivery the selection rules above already kept clean — which is the
+    # point: the cut is the last resort, not the mechanism.
+    limit_cuts: tuple = ()
     # #563 (D): how this delivery's terminal review actually ENDED — approved,
     # exhausted with findings open, or stopped on a cycle — folded across every
     # `review_and_refine` invocation of this method (including the final-length-floor
@@ -2211,6 +2224,8 @@ async def _terminal_review_letter(
     condense_spent: bool = False,
     pins: list = (),
     final_floor: bool = True,
+    keyword_ledger: list | None = None,
+    denied_concepts: list | None = None,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
     letter's TERMINAL review — the verdict that closes over the COMPOSED
@@ -2292,6 +2307,22 @@ async def _terminal_review_letter(
             )
         return composed
 
+    # #664 / ADR-075 amended 2026-09-11: the FACT — which concepts does this
+    # composition state as limits, and did the candidate state them? Read on the
+    # COMPOSED letter, because that is the delivered artifact. Three consumers
+    # below, in escalating order of intervention: the corrector's per-round
+    # deterministic issue (clause 2a), the final length floor's selection
+    # (clause 2b), and the settle-time cut (clause 2c).
+    from applire.services.limit_grounding import (
+        cut_ungrounded_limits,
+        has_no_ungrounded_limit,
+        limit_signal_issues_fn,
+        ungrounded_limits,
+    )
+
+    def _limits_ok(composed: dict) -> bool:
+        return has_no_ungrounded_limit(composed, keyword_ledger, denied_concepts)
+
     subject_by_draft: dict[str, dict] = {_canon(draft): cl.letter_data}
     pdf_cell: dict[str, bytes | None] = {"pdf": pdf_bytes}
     measure_cell: dict[str, MeasuredLetter] = {"measured": measured}
@@ -2326,6 +2357,91 @@ async def _terminal_review_letter(
         measure_cell["measured"] = m
         all_measures.append(m)
         subject_by_draft[_canon(d)] = cl.letter_data
+
+    # ADR-076 clause 5 (#542) transport: an ungrounded limit in THIS round's own
+    # draft reaches the corrector as a blocking issue, through ADR-083 clause 4's
+    # single fold. By that clause's placement in ``review_and_refine`` it can never
+    # create a round, flip ``approved``, or supply exhaustion fuel — and on a round
+    # the reviewer approves it never fires at all, which is exactly why clause 2c's
+    # cut exists underneath it.
+    _limit_signal_fn = limit_signal_issues_fn(
+        keyword_ledger, denied_concepts, _subject_of
+    )
+
+    async def _finish(
+        *, current, rounds, reentry_exhausted, condense_state, floor_hits,
+        final_floor_fired, final_floor_selection, outcome_cell, pdf_cell, measure_cell,
+    ) -> LetterTerminalReviewResult:
+        """The ONE exit of this function — and the settle-time grounding catch
+        (#664, ADR-075 amended 2026-09-11, clause 2c).
+
+        Placement is the same argument the final length floor makes for its own:
+        this runs after the loop and the floor have settled and BEFORE the caller
+        computes ``verdict_hash``, so the identity gate's meaning is intact — the
+        cut is the terminal verdict's own tail, not a later write.
+
+        Last resort by construction. The corrector was told about the same
+        sentence every round (clause 2a) and the floor's selection already
+        preferred a composition without one (clause 2b); reaching here means no
+        draft this delivery produced could ground it. Then the sentence is CUT —
+        deletion only, never a replacement (founder ruling L-1 = A) — and the
+        ADR-039 ``terminal-review`` check names what was removed and why, so the
+        candidate reads it with their letter. Fail-open throughout: a cut that
+        would empty the body keeps the letter and still reports."""
+        delivered = cl.letter_data
+        cut, findings = cut_ungrounded_limits(delivered, keyword_ledger, denied_concepts)
+        outcome = outcome_cell["outcome"]
+        limit_cuts: tuple = ()
+        if findings:
+            limit_cuts = tuple(dict.fromkeys(f.sentence for f in findings))
+            concepts = ", ".join(sorted({f.concept for f in findings}))
+            if cut is not delivered:
+                note = (
+                    "One sentence was REMOVED from the delivered letter before it was "
+                    "rendered: it stated that you lack "
+                    f"{concepts}, and nothing you told Applire says so. A letter may "
+                    "only disclose a limit you stated yourself. Removed: "
+                    + " ".join(f'"{q}"' for q in limit_cuts)
+                )
+                pdf, m = await _persist_and_measure(cl, db, cut, norm)
+                pdf_cell["pdf"] = pdf
+                measure_cell["measured"] = m
+                current = cut
+            else:
+                note = (
+                    "The delivered letter states that you lack "
+                    f"{concepts}, and nothing you told Applire says so. It could not be "
+                    "removed without emptying the letter, so it was left in place and "
+                    "reported here instead: "
+                    + " ".join(f'"{q}"' for q in limit_cuts)
+                )
+            from applire.services.terminal_review_outcome import TerminalReviewOutcome
+
+            if outcome is None:
+                outcome = TerminalReviewOutcome(
+                    chain_id="letter_terminal_review",
+                    path=None,
+                    approved=False,
+                    blocking_issues=(),
+                    minor_issues=(),
+                    rounds=rounds,
+                    notes=(note,),
+                )
+            else:
+                outcome = dataclasses.replace(outcome, notes=outcome.notes + (note,))
+        return LetterTerminalReviewResult(
+            draft=current,
+            pdf_bytes=pdf_cell["pdf"],
+            measured=measure_cell["measured"],
+            rounds=rounds,
+            reentry_exhausted=reentry_exhausted,
+            condense_used=condense_state["used"],
+            pin_floor_hits=floor_hits,
+            final_floor_fired=final_floor_fired,
+            final_floor_selection=final_floor_selection,
+            outcome=outcome,
+            limit_cuts=limit_cuts,
+        )
 
     def _terminal_base(source: str, composed: dict) -> str:
         m = measure_cell["measured"]
@@ -2466,6 +2582,7 @@ async def _terminal_review_letter(
             # #420's boundary, preserved: the word-budget tie-break narrows
             # only among CONDENSE-descendant drafts, never on a content round.
             prefer_if=(within_budget_fn if entered_via_condense else None),
+            signal_issues_fn=_limit_signal_fn,
             on_settle=_record_settle,
         )
         entered_via_condense = False
@@ -2586,6 +2703,7 @@ async def _terminal_review_letter(
                     retain_if=retain_if_fn,
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
+                    signal_issues_fn=_limit_signal_fn,
                     on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
@@ -2602,6 +2720,52 @@ async def _terminal_review_letter(
                         # measured fact (the #420 prefer_if precedent, as new
                         # code — Option B survives only here, scoped to this
                         # one round, per the ADR).
+                        #
+                        # #664 / ADR-076 clause 3 amended 2026-09-11: the page
+                        # count is not the FIRST fact this selection reads. On
+                        # the 2026-09-05 delivery run the corrector's draft had
+                        # REMOVED a manufactured limit and re-grown the letter
+                        # past the norm, and this selection discarded it for the
+                        # condensed composition that still carried the false
+                        # sentence — that is what shipped. A length preference
+                        # may never override a truth repair. Both compositions
+                        # already exist; the only change is which fact is read
+                        # first.
+                        if _limits_ok(cl.letter_data) and not _limits_ok(
+                            _subject_of(condensed_draft)
+                        ):
+                            final_floor_selection = "kept_corrector_limit_grounding"
+                            logger.warning(
+                                "LETTER_FINAL_FLOOR kept the corrector's %s-page draft "
+                                "for CL %s over the %s-page norm: the condensed "
+                                "composition states a limit the candidate never stated "
+                                "(%s), and a length preference may not override a truth "
+                                "repair (ADR-076 clause 3 amended 2026-09-11, #664)",
+                                m2.page_count, cl.id, norm.letter_pages,
+                                ", ".join(sorted({
+                                    f.concept for f in ungrounded_limits(
+                                        _subject_of(condensed_draft),
+                                        keyword_ledger, denied_concepts,
+                                    )
+                                })),
+                            )
+                            log_letter_final_floor(
+                                cl.id, True, pages_before,
+                                measure_cell["measured"].page_count, target,
+                                final_floor_selection,
+                            )
+                            return await _finish(
+                                current=current,
+                                rounds=rounds,
+                                reentry_exhausted=reentry_exhausted,
+                                condense_state=condense_state,
+                                floor_hits=floor_hits,
+                                final_floor_fired=final_floor_fired,
+                                final_floor_selection=final_floor_selection,
+                                outcome_cell=outcome_cell,
+                                pdf_cell=pdf_cell,
+                                measure_cell=measure_cell,
+                            )
                         corrector_hash = subject_hash(cl.letter_data)
                         corrector_pages = m2.page_count
                         current = condensed_draft
@@ -2638,17 +2802,17 @@ async def _terminal_review_letter(
                 cl.id, False, pages_before, pages_before, None, "none"
             )
 
-    return LetterTerminalReviewResult(
-        draft=current,
-        pdf_bytes=pdf_cell["pdf"],
-        measured=measure_cell["measured"],
+    return await _finish(
+        current=current,
         rounds=rounds,
         reentry_exhausted=reentry_exhausted,
-        condense_used=condense_state["used"],
-        pin_floor_hits=floor_hits,
+        condense_state=condense_state,
+        floor_hits=floor_hits,
         final_floor_fired=final_floor_fired,
         final_floor_selection=final_floor_selection,
-        outcome=outcome_cell["outcome"],
+        outcome_cell=outcome_cell,
+        pdf_cell=pdf_cell,
+        measure_cell=measure_cell,
     )
 
 
