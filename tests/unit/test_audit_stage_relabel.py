@@ -71,3 +71,90 @@ async def test_cv_audit_relabels_the_stage():
     assert current_call_site()[0] == "cv_audit", (
         "the audit tail must not inherit the terminal chain's stage label"
     )
+
+
+@pytest.mark.asyncio
+async def test_cv_audit_outcome_critic_call_runs_under_its_own_stage_label(monkeypatch):
+    """Nougat build-2 contract 2 (the P2 helper leaks, this is a call-site fix):
+    inside ``_update_ats_report``'s critic block, the critic's OWN LLM call
+    (``run_pass_a``) must log as ``outcome_critic``, not the surrounding audit
+    tail's ``cv_audit`` — and the stage must be back at ``cv_audit`` immediately
+    after the call so a later call in the same function (e.g. the .docx audit
+    block that follows) is not mislabelled either."""
+    from applire.providers.llm.debug_log import current_call_site, set_stage
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+    from applire.services import cv as cv_module
+
+    set_stage("cv_terminal_review")  # what the last chain left behind
+
+    seen: dict = {}
+
+    async def fake_run_pass_a(**kwargs):
+        seen["stage_during_call"] = current_call_site()[0]
+        return OutcomeCriticReport(ran=True, reason=None, advisories=[])
+
+    monkeypatch.setattr("applire.services.outcome_critic.run_pass_a", fake_run_pass_a)
+    monkeypatch.setattr(cv_module, "get_provider", lambda: MagicMock())
+
+    record = MagicMock()
+    record.tailored_data = {"contact": {}}
+    record.content_snapshot = {}
+    record.section_overrides = {}
+    db = AsyncMock()
+    db.get.return_value = None
+
+    await cv_module._update_ats_report(record, db, measured=None, commit=False)
+
+    assert seen.get("stage_during_call") == "outcome_critic", (
+        "the critic's own LLM call must log under `outcome_critic`, not the "
+        "audit tail's `cv_audit`"
+    )
+    assert current_call_site()[0] == "cv_audit", (
+        "the stage must be restored to `cv_audit` right after the critic call "
+        "so a later call in this function is not mislabelled"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cv_tailoring_draft_call_is_labelled_cv_tailoring(monkeypatch):
+    """Nougat build-2 contract 2: ``_tailor_cv_with_fallback``'s single-call
+    fast-path draft — the pre-loop call that produces the INITIAL tailored CV
+    before ``review_and_refine`` (``chain_id="cv_tailoring"``) is entered and
+    starts labelling its own calls — must not inherit whatever stage a PRIOR
+    chain in this asyncio task left behind. Confirmed by reading the code path
+    (build-2 contract 2 handoff): no `set_stage`/`set_llm_log_stage` call
+    exists anywhere between the start of `_render_cv_background` and this
+    call, so before this fix the draft logged under the last chain's leftover
+    label (or `""` on a clean task)."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from applire.providers.llm.debug_log import current_call_site, set_stage
+    from applire.services import cv as cv_module
+
+    set_stage("some_prior_chain")  # what a prior chain in this task left behind
+    monkeypatch.setattr(
+        cv_module, "_should_segment_upfront", _AsyncMock(return_value=False)
+    )
+
+    seen: dict = {}
+
+    async def fake_aparse_json(*args, **kwargs):
+        seen["stage_during_call"] = current_call_site()[0]
+        return {"contact": {}}
+
+    provider = MagicMock()
+    provider.aparse_json = fake_aparse_json
+
+    result = await cv_module._tailor_cv_with_fallback(
+        job_analysis={},
+        profile={},
+        keyword_gaps=[],
+        output_language="de",
+        provider=provider,
+    )
+
+    assert result == {"contact": {}}
+    assert seen.get("stage_during_call") == "cv_tailoring", (
+        "the writer's initial draft call must be labelled `cv_tailoring`, not "
+        "inherit a prior chain's stage"
+    )
