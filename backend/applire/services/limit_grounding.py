@@ -105,11 +105,24 @@ _DENIAL_MARKERS: tuple[str, ...] = (
     "i lack",
     "lacking direct",
     "no direct experience",
+    "no experience",
     "never worked",
     "never led",
     "never managed",
     "cannot claim",
     "do not claim",
+    # #664 (adversarial): the direct EN calque of "bringe ich nicht mit" — the
+    # captured population is DE-only (L measured DE), and this register is a
+    # plausible EN rendering of the same construction the DE list already
+    # covers; missing it is a false NEGATIVE (an ungrounded limit ships
+    # uncaught), the unsafe direction for this module.
+    "do not bring",
+    "don't bring",
+    "does not bring",
+    "doesn't bring",
+    "not familiar with",
+    "unfamiliar with",
+    "without experience in",
 )
 
 #: Clause boundaries INSIDE one sentence. A denial governs its own clause and
