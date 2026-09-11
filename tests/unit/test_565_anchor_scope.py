@@ -271,8 +271,8 @@ def test_the_letter_reviewer_ratchets_are_not_raised_by_the_rescope():
     """The prose door had 25 characters of headroom (12,475 / 12,500) when this
     change started. The rescope is paid for inside `_CHECKS`, not by moving the
     ceiling — 'map the new content to a row and REPLACE, do not append'."""
-    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 12_500, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_100, len(
+    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 12_900, len(reviewer.REVIEW_SYSTEM_PROMPT)
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_300, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 

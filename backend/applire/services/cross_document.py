@@ -325,12 +325,26 @@ def find_unaddressed_hard_requirements(
 # at the statements instead of quoting a span out of them.
 
 # ── shared wording — #270(c): every unmet hard requirement gets a decision ──
-# The permitted responses are EXACTLY two — a transfer argument grounded in
-# the candidate's OWN testimony, or a brief, honest de-emphasis that names
-# the gap without dwelling on it. Never an assertion (these concepts are
+# The permitted responses are a transfer argument grounded in the candidate's
+# OWN testimony and — ONLY where the candidate was asked and said no — a
+# brief, honest de-emphasis that names the gap without dwelling on it. Never
+# an assertion, never a softened/vaguer denial, and never a litany — every
+# response folds into the SAME single honest-gap paragraph.
+#
+# #664 (2026-09-11): the comment that stood here claimed "these concepts are
 # ``claimable: false`` by construction — find_unaddressed_hard_requirements
-# only ever selects honest gaps), never a softened/vaguer denial, and never
-# a litany — every response folds into the SAME single honest-gap paragraph.
+# only ever selects honest gaps". That was FALSE about its own function, which
+# deliberately also selects ADJACENT PARTIALS (claimable through a different
+# capability, the ``adjacent_evidence`` branch below). On the 2026-09-05
+# delivery run `Qualitätsmanagement` reached the same corrector prompt twice:
+# in the VERIFIED COVERAGE CHECK as claimable-and-missing, and here as a gap
+# owing a positioning decision. The corrector chose the de-emphasis this
+# instruction offered — "Qualitätsmanagement beanspruche ich nicht" — the next
+# round's check 1 called it an invented limit, and the letter shipped it. An
+# adjacent partial is not something the candidate said they lack, so the
+# de-emphasis is not one of ITS options; the per-entry line below says so
+# where the entry is rendered, rather than here, so the rule and the entry
+# cannot drift apart (ADR-075 amended 2026-09-11).
 _UNADDRESSED_INSTRUCTION = (
     "JD hard requirements the letter does not mention anywhere. The candidate "
     "does NOT have the named requirement itself — either the Keyword Ledger "
@@ -338,7 +352,8 @@ _UNADDRESSED_INSTRUCTION = (
     "adjacent capability named below. Never assert the requirement's own term "
     "as something they have, have done, or know. "
     "For each, make an explicit positioning decision: a transfer argument "
-    "grounded in the candidate's own words, or a brief, honest de-emphasis "
+    "grounded in the candidate's own words, or — only where the entry says the "
+    "candidate was ASKED AND SAID NO — a brief, honest de-emphasis "
     "that names the gap without dwelling on it or implying a JD-critical "
     "requirement is negligible. Silence is not one of the options. "
     "Where a STATED LIMITS block is present, the candidate's own wording for "
@@ -414,7 +429,12 @@ def render_unaddressed_hard_requirements_block(
                 f"{e['adjacent_evidence']} — the candidate does NOT have "
                 f"{e.get('concept', '')} itself. Give "
                 f"{e['adjacent_evidence']} prominence on its own merits; never "
-                "assert the requirement's own term as something they have."
+                "assert the requirement's own term as something they have — and "
+                "never state it as something they LACK either. They were not "
+                f"asked about {e.get('concept', '')} and did not deny it, so a "
+                "sentence disclaiming it is an INVENTED LIMIT (check 1), and it "
+                f"throws away the {e['adjacent_evidence']} evidence the vault "
+                "does hold. The transfer argument is the only response here."
             )
     return "\n".join(lines)
 

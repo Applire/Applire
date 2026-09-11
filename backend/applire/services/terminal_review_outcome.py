@@ -93,6 +93,14 @@ class TerminalReviewOutcome:
     blocking_issues: tuple[str, ...]
     minor_issues: tuple[str, ...]
     rounds: int
+    #: #664 / ADR-075 amended 2026-09-11 — statements about what the DELIVERY
+    #: PIPELINE did to this document after the verdict, not about what a reviewer
+    #: found: today, the settle-time cut of a sentence carrying a limit the
+    #: candidate never stated. Never affects :attr:`status` (a cut is the
+    #: remedy, not the finding), always reaches ``details`` so the candidate is
+    #: told what was removed from their letter and why. Defaults to empty, so
+    #: every existing producer and the whole CV side stay byte-identical.
+    notes: tuple[str, ...] = ()
 
     @property
     def status(self) -> str:
@@ -130,6 +138,10 @@ class TerminalReviewOutcome:
             blocking_issues=keep.blocking_issues,
             minor_issues=keep.minor_issues,
             rounds=self.rounds + other.rounds,
+            # A note describes something that HAPPENED to the document, so unlike
+            # the verdict fields it is never dropped by the fold — both
+            # invocations' notes survive, deduped, order kept.
+            notes=tuple(dict.fromkeys(keep.notes + drop.notes)),
         )
 
 
@@ -153,7 +165,21 @@ def _truncate(text: str) -> str:
 
 def _details(outcome: TerminalReviewOutcome) -> str:
     """The EN diagnostic. Names the mechanism AND the open findings — a status
-    without the finding tells the user something is wrong and not what."""
+    without the finding tells the user something is wrong and not what.
+
+    ``notes`` (#664) are appended on EVERY status: a sentence the delivery
+    pipeline removed from the letter is something the candidate must be told
+    regardless of how the verdict itself settled."""
+    return _truncate(_with_notes(_body(outcome), outcome.notes))
+
+
+def _with_notes(body: str, notes: tuple[str, ...]) -> str:
+    if not notes:
+        return body
+    return f"{body} " + " ".join(notes)
+
+
+def _body(outcome: TerminalReviewOutcome) -> str:
     status = outcome.status
     if status == "not_applicable":
         if outcome.path is None:
@@ -181,10 +207,10 @@ def _details(outcome: TerminalReviewOutcome) -> str:
             ),
         }.get(outcome.path or "", "The terminal review settled with findings still open")
         body = "; ".join(outcome.blocking_issues) or "(the verdict named no issue text)"
-        return _truncate(f"{head} after {outcome.rounds} round(s). Open findings: {body}")
+        return f"{head} after {outcome.rounds} round(s). Open findings: {body}"
     # pass
     if outcome.minor_issues:
-        return _truncate(
+        return (
             "The terminal review raised no blocking finding. Observations recorded for "
             "your judgement (never acted on automatically): "
             + "; ".join(outcome.minor_issues)

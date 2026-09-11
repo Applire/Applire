@@ -483,6 +483,15 @@ async def _tailor_cv_with_fallback(
             pinned_facts_block=pinned_facts_block,
         )
     try:
+        # Stage label (build-2 contract 2): this is the FIRST writer call of the
+        # generation — the pre-loop draft that produces the initial tailored CV
+        # before `review_and_refine` (chain_id="cv_tailoring") is entered and
+        # starts labelling its own calls. Without this, the draft call logs
+        # under whatever stage the last chain in this asyncio task left behind
+        # (`stage = ""` on a clean task).
+        from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+        _set_llm_log_stage("cv_tailoring")
         return await provider.aparse_json(
             build_user_prompt(
                 job_analysis, profile, keyword_gaps,
@@ -4384,12 +4393,17 @@ async def _update_ats_report(
             record.content_snapshot,
             record.section_overrides,
         )
+        # Stage relabel (build-2 contract 2): the critic's own LLM calls must not
+        # log under `cv_audit` — restore right after so a later call in this same
+        # function (e.g. the .docx audit block below) is still attributed correctly.
+        _set_llm_log_stage("outcome_critic")
         critic_report = await run_pass_a(
             cv_tailored=assembled.model_dump(mode="json"),
             job_role_title=job_row.role_title if job_row else None,
             jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
             provider=get_provider(),
         )
+        _set_llm_log_stage("cv_audit")
         record.critic_report = critic_report.model_dump(mode="json")
     except Exception:
         logger.exception(

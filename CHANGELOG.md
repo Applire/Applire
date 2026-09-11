@@ -12,6 +12,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - **JD analysis no longer loses the seniority the posting states (#617).** On a posting titled *Leiter Operations*, five runs produced five different answers — `''`, `Leitung`, `''`, `Senior`, `Manager` — and three of them are values the schema does not even permit. The cause was four missing sentences, not a flaky model: nothing told the extractor where a seniority tier may be grounded, the reviewer's check sanctioned a job-board metadata line but never the job TITLE, and the corrector's only way to answer "that tier overreaches" was to delete the field. Downstream, an empty tier silently withholds the *"N years of experience meets the seniority bar"* signal from gap analysis — on a 14-year candidate answering a posting that asks for 8+ years of leadership. The extractor now knows what grounds a tier (and may answer `null` when nothing does), and both the reviewer and the corrector know to **demote to the tier the posting does support** instead of deleting it. Measured on the real provider, n=5 per arm: the grounded tier was delivered 0/5 before and 5/5 after.
 - **Extracted job-posting terms follow the posting's language (#617).** It was never specified, so the same posting came back in German on one run and English on the next — while those terms are matched literally against a CV and letter that follow the posting's language, so a translated term matches nothing and reads as a missing keyword. The language is now computed and stated rather than argued for in prose: runs agreeing on one language went 4/5 → 5/5 on the German case, and term-set stability on the delivery-run posting improved from 0.63 to 0.79.
+- **A cover letter can no longer disclose a limit you never stated (#664).** Asked to name
+  the limits a posting asks about, the writer could manufacture one — the 2026-09-05 run
+  delivered *"Eigenständige Investitionsplanung, Vertriebserfahrung und Qualitätsmanagement
+  beanspruche ich nicht"*, and the vault holds ISO-9001 audit evidence. Reading that run's own
+  records round by round showed the cause was not the writer: the same ledger row reached the
+  corrector in the *"claimable — surface it"* block and the *"you do not have this — position
+  the gap"* block at once, the reviewer demanded the disclaimer under one check and flagged it
+  under another a round later, the corrector then repaired it — and the final length floor
+  discarded the repair because the repaired letter was a line too long. Three things change.
+  A concept you are only claimable *through* an adjacent capability may no longer be offered
+  the "name the gap honestly" option at all: you never denied it, so the only honest move is
+  the transfer argument. Every limit the letter states is checked against the limits you
+  actually stated, and the finding reaches the corrector each round. And a length preference
+  may never discard a truth repair — the floor now keeps the composition that invents no
+  limit, page count second. If no round can ground the sentence it is removed before the PDF
+  is rendered, and the terminal-review report tells you which sentence went and why.
+  Measured on the captured population: 6 findings over 240 body sentences of 10 real drafts,
+  all 6 true, none false; one real generation delivered a letter whose one limit sentence is
+  correctly recognised as yours and left alone.
+- **Repetition can now block a cover letter (#668's letter half).** The CV doors took this in
+  the previous release and the letter's was held back for a measurement, which is now in: on a
+  letter that names one employer ten times and states the same leadership scope in two
+  paragraphs, the reviewer raised it as blocking 5 times in 5 where it previously raised it as
+  blocking 0 times in 5, and the corrector cut the repetition 5 times in 5 without touching the
+  honest gap disclosure blind readers call the strongest reason to trust a letter.
 - **`docker-compose.yml` takes its database credentials from the environment.** `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` feed both the postgres service and `DATABASE_URL`. The defaults are today's values, so an install that changes nothing behaves identically; setting real credentials is now a three-line `.env` edit instead of a compose-file edit. PostgreSQL reads them only when the data volume is first created — the runbook says how to change them on an install that already has data.
 - **`docker-compose.override.yml` announces itself.** It sets `APPLIRE_TOPOLOGY=dev`, so the backend logs a startup WARNING and `GET /health` reports `"topology": "dev"`. Compose applies that override automatically whenever it sits beside the compose file — i.e. in every source clone — which publishes an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now said so nowhere. The production file never sets the variable.
 - **While `LLM_DEBUG_LOG` is on, the instance says so** at every startup and on `GET /health`. That log records CV and interview PII and deliberately has no size or age cap: a cap on a diagnostic tool truncates evidence silently, so you are told instead.

@@ -403,14 +403,18 @@ def test_the_shared_severity_vocabulary_no_longer_offers_repetition_as_minor():
         assert word in SEVERITY_CONTRACT
 
 
-def test_the_letter_door_still_says_repetition_in_its_own_voice():
-    """#668's letter half is not taken in this change (the letter's blocking behaviour
-    has an unmeasured interaction with SF-WRITE.32 / Bug #664). Its `minor` paragraph
-    must therefore still name repetition itself — the shared constant no longer does it
-    for it, and a door that says nothing about a concept is not the same as a door that
-    calls it minor."""
+def test_the_letter_door_took_the_same_ruling_on_2026_09_11():
+    """#668's letter half WAS held in build 1 — "the letter's blocking behaviour has an
+    unmeasured interaction with SF-WRITE.32 / Bug #664" — and was taken in build 2 WITH
+    that measurement (founder question L-2; n=5 per arm on the pinned run_2026_08_15
+    fixture: redundancy BLOCKING 0/5 → 5/5, corrector repair 5/5, honest IFS/BRC gap
+    disclosure intact 5/5). Both doors now say it the same way: the word is gone from the
+    minor-by-definition line and the concept is named check 6, REDUNDANCY."""
     from applire.prompts import review_cover_letter as letter
 
-    assert "repetition of a name or phrase" in _flat(letter._MINOR_PROSE)
-    assert "repetition of a name or phrase" in _flat(letter.REVIEW_SYSTEM_PROMPT)
-    assert "repetition of a name or phrase" in _flat(letter.TERMINAL_REVIEW_SYSTEM_PROMPT)
+    assert "repetition of a name or phrase" not in _flat(letter._MINOR_PROSE)
+    assert "repetition of a name or phrase" not in _flat(letter.REVIEW_SYSTEM_PROMPT)
+    assert "repetition of a name or phrase" not in _flat(letter.TERMINAL_REVIEW_SYSTEM_PROMPT)
+    assert "6. REDUNDANCY" in letter._CHECKS
+    assert "6. REDUNDANCY" in letter.REVIEW_SYSTEM_PROMPT
+    assert "6. REDUNDANCY" in letter.TERMINAL_REVIEW_SYSTEM_PROMPT

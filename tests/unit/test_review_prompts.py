@@ -2233,16 +2233,41 @@ class TestCoverLetterReviewerPromptV2:
         for row, phrase in rows.items():
             assert phrase in low, f"{row}: no check found for this FMEA row"
 
-    def test_the_mandate_is_exactly_five_blocking_checks(self):
+    def test_the_mandate_is_exactly_six_blocking_checks(self):
         """SF-WRITE.7's cause was ~10 overlapping checks. The count is the
-        control: adding a sixth requires adding an FMEA row first, which is a
-        deliberate act rather than an append."""
+        control: adding one requires adding an FMEA row first, which is a
+        deliberate act rather than an append.
+
+        **Five -> six on 2026-09-11 (#668's letter half, held from build 1 WITH
+        its measurement).** The row is SF-WRITE.26/.27's LETTER sibling — those
+        two are scoped to a bullet or a projection restating an achievement, and
+        the System FMEA's own v1.88 note says "a NAME repeated across sentences
+        is not either row's subject", so the letter's prose redundancy needed its
+        own row; it is proposed in
+        `Documents/Runs/Nougat/build-2/l/fmea-delta.md` and its number is
+        assigned at integration. The measurement that earned the check, before
+        the ceiling below moved: n=5 per arm on the pinned run_2026_08_15
+        fixture, redundancy BLOCKING 0/5 -> 5/5."""
         low = self._prompt
-        assert "blocking checks — these five, and nothing else" in low
+        assert "blocking checks — these six, and nothing else" in low
         import re
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
         numbered = re.findall(r"^(\d+)\. [A-Z]", REVIEW_SYSTEM_PROMPT, re.MULTILINE)
-        assert numbered == ["1", "2", "3", "4", "5"], numbered
+        assert numbered == ["1", "2", "3", "4", "5", "6"], numbered
+
+    def test_repetition_left_the_minor_line_and_became_named_check_6(self):
+        """The two halves must land together: ADR-083 clause 1's own measurement is
+        that removing a word from the minor list WITHOUT naming a check buys 0/5.
+        The CV twin is `prompts/review_cv_tailoring.py`'s check 8 (build 1)."""
+        from applire.prompts.review_cover_letter import (
+            _CHECKS, _MINOR_PROSE, _MINOR_TERMINAL,
+        )
+        assert "repetition of a name or phrase" not in _MINOR_PROSE
+        assert "repetition" not in _MINOR_TERMINAL
+        assert "6. REDUNDANCY" in _CHECKS
+        assert "blocking like any other" in _CHECKS
+        # and it may never be satisfied by dropping a fact or an honest gap
+        assert "cut the repetition, keep the content" in _CHECKS
 
     def test_prompt_stays_within_its_size_budget(self):
         """The failure mode was unbounded growth, so the budget is the guard.
@@ -2275,7 +2300,8 @@ class TestCoverLetterReviewerPromptV2:
         The ratchet is unchanged in kind — the new ceiling again sits just
         above the current size, so the next append meets the same question."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
-        assert len(REVIEW_SYSTEM_PROMPT) < 12_500, (
+        # 2026-09-11 (#668 letter half): the letter's prose door moved 12,500 -> 12,900 and its terminal door 16,100 -> 16,300 ONCE, on 2026-09-11, for #668's LETTER half: named blocking check 6 (REDUNDANCY), +377 chars net of what `repetition` gave back when it left `_MINOR_PROSE`. Measured BEFORE the ceiling moved, on the pinned run_2026_08_15 fixture (a letter naming Weberit ten times and restating the 38-employee / three-shift-leader scope in two paragraphs), n=5 per arm, real provider: redundancy raised 2/5 -> 5/5, BLOCKING 0/5 -> 5/5; the corrector then reduced the repetition 5/5 with the honest IFS/BRC gap disclosure intact 5/5.
+        assert len(REVIEW_SYSTEM_PROMPT) < 12_900, (
             f"reviewer prompt is {len(REVIEW_SYSTEM_PROMPT)} chars — it is regrowing. "
             "Map the new content to an SF-WRITE row and replace, do not append."
         )
