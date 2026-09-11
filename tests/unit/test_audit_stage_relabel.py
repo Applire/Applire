@@ -158,3 +158,52 @@ async def test_cv_tailoring_draft_call_is_labelled_cv_tailoring(monkeypatch):
         "the writer's initial draft call must be labelled `cv_tailoring`, not "
         "inherit a prior chain's stage"
     )
+
+
+@pytest.mark.asyncio
+async def test_letter_audit_outcome_critic_call_runs_under_its_own_stage_label(monkeypatch):
+    """Nougat build-2 contract 2, the LETTER twin of the CV seam above.
+
+    ``_update_ats_report_letter`` sets ``letter_audit`` at its head and
+    ``set_stage`` is imperative, so Pass B's own calls were logged under the
+    audit's label. Measured on the captured 2026-09-05 delivery run: every
+    ``outcome_critic`` record in the chain carried ``letter_audit``/``cv_audit``
+    instead — the 165/165 the build-2 inventory counted."""
+    from applire.providers.llm.debug_log import current_call_site, set_stage
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+    from applire.services import cover_letter as cl_module
+
+    set_stage("letter_terminal_review")  # what the last chain left behind
+
+    seen: dict = {}
+
+    async def fake_run_pass_b(**kwargs):
+        seen["stage_during_call"] = current_call_site()[0]
+        return OutcomeCriticReport(ran=True, reason=None, advisories=[])
+
+    async def _no_ledger(*a, **kw):
+        return []
+
+    monkeypatch.setattr("applire.services.outcome_critic.run_pass_b", fake_run_pass_b)
+    monkeypatch.setattr(cl_module, "get_provider", lambda: MagicMock())
+    monkeypatch.setattr(cl_module, "_latest_keyword_ledger", _no_ledger)
+
+    record = MagicMock()
+    record.letter_data = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Text."]}}
+    record.section_overrides = {}
+    record.ats_report = None
+    db = AsyncMock()
+    db.get.return_value = None
+    _empty = MagicMock()
+    _empty.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=_empty)
+
+    await cl_module._update_ats_report_letter(record, db, pdf=None)
+
+    assert seen.get("stage_during_call") == "outcome_critic", (
+        "Pass B's own LLM call must log under `outcome_critic`, not the letter "
+        "audit tail's `letter_audit`"
+    )
+    assert current_call_site()[0] == "letter_audit", (
+        "the stage must be restored to `letter_audit` right after Pass B"
+    )

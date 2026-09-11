@@ -243,3 +243,66 @@ def test_malformed_input_never_raises_and_never_cuts():
     assert ungrounded_limits({"body": {"paragraphs": "nope"}}, LEDGER_2026_09_05, None) == []
     assert ungrounded_limits(DELIVERED_2026_09_05, None, None) == []
     assert ungrounded_limits(DELIVERED_2026_09_05, [{"bad": 1}, "x", None], None) == []
+
+
+# ── the PROMPT half: the contradiction that produced the manufactured limit ──
+
+
+def test_an_adjacent_partial_may_not_be_stated_as_a_limit():
+    """#664's root cause, pinned in the prompt. `Qualitätsmanagement` reached the
+    2026-09-05 corrector in BOTH the VERIFIED COVERAGE CHECK (claimable, surface it)
+    and this block (a gap owing a positioning decision), and the shared instruction
+    offered "a brief, honest de-emphasis that names the gap" as a legal response for
+    it. The candidate never denied it, so that de-emphasis is an invented limit."""
+    from applire.services.cross_document import render_unaddressed_hard_requirements_block
+
+    block = render_unaddressed_hard_requirements_block([
+        {"concept": "Qualitätsmanagement", "adjacent_evidence": "ISO 9001",
+         "evidence": "ISO-9001-Audits begleitet", "status": "partial", "claimable": True},
+    ])
+    assert "never state it as something they LACK" in block
+    assert "INVENTED LIMIT" in block
+    assert "The transfer argument is the only response here." in block
+    # and the shared instruction gates the de-emphasis on the candidate's own words
+    assert "only where the entry says the candidate was ASKED AND SAID NO" in block
+
+
+def test_a_denied_entry_keeps_the_honest_de_emphasis():
+    """The other half of the same rule: where the candidate WAS asked and said no,
+    naming the gap plainly is grounded and stays a legal response (ADR-075 clause 1)."""
+    from applire.services.cross_document import render_unaddressed_hard_requirements_block
+
+    block = render_unaddressed_hard_requirements_block([
+        {"concept": "IFS", "evidence": "nie für Lebensmittelkunden produziert",
+         "status": "denied", "claimable": False},
+    ])
+    assert "THE CANDIDATE WAS ASKED AND STATED THEY DO NOT HAVE THIS" in block
+    assert "never state it as something they LACK" not in block
+
+
+def test_grounding_reads_the_denial_LABEL_and_never_its_statement():
+    """ADR-062's deleted `find_scoped_boundaries` lesson, pinned.
+
+    A stated limit names the adjacent STRENGTHS that transfer, so its statement
+    text is full of concepts it does NOT limit. The 2026-09-05 run's own
+    Vertriebserfahrung statement contains the word `Qualitätssicherung` — a
+    surface form of `Qualitätsmanagement` — as a strength. A grounding test that
+    reads statements would have "grounded" the manufactured denial with it, and
+    this Bug would have shipped a second time."""
+    denied_with_real_statement = [
+        {
+            "concept": "Eigenständige Vertriebserfahrung",
+            "statement": (
+                "Eigenständige Vertriebserfahrung habe ich nicht. Bei Weberit bin ich "
+                "seit 2017 Eskalationsinstanz für Kundenreklamationen aus der "
+                "Serienfertigung und Schnittstelle zu Einkauf, Qualitätssicherung und "
+                "Supply Chain."
+            ),
+        }
+    ]
+    letter = {"body": {"paragraphs": ["Qualitätsmanagement beanspruche ich nicht."]}}
+    findings = ungrounded_limits(letter, LEDGER_2026_09_05, denied_with_real_statement)
+    assert [f.concept for f in findings] == ["Qualitätsmanagement"], (
+        "the denial STATEMENT mentions Qualitätssicherung as a STRENGTH; reading it "
+        "as grounding is the backwards signal ADR-062 deleted"
+    )

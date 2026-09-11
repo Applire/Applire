@@ -3093,14 +3093,26 @@ async def _update_ats_report_letter(
         from applire.services.jd_excerpt import build_jd_excerpt
 
         critic_provider = get_provider()
-        critic_report = await run_pass_b(
-            cv_tailored=cv_tailored,
-            letter_data=audited_letter,
-            keyword_ledger=ledger,
-            job_role_title=job_row.role_title if job_row else None,
-            jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
-            provider=critic_provider,
-        )
+        # Build-2 contract 2 (the stage-label leak, #538/#539 pattern): this
+        # function set `letter_audit` at its head (line ~2752) and `set_stage`
+        # is imperative — it never restores — so the critic's OWN calls were
+        # logged under `letter_audit`. Measured on the 2026-09-05 delivery run:
+        # every Pass-B record carried the audit's label, which is why the
+        # inventory read 165/165 outcome-critic records mislabelled. Set it
+        # here and put the audit's label back afterwards, so anything later in
+        # this function stays attributed to the audit.
+        _set_llm_log_stage("outcome_critic")
+        try:
+            critic_report = await run_pass_b(
+                cv_tailored=cv_tailored,
+                letter_data=audited_letter,
+                keyword_ledger=ledger,
+                job_role_title=job_row.role_title if job_row else None,
+                jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
+                provider=critic_provider,
+            )
+        finally:
+            _set_llm_log_stage("letter_audit")
         cl.critic_report = critic_report.model_dump(mode="json")
     except Exception:
         logger.exception(
