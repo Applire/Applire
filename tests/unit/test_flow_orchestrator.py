@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.services.flow.orchestrator import (
     VALID_TRANSITIONS,
+    ArtifactNotFoundError,
     ArtifactRequiredError,
     InvalidTransitionError,
     _compute_actions,
@@ -104,6 +105,79 @@ async def user_and_job(db):
     db.add(job)
     await db.commit()
     return user, job
+
+
+# ---------------------------------------------------------------------------
+# Artifact factories — #676 line 1 (was #581): advance_flow now looks the
+# artifact_id referent up before writing the FK, so every test driving it into
+# gap_analysis / interview / complete needs a REAL row for that id (a bare
+# uuid.uuid4() used to slide through unchecked on in-memory sqlite, which has no
+# FK enforcement — see the module docstring above and #676 line 1's report: the
+# raw write only ever 500'd on a real, FK-enforcing database).
+# ---------------------------------------------------------------------------
+
+
+async def _make_gap_analysis(db, job, **overrides):
+    """A real GapAnalysis row. Defaults to a non-empty category_c so
+    _gap_items_present sees "gaps present" (interview offered) — the same
+    routing the old bare-uuid.uuid4() fixture got for free from
+    _gap_items_present's "artifact not found → safe default" branch. Pass
+    category_b=[]/category_c=[] explicitly for a clean-sweep scenario.
+    """
+    from applire.models.gap import GapAnalysis
+
+    defaults = dict(
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),  # FK not enforced on in-memory sqlite
+        input_fingerprint=f"fp-{uuid.uuid4()}",
+        match_score=0.5,
+        critical_gaps=[], minor_gaps=[], strengths=[], keyword_gaps=[],
+        category_a=[], category_b=[], category_c=["Placeholder gap"],
+    )
+    defaults.update(overrides)
+    gap = GapAnalysis(**defaults)
+    db.add(gap)
+    await db.commit()
+    await db.refresh(gap)
+    return gap
+
+
+async def _make_interview_session(db, job, **overrides):
+    defaults = dict(
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),  # FK not enforced on in-memory sqlite
+        status="active",
+        state={},
+    )
+    defaults.update(overrides)
+    sess = InterviewSession(**defaults)
+    db.add(sess)
+    await db.commit()
+    await db.refresh(sess)
+    return sess
+
+
+async def _make_generated_cv(db, job, **overrides):
+    from datetime import timedelta
+
+    from applire.models.cv import GeneratedCV
+
+    defaults = dict(
+        id=uuid.uuid4(),
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),  # FK not enforced on in-memory sqlite
+        tailored_data={},
+        template="classic_german",
+        status="ready",
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+    )
+    defaults.update(overrides)
+    cv = GeneratedCV(**defaults)
+    db.add(cv)
+    await db.commit()
+    await db.refresh(cv)
+    return cv
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +368,10 @@ async def test_advance_flow_valid_transition(db, user_and_job):
     _, job = user_and_job
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
 
-    gap_id = uuid.uuid4()
+    gap = await _make_gap_analysis(db, job)
     result = await advance_flow(
         flow_resp.flow_id,
-        AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id),
+        AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id),
         db,
     )
 
@@ -371,11 +445,11 @@ async def test_advance_flow_writes_artifact_fk(db, user_and_job):
 
     _, job = user_and_job
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
-    gap_id = uuid.uuid4()
+    gap = await _make_gap_analysis(db, job)
 
     await advance_flow(
         flow_resp.flow_id,
-        AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id),
+        AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id),
         db,
     )
 
@@ -383,7 +457,7 @@ async def test_advance_flow_writes_artifact_fk(db, user_and_job):
         select(FlowSession).where(FlowSession.id == flow_resp.flow_id)
     )
     flow = result.scalar_one()
-    assert flow.gap_analysis_id == gap_id
+    assert flow.gap_analysis_id == gap.id
 
 
 @pytest.mark.asyncio
@@ -393,8 +467,10 @@ async def test_advance_flow_cv_generation_no_artifact_succeeds(db, user_and_job)
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
 
     # cv_generation must succeed without artifact_id
     result = await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
@@ -412,12 +488,12 @@ async def test_advance_flow_idempotent_same_step_is_noop(db, user_and_job):
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
-    gap_id = uuid.uuid4()
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id), db)
+    gap = await _make_gap_analysis(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
 
     # Repeat the exact same transition — must NOT raise
     result = await advance_flow(
-        flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap_id), db
+        flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db
     )
     assert result.current_step == "gap_analysis"
 
@@ -436,18 +512,20 @@ async def test_advance_flow_idempotent_refreshes_artifact_fk(db, user_and_job):
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
     await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
-    cv_v1 = uuid.uuid4()
-    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v1), db)
+    cv_v1 = await _make_generated_cv(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v1.id), db)
 
-    cv_v2 = uuid.uuid4()
-    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v2), db)
+    cv_v2 = await _make_generated_cv(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_v2.id), db)
 
     flow = (await db.execute(select(FlowSession).where(FlowSession.id == flow_id))).scalar_one()
     assert flow.current_step == "complete"
-    assert flow.generated_cv_id == cv_v2
+    assert flow.generated_cv_id == cv_v2.id
 
 
 @pytest.mark.asyncio
@@ -457,8 +535,10 @@ async def test_advance_flow_complete_requires_artifact(db, user_and_job):
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
     await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
 
     with pytest.raises(ArtifactRequiredError) as exc_info:
@@ -477,16 +557,19 @@ async def test_advance_flow_complete_writes_generated_cv_id(db, user_and_job):
     _, job = user_and_job
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
-    cv_id = uuid.uuid4()
 
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    cv = await _make_generated_cv(db, job)
+
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
     await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv_id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv.id), db)
 
     result = await db.execute(select(FlowSession).where(FlowSession.id == flow_id))
     flow = result.scalar_one()
-    assert flow.generated_cv_id == cv_id
+    assert flow.generated_cv_id == cv.id
     assert flow.completed_at is not None
 
 
@@ -500,11 +583,15 @@ async def test_advance_flow_sets_completed_at(db, user_and_job):
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    cv = await _make_generated_cv(db, job)
+
     # Drive to complete step; cv_generation requires no artifact, complete requires generated_cv_id
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
     await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv.id), db)
 
     result = await db.execute(select(FlowSession).where(FlowSession.id == flow_id))
     flow = result.scalar_one()
@@ -543,11 +630,15 @@ async def test_advance_flow_from_complete_raises(db, user_and_job):
     flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
     flow_id = flow_resp.flow_id
 
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    cv = await _make_generated_cv(db, job)
+
     # Reach complete; cv_generation requires no artifact, complete requires generated_cv_id
-    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
     await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
-    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=uuid.uuid4()), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="complete", artifact_id=cv.id), db)
 
     with pytest.raises(InvalidTransitionError) as exc_info:
         await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
@@ -571,6 +662,84 @@ async def test_advance_flow_missing_artifact_raises(db, user_and_job):
 
     assert exc_info.value.step == "gap_analysis"
     assert exc_info.value.field == "gap_analysis_id"
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_artifact_not_found_raises(db, user_and_job):
+    """#676 line 1 (was #581): a wrong-referent artifact_id must raise a typed
+    ArtifactNotFoundError, not fall through to a raw IntegrityError at commit."""
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    bogus_id = uuid.uuid4()  # no GapAnalysis row exists for this id
+
+    with pytest.raises(ArtifactNotFoundError) as exc_info:
+        await advance_flow(
+            flow_resp.flow_id,
+            AdvanceFlowRequest(step="gap_analysis", artifact_id=bogus_id),
+            db,
+        )
+
+    assert exc_info.value.step == "gap_analysis"
+    assert exc_info.value.artifact_id == bogus_id
+
+    # The failed transition must not have partially applied.
+    flow = await db.get(FlowSession, flow_resp.flow_id)
+    assert flow.current_step == "jd_analysis"
+    assert flow.gap_analysis_id is None
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_complete_artifact_not_found_raises(db, user_and_job):
+    """Same check on the 'complete' step (generated_cv_id) — the step named in
+    #676 line 1's report."""
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    flow_id = flow_resp.flow_id
+
+    gap = await _make_gap_analysis(db, job)
+    interview = await _make_interview_session(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="interview", artifact_id=interview.id), db)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="cv_generation"), db)
+
+    bogus_id = uuid.uuid4()  # no GeneratedCV row exists for this id
+    with pytest.raises(ArtifactNotFoundError) as exc_info:
+        await advance_flow(
+            flow_id, AdvanceFlowRequest(step="complete", artifact_id=bogus_id), db
+        )
+
+    assert exc_info.value.step == "complete"
+    assert exc_info.value.artifact_id == bogus_id
+
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.current_step == "cv_generation"
+    assert flow.generated_cv_id is None
+
+
+@pytest.mark.asyncio
+async def test_advance_flow_idempotent_artifact_not_found_raises(db, user_and_job):
+    """The idempotent same-step re-advance path (artifact-refresh branch) must
+    look the new artifact_id up too — it writes the FK through the same
+    unchecked setattr as the main transition path before this fix."""
+    _, job = user_and_job
+    flow_resp = await create_flow(CreateFlowRequest(job_id=job.id), _STUB_USER_ID, db)
+    flow_id = flow_resp.flow_id
+
+    gap = await _make_gap_analysis(db, job)
+    await advance_flow(flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id), db)
+
+    bogus_id = uuid.uuid4()
+    with pytest.raises(ArtifactNotFoundError) as exc_info:
+        await advance_flow(
+            flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=bogus_id), db
+        )
+
+    assert exc_info.value.step == "gap_analysis"
+    assert exc_info.value.artifact_id == bogus_id
+
+    # The original FK must be unchanged — no partial write from the failed refresh.
+    flow = await db.get(FlowSession, flow_id)
+    assert flow.gap_analysis_id == gap.id
 
 
 @pytest.mark.asyncio

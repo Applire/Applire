@@ -31,6 +31,7 @@ from applire.schemas.flow import (
     FlowStateResponse,
 )
 from applire.services.flow.orchestrator import (
+    ArtifactNotFoundError,
     ArtifactRequiredError,
     InvalidTransitionError,
     advance_flow,
@@ -117,5 +118,13 @@ async def advance_flow_endpoint(
             detail=(
                 f"artifact_id is required when advancing to '{exc.step}' "
                 f"(stores it as {exc.field} on the flow record)"
+            ),
+        )
+    except ArtifactNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"artifact_id {exc.artifact_id} does not reference an existing "
+                f"record for step '{exc.step}'"
             ),
         )

@@ -412,6 +412,9 @@ class TestGateForcesInterviewRouting:
 
     @pytest.mark.asyncio
     async def test_create_flow_offers_interview_when_a_gate_is_parked(self, sqlite_session):
+        from sqlalchemy import select
+
+        from applire.models.gap import GapAnalysis
         from applire.schemas.flow import CreateFlowRequest
         from applire.services.flow.orchestrator import advance_flow, create_flow
         from applire.schemas.flow import AdvanceFlowRequest
@@ -423,11 +426,20 @@ class TestGateForcesInterviewRouting:
         )
         assert created.user_type == "returning"
 
+        # _seed already inserted a GapAnalysis for this job (_make_gap) — advance_flow
+        # now looks the artifact_id referent up (#676 line 1), so reuse that real row
+        # instead of a bare uuid.uuid4().
+        gap = (
+            await sqlite_session.execute(
+                select(GapAnalysis).where(GapAnalysis.job_analysis_id == job.id)
+            )
+        ).scalar_one()
+
         # Walk to gap_analysis; the offered next action must be the interview.
         from applire.services.flow.orchestrator import get_flow_state
 
         await advance_flow(
-            created.flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=uuid.uuid4()),
+            created.flow_id, AdvanceFlowRequest(step="gap_analysis", artifact_id=gap.id),
             sqlite_session,
         )
         flow_state = await get_flow_state(created.flow_id, sqlite_session)
