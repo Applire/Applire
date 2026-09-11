@@ -220,6 +220,8 @@ supplied by an agent is content Applire cannot trace to the candidate, and a
 face on a DACH CV is an identity assertion. The human uploads it in the UI. If
 the candidate wants a photo, tell them where — do not offer to handle it.
 
+**Signature image.** Like the profile photo, a signature image can only be supplied through the browser — there is no tool for it on this surface, and `render_document` strips any signature reference in caller-supplied content (a caller-supplied path or URL would be read off disk or off the network and embedded into a PDF by headless Chromium). A cover letter you render will therefore carry the candidate's printed name and no signature unless they have uploaded one in the web UI, where it is on by default for letters and off by default for CVs. If a DACH application needs one, say so to the human rather than attempting a workaround.
+
 ## Document language
 
 Generated documents follow the language the JD is *written in* by default —
