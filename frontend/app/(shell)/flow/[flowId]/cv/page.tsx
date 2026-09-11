@@ -149,6 +149,17 @@ export default function CVPage({
   // than as zero (clause 9) — an empty array is the different statement
   // "loaded, none found".
   const [gapClusters, setGapClusters] = useState<GapHintItem[] | null>(null);
+  // F-4b (founder ruling, 2026-09-11): the CV's own signature override
+  // (null = use the kind default) plus the resolved effective state and
+  // whether a signature is on file at all — all three seeded from the
+  // status response, same effect as docLanguage/template below.
+  const [signatureOverride, setSignatureOverride] = useState<boolean | null>(null);
+  const [signatureEffective, setSignatureEffective] = useState(false);
+  const [signatureAvailable, setSignatureAvailable] = useState(false);
+  // The CV kind default (`signature_in_cv`, F-0 default OFF) — words the
+  // control's "Standard (an|aus)" option; seeded from /api/settings.
+  const [signatureKindDefaultOn, setSignatureKindDefaultOn] = useState(false);
+  const [signatureSaving, setSignatureSaving] = useState(false);
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
@@ -166,6 +177,9 @@ export default function CVPage({
         if (cancelled) return;
         setTargetPages(s.target_cv_pages ?? 2);
         setReviewMode(s.review_mode ?? "auto");
+        // F-4b: the CV kind default (F-0: off) — a settings failure keeps the
+        // founder default rather than claiming "on".
+        setSignatureKindDefaultOn(s.signature_in_cv ?? false);
       })
       .catch(() => {});
     return () => {
@@ -326,13 +340,28 @@ export default function CVPage({
     let cancelled = false;
     fetch(`${API_BASE}/api/cv/${cvId}/status`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { document_language?: "de" | "en" | null; template?: string | null } | null) => {
-        if (cancelled || !data) return;
-        setDocLanguage(data.document_language ?? null);
-        if (data.template && (CV_TEMPLATES as readonly string[]).includes(data.template)) {
-          setTemplate(data.template as CVTemplate);
-        }
-      })
+      .then(
+        (
+          data: {
+            document_language?: "de" | "en" | null;
+            template?: string | null;
+            // F-4b (founder ruling, 2026-09-11): the per-document signature
+            // override and its resolved state.
+            signature_override?: boolean | null;
+            signature_effective?: boolean;
+            signature_available?: boolean;
+          } | null,
+        ) => {
+          if (cancelled || !data) return;
+          setDocLanguage(data.document_language ?? null);
+          if (data.template && (CV_TEMPLATES as readonly string[]).includes(data.template)) {
+            setTemplate(data.template as CVTemplate);
+          }
+          setSignatureOverride(data.signature_override ?? null);
+          setSignatureEffective(data.signature_effective ?? false);
+          setSignatureAvailable(data.signature_available ?? false);
+        },
+      )
       .catch(() => {
         // Non-fatal — no badge, template keeps its current value
       });
@@ -436,6 +465,34 @@ export default function CVPage({
       }
     } catch {
       // Best-effort — no prompt is fine.
+    }
+  }
+
+  // F-4b (founder ruling, 2026-09-11): set this CV's per-document signature
+  // override. Optimistic — the control repaints from the response rather than
+  // waiting for a refetch, so toggling and re-downloading (no regeneration
+  // needed) feels immediate. A failed PATCH rolls the control back.
+  async function handleSignatureOverrideChange(value: boolean | null) {
+    if (!cvId || signatureSaving) return;
+    const previous = { override: signatureOverride, effective: signatureEffective };
+    setSignatureSaving(true);
+    setSignatureOverride(value);
+    try {
+      const res = await fetch(`${API_BASE}/api/cv/${cvId}/signature`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_override: value }),
+      });
+      if (!res.ok) throw new Error(`signature ${res.status}`);
+      const data: { signature_override: boolean | null; signature_effective: boolean } =
+        await res.json();
+      setSignatureOverride(data.signature_override);
+      setSignatureEffective(data.signature_effective);
+    } catch {
+      setSignatureOverride(previous.override);
+      setSignatureEffective(previous.effective);
+    } finally {
+      setSignatureSaving(false);
     }
   }
 
@@ -676,6 +733,13 @@ export default function CVPage({
                 <DocumentExportFooter
                   onDownloadPdf={() => void requestDownload("pdf")}
                   onDownloadDocx={() => void requestDownload("docx")}
+                  signature={{
+                    available: signatureAvailable,
+                    kindDefaultOn: signatureKindDefaultOn,
+                    override: signatureOverride,
+                    onChange: (value) => void handleSignatureOverrideChange(value),
+                    saving: signatureSaving,
+                  }}
                 />
               }
             />

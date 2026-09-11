@@ -117,12 +117,27 @@ export default function CoverLetterPage({
   // both the default and the degraded value — a settings failure must never
   // decide the mode for the user.
   const [reviewMode, setReviewMode] = useState<ReviewModePreference>("auto");
+  // F-4b (founder ruling, 2026-09-11): the letter's own signature override
+  // (null = use the kind default) plus the resolved effective state and
+  // whether a signature is on file at all — seeded from `init()`'s status
+  // fetch below, same shape as the CV page's twin state.
+  const [signatureOverride, setSignatureOverride] = useState<boolean | null>(null);
+  const [signatureEffective, setSignatureEffective] = useState(false);
+  const [signatureAvailable, setSignatureAvailable] = useState(false);
+  // The letter kind default (`signature_in_letter`, F-0 default ON) — words
+  // the control's "Standard (an|aus)" option; seeded from /api/settings.
+  const [signatureKindDefaultOn, setSignatureKindDefaultOn] = useState(true);
+  const [signatureSaving, setSignatureSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getSettings()
       .then((s) => {
-        if (!cancelled) setReviewMode(s.review_mode ?? "auto");
+        if (cancelled) return;
+        setReviewMode(s.review_mode ?? "auto");
+        // F-4b: the letter kind default (F-0: on) — a settings failure keeps
+        // the founder default rather than claiming "off".
+        setSignatureKindDefaultOn(s.signature_in_letter ?? true);
       })
       .catch(() => {});
     return () => {
@@ -177,7 +192,15 @@ export default function CoverLetterPage({
         status: string;
         letter_data?: Record<string, unknown> | null;
         document_language?: "de" | "en" | null;
+        // F-4b (founder ruling, 2026-09-11): the per-document signature
+        // override and its resolved state.
+        signature_override?: boolean | null;
+        signature_effective?: boolean;
+        signature_available?: boolean;
       };
+      setSignatureOverride(statusData.signature_override ?? null);
+      setSignatureEffective(statusData.signature_effective ?? false);
+      setSignatureAvailable(statusData.signature_available ?? false);
 
       setClState({
         coverLetterId: clId,
@@ -357,6 +380,34 @@ export default function CoverLetterPage({
       URL.revokeObjectURL(url);
     } finally {
       setDownloading(false);
+    }
+  }
+
+  // F-4b (founder ruling, 2026-09-11): set this letter's per-document
+  // signature override. Optimistic — see the CV page's twin handler for the
+  // full reasoning (same shape, letter-side endpoint).
+  async function handleSignatureOverrideChange(value: boolean | null) {
+    const clId = clState?.coverLetterId;
+    if (!clId || signatureSaving) return;
+    const previous = { override: signatureOverride, effective: signatureEffective };
+    setSignatureSaving(true);
+    setSignatureOverride(value);
+    try {
+      const res = await fetch(`${API_BASE}/api/cover-letter/${clId}/signature`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_override: value }),
+      });
+      if (!res.ok) throw new Error(`signature ${res.status}`);
+      const data: { signature_override: boolean | null; signature_effective: boolean } =
+        await res.json();
+      setSignatureOverride(data.signature_override);
+      setSignatureEffective(data.signature_effective);
+    } catch {
+      setSignatureOverride(previous.override);
+      setSignatureEffective(previous.effective);
+    } finally {
+      setSignatureSaving(false);
     }
   }
 
@@ -573,6 +624,13 @@ export default function CoverLetterPage({
                 onDownloadPdf={() => void requestDownload("pdf")}
                 onDownloadDocx={() => void requestDownload("docx")}
                 downloadDisabled={downloading || phase !== "ready"}
+                signature={{
+                  available: signatureAvailable,
+                  kindDefaultOn: signatureKindDefaultOn,
+                  override: signatureOverride,
+                  onChange: (value) => void handleSignatureOverrideChange(value),
+                  saving: signatureSaving,
+                }}
               />
             }
           />

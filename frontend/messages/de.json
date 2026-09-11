@@ -1534,7 +1534,15 @@
     "languageSwitchBusy": "Wird gespeichert …",
     "languageSwitchError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
     "tabReview": "Prüfung",
-    "tabEdit": "Bearbeiten"
+    "tabEdit": "Bearbeiten",
+    "signatureControlLabel": "Unterschrift:",
+    "signatureDefaultOn": "Standard (an)",
+    "signatureDefaultOff": "Standard (aus)",
+    "signatureWith": "mit",
+    "signatureWithout": "ohne",
+    "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
+    "signatureUnavailableLink": "Im Profil hinzufügen",
+    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden."
   },
   "commandBar": {
     "atsChecks": "Prüfung",
