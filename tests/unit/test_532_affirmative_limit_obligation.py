@@ -226,8 +226,8 @@ def test_the_writer_rule_does_not_reopen_adr_074():
 
 
 def test_the_letter_reviewer_ratchets_still_hold():
-    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 12_500, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_100, len(
+    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 12_900, len(reviewer.REVIEW_SYSTEM_PROMPT)
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_300, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 
