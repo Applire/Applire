@@ -15,6 +15,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (M5.1.3, 2026-09-11 — JD_AWARE_CV_EXTRACTION_PROMPT and build_jd_aware_prompt
+#   deleted, not fixed. The constant was reachable from exactly one call site
+#   (services/profile/__init__.py, gated on job_id plus a live JobAnalysis row) that no shipped
+#   client ever exercised — the frontend's import-cv.ts never sends jobId from either production
+#   call site, and the MCP import tools carry no job_id parameter at all — and the build-1 prompt
+#   inventory found zero captured real-provider records for this prompt in either LLM log
+#   directory: an unmeasured, unreachable branch, not a dormant feature awaiting evidence. What it
+#   instructed is the reason it goes rather than gets measured: "Assign higher proficiency values
+#   to skills that directly match the JD's required or preferred skills" and "Write
+#   responsibilities and achievements using language that maps naturally to the JD requirements"
+#   let a job posting shape a VAULT WRITE at ingest — against ADR-061 clause 5's ceiling logic, and
+#   the reason ADR-084 point 21 fenced this block. `upload_cv`'s `job_id` parameter stays, kept for
+#   REST API compatibility; it no longer changes what gets extracted.)
 # Prompt version: v6 (#562 — TEAM_SIZE SEMANTICS rule added; Ship-Gate blind-run evidence
 #   2026-08-19: 3 of 4 panel_review_case CVs had team_size populated from a DIFFERENT quantity
 #   in the same sentence — company headcount ("480 Mitarbeitenden"), facility capacity
@@ -51,13 +64,13 @@
 # Used by: services/profile/__init__.py → upload_cv() → LLMProvider.aparse_json
 #          and reviewer.review_and_refine retry path
 #
-# Three constants (ADR 014):
-#   GENERIC_CV_EXTRACTION_PROMPT      — no JD context; general-purpose profile extraction
-#   JD_AWARE_CV_EXTRACTION_PROMPT     — injects JobAnalysis context for relevance-weighted extraction
+# Two constants (ADR 014; a third, JD_AWARE_CV_EXTRACTION_PROMPT, was retired M5.1.3 — see the
+# version header above):
+#   GENERIC_CV_EXTRACTION_PROMPT      — general-purpose profile extraction; used for every upload
 #   CV_EXTRACTION_REFINEMENT_PROMPT   — refinement-mode prompt used on review-loop retries
 #                                       (patch the previous draft, no raw source re-read)
 #
-# All three target the full MasterProfileData schema (iter 11).
+# Both target the full MasterProfileData schema (iter 11).
 # The model_validator on MasterProfileData handles backwards-compat with older field names.
 
 _SCHEMA_DESCRIPTION = """\
@@ -285,19 +298,6 @@ Output schema:
 
 GENERIC_CV_EXTRACTION_PROMPT = _SYSTEM_BASE
 
-JD_AWARE_CV_EXTRACTION_PROMPT = (
-    _SYSTEM_BASE
-    + """
-
-JD-aware extraction instructions:
-You have been provided with a job description analysis below. Use it to:
-- Prioritise extracting technologies and skills that are relevant to the target role.
-- Write responsibilities and achievements using language that maps naturally to the JD requirements.
-- Assign higher proficiency values to skills that directly match the JD's required or preferred skills.
-- Do NOT invent experience that is absent from the CV — only re-emphasise what is present.
-"""
-)
-
 
 def build_generic_prompt(raw_text: str) -> str:
     """Return the user message string for generic CV extraction.
@@ -306,33 +306,6 @@ def build_generic_prompt(raw_text: str) -> str:
     """
     return (
         "Extract the structured profile from the following CV text and return the JSON:\n\n"
-        + raw_text
-    )
-
-
-def build_jd_aware_prompt(raw_text: str, job_analysis: dict) -> str:
-    """Return the user message string for JD-context-aware CV extraction.
-
-    Pass to LLMProvider.aparse_json(prompt, system=JD_AWARE_CV_EXTRACTION_PROMPT).
-
-    *job_analysis* is the serialisable dict from a JobAnalysis DB record.
-    The LLM is instructed not to invent data absent from the CV.
-    """
-    import json
-
-    from applire.services.untrusted_text import fence
-
-    # ADR-084 embedding point 21 (Form A). The JD-aware extraction path is the
-    # earliest place a posting can reach the VAULT side of the system: an
-    # instruction obeyed here shapes what is extracted from the candidate's own
-    # CV. The block already said "context only"; the fence says the part that
-    # sentence could not — that it is not a source of instructions either.
-    return (
-        fence(
-            json.dumps(job_analysis, ensure_ascii=False, indent=2),
-            header="Job Description Analysis (for context only — do not invent data)",
-        )
-        + "\n\nExtract the structured profile from the following CV text and return the JSON:\n\n"
         + raw_text
     )
 

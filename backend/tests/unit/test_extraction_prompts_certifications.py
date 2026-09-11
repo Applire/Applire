@@ -48,4 +48,6 @@ def test_cv_extraction_prompts_request_certifications():
     # The browser /upload path — guard the original fix from regressing.
     assert "certifications" in cv_extraction.GENERIC_CV_EXTRACTION_PROMPT
     assert _PRECEDENCE_MARKER in cv_extraction.GENERIC_CV_EXTRACTION_PROMPT
-    assert _PRECEDENCE_MARKER in cv_extraction.JD_AWARE_CV_EXTRACTION_PROMPT
+    # JD_AWARE_CV_EXTRACTION_PROMPT inheritance assertion removed M5.1.3 (2026-09-11): the
+    # constant was retired (see cv_extraction.py's version header) — there is no variant
+    # left to inherit the rule.

@@ -85,14 +85,15 @@ def test_profile_extraction_user_prompt_reminds_about_the_split():
 
 
 def test_cv_extraction_prompts_declare_split_work_fields():
-    """The browser /upload door — guard the working behaviour from regressing."""
-    for prompt in (
-        cv_extraction.GENERIC_CV_EXTRACTION_PROMPT,
-        cv_extraction.JD_AWARE_CV_EXTRACTION_PROMPT,
-    ):
-        for field in _SPLIT_FIELDS:
-            assert field in prompt
-        assert _TECH_MARKER in prompt
+    """The browser /upload door — guard the working behaviour from regressing.
+
+    JD_AWARE_CV_EXTRACTION_PROMPT was retired M5.1.3 (2026-09-11 — see
+    cv_extraction.py's version header); GENERIC_CV_EXTRACTION_PROMPT is now the
+    only prompt this door builds, so this covers the one remaining member.
+    """
+    for field in _SPLIT_FIELDS:
+        assert field in cv_extraction.GENERIC_CV_EXTRACTION_PROMPT
+    assert _TECH_MARKER in cv_extraction.GENERIC_CV_EXTRACTION_PROMPT
 
 
 def test_both_doors_agree_on_the_technologies_hygiene_rule():

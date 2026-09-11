@@ -51,16 +51,14 @@ _GROUNDING_MARKER = "PER-ENTRY GROUNDING"
 
 
 def test_single_call_prompt_teaches_german_proficiency_words():
-    from applire.prompts.cv_extraction import (
-        GENERIC_CV_EXTRACTION_PROMPT,
-        JD_AWARE_CV_EXTRACTION_PROMPT,
-    )
+    # M5.1.3 (2026-09-11): JD_AWARE_CV_EXTRACTION_PROMPT was retired — GENERIC_CV_EXTRACTION_PROMPT
+    # is now the only single-call prompt, so this covers the one remaining member.
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
-    for prompt in (GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT):
-        assert _GERMAN_PROFICIENCY_WORD in prompt.lower(), (
-            "cv_extraction.py must teach the German self-declaration word "
-            "'Anwender' in its PROFICIENCY SCALE rule."
-        )
+    assert _GERMAN_PROFICIENCY_WORD in GENERIC_CV_EXTRACTION_PROMPT.lower(), (
+        "cv_extraction.py must teach the German self-declaration word "
+        "'Anwender' in its PROFICIENCY SCALE rule."
+    )
 
 
 def test_segmented_core_prompt_teaches_german_proficiency_words():
@@ -78,17 +76,15 @@ def test_segmented_core_prompt_teaches_german_proficiency_words():
 
 
 def test_single_call_prompt_forbids_technologies_backfill():
-    from applire.prompts.cv_extraction import (
-        GENERIC_CV_EXTRACTION_PROMPT,
-        JD_AWARE_CV_EXTRACTION_PROMPT,
-    )
+    # M5.1.3 (2026-09-11): JD_AWARE_CV_EXTRACTION_PROMPT was retired — GENERIC_CV_EXTRACTION_PROMPT
+    # is now the only single-call prompt, so this covers the one remaining member.
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
-    for prompt in (GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT):
-        assert _GROUNDING_MARKER in prompt, (
-            "cv_extraction.py must instruct the model not to backfill an "
-            "entry's technologies list from a separate skills/Kenntnisse "
-            "section or a different entry."
-        )
+    assert _GROUNDING_MARKER in GENERIC_CV_EXTRACTION_PROMPT, (
+        "cv_extraction.py must instruct the model not to backfill an "
+        "entry's technologies list from a separate skills/Kenntnisse "
+        "section or a different entry."
+    )
 
 
 def test_segmented_detail_prompt_forbids_technologies_backfill():

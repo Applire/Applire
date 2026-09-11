@@ -52,9 +52,9 @@ def test_single_call_extraction_prompt_keeps_the_figure_in_prose():
         "responsibilities/achievements bullet that states it, not only in "
         "the typed field."
     )
-    # JD_AWARE shares the same _SYSTEM_BASE — must inherit the rule too.
-    from applire.prompts.cv_extraction import JD_AWARE_CV_EXTRACTION_PROMPT
-    assert _MARKER in JD_AWARE_CV_EXTRACTION_PROMPT
+    # JD_AWARE_CV_EXTRACTION_PROMPT inheritance assertion removed M5.1.3 (2026-09-11): the
+    # constant was retired (see prompts/cv_extraction.py's version header) — there is no
+    # variant left to inherit the rule.
 
 
 def test_segmented_detail_prompt_keeps_the_figure_in_prose():
