@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-09-04 · re-fetch anytime with `get_guide`*
+*Revision 2026-09-11 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -172,6 +172,53 @@ the matching `artifact_id` when advancing.
 Every tool in this section works standalone; nothing forces you into the
 pipeline (`generate_cover_letter` is the exception across the surface — it
 needs a flow session, because it is a pipeline tool).
+
+## Keeping the vault honest — health, undo, held merges
+
+The vault is what every document is checked against, so three tools exist to
+let you see and repair what your writes did to it. Use them; an agent that only
+ever writes is flying blind.
+
+- `get_profile_health` — one deterministic read (no LLM, no cost): severity-
+  tagged integrity `issues`, a `completeness` block, and `held_merges`. Call it
+  after an import and before a generation. Two things repay attention:
+  - `completeness.field_gaps` is a **role-aware, field-level agenda** — e.g.
+    `"achievements: Product Lead @ Beta GmbH"`, `"end_date: Junior Dev @ Acme"`.
+    This is the no-JD profile review: there is no separate review-interview tool
+    on this channel **by design**, because the elicitation front-end here is
+    *you*. Walk the list, ask the candidate in your own words, and write the
+    answers back with `submit_testimony` / `submit_claims` / `update_profile` /
+    `add_role`. (The UI has its own guided version of the same list; you are not
+    missing a tool.)
+  - `issues[].profile_mismatch_severity` (`info` / `review` / `critical`) is
+    about the *profile*, not about a document. A `critical` here means the
+    candidate's own data disagrees with itself — resolve it with the human
+    before you generate anything from it.
+
+- `undo_last_merge` — restores the snapshot taken before the most recent merge.
+  **Single-level and idempotent**: after one successful undo the chain is
+  consumed, so a second call returns `restored: false` rather than peeling back
+  further. If it returns `discarded_later_edits: true`, say so to your human in
+  plain words — edits they made *after* that merge were dropped, and only they
+  can judge whether that matters.
+
+- `resolve_held_merge(staged_id, decision)` — Applire holds an import before it
+  commits when the document does not look like a CV (`gate: "not_a_cv"`) or when
+  the name on it shares no token with the account holder's (`"name_divergence"`).
+  A held import has changed nothing in the vault; it waits. `get_profile_health`
+  lists them with both names, so you can ask precisely: *"your profile says
+  Stefan Brandt, this CV says Maria Klein — is this your document?"*
+  **This is a relay, not a judgement call.** Put the question to the human and
+  pass their answer; never infer "it's probably a maiden name" and merge. The
+  gate exists because a document merged in error becomes *grounded* — the Oracle
+  will happily verify every later claim against a stranger's career. Resolving
+  the same item twice is an error, not a silent success.
+
+**Binary identity assets are not on this channel.** The profile photo
+(`POST /api/profile/photo`) has no MCP tool and will not get one: an image
+supplied by an agent is content Applire cannot trace to the candidate, and a
+face on a DACH CV is an identity assertion. The human uploads it in the UI. If
+the candidate wants a photo, tell them where — do not offer to handle it.
 
 ## Document language
 

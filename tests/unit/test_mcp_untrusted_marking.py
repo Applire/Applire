@@ -91,6 +91,16 @@ EXPECTED_UNMARKED = {
     "get_cv_status",
     "get_cover_letter_status",
     "audit_document",
+    # #58 (ADR-054 amended 2026-09-11) — the Master-Profile-Health trio reads
+    # the VAULT: integrity issues, a completeness agenda, held imports, undo
+    # flags. Nothing on these payloads originates in a job posting, which is
+    # the one thing this marker means. The candidate's own uploaded document is
+    # a different exposure and is deliberately unmarked across the whole import
+    # family (`import_cv` above) — marking it here would make the marker mean
+    # "some text from somewhere", i.e. nothing.
+    "get_profile_health",
+    "undo_last_merge",
+    "resolve_held_merge",
 }
 
 
@@ -153,7 +163,21 @@ def test_the_marker_costs_nothing_against_the_tool_surface_budget():
         len(json.dumps({"name": t.name, "description": t.description, "inputSchema": t.inputSchema}))
         for t in tools
     )
-    assert surface < 16_000, surface
+    # One fact, one home: the ceiling lives in test_mcp_agent_guide.py (ADR-056
+    # §4). A second literal here went stale the moment #58 raised it — exactly
+    # the class this load removes. `tests/unit` is not a package, so load it by
+    # path (the idiom tests/unit/test_mcp_tools.py already uses for the
+    # docker-tier module).
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "_mcp_agent_guide_budget", Path(__file__).parent / "test_mcp_agent_guide.py"
+    )
+    guide_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guide_mod)
+
+    assert surface < guide_mod.TOOL_SURFACE_CHAR_BUDGET, surface
     assert not any("untrusted_content" in (t.description or "") for t in tools)
 
 
