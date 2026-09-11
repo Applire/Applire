@@ -1534,7 +1534,15 @@
     "languageSwitchBusy": "Saving …",
     "languageSwitchError": "Saving failed — please try again.",
     "tabReview": "Review",
-    "tabEdit": "Edit"
+    "tabEdit": "Edit",
+    "signatureControlLabel": "Signature:",
+    "signatureDefaultOn": "Default (on)",
+    "signatureDefaultOff": "Default (off)",
+    "signatureWith": "with",
+    "signatureWithout": "without",
+    "signatureUnavailableHint": "No signature on file.",
+    "signatureUnavailableLink": "Add one in your profile",
+    "signatureSaveError": "The setting could not be saved."
   },
   "commandBar": {
     "atsChecks": "Review",

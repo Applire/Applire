@@ -62,6 +62,12 @@ const MOCK_CV_STATUS = {
   template: 'executive',
   origin: 'pipeline',
   document_language: 'de',
+  // F-4b (founder ruling, 2026-09-11): no signature uploaded in this fixture
+  // — the three-state control stays hidden, matching the rest of the mock's
+  // "nothing signature-related is under test here" posture.
+  signature_override: null,
+  signature_effective: false,
+  signature_available: false,
 };
 
 test.describe('Document language switch (US289)', () => {

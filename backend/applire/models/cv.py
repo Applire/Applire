@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -106,6 +106,13 @@ class GeneratedCV(Base):
     origin: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pipeline", server_default="pipeline"
     )
+    # F-4b (founder ruling, 2026-09-11), migration 0066: per-document signature
+    # override, ahead of the kind-level default on user_settings
+    # (signature_in_cv). NULL = use the kind default; true/false = with/without,
+    # regardless of the kind default. Read at both render seams of THIS kind
+    # (get_cv_html, _prepare_cv_docx_render) via
+    # services.signature._signature_path_if_enabled's override parameter.
+    signature_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

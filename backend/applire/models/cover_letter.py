@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -89,6 +89,14 @@ class GeneratedCoverLetter(Base):
     origin: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pipeline", server_default="pipeline"
     )
+    # F-4b (founder ruling, 2026-09-11), migration 0066: per-document signature
+    # override, ahead of the kind-level default on user_settings
+    # (signature_in_letter). NULL = use the kind default; true/false =
+    # with/without, regardless of the kind default. Read at both render seams
+    # of THIS kind (get_cover_letter_html, _prepare_cover_letter_docx_render)
+    # via services.signature._signature_path_if_enabled's override parameter.
+    # See models/cv.py's GeneratedCV.signature_override for the CV-side twin.
+    signature_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

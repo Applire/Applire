@@ -50,6 +50,21 @@ founder default F-0). They are read at RENDER time rather than pinned onto the
 document row, so a user can toggle and re-download without paying for a
 regeneration; the cost of that trade (the state that decided a render is mutable
 afterwards) is recorded in System-FMEA ``SF-PDF.6``.
+
+**Per-document override (F-4b, founder ruling 2026-09-11).** On top of the
+kind-level default, one specific generated CV or cover letter can carry its
+own ``signature_override`` column (migration 0066, ``models/cv.GeneratedCV`` /
+``models/cover_letter.GeneratedCoverLetter``): ``None`` = "use the kind
+default" (unchanged behaviour), ``True``/``False`` = "with"/"without",
+regardless of what the kind default says. Every resolution function below
+takes an ``override`` parameter and the precedence is override-first —
+``override if override is not None else <kind default>`` — evaluated in
+``_signature_path_if_enabled``, the ONE seam every caller shares, so a
+document's override cannot be honoured on the PDF/HTML path and ignored on
+the DOCX path (same SF-PDF.6 discipline the kind toggle already has). Like
+the kind toggle, it is read at RENDER time from the row a caller already
+holds, not baked into a persisted artefact — toggling a document's override
+and re-downloading takes effect without regenerating.
 """
 from __future__ import annotations
 
@@ -209,21 +224,35 @@ async def get_signature_bytes(
 # ---------------------------------------------------------------------------
 
 
-async def _signature_path_if_enabled(db: AsyncSession, document: DocumentKind) -> str | None:
-    """The stored path, or None when the toggle is off / nothing is on file.
+async def _signature_path_if_enabled(
+    db: AsyncSession, document: DocumentKind, *, override: bool | None = None
+) -> str | None:
+    """The stored path, or None when the effective toggle is off / nothing is
+    on file.
 
-    One function, so the toggle cannot be honoured on the PDF path and ignored
-    on the DOCX path (SF-PDF.6's "one resolution seam per document family"
-    control). Never raises: a render must not fail because a profile row is
-    missing or a settings row has not been created yet.
+    One function, so neither the kind default nor a document's own override
+    can be honoured on the PDF path and ignored on the DOCX path (SF-PDF.6's
+    "one resolution seam per document family" control). Never raises: a
+    render must not fail because a profile row is missing or a settings row
+    has not been created yet.
+
+    ``override`` (F-4b, founder ruling 2026-09-11): the per-document
+    ``signature_override`` column a caller reads off its own
+    ``GeneratedCV``/``GeneratedCoverLetter`` row. ``None`` (the column's
+    default and every pre-F-4b row's only possible value) defers to the
+    kind-level toggle below, unchanged; ``True``/``False`` decide the
+    question outright, regardless of what the kind default says.
     """
     row = await _get_settings_row(db)
     if row is None:
         # No settings row == no signature has ever been uploaded, so the toggle
-        # question does not arise.
+        # question does not arise — not even a document override can render an
+        # image that was never stored.
         return None
 
-    if document == "letter":
+    if override is not None:
+        enabled = override
+    elif document == "letter":
         # `getattr` with the DEFAULT, not with False: a freshly-created row has
         # not reflected its server_default yet, and the defaults are the
         # convention, not "off". Same shape as review_mode/dismissed_explainers.
@@ -236,20 +265,21 @@ async def _signature_path_if_enabled(db: AsyncSession, document: DocumentKind) -
 
 
 async def resolve_signature_data_uri(
-    db: AsyncSession, *, document: DocumentKind
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
 ) -> str | None:
     """Inline ``data:`` URI for the HTML/PDF renderers, or None.
 
-    None covers all four "do not render" cases identically — toggle off, no
-    signature on file, no profile, file deleted after upload — because the
-    template's ``{% if %}`` is the only consumer and it cannot act on the
-    difference. A missing FILE is silently omitted rather than raising, exactly
-    as the photo is (``cv._resolve_photo_data_uri``): a deleted asset must not
-    turn a download into a 500.
+    None covers all "do not render" cases identically — override off, kind
+    toggle off (when override is None), no signature on file, no profile,
+    file deleted after upload — because the template's ``{% if %}`` is the
+    only consumer and it cannot act on the difference. A missing FILE is
+    silently omitted rather than raising, exactly as the photo is
+    (``cv._resolve_photo_data_uri``): a deleted asset must not turn a
+    download into a 500.
     """
     from applire.storage import get_storage
 
-    path = await _signature_path_if_enabled(db, document)
+    path = await _signature_path_if_enabled(db, document, override=override)
     if not path:
         return None
     try:
@@ -262,14 +292,53 @@ async def resolve_signature_data_uri(
 
 
 async def resolve_signature_bytes(
-    db: AsyncSession, *, document: DocumentKind
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
 ) -> bytes | None:
     """Raw bytes for the DOCX writers (python-docx needs a stream, not a URI)."""
-    data_uri = await resolve_signature_data_uri(db, document=document)
+    data_uri = await resolve_signature_data_uri(db, document=document, override=override)
     if data_uri is None:
         return None
     _, _, payload = data_uri.partition(",")
     return base64.b64decode(payload)
+
+
+async def resolve_signature_available(db: AsyncSession) -> bool:
+    """Whether ANY signature image is on file at all, independent of either
+    kind toggle or any document's override.
+
+    Not itself part of the ADR-088/F-0 render precedence — this answers a
+    different question, the one the frontend's three-state control needs to
+    decide whether to render itself at all rather than a disabled hint
+    (F-4b: "hidden or disabled ... when no signature is uploaded", brief
+    step 3). ``signature_effective`` alone cannot answer it: with no
+    per-document override and the kind default off, ``signature_effective``
+    reads False whether or not a file was ever uploaded, and the control
+    must tell those two cases apart — one has nothing to offer, the other has
+    a real choice to make.
+    """
+    row = await _get_settings_row(db)
+    return bool(row and row.signature_path)
+
+
+async def resolve_signature_effective(
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+) -> bool:
+    """Whether a signature WOULD render for this document right now — the
+    ``signature_effective`` field the status/detail responses expose (F-4b)
+    so the frontend's three-state control can show the true current state
+    without re-fetching or re-downloading.
+
+    Deliberately the same precedence seam as the render path
+    (``_signature_path_if_enabled``): a status response that computed this
+    differently from what a download actually produces would be its own
+    defect. Cheaper than ``resolve_signature_data_uri`` — it never touches
+    storage, so a status poll cannot fail or slow down because of a missing
+    file; a dangling path still reads as "effective" here exactly as the
+    render path's own None-covers-every-case discipline intends (the
+    template's ``{% if %}`` is what actually discovers a missing file).
+    """
+    path = await _signature_path_if_enabled(db, document, override=override)
+    return path is not None
 
 
 def format_place_date(location: str | None, language: str, today: date | None = None) -> str:

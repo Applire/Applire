@@ -261,6 +261,16 @@ async def get_cover_letter_status(
         pdf_url = f"{base_url}/api/cover-letter/{cl_id}/pdf"
         letter_data = cl.letter_data
 
+    # F-4b: the effective value accounts for this letter's own override — see
+    # services.signature.resolve_signature_effective's own docstring for why
+    # this must share the render path's precedence seam.
+    from applire.services.signature import resolve_signature_available, resolve_signature_effective
+
+    signature_effective = await resolve_signature_effective(
+        db, document="letter", override=cl.signature_override
+    )
+    signature_available = await resolve_signature_available(db)
+
     return CoverLetterStatusResponse(
         cover_letter_id=cl.id,
         status=cl.status,
@@ -273,7 +283,45 @@ async def get_cover_letter_status(
         critic_report=cl.critic_report,
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=cl.document_language,
+        # F-4b: the stored per-document override (None/True/False) and the
+        # resolved effective state, so the three-state control can render
+        # without a second round trip.
+        signature_override=cl.signature_override,
+        signature_effective=signature_effective,
+        signature_available=signature_available,
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/cover-letter/{cl_id}/signature — F-4b per-document signature
+# override
+# ---------------------------------------------------------------------------
+
+
+async def set_cover_letter_signature_override(
+    cl_id: uuid.UUID, override: bool | None, db: AsyncSession
+) -> bool:
+    """Persist ``signature_override`` on one cover letter and return the
+    resulting ``signature_effective``. Letter-side twin of
+    ``services.cv.set_cv_signature_override`` — same shape, same precondition
+    (ready), same reasoning; see that function's own docstring."""
+    from applire.services.signature import resolve_signature_effective
+
+    result = await db.execute(
+        select(GeneratedCoverLetter).where(
+            GeneratedCoverLetter.id == cl_id,
+            GeneratedCoverLetter.deleted_at.is_(None),
+        )
+    )
+    cl = result.scalar_one_or_none()
+    if cl is None:
+        raise LookupError(f"Cover letter {cl_id} not found")
+    if cl.status != CoverLetterStatus.ready.value:
+        raise LookupError(f"Cover letter {cl_id} is not ready (status={cl.status})")
+
+    cl.signature_override = override
+    await db.commit()
+    return await resolve_signature_effective(db, document="letter", override=override)
 
 
 async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
@@ -395,9 +443,13 @@ async def get_cover_letter_html(
     # letter — the Anschreiben is where DACH practice expects a signature), via
     # the single seam that also serves the .docx path. None when the toggle is
     # off, nothing is on file, or the stored file is gone.
+    # F-4b: this letter's own signature_override (None = kind default) wins
+    # over the kind-level toggle, ahead of the storage/toggle resolution.
     from applire.services.signature import resolve_signature_data_uri
 
-    signature_image = await resolve_signature_data_uri(db, document="letter")
+    signature_image = await resolve_signature_data_uri(
+        db, document="letter", override=cl.signature_override
+    )
     return tmpl.render(
         letter=letter_data,
         color=color_ctx,
@@ -552,9 +604,13 @@ async def _prepare_cover_letter_docx_render(
 
     # #359: resolved HERE, in the shared prep, so the ADR-079 clause 8 audit
     # renders the same bytes the user downloads (this function's whole reason).
+    # F-4b: same override precedence as get_cover_letter_html — the OTHER of
+    # the two render seams a letter's signature_override must reach.
     from applire.services.signature import resolve_signature_bytes
 
-    signature_bytes = await resolve_signature_bytes(db, document="letter")
+    signature_bytes = await resolve_signature_bytes(
+        db, document="letter", override=cl.signature_override
+    )
     return letter, lang, color_ctx["primary"], signature_bytes
 
 
