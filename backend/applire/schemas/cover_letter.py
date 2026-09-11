@@ -134,8 +134,32 @@ class CoverLetterStatusResponse(BaseModel):
     # generation time — badge source (FMEA JF-F-G2.2). Stored value as-is;
     # legacy NULL rows stay None.
     document_language: Optional[str] = None
+    # F-4b (founder ruling, 2026-09-11): the stored per-document override
+    # (None = use the kind default) and the resolved effective state — see
+    # schemas.cv.CVStatusResponse's twin fields for the fuller rationale.
+    signature_override: Optional[bool] = None
+    signature_effective: bool = False
+    # F-4b (deviation from the brief's exact two-field list, flagged): whether
+    # ANY signature image is on file at all — see
+    # schemas.cv.CVStatusResponse.signature_available's twin comment / the
+    # F-4b report for the full reasoning.
+    signature_available: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class CoverLetterSignatureOverrideRequest(BaseModel):
+    """PATCH /api/cover-letter/{cl_id}/signature body (F-4b). ``null`` clears
+    the override back to the kind default — the third state, not "false"."""
+    signature_override: Optional[bool] = None
+
+
+class CoverLetterSignatureOverrideResponse(BaseModel):
+    """The stored value plus the resolved effective state — letter-side twin
+    of ``schemas.cv.CVSignatureOverrideResponse``."""
+    cover_letter_id: uuid.UUID
+    signature_override: Optional[bool] = None
+    signature_effective: bool = False
 
 
 class SectionOverridePatch(BaseModel):

@@ -6,7 +6,60 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Master Profile Health reaches the agent channel (#58).** Three MCP tools that the browser has had since E033 and an agent has not: `get_profile_health` (the deterministic health assessment — severity-tagged integrity issues, a completeness score with its field-level gaps — plus every import the pre-merge integrity gate is currently holding, in one call), `undo_last_merge` (restore the snapshot taken before the most recent merge; single-level, idempotent, and explicit when later edits went with it), and `resolve_held_merge(staged_id, decision)`. The last is deliberately a **relay**: Applire holds an import when the document does not look like a CV, or when the name on it shares no token with the account holder's, and the agent's job is to put that question to the human and pass the answer back — identity is never the agent's call. There is no separate no-JD review-interview tool, by design: `completeness.field_gaps` is the same agenda the built-in review walks, so a capable caller asks in its own words and writes back through the doors that already exist.
+
 ### Changed
+- **JD analysis no longer loses the seniority the posting states (#617).** On a posting titled *Leiter Operations*, five runs produced five different answers — `''`, `Leitung`, `''`, `Senior`, `Manager` — and three of them are values the schema does not even permit. The cause was four missing sentences, not a flaky model: nothing told the extractor where a seniority tier may be grounded, the reviewer's check sanctioned a job-board metadata line but never the job TITLE, and the corrector's only way to answer "that tier overreaches" was to delete the field. Downstream, an empty tier silently withholds the *"N years of experience meets the seniority bar"* signal from gap analysis — on a 14-year candidate answering a posting that asks for 8+ years of leadership. The extractor now knows what grounds a tier (and may answer `null` when nothing does), and both the reviewer and the corrector know to **demote to the tier the posting does support** instead of deleting it. Measured on the real provider, n=5 per arm: the grounded tier was delivered 0/5 before and 5/5 after.
+- **Extracted job-posting terms follow the posting's language (#617).** It was never specified, so the same posting came back in German on one run and English on the next — while those terms are matched literally against a CV and letter that follow the posting's language, so a translated term matches nothing and reads as a missing keyword. The language is now computed and stated rather than argued for in prose: runs agreeing on one language went 4/5 → 5/5 on the German case, and term-set stability on the delivery-run posting improved from 0.63 to 0.79.
+- **A cover letter can no longer disclose a limit you never stated (#664).** Asked to name
+  the limits a posting asks about, the writer could manufacture one — the 2026-09-05 run
+  delivered *"Eigenständige Investitionsplanung, Vertriebserfahrung und Qualitätsmanagement
+  beanspruche ich nicht"*, and the vault holds ISO-9001 audit evidence. Reading that run's own
+  records round by round showed the cause was not the writer: the same ledger row reached the
+  corrector in the *"claimable — surface it"* block and the *"you do not have this — position
+  the gap"* block at once, the reviewer demanded the disclaimer under one check and flagged it
+  under another a round later, the corrector then repaired it — and the final length floor
+  discarded the repair because the repaired letter was a line too long. Three things change.
+  A concept you are only claimable *through* an adjacent capability may no longer be offered
+  the "name the gap honestly" option at all: you never denied it, so the only honest move is
+  the transfer argument. Every limit the letter states is checked against the limits you
+  actually stated, and the finding reaches the corrector each round. And a length preference
+  may never discard a truth repair — the floor now keeps the composition that invents no
+  limit, page count second. If no round can ground the sentence it is removed before the PDF
+  is rendered, and the terminal-review report tells you which sentence went and why.
+  Measured on the captured population: 6 findings over 240 body sentences of 10 real drafts,
+  all 6 true, none false; one real generation delivered a letter whose one limit sentence is
+  correctly recognised as yours and left alone.
+- **Repetition can now block a cover letter (#668's letter half).** The CV doors took this in
+  the previous release and the letter's was held back for a measurement, which is now in: on a
+  letter that names one employer ten times and states the same leadership scope in two
+  paragraphs, the reviewer raised it as blocking 5 times in 5 where it previously raised it as
+  blocking 0 times in 5, and the corrector cut the repetition 5 times in 5 without touching the
+  honest gap disclosure blind readers call the strongest reason to trust a letter.
+- **Your signature goes on the document (#359).** Upload a signature image once in your profile and Applire places it on the cover letter above your printed name — the DACH convention — and, if you switch it on, at the end of the CV with `Ort, Datum` above it. The point is the step it removes: printing, signing, scanning and sending a picture of a document, which loses the PDF's text layer and is exactly what an ATS cannot read. All seven letter templates, all seven CV templates and both Word exports render it. The two switches are per document kind and are read at download time, so changing one takes effect on your next download without regenerating anything. A transparent PNG looks best; JPEG and WebP work; 2 MB cap. **No consent checkbox**, unlike the profile photo: a signature is ordinary personal data, not GDPR Article 9 special-category data, and asking for a consent the law does not require would have implied otherwise. The agent channel cannot upload one yet — the same limitation the profile photo has, now stated in the agent guide instead of discovered.
+
+### Changed
+- **A claimable gap on the review surface takes you into the section editor again (#667).** E058 grouped findings by the question they answer and, in doing so, lost the old "click the gap, land in the editor with it selected" path. It is back: a claimable gap cluster in group 2 is a button that opens the *Bearbeiten* tab with that section open and the gap preselected, and group 2's copy now names the section editor as a fourth handle alongside raising the page target, pinning the fact and regenerating. Navigation is not the surface offering a fix it cannot honestly make — the writing is still yours, nothing arrives pre-filled — which is the distinction the ADR-081 amendment records. An honest gap still routes to profile enrichment rather than inviting a written claim.
+- **The document review surface's craft group is pinned by tests, and one premise corrected (#671).** The terminal review's own findings — the voice and claim-balance observations that never block — were believed to be computed and shown to nobody. Measured against the real reports of a full generation run: they were already rendered in group 4 on both document pages. What was missing was the guarantee, so nine tests now hold it, including that a review which settled on minor findings only stays a *pass with observations* and never invents a warning state.
+- **A narrow "no" no longer swallows a broad "yes" in the gap analysis.** A candidate who
+  said they had *never produced directly for food customers* had the job's bare requirement
+  *Produktion* published back to them as a critical gap — while the same screen still listed
+  it under their strengths — because the denial floor asked whether a requirement is denied
+  using every name the analysis has for it, and asked whether the vault affirms it using only
+  one. German compounding did the rest: the role they hold, *Produktionsleiter*, is not the
+  word *Produktion* at a word boundary. Both questions now run over the same set of names,
+  through one instrument used at every place the floor is applied; a denial that names the
+  term itself is still absolute. And `strengths` is now filtered against the same analysis's
+  own ledger, so one response can no longer call a concept a strength and a critical gap at
+  once.
+- **A turn that wrote nothing now says why.** The receipt that appears when you say something
+  and nothing lands used to read "nothing was recorded from what you said" in all three
+  cases. The reconciler now names the reason, and you read the one that fits: *that is
+  already in your profile, as stated* · *your question arrived — nothing was changed for it* ·
+  or, when the reason is anything else or the model does not answer, the original wording plus
+  what to do next. The fail-safe is the wide one, so a model that ignores the question never
+  costs you the receipt.
 - **`docker-compose.yml` takes its database credentials from the environment.** `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` feed both the postgres service and `DATABASE_URL`. The defaults are today's values, so an install that changes nothing behaves identically; setting real credentials is now a three-line `.env` edit instead of a compose-file edit. PostgreSQL reads them only when the data volume is first created — the runbook says how to change them on an install that already has data.
 - **`docker-compose.override.yml` announces itself.** It sets `APPLIRE_TOPOLOGY=dev`, so the backend logs a startup WARNING and `GET /health` reports `"topology": "dev"`. Compose applies that override automatically whenever it sits beside the compose file — i.e. in every source clone — which publishes an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now said so nowhere. The production file never sets the variable.
 - **While `LLM_DEBUG_LOG` is on, the instance says so** at every startup and on `GET /health`. That log records CV and interview PII and deliberately has no size or age cap: a cap on a diagnostic tool truncates evidence silently, so you are told instead.

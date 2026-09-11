@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { ClipboardCheck, SlidersHorizontal, Download, X } from "lucide-react";
 import type { ATSReport } from "./ATSChecksPanel";
@@ -34,6 +34,18 @@ interface MobileCommandBarProps {
   fineTuneSurface: ReactNode;
   /** Wired to the CV page's requestDownload() / PreDownloadNotice path. */
   onDownloadPdf: () => void;
+  /**
+   * #667 (ADR-081 cl. 3 amended 2026-09-11): an increasing counter the CV page
+   * bumps when the review surface's fourth handle is used. Switches from the
+   * review sheet to the Fine-tune sheet, which is where the section editor
+   * lives — on mobile the two are separate sheets, and `fineTuneSurface` is
+   * mounted only while its own sheet is open, so without this the preselected
+   * editor would never mount at all.
+   *
+   * A counter rather than a boolean: the same gap may be opened twice, and a
+   * boolean that is already `true` is an unchanged value.
+   */
+  openFineTuneNonce?: number;
 }
 
 type ActiveSheet = "ats" | "fineTune" | null;
@@ -60,10 +72,22 @@ export function MobileCommandBar({
   atsPanel,
   fineTuneSurface,
   onDownloadPdf,
+  openFineTuneNonce,
 }: MobileCommandBarProps) {
   const t = useTranslations("commandBar");
   const tCommon = useTranslations("common");
   const [sheet, setSheet] = useState<ActiveSheet>(null);
+
+  // #667: honour the page's request to move into the section editor. Skips the
+  // initial render (`undefined` / the first value) so a freshly-mounted bar
+  // does not pop a sheet nobody asked for.
+  const seenFineTuneNonce = useRef<number | undefined>(openFineTuneNonce);
+  useEffect(() => {
+    if (openFineTuneNonce === undefined) return;
+    if (seenFineTuneNonce.current === openFineTuneNonce) return;
+    seenFineTuneNonce.current = openFineTuneNonce;
+    setSheet("fineTune");
+  }, [openFineTuneNonce]);
 
   // Close the open sheet on Escape (parity with the other overlays).
   useEffect(() => {

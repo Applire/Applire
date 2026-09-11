@@ -27,6 +27,7 @@ import { AppTopbar } from "@/components/shell/AppTopbar";
 import { Card } from "@/components/ui/card";
 import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
+import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
@@ -397,6 +398,16 @@ export default function ProfilePage() {
               currentPhotoUrl={profilePhotoUrl}
               onPhotoChange={(url) => setProfilePhotoUrl(url)}
             />
+          </Card>
+
+          {/* #359 — the signature image and the two per-document toggles.
+              Beside the photo because both are "a picture of you that goes on
+              the document", and because the toggles are user-level settings
+              read at render time: a switch on one document's screen would read
+              as "for this document". Deliberately NOT inside PhotoManager —
+              the photo's GDPR Art. 9 consent gate has no twin here (ADR-088). */}
+          <Card className="p-4">
+            <SignatureManager />
           </Card>
 
           {/* #258 — free-text testimony intake ("anything else recruiters

@@ -483,6 +483,15 @@ async def _tailor_cv_with_fallback(
             pinned_facts_block=pinned_facts_block,
         )
     try:
+        # Stage label (build-2 contract 2): this is the FIRST writer call of the
+        # generation — the pre-loop draft that produces the initial tailored CV
+        # before `review_and_refine` (chain_id="cv_tailoring") is entered and
+        # starts labelling its own calls. Without this, the draft call logs
+        # under whatever stage the last chain in this asyncio task left behind
+        # (`stage = ""` on a clean task).
+        from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
+
+        _set_llm_log_stage("cv_tailoring")
         return await provider.aparse_json(
             build_user_prompt(
                 job_analysis, profile, keyword_gaps,
@@ -2176,6 +2185,15 @@ _PHOTO_MIME: dict[str, str] = {
 }
 
 
+def format_place_date_for_cv(location: str | None, language: str) -> str:
+    """#359: the CV tail's ``Ort, Datum`` line. A thin alias so both CV render
+    paths name the same function; the implementation lives with the rest of the
+    signature logic in ``services/signature.py``."""
+    from applire.services.signature import format_place_date
+
+    return format_place_date(location, language)
+
+
 async def _resolve_photo_data_uri(
     photo_path: str | None,
     storage: "StorageProvider",
@@ -2330,6 +2348,16 @@ async def get_cv_status(
         if record.created_at < cutoff:
             status = CVGenerationStatus.failed
 
+    # F-4b: the effective value accounts for this CV's own override — see
+    # services.signature.resolve_signature_effective's own docstring for why
+    # this must share the render path's precedence seam.
+    from applire.services.signature import resolve_signature_available, resolve_signature_effective
+
+    signature_effective = await resolve_signature_effective(
+        db, document="cv", override=record.signature_override
+    )
+    signature_available = await resolve_signature_available(db)
+
     return CVStatusResponse(
         cv_id=record.id,
         status=status,
@@ -2351,7 +2379,53 @@ async def get_cv_status(
         critic_report=record.critic_report,
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=record.document_language,
+        # F-4b: the stored per-document override (None/True/False) and the
+        # resolved effective state, so the three-state control can render
+        # without a second round trip.
+        signature_override=record.signature_override,
+        signature_effective=signature_effective,
+        signature_available=signature_available,
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/cv/{cv_id}/signature — F-4b per-document signature override
+# ---------------------------------------------------------------------------
+
+
+async def set_cv_signature_override(
+    cv_id: uuid.UUID, override: bool | None, db: AsyncSession
+) -> bool:
+    """Persist ``signature_override`` on one CV and return the resulting
+    ``signature_effective``, mirroring ``routers.cv_color.apply_cv_color``'s
+    shape (service logic here, extracted for unit testability; the router
+    just maps exceptions to status codes).
+
+    ``override`` is ``None``/``True``/``False`` — FastAPI's own schema
+    validation (``Optional[bool]``) rejects anything else with 422 before this
+    is ever called, so this function does not re-validate the type. Requires
+    the CV to be ready, same precondition as the colour override: setting a
+    render preference on a document that has neither content nor a stable id
+    to hand back would be premature — a pending row is still generating and a
+    failed one has nothing to render at all.
+    """
+    from applire.services.signature import resolve_signature_effective
+
+    result = await db.execute(
+        select(GeneratedCV).where(
+            GeneratedCV.id == cv_id,
+            GeneratedCV.deleted_at.is_(None),
+        )
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise LookupError(f"CV {cv_id} not found")
+    if record.status != CVGenerationStatus.ready.value:
+        raise LookupError(f"CV {cv_id} is not ready (status={record.status})")
+
+    record.signature_override = override
+    await db.commit()
+    return await resolve_signature_effective(db, document="cv", override=override)
 
 
 # ---------------------------------------------------------------------------
@@ -2374,26 +2448,41 @@ async def list_cvs_for_job(
         .order_by(GeneratedCV.created_at.desc())
     )
     records = result.scalars().all()
-    return [
-        CVStatusResponse(
-            cv_id=r.id,
-            status=CVGenerationStatus(r.status),
-            html_url=f"{base_url}/api/cv/{r.id}/html" if r.status == CVGenerationStatus.ready.value else None,
-            pdf_url=f"{base_url}/api/cv/{r.id}/pdf" if r.status == CVGenerationStatus.ready.value else None,
-            # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
-            error_code=(
-                r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
-            ),
-            expires_at=r.expires_at,
-            template=r.template,
-            created_at=r.created_at,
-            target_pages=r.target_pages,
-            origin=r.origin,
-            # E054/US289 (clause 3b): pinned language, stored value as-is.
-            document_language=r.document_language,
+    # F-4b: resolved per record — a list entry's signature_effective must
+    # reflect THAT row's own override, same precedence as get_cv_status.
+    # signature_available is the same for every record in the list (it
+    # depends only on user_settings, not on the CV row), so it is resolved
+    # once outside the loop.
+    from applire.services.signature import resolve_signature_available, resolve_signature_effective
+
+    signature_available = await resolve_signature_available(db)
+    out: list[CVStatusResponse] = []
+    for r in records:
+        out.append(
+            CVStatusResponse(
+                cv_id=r.id,
+                status=CVGenerationStatus(r.status),
+                html_url=f"{base_url}/api/cv/{r.id}/html" if r.status == CVGenerationStatus.ready.value else None,
+                pdf_url=f"{base_url}/api/cv/{r.id}/pdf" if r.status == CVGenerationStatus.ready.value else None,
+                # Machine code only; raw error_message stays internal (ADR-047 §4 / PQ F6).
+                error_code=(
+                    r.error_code or ("generation_failed" if r.status == CVGenerationStatus.failed.value else None)
+                ),
+                expires_at=r.expires_at,
+                template=r.template,
+                created_at=r.created_at,
+                target_pages=r.target_pages,
+                origin=r.origin,
+                # E054/US289 (clause 3b): pinned language, stored value as-is.
+                document_language=r.document_language,
+                signature_override=r.signature_override,
+                signature_effective=await resolve_signature_effective(
+                    db, document="cv", override=r.signature_override
+                ),
+                signature_available=signature_available,
+            )
         )
-        for r in records
-    ]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2564,7 +2653,29 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
             record.job_analysis_id, _CE_STUB_USER_ID, db
         )
         lang = resolve_document_language(application, job) if job else "de"
-    return template.render(cv=tailored, color=color_ctx, lang=lang, labels=cv_labels(lang))
+    # #359: the signature is resolved at RENDER time from user_settings, not
+    # pinned onto the row — one seam (services/signature.py) serves this path and
+    # the .docx path, so the toggle cannot be honoured on one and ignored on the
+    # other (SF-PDF.6). None covers every "do not render" case alike.
+    # F-4b: this CV's own signature_override (None = kind default) wins over
+    # the kind-level toggle, ahead of the storage/toggle resolution itself.
+    from applire.services.signature import format_place_date, resolve_signature_data_uri
+
+    signature_image = await resolve_signature_data_uri(
+        db, document="cv", override=record.signature_override
+    )
+    return template.render(
+        cv=tailored,
+        color=color_ctx,
+        lang=lang,
+        labels=cv_labels(lang),
+        signature_image=signature_image,
+        signature_place_date=(
+            format_place_date(tailored.contact.location, lang)
+            if signature_image
+            else None
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2672,7 +2783,23 @@ async def _prepare_cv_docx_render(
         )
         lang = resolve_document_language(application, job) if job else "de"
 
-    return tailored, lang, color_ctx.primary, photo_bytes
+    # #359: same single seam as get_cv_html, decoded to bytes for python-docx.
+    # Resolved HERE rather than in get_cv_docx so the ADR-079 clause 8 audit
+    # block renders the same bytes the user downloads — the drift this shared
+    # prep function exists to prevent.
+    # F-4b: same override precedence as get_cv_html — this is the OTHER of the
+    # two render seams a CV's signature_override must reach (SF-PDF.6).
+    from applire.services.signature import resolve_signature_bytes
+
+    signature_bytes = await resolve_signature_bytes(
+        db, document="cv", override=record.signature_override
+    )
+    signature_place_date = (
+        format_place_date_for_cv(tailored.contact.location, lang)
+        if signature_bytes
+        else None
+    )
+    return tailored, lang, color_ctx.primary, photo_bytes, signature_bytes, signature_place_date
 
 
 async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
@@ -2694,13 +2821,16 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
     from applire.services.office_export.cv_docx import render_cv_docx
 
     record = await _load_cv_ready(cv_id, db)
-    tailored, lang, accent_color, photo_bytes = await _prepare_cv_docx_render(record, db)
+    (
+        tailored, lang, accent_color, photo_bytes, signature_bytes, signature_place_date,
+    ) = await _prepare_cv_docx_render(record, db)
     # ADR-085 / ruling 14: the .docx is exported from the PERSISTED row, at any
     # later time, so the row's own `origin` (ADR-054) is the only thing that can
     # tell an agent-authored document from a pipeline-authored one here. It is
     # recorded (models/cv.py, migration 0051) — the mark just never read it.
     return render_cv_docx(
         tailored, lang=lang, accent_color=accent_color, photo_bytes=photo_bytes,
+        signature_bytes=signature_bytes, signature_place_date=signature_place_date,
         digital_source_type=digital_source_type_for_origin(record.origin),
     )
 
@@ -4384,12 +4514,17 @@ async def _update_ats_report(
             record.content_snapshot,
             record.section_overrides,
         )
+        # Stage relabel (build-2 contract 2): the critic's own LLM calls must not
+        # log under `cv_audit` — restore right after so a later call in this same
+        # function (e.g. the .docx audit block below) is still attributed correctly.
+        _set_llm_log_stage("outcome_critic")
         critic_report = await run_pass_a(
             cv_tailored=assembled.model_dump(mode="json"),
             job_role_title=job_row.role_title if job_row else None,
             jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
             provider=get_provider(),
         )
+        _set_llm_log_stage("cv_audit")
         record.critic_report = critic_report.model_dump(mode="json")
     except Exception:
         logger.exception(
@@ -4422,14 +4557,21 @@ async def _update_ats_report(
             record.docx_ats_report if isinstance(record.docx_ats_report, dict) else None
         )
 
-        docx_tailored, docx_lang, docx_accent, docx_photo_bytes = await _prepare_cv_docx_render(
-            record, db
-        )
+        (
+            docx_tailored,
+            docx_lang,
+            docx_accent,
+            docx_photo_bytes,
+            docx_signature_bytes,
+            docx_signature_place_date,
+        ) = await _prepare_cv_docx_render(record, db)
         docx_bytes = render_cv_docx(
             docx_tailored,
             lang=docx_lang,
             accent_color=docx_accent,
             photo_bytes=docx_photo_bytes,
+            signature_bytes=docx_signature_bytes,
+            signature_place_date=docx_signature_place_date,
             # ADR-085 / ruling 14: the same origin-derived mark get_cv_docx
             # stamps. This block's own claim is that it audits the DELIVERED
             # document and never a differently-prepared stand-in; leaving the

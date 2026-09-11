@@ -730,6 +730,25 @@
       "uploadCta": "Upload photo",
       "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
     },
+    "signature": {
+      "title": "Signature",
+      "subtitle": "Upload your signature as an image — it is placed straight into your cover letter and CV, instead of you printing, signing and scanning again.",
+      "uploadPrompt": "Upload a signature",
+      "fileHint": "A PNG with a transparent background looks best. JPEG and WebP work too, up to 2 MB.",
+      "labelCurrent": "Your stored signature",
+      "altText": "Your signature",
+      "replaceCta": "Replace",
+      "deleteCta": "Delete",
+      "uploadingLabel": "Uploading …",
+      "deletingLabel": "Deleting …",
+      "uploadError": "The signature could not be uploaded.",
+      "deleteError": "The signature could not be deleted.",
+      "toggleError": "The setting could not be saved.",
+      "placementTitle": "Where should the signature appear?",
+      "placementLetter": "On the cover letter, above your printed name. A DACH application is expected to carry one.",
+      "placementCv": "On the CV, with place and date at the end. Traditional, and often left out today.",
+      "placementHint": "Takes effect on your next download — no need to regenerate a document."
+    },
     "fieldName": "Name",
     "fieldEmail": "Email",
     "fieldPhone": "Phone",
@@ -973,7 +992,9 @@
       "no_op_carried_entry": "no change carried it",
       "op_rejected": "the change came back malformed and was dropped",
       "summary_populated": "your self-description was already written, so it was left alone",
-      "no_write": "nothing was recorded from what you said"
+      "no_write": "nothing was recorded from what you said — say it again in one sentence, or enter it in your profile",
+      "no_write_already_known": "that is already in your profile, as stated",
+      "no_write_question_only": "your question arrived — nothing was changed for it"
     }
   },
   "profileReview": {
@@ -1515,7 +1536,15 @@
     "languageSwitchBusy": "Saving …",
     "languageSwitchError": "Saving failed — please try again.",
     "tabReview": "Review",
-    "tabEdit": "Edit"
+    "tabEdit": "Edit",
+    "signatureControlLabel": "Signature:",
+    "signatureDefaultOn": "Default (on)",
+    "signatureDefaultOff": "Default (off)",
+    "signatureWith": "with",
+    "signatureWithout": "without",
+    "signatureUnavailableHint": "No signature on file.",
+    "signatureUnavailableLink": "Add one in your profile",
+    "signatureSaveError": "The setting could not be saved."
   },
   "commandBar": {
     "atsChecks": "Review",
@@ -1558,10 +1587,11 @@
     "guidedDone": "You have seen every finding. The counts above stay put — you can go back at any time.",
     "guidedNothing": "There is nothing to walk through.",
     "group2TradeBody": "Your profile covers this — it simply did not fit into the document. The length trade decided it, not the truthfulness check: Applire tried to place these terms while writing, and the page target won. What you see here is what was left over.",
-    "group2HandlesTitle": "Three handles that already exist:",
+    "group2HandlesTitle": "Four handles that already exist:",
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
     "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Edit tab.",
-    "group2HandleRegenerate": "Regenerate — the selection is made afresh each time."
+    "group2HandleRegenerate": "Regenerate — the selection is made afresh each time.",
+    "group2HandleEditor": "Edit the section yourself — click an item above and you land on the Edit tab with that section open. What goes in is written by you."
   },
   "upgradeNotice": {
     "title": "Something about your settings changed since your last start",

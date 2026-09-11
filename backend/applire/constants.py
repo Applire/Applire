@@ -196,6 +196,21 @@ RECONCILE_MAX_TOKENS: int = 32768
 # fallback behind a deterministic accept path, not a generation call.
 STANCE_ADJUDICATION_MAX_TOKENS: int = 300
 
+# US179 — the role-conditional field-expectations call (services/profile/
+# expectations.py, prompts/profile_field_expectations.py). Previously the only
+# LLM call in the whole prompt inventory with no max_tokens at all (real
+# captured records: max_tokens: null), so it ran on whatever the provider's
+# default happened to be rather than a budget anyone chose. The output is a
+# single small JSON object, {"expected": [...]}, drawn from a CLOSED 3-element
+# vocabulary (`completeness.CONDITIONAL_FIELDS` — "team_size",
+# "budget_managed", "industry_context"), so the largest possible response is
+# well under 100 characters. Same spirit/order of magnitude as
+# STANCE_ADJUDICATION_MAX_TOKENS above (also a small classification-only
+# verdict, not a generation call) — 300 gives generous headroom over the tiny
+# JSON payload while still covering a reasoning model's hidden chain-of-thought
+# sharing this same budget.
+FIELD_EXPECTATIONS_MAX_TOKENS: int = 300
+
 # Per-call output budget for *segmented* large generations (ADR-047 / E036). When a
 # big generation (CV tailoring, profile reconciliation) is produced in pieces, each
 # segment call targets this conservative ceiling so it fits comfortably under the hard

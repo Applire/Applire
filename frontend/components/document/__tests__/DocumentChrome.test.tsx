@@ -101,4 +101,127 @@ describe("DocumentExportFooter — the exports, pinned to the panel", () => {
       true,
     );
   });
+
+  // F-4b (founder ruling, 2026-09-11): the per-document signature override —
+  // a nullable tri-state control ("Standard (an|aus) / mit / ohne").
+  describe("the signature override control (F-4b)", () => {
+    it("renders nothing extra when no signature prop is supplied", () => {
+      render(withIntl(<DocumentExportFooter onDownloadPdf={vi.fn()} />));
+      expect(screen.queryByTestId("signature-override-section")).toBeNull();
+    });
+
+    it("shows a disabled hint pointing at the profile card when unavailable", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: false, kindDefaultOn: true, override: null, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.queryByTestId("signature-override-control")).toBeNull();
+      const hint = screen.getByTestId("signature-override-unavailable-hint");
+      expect(hint.textContent).toContain("No signature on file");
+      expect(hint.querySelector("a")?.getAttribute("href")).toBe("/profile");
+    });
+
+    it("marks the default option pressed when override is null", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: true, override: null, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("signature-override-default").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(screen.getByTestId("signature-override-on").getAttribute("aria-pressed")).toBe("false");
+      expect(screen.getByTestId("signature-override-off").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("words the default option from the kind default — on", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: true, override: null, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("signature-override-default").textContent).toBe("Default (on)");
+    });
+
+    it("words the default option from the kind default — off", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: false, override: null, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("signature-override-default").textContent).toBe("Default (off)");
+    });
+
+    it("marks the ON option pressed when override is true", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: false, override: true, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("signature-override-on").getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByTestId("signature-override-default").getAttribute("aria-pressed")).toBe(
+        "false",
+      );
+    });
+
+    it("marks the OFF option pressed when override is false", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: true, override: false, onChange: vi.fn() }}
+          />,
+        ),
+      );
+      expect(screen.getByTestId("signature-override-off").getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("raises onChange with true/false/null for the three options", () => {
+      const onChange = vi.fn();
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: true, override: null, onChange }}
+          />,
+        ),
+      );
+      fireEvent.click(screen.getByTestId("signature-override-on"));
+      fireEvent.click(screen.getByTestId("signature-override-off"));
+      fireEvent.click(screen.getByTestId("signature-override-default"));
+      expect(onChange.mock.calls).toEqual([[true], [false], [null]]);
+    });
+
+    it("disables the three options while saving", () => {
+      render(
+        withIntl(
+          <DocumentExportFooter
+            onDownloadPdf={vi.fn()}
+            signature={{ available: true, kindDefaultOn: true, override: null, onChange: vi.fn(), saving: true }}
+          />,
+        ),
+      );
+      expect((screen.getByTestId("signature-override-on") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("signature-override-off") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("signature-override-default") as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+  });
 });

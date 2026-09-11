@@ -99,6 +99,59 @@ def _norm_gap(s: str) -> str:
     return (s or "").strip().casefold()
 
 
+def _strengths_the_ledger_supports(
+    strengths: list[str] | None, keyword_ledger: list[dict[str, Any]] | None
+) -> list[str]:
+    """The model's ``strengths`` list, minus every entry THIS SAME RESPONSE'S
+    ledger marks unclaimable (E-4 / SF-GAP.10, 2026-09-11).
+
+    ``critical_gaps`` / ``category_*`` are re-sourced from the ledger
+    (:func:`compute_match_score_from_ledger`), i.e. from AFTER the ADR-040
+    denial floor, the ADR-069 scope judgement and #318's claimable-backing
+    heal have run. ``strengths`` was the one list still taken verbatim from the
+    model, so every deterministic downgrade split the response in two: the
+    2026-09-10 delivery run published ``Produktion`` under ``strengths`` and
+    under ``critical_gaps`` at once, and ``Durchsetzungsstärke`` with it. The
+    gaps screen renders both lists side by side.
+
+    ADR-062 clause 1 classification: **FACT**. Nothing here re-judges whether
+    something IS a strength — that judgement is the model's and stays the
+    model's. The only question asked is whether the ledger row the same call
+    produced for that exact concept says the candidate may claim it, and the
+    answer is a status-enum read. A strength naming no ledger row at all is
+    kept (no fact contradicts it), and a strength matching several rows is kept
+    when ANY of them is claimable. Clause 5's direction: the pass can only ever
+    remove an overclaim.
+    """
+    if not strengths:
+        return list(strengths or [])
+    claimable_by_name: dict[str, bool] = {}
+    for row in keyword_ledger or []:
+        if not isinstance(row, dict):
+            continue
+        names = [row.get("concept", ""), *(row.get("surface_forms") or [])]
+        claim = bool(row.get("claimable"))
+        for name in names:
+            key = _norm_gap(name)
+            if not key:
+                continue
+            claimable_by_name[key] = claimable_by_name.get(key, False) or claim
+    kept: list[str] = []
+    for item in strengths:
+        if not isinstance(item, str):
+            continue
+        if claimable_by_name.get(_norm_gap(item)) is False:
+            logger.info(
+                "gap analysis: dropped %r from strengths — this run's ledger "
+                "marks it unclaimable (E-4: one response may not publish a "
+                "concept as a strength and a critical gap at once)",
+                item,
+            )
+            continue
+        kept.append(item)
+    return kept
+
+
 def _job_inputs(job: JobAnalysis) -> dict:
     """The JD fields that feed the analysis — also the score-bearing inputs."""
     return {
@@ -514,6 +567,14 @@ async def _run_analysis(
         # independently affirm a broad term against real evidence instead of
         # always fail-closing on a narrow denial's compound-containment rule.
         profile_json=profile.profile_json,
+        # SF-GAP.12 (Nougat build-2 delivery-run 2026-09-11) — this recompute's
+        # own classification call is free to name different surface_forms for
+        # the same concept than the LAST build did; without the prior row on
+        # hand a released containment-only denial can silently re-flip to a
+        # gap on a later recompute of identical denied_concepts/vault state.
+        # `previous` is already loaded above for the idempotency check — reuse
+        # it, never a second query.
+        previous_ledger=(previous.keyword_ledger if previous is not None else None),
     )
 
     # ADR-069 clause 3 — scope entries join the ledger BEFORE the score and the
@@ -568,7 +629,11 @@ async def _run_analysis(
         embedding_similarity_score=embedding_similarity_score,
         critical_gaps=scored["critical_gaps"],
         minor_gaps=scored["minor_gaps"],
-        strengths=data.get("strengths", []),
+        # E-4 / SF-GAP.10 — the ledger has the last word on every published
+        # list, `strengths` included (see `_strengths_the_ledger_supports`).
+        strengths=_strengths_the_ledger_supports(
+            data.get("strengths", []), keyword_ledger
+        ),
         keyword_gaps=data.get("keyword_gaps", []),
         category_a=scored["category_a"],
         category_b=scored["category_b"],

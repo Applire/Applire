@@ -730,6 +730,25 @@
       "uploadCta": "Foto hochladen",
       "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
     },
+    "signature": {
+      "title": "Unterschrift",
+      "subtitle": "Lade Deine Unterschrift als Bild hoch — sie wird direkt in Anschreiben und Lebenslauf eingesetzt, statt dass Du ausdruckst, unterschreibst und wieder einscannst.",
+      "uploadPrompt": "Unterschrift hochladen",
+      "fileHint": "PNG mit transparentem Hintergrund sieht am besten aus. Auch JPEG und WebP, bis 2 MB.",
+      "labelCurrent": "Deine hinterlegte Unterschrift",
+      "altText": "Deine Unterschrift",
+      "replaceCta": "Ersetzen",
+      "deleteCta": "Löschen",
+      "uploadingLabel": "Wird hochgeladen …",
+      "deletingLabel": "Wird gelöscht …",
+      "uploadError": "Die Unterschrift konnte nicht hochgeladen werden.",
+      "deleteError": "Die Unterschrift konnte nicht gelöscht werden.",
+      "toggleError": "Die Einstellung konnte nicht gespeichert werden.",
+      "placementTitle": "Wo soll die Unterschrift erscheinen?",
+      "placementLetter": "Im Anschreiben, über dem gedruckten Namen. In der DACH-Bewerbung wird das erwartet.",
+      "placementCv": "Im Lebenslauf, mit Ort und Datum am Ende. Klassisch, heute aber oft weggelassen.",
+      "placementHint": "Gilt ab dem nächsten Download — Du musst dafür kein Dokument neu erzeugen."
+    },
     "fieldName": "Name",
     "fieldEmail": "E-Mail",
     "fieldPhone": "Telefon",
@@ -973,7 +992,9 @@
       "no_op_carried_entry": "keine Änderung hat sie übernommen",
       "op_rejected": "die Änderung kam fehlerhaft zurück und wurde verworfen",
       "summary_populated": "deine Selbstbeschreibung war schon geschrieben und blieb unverändert",
-      "no_write": "von dem, was du gesagt hast, wurde nichts übernommen"
+      "no_write": "von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein",
+      "no_write_already_known": "das steht so schon in deinem Profil",
+      "no_write_question_only": "deine Frage ist angekommen — dazu wurde nichts geändert"
     }
   },
   "profileReview": {
@@ -1515,7 +1536,15 @@
     "languageSwitchBusy": "Wird gespeichert …",
     "languageSwitchError": "Speichern fehlgeschlagen — bitte erneut versuchen.",
     "tabReview": "Prüfung",
-    "tabEdit": "Bearbeiten"
+    "tabEdit": "Bearbeiten",
+    "signatureControlLabel": "Unterschrift:",
+    "signatureDefaultOn": "Standard (an)",
+    "signatureDefaultOff": "Standard (aus)",
+    "signatureWith": "mit",
+    "signatureWithout": "ohne",
+    "signatureUnavailableHint": "Keine Unterschrift hinterlegt.",
+    "signatureUnavailableLink": "Im Profil hinzufügen",
+    "signatureSaveError": "Die Einstellung konnte nicht gespeichert werden."
   },
   "commandBar": {
     "atsChecks": "Prüfung",
@@ -1558,10 +1587,11 @@
     "guidedDone": "Du hast alle Befunde gesehen. Die Zähler oben bleiben stehen — Du kannst jederzeit zurückgehen.",
     "guidedNothing": "Es gibt nichts durchzugehen.",
     "group2TradeBody": "Dein Profil deckt das ab — es hat nur nicht ins Dokument gepasst. Der Längen-Kompromiss hat entschieden, nicht die Wahrheitsprüfung: Applire hat beim Schreiben versucht, diese Begriffe unterzubringen, und die Seitenzahl hat gewonnen. Was hier steht, ist der Rest danach.",
-    "group2HandlesTitle": "Drei Hebel, die es schon gibt:",
+    "group2HandlesTitle": "Vier Hebel, die es schon gibt:",
     "group2HandlePages": "Seitenziel anheben — in den Einstellungen als Standardlänge oder vor dem Generieren.",
     "group2HandlePin": "Den Fakt dahinter festlegen — ein festgelegter Fakt wird nie weggekürzt, auch wenn das Dokument dadurch länger wird. Zu finden im Reiter Bearbeiten.",
-    "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu."
+    "group2HandleRegenerate": "Neu generieren — die Auswahl fällt jedes Mal neu.",
+    "group2HandleEditor": "Den Abschnitt selbst bearbeiten — klicke auf einen Punkt oben, dann landest Du im Reiter Bearbeiten mit genau diesem Abschnitt geöffnet. Was dort steht, schreibst Du."
   },
   "upgradeNotice": {
     "title": "Seit deinem letzten Start hat sich an den Einstellungen etwas geändert",

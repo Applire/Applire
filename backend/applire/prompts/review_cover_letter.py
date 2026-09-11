@@ -15,6 +15,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#668 letter half / #664, 2026-09-11 — `repetition` LEAVES the
+#   minor-by-definition line and becomes NAMED blocking check 6, REDUNDANCY, on BOTH
+#   letter doors; the clause-9 terminal checks renumber 6/7 -> 7/8 and `_MINOR_TERMINAL`
+#   follows. ADR-083 clause 1's own measurement is why the two halves land together:
+#   removing a word from the minor list without naming a check bought 0/5 on the CV.
+#   The CV twin shipped as check 8 in build 1 (`prompts/review_cv_tailoring.py`); the
+#   letter half was held for this session WITH its measurement, per that package's §7(a).
+#   The prose door's size ratchet rises by this check's own length and by nothing else.)
 # Prompt version: v5 (#564, 2026-08-29 — TERMINAL round only: _SHAPE_NOTE_TERMINAL now
 #   also covers a system-SUPPLIED generic salutation (the #564 floor, _inject_salutation),
 #   not just the #307 split of an author-written one — never flag its placement or its
@@ -163,7 +171,7 @@ whether a phrase appears verbatim — a deterministic check already did that, an
 blocks are above. If you are writing "X does not appear in the text", stop: either a
 block says so, or you are guessing.
 
-BLOCKING CHECKS — these five, and nothing else. Each is a way this letter can be untrue
+BLOCKING CHECKS — these six, and nothing else. Each is a way this letter can be untrue
 or incomplete; anything you notice outside them is `minor` by definition.
 
 1. UNGROUNDED CANDIDATE CLAIM. Any date, tenure, employer, title, degree, certification,
@@ -258,6 +266,12 @@ or incomplete; anything you notice outside them is `minor` by definition.
      yours: the DO-NOT-CLAIM PRESENCE block lists the terms this draft carries, and an
      issue about any other term must QUOTE the draft words carrying it.
 
+6. REDUNDANCY. Flag any place where the letter states the same fact, achievement or
+   employer name more than once — one measure or project restated in two paragraphs, or a
+   name repeated where a back-reference would carry it. A failure of this check is
+   blocking like any other. Never propose fixing it by dropping a figure, a fact, or an
+   honest gap disclosure: cut the repetition, keep the content.
+
 NEVER REVERSE YOURSELF ACROSS ROUNDS. If an earlier round asked for a change, do not now
 flag the result of that change and ask for the original back. That is oscillation, not a
 finding.
@@ -267,7 +281,7 @@ finding.
 #: ``_AUTHORITY_AND_CHECKS``. Split out, not edited; ``REVIEW_SYSTEM_PROMPT`` below is
 #: unchanged and pinned by test.
 _MINOR_PROSE = """\
-WHAT IS `minor` HERE. Everything not in checks 1-5: repetition of a name or phrase,
+WHAT IS `minor` HERE. Everything not in checks 1-6:
 paragraph order, sentence length, a weak opening, tone, word choice, a grammatical slip
 — and soft filler that asserts nothing checkable about the candidate. Filler is real, and worth recording, but nothing false is stated, so it
 never justifies regenerating the letter. Record it as `minor` and move on. Never use it
@@ -285,15 +299,17 @@ become trimming honesty.
 #: letter as a compressed copy of the CV's figures in the CV's order, and the
 #: "[measure] von X auf Y" construction four times over.
 #:
-#: Numbered 6 and 7, after the five blocking checks, so the head's "BLOCKING CHECKS —
-#: these five, and nothing else" stays literally true and needs no per-door variant.
+#: Numbered 7 and 8, after the six blocking checks, so the head's "BLOCKING CHECKS —
+#: these six, and nothing else" stays literally true and needs no per-door variant.
+#: (6 and 7 until 2026-09-11, when #668's letter half added blocking check 6,
+#: REDUNDANCY, and `repetition` left `_MINOR_PROSE`'s list — see the header.)
 _TERMINAL_CHECKS = """\
 TERMINAL-ROUND CHECKS — the two questions only the finished letter can answer. Both are
 VISIBILITY ONLY: report them with severity `minor`, NEVER `blocking`, and report AT MOST ONE
 finding per check for the whole letter. What you write here is shown to the candidate with
 their letter, and they decide.
 
-6. CLAIM BALANCE — over AND under. Check 1 looks for claims the CANDIDATE SOURCE does not
+7. CLAIM BALANCE — over AND under. Check 1 looks for claims the CANDIDATE SOURCE does not
    support. This one also looks the other way: does the letter leave out something the source
    clearly supports and this posting clearly wants? Include a strength the candidate named
    inside their own stated limit ("no IFS/BRC experience, but ten years of ISO-9001 audit
@@ -301,7 +317,7 @@ their letter, and they decide.
    evidence that is not represented. Never ask for a term to be listed, and never ask for
    anything the source does not already support.
 
-7. VOICE — does this read as written by a person? The tell is mechanical uniformity, and the
+8. VOICE — does this read as written by a person? The tell is mechanical uniformity, and the
    patterns are our own rules applied without exception:
    - the letter restates the CV's figures in the CV's own order, so it reads as a compressed
      copy of the CV rather than its own argument with two or three points of its own;
@@ -320,7 +336,7 @@ their letter, and they decide.
 #: going the wrong way (#563 triage item 4: a "blocking" filed on a check whose own text
 #: reads VISIBILITY ONLY).
 _MINOR_TERMINAL = _MINOR_PROSE.rstrip("\n") + """
-Checks 6 and 7 above are `minor` for the same reason and by the same rule: they are reported to
+Checks 7 and 8 above are `minor` for the same reason and by the same rule: they are reported to
 the candidate with the document and they never regenerate the letter.
 
 """

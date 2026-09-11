@@ -85,9 +85,10 @@ def test_the_new_checks_are_absent_from_both_prose_doors():
 @pytest.mark.parametrize(
     "prompt,balance_no,voice_no",
     # The CV's clause-9 checks renumbered 8/9 → 9/10 on 2026-09-08 when #668's shared
-    # check 8 (REDUNDANCY) landed in `_CHECKS`. The letter door is untouched.
+    # check 8 (REDUNDANCY) landed in `_CHECKS`; the LETTER's renumbered 6/7 → 7/8 on
+    # 2026-09-11 when the same package's held letter half landed as check 6.
     [(cv.TERMINAL_REVIEW_SYSTEM_PROMPT, "9.", "10."),
-     (letter.TERMINAL_REVIEW_SYSTEM_PROMPT, "6.", "7.")],
+     (letter.TERMINAL_REVIEW_SYSTEM_PROMPT, "7.", "8.")],
 )
 def test_both_terminal_doors_carry_two_named_numbered_checks(prompt, balance_no, voice_no):
     """ADR-083 clause 1: a mandate is carried by NAMED CHECKS, not by a role sentence —
@@ -153,8 +154,10 @@ def test_the_cv_terminal_mandate_names_all_three_visibility_only_checks():
     assert "VISIBILITY ONLY" in m
 
 
-def test_the_letter_terminal_minor_paragraph_claims_checks_6_and_7():
-    assert "Checks 6 and 7 above are `minor`" in _flat(letter._MINOR_TERMINAL)
+def test_the_letter_terminal_minor_paragraph_claims_checks_7_and_8():
+    """6/7 → 7/8 on 2026-09-11: #668's letter half put REDUNDANCY in `_CHECKS` as
+    blocking check 6, so the clause-9 visibility-only pair moved up one."""
+    assert "Checks 7 and 8 above are `minor`" in _flat(letter._MINOR_TERMINAL)
 
 
 @pytest.mark.parametrize(
@@ -167,6 +170,13 @@ def test_the_new_checks_state_their_own_severity_too(prompt):
     flat = _flat(prompt)
     assert "VISIBILITY ONLY" in flat
     assert 'NEVER "blocking"' in flat or "NEVER `blocking`" in flat
+
+
+def test_repetition_left_the_letter_minor_line_and_became_named_check_6():
+    """The letter half of the same ruling, landed 2026-09-11 WITH its measurement."""
+    assert "repetition" not in letter._MINOR_PROSE
+    assert "repetition" not in letter._MINOR_TERMINAL
+    assert "6. REDUNDANCY" in letter._CHECKS
 
 
 def test_repetition_left_the_minor_line_and_became_named_check_8():
@@ -210,7 +220,8 @@ def test_the_prose_ratchets_are_untouched_because_the_prose_doors_are():
         "word `repetition` leaving the minor line. Mapped to SF-WRITE.26/.27. Nothing "
         "else was appended, and the next append meets this question again."
     )
-    assert len(letter.REVIEW_SYSTEM_PROMPT) < 12_500
+    # 2026-09-11 (#668 letter half): the letter's prose door moved 12,500 -> 12,900 and its terminal door 16,100 -> 16,300 ONCE, on 2026-09-11, for #668's LETTER half: named blocking check 6 (REDUNDANCY), +377 chars net of what `repetition` gave back when it left `_MINOR_PROSE`. Measured BEFORE the ceiling moved, on the pinned run_2026_08_15 fixture (a letter naming Weberit ten times and restating the 38-employee / three-shift-leader scope in two paragraphs), n=5 per arm, real provider: redundancy raised 2/5 -> 5/5, BLOCKING 0/5 -> 5/5; the corrector then reduced the repetition 5/5 with the honest IFS/BRC gap disclosure intact 5/5.
+    assert len(letter.REVIEW_SYSTEM_PROMPT) < 12_900
 
 
 def test_the_cv_terminal_door_gets_its_own_ratchet():
@@ -228,9 +239,11 @@ def test_the_cv_terminal_door_gets_its_own_ratchet():
 def test_the_letter_terminal_door_gets_its_own_ratchet():
     """Clause 9 landed at 15,867 (was 13,928). This is the largest prompt in the family
     and the ceiling is deliberately tight."""
-    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_100, (
+    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_300, (
         f"letter terminal reviewer prompt is {len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — "
-        "it is regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append."
+        "it is regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
+        "The ratchet moved 16,100 → 16,300 ONCE, on 2026-09-11, for #668's letter half "
+        "(named check 6, REDUNDANCY, +377 chars; measured 0/5 → 5/5 blocking)."
     )
 
 

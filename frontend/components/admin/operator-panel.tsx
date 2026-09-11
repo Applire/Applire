@@ -282,7 +282,14 @@ export function OperatorPanel() {
           data-testid="operator-panel-toggle"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className="ml-auto shrink-0 text-teal hover:underline"
+          // Frontend collector #677: `text-teal` (#3557bc) on the amber and
+          // red containers reads as near-black, so the one interactive control
+          // in this panel did not look interactive on exactly the two states an
+          // operator opens it in. Underlined unconditionally rather than
+          // recoloured per accent: a new colour would have to clear contrast on
+          // three different grounds, while the underline is the affordance
+          // itself and is ground-independent.
+          className="ml-auto shrink-0 text-teal underline underline-offset-2 hover:no-underline"
         >
           {expanded ? t("hideDetails") : t("showDetails")}
         </button>

@@ -15,6 +15,38 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v8 (#617, 2026-09-11 — Nougat build 2, axis (c)): COMPANY CULTURE
+#   SIGNALS gets the grounding sentence every other field already has, and the
+#   schema line stops offering 'Mittelstand' as an example. Measured on 13 full
+#   `analyze_jd` invocations of `operations_marcus_de` (the posting the captured
+#   corpus says has never converged): 10 exhausted the retry budget, and after the
+#   axis-(a)/(b) work the remaining open issues at exhaustion were no longer about
+#   requirements or keywords at all — they were `company_culture_signals` ("Mittelstand"
+#   has no basis in the source posting; "kurze Wege" has no basis) and the
+#   `leadership_emphasis` quote. The schema was OFFERING the model the exact term the
+#   reviewer then flagged: a prompt that supplies an example its own auditor forbids.
+#
+# Prompt version: v7 (#617, 2026-09-11 — Nougat build 2, axes (a) and (b)):
+#   - OUTPUT LANGUAGE: the three concept lists + company_culture_signals are
+#     emitted in the POSTING's language. Unspecified until now, so the same
+#     posting came back English on one run and German on the next (~80% string-set
+#     diff on controlling_emma_de, PR #663 WP-D) — and the ledger (ADR-048) matches
+#     these terms LITERALLY against a document whose language follows the JD's.
+#     Scoped deliberately: the controlled-vocabulary fields (seniority_level,
+#     scope_requirements.kind/comparator/level, leadership_emphasis.emphasis) keep
+#     their English enum values, because the corpus already shows the model
+#     emitting "Leitung" and a whole German sentence into seniority_level, and
+#     _seniority_threshold_met() matches English keys.
+#   - SENIORITY LEVEL: a grounding rule + an explicit null, the shape v6 gave
+#     leadership_emphasis and this field never got. Captured mechanism (three
+#     invocations: 2026-08-02, 2026-09-05, 2026-09-09): the extractor guesses a
+#     tier from the role's shape (Executive / Lead), the reviewer's check 5
+#     correctly calls the guess ungrounded, and the corrector — with removal as
+#     its only disposition — emits null. It then persists as "" and
+#     gap_inference._seniority_threshold_met("") is False, so the "N years total
+#     experience meets seniority bar" category-B signal is silently withheld on a
+#     posting whose title literally reads "Leiter".
+#
 # Prompt version: v6 (#271, 2026-08-07 — charter run #5, both blind reviewers):
 #   - leadership_emphasis: the posting's own leadership-vs-hands-on weighting
 #     becomes data. Run 5's posting said "~60% technical leadership / 40%
@@ -51,8 +83,8 @@ Schema:
   "required_skills": ["list of must-have technical and soft skills"],
   "nice_to_have_skills": ["list of optional / preferred skills"],
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
-  "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive",
-  "company_culture_signals": ["cultural values and work style signals, e.g. 'Mittelstand', 'remote-first', 'hierarchical', 'Startup-Kultur'"],
+  "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
+  "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
   "language_requirement": "primary language required, e.g. 'German (C1)', 'English (B2)', 'Bilingual DE/EN'",
   "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null",
@@ -132,6 +164,47 @@ hands-on / individual-contributor work:
 in the posting is a fabrication and the whole facet will be discarded. Emit exactly one
 leadership_emphasis object or null — never a list.
 
+SENIORITY LEVEL (ground it in the posting, or emit null):
+"seniority_level" is a controlled English vocabulary — Junior, Mid, Senior, Lead,
+Executive — and it is the ONE field whose value is not quoted from the posting, so you
+must be able to name what in the posting establishes it. Exactly three things ground a
+tier, and nothing else does:
+  1. THE ROLE TITLE'S OWN RANK WORD, in either language — "Leiter", "Leitung", "Head of",
+     "Teamleiter", "Senior", "Junior", "Principal", "Geschäftsführer", "Director", "VP".
+     A title is a statement of tier, not decoration: "Leiter Operations" grounds "Lead";
+     "Senior Software Engineer" grounds "Senior"; "Geschäftsführer" grounds "Executive".
+  2. A JOB-BOARD METADATA LINE — "Seniority level: Mid-Senior level", "Karrierestufe:
+     Berufserfahren".
+  3. A STATED EXPERIENCE OR LEADERSHIP BAR — "mindestens 8 Jahre, davon mehrere in
+     leitender Funktion", "10+ years", "Mehrjährige Führungserfahrung".
+If NONE of the three is present, emit null. Null is the correct, expected answer for a
+posting that never states a tier — it is not a missing value and you will not be
+penalised for it. What you must NOT do is guess a tier from what a role like this
+"usually" is, from the scope of the duties, or from the size of the company; and you must
+not climb a rung above what the ground supports ("Leiter" is Lead, not Executive).
+Emit one of the five English tier words or null — never a German rank word, never a
+sentence, never a list.
+
+COMPANY CULTURE SIGNALS (grounded, like everything else):
+Emit only signals the posting's own words state — a value it names ("Wertschätzende
+Führung", "remote-first", "Du-Kultur"), a work-style it describes ("Mehrschichtbetrieb",
+"flache Hierarchien"). Do NOT infer a culture label from something else the posting
+happens to be: "Mittelstand" is not implied by a mid-sized company's address, "kurze
+Wege" is not implied by a flat org chart, "Startup-Kultur" is not implied by a young
+company. Both of those were measured being emitted and then flagged as ungrounded by the
+reviewer, which spends a whole correction round on a field nothing required. An empty
+array is the correct answer for a posting that describes no culture.
+
+OUTPUT LANGUAGE: emit "required_skills", "nice_to_have_skills", "keywords" and
+"company_culture_signals" in the posting's own language, in the posting's own words —
+never translated, never two languages in one analysis. The user prompt states which
+language that is. These terms are matched LITERALLY against the candidate's documents
+(the keyword ledger, ADR-048), which follow the posting's language, so a translated term
+matches nothing. The controlled vocabularies are NOT affected and stay English in every
+posting: "seniority_level", "scope_requirements[].kind"/"comparator"/"level",
+"leadership_emphasis.emphasis". "quote" fields are verbatim, so they follow by
+construction.
+
 For berufsbild_code, use the Klassifikation der Berufe 2020 (KldB 2020) from the Bundesagentur für Arbeit.
 Examples: '4311' for Softwareentwicklung, '4321' for IT-Systemanalyse, '7121' for Personalmanagement, '7211' for Finanzmanagement und Controlling.
 Only provide a code you are confident about; set both fields to null if the occupation does not clearly map to KldB 2020."""
@@ -146,8 +219,22 @@ def build_user_prompt(jd_text: str) -> str:
     an instruction the whole flow inherits (``SF-UNTRUSTED.1``).
     """
     from applire.services.untrusted_text import fence
+    from applire.utils.language_detection import detect_language
 
+    # #617 axis (a), 2026-09-11 — ADR-064's state-the-fact shape, not more prose.
+    # A general rule about "the posting's language" is ~1,400 chars the model must
+    # re-derive the answer from on every call, and the measurement showed the cost:
+    # on an already-English posting the long rule was a no-op that still diluted the
+    # FIELD SHAPE rule (keywords Jaccard 0.48 -> 0.20, n=5). The language is a fact
+    # we already compute deterministically one line later (`jd_language`), so we
+    # state it instead. Form B (ADR-084): OUR instruction, outside the fence, where
+    # the posting cannot rewrite it.
+    lang = "German" if detect_language(jd_text) == "de" else "English"
     return (
         "Analyse the following job description and return the structured JSON.\n\n"
+        f"POSTING LANGUAGE: {lang}. Emit required_skills, nice_to_have_skills, "
+        f"keywords and company_culture_signals in {lang}, using the posting's own "
+        "words. The controlled vocabularies (seniority_level, scope_requirements "
+        "kinds/comparators/levels, leadership_emphasis) stay English regardless.\n\n"
         + fence(jd_text, header="JOB DESCRIPTION")
     )

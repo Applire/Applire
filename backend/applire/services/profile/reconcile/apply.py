@@ -34,7 +34,6 @@ import types
 import typing
 import unicodedata
 from dataclasses import dataclass
-from datetime import date
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -191,23 +190,6 @@ def _prefer_mixed_case_spelling(existing: str, incoming: str) -> str:
     ):
         return incoming
     return existing
-
-
-def _merge_last_used(existing: date | None, incoming: date | None) -> date | None:
-    """#602/#620 — a skill's ``last_used`` must SURVIVE a merge import, not be
-    dropped because the incoming op is folding into an already-known skill.
-
-    Neither side is more authoritative than the other the way a declared
-    proficiency is (ADR-061 clause 5) — ``last_used`` is a plain fact, and the
-    MORE RECENT of two dates is always the more informative "still current"
-    signal, so it wins regardless of which side (existing vs incoming) stated
-    it. An absent side never regresses the other.
-    """
-    if incoming is None:
-        return existing
-    if existing is None:
-        return incoming
-    return max(existing, incoming)
 
 
 class ApplyResult(BaseModel):
@@ -507,6 +489,7 @@ def apply_ops(
     user_confirmed_skill: UserConfirmedSkill | None = None,
     user_confirmed_engagement: UserConfirmedEngagement | None = None,
     turn_text: str = "",
+    empty_reason: str | None = None,
 ) -> ApplyResult:
     """Apply ``ops`` to a deep copy of ``profile`` in order.
 
@@ -528,6 +511,10 @@ def apply_ops(
             from "the answer only denied, so nothing should land". Empty for
             every batch with no single human utterance behind it (an import
             merge, a resolution turn), which switches the witness off.
+        empty_reason: ruling M5.1.4 — the reconciler's own `empty_reason`, which
+            selects WHICH no-write receipt copy the candidate reads. `None` (a
+            model that did not answer, an intake with no reconcile call behind
+            it) keeps the original `no_write` copy.
     """
     new_profile = profile.model_copy(deep=True)
     changes: list[FieldChange] = []
@@ -772,7 +759,7 @@ def apply_ops(
     if turn_text and not any(
         (changes, pending, conflicts, demotions, denials, not_applied)
     ):
-        not_applied.extend(compute_no_write(turn_text))
+        not_applied.extend(compute_no_write(turn_text, empty_reason))
 
     return ApplyResult(
         profile=new_profile,
@@ -2325,8 +2312,6 @@ def _new_skill_kwargs(op, evidence_ids: list[str]) -> dict[str, Any]:
         kwargs["category"] = op.category
     if op.proficiency:
         kwargs["proficiency"] = op.proficiency
-    if op.last_used:
-        kwargs["last_used"] = op.last_used
     if op.years_experience is not None:
         # See _apply_transcribed_years: the number and its provenance move together.
         kwargs["years_experience"] = op.years_experience
@@ -2398,8 +2383,6 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 existing.proficiency = _merge_declared_proficiency(
                     existing.proficiency, op.proficiency.lower()
                 )
-            # #602/#620 — see _merge_last_used: the more recent date wins.
-            existing.last_used = _merge_last_used(existing.last_used, op.last_used)
             # ADR-061 amended 2026-09-08 (#684) — a transcribed span wins.
             _apply_transcribed_years(existing, op)
             # ADR-061 clause 3 + the 2026-08-08 amendment (#485) — promote-only,
@@ -2468,8 +2451,6 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
             existing.proficiency = _merge_declared_proficiency(
                 existing.proficiency, op.proficiency.lower()
             )
-        # #602/#620 — see _merge_last_used: the more recent date wins.
-        existing.last_used = _merge_last_used(existing.last_used, op.last_used)
         # ADR-061 amended 2026-09-08 (#684) — a transcribed span wins.
         _apply_transcribed_years(existing, op)
         # ADR-061 clause 3 + the 2026-08-08 amendment: promote-only, and never

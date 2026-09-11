@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from applire.services.profile.reconcile.stance import (
+    containment_release_form,
     declared_denial_matches,
     denial_release_corpus,
     entry_is_claimable,
@@ -554,6 +555,22 @@ def _enforce_denial_stance(
     §7.5(a) — a sentence typed into a document is not an attested vault entity)
     ever reaches ``vault_corpus``: neither may be the independent affirmation
     that releases a persisted denial.
+
+    THE RELEASE IS JUDGED AT THE ENTRY'S FULL WIDTH (ADR-059 amended
+    2026-09-11, SF-GAP.10 / E-4). The denial question above is asked of the
+    concept AND of every surface form; the release question inside
+    ``is_denied_concept`` is asked of the ONE probe it was handed. So every
+    alias could pull an entry into the floor and none could carry it out.
+    2026-09-10 delivery run: a denial of ``"direkte Produktion für
+    Lebensmittelkunden"`` floored the JD's bare ``Produktion`` — the German
+    compound ``produktionsleiter``, an attested ``work_experience[].role``, is
+    not the token ``produktion`` at a word boundary — and a met, ``direct``,
+    narrative-backed requirement shipped in ``category_c`` while the same
+    response still listed it under ``strengths``. Reconcile rule 9's principle
+    ("A DENIAL IS ABOUT ITS OWN ITEM AND NOTHING ELSE") is restored by
+    :func:`applire.services.profile.reconcile.stance.containment_release_form`,
+    applied at all four floor seams. It refuses a DECLARED denial itself, so
+    the release can only ever reach the containment-only case.
     """
     entries = _denied_concept_entries(denied_concepts)
     if not entries:
@@ -579,6 +596,27 @@ def _enforce_denial_stance(
             is_denied_concept(f, all_denied_concepts, vault_corpus) for f in forms
         )
         if not is_denied:
+            result.append(entry)
+            continue
+        # SF-GAP.10 / E-4 (ADR-059 amended 2026-09-11) — the RELEASE half at the
+        # entry's full width. ``is_denied`` above probes the concept AND every
+        # surface form; the release probes the same set, so an alias can no
+        # longer pull an entry into the floor that its own attested name would
+        # carry back out. Declared denials never reach here
+        # (``containment_release_form`` refuses them itself).
+        released = containment_release_form(
+            concept, forms, all_denied_concepts, vault_corpus
+        )
+        if released is not None:
+            logger.info(
+                "_enforce_denial_stance: left %r as it stands (%r/claimable=%r) — "
+                "it is only contained in a denied compound, and the vault "
+                "attests %r outside it (SF-GAP.10)",
+                concept,
+                entry.get("status"),
+                entry.get("claimable"),
+                released,
+            )
             result.append(entry)
             continue
         if entry.get("claimable"):
@@ -2031,7 +2069,9 @@ def upgrade_ledger_for_concepts(
             continue
 
         if denials and _entry_is_denied(concept, forms, denials, turn_corpus or None):
-            if not _entry_is_denied(concept, forms, denials, full_corpus):
+            if not _entry_is_denied(
+                concept, forms, denials, full_corpus
+            ) or containment_release_form(concept, forms, denials, full_corpus):
                 # #351 — the turn denies this concept only by containment in a
                 # longer denied compound, and the vault affirms it outside that
                 # compound. Neither verdict is available: the turn is no
@@ -2219,8 +2259,15 @@ def reevaluate_gap_ledger_against_vault(
         # ADR-059 floor: never upgrade a denied concept, however the vault or
         # its own denial statement phrases it (corpus already denial-stripped
         # above — this is the belt-and-braces second check).
-        if denials and any(
-            is_denied_concept(p, denials, release_corpus) for p in probes
+        # SF-GAP.10 (ADR-059 amended 2026-09-11) — site 4 of the every-seam
+        # rule: the release is judged at the entry's full width too, or a
+        # rebuild and a re-evaluation of the same row disagree about whether
+        # the containment reading stands.
+        if (
+            denials
+            and any(is_denied_concept(p, denials, release_corpus) for p in probes)
+            and containment_release_form(concept, forms, denials, release_corpus)
+            is None
         ):
             continue
 
@@ -2981,7 +3028,15 @@ def _claimable_backing_violation(
     evidence = (entry.get("evidence") or "").strip()
     if evidence == DENIED_EVIDENCE:
         return "denied_evidence"
-    if denials and probes and _entry_is_denied(concept, forms, denials, vault_corpus):
+    if (
+        denials
+        and probes
+        and _entry_is_denied(concept, forms, denials, vault_corpus)
+        # SF-GAP.10 — one release instrument at every floor seam (ADR-059's
+        # every-seam rule): a containment-only match the vault attests under
+        # the entry's own name is not a denial of this entry.
+        and containment_release_form(concept, forms, denials, vault_corpus) is None
+    ):
         return "denied_concept"
 
     # 2 — the row's own coherence.
@@ -3235,6 +3290,7 @@ def build_keyword_ledger(
     *,
     denied_concepts: list[dict[str, Any]] | list[str] | None = None,
     profile_json: dict[str, Any] | None = None,
+    previous_ledger: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
 
@@ -3255,6 +3311,31 @@ def build_keyword_ledger(
             the vault independently, literally attests. ``None`` (the
             default) reproduces the pre-fix fail-closed behaviour exactly —
             back-compat for every caller that has no profile on hand.
+        previous_ledger: the SAME job's prior ``GapAnalysis.keyword_ledger``
+            (SF-GAP.12, Nougat build-2 delivery-run 2026-09-11), when this
+            build is a recompute rather than the first one. A fresh
+            classification call is free to name a DIFFERENT (or narrower) set
+            of ``surface_forms`` for the same concept than an earlier call
+            did — the 2026-09-11 run reproduced the SF-GAP.10 bug's exact
+            symptom this way: build 1 classified 'Produktion' with
+            ``surface_forms=["Produktion", "Produktionsleiter", "Fertigung"]``
+            (which released the containment-only denial via the vault's own
+            attested "Produktionsleiter" role); a later recompute of the
+            IDENTICAL concept, denial and vault classified it with
+            ``["Produktion", "Fertigungsbereiche", "Fertigung"]`` instead —
+            the releasing form simply absent from THIS call's own output —
+            and the SAME (correct) containment-release logic, given only
+            those forms, legitimately found nothing to release. Per concept
+            (matched by :func:`_norm`), any surface form a previous build
+            already carried is UNIONED into this build's own forms before the
+            denial floor runs — a deterministic set union over two
+            already-computed lists, never a second classifier call and never
+            a new release rule. Monotonic and safe: a carried-forward form is
+            still subject to the SAME :func:`containment_release_form`
+            corpus check, so a stale/no-longer-attested form changes nothing.
+            ``None`` (the default) reproduces the pre-fix behaviour exactly —
+            back-compat for every caller with no prior ledger on hand (a
+            first-ever build has none by construction).
 
     Returns:
         A list of ledger-entry dicts, each:
@@ -3282,6 +3363,23 @@ def build_keyword_ledger(
             entry = union.setdefault(key, {"text": raw, "sources": set()})
             entry["sources"].add(src)
 
+    # SF-GAP.12 — a prior build's own surface_forms per concept, keyed the
+    # same way every other concept lookup in this module is (_norm). Read
+    # once; a fresh classification call unions into this, it never replaces
+    # it wholesale (see the ``previous_ledger`` docstring above).
+    previous_forms_by_concept: dict[str, list[str]] = {}
+    for prev in previous_ledger or []:
+        if not isinstance(prev, dict):
+            continue
+        key = _norm(prev.get("concept", ""))
+        if not key:
+            continue
+        forms = [
+            f for f in (prev.get("surface_forms") or []) if isinstance(f, str) and f.strip()
+        ]
+        if forms:
+            previous_forms_by_concept[key] = forms
+
     covered: set[str] = set()
     ledger: list[dict[str, Any]] = []
 
@@ -3290,6 +3388,13 @@ def build_keyword_ledger(
         if not _norm(concept):
             continue
         surface_forms = item.get("surface_forms") or [concept]
+        # SF-GAP.12 — union in any surface form a PRIOR build of this SAME
+        # concept already carried. A stale/no-longer-attested carried form
+        # changes nothing downstream: it is still subject to the same
+        # containment_release_form corpus check at the denial floor below.
+        carried = previous_forms_by_concept.get(_norm(concept))
+        if carried:
+            surface_forms = list(dict.fromkeys([*surface_forms, *carried]))
         # Match the concept + each surface form against the JD union.
         probes = {_norm(concept)} | {_norm(sf) for sf in surface_forms}
         matched_keys = {

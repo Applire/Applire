@@ -121,8 +121,16 @@ async def _scan_orphan_files(db: AsyncSession) -> int:
     Referenced set = every uploads.file_path row ∪ every
     master_profiles.profile_json.personal_info.photo_url (ALL rows, including
     soft-deleted profiles — a tombstoned profile still owns its photo until
-    hard erasure; photos have NO uploads row, so forgetting them here would
-    delete every live profile photo).
+    hard erasure) ∪ every user_settings.signature_path (#359, ADR-088).
+
+    Every binary reference is enumerated EXPLICITLY, and that is the reason this
+    docstring is long: no stored image has an `uploads` row, so a binary
+    reference missing from this set is not merely unprotected — its files are
+    actively deleted once past the grace period. The signature lives on
+    `user_settings` rather than in the profile JSONB (ADR-088), which is
+    precisely why it needs its own SELECT here instead of riding the profile
+    scan. Any future stored binary is added in the same breath as its service
+    module, or it is a data-loss bug with a 24-hour fuse.
 
     Safety rules:
       * storage backends without enumeration support (list_files() → None,
@@ -162,6 +170,14 @@ async def _scan_orphan_files(db: AsyncSession) -> int:
             photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
             if photo_url:
                 referenced.add(photo_url)
+
+        # #359 / ADR-088: the signature image's path lives on user_settings, not
+        # in the profile JSONB, so it needs its own read. Same failure mode as
+        # the photo if omitted — the file is deleted, not merely unprotected.
+        sig_rows = await db.execute(
+            text("SELECT signature_path FROM user_settings WHERE signature_path IS NOT NULL")
+        )
+        referenced.update(row[0] for row in sig_rows.fetchall() if row[0])
     except (ProgrammingError, OperationalError):
         # Can't trust the referenced set → delete nothing this run.
         await db.rollback()

@@ -31,6 +31,8 @@ from applire.schemas.ats import ATSReportResponse
 from applire.schemas.cover_letter import (
     CoverLetterGenerateRequest,
     CoverLetterGenerateResponse,
+    CoverLetterSignatureOverrideRequest,
+    CoverLetterSignatureOverrideResponse,
     CoverLetterStatusResponse,
     SectionOverridePatch,
     SectionOverridePatchResponse,
@@ -46,6 +48,7 @@ from applire.services.cover_letter import (
     get_cover_letter_status,
     get_cover_letter_truthfulness_report,
     patch_cover_letter_section,
+    set_cover_letter_signature_override,
 )
 
 router = APIRouter(prefix="/api/cover-letter", tags=["cover-letter"])
@@ -244,3 +247,30 @@ async def patch_section(
         # the service is the shared ADR-066 door — map it here too so any
         # other caller that reaches it gets 422, not an unhandled 500.
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+@router.patch("/{cl_id}/signature", response_model=CoverLetterSignatureOverrideResponse)
+async def patch_cover_letter_signature(
+    cl_id: uuid.UUID,
+    body: CoverLetterSignatureOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> CoverLetterSignatureOverrideResponse:
+    """F-4b (founder ruling, 2026-09-11): set this letter's per-document
+    signature override. ``signature_override: null`` resets to the kind
+    default (``signature_in_letter``) rather than turning the signature off —
+    letter-side twin of ``PATCH /api/cv/{cv_id}/signature``.
+
+    Read at both render seams of the letter kind (``get_cover_letter_html``,
+    ``_prepare_cover_letter_docx_render``) ahead of the kind default, so
+    toggling and re-downloading takes effect without regenerating.
+    """
+    try:
+        effective = await set_cover_letter_signature_override(cl_id, body.signature_override, db)
+        return CoverLetterSignatureOverrideResponse(
+            cover_letter_id=cl_id,
+            signature_override=body.signature_override,
+            signature_effective=effective,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

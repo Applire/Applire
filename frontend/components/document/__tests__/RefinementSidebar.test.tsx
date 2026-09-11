@@ -138,4 +138,40 @@ describe("RefinementSidebar", () => {
       expect(screen.getByTestId("badge-count")).toBeTruthy();
     });
   });
+
+  // #667 (ADR-081 cl. 3, amended 2026-09-11): the review surface's fourth
+  // handle moves the user to *Bearbeiten*, so the page has to be able to own
+  // the active tab. The uncontrolled form stays the default — every existing
+  // caller and every test above is unchanged.
+  describe("controlled tab mode (#667)", () => {
+    it("shows the caller's tab and does NOT move on its own when clicked", () => {
+      const onTabChange = vi.fn();
+      render(
+        withIntl(
+          <RefinementSidebar {...BASE} activeTabId="design" onTabChange={onTabChange} />,
+        ),
+      );
+      expect(screen.getByTestId("body-design")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("sidebar-tab-actions"));
+      // The CALLER decides; the panel only reports. Moving itself as well would
+      // make the two sources of truth disagree for one render.
+      expect(onTabChange).toHaveBeenCalledWith("actions");
+      expect(screen.getByTestId("body-design")).toBeTruthy();
+    });
+
+    it("follows the caller when the controlled value changes", () => {
+      const { rerender } = render(withIntl(<RefinementSidebar {...BASE} activeTabId="content" />));
+      expect(screen.getByTestId("body-content")).toBeTruthy();
+      rerender(withIntl(<RefinementSidebar {...BASE} activeTabId="actions" />));
+      expect(screen.getByTestId("body-actions")).toBeTruthy();
+    });
+
+    it("stays uncontrolled — and still reports — when no activeTabId is given", () => {
+      const onTabChange = vi.fn();
+      render(withIntl(<RefinementSidebar {...BASE} onTabChange={onTabChange} />));
+      fireEvent.click(screen.getByTestId("sidebar-tab-design"));
+      expect(screen.getByTestId("body-design")).toBeTruthy();
+      expect(onTabChange).toHaveBeenCalledWith("design");
+    });
+  });
 });

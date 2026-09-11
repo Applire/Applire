@@ -189,9 +189,12 @@ class TestDeliverySeamsReadTheRowsOrigin:
             return _Row(origin)
 
         async def _fake_prep(record, db):
-            return (object(), "de", "#123456", None)
+            # #359 widened the shared prep's tuple: (tailored, lang, accent,
+            # photo_bytes, signature_bytes, signature_place_date).
+            return (object(), "de", "#123456", None, None, None)
 
         def _fake_render(tailored, *, lang, accent_color, photo_bytes=None,
+                         signature_bytes=None, signature_place_date=None,
                          digital_source_type=None):
             seen["dst"] = digital_source_type
             return b"docx"
@@ -233,9 +236,11 @@ class TestDeliverySeamsReadTheRowsOrigin:
                 return _Result()
 
         async def _fake_prep(cl, db):
-            return (object(), "de", "#123456")
+            # #359 widened the shared prep's tuple with signature_bytes.
+            return (object(), "de", "#123456", None)
 
-        def _fake_render(letter, *, lang, accent_color, digital_source_type=None):
+        def _fake_render(letter, *, lang, accent_color, signature_bytes=None,
+                         digital_source_type=None):
             seen["dst"] = digital_source_type
             return b"docx"
 

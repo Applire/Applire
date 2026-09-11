@@ -1003,6 +1003,27 @@ async def test_advance_flow_artifact_required_maps_to_invalid_input():
 
 
 @pytest.mark.asyncio
+async def test_advance_flow_artifact_not_found_maps_to_invalid_input():
+    """#676 line 1 (was #581): a wrong-referent artifact_id must map to the same
+    invalid_input error as ArtifactRequiredError, not a bare 500 from an
+    uncaught IntegrityError."""
+    from applire.mcp.server import advance_flow
+    from applire.services.flow.orchestrator import ArtifactNotFoundError
+
+    cm, _ = _mock_db()
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.flow_svc.advance_flow",
+              AsyncMock(side_effect=ArtifactNotFoundError("gap_analysis", uuid.uuid4()))),
+    ):
+        with pytest.raises(McpError) as exc:
+            await advance_flow(
+                flow_id=str(uuid.uuid4()), step="gap_analysis", artifact_id=str(uuid.uuid4())
+            )
+    assert exc.value.error.code == -32602
+
+
+@pytest.mark.asyncio
 async def test_advance_flow_not_found_maps_to_not_found():
     from applire.mcp.server import advance_flow
 

@@ -246,7 +246,22 @@ _NOT_APPLIED_REASON = {
     # M-1c (founder ruling M-1, 2026-09-09): the candidate stated something and
     # the turn produced nothing at all. Named as the loss it is, not as the
     # mechanism that caused it — the candidate did not choose the model.
-    "no_write": "nothing was recorded from what you said",
+    #
+    # Ruling M5.1.4 (2026-09-11, E-3) split the event by the reconciler's own
+    # `empty_reason`: the first two say what happened instead of only that
+    # nothing happened, and the third — the bare `no_write` — is BOTH the
+    # `nothing_actionable` branch AND the fail-safe for a model that emitted no
+    # reason, which is why it is the one that tells the candidate what to do
+    # next. Clause-shaped like every other reason here: the reader composes them
+    # into `health.notAppliedSummary`'s sentence (`HealthPanel.tsx`).
+    "no_write": (
+        "nothing was recorded from what you said — say it again in one "
+        "sentence, or enter it in your profile"
+    ),
+    "no_write_already_known": "that is already in your profile, as stated",
+    "no_write_question_only": (
+        "your question arrived — nothing was changed for it"
+    ),
 }
 
 

@@ -214,6 +214,8 @@ async def submit_agent_claims(
                 # M-1c — the claim's own statement; a claim that stated
                 # something and wrote nothing leaves a receipt.
                 turn_text=claim.statement,
+                # M5.1.4 — see the interview door; same reason, same receipt.
+                empty_reason=rc.empty_reason,
                 grounding=TurnGrounding(
                     text=claim.statement,
                     question=claim.question,

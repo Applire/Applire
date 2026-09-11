@@ -35,9 +35,7 @@ from applire.models.uploads import UploadRecord
 from applire.prompts.cv_extraction import (
     CV_EXTRACTION_REFINEMENT_PROMPT,
     GENERIC_CV_EXTRACTION_PROMPT,
-    JD_AWARE_CV_EXTRACTION_PROMPT,
     build_generic_prompt,
-    build_jd_aware_prompt,
 )
 from applire.prompts.profile_extraction import (
     SYSTEM_PROMPT,
@@ -939,13 +937,16 @@ async def upload_cv(
 
     Steps:
       1. Extract raw text (format-aware, OCR fallback for scanned PDFs/images)
-      2. Optionally fetch JobAnalysis context for JD-aware extraction
-      3. LLM extraction → MasterProfileData
-      4. Merge with existing profile (or create first profile)
-      5. Persist UploadRecord (file + cost metadata)
-      6. Return CVUploadResponse with status, completeness, and conflicts
+      2. LLM extraction → MasterProfileData
+      3. Merge with existing profile (or create first profile)
+      4. Persist UploadRecord (file + cost metadata)
+      5. Return CVUploadResponse with status, completeness, and conflicts
+
+    *job_id* is accepted for REST API compatibility only (M5.1.3, 2026-09-11): every
+    upload now builds the generic extraction prompt regardless of whether a job_id is
+    supplied. It no longer selects a JD-aware extraction path — see the retired
+    JD_AWARE_CV_EXTRACTION_PROMPT version-header note in prompts/cv_extraction.py.
     """
-    from applire.models.job import JobAnalysis
     from applire.services.cv_parser import extract_text
 
     # 1. Text extraction — each CV is analysed individually; never concatenated.
@@ -966,33 +967,18 @@ async def upload_cv(
         )
         raw_text = raw_text[:cut]
 
-    # 2. JD context (optional)
-    job_analysis_dict: dict | None = None
+    # 2. job_id is accepted for REST API compatibility only (M5.1.3) — it no longer
+    #    selects a different extraction path. Every upload builds the generic prompt.
     if job_id is not None:
-        result = await db.execute(
-            select(JobAnalysis).where(
-                JobAnalysis.id == job_id,
-                JobAnalysis.deleted_at.is_(None),
-            )
+        logger.info(
+            "upload_cv: job_id=%s supplied but ignored — JD-aware extraction was "
+            "retired M5.1.3 (2026-09-11); extraction is always generic.",
+            job_id,
         )
-        job_record = result.scalar_one_or_none()
-        if job_record:
-            job_analysis_dict = {
-                "role_title": job_record.role_title,
-                "required_skills": job_record.required_skills,
-                "nice_to_have_skills": job_record.nice_to_have_skills,
-                "keywords": job_record.keywords,
-                "seniority_level": job_record.seniority_level,
-                "language_requirement": job_record.language_requirement,
-            }
 
     # 3. LLM extraction + review layer + skill enrichment
-    if job_analysis_dict:
-        prompt = build_jd_aware_prompt(raw_text, job_analysis_dict)
-        system = JD_AWARE_CV_EXTRACTION_PROMPT
-    else:
-        prompt = build_generic_prompt(raw_text)
-        system = GENERIC_CV_EXTRACTION_PROMPT
+    prompt = build_generic_prompt(raw_text)
+    system = GENERIC_CV_EXTRACTION_PROMPT
 
     # Cap-safe extraction (ADR-047 / US195): segmented fallback when the single call would
     # truncate, so the /upload path never silently drops a dense CV either.

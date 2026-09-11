@@ -83,7 +83,18 @@ _MAX_FIELD_CHARS = 200_000
 
 
 def set_stage(label: str) -> None:
-    """Set the current pipeline-stage label for subsequent LLM calls in this task."""
+    """Set the current pipeline-stage label for subsequent LLM calls in this task.
+
+    Imperative — NEVER restores the prior label. Once set, every later call in
+    this task keeps this label until something else calls ``set_stage`` again,
+    including calls that belong to a completely different, unrelated chain.
+    :func:`llm_log_stage` is the restoring form (a context manager that resets
+    the label back to whatever it was on exit) and is almost always what a call
+    site actually wants — this non-restoring behaviour is exactly why, without
+    it, a debug-log record can silently inherit a stale label from an earlier,
+    unrelated call in the same task (verified on build-1's captured logs:
+    ``skill_estimation`` and ``profile_field_expectations`` records overwhelmingly
+    carried an inherited label, not their own)."""
     _stage.set(label)
 
 

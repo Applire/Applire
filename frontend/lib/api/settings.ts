@@ -47,6 +47,13 @@ export interface AppSettings {
   // `ProfileDecisionsCard.DEFAULT_AUTO_DISMISS_SECONDS`, never to 0 — an absent
   // value must not be read as the deliberate "never hide" setting.
   notice_auto_dismiss_seconds?: number;
+  // #359 (F, 2026-09-11) — the two kind-level signature defaults: whether the
+  // signature renders on the cover letter / the CV unless a document overrides
+  // it (F-4b). Optional here for back-compat with a backend that predates the
+  // columns; the flow pages fall back to the founder default (letter ON, CV
+  // OFF, F-0) rather than treating an absent value as "off" for both.
+  signature_in_letter?: boolean;
+  signature_in_cv?: boolean;
 }
 
 /** GET /api/settings — the current user's preferences. */

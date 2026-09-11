@@ -15,6 +15,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (M5.1.2, 2026-09-11 — RULE-level parity, one layer past v6's field-level
+#   parity: rules 14 (PER-ENTRY GROUNDING FOR TECHNOLOGIES, #407) and 15 (VALID ENTRIES ONLY) are
+#   ported from cv_extraction.py, whose wording they reuse verbatim apart from work_experience →
+#   work_history. Triage: Category B (applire-prompt-first) — the fields exist in this door's
+#   schema and no rule ever asked for the behaviour, so an agent-driven upload and a web-UI upload
+#   of the SAME PDF ran under different rules (ADR-058/ADR-066 door parity, one layer inside the
+#   door). The narrower-rule check was run before porting: rule 7 governs WHAT may be in a
+#   technologies list and says nothing about WHOSE entry it belongs to; rules 1/4/10 cover
+#   exactly-once, the count check and sub-roles, and none of them requires a non-empty company or
+#   a minimum of content. MEASURED on two synthetic multi-employer / shared-Kenntnisse fixtures,
+#   n=5 per model per arm, real provider (OpenRouter): the SOFT shape (skills section last, the
+#   clean role carrying no stack of its own) reproduces nothing — 0/5 on gpt-5.6-luna AND 0/5 on
+#   ministral-8b-2512 before the port. The HARD shape (skills section FIRST, the clean role
+#   carrying its own Proficy/Grafana stack, so the model chooses between that stack and a longer
+#   list that swallows it) reproduces #407 exactly: ministral-8b backfilled SAP PP / SAP MM /
+#   MS Excel onto the CURRENT role 5/5 while that role's own bullets name neither; luna 0/5. The
+#   port is therefore earned on the model class that fails, not on the bench model. Records:
+#   Documents/Runs/Nougat/build-2/p2/runs/P7-*.jsonl.)
 # Prompt version: v6 (#228 — FIELD-level parity, one layer deeper than v5: personal_info
 #   gains address/nationality/date_of_birth/xing_url/website_url and "linkedin" is renamed to
 #   "linkedin_url" (same value, name now identical to cv_extraction.py's — #228 instruction 1);
@@ -78,6 +96,10 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    "Expert for Computersystemvalidation"): a named certificate is FACTUAL credential data and MUST land
    in "certifications", never be demoted to a "skills" entry or dropped. You MAY additionally record the
    underlying competency as a skill, but the certification entry itself is mandatory.
+   "issuing_organization" is written ONLY when the source line itself names the issuing body. Never
+   derive one from the certificate's own name — a "Herstellerschulung" does not state an issuer
+   called "Hersteller", and a "IHK-Zertifikat" states one only because the source wrote it. Leave
+   the field null/absent when no issuer is stated; an invented issuer is fabricated credential data.
 6. RESPONSIBILITIES vs ACHIEVEMENTS: every role bullet in the source must be routed into one of the
    two lists — do not put them all in "responsibilities". "responsibilities" holds ongoing duties and
    the standing scope of the role (what the person was accountable for). "achievements" holds
@@ -146,6 +168,22 @@ STRICT EXTRACTION RULES — follow these before writing any output:
     to "intermediate" when a German qualifier is sitting right next to it). Two skills shown at the
     same scale position MUST receive the same proficiency level. Where the source gives an explicit scale, this mapping takes precedence over
     any other weighting.
+14. PER-ENTRY GROUNDING FOR TECHNOLOGIES (#407): a work_history/project/volunteer entry's
+    "technologies" list holds ONLY tools that entry's OWN text (its responsibilities/achievements,
+    or a bullet directly under its heading) actually names. Never copy a tool into an entry's
+    technologies list just because it appears in a separate skills/"Kenntnisse" section, in a
+    DIFFERENT entry's bullets, or in the professional summary — a global skills list is
+    employer-agnostic evidence about the candidate, not evidence about any one specific role. A
+    skill named only in a general skills section belongs in the top-level "skills" array; it does
+    not get backfilled onto every job the candidate ever held. Concretely: if a CV lists "SAP" once
+    under a general "Kenntnisse"/"Skills" heading and once inside a specific role's own bullet
+    ("Mitarbeit bei der Einführung von SAP in der Fertigung" under Company A), "SAP" belongs in
+    Company A's technologies — NOT in Company B's, even if Company B is the candidate's current or
+    most recent role and even if SAP is the most prominent word in the skills section.
+15. VALID ENTRIES ONLY: Every work_history entry MUST have a non-empty "company" name AND at least
+    one of: start_date, responsibilities, or achievements. Never emit an entry with an empty company
+    ("" or null). Role titles mentioned within bullet points or as sub-roles belong in
+    "role_aliases", not as new entries.
 
 Schema:
 {

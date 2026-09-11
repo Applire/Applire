@@ -33,11 +33,13 @@ from __future__ import annotations
 
 import logging
 
+from applire.constants import FIELD_EXPECTATIONS_MAX_TOKENS
 from applire.prompts.profile_field_expectations import (
     FIELD_EXPECTATIONS_SYSTEM_PROMPT,
     build_field_expectations_prompt,
 )
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.services.profile.completeness import CONDITIONAL_FIELDS
 
 logger = logging.getLogger(__name__)
@@ -79,11 +81,13 @@ async def annotate_expected_fields(profile: dict, provider: LLMProvider) -> dict
         if entry.get("expected_fields") is not None:
             continue
         try:
-            data = await provider.aparse_json(
-                build_field_expectations_prompt(entry),
-                system=FIELD_EXPECTATIONS_SYSTEM_PROMPT,
-                temperature=0.1,
-            )
+            with llm_log_stage("field_expectations"):
+                data = await provider.aparse_json(
+                    build_field_expectations_prompt(entry),
+                    system=FIELD_EXPECTATIONS_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=FIELD_EXPECTATIONS_MAX_TOKENS,
+                )
             picked = data.get("expected") if isinstance(data, dict) else None
             entry["expected_fields"] = [f for f in (picked or []) if f in _cond_set]
         except Exception:

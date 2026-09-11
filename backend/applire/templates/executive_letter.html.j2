@@ -2,6 +2,7 @@
 <html lang="{{ lang }}">
 <head>
   <meta charset="UTF-8"/>
+  <title>{{ labels.document_title }} – {{ letter.header.name }}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -24,6 +25,8 @@
        for the full rationale; same fix, N templates — ADR-066). */
     .signature { break-inside: avoid; page-break-inside: avoid; margin-top: 6mm; }
     .signature .closing { margin-bottom: 8mm; }
+    .signature-image { display: block; height: 14mm; width: auto; max-width: 60mm; margin: 0 0 1mm; }
+    .signature.has-signature .closing { margin-bottom: 2mm; }
     /* #621 deviation from design point 1, measured and then measured again
        (not a silent guess): .page's own top padding is 0 BY DESIGN, so the
        coloured .header band bleeds flush to the paper's top edge on page 1;
@@ -82,8 +85,9 @@
     {% for para in letter.body.paragraphs %}<p>{{ para }}</p>{% endfor %}
   </div>
 
-  <div class="signature">
+  <div class="signature{% if signature_image %} has-signature{% endif %}">
     <div class="closing">{{ letter.signature.closing }}{{ labels.closing_punctuation }}</div>
+    {% if signature_image %}<img class="signature-image" src="{{ signature_image }}" alt="">{% endif %}
     <div>{{ letter.signature.name }}</div>
   </div>
 </div>

@@ -444,6 +444,12 @@ async def run_one(
             record["rejected_detail"] = rejected_detail
             record["denials"] = list(result.denials or [])
             record["ambiguities"] = len(result.ambiguities or [])
+            # ADR-046 amended 2026-09-11 (ruling M5.1.4) — the model's own reason
+            # for an empty batch, recorded beside the ops so a run can answer
+            # "did this model take the ask at all?" without re-reading the debug
+            # log. Additive: no existing metric or threshold reads it, so every
+            # published matrix row stays comparable.
+            record["empty_reason"] = result.empty_reason
             applied = None
             try:
                 applied = apply_ops(profile, result.ops, "interview")

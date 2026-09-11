@@ -15,6 +15,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v6 (#617, 2026-09-11 — Nougat build 2, axis (b)): check 5 gains
+# the THREE grounds that establish a seniority tier (the role title's own rank word
+# first — the captured auditor explicitly refused to read one: *"the role title is
+# 'Leiter Operations' but no seniority tier is specified"*, 2026-08-02) and, for the
+# first time, a DISPOSITION: an over-reaching tier is DEMOTED to the tier the posting
+# does ground, and set to null only when nothing grounds one. Removal-as-only-
+# disposition is the same defect ADR-069 closed for qualified requirements in v3;
+# it was still open for this field, and it ratcheted Executive -> null (09-05, 09-09)
+# and Lead -> Senior -> null (08-02) on a posting titled "Leiter Operations".
+# The corrector gains the matching rule. Nothing here gives the reviewer memory
+# (ADR-021 clause 6) — the grounds are a property of the POSTING, readable afresh
+# every round, which is exactly why a memoryless auditor can apply them.
+#
 # Prompt version: v5 (ADR-069 clause 4b/4d/4e amended 2026-08-29, #617): the
 # reviewer's input is now a prompt-facing VIEW (services/jd_grounding.py) with a
 # code-computed GROUNDING FACTS block — replay evidence showed the captured 21->5
@@ -180,10 +193,24 @@ Check for these defects:
    a decorative subtitle) is fine; inventing a title the posting never uses is not.
 5. SENIORITY/LANGUAGE OVERREACH: a seniority_level or language_requirement asserting
    something (e.g. a language, a CEFR level, a seniority tier) not stated or clearly
-   implied by the posting's own wording. A job board's own METADATA LINE ("Seniority
-   level: Mid-Senior level") states a seniority tier just as much as a sentence of prose
-   does — do not flag seniority_level for being grounded only in a metadata line. An
-   English-language posting IMPLIES English as the language_requirement; only an
+   implied by the posting's own wording.
+   seniority_level is a controlled ENGLISH vocabulary (Junior/Mid/Senior/Lead/Executive),
+   so it is NEVER verbatim in a German posting and a "verbatim no" tells you nothing
+   about it. Three things ground a tier, and any ONE of them is enough:
+     (i)   THE ROLE TITLE'S OWN RANK WORD, in either language — "Leiter", "Leitung",
+           "Head of", "Teamleiter", "Senior", "Principal", "Geschäftsführer", "Director".
+           A title states a tier as much as prose does: "Leiter Operations" grounds
+           "Lead". Do NOT flag a tier that the title itself carries.
+     (ii)  A JOB-BOARD METADATA LINE ("Seniority level: Mid-Senior level").
+     (iii) A STATED EXPERIENCE OR LEADERSHIP BAR ("mindestens 8 Jahre, davon mehrere in
+           leitender Funktion", "10+ years").
+   DISPOSITION — demotion, never deletion: when the tier is higher than the ground
+   supports, the fix is to name the tier the posting DOES ground ("'Executive'
+   overreaches — the title 'Leiter Operations' grounds 'Lead'"), not to remove the field.
+   Ask for null ONLY when none of the three grounds is present at all. Stripping a
+   grounded tier is a MATERIAL defect in its own right: every downstream surface reads
+   an absent tier as "the posting set no bar".
+   For language_requirement: an English-language posting IMPLIES English; only an
    INVENTED CEFR level — a proficiency tier the posting's own wording never states — is
    an overreach.
 
@@ -277,6 +304,13 @@ Rules:
   remove, or correct a concept term in these fields — but never reformat an existing
   concept term into a sentence or a quotation from the source text, and never merge
   several concept terms into one prose phrase.
+- SENIORITY DISPOSITION (demotion, never deletion): when the reviewer says a
+  seniority_level overreaches, replace it with the tier the posting actually grounds —
+  its title's own rank word ("Leiter"/"Leitung"/"Head of" -> "Lead"; "Senior X" ->
+  "Senior"; "Geschäftsführer" -> "Executive"), a job-board metadata line, or a stated
+  experience/leadership bar. Set it to null ONLY when the reviewer says no ground
+  exists. Emitting null because the tier was questioned — rather than because nothing
+  grounds one — deletes information the posting does state.
 - SCHEMA KEYS ARE NAMES, NEVER CONTENT: never rename, nest, or restructure a schema
   key — the output schema's field names are fixed. In particular, "leadership_emphasis"
   is always the object {"emphasis": ..., "quote": ...}; when the reviewer asks you to

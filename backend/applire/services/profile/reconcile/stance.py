@@ -73,6 +73,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from applire.constants import STANCE_ADJUDICATION_MAX_TOKENS
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.prompts.stance_adjudication import (
     STANCE_ADJUDICATION_SYSTEM_PROMPT,
     build_stance_adjudication_prompt,
@@ -321,6 +322,71 @@ def is_denied_concept(
     behaviour for any caller that has no vault text on hand.
     """
     return _is_denied(concept, denials, corpus)
+
+
+def containment_release_form(
+    concept: str,
+    forms: list[str] | None,
+    denials: list[str],
+    corpus: str | None,
+) -> str | None:
+    """The ledger entry's OWN name that RELEASES a containment-only denial
+    match — or ``None`` when nothing releases it (ADR-059 amended 2026-09-11,
+    SF-GAP.10 / E-4).
+
+    ``_independently_affirmed`` is the release half of the compound-containment
+    branch: "CSS" is floored by a denied "Tailwind CSS" only while the vault
+    never affirms "CSS" outside that compound. Until now the floor asked that
+    question about the entry's ``concept`` **alone**, while asking the DENIAL
+    question about the concept *and* every ``surface_forms`` entry
+    (:func:`applire.services.keyword_ledger._entry_is_denied`). The two widths
+    were asymmetric, and the asymmetry always fails in the same direction:
+    every alias can pull an entry INTO the floor and none can carry it out.
+
+    The 2026-09-10 delivery run is the instance. The candidate denied
+    ``"direkte Produktion für Lebensmittelkunden"``; the JD's bare requirement
+    ``Produktion`` (surface forms ``Produktion``/``Produktionsleiter``/
+    ``Fertigung``) is a whole word strictly inside that compound, so the
+    containment branch fired. Nothing released it: the German compound
+    ``produktionsleiter`` — an attested ``work_experience[].role``, sitting in
+    :func:`denial_release_corpus` — is not the token ``produktion`` at a word
+    boundary. A met, ``direct``, narrative-backed requirement was floored into
+    ``category_c`` and shipped to the user as a critical gap while the same
+    response still listed it under ``strengths``. Reconcile rule 9's principle
+    ("A DENIAL IS ABOUT ITS OWN ITEM AND NOTHING ELSE") is the one being
+    restored here: a narrow denial about producing *for food customers* says
+    nothing about production as such.
+
+    So the release witness is the entry's own identity — ``concept`` plus every
+    ``surface_forms`` entry — judged with the SAME instrument
+    (:func:`_independently_affirmed`: unicode-folded, whole-token, denials
+    blanked out of the corpus first). Never a substring reading of the corpus,
+    and never a widening of what counts as affirmation: the corpus stays
+    :func:`denial_release_corpus`'s attested entity labels (#480 §7.5(a)).
+
+    A **declared** denial is absolute and is checked here, not left to the call
+    site: if any probe is named by a denial (:func:`declared_denial_matches`)
+    the function returns ``None`` however loudly the vault affirms it — ADR-040
+    never-claim-beats-claim, the candidate's own statement about their own
+    term. The release therefore reaches exactly the containment-only case the
+    branch was fail-closed for.
+
+    Returns the releasing form (for the log line and the seam tests), or
+    ``None``. Pure; tolerant of ``None``/empty on every argument.
+    """
+    probes = [
+        p
+        for p in dict.fromkeys([concept, *(forms or [])])
+        if isinstance(p, str) and p.strip()
+    ]
+    if not probes or not corpus or not denials:
+        return None
+    if any(declared_denial_matches(p, denials) for p in probes):
+        return None
+    for probe in probes:
+        if _independently_affirmed(probe, denials, corpus):
+            return probe
+    return None
 
 
 def record_denials(
@@ -733,12 +799,13 @@ async def _adjudicate_testimony(
     function never raises.
     """
     try:
-        data = await provider.aparse_json(
-            build_stance_adjudication_prompt(token, kind, raw_turn),
-            system=STANCE_ADJUDICATION_SYSTEM_PROMPT,
-            temperature=0.0,
-            max_tokens=STANCE_ADJUDICATION_MAX_TOKENS,
-        )
+        with llm_log_stage("stance_adjudication"):
+            data = await provider.aparse_json(
+                build_stance_adjudication_prompt(token, kind, raw_turn),
+                system=STANCE_ADJUDICATION_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=STANCE_ADJUDICATION_MAX_TOKENS,
+            )
     except Exception:  # noqa: BLE001 — provider/transport/parse noise, never confirmed
         logger.warning(
             "reconcile stance: testimony adjudication call failed for %s %r "

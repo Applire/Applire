@@ -77,6 +77,23 @@ interface ContentTabProps {
    * exactly the "Inhalt" / "Prüfung" duplication the epic exists to remove.
    */
   variant?: "full" | "sections";
+  /**
+   * #667 (ADR-081 cl. 3, amended 2026-09-11) — the section editor is a FOURTH
+   * handle. A claimable gap card on the review surface lands the user HERE with
+   * that gap preselected; this prop is how the page hands the request over.
+   *
+   * Carries a `nonce` rather than a bare id so clicking the SAME gap twice
+   * (after navigating away and back) fires again — a bare id would be an
+   * unchanged value and the effect would not run. `onPendingGapConsumed` lets
+   * the page clear it, so a later re-render cannot re-open the editor by itself.
+   *
+   * Routing stays this component's own `handleAddressGap`: an honest gap goes
+   * to profile enrichment (#117 / ADR-019 — never invite a written claim) and
+   * only a claimable one opens the editor. The review surface does not get to
+   * re-decide that.
+   */
+  pendingGap?: { gapId: string; nonce: number } | null;
+  onPendingGapConsumed?: () => void;
 }
 
 /**
@@ -99,6 +116,8 @@ export function ContentTab({
   onSectionSave,
   onUnsavedChange,
   variant = "full",
+  pendingGap = null,
+  onPendingGapConsumed,
 }: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
@@ -203,6 +222,22 @@ export function ContentTab({
     },
     [sections, generalGaps, handleBrowseToEdit, handleEnrichProfile],
   );
+
+  // #667: honour a pending request from the review surface once the sections
+  // have loaded. Keyed on the nonce, not the id, so the same gap can be opened
+  // twice; consumed exactly once, so a later re-render cannot re-open the
+  // editor behind the user's back.
+  const consumedGapNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pendingGap) return;
+    if (consumedGapNonce.current === pendingGap.nonce) return;
+    // Wait for the section list — `handleAddressGap` resolves the gap's owning
+    // section from it, and firing early would silently do nothing.
+    if (sectionsLoading) return;
+    consumedGapNonce.current = pendingGap.nonce;
+    handleAddressGap(pendingGap.gapId);
+    onPendingGapConsumed?.();
+  }, [pendingGap, sectionsLoading, handleAddressGap, onPendingGapConsumed]);
 
   const handleSectionEdit = useCallback(
     (sectionId: string) => {

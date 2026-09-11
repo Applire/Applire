@@ -880,9 +880,24 @@ _CREATE_UPLOADS_TABLE = (
     " expires_at TEXT NOT NULL)"
 )
 
+# #359 / ADR-088: the signature image's path lives here, not in the profile
+# JSONB, so the orphan scan reads this table too. Created alongside `uploads`
+# rather than in the module-level DDL block because it arrived with the scan's
+# second binary reference — the scan is fail-safe (any unreadable source =>
+# delete nothing), so an absent table silently disables the whole scan, which
+# is exactly what this DDL prevents the suite from mistaking for a defect.
+_CREATE_USER_SETTINGS_TABLE = (
+    "CREATE TABLE IF NOT EXISTS user_settings ("
+    " id TEXT PRIMARY KEY,"
+    " user_id TEXT NOT NULL,"
+    " signature_path TEXT,"
+    " created_at TEXT)"
+)
+
 
 async def _create_uploads_table(db: AsyncSession) -> None:
     await db.execute(text(_CREATE_UPLOADS_TABLE))
+    await db.execute(text(_CREATE_USER_SETTINGS_TABLE))
     await db.commit()
 
 

@@ -51,16 +51,14 @@ _GROUNDING_MARKER = "PER-ENTRY GROUNDING"
 
 
 def test_single_call_prompt_teaches_german_proficiency_words():
-    from applire.prompts.cv_extraction import (
-        GENERIC_CV_EXTRACTION_PROMPT,
-        JD_AWARE_CV_EXTRACTION_PROMPT,
-    )
+    # M5.1.3 (2026-09-11): JD_AWARE_CV_EXTRACTION_PROMPT was retired — GENERIC_CV_EXTRACTION_PROMPT
+    # is now the only single-call prompt, so this covers the one remaining member.
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
-    for prompt in (GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT):
-        assert _GERMAN_PROFICIENCY_WORD in prompt.lower(), (
-            "cv_extraction.py must teach the German self-declaration word "
-            "'Anwender' in its PROFICIENCY SCALE rule."
-        )
+    assert _GERMAN_PROFICIENCY_WORD in GENERIC_CV_EXTRACTION_PROMPT.lower(), (
+        "cv_extraction.py must teach the German self-declaration word "
+        "'Anwender' in its PROFICIENCY SCALE rule."
+    )
 
 
 def test_segmented_core_prompt_teaches_german_proficiency_words():
@@ -78,17 +76,15 @@ def test_segmented_core_prompt_teaches_german_proficiency_words():
 
 
 def test_single_call_prompt_forbids_technologies_backfill():
-    from applire.prompts.cv_extraction import (
-        GENERIC_CV_EXTRACTION_PROMPT,
-        JD_AWARE_CV_EXTRACTION_PROMPT,
-    )
+    # M5.1.3 (2026-09-11): JD_AWARE_CV_EXTRACTION_PROMPT was retired — GENERIC_CV_EXTRACTION_PROMPT
+    # is now the only single-call prompt, so this covers the one remaining member.
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
 
-    for prompt in (GENERIC_CV_EXTRACTION_PROMPT, JD_AWARE_CV_EXTRACTION_PROMPT):
-        assert _GROUNDING_MARKER in prompt, (
-            "cv_extraction.py must instruct the model not to backfill an "
-            "entry's technologies list from a separate skills/Kenntnisse "
-            "section or a different entry."
-        )
+    assert _GROUNDING_MARKER in GENERIC_CV_EXTRACTION_PROMPT, (
+        "cv_extraction.py must instruct the model not to backfill an "
+        "entry's technologies list from a separate skills/Kenntnisse "
+        "section or a different entry."
+    )
 
 
 def test_segmented_detail_prompt_forbids_technologies_backfill():
@@ -102,3 +98,65 @@ def test_segmented_detail_prompt_forbids_technologies_backfill():
         "per-entry technologies grounding rule as the single-call prompt — "
         "this is the dual-prompt trap named in #190/#229/#328."
     )
+
+
+# ── M5.1.2 (2026-09-11) — the THIRD extraction prompt joins the parity gate ───
+#
+# #407's two sub-fixes landed on `cv_extraction.py` and `cv_extraction_segmented.py`
+# — the two prompts the WEB door uses. `profile_extraction.py`, the AGENT door
+# (MCP `import_cv`, paste, LinkedIn/XING), was not in this file's scope and did
+# not carry the rule, so an agent-driven upload and a browser upload of the same
+# PDF ran under different rules (ADR-058 / ADR-066 door parity, one layer inside
+# the door). Measured before the port on a synthetic multi-employer fixture, real
+# provider, n=5 per model: `ministral-8b-2512` backfilled SAP PP / SAP MM / MS
+# Excel from the general KENNTNISSE section onto the CURRENT role 5/5 on the hard
+# shape; `gpt-5.6-luna` 0/5. Records in `Documents/Runs/Nougat/build-2/p2/runs/`.
+
+_VALID_ENTRIES_MARKER = "VALID ENTRIES ONLY"
+
+
+def test_agent_door_prompt_forbids_technologies_backfill():
+    from applire.prompts.profile_extraction import SYSTEM_PROMPT
+
+    assert _GROUNDING_MARKER in SYSTEM_PROMPT, (
+        "profile_extraction.py (the agent/paste door) must carry the same "
+        "PER-ENTRY GROUNDING rule its two siblings carry — the dual-prompt trap "
+        "of #190/#229/#328, at its third door."
+    )
+
+
+def test_agent_door_prompt_requires_valid_entries():
+    from applire.prompts.profile_extraction import SYSTEM_PROMPT
+
+    assert _VALID_ENTRIES_MARKER in SYSTEM_PROMPT
+
+
+def test_all_three_extraction_prompts_carry_the_grounding_rule():
+    """One assertion over the whole positive set, so a FOURTH extraction prompt
+    added later is a visible hole rather than a silent one."""
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
+    from applire.prompts.cv_extraction_segmented import EXTRACTION_DETAIL_SYSTEM_PROMPT
+    from applire.prompts.profile_extraction import SYSTEM_PROMPT
+
+    doors = {
+        "cv_extraction.GENERIC": GENERIC_CV_EXTRACTION_PROMPT,
+        "cv_extraction_segmented.DETAIL": EXTRACTION_DETAIL_SYSTEM_PROMPT,
+        "profile_extraction.SYSTEM": SYSTEM_PROMPT,
+    }
+    missing = [name for name, text in doors.items() if _GROUNDING_MARKER not in text]
+    assert not missing, f"extraction prompts without the #407 rule: {missing}"
+
+
+def test_both_doors_forbid_an_invented_issuing_organization():
+    """M5.1.3 — rule 5 said nothing about the issuer field, so an invented
+    `issuing_organization` violated no stated instruction (captured 2026-08-17
+    reviewer finding). One sentence, both doors, word-for-word."""
+    from applire.prompts.cv_extraction import GENERIC_CV_EXTRACTION_PROMPT
+    from applire.prompts.profile_extraction import SYSTEM_PROMPT
+
+    for name, text in (
+        ("cv_extraction", GENERIC_CV_EXTRACTION_PROMPT),
+        ("profile_extraction", SYSTEM_PROMPT),
+    ):
+        assert "Herstellerschulung" in text, name
+        assert "an invented issuer is fabricated credential data" in text, name

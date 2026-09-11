@@ -98,8 +98,35 @@ class CVStatusResponse(BaseModel):
     # Surfaced as stored; a legacy NULL row stays None rather than gaining a
     # freshly-resolved claim the generation run never stamped.
     document_language: Optional[str] = None
+    # F-4b (founder ruling, 2026-09-11): the stored per-document override
+    # (None = use the kind default) and the resolved effective state, so the
+    # frontend's three-state control can render without a second round trip
+    # or re-deriving the precedence itself.
+    signature_override: Optional[bool] = None
+    signature_effective: bool = False
+    # F-4b (deviation from the brief's exact two-field list, flagged): whether
+    # ANY signature image is on file at all, independent of the toggle/override
+    # — see services.signature.resolve_signature_available's own docstring for
+    # why signature_effective alone cannot tell "nothing uploaded" apart from
+    # "uploaded but toggled off", which the control needs to decide whether to
+    # render itself or a disabled hint.
+    signature_available: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class CVSignatureOverrideRequest(BaseModel):
+    """PATCH /api/cv/{cv_id}/signature body (F-4b). ``null`` clears the
+    override back to the kind default — the third state, not "false"."""
+    signature_override: Optional[bool] = None
+
+
+class CVSignatureOverrideResponse(BaseModel):
+    """The stored value plus the resolved effective state, so the frontend
+    can repaint its three-state control from this response alone."""
+    cv_id: uuid.UUID
+    signature_override: Optional[bool] = None
+    signature_effective: bool = False
 
 
 def _coerce_none_str(cls, v):

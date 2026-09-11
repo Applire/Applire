@@ -48,6 +48,9 @@ Tools:
   list_applications  — list all job applications for the current user
   get_application    — retrieve a single job application by ID
   submit_testimony   — reconcile a whole free-text testimony document into the profile (#258)
+  get_profile_health — deterministic Master Profile health + the held merges (#58)
+  undo_last_merge    — restore the pre-merge snapshot (US168 / ADR-042) (#58)
+  resolve_held_merge — relay the human's merge/discard decision for a held import (US167) (#58)
 
 Resources:
   profile://current       — current MasterProfile JSON
@@ -75,6 +78,7 @@ from datetime import date, datetime, timedelta
 from importlib import resources as importlib_resources
 
 from mcp.server.fastmcp import FastMCP
+from mcp.shared.exceptions import McpError
 from sqlalchemy import select
 
 from applire.config import settings
@@ -115,7 +119,11 @@ from applire.services import oracle as oracle_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
 from applire.services.flow import orchestrator as flow_svc
-from applire.services.flow.orchestrator import ArtifactRequiredError, InvalidTransitionError
+from applire.services.flow.orchestrator import (
+    ArtifactNotFoundError,
+    ArtifactRequiredError,
+    InvalidTransitionError,
+)
 
 MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 
@@ -125,7 +133,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-04"
+GUIDE_VERSION = "2026-09-11"
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +477,128 @@ async def update_profile(
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+    return result.model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
+# Master Profile Health — the E033 Branch-H surfaces on the agent door (#58)
+#
+# ADR-054 amended 2026-09-11. Three reads/writes the UI has had since E033 and
+# the agent channel had not: the deterministic health assessment (US160), the
+# single-level merge undo (US168 / ADR-042), and the relay of a merge the
+# pre-merge integrity gate held (US167).
+#
+# The STANDALONE PROFILE REVIEW (US165) is deliberately NOT mirrored as a
+# question loop here. ADR-058 clause 5 settles the shape: on the agent door the
+# elicitation front-end is the CALLER's model, so Applire publishes the AGENDA
+# (`completeness.field_gaps` — the same `gap_detector_mode_c` list Mode C walks,
+# US179) and the agent asks in its own words, writing back through the doors
+# that already exist (`submit_testimony`, `submit_claims`, `update_profile`,
+# `add_role`). Mode C stays the human door's front-end.
+# ---------------------------------------------------------------------------
+
+
+def _held_merge_summary(record, account_name: str | None) -> dict:
+    """Door adapter for one upload the US167 gate is holding.
+
+    ADR-066 permits a door to ADAPT; it forbids a door to branch on a business
+    rule. The rule here is `list_open_gates` (shared, in the service); what a
+    given door shows of a parked row is presentation — the REST door builds
+    `UploadHistoryItem` from the same two fields (`routers/profile.py:604-616`).
+    Both are pinned to one source by
+    `test_held_merge_summary_reads_the_same_name_as_the_rest_door`.
+    """
+    staged = record.staged_extraction or {}
+    return {
+        "staged_id": str(record.id),
+        "gate": record.gate_status,
+        "original_filename": record.original_filename,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "account_name": account_name,
+        "cv_name": (staged.get("personal_info") or {}).get("name"),
+    }
+
+
+@mcp.tool(
+    description=(
+        "Read Master Profile health: severity-tagged integrity issues, a "
+        "completeness score with field-level gaps, and every import the "
+        "pre-merge gate is HOLDING. Deterministic, no LLM. field_gaps is the "
+        "no-JD review agenda (guide)."
+    )
+)
+async def get_profile_health() -> dict:
+    async with get_db() as db:
+        health = await profile_svc.get_profile_health(db)
+        profile = await profile_svc.get_profile(db)
+        account_name = (
+            profile.profile.personal_info.name if profile is not None else None
+        ) or None
+        # Community is single-user (ADR-022 rejected), but a fresh install has
+        # no user row at all — scope when we can, never crash when we cannot.
+        try:
+            uid = await _current_user_id(db)
+        except McpError:
+            uid = None
+        held = await profile_svc.list_open_gates(db, user_id=uid)
+    payload = health.model_dump(mode="json")
+    payload["held_merges"] = [_held_merge_summary(r, account_name) for r in held]
+    return payload
+
+
+@mcp.tool(
+    description=(
+        "Undo the last Master Profile merge (restores the pre-merge snapshot). "
+        "Single-level and idempotent: nothing left to undo returns "
+        "restored=false. Tell the user when discarded_later_edits is true."
+    )
+)
+async def undo_last_merge() -> dict:
+    from applire.services.profile.snapshots import undo_last_merge as undo_svc
+
+    async with get_db() as db:
+        result = await undo_svc(db)
+    return {
+        "restored": result.restored,
+        "discarded_later_edits": result.discarded_later_edits,
+    }
+
+
+@mcp.tool(
+    description=(
+        "Resolve an import the pre-merge integrity gate held (staged_id from "
+        "get_profile_health.held_merges). decision: 'merge' or 'discard'. "
+        "RELAY ONLY — put the choice to the human and pass their answer; "
+        "identity is never the agent's call."
+    )
+)
+async def resolve_held_merge(staged_id: str, decision: str) -> dict:
+    from applire.services.profile import (
+        StagedExtractionAlreadyResolved,
+        StagedExtractionNotFound,
+    )
+
+    sid = _parse_uuid(staged_id, "staged_id")
+    if decision not in ("merge", "discard"):
+        raise invalid_input(
+            f"decision must be 'merge' or 'discard', got: {decision!r}"
+        )
+    provider = get_provider()
+    async with get_db() as db:
+        uid = await _current_user_id(db)
+        try:
+            result = await profile_svc.resolve_staged_extraction(
+                db, sid, action=decision, user_id=uid, provider=provider
+            )
+        except StagedExtractionNotFound:
+            raise not_found(
+                f"No held merge with staged_id {staged_id} — call "
+                "get_profile_health and read held_merges for the open ones."
+            )
+        except StagedExtractionAlreadyResolved as exc:
+            raise invalid_input(f"That held merge was already resolved ({exc}).")
+        except ValueError as exc:
+            raise invalid_input(str(exc))
     return result.model_dump(mode="json")
 
 
@@ -1060,7 +1190,7 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
             result = await flow_svc.advance_flow(
                 fid, AdvanceFlowRequest(step=step, artifact_id=aid), db, settings.applire_base_url
             )
-        except (InvalidTransitionError, ArtifactRequiredError) as exc:
+        except (InvalidTransitionError, ArtifactRequiredError, ArtifactNotFoundError) as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))

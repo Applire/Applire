@@ -120,6 +120,18 @@ export interface ReviewSurfaceProps {
   /** Existing handler for a gap cluster (routes to the editor or to /profile). */
   onResolveCluster?: (gapId: string) => void;
   /**
+   * #667 / ADR-081 cl. 3 amended 2026-09-11 — the FOURTH handle. Lands the user
+   * in the section editor with this gap preselected.
+   *
+   * This is NOT an offered fix and the clause's prohibition does not reach it:
+   * the surface navigates, the INSERTION is the user's own hand. What stays
+   * barred is arriving with text pre-filled or suggested. Supplied only where a
+   * section editor exists (the CV page); the cover letter has no cluster
+   * producer at all, so group 2 there carries only ATS terms and there is
+   * nothing to click.
+   */
+  onEditGapSection?: (gapId: string) => void;
+  /**
    * Anything the page wants under the four groups that is NOT one of ADR-081's
    * four producers — today only the cover letter's unasked-requirements panel.
    * Rendered after the groups so it can never be mistaken for one of them.
@@ -137,6 +149,7 @@ export function ReviewSurface({
   hasClusterProducer = true,
   modePreference,
   onResolveCluster,
+  onEditGapSection,
   children,
 }: ReviewSurfaceProps) {
   const t = useTranslations("documentReview");
@@ -208,6 +221,7 @@ export function ReviewSurface({
               t={t}
               tAts={tAts}
               onResolveCluster={onResolveCluster}
+              onEditGapSection={onEditGapSection}
             />
           )}
         />
@@ -225,6 +239,7 @@ export function ReviewSurface({
               t={t}
               tAts={tAts}
               onResolveCluster={onResolveCluster}
+              onEditGapSection={onEditGapSection}
             />
           )}
         />
@@ -367,6 +382,7 @@ function ItemRow({
   t,
   tAts,
   onResolveCluster,
+  onEditGapSection,
 }: {
   item: ReviewItem;
   group: ReviewGroup;
@@ -374,6 +390,7 @@ function ItemRow({
   t: ReturnType<typeof useTranslations<"documentReview">>;
   tAts: ReturnType<typeof useTranslations<"ats">>;
   onResolveCluster?: (gapId: string) => void;
+  onEditGapSection?: (gapId: string) => void;
 }) {
   const detail = itemDetail(item, locale, tAts);
   const label =
@@ -409,9 +426,30 @@ function ItemRow({
     </>
   );
 
+  // #667 / ADR-081 cl. 3 amended 2026-09-11: a group-2 CLAIMABLE cluster lands
+  // the user in the section editor with this gap preselected. The clause still
+  // bars an offered fix — and this is not one: the surface navigates, the
+  // insertion is the user's own hand. Group 2's TERM rows stay inert (there is
+  // no section to preselect for a bare keyword), and nothing here pre-fills.
+  if (item.kind === "cluster" && item.clusterId && onEditGapSection && group.id === 2) {
+    return (
+      <li>
+        <button
+          type="button"
+          data-testid={`review-item-g${group.id}-${item.key}`}
+          data-handle="section-editor"
+          onClick={() => onEditGapSection(item.clusterId!)}
+          className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-container"
+        >
+          {body}
+        </button>
+      </li>
+    );
+  }
+
   // A cluster keeps the existing route into the editor / profile enrichment —
   // that is an EXISTING path (ADR-081 cl. 2's group 3 action), not a new
-  // editing pass. Group 2 rows are never clickable: ADR-076 / cl. 3.
+  // editing pass.
   if (item.kind === "cluster" && item.clusterId && onResolveCluster && group.id !== 2) {
     return (
       <li>
@@ -573,6 +611,9 @@ function Group2Trade() {
         <li data-testid="review-group2-handle-pages">{t("group2HandlePages")}</li>
         <li data-testid="review-group2-handle-pin">{t("group2HandlePin")}</li>
         <li data-testid="review-group2-handle-regenerate">{t("group2HandleRegenerate")}</li>
+        {/* #667: the FOURTH handle. Named here as copy; the navigation itself is
+            the claimable cluster row above, which is a button. */}
+        <li data-testid="review-group2-handle-editor">{t("group2HandleEditor")}</li>
       </ul>
     </div>
   );
