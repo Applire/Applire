@@ -73,6 +73,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from applire.constants import STANCE_ADJUDICATION_MAX_TOKENS
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.prompts.stance_adjudication import (
     STANCE_ADJUDICATION_SYSTEM_PROMPT,
     build_stance_adjudication_prompt,
@@ -798,12 +799,13 @@ async def _adjudicate_testimony(
     function never raises.
     """
     try:
-        data = await provider.aparse_json(
-            build_stance_adjudication_prompt(token, kind, raw_turn),
-            system=STANCE_ADJUDICATION_SYSTEM_PROMPT,
-            temperature=0.0,
-            max_tokens=STANCE_ADJUDICATION_MAX_TOKENS,
-        )
+        with llm_log_stage("stance_adjudication"):
+            data = await provider.aparse_json(
+                build_stance_adjudication_prompt(token, kind, raw_turn),
+                system=STANCE_ADJUDICATION_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=STANCE_ADJUDICATION_MAX_TOKENS,
+            )
     except Exception:  # noqa: BLE001 — provider/transport/parse noise, never confirmed
         logger.warning(
             "reconcile stance: testimony adjudication call failed for %s %r "

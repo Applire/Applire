@@ -41,6 +41,7 @@ from applire.prompts.reconcile import (
     build_reconcile_prompt,
 )
 from applire.providers.llm.base import LLMProvider
+from applire.providers.llm.debug_log import llm_log_stage
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.ops import (
@@ -90,15 +91,16 @@ async def reconcile(
       existing profile is untouched — so transient LLM noise never 500s the upload.
     """
     try:
-        data = await provider.aparse_json(
-            build_reconcile_prompt(profile, new_info, source),
-            system=RECONCILE_SYSTEM_PROMPT,
-            temperature=0.1,
-            max_tokens=RECONCILE_MAX_TOKENS,
-            # M-3 — the op union as a SCHEMA, not only as prose, when the
-            # operator has turned it on. `None` keeps today's JSON mode exactly.
-            json_schema=_structured_output_schema(),
-        )
+        with llm_log_stage("reconcile"):
+            data = await provider.aparse_json(
+                build_reconcile_prompt(profile, new_info, source),
+                system=RECONCILE_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=RECONCILE_MAX_TOKENS,
+                # M-3 — the op union as a SCHEMA, not only as prose, when the
+                # operator has turned it on. `None` keeps today's JSON mode exactly.
+                json_schema=_structured_output_schema(),
+            )
     except LLMTruncatedError:
         # Data loss — never mask as an empty merge. Let the caller surface it.
         logger.warning("reconcile: output truncated on the token budget; propagating (data loss)")
