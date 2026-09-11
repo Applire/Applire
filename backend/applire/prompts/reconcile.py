@@ -61,6 +61,42 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   *Measured:* ``ministral-8b`` sub-par → **caveat** (S7 malformed 20 %→0 %; its
   remaining rejection is one ``upsert_work.ref:missing``). No regression on the
   two qualified models.
+* **19,007 (M5.1.1 (3), 2026-09-11).** Rule 4's ``NEVER infer`` scoped to fact
+  CONTENT (+289 chars). The prompt told the model "NEVER infer, embellish, or
+  fabricate" in rule 4 while rule 1 REQUIRES a semantic entity match across
+  DE/EN, synonyms and abbreviations — the one inference the reconciler must make
+  was forbidden by the rule next to it (contradiction C? of
+  ``o3/prompt-health.md``). Rule 4 now states what it governs (WHAT a fact says)
+  and names what it does not (WHICH entity it belongs to), with rule 1's own
+  worked pair as the example. *Measured* (arm A3 vs A2, n=10 × S6/S7/S8 + S9 +
+  S10): **all three models qualified in both arms**; on A3 every model was 0.00
+  on malformed, wrong-slot and error across S6/S7/S8, and ``glm-5.3-flash`` was
+  transport-clean for the first time in the sequence. ``ministral-8b``'s station
+  coverage moved S6 0.90→0.80 / S7 0.90→0.90 / S8 1.00→0.93 — inside this
+  harness's n=10 noise, not claimed as an effect.
+* **NOT SHIPPED — M5.1.1 (2), measured 2026-09-11 (arm A4).** Rules 2's ONE
+  CONTAINER clause, rule 7 and rule 13 were collapsed into ONE rule 7 ("THE SAME
+  THING SAID AGAIN") with three branches — (a) same entity, new name → an upsert,
+  (b) same fact, changed claim → ``flag_conflict``, (c) same fact, same claim →
+  stay silent — removing the forward cross-reference and the three-way verdict.
+  Size-neutral (19,007 → 19,050), 13 rules → 12. **Reverted**, per ruling
+  M5.1.1's own condition that a change degrading a model is not shipped:
+  ``ministral-8b`` crossed the malformed-op threshold on S8 (0.00 → **0.20**),
+  and the rejections are a failure shape that appears NOWHERE in arms A0-A3 —
+  ``upsert_work.ref:missing``, twice, against ``company:missing`` every other
+  time. ``gpt-5.6-luna`` was 0.00 on everything and 10/10 on S9.
+  **This measurement confirms the open hypothesis of ``o3/prompt-health.md`` §2**
+  ("``ref`` is required by the schema on all three entity ops and appears only in
+  the shared preamble and in rule 3 — 1,400-3,300 chars away from the per-op line
+  a model re-reads"): the collapsed rule 7 is 2,634 chars and pushes rule 3's
+  ``ref`` instruction further from the ops that need it, while branch (a)'s own
+  imperative names ``target`` and never ``ref``. **The next attempt** should name
+  ``ref`` inside branch (a) (M-3a's own lesson, per-op REQUIRED lines) and be
+  re-measured; the collapse itself is not refuted, its wording is.
+  *Also measured on the way, and worth keeping:* shape **S9** gives rule 13 —
+  the longest rule in the prompt, never exercised by any shape until now — its
+  first measurement: ``flag_conflict`` on **10/10 turns for all three models**
+  in arm A3, and nothing else emitted. Rule 13 earns its 1,399 chars.
 * **18,819 (M5.1.4, 2026-09-11).** The output envelope gains an OPTIONAL
   ``empty_reason`` (``already_known`` | ``question_only`` | ``nothing_actionable``),
   asked for only when ``ops`` is empty (+257 chars in the preamble; the USER
