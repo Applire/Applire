@@ -98,6 +98,16 @@ from applire.utils.recipient_extraction import extract_recipient_from_jd
 
 logger = logging.getLogger(__name__)
 
+# M5.4.2 (3) (founder, 2026-09-11): how many absent claimable terms the LETTER's
+# reviewer may be shown — and therefore demand — in one round. The number is the
+# one `prompts/review_cover_letter.py` used to ASK for in prose ("DEMAND AT MOST
+# TWO terms per round") and did not get; it now bounds the deterministic block
+# instead (`keyword_ledger.rank_coverage_demand`). Letter-scoped on purpose: the
+# three CV call sites pass nothing and see an unchanged block (contract 3 of the
+# Nougat build-3 work packages; whether the CV side follows is a `decide:` line
+# on the Writer collector, not this build).
+LETTER_COVERAGE_TERMS_PER_ROUND: int = 2
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf_letter.html.j2",
     "modern_swiss": "modern_swiss_letter.html.j2",
@@ -1705,6 +1715,17 @@ async def _render_cover_letter_background(
                             base_fn,
                             keyword_ledger,
                             budget=letter_coverage_budget(norm.letter_body_word_budget),
+                            # M5.4.2 (3) (2026-09-13): the per-round demand cap
+                            # is a BOUND here, not a request in the reviewer
+                            # prompt. `review_cover_letter.py` asked for "AT
+                            # MOST TWO terms per round" while this very wrapper
+                            # handed the model the full absent list and told it
+                            # to name the terms in its issues — the round-1
+                            # verdict of the captured 2026-09-05 run raised six
+                            # coverage demands, the terminal door's first round
+                            # ten issues. Both letter loops share this closure,
+                            # so the bound covers both doors from one site.
+                            max_terms_per_round=LETTER_COVERAGE_TERMS_PER_ROUND,
                         ),
                         keyword_ledger=keyword_ledger,
                     )
