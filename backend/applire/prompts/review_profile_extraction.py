@@ -16,7 +16,55 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 # Prompt version: v1
-# Used by: services/profile.py → reviewer.review_and_refine
+# Used by: services/profile/__init__.py → ingest_cv → reviewer.review_and_refine
+#
+# 2026-09-13 (ruling E-1, then ruling V-3) — A FIFTH CHECK WAS BUILT, MEASURED AND NOT SHIPPED.
+#   The prompt text below is unchanged; this header is what E-1 produced, and it is here so the
+#   next agent does not re-derive the idea and re-spend the measurement.
+#
+#   Why it was proposed: build 2 ported #407's PER-ENTRY GROUNDING rule onto the agent door's
+#   EXTRACTION prompt (`profile_extraction.py` rule 14) and measured it as door parity, NOT as a
+#   repair — `ministral-8b-2512` backfills a general KENNTNISSE item onto a role whose own text
+#   never names it 5/5 before the rule and 4/5 after, on the rule's own worked example.
+#   Ruling E-1 dispositioned the residue on the REVIEWER: the review loop is the door's second
+#   chance and the only stage that sees the extraction and the source side by side.
+#
+#   What was built: check 5 MISATTRIBUTED TECHNOLOGIES, blocking, plus the same enumeration in
+#   the "WHAT IS BLOCKING" sentence. Triage (applire-prompt-first): Category B — the narrower-
+#   rule check was run first and check 4 is about BULLETS and about content "not present in the
+#   source", while this defect is neither (the token IS in the source, in the general skills
+#   section, and lands on a `technologies` list).
+#
+#   How it was measured: the production reviewer call replayed over two CAPTURED extractions —
+#   one that backfills, one that does not (`tests/files/extraction_parity/
+#   multi_employer_kenntnisse_hard.{violating,clean}.json`, taken from the build-2 records so
+#   the positive case is guaranteed to contain the defect) — n=5 per case per model per arm,
+#   real provider, 60 calls. Blocking issue naming a misattributed tool:
+#
+#     arm            model               violating      clean (false positives)
+#     v1 (no rule)   gpt-5.6-luna        5/5            1/5
+#     v1 (no rule)   ministral-8b-2512   2/5            0/5
+#     check 5        gpt-5.6-luna        5/5            1/5
+#     check 5        ministral-8b-2512   5/5            5/5
+#     check 5 sharp. gpt-5.6-luna        5/5            0/5
+#     check 5 sharp. ministral-8b-2512   5/5            5/5
+#
+#   ("sharp." = the wording re-aimed at the observed failure: judge the entry against the
+#   EMPLOYER'S OWN SOURCE PASSAGE, never against the extracted JSON's arrays.)
+#
+#   Why it is not shipped (ruling V-3): on the qualified model the check buys no new CATCH —
+#   luna already reached this defect by stretching check 4 — and on `ministral-8b-2512` it fires
+#   on every CLEAN extraction, which the founder's standing criterion (M5.1.1: a change that
+#   degrades a model is not shipped) reads as a precision degradation. The false positives are
+#   not near-misses: all five accuse `SAP MM`, which appears on NO entry of the clean
+#   extraction, and two of them attack the top-level `skills` array — the exact place the rule
+#   says a general skill belongs.
+#
+#   What remains open: Vault collector #674 carries the false-positive shape and the one
+#   unmeasured prompt-health finding this work surfaced — the closing question in
+#   `build_review_prompt` enumerates three of the four checks ("no duplicates, no fabrications,
+#   no invented dates"), so the last sentence the model reads silently drops check 4.
+#   Records: `Documents/Runs/Nougat/build-3/v/runs/E1-{before,after,sharpened}-*.jsonl`.
 
 import json
 

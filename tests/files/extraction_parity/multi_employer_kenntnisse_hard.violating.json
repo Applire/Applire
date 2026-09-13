@@ -1,0 +1,145 @@
+{
+  "professional_summary": {
+    "de": null,
+    "en": null
+  },
+  "work_history": [
+    {
+      "company": "Kaltenbach Kunststofftechnik GmbH",
+      "role": "Produktionsleiter",
+      "role_aliases": [],
+      "location": "Neuwied",
+      "start_date": "2017-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Verantwortung für zwei Fertigungsbereiche im Dreischichtbetrieb",
+        "Aufbau der Maschinendatenerfassung mit Proficy und Auswertung in Grafana",
+        "Qualitätsmanagement nach ISO 9001 mit dem QS-Team",
+        "zeitweise als stellvertretender Werkleiter tätig"
+      ],
+      "achievements": [
+        "Einführung von Shopfloor-Management und KVP-Routinen an beiden Standorten"
+      ],
+      "technologies": [
+        "SAP PP",
+        "Proficy",
+        "Grafana",
+        "MS Excel"
+      ],
+      "industry_context": "Kunststofftechnik",
+      "team_size": 38,
+      "budget_managed": "ca. 6 Mio. EUR (Personal, Instandhaltung, Material-Gemeinkosten)"
+    },
+    {
+      "company": "Rheinstahl Umformtechnik GmbH",
+      "role": "Fertigungsmeister / Schichtleiter",
+      "role_aliases": [],
+      "location": "Andernach",
+      "start_date": "2011-08",
+      "end_date": "2017-02",
+      "is_current": false,
+      "responsibilities": [
+        "Schichtführung von 14 Mitarbeitenden im Dreischichtbetrieb",
+        "Auswertungen in MS Excel für die Schichtübergabe"
+      ],
+      "achievements": [
+        "Mitarbeit bei der Einführung von SAP PP in der Fertigung (Fertigungsaufträge, Rückmeldungen)"
+      ],
+      "technologies": [
+        "SAP PP",
+        "MS Excel"
+      ],
+      "industry_context": "Umformtechnik",
+      "team_size": 14,
+      "budget_managed": null
+    }
+  ],
+  "skills": [
+    {
+      "name": "Lean Management",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "5S",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "SMED",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "Qualitätsmanagement",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "Shopfloor-Management",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "KVP (Kontinuierlicher Verbesserungsprozess)",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "MS Excel",
+      "category": "technical",
+      "proficiency": "advanced",
+      "years_experience": null,
+      "last_used": null
+    },
+    {
+      "name": "MES (Manufacturing Execution System)",
+      "category": "technical",
+      "proficiency": "intermediate",
+      "years_experience": null,
+      "last_used": null
+    }
+  ],
+  "education": [
+    {
+      "institution": "Rheinstahl Umformtechnik GmbH",
+      "degree": "Industriemechaniker",
+      "field": null,
+      "start_date": "2007",
+      "end_date": "2011",
+      "grade": null,
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "languages": [],
+  "certifications": [],
+  "publications": [],
+  "volunteer_activities": [],
+  "projects": [],
+  "contact": {
+    "name": "Jonas Weiler",
+    "email": "jonas.weiler@example.com",
+    "phone": "0261 0000000",
+    "location": "Koblenz",
+    "address": "Ahornweg 12, 56068 Koblenz",
+    "nationality": null,
+    "date_of_birth": null,
+    "linkedin_url": null,
+    "xing_url": null,
+    "website_url": null
+  }
+}
