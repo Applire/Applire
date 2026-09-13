@@ -178,7 +178,13 @@ async def test_import_door_write_survives_the_request(durable_db, tmp_path):
     storage = LocalStorageProvider(str(tmp_path))
     profile_id = await _seed_profile(factory)
 
-    extracted = {"skills": [{"name": "Kafka", "category": "technical"}]}
+    # A CV-SHAPED extraction: since #367 the US167 pre-merge gate runs inside the one
+    # ingest function, so a skills-only stub is correctly HELD as not-a-CV and never
+    # reaches the merge this test is about.
+    extracted = {
+        "skills": [{"name": "Kafka", "category": "technical"}],
+        "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
+    }
     async with factory() as request_session:
         with (
             patch(
@@ -234,7 +240,13 @@ async def test_import_door_write_is_still_undoable(durable_db, tmp_path):
     profile_id = await _seed_profile(factory)
     before = await _read_back(engine, profile_id)
 
-    extracted = {"skills": [{"name": "Kafka", "category": "technical"}]}
+    # A CV-SHAPED extraction: since #367 the US167 pre-merge gate runs inside the one
+    # ingest function, so a skills-only stub is correctly HELD as not-a-CV and never
+    # reaches the merge this test is about.
+    extracted = {
+        "skills": [{"name": "Kafka", "category": "technical"}],
+        "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
+    }
     async with factory() as request_session:
         with (
             patch(

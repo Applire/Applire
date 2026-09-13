@@ -108,17 +108,30 @@ class TestHealthFieldGapsParity:
         )
         assert isinstance(health.completeness.field_gaps, list)
 
-    def test_ic_entry_reports_exactly_two_enrichable_gaps(self):
-        """IC entry missing end_date + achievements → 2 field gaps, not 4.
+    def test_ic_entry_reports_exactly_two_enrichable_ENTRY_gaps(self):
+        """IC entry missing end_date + achievements → 2 ENTRY gaps, not 4.
 
         team_size and budget_managed must NOT appear because expected_fields=[]
         means they are NOT expected for this IC entry.
+
+        Counted over the ENTRY gaps only since 2026-09-13 (#675 line 42 / ruling
+        V-1). The list also carries the profile-level `professional_summary`
+        tail, which this fixture's profile genuinely lacks — it was invisible
+        until that fix, because the persisted value is `{"de": None, "en": None}`
+        and the old predicate read a non-empty dict as "present". The property
+        this test is about is the ROLE-AWARENESS of the per-entry expectation,
+        so it counts per-entry gaps and asserts the tail separately rather than
+        pinning a total that now means something different.
         """
         health = assess_health(_ic_profile_with_missing_end_date_and_achievements())
         field_gaps = health.completeness.field_gaps
 
-        assert len(field_gaps) == 2, (
-            f"Expected 2 enrichable gaps for IC entry; got {len(field_gaps)}: {field_gaps}"
+        entry_gaps = [g for g in field_gaps if ":" in g]
+        assert len(entry_gaps) == 2, (
+            f"Expected 2 enrichable ENTRY gaps for IC entry; got {len(entry_gaps)}: {field_gaps}"
+        )
+        assert "professional_summary" in field_gaps, (
+            "the profile-level summary tail must still be emitted (#675 line 42)"
         )
 
     def test_team_size_and_budget_not_in_ic_field_gaps(self):
