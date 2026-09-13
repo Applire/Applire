@@ -53,7 +53,7 @@ def test_the_cv_prose_door_is_assembled_from_the_same_pieces_in_the_same_order()
     including the blank line between them, which a naive split silently eats."""
     assert cv.REVIEW_SYSTEM_PROMPT == (
         cv._AUDITOR_INTRO + cv._SHAPE_NOTE_PROSE + cv._CHECKS + "\n" + cv._MANDATE_PROSE
-        + cv._SCHEMA_AND_CLOSER
+        + cv._schema_and_closer(structural_fields=False)
     )
     assert cv._CHECKS.rstrip().endswith("never a forbidden claim.")
     assert cv._MANDATE_PROSE.startswith("WHAT IS BLOCKING IN THIS PASS:")

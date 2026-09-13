@@ -287,15 +287,99 @@ def test_a_located_minor_issue_is_still_minor():
     assert not issues[0].is_blocking
 
 
-def test_the_schema_declares_both_fields_optional_and_location_non_quoting():
+def test_the_schema_no_longer_solicits_the_unread_fields_by_default():
+    """M5.4.1 (2026-09-13). The keys above stay PARSEABLE — the tests before this
+    one are the contract for that, and they matter more than ever now that only
+    one door still asks for them. What changed is that we stop *asking* nine doors
+    for output we throw away.
+
+    The pin that used to live here asserted the opposite, and it was the reason
+    the cost stayed: a test whose name says "declares both fields optional" reads
+    like a guarantee, so removing the fields looked like breaking a contract.
+    There was no contract — `ReviewIssue` holds `text` and `severity` only.
+    """
     from applire.prompts.review_severity import review_output_schema
 
     schema = review_output_schema(issue_hint="what is wrong", feedback_hint="fix it")
+    assert '"location"' not in schema
+    assert '"check"' not in schema
+
+
+def test_a_door_can_still_opt_in_and_keeps_the_non_quoting_wording():
+    """`structural_fields=True` is for a door with a MEASUREMENT saying it degrades
+    without them (today: `cv_terminal_review`). When it is on, the anti-quotation
+    wording must come with it — `location` is a structural pointer, and a
+    verbatim-shaped field at REVIEW_VERDICT_MAX_TOKENS is the 2026-06-29
+    truncated-verdict incident."""
+    from applire.prompts.review_severity import review_output_schema
+
+    schema = review_output_schema(
+        issue_hint="what is wrong", feedback_hint="fix it", structural_fields=True
+    )
     assert '"location"' in schema
     assert '"check"' in schema
     low = schema.lower()
     assert "optional" in low
     assert "never a quotation" in low or "never quote" in low
+
+
+def test_both_renderings_are_valid_json_after_the_hints_are_filled():
+    """The schema is a JSON *example*; dropping two keys must not leave a dangling
+    comma or an unbalanced brace, which the model would then imitate."""
+    import json
+
+    from applire.prompts.review_severity import review_output_schema
+
+    for structural in (False, True):
+        schema = review_output_schema(
+            issue_hint="what is wrong", feedback_hint="fix it", structural_fields=structural
+        )
+        start = schema.index("{")
+        depth = 0
+        for end, ch in enumerate(schema[start:], start):
+            depth += (ch == "{") - (ch == "}")
+            if depth == 0:
+                break
+        block = schema[start:end + 1]
+        obj = json.loads(
+            block.replace("true or false", "true").replace(
+                '"blocking" or "minor"', '"blocking"'
+            )
+        )
+        assert set(obj) == {"approved", "issues", "feedback"}, obj
+        assert set(obj["issues"][0]) == (
+            {"severity", "issue", "location", "check"} if structural
+            else {"severity", "issue"}
+        ), obj["issues"][0]
+
+
+def test_only_the_cv_terminal_door_opts_in():
+    """The scope assertion for M5.4.1: exactly one shipped prompt still pays for
+    the fields, and it is the one the replay showed degrading. If a second door
+    starts asking, it needs its own paired measurement first."""
+    from applire.prompts import (
+        review_cv_extraction,
+        review_cv_language,
+        review_cv_tailoring,
+        review_job_analysis,
+        review_profile_extraction,
+        review_question_language,
+    )
+
+    assert '"check"' in review_cv_tailoring.TERMINAL_REVIEW_SYSTEM_PROMPT
+    assert '"check"' not in review_cv_tailoring.REVIEW_SYSTEM_PROMPT
+    for mod in (
+        review_cv_extraction,
+        review_cv_language,
+        review_job_analysis,
+        review_profile_extraction,
+        review_question_language,
+    ):
+        rendered = "\n".join(
+            v for v in vars(mod).values() if isinstance(v, str) and '"issues"' in v
+        )
+        assert '"location"' not in rendered, mod.__name__
+        assert '"check"' not in rendered, mod.__name__
 
 
 def test_the_schema_still_carries_the_required_fields():

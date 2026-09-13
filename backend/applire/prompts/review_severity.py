@@ -72,13 +72,54 @@ Rules, and they are not optional:
   missing, it is not blocking — however strongly you would have phrased it otherwise."""
 
 
-def review_output_schema(issue_hint: str, feedback_hint: str) -> str:
+#: The two fields nothing reads. Rendered only where a door MEASURABLY needs them.
+_STRUCTURAL_FIELDS = """,
+     "location": "OPTIONAL — a structural pointer only, under ten words, e.g. \
+'body.paragraphs[2], sentence 1'. NEVER a quotation.",
+     "check": "OPTIONAL — the numbered check this issue comes from\""""
+
+
+def review_output_schema(
+    issue_hint: str,
+    feedback_hint: str,
+    *,
+    structural_fields: bool = False,
+) -> str:
     """Render the reviewer's JSON output block with the severity field.
 
-    ``location`` and ``check`` are OPTIONAL (ADR-021 amended 2026-08-13, clause
-    6(a)) and additive: :func:`applire.services.review_issues.normalize_issues`
-    reads named keys and ignores unknown ones, so a model that omits them
-    behaves exactly as before.
+    **``location`` and ``check`` are no longer solicited by default (M5.4.1,
+    2026-09-13).** They were added as OPTIONAL and additive (ADR-021 amended
+    2026-08-13, clause 6(a)), and nothing ever read them:
+    :class:`applire.services.review_issues.ReviewIssue` is a frozen dataclass
+    holding ``text`` and ``severity`` only, ``normalize_issues`` drops the rest,
+    and a test *pinned* the discard. Nine reviewer doors paid ~202 characters of
+    schema each — ~1,800 characters across prompts that are measured against size
+    gates — for output that was thrown away.
+
+    **Measured before removal, on captured records, at every door** (replay
+    2026-09-13, `openai/gpt-5.6-luna`, both arms, 82 provider calls;
+    `Documents/Runs/Nougat/build-3/w/m541-replay.md`). Nine doors × 3 captured
+    records, then n=5 paired on the three that moved:
+
+    * **Verdict validity 26/26 in both arms** — no door lost the ability to
+      produce a parseable verdict, and zero errors.
+    * **Issue and feedback text got LONGER without the fields**, on every door
+      that filed anything (e.g. letter terminal 283 → 370 chars per issue,
+      feedback 463 → 661): the model relocates the pointer into the field that is
+      actually read, which is the outcome this change wanted.
+    * **One door degraded and therefore keeps them:** ``cv_terminal_review``.
+      Paired n=5 on one captured record: with the fields, 5/5 runs blocked
+      (blocking findings 6/8/2/4/7, and the unsupported-language-claim finding in
+      5/5); without them, 2/5 runs returned ``approved: true`` with an EMPTY
+      issues array and the same finding appeared in 1/5. Its own arm-B verdicts
+      say why — they open each issue with "Check 1, …", "Check 7, …": on a door
+      whose prompt enumerates ten numbered checks, the ``check`` field is the
+      scaffold the model walks them with. The field is dead in our code and alive
+      in the model's procedure, which is only visible at the delivery-shaped door.
+
+    So the parameter is not a style switch: a door passes ``structural_fields=True``
+    only with a measurement saying it degrades without them, and that measurement
+    belongs in its call site's comment.
 
     **``location`` is a STRUCTURAL POINTER — never a quotation.** The 2026-06-29
     bounded-output contract and ``REVIEW_VERDICT_MAX_TOKENS`` are not relaxed
@@ -92,15 +133,15 @@ def review_output_schema(issue_hint: str, feedback_hint: str) -> str:
         issue_hint: In-schema hint describing what one issue should say in THIS
                     domain (e.g. "naming the paragraph and the ungrounded claim").
         feedback_hint: In-schema hint for the ``feedback`` string.
+        structural_fields: Keep the unread ``location``/``check`` keys in the
+                    rendered schema. Only for a door with a measurement.
     """
+    extra = _STRUCTURAL_FIELDS if structural_fields else ""
     return f"""Respond ONLY with a valid JSON object — no markdown, no explanations:
 {{
   "approved": true or false,
   "issues": [
-    {{"severity": "blocking" or "minor", "issue": "{issue_hint}",
-     "location": "OPTIONAL — a structural pointer only, under ten words, e.g. \
-'body.paragraphs[2], sentence 1'. NEVER a quotation.",
-     "check": "OPTIONAL — the numbered check this issue comes from"}}
+    {{"severity": "blocking" or "minor", "issue": "{issue_hint}"{extra}}}
   ],
   "feedback": "{feedback_hint}"
 }}
