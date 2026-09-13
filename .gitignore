@@ -37,6 +37,8 @@ postgres-data/
 # Uploaded files and generated assets — never commit user data or build artefacts
 backend/data/uploads/
 backend/data/static/
+data/uploads/
+data/static/
 
 # Developer-only LLM debug logs (full prompt/response content incl. PII) — never commit
 backend/logs/
