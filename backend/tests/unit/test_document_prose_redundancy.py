@@ -435,3 +435,117 @@ def test_the_empty_intersection_shortcut_cannot_change_a_verdict():
     assert not (set(ta) & set(tb)), "fixture must actually be token-disjoint"
     assert _longest_shared_run(ta, tb) == 0
     assert not bullets_prose_dupe(*disjoint)
+
+
+# ── 7. #659 build 3 — the stoplist is calibrated for the document's LANGUAGE ──
+#
+# ADR-082 Context 2 established the rule "an instrument shared across call sites
+# is calibrated for its original population" for `skills_near_dupe`. The same
+# mistake was then made one level DOWN, inside the new prose predicate:
+# `_prose_tokens` filtered with `_SKILL_STOPWORDS`, eleven ENGLISH words, over
+# German prose. The pair below is not a fixture — it is `work_history[1].bullets[0]`
+# and `work_history[2].bullets[0]` of the CV the 2026-09-11 delivery run actually
+# delivered (`Documents/Runs/Nougat/build-2/delivery-run/artifacts/37-cv-tailored-data.json`),
+# and `duplicate-bullets` FAILED on that document naming this pair.
+
+_DELIVERED_0911_MEISTER = (
+    "Führung einer Schicht mit 14 Mitarbeitenden in der Blechumformung und Begleitung "
+    "der SAP-Einführung in der Fertigung; beim SAP-Rollout als Key-User für PP mit "
+    "Schwerpunkt auf Fertigungsaufträgen und Rückmeldungen tätig."
+)
+_DELIVERED_0911_MECHANIKER = (
+    "Als Facharbeiter in der Instandhaltung und später als Vorarbeiter in der "
+    "Umformtechnik tätig."
+)
+#: The true positive from the same delivered document, kept beside the false one so
+#: a stoplist that silences the noise by silencing everything fails here.
+_DELIVERED_0911_LEAN_LONG = (
+    "Shopfloor-Management und KVP-Routinen eingeführt und dadurch die Ausschussquote "
+    "von 4,1 % auf 2,3 % gesenkt; überarbeitete Feinplanung und Rüstworkshops nach "
+    "SMED verbesserten die Termintreue von 87 % auf 96 %."
+)
+_DELIVERED_0911_LEAN_SHORT = (
+    "Lean-Produktion mit Shopfloor-Management, KVP und SMED in der Fertigung umgesetzt."
+)
+
+
+def test_two_different_roles_at_two_employers_are_not_a_duplicate():
+    """The measured false positive. Before the German stoplist these two shared
+    exactly {als, der, tätig, und} — four function words — and that reached
+    containment 0.444 against a 0.40 threshold, because the divisor is the SHORTER
+    bullet's token count and the shorter bullet is one-third function words.
+
+    Nothing about a Schichtführung with 14 people and a Facharbeiter role at
+    another employer is the same achievement, and the candidate was told it was.
+    """
+    assert not bullets_prose_dupe(
+        _DELIVERED_0911_MEISTER, _DELIVERED_0911_MECHANIKER
+    ), "German function words alone must not carry a redundancy verdict"
+
+
+def test_the_real_restatement_in_the_same_document_is_still_caught():
+    """The other half of the bar: the stoplist may not buy its precision by
+    blinding the predicate. This pair IS redundant — the short bullet names
+    Shopfloor-Management, KVP and SMED, all three already stated (with figures) in
+    the long one — and it must stay flagged."""
+    assert bullets_prose_dupe(_DELIVERED_0911_LEAN_LONG, _DELIVERED_0911_LEAN_SHORT)
+
+
+def test_the_prose_stoplist_contains_no_content_words():
+    """A stoplist is a place where a real achievement can be deleted silently.
+    Every entry must be closed-class, so this pins the shape rather than the list:
+    the German additions are all short function words, and none of them is a term
+    a CV bullet could be ABOUT. The canary is a sample of the vocabulary the
+    delivered documents actually carry."""
+    from applire.services.ats_audit import _PROSE_STOPWORDS, _SKILL_STOPWORDS
+
+    forbidden = {
+        "lean", "kvp", "smed", "shopfloor", "management", "produktion",
+        "fertigung", "instandhaltung", "führung", "schicht", "projekt",
+        "iso", "sap", "mes", "oee", "budget", "audit", "team", "prozess",
+    }
+    assert not (_PROSE_STOPWORDS & forbidden), _PROSE_STOPWORDS & forbidden
+    # And the skills population keeps its own, unchanged list (ADR-082 Context 1:
+    # `skills_near_dupe` is the vault-merge primitive at six reconcile call sites).
+    assert _SKILL_STOPWORDS == frozenset(
+        {"and", "or", "the", "of", "for", "with", "a", "an", "to", "in", "&"}
+    )
+    assert _SKILL_STOPWORDS < _PROSE_STOPWORDS
+
+
+def test_skills_near_dupe_is_unaffected_by_the_prose_stoplist():
+    """The scope assertion. `skills_near_dupe` feeds `_field_relation`, the
+    reconciler's entity-identity predicate for companies, project names, volunteer
+    organisations, languages and publications — widening ITS stoplist would change
+    what the vault silently auto-merges. These German-articled names must keep
+    their pre-change verdicts."""
+    assert not skills_near_dupe("Leitung der Fertigung", "Leitung der Instandhaltung")
+    # Identical content words + one differing German article: the English stoplist
+    # keeps "der"/"die" as tokens, and that verdict must not change here.
+    before = skills_near_dupe("Einführung der Fertigungssteuerung",
+                              "Einführung die Fertigungssteuerung")
+    assert before is skills_near_dupe("Einführung der Fertigungssteuerung",
+                                      "Einführung die Fertigungssteuerung")
+    from applire.services.ats_audit import skill_tokens
+    assert "der" in skill_tokens("Einführung der Fertigungssteuerung")
+
+
+def test_the_floor_and_the_stoplist_are_calibrated_together():
+    """The coupling that broke #424's pair when the stoplist was widened alone.
+
+    `_PROSE_DUPE_MIN_TOKENS` counts tokens AFTER `_PROSE_STOPWORDS` removal, so a
+    wider stoplist shortens every German bullet and can push a real one under the
+    floor — where the predicate degrades to exact equality and detects nothing.
+    This pins the margin for the shortest bullet in the #424 shape, so the next
+    stoplist edit fails here instead of silently losing a detection.
+    """
+    from applire.services.ats_audit import _PROSE_DUPE_MIN_TOKENS, _prose_tokens
+
+    nested = (
+        "Verantwortung für das Teilprojekt Abstimmung zwischen den Gesellschaften "
+        "bei der Einführung von LucaNet für die Konzernkonsolidierung."
+    )
+    assert len(_prose_tokens(nested)) >= _PROSE_DUPE_MIN_TOKENS, (
+        "the #424 bullet fell under the floor — widening the stoplist without "
+        "re-sweeping the floor turns this predicate off for short German bullets"
+    )

@@ -472,7 +472,84 @@ _PROSE_DUPE_MIN_RUN = 3
 #: 4-token bullets naming different standards ("ISO 9001 verantwortet" /
 #: "ISO 45001 vorbereitet") share most of their tokens while stating distinct
 #: facts. Short bullets fall back to exact equality.
-_PROSE_DUPE_MIN_TOKENS = 8
+#:
+#: **8 → 6 on 2026-09-13 (#659), and the two constants are coupled.** This floor
+#: counts tokens AFTER stopword removal, so widening :data:`_PROSE_STOPWORDS` to
+#: German function words shortens every German bullet and silently pushed
+#: real bullets under the old floor — #424's LucaNet pair (7 content tokens on the
+#: shorter side) stopped being detected at all. Swept over the whole labelled
+#: population: 6 and 7 both keep every positive, and 6 is the one chosen, because
+#: at 7 the measured false positive is suppressed by the FLOOR (its shorter bullet
+#: has exactly 6 content tokens) rather than by the stoplist — a right answer for
+#: the wrong reason, and a reason that stops working on the next sentence. At 6 the
+#: short-bullet negatives still fall back to exact equality with margin
+#: ("ISO 9001 verantwortet" = 3 content tokens, "SAP PP für Disposition
+#: eingesetzt." = 4).
+_PROSE_DUPE_MIN_TOKENS = 6
+
+#: German closed-class function words, stripped from PROSE tokens only (#659,
+#: ADR-082 clause 5 amendment 2026-09-13).
+#:
+#: `_SKILL_STOPWORDS` is eleven ENGLISH words. It was calibrated for the
+#: population `skill_tokens` serves — short, mostly English/technical skill NAMES
+#: — and on a 2–5-token name a stray German article changes nothing. Over a
+#: 30-token German sentence it changes everything, because
+#: `_PROSE_DUPE_CONTAINMENT` divides by the SHORTER bullet's token count: a short
+#: bullet whose tokens are one-third articles and conjunctions reaches 0.40
+#: containment against any other German sentence, on function words alone.
+#:
+#: Measured on the delivered CV of the 2026-09-11 delivery run
+#: (`operations_marcus_de`): `work_history[1].bullets[0]` ("Führung einer Schicht
+#: mit 14 Mitarbeitenden …") and `work_history[2].bullets[0]` ("Als Facharbeiter
+#: in der Instandhaltung …") — two different roles at two different employers —
+#: were flagged at containment 0.444 on the shared token set
+#: {`als`, `der`, `tätig`, `und`}. Nothing about those four tokens is an
+#: achievement. `duplicate-bullets` FAILED on that delivered document, so this is
+#: a false accusation the candidate actually received.
+#:
+#: **Scope: PROSE only.** `skill_tokens` and therefore `skills_near_dupe` keep the
+#: English list unchanged — that predicate is the reconciler's entity-identity
+#: primitive at six vault-merge call sites (ADR-082 Context 1), and re-calibrating
+#: it here would silently move what the vault auto-merges. Two predicates over one
+#: normaliser (ADR-066), two stoplists over two populations.
+#:
+#: **Closed class only.** Articles, determiners, conjunctions/particles,
+#: prepositions, pronouns, auxiliaries and modals — no content word is on this
+#: list, so no achievement vocabulary can be silently discarded. The light verbs
+#: that also appeared in the measured false positive ("tätig", "erfolgt") were
+#: tried and are NOT needed: the closed-class set alone removes the false positive
+#: (`Documents/Runs/Nougat/build-3/w/659-calibration.md`).
+_PROSE_STOPWORDS = _SKILL_STOPWORDS | frozenset({
+    # articles and determiners
+    "der", "die", "das", "den", "dem", "des",
+    "ein", "eine", "einer", "eines", "einem", "einen",
+    "dieser", "diese", "dieses", "diesen", "diesem",
+    "jeder", "jede", "jedes", "alle", "allen", "aller",
+    "kein", "keine", "keinen", "keiner", "keinem",
+    # conjunctions, subjunctions and particles
+    "und", "oder", "aber", "sowie", "sowohl", "auch", "denn", "dass", "ob",
+    "wenn", "wie", "als", "dabei", "dadurch", "damit", "dazu", "somit",
+    "daher", "deshalb", "zudem", "ferner", "bzw",
+    "nicht", "noch", "nur", "mehr", "sehr", "schon", "bereits", "dann",
+    "hier", "dort", "so",
+    # prepositions
+    "in", "im", "ins", "an", "am", "ans", "auf", "aus", "bei", "beim",
+    "mit", "nach", "von", "vom", "vor", "zu", "zum", "zur",
+    "für", "fuer", "über", "ueber", "unter", "durch", "gegen", "ohne",
+    "um", "bis", "seit", "während", "waehrend", "wegen", "innerhalb",
+    "pro", "je", "per", "gemäß", "gemaess", "laut", "ab",
+    "hinter", "neben", "zwischen", "entlang", "samt", "inkl", "inklusive",
+    # pronouns
+    "sich", "es", "sie", "er", "ihn", "ihm", "ihr", "ihre", "ihrer",
+    "ihres", "ihren", "ihrem", "sein", "seine", "seiner", "seines",
+    "seinen", "seinem", "man", "wir", "uns", "unsere", "unserer",
+    "dessen", "deren", "welche", "welcher", "welches", "was", "wer",
+    # auxiliaries, copulas and modals
+    "ist", "sind", "war", "waren", "wurde", "wurden", "werden", "wird",
+    "worden", "sei", "seien", "hat", "haben", "hatte", "hatten", "habe",
+    "kann", "können", "koennen", "konnte", "konnten",
+    "soll", "sollen", "muss", "müssen", "muessen", "wollte", "will",
+})
 
 
 @lru_cache(maxsize=2048)
@@ -485,15 +562,19 @@ def _prose_tokens(text: str) -> tuple[str, ...]:
     cache: 1,993 ms per audit. Returns a tuple so the cached value cannot be
     mutated by a caller.
 
-    Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and same
-    edge-punctuation/stopword treatment as :func:`skill_tokens`, so "Code-Review"
-    and "code review" tokenise alike here exactly as they do there — one
+    Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and the same
+    edge-punctuation treatment as :func:`skill_tokens`, so "Code-Review" and
+    "code review" tokenise alike here exactly as they do there — one
     normalisation for the module (ADR-066), two predicates over it.
+
+    The STOPLIST is the one thing that is deliberately not shared: this population
+    is German prose sentences, not English-leaning skill names — see
+    :data:`_PROSE_STOPWORDS`.
     """
     out: list[str] = []
     for raw in _norm(text).split():
         t = raw.strip(_SKILL_EDGE_PUNCT)
-        if t and t not in _SKILL_STOPWORDS:
+        if t and t not in _PROSE_STOPWORDS:
             out.append(_skill_stem(t))
     return tuple(out)
 
@@ -529,10 +610,18 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     real delivered document behind #659 — 9 of 15 human-labelled redundant pairs
     caught, including every pair the issue names, with the one genuinely distinct
     project bullet never flagged. Negatives: 0 of 139 distinct-bullet pairs drawn
-    from all four `tests/files/panel_review_case` CVs. The negative population is
-    hand-authored rather than LLM-written and therefore understates the
-    false-positive risk of the population this will meet; the threshold is
-    recorded as measured on n=1 delivered document and is expected to move.
+    from all four `tests/files/panel_review_case` CVs.
+
+    **Re-measured 2026-09-13 (#659, build 3) on the population the 2026-09-03 note
+    predicted would move it** — two further real delivered documents, from the
+    2026-09-10 and 2026-09-11 delivery runs. Both shipped with
+    `duplicate-bullets: fail`. Three pairs were flagged across them; two are true
+    (a verbatim copied clause, and a bullet restating its neighbour's Lean/KVP/SMED
+    content) and **one was a pure false positive driven by German function words**,
+    which is what :data:`_PROSE_STOPWORDS` now removes. After that change:
+    positives 2/2 and 5/5 on the #659 fixture pairs, false positives 0 — over the
+    two delivered documents, the module's nine negative controls, and 147
+    distinct-bullet pairs from the four `panel_review_case` CVs.
 
     Symmetric. This is the ONE implementation for prose redundancy (ADR-066): the
     three exact-match passes of arc42 §5.3.23's matrix converge onto it rather
