@@ -1244,6 +1244,12 @@ class ProfileImportResponse(MasterProfileResponse):
 
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
+    # name every import caller already reads. `ProfileImportView.tsx` posts a
+    # LinkedIn/XING export to this door and then reads `data.completeness_score`
+    # (the CVUploadResponse spelling); it has been reading `undefined` since the
+    # ZIP branch was written. Additive alias, never a second computation.
+    completeness_score: float | None = None
 
 
 class LinkedInImportRequest(BaseModel):
