@@ -56,9 +56,6 @@ class LetterHeader(BaseModel):
     address: str = ""
     phone: Optional[str] = None
     email: Optional[str] = None
-    # Present in the writer shape but never rendered by any letter template.
-    # The render_document entry point STRIPS it (storage-read safety, US250).
-    photo_url: Optional[str] = None
 
 
 class LetterRecipient(BaseModel):

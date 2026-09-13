@@ -226,7 +226,6 @@ LETTER_MARGIN_PROBE = {
         "address": "Testweg 1, 10115 Berlin",
         "phone": "+49 30 0000000",
         "email": "rand.probe@example.de",
-        "photo_url": None,
     },
     "recipient": {
         "name": "Frau Musterfrau",

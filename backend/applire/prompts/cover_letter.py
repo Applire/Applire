@@ -15,6 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v3 (M5.4.2 (1), 2026-09-13 — the writer is no longer asked
+#   for header.photo_url: no letter template has ever rendered it and the
+#   agent door stripped it before persisting agent-authored content — asking
+#   for a field nothing reads spends schema budget and invites the writer to
+#   invent a value. Dropped from the schema example only; no rule referenced
+#   it by name.)
 # Prompt version: v2 (#564, 2026-08-29 — SALUTATION rule + schema example
 #   added: body.paragraphs[0] is now the Anrede on its own paragraph. The
 #   writer was never asked for a salutation at all before this — the schema
@@ -42,8 +48,7 @@ The JSON must match this schema exactly:
     "name": "string",
     "address": "string",
     "phone": "string or null",
-    "email": "string or null",
-    "photo_url": "string or null"
+    "email": "string or null"
   },
   "recipient": {
     "name": "string or null",

@@ -63,7 +63,7 @@ REAL_LETTER_WITH_STRAY_KEY = {
     },
     "header": {
         "name": "STEFAN BRANDT", "email": "stefan.brandt@example.com",
-        "phone": "+49 261 0000000", "address": "Koblenz", "photo_url": None,
+        "phone": "+49 261 0000000", "address": "Koblenz",
     },
     "recipient": {
         "date": "31. August 2026", "name": None, "title": None,
