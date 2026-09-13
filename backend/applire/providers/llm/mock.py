@@ -397,7 +397,6 @@ _COVER_LETTER_RESPONSE: dict[str, Any] = {
         "address": "Hauptstraße 42, 10115 Berlin",
         "phone": "+49 170 1234567",
         "email": "anna.bauer@example.de",
-        "photo_url": None,
     },
     "recipient": {
         "name": "Herr Dr. Müller",

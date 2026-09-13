@@ -2736,10 +2736,23 @@ async def _terminal_review_letter(
     if final_floor:
         m = measure_cell["measured"]
         pages_before = m.page_count
+        # ADR-076 clause 3 amended 2026-09-13 (ruling L-5): the trigger no
+        # longer requires the pre-verdict condense to have been SPENT. That
+        # conjunct was a proxy for "do not mint more condense passes than
+        # ADR-051 §6 allows", and the bound is now the condense COUNT itself
+        # (three per delivery, §6 amended the same day). Keeping the conjunct
+        # left a whole class of over-norm deliveries with both levers shut:
+        # measured at delivery tier on 2026-09-13 (arm B of the paired run,
+        # `LLM_REVIEW_MAX_RETRIES=5`), a letter that entered the terminal loop
+        # IN norm was re-grown to 308 body words / 2 pages by the terminal
+        # corrector, `page-length` failed on the delivered PDF, and the floor
+        # logged `fired=False pages_before=2` because no head condense had run
+        # — the #547 class again, a detected overrun with the lever gated shut.
+        # On this path the floor is the delivery's FIRST condense, not its
+        # second, and the count bound is still satisfied.
         trigger = (
             m.page_count is not None
             and m.page_count > norm.letter_pages
-            and condense_state["used"]
             and not (cl.section_overrides or {})
         )
         if trigger:
@@ -3550,9 +3563,7 @@ async def render_agent_letter(
     ``services.cv.render_agent_cv``.
 
     The caller is the author: content is persisted VERBATIM except for
-    (a) the photo strip (``header.photo_url`` is never honored — no letter
-    template renders it and ``storage.read`` has no traversal guard), and
-    (b) the chrome rule (US249): caller-supplied ``recipient.date`` /
+    (a) the chrome rule (US249): caller-supplied ``recipient.date`` /
     ``signature.closing`` are kept verbatim; only when absent does Applire
     inject the norm-conformant defaults — a deliberate deviation from the
     pipeline, which OVERWRITES both (ADR-054 §4: never rewrite agent content).
@@ -3583,9 +3594,6 @@ async def render_agent_letter(
     # with field paths for the MCP layer to surface (US251).
     letter = LetterData.model_validate(content)
     letter_data = letter.model_dump(mode="json")
-
-    # Photo strip (security) — see render_agent_cv.
-    letter_data["header"]["photo_url"] = None
 
     # Chrome rule: inject only when the caller left it empty.
     # E054 clause 2: the agent door renders an employer-facing artifact —

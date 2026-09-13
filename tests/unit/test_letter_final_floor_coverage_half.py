@@ -528,3 +528,122 @@ async def test_an_in_norm_corrector_repair_is_never_recondensed(db):
     assert len(condense_prompts) == 1
     delivered = await _delivered(db, cl)
     assert "Arbeitsvorbereitung" in delivered
+
+
+# ── 3. the trigger: the floor may be the delivery's FIRST condense ──────────
+
+
+@pytest.mark.asyncio
+async def test_the_floor_fires_when_no_head_condense_ever_ran(db, caplog):
+    """Ruling L-5 (2026-09-13). The trigger used to require
+    `condense_state["used"]`, so a letter that entered the terminal loop IN norm
+    and was re-grown past it by the terminal corrector shipped over norm with
+    both condense levers shut.
+
+    Measured at delivery tier the same day (arm B of the paired run,
+    `LLM_REVIEW_MAX_RETRIES=5`): 308 body words / 2 pages, `page-length` FAIL,
+    `LETTER_FINAL_FLOOR … fired=False pages_before=2`, and no condense record in
+    the run's own debug log. The guard against over-condensing is the per-delivery
+    COUNT bound (ADR-051 §6, three), not this conjunct."""
+    caplog.set_level(logging.INFO, logger="applire.llm.review")
+    _job, _profile, cl = await _seed(db)
+
+    # Arm B's own shape: in norm at the head, in norm after round 1 (so the
+    # loop's own condense head never triggers), re-grown on the LAST round —
+    # after which the re-entry bound breaks the loop with the 2-page measure
+    # standing and `condense_state["used"]` still False.
+    result, prompts = await _invoke_unspent(
+        db, cl,
+        measures=[
+            _measure(1, 240),   # seed: IN norm
+            _measure(1, 248),   # after round 1: still in norm
+            _measure(2, 308),   # after round 2: re-grown, then the bound breaks
+            _measure(1, 250),   # the floor's condense brings it back
+        ],
+        condense_payloads=[_letter("FIRST-CONDENSE-BY-THE-FLOOR")],
+        script=[_repair_regrow, _repair_regrow],
+    )
+
+    assert result.final_floor_fired is True, (
+        "an over-norm delivery with no head condense must still reach the floor"
+    )
+    assert result.final_floor_selection == "kept_corrector"
+    condense_prompts = [p for p in prompts if "=== CURRENT LETTER (JSON) ===" in p]
+    assert len(condense_prompts) == 1, (
+        "exactly ONE condense — the floor's, as the delivery's first"
+    )
+    line = [r for r in caplog.records if "LETTER_FINAL_FLOOR cl_id=" in r.getMessage()]
+    assert line and "fired=True" in line[-1].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_an_in_norm_delivery_still_never_reaches_the_floor(db):
+    """The other half of the trigger is untouched: the floor is a length floor,
+    not a pass that runs on every delivery."""
+    _job, _profile, cl = await _seed(db)
+
+    result, prompts = await _invoke_unspent(
+        db, cl,
+        measures=[_measure(1, 240), _measure(1, 248), _measure(1, 252)],
+        condense_payloads=[],
+        script=[_repair_regrow, _repair_regrow],
+    )
+    assert result.final_floor_fired is False
+    assert result.final_floor_selection == "none"
+    assert not [p for p in prompts if "=== CURRENT LETTER (JSON) ===" in p]
+
+
+async def _invoke_unspent(db, cl, *, measures, condense_payloads, script):
+    """`_invoke` with `condense_spent=False` — the state the caller is in when the
+    pre-verdict condense never ran."""
+    from applire.norms import REGION_NORMS
+    from applire.services.cover_letter import _terminal_review_letter
+
+    payloads = list(condense_payloads)
+    queue = list(measures[1:])
+    prompts: list[str] = []
+
+    async def _aparse(prompt, system=None, **kw):
+        prompts.append(prompt)
+        return payloads.pop(0)
+
+    async def _fake_review(**kwargs):
+        action = script.pop(0) if script else None
+        return action(kwargs["draft"]) if action else kwargs["draft"]
+
+    async def _persist(cl_, db_, composed, norm_):
+        cl_.letter_data = composed
+        await db_.commit()
+        return b"%PDF-fake", queue.pop(0)
+
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(side_effect=_aparse)
+
+    with (
+        patch("applire.services.cover_letter.review_and_refine",
+              side_effect=_fake_review),
+        patch("applire.services.cover_letter._persist_and_measure", new=_persist),
+    ):
+        result = await _terminal_review_letter(
+            cl, db,
+            draft=_letter("SEED"),
+            grounding_source="SOURCE MATERIAL",
+            provider=provider,
+            corrector_prompt_fn=lambda prev, fb, src: "corrector prompt stub",
+            wrap_reviewer=lambda base_fn: base_fn,
+            norm=REGION_NORMS["DACH"],
+            profile=None,
+            cv_data={"contact": {}},
+            pre_gen={},
+            language="de",
+            load_bearing_fn=lambda d: frozenset(),
+            within_budget_fn=lambda d: True,
+            retain_if_fn=lambda d: True,
+            pdf_bytes=b"%PDF-fake",
+            measured=measures[0],
+            reviews_enabled=True,
+            condense_spent=False,
+            pins=[],
+            final_floor=True,
+        )
+    return result, prompts
