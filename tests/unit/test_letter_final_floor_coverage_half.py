@@ -647,3 +647,80 @@ async def _invoke_unspent(db, cl, *, measures, condense_payloads, script):
             final_floor=True,
         )
     return result, prompts
+
+
+# ── 4. Letter collector #673 (build 2, line 5): the condense calls are labelled ──
+
+
+@pytest.mark.asyncio
+async def test_each_condense_call_runs_under_its_own_stage_label(db):
+    """Before this, all three condense calls inherited whichever label the
+    previous chain left in the contextvar — on 2026-09-05 the pre-verdict
+    condense logged as `cover_letter` (record 676) and the final-floor condense
+    as `letter_terminal_review` (record 681), so a condense record could not be
+    told apart from a chain member. `_condense_call` is the one shaping, and it
+    uses the RESTORING context manager, never the imperative `set_stage`."""
+    from applire.providers.llm import debug_log
+    from applire.norms import REGION_NORMS
+    from applire.services.cover_letter import _terminal_review_letter
+
+    _job, _profile, cl = await _seed(db)
+    seen: list[str] = []
+    payloads = [_letter("FLOOR-CONDENSED"), _letter(f"RE. {_REPAIR}")]
+    queue = [_measure(1, 240), _measure(2, 285), _measure(1, 250)]
+    script = [_identity, _repair_regrow]
+
+    async def _aparse(prompt, system=None, **kw):
+        seen.append(debug_log._stage.get())
+        return payloads.pop(0)
+
+    async def _fake_review(**kwargs):
+        action = script.pop(0) if script else None
+        return action(kwargs["draft"]) if action else kwargs["draft"]
+
+    async def _persist(cl_, db_, composed, norm_):
+        cl_.letter_data = composed
+        await db_.commit()
+        return b"%PDF-fake", queue.pop(0)
+
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(side_effect=_aparse)
+
+    outer = debug_log._stage.set("letter_terminal_review")
+    try:
+        with (
+            patch("applire.services.cover_letter.review_and_refine",
+                  side_effect=_fake_review),
+            patch("applire.services.cover_letter._persist_and_measure", new=_persist),
+        ):
+            await _terminal_review_letter(
+                cl, db,
+                draft=_letter("SEED"),
+                grounding_source="SOURCE MATERIAL",
+                provider=provider,
+                corrector_prompt_fn=lambda prev, fb, src: "corrector prompt stub",
+                wrap_reviewer=lambda base_fn: base_fn,
+                norm=REGION_NORMS["DACH"],
+                profile=None,
+                cv_data={"contact": {}},
+                pre_gen={},
+                language="de",
+                load_bearing_fn=lambda d: frozenset(),
+                within_budget_fn=lambda d: True,
+                retain_if_fn=lambda d: True,
+                pdf_bytes=b"%PDF-fake",
+                measured=_measure(2, 320),
+                reviews_enabled=True,
+                condense_spent=True,
+                pins=[],
+                final_floor=True,
+            )
+        # the label is RESTORED, not left behind
+        assert debug_log._stage.get() == "letter_terminal_review"
+    finally:
+        debug_log._stage.reset(outer)
+
+    assert seen == [
+        "letter_condense_final_floor",
+        "letter_condense_recondense_repair",
+    ], seen

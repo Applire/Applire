@@ -108,6 +108,29 @@ logger = logging.getLogger(__name__)
 # on the Writer collector, not this build).
 LETTER_COVERAGE_TERMS_PER_ROUND: int = 2
 
+
+async def _condense_call(provider, prompt: str, *, stage: str) -> dict:
+    """The ONE shaping of a letter condense call, with its own stage label.
+
+    Letter collector #673 (build 2, WP-L): the condense call sites inherit
+    whichever label the previous chain left in the `llm_log_stage` contextvar,
+    so on 2026-09-05 the pre-verdict condense logged as `cover_letter`
+    (record 676) and the final-floor condense as `letter_terminal_review`
+    (record 681) — a condense record was indistinguishable from a chain member,
+    which is exactly the ambiguity per-round attribution has to resolve. The
+    restoring context manager is used (never the imperative `set_stage`), so a
+    label cannot leak into the calls that follow.
+
+    One helper rather than three wrapped call sites: the three condenses differ
+    only in their prompt and their label (ADR-066).
+    """
+    from applire.providers.llm.debug_log import llm_log_stage
+
+    with llm_log_stage(stage):
+        return await provider.aparse_json(
+            prompt, system=SYSTEM_PROMPT, max_tokens=CV_GENERATION_MAX_TOKENS
+        )
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf_letter.html.j2",
     "modern_swiss": "modern_swiss_letter.html.j2",
@@ -2623,7 +2646,8 @@ async def _terminal_review_letter(
             condense_state["used"] = True
             previous = current
             try:
-                condensed = await provider.aparse_json(
+                condensed = await _condense_call(
+                    provider,
                     build_condense_prompt(
                         _subject_of(current),
                         norm.letter_body_word_budget,
@@ -2633,8 +2657,7 @@ async def _terminal_review_letter(
                         # by instruction here, by measurement on the report.
                         pinned_quotes=[pn.quote for pn in pins] or None,
                     ),
-                    system=SYSTEM_PROMPT,
-                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                    stage="letter_condense_pre_verdict",
                 )
                 current = condensed
                 entered_via_condense = True
@@ -2770,7 +2793,8 @@ async def _terminal_review_letter(
             previous = current
             condensed = None
             try:
-                condensed = await provider.aparse_json(
+                condensed = await _condense_call(
+                    provider,
                     build_condense_prompt(
                         _subject_of(current),
                         target,
@@ -2780,8 +2804,7 @@ async def _terminal_review_letter(
                         # by instruction here, by measurement on the report.
                         pinned_quotes=[pn.quote for pn in pins] or None,
                     ),
-                    system=SYSTEM_PROMPT,
-                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                    stage="letter_condense_final_floor",
                 )
                 current = condensed
                 await _apply(current)
@@ -2930,7 +2953,8 @@ async def _terminal_review_letter(
                         recondensed = None
                         if _limits_ok(cl.letter_data):
                             try:
-                                recondensed = await provider.aparse_json(
+                                recondensed = await _condense_call(
+                                    provider,
                                     build_condense_prompt(
                                         _subject_of(corrector_draft),
                                         target,
@@ -2938,8 +2962,7 @@ async def _terminal_review_letter(
                                         letter_pages=norm.letter_pages,
                                         pinned_quotes=[pn.quote for pn in pins] or None,
                                     ),
-                                    system=SYSTEM_PROMPT,
-                                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                                    stage="letter_condense_recondense_repair",
                                 )
                             except Exception as recondense_err:
                                 # Fail-OPEN, exactly like both condenses above.
