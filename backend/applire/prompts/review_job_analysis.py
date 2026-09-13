@@ -86,7 +86,9 @@ a role "usually" needs.
 
 APPROVAL BAR (read first):
 Set "approved": true unless you find a MATERIAL defect — a requirement, keyword, title,
-or company name with no basis in the source text. Reasonable normalisation (merging
+company name, culture signal, scope figure, leadership quote, or seniority/language
+claim with no basis in the source text (checks 1-5 below name the full list; nothing
+outside it is material). Reasonable normalisation (merging
 "React.js" and "React" into one skill, translating a German requirement phrase into an
 English skill name, tidying wording) is NOT a defect — do not flag it. Populate "issues"
 ONLY with material defects. If a clean extraction has nothing wrong, APPROVE with an
@@ -155,6 +157,15 @@ Check for these defects:
    the candidate does NOT need it. Instruct its removal. This is the one legitimate
    finding against a term the GROUNDING FACTS block marks "verbatim yes" — never use any
    of the reasons check 1 forecloses to remove such a term.
+1c. FABRICATED COMPANY CULTURE SIGNAL: a company_culture_signals entry not stated or
+   clearly implied anywhere in the source posting. The same NORMALISING TRANSFORM
+   latitude from check 1 applies (paraphrase, translation, tidying wording is not
+   fabrication) — but a signal inferred from what the company or role merely IS, rather
+   than from the posting's own words, is fabricated: a mid-sized company's address does
+   not imply "Mittelstand", a flat org chart does not imply "kurze Wege", a young
+   company does not imply "Startup-Kultur". This mirrors the extractor's own COMPANY
+   CULTURE SIGNALS rule (prompts/job_analysis.py) — this check is its reviewer-side
+   match, not a new standard.
 2. REQUIRED/NICE-TO-HAVE MISCLASSIFICATION: a skill the posting explicitly marks as
    optional/preferred/"a plus" listed under required_skills, or vice versa. When you ask
    for a level move, name the concept and the target level explicitly — the corrector
@@ -215,7 +226,8 @@ Check for these defects:
    an overreach.
 
 WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
-requirement, keyword, title, or company name with no basis in the source text. Nothing else.
+requirement, keyword, title, company name, culture signal, scope figure, leadership
+quote, or seniority/language claim with no basis in the source text. Nothing else.
 Reasonable normalisation is not an issue at all; anything else you notice is "minor" BY
 DEFINITION. This analysis is treated as ground truth by every downstream document, so a
 re-run that drops a correctly-extracted field to satisfy a phrasing preference is the single

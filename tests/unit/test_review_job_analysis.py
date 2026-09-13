@@ -149,6 +149,53 @@ class TestJobAnalysisReviewPromptWave6Wording:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# #675 line 40 — the APPROVAL BAR's closed list ("a requirement, keyword,
+# title, or company name — nothing else") pre-dates checks 2c (scope), 2d
+# (leadership) and 5 (seniority/language), which already treat other fields
+# as blocking; it never named company_culture_signals, yet the captured
+# corpus shows the model already extends the intro's "confirm every
+# extracted item is actually stated" framing to it (2 of 2 exhausted
+# invocations, 2026-08-15/2026-08-30, raised "Mittelstand"/"standortgebunden"
+# as blocking). Self-contradiction category (applire-prompt-first step 3,
+# pattern 2): the bar's own summary text is stale, not the reviewer's actual
+# behaviour — the narrowest fix is naming the true scope, not narrowing it.
+# ---------------------------------------------------------------------------
+
+
+class TestJobAnalysisReviewApprovalBarNamesCompanyCultureSignals675Line40:
+    def test_approval_bar_names_company_culture_signals(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        approval_bar = prompt.split("APPROVAL BAR")[1].split("VERBATIM GROUNDING RULE")[0]
+        assert "culture" in approval_bar.lower()
+
+    def test_what_is_blocking_restatement_names_company_culture_signals(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        restatement = prompt.split("WHAT IS BLOCKING IN THIS PASS:")[1][:500]
+        assert "culture" in restatement.lower()
+
+    def test_new_check_names_fabricated_company_culture_signal(self):
+        """The approval bar's list is now backed by an explicit numbered
+        check, the same way checks 2c/2d/5 back scope/leadership/seniority —
+        not just a wider adjective with no matching check."""
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        assert "FABRICATED COMPANY CULTURE SIGNAL" in prompt
+
+    def test_genuine_checks_still_all_present(self):
+        """The widened bar must not have replaced any existing check."""
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        for marker in (
+            "FABRICATED REQUIREMENT",
+            "MISCLASSIFICATION",
+            "FABRICATED KEYWORDS",
+            "INVENTED TITLE OR COMPANY",
+            "SENIORITY/LANGUAGE OVERREACH",
+            "SCOPE REQUIREMENT GROUNDING",
+            "LEADERSHIP EMPHASIS GROUNDING",
+        ):
+            assert marker in prompt
+
+
 class TestJobAnalysisReviewPrompt617GroundingFacts:
     def test_anti_oscillation_rule_struck_and_reviewer_stays_memoryless_617(self):
         """Captured evidence (#617): seniority oscillated round to round
