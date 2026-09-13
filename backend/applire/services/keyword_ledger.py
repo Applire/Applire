@@ -130,6 +130,21 @@ def jd_qualifying_phrase(
     A purely deterministic substring lookup: a FACT under ADR-062 clause 1, not a
     judgement about what the posting means.
 
+    **Status, stated honestly (ruling W-4b, 2026-09-13): SHIPPED, UNEXERCISED ON ITS
+    TARGET POPULATION** — a coarse concept with no fine-grained sibling in the ledger.
+    Measured n=5 per arm on the captured 2026-08-01 `controlling_emma_de` writer call
+    (charter run 13, the run #415 reports): `Jahresabschluss` and `Wirtschaftsprüfer`
+    reach the draft **5/5 with the phrase and 5/5 without it**. The reason is not that
+    the phrase fails — it is that THAT run's ledger already carried `Jahresabschluss` as
+    its own claimable concept with the Wirtschaftsprüfer evidence, so the coarse-concept
+    mechanism #415 describes was not what the run exercised. Per-round attribution over
+    the same log (records 55-69) shows the writer emitting both terms in round 1 and
+    every corrector round through `cv_language` keeping them, so **the delivered loss
+    #415 measured happened after the writer chain** — see the Writer collector's
+    `_cap_bullets` TAIL_DELETE line. Keep-vs-revert is an open founder triage item; until
+    a run with a genuinely coarse concept is measured, this is recorded as *intended*,
+    not as *in force*.
+
     Selection: among the posting's sentences that contain the concept or one of its
     surface forms (case-insensitively, as a substring — the same predicate the union is
     built with), the one carrying the MOST words, capped at ``_JD_PHRASE_MAX_CHARS``;

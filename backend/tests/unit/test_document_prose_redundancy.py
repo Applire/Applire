@@ -682,3 +682,73 @@ def test_the_writer_prompt_still_fits_under_its_reviewer():
     assert len(SYSTEM_PROMPT) < len(REVIEW_SYSTEM_PROMPT), (
         len(SYSTEM_PROMPT), len(REVIEW_SYSTEM_PROMPT)
     )
+
+
+# ── 9. #672 lines 40/45 — the check and the signal answer one question ───────
+
+
+def test_narrative_evidence_does_not_demand_a_bullet_for_a_delivered_language():
+    """Two instruments over one question, disagreeing (ADR-066).
+
+    `verified_narrative_underclaim` has exempted a concept the COMPOSED document already
+    delivers in a vault-joined structured section since #666 — that exemption is what
+    stopped the corrector buying "Deutsch als Muttersprache." at the price of the LTIF
+    safety bullet. The ATS check is its only other caller and never passed the argument,
+    so the candidate-facing report kept making the demand the loop had stopped making.
+
+    Delivery-tier evidence: the 2026-09-11 delivery run shipped
+    `narrative-evidence: fail` naming "Sehr gutes Deutsch" and "Gutes Englisch" on a CV
+    whose LANGUAGES section states both.
+    """
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "start_date": "2017-04",
+            "bullets": ["Zwei Fertigungsbereiche mit 38 Mitarbeitenden geführt."],
+        }],
+        "languages": [
+            {"language": "Deutsch", "level": "Muttersprache"},
+            {"language": "Englisch", "level": "B2"},
+        ],
+        "skills": ["Deutsch", "Englisch"],
+    })
+    ledger = [
+        {"concept": "Deutsch", "surface_forms": ["Deutsch"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "Muttersprache"},
+        {"concept": "Englisch", "surface_forms": ["Englisch"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "B2"},
+    ]
+    from applire.services.ats_audit import _narrative_evidence_check
+
+    check = _narrative_evidence_check(cv, ledger)
+    assert check.status == "pass", check.details
+
+
+def test_narrative_evidence_still_fails_for_a_capability_only_tagged():
+    """The negative control — the check's whole job must survive the exemption. A skills
+    TAG is not evidence, which is this signal's own founding rule, and `skills` is
+    deliberately not one of the exempt structured sections."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "start_date": "2017-04",
+            "bullets": ["Zwei Fertigungsbereiche mit 38 Mitarbeitenden geführt."],
+        }],
+        "languages": [],
+        "skills": ["ISO 9001"],
+    })
+    ledger = [
+        {"concept": "ISO 9001", "surface_forms": ["ISO 9001"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "Bereichsverantwortung"},
+    ]
+    from applire.services.ats_audit import _narrative_evidence_check
+
+    check = _narrative_evidence_check(cv, ledger)
+    assert check.status == "fail", check.details
+    assert "ISO 9001" in check.details

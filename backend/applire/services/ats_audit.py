@@ -1417,7 +1417,20 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
                 "are evidenced in the work history could not be judged."
             ),
         )
-    missing = verified_narrative_underclaim(tailored.model_dump(mode="json"), ledger)
+    # #672 line 40/45 (2026-09-13): the SAME document, also as the structured-section
+    # corpus. `verified_narrative_underclaim` has exempted a concept the COMPOSED
+    # document already delivers in a vault-joined section since #666 — LANGUAGES,
+    # CERTIFICATIONS, EDUCATION — and this check, its only other caller, never passed
+    # the argument, so the corrector-side SIGNAL and the candidate-facing CHECK
+    # disagreed about the same question (ADR-066). Delivery-tier evidence: the
+    # 2026-09-11 delivery run's `narrative-evidence` read `fail` naming "Sehr gutes
+    # Deutsch" and "Gutes Englisch" on a CV whose LANGUAGES section states both — the
+    # candidate was told to put a language into a work bullet that the document already
+    # carries in its own headed block. `tailored` IS the composed document here (the
+    # audit runs after assembly on both doors), so this is the same dict, read twice
+    # through the two corpora the signal defines.
+    composed = tailored.model_dump(mode="json")
+    missing = verified_narrative_underclaim(composed, ledger, structured_document=composed)
     if not missing:
         return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
     # Bounded by RANK, not by a character cap: `verified_narrative_underclaim` returns
