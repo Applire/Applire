@@ -95,6 +95,7 @@ from applire.models.profile import MasterProfile
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
+from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
     ApplicationListResponse,
@@ -133,7 +134,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-11"
+GUIDE_VERSION = "2026-09-13"
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,29 @@ def _profile_summary(profile_response) -> dict:
         "merge_conflicts": len(data.get("merge_conflicts") or []),
         "merge_status": data.get("merge_status"),
         "not_applied": data.get("not_applied") or [],
+        # #367 (ADR-054 amended 2026-09-13) — the outcome, stated on every call so
+        # the caller branches on a field instead of on the absence of one.
+        "merged": True,
+        "gated": False,
+    }
+
+
+def _held_import_summary(gated) -> dict:
+    """`import_cv`'s payload when the US167 gate HELD the merge (#367).
+
+    Additive and name-free. The two names behind a `name_divergence` hold are
+    deliberately absent: this tool's black-box invariant (no candidate name,
+    contact or work history — `tests/test_mcp_agent_journey.py`) is why it returns
+    a summary at all, and a hold is not a licence to break it. An agent putting
+    "is this CV yours?" to the human reads `get_profile_health().held_merges[]`,
+    which carries `account_name`/`cv_name` for exactly that, and relays the answer
+    through `resolve_held_merge`. AGENT_GUIDE.md states the sequence.
+    """
+    return {
+        "merged": False,
+        "gated": True,
+        "staged_id": str(gated.staged_id),
+        "hold_reason": gated.gate,
     }
 
 
@@ -311,6 +335,20 @@ async def _current_user_id(db) -> uuid.UUID:
     return user.id
 
 
+async def _import_user_id(db) -> uuid.UUID | None:
+    """Owner for an import's `UploadRecord` — best-effort (#367).
+
+    `import_cv` is the one tool that must work before a user row exists (its own
+    error message tells every other tool to call it first), so an empty `users`
+    table is an ownerless import rather than a failure. Same shape as
+    `get_profile_health`: scope when we can, never crash when we cannot.
+    """
+    try:
+        return await _current_user_id(db)
+    except McpError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Tools (7.2 – 7.8)
 # ---------------------------------------------------------------------------
@@ -320,7 +358,9 @@ async def _current_user_id(db) -> uuid.UUID:
     description=(
         "Seed or extend the Master Profile from a CV. Provide file_base64 "
         "(base64 PDF, <=10 MB) or text (extracted CV text). Call once per CV "
-        "to merge several. Returns a summary, never the raw profile."
+        "to merge several. Returns a summary, never the raw profile. If the "
+        "pre-merge integrity gate HOLDS it, nothing is merged: gated=true with "
+        "a staged_id — put the choice to the human, then resolve_held_merge."
     )
 )
 async def import_cv(
@@ -328,8 +368,10 @@ async def import_cv(
     filename: str | None = None,
     text: str | None = None,
 ) -> dict:
-    # `filename` is reserved (arc42 §5.3.6a) for a future format hint; ignored for now.
+    # `filename` names the stored source document (#367 — it used to be reserved
+    # and ignored, because this door persisted no source document at all).
     provider = get_provider()
+    storage = get_storage()
     if file_base64:
         try:
             raw = base64.b64decode(file_base64, validate=True)
@@ -341,8 +383,14 @@ async def import_cv(
                 "upload large files via REST POST /api/profile/upload instead."
             )
         async with get_db() as db:
+            uid = await _import_user_id(db)
             try:
-                result = await profile_svc.import_from_pdf(raw, db, provider)
+                result = await profile_svc.import_from_pdf(
+                    raw, db, provider,
+                    storage=storage,
+                    filename=filename or "import.pdf",
+                    user_id=uid,
+                )
             except ValueError as exc:
                 raise invalid_input(str(exc))
             except VaultWriteRevertedError as exc:
@@ -354,8 +402,14 @@ async def import_cv(
                 raise internal(str(exc))
     elif text and text.strip():
         async with get_db() as db:
+            uid = await _import_user_id(db)
             try:
-                result = await profile_svc.import_from_text(text.strip(), db, provider)
+                result = await profile_svc.import_from_text(
+                    text.strip(), db, provider,
+                    storage=storage,
+                    filename=filename or "import.txt",
+                    user_id=uid,
+                )
             except ValueError as exc:
                 raise invalid_input(str(exc))
             except VaultWriteRevertedError as exc:
@@ -364,6 +418,10 @@ async def import_cv(
                 raise internal(str(exc))
     else:
         raise invalid_input("Provide either file_base64 (base64 PDF) or text")
+    # #367 — the US167/ADR-041 gate now fires on this door too. A HOLD is not an
+    # error: nothing was merged, the extraction is parked, and the human decides.
+    if getattr(result, "status", None) == "GATED":
+        return _held_import_summary(result)
     return _profile_summary(result)
 
 

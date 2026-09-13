@@ -140,15 +140,19 @@ def _import_patches():
 
 
 @pytest.mark.asyncio
-async def test_first_import_creates_a_profile_that_survives_the_request(durable_db):
+async def test_first_import_creates_a_profile_that_survives_the_request(durable_db, tmp_path):
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
 
     async with factory() as request_session:
         a, b, c, d = _import_patches()
         with a, b, c, d:
-            await import_from_text("Kubernetes, five years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kubernetes, five years.", request_session, AsyncMock(), storage=storage
+            )
 
     stored = await _read_back_the_only_profile(engine)
     assert [s["name"] for s in stored["skills"]] == ["Kubernetes"]
@@ -156,20 +160,24 @@ async def test_first_import_creates_a_profile_that_survives_the_request(durable_
 
 
 @pytest.mark.asyncio
-async def test_first_import_carries_the_committers_invariants(durable_db):
+async def test_first_import_carries_the_committers_invariants(durable_db, tmp_path):
     """A first import is a WRITE, so it inherits the invariant set from its very
     first byte: one unconditional trail entry carrying the same "initial import"
     receipt the hand-rolled record carried, the completeness recompute, and both
     clocks — with `created_via`/`created_at`, which only the intake can know,
     still supplied by the door."""
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
 
     async with factory() as request_session:
         a, b, c, d = _import_patches()
         with a, b, c, d:
-            await import_from_text("Kubernetes, five years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kubernetes, five years.", request_session, AsyncMock(), storage=storage
+            )
 
     metadata = (await _read_back_the_only_profile(engine))["metadata"]
     history = metadata["enrichment_history"]
@@ -185,37 +193,45 @@ async def test_first_import_carries_the_committers_invariants(durable_db):
 
 
 @pytest.mark.asyncio
-async def test_first_import_creation_still_snapshots_nothing(durable_db):
+async def test_first_import_creation_still_snapshots_nothing(durable_db, tmp_path):
     """Behaviour bound: `snapshot` stays exactly as each path passes it today.
     A first import has no pre-state to restore, and captured none before PR 8 —
     an ADR-042 snapshot of the empty row would be a restore point to nowhere."""
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
 
     async with factory() as request_session:
         a, b, c, d = _import_patches()
         with a, b, c, d:
-            await import_from_text("Kubernetes, five years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kubernetes, five years.", request_session, AsyncMock(), storage=storage
+            )
 
     assert await _snapshot_count(engine) == 0
 
 
 @pytest.mark.asyncio
-async def test_first_import_creation_is_an_authorised_write(durable_db):
+async def test_first_import_creation_is_an_authorised_write(durable_db, tmp_path):
     """PR 9's prerequisite, stated as a property: creating the first profile
     trips the clause-6 guard zero times. The keyword-argument constructor fires
     the setter, so before PR 8 this door was one of the writers keeping the
     guard in warn mode. Strict since PR 9 — the door completing IS the property;
     an unauthorised constructor would raise `UnauthorizedProfileWriteError`."""
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
 
     async with factory() as request_session:
         a, b, c, d = _import_patches()
         with a, b, c, d:
-            await import_from_text("Kubernetes, five years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kubernetes, five years.", request_session, AsyncMock(), storage=storage
+            )
 
     assert [s["name"] for s in (await _read_back_the_only_profile(engine))["skills"]] == [
         "Kubernetes"

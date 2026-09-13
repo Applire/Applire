@@ -389,17 +389,30 @@ async def undo_last_merge_endpoint(
     )
 
 
-@router.post("/import", response_model=ProfileImportResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/import",
+    response_model=ProfileImportResponse | CVUploadResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def import_profile(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    storage: StorageProvider = Depends(_get_storage),
+    auth: AuthProvider = Depends(get_auth_provider),
     file: Annotated[UploadFile | None, File(description="LinkedIn export ZIP")] = None,
     linkedin_json: Annotated[str | None, Form(description="LinkedIn export JSON string")] = None,
-) -> ProfileImportResponse:
-    """Structured data ingestor for LinkedIn/XING exports (ZIP or JSON).
+) -> ProfileImportResponse | CVUploadResponse:
+    """Structured data ingestor for LinkedIn/XING exports (ZIP, PDF or JSON).
 
     For CV file uploads (PDF, DOCX, images), use POST /api/profile/upload instead.
+
+    Since #367 (2026-09-13, ruling V-2) this is the third adapter over the one
+    ingest function, so the US167/ADR-041 pre-merge integrity gate fires here too:
+    an export whose name has no token overlap with the account holder's, or one
+    that extracts to nothing, is **held** and answered with the same GATED
+    ``CVUploadResponse`` the browser upload door returns — `status="GATED"` plus
+    `gate` / `staged_id`, resolved through ``POST /staged/{id}/resolve``.
     """
     if file is None and linkedin_json is None:
         raise HTTPException(
@@ -412,13 +425,21 @@ async def import_profile(
             detail="Provide either a file or linkedin_json, not both",
         )
 
+    user = await auth.get_current_user(request)
     try:
         if file is not None:
             file_bytes = await file.read()
+            upload_name = file.filename or "linkedin-export"
             if _is_zip(file):
-                coro = import_from_linkedin_zip(file_bytes, db, provider)
+                coro = import_from_linkedin_zip(
+                    file_bytes, db, provider, storage=storage,
+                    filename=upload_name, user_id=user.id,
+                )
             elif _is_pdf(file):
-                coro = import_from_linkedin_pdf(file_bytes, db, provider)
+                coro = import_from_linkedin_pdf(
+                    file_bytes, db, provider, storage=storage,
+                    filename=upload_name, user_id=user.id,
+                )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -432,7 +453,9 @@ async def import_profile(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="linkedin_json is not valid JSON",
                 )
-            coro = import_from_linkedin(parsed, db, provider)
+            coro = import_from_linkedin(
+                parsed, db, provider, storage=storage, user_id=user.id
+            )
 
         return await coro
 

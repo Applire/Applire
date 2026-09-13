@@ -581,12 +581,16 @@ class TestNewProfileServiceDB:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_import_from_linkedin_creates_profile(self, sqlite_session):
+    async def test_import_from_linkedin_creates_profile(self, sqlite_session, tmp_path):
         from applire.services.profile import import_from_linkedin
+        from applire.storage.local import LocalStorageProvider
 
         provider = _make_mock_provider(_minimal_llm_profile_data())
+        storage = LocalStorageProvider(str(tmp_path))
         with patch("applire.services.profile.LLM_REVIEW_MAX_RETRIES", 0):
-            result = await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
+            result = await import_from_linkedin(
+                {"firstName": "Alice"}, sqlite_session, provider, storage=storage
+            )
 
         assert result is not None
         # 1 extraction + 1 skill-estimation (enrich_skills) + 1 annotation call
@@ -594,16 +598,22 @@ class TestNewProfileServiceDB:
         assert provider.aparse_json.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_import_from_linkedin_merges_with_existing(self, sqlite_session):
+    async def test_import_from_linkedin_merges_with_existing(self, sqlite_session, tmp_path):
         from applire.services.profile import import_from_linkedin
+        from applire.storage.local import LocalStorageProvider
 
         provider = _make_mock_provider(_minimal_llm_profile_data())
+        storage = LocalStorageProvider(str(tmp_path))
 
         with patch("applire.services.profile.LLM_REVIEW_MAX_RETRIES", 0):
             # First import
-            await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
+            await import_from_linkedin(
+                {"firstName": "Alice"}, sqlite_session, provider, storage=storage
+            )
             # Second import — should merge
-            result = await import_from_linkedin({"firstName": "Alice"}, sqlite_session, provider)
+            result = await import_from_linkedin(
+                {"firstName": "Alice"}, sqlite_session, provider, storage=storage
+            )
 
         assert result is not None
         # US184: the second import now reconciles via the ADR-046 engine
@@ -618,13 +628,15 @@ class TestNewProfileServiceDB:
         assert provider.aparse_json.call_count == 6
 
     @pytest.mark.asyncio
-    async def test_import_from_pdf_raises_on_empty_text(self, sqlite_session):
+    async def test_import_from_pdf_raises_on_empty_text(self, sqlite_session, tmp_path):
         from applire.services.profile import import_from_pdf
+        from applire.storage.local import LocalStorageProvider
 
         provider = _make_mock_provider({})
+        storage = LocalStorageProvider(str(tmp_path))
         with patch("applire.services.profile.extract_pdf_text", return_value=""):
             with pytest.raises(ValueError, match="Could not extract text from PDF"):
-                await import_from_pdf(b"bad bytes", sqlite_session, provider)
+                await import_from_pdf(b"bad bytes", sqlite_session, provider, storage=storage)
 
     @pytest.mark.asyncio
     async def test_patch_profile_section_raises_on_invalid_section(self, sqlite_session):

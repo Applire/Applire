@@ -43,6 +43,7 @@ __all__ = [
     "expected_fields_for",
     "field_present",
     "entry_expected_present",
+    "summary_present",
     "work_experience_richness",
     "field_gaps",
 ]
@@ -155,6 +156,46 @@ def entry_expected_present(entry: dict) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# summary_present
+# ---------------------------------------------------------------------------
+
+def summary_present(value: object) -> bool:
+    """Is there a professional summary? (#675 line 42 / ruling V-1.)
+
+    ONE predicate, two readers. The completeness SCORE has always asked this
+    correctly — `_has_meaningful_data` tests `bool(value.de or value.en)` on the
+    `ProfessionalSummary` model. The AGENDA asked it wrong: `field_gaps` reads
+    the profile as a dict and applied bare truthiness to
+    ``profile.get("professional_summary")``, which is `{"de": None, "en": None}`
+    on every persisted profile — a non-empty dict, therefore truthy, therefore
+    never a gap. The field was unreachable: the hub never listed it, and Mode C
+    (the only asker, #683) was never handed it to ask.
+
+    So the two readers of one fact disagreed while both looked right in their own
+    file. This function is what they now share (ADR-066 clause 2 at module
+    scale); `schemas/profile.py::_has_meaningful_data` calls it too.
+
+    Tolerant of every shape the field has been persisted in: the object
+    (`{"de": ..., "en": ...}`), the model, and a bare legacy string.
+    """
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(isinstance(v, str) and v.strip() for v in value.values())
+    # A pydantic ProfessionalSummary (or anything else carrying the two slots).
+    # Test for the SLOTS, not for their values: a model whose two fields are
+    # both None is exactly the empty case, and `bool(model)` is True — which is
+    # the same truthiness trap one layer up, in a different costume.
+    if hasattr(value, "de") or hasattr(value, "en"):
+        de = getattr(value, "de", None) or ""
+        en = getattr(value, "en", None) or ""
+        return bool(de.strip() or en.strip())
+    return bool(value)
+
+
+# ---------------------------------------------------------------------------
 # work_experience_richness
 # ---------------------------------------------------------------------------
 
@@ -252,10 +293,16 @@ def field_gaps(profile: dict, scope: str | None = None) -> list[str]:
             if gap_str not in na_fields:
                 gaps.append(gap_str)
 
-    # Professional summary tail — exact parity with gap_detector_mode_c
+    # Professional summary tail — parity with gap_detector_mode_c, and with the
+    # completeness SCORE, which is the reader this line used to disagree with
+    # (#675 line 42 / ruling V-1: the persisted value is `{"de": …, "en": …}`, a
+    # truthy dict even when both languages are empty, so the gap never fired).
     if scope is None and work_experience:
         summary_gap = "professional_summary"
-        if not profile.get("professional_summary") and summary_gap not in na_fields:
+        if (
+            not summary_present(profile.get("professional_summary"))
+            and summary_gap not in na_fields
+        ):
             gaps.append(summary_gap)
 
     return gaps

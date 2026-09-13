@@ -51,6 +51,17 @@ from applire.services.profile.merge import MergeResult
 from tests.support.profile_factory import make_master_profile
 
 
+class _FakeStorage:
+    """Storage double — the ingest persists a source document on every door (#367)."""
+
+    def __init__(self):
+        self.saved: list[tuple[bytes, str]] = []
+
+    async def save(self, data: bytes, filename: str) -> str:
+        self.saved.append((data, filename))
+        return f"/tmp/{filename}"
+
+
 async def _seed_profile(db, *, confirmations=None, conflicts=None) -> MasterProfile:
     record = make_master_profile(
         profile_json={
@@ -79,7 +90,10 @@ async def _run_import(db, record, merge_result) -> None:
     """Drive `import_from_text` with the extraction/reconcile chain stubbed."""
     with patch(
         "applire.services.profile.extract_with_fallback",
-        new=AsyncMock(return_value={"personal_info": {"name": "Anna Bauer"}}),
+        # CV-shaped since #367: the US167 gate is inside the ingest, and a
+        # name-only extraction is correctly held as not-a-CV.
+        new=AsyncMock(return_value={"personal_info": {"name": "Anna Bauer"},
+                                    "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}]}),
     ), patch(
         "applire.services.profile.review_and_refine",
         new=AsyncMock(side_effect=lambda **kw: kw["draft"]),
@@ -92,7 +106,7 @@ async def _run_import(db, record, merge_result) -> None:
         "applire.services.profile.reconcile_import",
         new=AsyncMock(return_value=merge_result),
     ):
-        await import_from_text("CV text", db, AsyncMock())
+        await import_from_text("CV text", db, AsyncMock(), storage=_FakeStorage())
     await db.refresh(record)
 
 

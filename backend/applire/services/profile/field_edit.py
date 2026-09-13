@@ -39,7 +39,11 @@ import json
 from datetime import datetime
 from typing import Any
 
-from applire.schemas.profile import OBJECT_SECTIONS, VAULT_SECTIONS
+from applire.schemas.profile import (
+    OBJECT_SECTIONS,
+    USER_MANAGED_PERSONAL_INFO_FIELDS,
+    VAULT_SECTIONS,
+)
 from applire.services.profile.reconcile.ops import ReplaceSection
 
 
@@ -116,10 +120,12 @@ def build_replace_section_op(
     # up in the CV's <img src> (rendered by headless Chromium) — refused on
     # both doors (adversarial finding 2026-08-26; ADR-063 cl. 8(e) family:
     # a field another writer owns is not reachable by a section replace).
-    if section == "personal_info" and isinstance(decoded, dict) and "photo_url" in decoded:
-        raise ValueError(
-            "personal_info.photo_url is managed by the photo endpoints "
-            "(POST/DELETE /api/profile/photo); omit it from a section edit."
-        )
+    if section == "personal_info" and isinstance(decoded, dict):
+        owned = sorted(USER_MANAGED_PERSONAL_INFO_FIELDS & set(decoded))
+        if owned:
+            raise ValueError(
+                f"personal_info.{owned[0]} is managed by the photo endpoints "
+                "(POST/DELETE /api/profile/photo); omit it from a section edit."
+            )
 
     return ReplaceSection(section=section, value=decoded, basis_updated_at=basis_updated_at)

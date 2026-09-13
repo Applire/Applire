@@ -88,6 +88,17 @@ _ALLOWED_SUMMARY_KEYS = {
     # still holds — the PII sweep runs over the whole summary regardless.
     "merge_status",
     "not_applied",
+    # #367 (ADR-054 amended 2026-09-13): the ingest's OUTCOME, stated on every
+    # call so a caller branches on a field rather than on the absence of one.
+    # `merged`/`gated` ride every response; `staged_id`/`hold_reason` appear
+    # only on a HOLD, and carry no names — the two names behind a
+    # `name_divergence` hold stay off this payload precisely so the black-box
+    # property below survives the gate reaching this door. An agent putting the
+    # identity question to the human reads `get_profile_health().held_merges[]`.
+    "merged",
+    "gated",
+    "staged_id",
+    "hold_reason",
 }
 
 
@@ -194,6 +205,17 @@ def test_kaile_agent_journey(agent):
         f"import_cv leaked non-summary keys: {set(summary) - _ALLOWED_SUMMARY_KEYS}"
     )
     assert summary.get("profile_id"), "summary must reference the created profile"
+    # #367 — this door now runs the US167 pre-merge gate, so the outcome is part
+    # of the contract on the real stdio channel and not only in-process. A clean
+    # CV merges: `gated` false, and no hold fields at all. (The gate BRANCHES are
+    # proven at the unit tier with mutation kills — this tier cannot reach them,
+    # because the mock provider returns the same extraction whatever text it is
+    # given, so neither `not_a_cv` nor a divergent name is constructible here.)
+    assert summary.get("merged") is True, f"clean import not reported as merged: {summary}"
+    assert summary.get("gated") is False, f"clean import reported as gated: {summary}"
+    assert "staged_id" not in summary and "hold_reason" not in summary, (
+        "the hold fields must be absent when nothing was held"
+    )
     leaked = json.dumps(summary).lower()
     for pii in ("anna", "bauer", "@", "munich", "work_history", "contact"):
         assert pii not in leaked, f"black-box violation: {pii!r} present in summary"

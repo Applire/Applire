@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-09-11 · re-fetch anytime with `get_guide`*
+*Revision 2026-09-13 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -202,16 +202,26 @@ ever writes is flying blind.
   plain words — edits they made *after* that merge were dropped, and only they
   can judge whether that matters.
 
-- `resolve_held_merge(staged_id, decision)` — Applire holds an import made
-  **through the browser's own upload** before it commits, when the document
-  does not look like a CV (`gate: "not_a_cv"`) or when the name on it shares no
-  token with the account holder's (`"name_divergence"`). This tool relays the
-  human's decision on one of THOSE held imports — it never sees or holds
-  anything `import_cv` brought in on this channel (see `import_cv` above; open
-  Bug #367). A held import has changed nothing in the vault; it waits.
-  `get_profile_health` lists them with both names, so you can ask precisely:
-  *"your profile says Stefan Brandt, this CV says Maria Klein — is this your
-  document?"*
+- `resolve_held_merge(staged_id, decision)` — Applire holds an import before it
+  commits when the document does not look like a CV (`gate: "not_a_cv"`) or when
+  the name on it shares no token with the account holder's
+  (`"name_divergence"`). **This includes the imports you make.** Since #367 the
+  gate is part of the ingest itself, so it runs identically whichever door the
+  document came through — the browser's upload, a LinkedIn/XING export, and
+  `import_cv` on this channel.
+
+  **What you will see, and what to do about it.** `import_cv` always tells you
+  the outcome: a normal import answers `merged: true, gated: false` plus the
+  usual summary; a held one answers `merged: false, gated: true` with a
+  `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence`) and **no
+  profile facts, because nothing was merged**. Do not read a held import as a
+  success. The two names behind the question are deliberately not in that reply
+  — this tool's black-box rule does not bend for a hold — so call
+  `get_profile_health` and read `held_merges[]`, which carries `account_name`
+  and `cv_name`. Then you can ask precisely: *"your profile says Stefan Brandt,
+  this CV says Maria Klein — is this your document?"* and pass the answer to
+  `resolve_held_merge`. A held import has changed nothing in the vault; it
+  waits, with its source document kept under the usual retention window.
   **This is a relay, not a judgement call.** Put the question to the human and
   pass their answer; never infer "it's probably a maiden name" and merge. The
   gate exists because a document merged in error becomes *grounded* — the Oracle
@@ -371,16 +381,18 @@ apply it.
     two spellings of one employer, two dates for one role. They are questions
     for the candidate, and they stay open until answered; resolve them through
     `update_profile`, never by re-importing.
-  - **`import_cv` always merges — it never parks.** The pre-merge integrity
-    gate that can hold an upload for a human decision (see `held_merges`
-    below) runs only on the browser's own upload path, not on this tool (open
-    Bug #367). A CV that does not look like a CV, or whose name shares no
-    token with the account holder's, still lands in the vault through
-    `import_cv` — it does not surface in `held_merges` and there is nothing
-    to `resolve_held_merge` here. If the candidate is importing someone else's
-    document, or a non-CV file, by mistake, only your own read of the
-    returned summary (and the candidate's own confirmation) catches it —
-    Applire will not hold it for you on this channel.
+  - **`import_cv` can PARK instead of merging** (#367, 2026-09-13). The
+    pre-merge integrity gate is part of the ingest, so it runs on this tool
+    exactly as it does on the browser's upload. Every reply carries `merged`
+    and `gated`: on a hold you get `merged: false, gated: true` with a
+    `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence`) — and no
+    `profile_id`, no counts, because nothing was merged. **Treat that as a
+    question, not a failure and not a success.** Read `held_merges[]` from
+    `get_profile_health` for the two names, put the choice to the candidate,
+    and relay it with `resolve_held_merge(staged_id, decision)`. Never decide
+    identity yourself: a document merged in error becomes grounded, and the
+    Oracle will then verify a stranger's career as if it were the
+    candidate's.
 - **Stale-CV hint**: a non-null `stale_cv` on `get_application` means the
   profile grew after tailoring — offer a re-generate; never regenerate
   without asking, and never expect a pinned submitted version to be replaced.

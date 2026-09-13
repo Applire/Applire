@@ -358,7 +358,7 @@ async def test_completeness_and_clocks_are_recomputed_on_this_door_too(async_db)
 
 
 @pytest.mark.asyncio
-async def test_import_replace_preserves_agent_parked_items(async_db):
+async def test_import_replace_preserves_agent_parked_items(async_db, tmp_path):
     """Adversarial M2: the import path replaces both pending metadata lists
     wholesale each round — agent-parked items must survive a subsequent CV
     import, or the next upload silently destroys candidate-facing review items.
@@ -416,9 +416,15 @@ async def test_import_replace_preserves_agent_parked_items(async_db):
         ],
     )
     provider = AsyncMock()
+    from applire.storage.local import LocalStorageProvider
+
+    storage = LocalStorageProvider(str(tmp_path))
     with patch(
         "applire.services.profile.extract_with_fallback",
-        new=AsyncMock(return_value={"personal_info": {"name": "Anna Bauer"}}),
+        # CV-shaped since #367: the US167 gate is inside the ingest, and a
+        # name-only extraction is correctly held as not-a-CV.
+        new=AsyncMock(return_value={"personal_info": {"name": "Anna Bauer"},
+                                    "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}]}),
     ), patch(
         "applire.services.profile.review_and_refine",
         new=AsyncMock(side_effect=lambda **kw: kw["draft"]),
@@ -431,7 +437,7 @@ async def test_import_replace_preserves_agent_parked_items(async_db):
         "applire.services.profile.reconcile_import",
         new=AsyncMock(return_value=merge_result),
     ):
-        await import_from_text("CV text", async_db, provider)
+        await import_from_text("CV text", async_db, provider, storage=storage)
 
     await async_db.refresh(record)
     meta = record.profile_json["metadata"]
