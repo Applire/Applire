@@ -53,6 +53,11 @@ export function AssistMicroSession({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [suggestion, setSuggestion] = useState("");
+  // ADR-040 amendment 2026-09-13 (M5.7.1): sentences the grounding triage withheld
+  // because neither the vault nor the answer just submitted supports them. The text
+  // itself is never returned — only the count — so there is nothing here to render but
+  // the number and what it means.
+  const [withheldCount, setWithheldCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,8 +101,9 @@ export function AssistMicroSession({
         }
       );
       if (!res.ok) throw new Error(`${res.status}`);
-      const data: { suggestion: string } = await res.json();
+      const data: { suggestion: string; withheld_count?: number } = await res.json();
       setSuggestion(data.suggestion);
+      setWithheldCount(data.withheld_count ?? 0);
       setPhase("suggestion");
     } catch {
       setErrorMsg(t("assistSuggestionError"));
@@ -156,6 +162,14 @@ export function AssistMicroSession({
           <p className="text-gray-800 bg-white border border-gray-100 rounded p-2 mb-3">
             {suggestion}
           </p>
+          {withheldCount > 0 && (
+            <p
+              data-testid="assist-withheld"
+              className="text-on-surface-variant bg-warning-container border border-warning/40 rounded p-2 mb-3"
+            >
+              {t("assistWithheld", { count: withheldCount })}
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               type="button"

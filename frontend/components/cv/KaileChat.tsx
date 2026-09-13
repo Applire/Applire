@@ -54,6 +54,9 @@ export function KaileChat({
   );
   const [loading, setLoading] = useState(false);
   const [suggestion, setSuggestion] = useState<string | null>(null);
+  // ADR-040 amendment 2026-09-13 (M5.7.1): how many sentences the grounding triage
+  // withheld from this rewrite. The withheld text is deliberately never returned.
+  const [withheldCount, setWithheldCount] = useState(0);
 
   const toggleGap = (gapId: string) => {
     setSelectedGaps((prev) => {
@@ -84,6 +87,7 @@ export function KaileChat({
       );
       const data = await res.json();
       setSuggestion(data.suggestion);
+      setWithheldCount(data.withheld_count ?? 0);
     } finally {
       setLoading(false);
     }
@@ -101,6 +105,14 @@ export function KaileChat({
         >
           {suggestion}
         </p>
+        {withheldCount > 0 && (
+          <p
+            data-testid="kaile-withheld"
+            className="text-sm text-on-surface-variant bg-warning-container border border-warning/40 p-3 rounded mt-2"
+          >
+            {t("assistWithheld", { count: withheldCount })}
+          </p>
+        )}
         <div className="flex gap-2 mt-3">
           <button
             type="button"

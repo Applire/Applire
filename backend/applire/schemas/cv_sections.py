@@ -96,6 +96,11 @@ class AssistAnswerRequest(BaseModel):
 
 class AssistAnswerResponse(BaseModel):
     suggestion: str
+    #: Sentences the ADR-040 grounding triage withheld because neither the vault nor the
+    #: candidate's own fresh answer supports them (M5.7.1, ruling W-2). The UI names the
+    #: count; the withheld text is never returned — a flagged-but-visible suggestion is
+    #: one paste away from the document.
+    withheld_count: int = 0
 
 
 class RewriteRequest(BaseModel):
@@ -105,3 +110,5 @@ class RewriteRequest(BaseModel):
 
 class RewriteResponse(BaseModel):
     suggestion: str
+    #: See :class:`AssistAnswerResponse.withheld_count`.
+    withheld_count: int = 0

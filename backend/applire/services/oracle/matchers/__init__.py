@@ -17,6 +17,7 @@ from applire.services.oracle.matchers.vault import (
     EvidenceUnit,
     VaultIndex,
     build_vault_index,
+    extend_vault_index,
     derive_tenure_ceiling_years,
 )
 from applire.services.oracle.matchers.grounding import (
@@ -38,6 +39,7 @@ __all__ = [
     "EvidenceUnit",
     "VaultIndex",
     "build_vault_index",
+    "extend_vault_index",
     "derive_tenure_ceiling_years",
     "GroundingResult",
     "ground_skill_claim",

@@ -4213,6 +4213,7 @@ async def _terminal_review(
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
     from applire.services.cv_gap_hints import underclaim_signal_issues_fn
+    from applire.services.bullet_redundancy_signal import redundancy_signal_issues_fn
     from applire.services.terminal_review_outcome import TerminalReviewOutcome, settle_to_outcome
 
     outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
@@ -4254,6 +4255,28 @@ async def _terminal_review(
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
     )
 
+    # #659 (ruling W-1, 2026-09-13): the redundant bullet pairs the ATS audit computes
+    # one stage LATER reach the corrector while a round can still act on them. Same
+    # subject as the under-claim signal — the COMPOSED document — because #659's six
+    # bullets never existed in any writer output; `_nest_projects` assembled them after
+    # the writer finished. Detection only: the signal writes a sentence, never a cut
+    # (ADR-082 clauses 1-3 for the deterministic layer).
+    _redundancy_fn = redundancy_signal_issues_fn(
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
+
+    def _terminal_signal_issues(draft: dict) -> list:
+        """Both deterministic signals for this chain, in a fixed order.
+
+        `review_and_refine` takes ONE `signal_issues_fn`; composing here rather than
+        teaching the shared loop about a list keeps the loop's contract unchanged (it
+        still evaluates one callable, past both early returns, and can still never let a
+        signal create a round). Each source carries its own bound, so the combined
+        demand is bounded by construction: at most `UNDERCLAIM_ISSUE_LIMIT` +
+        `REDUNDANCY_ISSUE_LIMIT` issues per round.
+        """
+        return [*_underclaim_fn(draft), *_redundancy_fn(draft)]
+
     current = prose_draft
     rounds = 0
     reentry_exhausted = False
@@ -4271,7 +4294,7 @@ async def _terminal_review(
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             chain_id="cv_terminal_review",
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
-            signal_issues_fn=_underclaim_fn,
+            signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
         )
         if _canon(settled) == _canon(current):

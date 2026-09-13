@@ -423,6 +423,97 @@ def test_one_directional_surface_form_is_not_merged():
     assert "Research" in concepts and "Collaborative Research" in concepts
 
 
+# ---------------------------------------------------------------------------
+# Union-key double-credit (#675 line 46 — match-score investigation,
+# Documents/Runs/Nougat/build-2/delivery-run/match-score-investigation.md §4).
+# Distinct from the prefix/mirror MERGE cases above: here two classification
+# items are NOT duplicates of each other (no merge should fire — they keep
+# their own concept/evidence/status, ADR-048's per-concept record stays
+# intact) but one item's surface form is a one-directional substring/exact
+# match onto a JD union key that a DIFFERENT, earlier item already claimed.
+# Pre-fix, `build_keyword_ledger` summed sources per matched union key
+# per ROW with no cross-row bookkeeping, so the SAME union key's weight was
+# credited to both rows — real, vault-backed facts, but one JD requirement
+# spent twice in both `n_total` and (when both are `direct`) `earned_total`.
+# Reproduced 3x on operations_marcus_de (build-2, 08-gaps.json):
+# Budgetplanung/Budgetverantwortung, Lean-Produktion/Produktion+Lean-Methoden,
+# Führung und Entwicklung/Führungserfahrung — this is the first, compact.
+# ---------------------------------------------------------------------------
+
+
+def test_keyword_paraphrase_of_a_credited_required_item_earns_no_second_slot():
+    # "Budgetplanung" is its own JD keyword AND the LLM gave it a surface form
+    # that is a verbatim copy of the required item's own text. Both were
+    # already `direct`, fit_weight 1.0 pre-fix — one real requirement
+    # (Budgetverantwortung) spent twice.
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Budgetverantwortung", "direct", ["Budgetverantwortung"], evidence="Budgetverantwortung von ca. 6 Mio EUR"),
+            _cls("Budgetplanung", "direct", ["Budgetplanung", "Budgetverantwortung"], evidence="Budgetplanung und Budgetverantwortung sind im Profil genannt"),
+        ],
+        required_skills=["Budgetverantwortung"],
+        nice_to_have_skills=[],
+        keywords=["Budgetplanung"],
+    )
+    by_concept = _by_concept(ledger)
+    assert len(ledger) == 2, "the fix is a dedup, not a merge — both concepts survive as their own rows"
+
+    budget_resp = by_concept["Budgetverantwortung"]
+    budget_plan = by_concept["Budgetplanung"]
+    assert budget_resp["fit_weight"] == 1.0, "the required item itself must keep its full slot"
+    assert budget_plan["fit_weight"] == 0.0, (
+        "the union key 'Budgetverantwortung' was already credited by its own row — "
+        "a later paraphrase whose surface form also matches it must not spend a "
+        "second slot"
+    )
+    # Every other field stays exactly as classified — this is a weight dedup,
+    # never a status/evidence/claimable rewrite.
+    assert budget_plan["status"] == "direct"
+    assert budget_plan["claimable"] is True
+    assert budget_plan["concept"] == "Budgetplanung"
+    assert budget_plan["surface_forms"] == ["Budgetplanung", "Budgetverantwortung"]
+    assert budget_plan["evidence"] == "Budgetplanung und Budgetverantwortung sind im Profil genannt"
+
+    weighted = [e for e in ledger if e["fit_weight"] > 0]
+    assert len(weighted) == 1, "one real requirement, one fit-weighted slot"
+
+    from applire.services.match_score import compute_match_score_from_ledger
+
+    result = compute_match_score_from_ledger(ledger)
+    assert result["match_score"] == 1.0, "one required slot, earned once — not diluted by the duplicate"
+
+
+def test_keyword_matching_two_already_credited_required_keys_earns_no_slot():
+    # "Lean-Produktion" shape: ONE later classification item's surface forms
+    # substring-match TWO DIFFERENT required union keys, both already claimed
+    # by their OWN earlier rows ("Produktion", "Lean-Methoden"). The item must
+    # still appear (its own concept/evidence survive) but contribute nothing
+    # to the score — every union key it touches is already spent.
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("Produktion", "direct", ["Produktion", "Fertigung"], evidence="14 Jahre Fertigung"),
+            _cls("Lean-Methoden", "direct", ["Lean-Methoden", "Lean", "5S"], evidence="Lean-Erfahrung"),
+            _cls("Lean-Produktion", "direct", ["Lean-Produktion", "Lean"], evidence="Lean-Produktion praktiziert"),
+        ],
+        required_skills=["Produktion", "Lean-Methoden"],
+        nice_to_have_skills=[],
+        keywords=["Lean-Produktion"],
+    )
+    by_concept = _by_concept(ledger)
+    assert len(ledger) == 3
+    assert by_concept["Produktion"]["fit_weight"] == 1.0
+    assert by_concept["Lean-Methoden"]["fit_weight"] == 1.0
+    assert by_concept["Lean-Produktion"]["fit_weight"] == 0.0, (
+        "both union keys 'Produktion' and 'Lean-Methoden' were already credited "
+        "— the later row earns nothing extra even though it matches both"
+    )
+
+    from applire.services.match_score import compute_match_score_from_ledger
+
+    result = compute_match_score_from_ledger(ledger)
+    assert result["match_score"] == 1.0, "two real required slots, both earned once each"
+
+
 def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
     # "CI/CD" is a JD *keyword* the candidate demonstrably has (CI/CD pipelines).
     # The mock must classify keyword terms (mirrors the prompt change) so it lands

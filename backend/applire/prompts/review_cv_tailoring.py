@@ -369,10 +369,12 @@ answered here.
 """
 
 
-_SCHEMA_AND_CLOSER = review_output_schema(
-    issue_hint="specific issue with work_history index and description — empty array if nothing found",
-    feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
-) + """
+def _schema_and_closer(*, structural_fields: bool) -> str:
+    return review_output_schema(
+        issue_hint="specific issue with work_history index and description — empty array if nothing found",
+        feedback_hint="concise instruction for the tailoring agent to correct the BLOCKING issues — empty string if there are none",
+        structural_fields=structural_fields,
+    ) + """
 
 Keep `feedback` concise and *referential*: name the offending location (work_history index,
 field, section) and state what is wrong. Do NOT quote or paste source passages — the corrector
@@ -385,8 +387,24 @@ still names the entry id and the first words only."""
 # without this split — the shared blob ended by declaring clause 9's questions "minor"
 # BY DEFINITION, and adding a check without touching that would have been the ADR-062
 # clause-4 self-contradiction ADR-083 measured the model obeying).
+#
+# M5.4.1 (2026-09-13) splits the SCHEMA too, and only here. The unread
+# `location`/`check` keys came out of the rendered schema at every door — except
+# this one's terminal half, which measurably needs `check`: paired n=5 on a
+# captured record, with the fields 5/5 runs blocked and the unsupported
+# language-claim finding appeared 5/5; without them 2/5 runs returned
+# `approved: true` with an EMPTY issues array and the finding appeared 1/5. The
+# arm-B verdicts show the mechanism — they open with "Check 1, …", "Check 7, …",
+# so on a door carrying TEN numbered checks the field is the enumeration scaffold
+# the model walks them with. The drafting door, with the same checks but no
+# `_TERMINAL_CHECKS` block and a narrower mandate, showed no such loss.
 REVIEW_SYSTEM_PROMPT = (
-    _AUDITOR_INTRO + _SHAPE_NOTE_PROSE + _CHECKS + "\n" + _MANDATE_PROSE + _SCHEMA_AND_CLOSER
+    _AUDITOR_INTRO
+    + _SHAPE_NOTE_PROSE
+    + _CHECKS
+    + "\n"
+    + _MANDATE_PROSE
+    + _schema_and_closer(structural_fields=False)
 )
 
 TERMINAL_REVIEW_SYSTEM_PROMPT = (
@@ -396,7 +414,7 @@ TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + "\n"
     + _TERMINAL_CHECKS
     + _MANDATE_TERMINAL
-    + _SCHEMA_AND_CLOSER
+    + _schema_and_closer(structural_fields=True)
 )
 
 

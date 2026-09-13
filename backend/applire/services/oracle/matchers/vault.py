@@ -10,6 +10,7 @@ evidence entered the vault.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -185,6 +186,79 @@ def derive_tenure_ceiling_years(
     if not starts:
         return None
     return max(0.0, (max(ends) - min(starts)).days / _DAYS_PER_YEAR)
+
+
+def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) -> VaultIndex:
+    """A NEW index carrying ``entries`` as additional evidence beside the vault's own.
+
+    ``entries`` are ``(path, text)`` pairs. The path is the evidence's provenance and is
+    rendered into every :class:`EvidenceRef` the audit produces, so it must say where the
+    evidence came from — e.g. ``"session.answer"`` for testimony the candidate typed in
+    the micro-session that is being grounded.
+
+    **Why this exists (ADR-040 amendment 2026-09-13, M5.7.1 / ruling W-2).** "Grounded"
+    is a question about an evidence SET, and for one caller that set is not the vault
+    alone. A CV-assist suggestion is written FROM an answer the candidate gave seconds
+    earlier, which is by construction not yet in the vault; checking it against the vault
+    only would withhold essentially every suggestion the feature exists to produce, and
+    tell the candidate that a true fact they just typed is unsupported. Naming the set
+    explicitly — and keeping the added units' provenance visible in the report — is the
+    honest form of that. ADR-070 takes the same stance for scope testimony: an attested
+    user statement is deliverable.
+
+    Role-agnostic by construction: the added units carry no ``owner_ids``, so they may
+    ground a claim under any position and can never make the attribution matcher think a
+    claim belongs to an experience entry. They join ``units``, ``all_text_norm`` and
+    ``figure_map`` — the three corpora a grounding or numbers check reads — and nothing
+    else.
+
+    ``dominant_language`` is deliberately NOT recomputed: it is a property of the VAULT's
+    corpus (ADR-068 clause 2a, computed once over the whole blob), and one short answer
+    must not be able to flip the cross-language judgement seam for the whole audit.
+    ``denial_units`` is untouched for the reason its own field comment gives — a denial
+    statement may never become free-floating grounding evidence, and nothing a caller
+    passes here may enter that corpus either.
+
+    Pure: the input index is not mutated.
+    """
+    extra: list[EvidenceUnit] = []
+    for path, text in entries:
+        if not isinstance(text, str):
+            continue
+        stripped = text.strip()
+        if not stripped:
+            continue
+        extra.append(
+            EvidenceUnit(
+                path=path,
+                text=stripped,
+                text_norm=_norm(stripped),
+                figures=(
+                    extract_figures(stripped)
+                    + extract_spelled_figures(stripped)
+                    + extract_range_bare_numbers(stripped)
+                ),
+            )
+        )
+    if not extra:
+        return index
+
+    units = list(index.units) + extra
+    figure_map = {k: list(v) for k, v in index.figure_map.items()}
+    for unit in extra:
+        for fig in unit.figures:
+            figure_map.setdefault((fig.kind, fig.value), []).append(unit)
+    return VaultIndex(
+        units=units,
+        all_text_norm=_norm(" ".join(u.text for u in units)),
+        skill_names=list(index.skill_names),
+        figure_map=figure_map,
+        experience_ids=index.experience_ids,
+        same_employer_ids=dict(index.same_employer_ids),
+        denial_units=list(index.denial_units),
+        dominant_language=index.dominant_language,
+        derivable_tenure_years=index.derivable_tenure_years,
+    )
 
 
 def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex:
