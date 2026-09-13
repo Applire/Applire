@@ -1207,6 +1207,22 @@ VAULT_SECTIONS: frozenset[str] = frozenset(
 # replaced wholesale, which is what both doors document.
 OBJECT_SECTIONS: frozenset[str] = frozenset({"personal_info", "professional_summary"})
 
+#: `personal_info` fields ANOTHER WRITER owns — no vault door may write them and
+#: none may raise a dispute about them, because the candidate is not the party who
+#: would answer it. `photo_url` belongs to the photo endpoints
+#: (`services/photo.py`: upload records the GDPR consent, delete removes the
+#: stored file); a foreign URL there ends up in the CV's `<img src>`, rendered by
+#: headless Chromium.
+#:
+#: ONE constant because it is ONE rule (ADR-066 cl. 2). It was stated twice, in
+#: two vocabularies — `field_edit.py` RAISED on the section door and
+#: `reconcile/apply.py` SKIPPED on the import door — which is the shape that
+#: drifts silently: adding a second user-managed field would have protected one
+#: door and not the other, and the two behaviours (refuse vs. drop) are
+#: deliberately different, so nothing would have looked wrong. Vault collector
+#: #674, PR #663 (D).
+USER_MANAGED_PERSONAL_INFO_FIELDS: frozenset[str] = frozenset({"photo_url"})
+
 
 # ─── API response models ──────────────────────────────────────────────────────
 
