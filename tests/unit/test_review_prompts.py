@@ -2084,20 +2084,33 @@ class TestCoverLetterServiceThreadsPositioningToReviewer:
 class TestCoverageDemandCap:
     """Rule 1 — the reviewer's coverage check must bound what it demands per
     round to at most two evidenced terms, ranked by fit/JD importance, never
-    the full VERIFIED COVERAGE CHECK list at once."""
+    the full VERIFIED COVERAGE CHECK list at once.
+
+    **M5.4.2 (3), 2026-09-13 — the cap moved out of this prompt.** These tests
+    used to pin the prose request *"DEMAND AT MOST TWO terms per round"*. On the
+    captured 2026-09-05 run the model was handed the FULL absent list by
+    ``render_verified_coverage_block`` in the same prompt and raised six coverage
+    demands in round 1 — the pin was green throughout. The cap is now a BOUND on
+    the list (``keyword_ledger.rank_coverage_demand``, letter wiring point
+    ``cover_letter.py::_wrap_reviewer``, tests in
+    ``tests/unit/test_m542_letter_coverage_bound.py``); what this prompt still
+    owes is the statement that the block IS the demand set, and the rules that
+    never moved (evidence citation, the waiver, the flat-enumeration shape)."""
 
     @property
     def _prompt(self):
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
         return _flat(REVIEW_SYSTEM_PROMPT)
 
-    def test_caps_demand_at_two_terms_per_round(self):
+    def test_the_prompt_no_longer_states_a_number_the_block_contradicts(self):
         low = self._prompt
-        assert "demand at most two terms per round" in low
+        assert "demand at most two terms per round" not in low
+        assert "at most two terms" not in low
 
-    def test_ranks_by_jd_importance(self):
+    def test_the_block_is_declared_the_demand_set(self):
         low = self._prompt
-        assert "rank by how central each is to this role" in low
+        assert "already ranked and already capped for this round" in low
+        assert "demand the terms it lists and no others" in low
 
     def test_requires_evidence_cited_for_each_demanded_term(self):
         low = self._prompt
@@ -2112,9 +2125,27 @@ class TestCoverageDemandCap:
     def test_cap_does_not_relax_the_existing_approval_gate(self):
         """The demand cap bounds what is ASKED for per round — it must not be
         confused with a gating change: a capped-out term is still outstanding,
-        not approved around."""
-        low = self._prompt
-        assert "terms beyond the cap stay un-waived and eligible next round" in low
+        not approved around. Since M5.4.2 (3) the deterministic block carries
+        that sentence (it is the half that knows how many terms were held
+        back), so the guarantee is asserted where it now lives."""
+        from applire.services.keyword_ledger import (
+            rank_coverage_demand,
+            render_verified_coverage_block,
+        )
+
+        entries = [
+            {"concept": f"Term {i}", "surface_forms": [f"Term {i}"], "claimable": True,
+             "status": "direct", "sources": ["keyword"], "fit_weight": 1.0 - i / 10,
+             "evidence": f"evidence {i}"}
+            for i in range(4)
+        ]
+        demanded, deferred = rank_coverage_demand(entries, 2)
+        block = _flat(render_verified_coverage_block(
+            demanded, bounded=True, deferred_count=len(deferred)
+        ))
+        assert "neither demanded nor waived" in block
+        assert "in a later round if the next draft still omits them" in block
+        assert "you must set approved=false while any term above remains both absent" in block
 
     def test_grounding_still_outranks_coverage(self):
         """The waiver is the reviewer's ONLY coverage judgement, and a term

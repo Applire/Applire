@@ -1507,13 +1507,62 @@ def rank_gate_missing_claimable(
     return blocking, below_rank
 
 
-def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
+def rank_coverage_demand(
+    blocking: list[dict[str, Any]],
+    max_terms_per_round: int | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """M5.4.2 (3) — split the blocking coverage entries into
+    ``(demanded_this_round, deferred)`` at ``max_terms_per_round``.
+
+    **A bound, not a request** (the founder's M5.4.2 wording; memory rule "a
+    bound replaces verdict memory"). ``review_cover_letter.py`` used to ask the
+    reviewer for the cap in prose — *"DEMAND AT MOST TWO terms per round"* —
+    while :func:`render_verified_coverage_block` handed it the FULL absent list
+    and closed with *"name the terms in your issues"*. Two halves of one prompt
+    stating opposite instructions: on the captured 2026-09-05 run the round-1
+    verdict raised **6 coverage demands** against a stated cap of 2, and the
+    terminal door's first round raised 10 issues
+    (`Runs/Nougat/build-1/p/prompts/review_cover_letter.md` §7). The list the
+    model receives IS the cap; nothing else can be.
+
+    Ranking is the ledger's own ``fit_weight``, descending, ties broken by the
+    caller's order — the same key :func:`rank_gate_missing_claimable` already
+    uses, so "which terms matter most for this role" has ONE definition
+    (ADR-066). The reviewer is no longer asked to rank; it is handed the ranked
+    head. Deferred terms are neither demanded nor waived: they are recomputed
+    next round from the new draft and return if still absent.
+
+    ``max_terms_per_round=None`` (the default everywhere but the letter's own
+    wiring point) returns ``(blocking, [])`` — today's behaviour, byte-identical.
+    """
+    if max_terms_per_round is None or len(blocking) <= max_terms_per_round:
+        return list(blocking), []
+    if max_terms_per_round <= 0:
+        return [], list(blocking)
+    ordered = sorted(
+        blocking, key=lambda e: -(e.get("fit_weight") or 0)
+    )
+    return ordered[:max_terms_per_round], ordered[max_terms_per_round:]
+
+
+def render_verified_coverage_block(
+    entries: list[dict[str, Any]],
+    *,
+    bounded: bool = False,
+    deferred_count: int = 0,
+) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
 
     This replaces the reviewer's own coverage *detection* (US202) with ground truth:
     the list is the output of a deterministic literal check, not something to
     re-derive. The reviewer's only coverage judgment left is the grounding waiver
     (ADR-048 §8 — grounding strictly outranks coverage). Returns "" when empty.
+
+    ``bounded`` (M5.4.2 (3)) states that the list is THIS ROUND'S COMPLETE DEMAND
+    SET — already ranked and already capped by :func:`rank_coverage_demand` — so
+    the block no longer contradicts a prose cap the caller's prompt used to state.
+    ``deferred_count`` is named honestly in that sentence: terms held back are not
+    waived, and the reviewer must not go looking for them.
     """
     if not entries:
         return ""
@@ -1524,12 +1573,21 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     # (ADR-066).
     from applire.services.untrusted_text import items_note
 
-    lines = [
+    head = (
         "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, do "
         "not re-derive it). The following claimable keywords are ABSENT from the draft "
-        "in every known surface form:",
-        items_note("concept terms, surface forms and evidence quotes"),
-    ]
+        "in every known surface form:"
+    )
+    if bounded:
+        head = (
+            "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, "
+            "do not re-derive it). The list below IS THIS ROUND'S COMPLETE DEMAND SET: "
+            "claimable keywords absent from the draft in every known surface form, "
+            "already ranked by how central each is to this role and already capped for "
+            "this round. Demand every term on it and no other — do not add a coverage "
+            "demand for a term the list does not carry."
+        )
+    lines = [head, items_note("concept terms, surface forms and evidence quotes")]
     any_owner = False
     for entry in entries:
         forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
@@ -1565,6 +1623,15 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]
+    if bounded and deferred_count:
+        lines += [
+            "",
+            f"{deferred_count} further claimable term(s) are also absent and are HELD "
+            "BACK from this round on purpose. They are neither demanded nor waived here "
+            "and they are not yours to raise: the same deterministic scan puts them in "
+            "front of you in a later round if the next draft still omits them. Asking "
+            "for them now is what produces the flat enumeration this check forbids.",
+        ]
     return "\n".join(lines)
 
 
@@ -1572,6 +1639,7 @@ def coverage_reviewer_prompt_fn(
     base_fn,
     keyword_ledger: list[dict[str, Any]] | None,
     budget: "CoverageBudget | None" = None,
+    max_terms_per_round: int | None = None,
 ):
     """Wrap a reviewer_prompt_fn so every review sees the CURRENT draft's verified
     coverage state (US213, #122).
@@ -1586,12 +1654,31 @@ def coverage_reviewer_prompt_fn(
     demand under the ADR-042/051 length budget — see
     :func:`rank_gate_missing_claimable`. ``None`` (the default) reproduces
     today's behaviour exactly: every missing claimable entry blocks.
+
+    M5.4.2 (3) (2026-09-13): ``max_terms_per_round``, when given, makes the
+    per-round demand cap a BOUND instead of a prose request — the block carries
+    at most that many terms, ranked by ``fit_weight``, and says so
+    (:func:`rank_coverage_demand`). ``None`` (the default, and what the three CV
+    call sites in ``services/cv.py`` pass) leaves the rendered block
+    byte-identical. The letter's single wiring point
+    (``cover_letter.py::_wrap_reviewer``) passes 2, which is the number
+    ``prompts/review_cover_letter.py`` used to ask for and did not get.
     """
 
     def fn(source: str, draft: dict[str, Any]) -> str:
         prompt = base_fn(source, draft)
         missing = verified_missing_claimable(draft, keyword_ledger)
         blocking, below_rank = rank_gate_missing_claimable(missing, draft, budget)
+        blocking, deferred = rank_coverage_demand(blocking, max_terms_per_round)
+        if deferred:
+            logger.info(
+                "M5.4.2 coverage bound: %d of %d absent claimable term(s) demanded this "
+                "round (cap=%s); held back: %s",
+                len(blocking),
+                len(blocking) + len(deferred),
+                max_terms_per_round,
+                [e.get("concept", "") for e in deferred],
+            )
         if below_rank:
             logger.info(
                 "ADR-076 clause 6: %d claimable term(s) below rank under the length "
@@ -1605,7 +1692,10 @@ def coverage_reviewer_prompt_fn(
                 len(blocking),
                 [e.get("concept", "") for e in blocking],
             )
-            prompt = f"{prompt}\n\n{render_verified_coverage_block(blocking)}"
+            prompt = (
+                f"{prompt}\n\n"
+                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred))}"
+            )
         return prompt
 
     return fn

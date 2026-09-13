@@ -374,3 +374,60 @@ def test_a_grounded_en_denial_still_clears_with_the_new_markers():
         }
     }
     assert ungrounded_limits(letter, _EN_LEDGER, _EN_DENIED) == []
+
+
+# ── Letter collector #673 (build 2) — the verbless "keine <adj> <noun>" form ──
+
+
+def test_de_keine_eigenstaendige_is_read_as_a_denial():
+    """The construction the 2026-09-11 delivery run's own letter used and this
+    module did not see: every other DE marker needs a verb, so
+    "dies war keine eigenständige Investitionsplanung" produced no denial
+    segment at all. A missed limit sentence is a false NEGATIVE — the direction
+    that ships (ADR-076 clause 3). Harmless on that run because the concept IS
+    denied, which is exactly why it was a collector line and not a Bug."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Dies war keine eigenständige Investitionsplanung, sondern eine "
+                "gemeinsame Vorbereitung mit der Geschäftsführung."
+            ]
+        }
+    }
+    assert denial_segments(
+        "Dies war keine eigenständige Investitionsplanung."
+    ), "the sentence must at least be RECOGNISED as stating a limit"
+    # Ungrounded while nothing denies it …
+    assert [f.concept for f in ungrounded_limits(letter, LEDGER_2026_09_05, [])] == [
+        "Investitionsplanung"
+    ]
+    # … and clean once the candidate's own denial label carries it.
+    assert ungrounded_limits(letter, LEDGER_2026_09_05, DENIED_2026_09_05) == []
+
+
+def test_the_new_marker_does_not_read_every_keine_as_a_competence_denial():
+    """Deliberately narrow. A general "keine" marker would read "keine Frage"
+    and "keine Zeit" as competence denials and push honest prose into the cut
+    path — the false-positive direction this module refuses."""
+    for sentence in (
+        "Für mich ist das keine Frage der Technik, sondern der Führung.",
+        "Ich hatte keine Zeit verloren und die Investitionsplanung beschleunigt.",
+    ):
+        assert denial_segments(sentence) == [], sentence
+
+
+def test_the_new_marker_leaves_the_2026_09_11_delivered_letter_clean():
+    """Regression on the population the marker was added for: the run's own
+    letter states the limit and the candidate denied the concept, so the control
+    must now SEE the sentence and still find nothing ungrounded."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Eigenständige Investitionsplanung für Maschinen oder "
+                "Kapazitätserweiterungen beanspruche ich nicht; die gemeinsame "
+                "Vorbereitung mit der Geschäftsführung transferiert jedoch.",
+                "Dies war keine eigenständige Vertriebserfahrung.",
+            ]
+        }
+    }
+    assert has_no_ungrounded_limit(letter, LEDGER_2026_09_05, DENIED_2026_09_05)

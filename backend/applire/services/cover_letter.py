@@ -98,6 +98,39 @@ from applire.utils.recipient_extraction import extract_recipient_from_jd
 
 logger = logging.getLogger(__name__)
 
+# M5.4.2 (3) (founder, 2026-09-11): how many absent claimable terms the LETTER's
+# reviewer may be shown — and therefore demand — in one round. The number is the
+# one `prompts/review_cover_letter.py` used to ASK for in prose ("DEMAND AT MOST
+# TWO terms per round") and did not get; it now bounds the deterministic block
+# instead (`keyword_ledger.rank_coverage_demand`). Letter-scoped on purpose: the
+# three CV call sites pass nothing and see an unchanged block (contract 3 of the
+# Nougat build-3 work packages; whether the CV side follows is a `decide:` line
+# on the Writer collector, not this build).
+LETTER_COVERAGE_TERMS_PER_ROUND: int = 2
+
+
+async def _condense_call(provider, prompt: str, *, stage: str) -> dict:
+    """The ONE shaping of a letter condense call, with its own stage label.
+
+    Letter collector #673 (build 2, WP-L): the condense call sites inherit
+    whichever label the previous chain left in the `llm_log_stage` contextvar,
+    so on 2026-09-05 the pre-verdict condense logged as `cover_letter`
+    (record 676) and the final-floor condense as `letter_terminal_review`
+    (record 681) — a condense record was indistinguishable from a chain member,
+    which is exactly the ambiguity per-round attribution has to resolve. The
+    restoring context manager is used (never the imperative `set_stage`), so a
+    label cannot leak into the calls that follow.
+
+    One helper rather than three wrapped call sites: the three condenses differ
+    only in their prompt and their label (ADR-066).
+    """
+    from applire.providers.llm.debug_log import llm_log_stage
+
+    with llm_log_stage(stage):
+        return await provider.aparse_json(
+            prompt, system=SYSTEM_PROMPT, max_tokens=CV_GENERATION_MAX_TOKENS
+        )
+
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf_letter.html.j2",
     "modern_swiss": "modern_swiss_letter.html.j2",
@@ -1705,6 +1738,17 @@ async def _render_cover_letter_background(
                             base_fn,
                             keyword_ledger,
                             budget=letter_coverage_budget(norm.letter_body_word_budget),
+                            # M5.4.2 (3) (2026-09-13): the per-round demand cap
+                            # is a BOUND here, not a request in the reviewer
+                            # prompt. `review_cover_letter.py` asked for "AT
+                            # MOST TWO terms per round" while this very wrapper
+                            # handed the model the full absent list and told it
+                            # to name the terms in its issues — the round-1
+                            # verdict of the captured 2026-09-05 run raised six
+                            # coverage demands, the terminal door's first round
+                            # ten issues. Both letter loops share this closure,
+                            # so the bound covers both doors from one site.
+                            max_terms_per_round=LETTER_COVERAGE_TERMS_PER_ROUND,
                         ),
                         keyword_ledger=keyword_ledger,
                     )
@@ -1824,6 +1868,16 @@ async def _render_cover_letter_background(
                     provider=provider,
                     max_retries=LLM_REVIEW_MAX_RETRIES,
                     chain_id="cover_letter",
+                    # M5.4.2 (2) (founder, 2026-09-11): the CORRECTOR gets the
+                    # writer's own budget. `review_and_refine`'s default is
+                    # 4,096 tokens while the letter WRITER above runs at
+                    # CV_GENERATION_MAX_TOKENS (16,384) — so every round of the
+                    # loop asked a model to re-emit a whole letter, plus the
+                    # unchanged paragraphs it must carry forward, into a quarter
+                    # of the room the first draft had. A `finish=length` there
+                    # is not a shorter letter, it is a truncated JSON object and
+                    # a lost round. One number, three call sites, same document.
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     # #272 Task 3: the ADR-021 loop has no no-regression invariant — a
                     # reviewer mistake (RC-C/RC-E) can erode content a prior round had
                     # right (RC-D: the real closing paragraph, eroded to a bare stub).
@@ -2163,6 +2217,49 @@ class MeasuredLetter:
     word_budget: int
 
 
+def _log_letter_data_deviation(cl_id, composed: dict) -> None:
+    """Letter collector #673 — the PRODUCER's own view of its output shape.
+
+    Nothing validated `letter_data` before persisting it: the `.docx` export was
+    the first strict consumer and answered 409 where `/pdf` answered 200 for the
+    same row. The line's remedy is a fail-CLOSED producer gate, and its own
+    acceptance condition is *"only if every failure is a key
+    `_coerce_stored_letter_data` already drops"*.
+
+    This is the measurement half, not the gate: it validates and REPORTS, and
+    never changes what is persisted. Turning it fail-closed is a separate change
+    with its own regression risk on legacy rows, and it needs occurrence data
+    from real runs rather than from the four this package could afford.
+
+    Measured so far (2026-09-13, four in-process delivery-tier generations on
+    `operations_marcus_de`): 3 of 4 persisted rows fail `LetterData`, every one
+    on exactly `body.signature` — the stray half-empty duplicate of the top-level
+    signature the writer prompt never asks for, and exactly a key
+    `_coerce_stored_letter_data` already drops. So the line's condition holds at
+    n=4 and the failing key is a single, known one.
+    """
+    from pydantic import ValidationError
+
+    from applire.schemas.cover_letter import LetterData
+
+    try:
+        LetterData.model_validate(composed)
+    except ValidationError as exc:
+        paths = sorted({
+            ".".join(str(p) for p in err.get("loc", ())) for err in exc.errors()
+        })
+        logger.warning(
+            "LETTER_DATA_DEVIATION cl_id=%s fields=%s — the composed letter does "
+            "not validate against LetterData and is persisted anyway "
+            "(fail-open; #673, the producer gate is not yet closed)",
+            cl_id, ",".join(paths) or "?",
+        )
+    except Exception as exc:  # pragma: no cover - defensive, never fails a render
+        logger.warning(
+            "LETTER_DATA_DEVIATION cl_id=%s check failed: %s", cl_id, exc
+        )
+
+
 async def _persist_and_measure(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -2180,6 +2277,7 @@ async def _persist_and_measure(
     fail generation (the pre-#539 contract, unchanged)."""
     from applire.services.cover_letter_positioning import body_word_count
 
+    _log_letter_data_deviation(cl.id, composed)
     cl.letter_data = composed
     await db.commit()
     pdf_bytes: bytes | None = None
@@ -2592,7 +2690,8 @@ async def _terminal_review_letter(
             condense_state["used"] = True
             previous = current
             try:
-                condensed = await provider.aparse_json(
+                condensed = await _condense_call(
+                    provider,
                     build_condense_prompt(
                         _subject_of(current),
                         norm.letter_body_word_budget,
@@ -2602,8 +2701,7 @@ async def _terminal_review_letter(
                         # by instruction here, by measurement on the report.
                         pinned_quotes=[pn.quote for pn in pins] or None,
                     ),
-                    system=SYSTEM_PROMPT,
-                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                    stage="letter_condense_pre_verdict",
                 )
                 current = condensed
                 entered_via_condense = True
@@ -2646,6 +2744,12 @@ async def _terminal_review_letter(
             provider=provider,
             max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
             chain_id="letter_terminal_review",
+            # M5.4.2 (2): the corrector's budget is the writer's — see the
+            # drafting mount's call site for the reasoning. The terminal
+            # corrector has strictly MORE to carry than the drafting one (it
+            # rewrites the COMPOSED letter, chrome included), so it is the call
+            # site that could least afford the 4,096 default.
+            generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             # #272 Task 3: the structural retention guard covers the terminal
             # round exactly as it covered both retired loops.
             retain_if=retain_if_fn,
@@ -2699,10 +2803,23 @@ async def _terminal_review_letter(
     if final_floor:
         m = measure_cell["measured"]
         pages_before = m.page_count
+        # ADR-076 clause 3 amended 2026-09-13 (ruling L-5): the trigger no
+        # longer requires the pre-verdict condense to have been SPENT. That
+        # conjunct was a proxy for "do not mint more condense passes than
+        # ADR-051 §6 allows", and the bound is now the condense COUNT itself
+        # (three per delivery, §6 amended the same day). Keeping the conjunct
+        # left a whole class of over-norm deliveries with both levers shut:
+        # measured at delivery tier on 2026-09-13 (arm B of the paired run,
+        # `LLM_REVIEW_MAX_RETRIES=5`), a letter that entered the terminal loop
+        # IN norm was re-grown to 308 body words / 2 pages by the terminal
+        # corrector, `page-length` failed on the delivered PDF, and the floor
+        # logged `fired=False pages_before=2` because no head condense had run
+        # — the #547 class again, a detected overrun with the lever gated shut.
+        # On this path the floor is the delivery's FIRST condense, not its
+        # second, and the count bound is still satisfied.
         trigger = (
             m.page_count is not None
             and m.page_count > norm.letter_pages
-            and condense_state["used"]
             and not (cl.section_overrides or {})
         )
         if trigger:
@@ -2720,7 +2837,8 @@ async def _terminal_review_letter(
             previous = current
             condensed = None
             try:
-                condensed = await provider.aparse_json(
+                condensed = await _condense_call(
+                    provider,
                     build_condense_prompt(
                         _subject_of(current),
                         target,
@@ -2730,8 +2848,7 @@ async def _terminal_review_letter(
                         # by instruction here, by measurement on the report.
                         pinned_quotes=[pn.quote for pn in pins] or None,
                     ),
-                    system=SYSTEM_PROMPT,
-                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                    stage="letter_condense_final_floor",
                 )
                 current = condensed
                 await _apply(current)
@@ -2772,6 +2889,9 @@ async def _terminal_review_letter(
                     provider=provider,
                     max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
                     chain_id="letter_terminal_review",
+                    # M5.4.2 (2): the floor's own review round runs the same
+                    # corrector with the same budget as the two mounts above.
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     retain_if=retain_if_fn,
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
@@ -2840,17 +2960,118 @@ async def _terminal_review_letter(
                             )
                         corrector_hash = subject_hash(cl.letter_data)
                         corrector_pages = m2.page_count
-                        current = condensed_draft
-                        await _apply(current)
-                        final_floor_selection = "reverted_to_condensed"
-                        logger.warning(
-                            "LETTER_FINAL_FLOOR selection reverted CL %s: "
-                            "corrector_hash=%s corrector_pages=%s "
-                            "condensed_hash=%s condensed_pages=%s",
-                            cl.id, corrector_hash, corrector_pages,
-                            subject_hash(cl.letter_data),
-                            measure_cell["measured"].page_count,
-                        )
+                        corrector_draft = current
+
+                        # ADR-076 clause 3 amended 2026-09-13 (#547 letter half,
+                        # #673; ADR-051 §6's bound 2 -> 3 for THIS path only,
+                        # ruling L-2/L-2b): where the truth key above does not
+                        # separate the two compositions, the difference between
+                        # them is content the corrector ADDED at the reviewer's
+                        # own demand — on 2026-09-10 the floor's round surfaced
+                        # Arbeitsvorbereitung, 5S and Supply Chain and this
+                        # selection threw all three away to hold the page count
+                        # (`target_words=235`; recurred 2026-09-11 with 254).
+                        # Two accepted decisions fighting each other is the #547
+                        # class, and #547's own resolution applies: act on the
+                        # REPAIRED artefact instead of reverting to the
+                        # unrepaired one. ONE further condense of the
+                        # corrector's own composition — same calibrated target,
+                        # same pins, the single composition site — and the
+                        # repair and the DACH page norm both survive. Cost: +1
+                        # condense call (~8 s) on this path, and the delivered
+                        # letter's last write is an instruction-only rewrite
+                        # that re-enters no verdict (the same accepted residual
+                        # `kept_corrector` already carries; the settle-time cut
+                        # in `_finish` still runs over it).
+                        #
+                        # The 2026-08-29 revert survives as the FALLBACK, on two
+                        # conditions only, both of which leave the delivery no
+                        # worse than before this change: the re-condense call
+                        # raised, or its result is still over the norm AND no
+                        # closer to it than the corrector's own draft.
+                        #
+                        # Guard on the truth fact in the other direction too: if
+                        # the CORRECTOR's draft is the one carrying an invented
+                        # limit, re-condensing it would carry that sentence
+                        # forward, so the old revert is the right answer there.
+                        recondensed = None
+                        if _limits_ok(cl.letter_data):
+                            try:
+                                recondensed = await _condense_call(
+                                    provider,
+                                    build_condense_prompt(
+                                        _subject_of(corrector_draft),
+                                        target,
+                                        corrector_pages,
+                                        letter_pages=norm.letter_pages,
+                                        pinned_quotes=[pn.quote for pn in pins] or None,
+                                    ),
+                                    stage="letter_condense_recondense_repair",
+                                )
+                            except Exception as recondense_err:
+                                # Fail-OPEN, exactly like both condenses above.
+                                logger.warning(
+                                    "LETTER_FINAL_FLOOR re-condense of the corrector's "
+                                    "repair failed for CL %s — falling back to the "
+                                    "condensed composition: %s",
+                                    cl.id, recondense_err,
+                                )
+                                try:
+                                    await db.rollback()
+                                    await db.refresh(cl)
+                                except Exception as restore_err:  # pragma: no cover
+                                    logger.warning(
+                                        "LETTER_FINAL_FLOOR re-condense rollback/restore "
+                                        "failed for CL %s: %s", cl.id, restore_err,
+                                    )
+                                recondensed = None
+                                recondense_failed = True
+                            else:
+                                recondense_failed = False
+                        else:
+                            recondense_failed = False
+
+                        kept_recondense = False
+                        if recondensed is not None:
+                            current = recondensed
+                            await _apply(current)
+                            m3 = measure_cell["measured"]
+                            kept_recondense = (
+                                m3.page_count is None
+                                or m3.page_count <= norm.letter_pages
+                                or m3.page_count < corrector_pages
+                            )
+                            if kept_recondense:
+                                final_floor_selection = "recondensed_repair"
+                                logger.warning(
+                                    "LETTER_FINAL_FLOOR re-condensed the corrector's "
+                                    "repair for CL %s instead of discarding it: "
+                                    "corrector_hash=%s corrector_pages=%s "
+                                    "recondensed_hash=%s recondensed_pages=%s "
+                                    "target_words=%s (ADR-076 clause 3 amended "
+                                    "2026-09-13, ADR-051 §6 bound 3, #547 letter half)",
+                                    cl.id, corrector_hash, corrector_pages,
+                                    subject_hash(cl.letter_data),
+                                    m3.page_count, target,
+                                )
+
+                        if not kept_recondense:
+                            current = condensed_draft
+                            await _apply(current)
+                            final_floor_selection = (
+                                "reverted_to_condensed_after_failed_recondense"
+                                if recondense_failed
+                                else "reverted_to_condensed"
+                            )
+                            logger.warning(
+                                "LETTER_FINAL_FLOOR selection reverted CL %s: "
+                                "corrector_hash=%s corrector_pages=%s "
+                                "condensed_hash=%s condensed_pages=%s selection=%s",
+                                cl.id, corrector_hash, corrector_pages,
+                                subject_hash(cl.letter_data),
+                                measure_cell["measured"].page_count,
+                                final_floor_selection,
+                            )
                     else:
                         final_floor_selection = "kept_corrector"
                 else:
@@ -3409,9 +3630,7 @@ async def render_agent_letter(
     ``services.cv.render_agent_cv``.
 
     The caller is the author: content is persisted VERBATIM except for
-    (a) the photo strip (``header.photo_url`` is never honored — no letter
-    template renders it and ``storage.read`` has no traversal guard), and
-    (b) the chrome rule (US249): caller-supplied ``recipient.date`` /
+    (a) the chrome rule (US249): caller-supplied ``recipient.date`` /
     ``signature.closing`` are kept verbatim; only when absent does Applire
     inject the norm-conformant defaults — a deliberate deviation from the
     pipeline, which OVERWRITES both (ADR-054 §4: never rewrite agent content).
@@ -3442,9 +3661,6 @@ async def render_agent_letter(
     # with field paths for the MCP layer to surface (US251).
     letter = LetterData.model_validate(content)
     letter_data = letter.model_dump(mode="json")
-
-    # Photo strip (security) — see render_agent_cv.
-    letter_data["header"]["photo_url"] = None
 
     # Chrome rule: inject only when the caller left it empty.
     # E054 clause 2: the agent door renders an employer-facing artifact —

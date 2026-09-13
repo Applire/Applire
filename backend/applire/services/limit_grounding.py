@@ -91,6 +91,19 @@ _DENIAL_MARKERS: tuple[str, ...] = (
     "nicht verantwortet",
     "nicht geführt",
     "nicht getragen",
+    # Letter collector #673 (build 2, WP-L) — the verbless "keine <adj> <noun>"
+    # construction. The 2026-09-11 delivery run's own letter states a limit that
+    # way ("dies war keine eigenständige Investitionsplanung") and every marker
+    # above needs a verb, so the control did not see the sentence at all.
+    # Harmless on that run (the concept IS denied), but a missed limit sentence
+    # is a false NEGATIVE — the direction that ships (ADR-076 clause 3).
+    # Deliberately narrow: "eigenständig" is the register the captured
+    # population uses for a scope disclaimer, not a general "keine" match, which
+    # would read every "keine Zeit"/"keine Frage" as a competence denial.
+    "keine eigenständige",
+    "keine eigenständigen",
+    "keine eigenstaendige",
+    "keine eigenstaendigen",
     # EN
     "have not",
     "haven't",

@@ -702,7 +702,6 @@ LETTER_DE = LetterData.model_validate(
             "address": "Maximilianstraße 12, 80539 München",
             "phone": "+49 89 1234567",
             "email": "joerg.mueller@example.de",
-            "photo_url": None,
         },
         "recipient": {
             "name": "Frau Dr. Sabine Großmann",
@@ -747,7 +746,6 @@ LETTER_EN = LetterData.model_validate(
             "address": "Bahnhofstrasse 21, 8001 Zürich",
             "phone": "+44 20 7946 0958",
             "email": "catherine.obrien@example.com",
-            "photo_url": None,
         },
         "recipient": {
             "name": "Mr. Daniel Weber",

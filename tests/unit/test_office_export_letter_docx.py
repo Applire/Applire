@@ -43,6 +43,9 @@ no labelled slots for them.
 
 import io
 
+import pytest
+from pydantic import ValidationError
+
 from applire.schemas.cover_letter import (
     LetterBody,
     LetterData,
@@ -80,7 +83,6 @@ def _full_letter_data() -> LetterData:
             address="MARKER_SENDER_ADDRESS",
             phone="MARKER_SENDER_PHONE",
             email="MARKER_SENDER_EMAIL",
-            photo_url="https://example.invalid/MARKER_PHOTO_URL_NEVER_RENDERED.jpg",
         ),
         recipient=LetterRecipient(
             name="MARKER_RECIPIENT_NAME",
@@ -199,7 +201,6 @@ class TestNestedLeafCoverageGuard:
             "header.address",
             "header.phone",
             "header.email",
-            "header.photo_url",
             "recipient.name",
             "recipient.title",
             "recipient.company",
@@ -238,22 +239,38 @@ class TestNestedLeafCoverageGuard:
         assert not overlap, f"leaves classified as both rendered and not: {overlap!r}"
 
     def test_not_rendered_leaves_have_written_reasons(self):
+        """Guard kept for parity with cv_docx.py's identical test (over a
+        registry that IS populated there). The letter registry has been
+        empty since M5.4.2 (1) (2026-09-13) dropped its one entry
+        (header.photo_url) — see test_no_leaf_is_deliberately_unrendered
+        below for that assertion. This loop is a no-op today and stays as a
+        tripwire: if a letter leaf is ever again marked "not rendered", it
+        is forced to carry a real reason the day it is added."""
         from applire.services.office_export.letter_docx import _NOT_RENDERED_LEAVES
 
-        assert _NOT_RENDERED_LEAVES, "expected at least one deliberately-not-rendered leaf"
         for leaf, reason in _NOT_RENDERED_LEAVES.items():
             assert isinstance(reason, str) and len(reason.strip()) >= 15, (
                 f"{leaf!r} has no real written reason: {reason!r}"
             )
 
-    def test_photo_url_is_the_only_not_rendered_leaf(self):
-        """Pinned explicitly, not just implied by the exhaustive-accounting
-        test above: every OTHER LetterData leaf is rendered — the letter
-        writer's one deliberate content omission is the photo (see module
-        docstring: no letter template renders it either)."""
+    def test_no_leaf_is_deliberately_unrendered(self):
+        """M5.4.2 (1) (2026-09-13, founder ruling): `LetterHeader.photo_url`
+        — this writer's one former `_NOT_RENDERED_LEAVES` entry — is gone
+        from the schema entirely: no letter template has ever rendered it,
+        and the field only existed so the agent door's post-validation strip
+        could neutralise a caller-supplied path before it reached
+        storage.read. That security property now holds because the field
+        cannot be named at all (`extra="forbid"` rejects it), not because a
+        renderer declines to render it — so `_NOT_RENDERED_LEAVES` is
+        EMPTY, a STRONGER property than "every leaf but one is rendered":
+        every leaf of the letter shape is now rendered.
+        test_every_letterdata_leaf_field_is_accounted_for above still holds
+        because `_RENDERED_LEAVES` alone now equals the full leaf set."""
         from applire.services.office_export.letter_docx import _NOT_RENDERED_LEAVES
 
-        assert set(_NOT_RENDERED_LEAVES) == {"header.photo_url"}
+        assert _NOT_RENDERED_LEAVES == {}, (
+            f"expected no deliberately-not-rendered leaves, got {_NOT_RENDERED_LEAVES!r}"
+        )
 
 
 class TestRenderLetterDocxContent:
@@ -305,13 +322,23 @@ class TestRenderLetterDocxContent:
         assert "MARKER_CLOSING_TEXT," in text_en  # EN closing_punctuation == ","
         assert "MARKER_CLOSING_TEXT," not in text_de  # DE closing_punctuation == ""
 
-    def test_photo_url_never_rendered_as_text_or_image(self):
-        from applire.services.office_export.letter_docx import render_letter_docx
-
-        result = render_letter_docx(_full_letter_data(), lang="de", accent_color=ACCENT)
-        document = _open(result)
-        assert len(document.inline_shapes) == 0
-        assert "MARKER_PHOTO_URL_NEVER_RENDERED" not in _all_text(result)
+    def test_photo_url_rejected_by_letterheader(self):
+        """M5.4.2 (1) (2026-09-13): the leaf this test used to prove was
+        never rendered as text or image (a hostile
+        MARKER_PHOTO_URL_NEVER_RENDERED value surviving render_letter_docx
+        unscathed) no longer exists on the schema at all. The
+        never-rendered-content property now holds because `LetterHeader`
+        (`extra="forbid"`) refuses to even CONSTRUCT with a `photo_url` key,
+        not because this writer silently drops it after construction."""
+        with pytest.raises(ValidationError) as exc_info:
+            LetterHeader(
+                name="MARKER_SENDER_NAME",
+                address="MARKER_SENDER_ADDRESS",
+                phone="MARKER_SENDER_PHONE",
+                email="MARKER_SENDER_EMAIL",
+                photo_url="https://example.invalid/MARKER_PHOTO_URL_NEVER_RENDERED.jpg",
+            )
+        assert any(err["loc"] == ("photo_url",) for err in exc_info.value.errors())
 
     def test_sections_render_in_header_recipient_body_signature_order(self):
         from applire.services.office_export.letter_docx import render_letter_docx

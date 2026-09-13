@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (M5.4.2 (3), 2026-09-13 — check 5's per-round coverage cap stops
+#   being a REQUEST and becomes a BOUND on the block. The prompt used to say "DEMAND AT
+#   MOST TWO terms per round" while `keyword_ledger.render_verified_coverage_block`
+#   handed the same call the full absent list and closed with "name the terms in your
+#   issues": two halves of one prompt stating opposite instructions. Measured on the
+#   captured 2026-09-05 run (`Runs/Nougat/build-1/p/prompts/review_cover_letter.md` §7):
+#   the drafting door's round-1 verdict raised 6 coverage demands against the stated cap
+#   of 2, the terminal door's round 1 raised 10 issues. `rank_coverage_demand` now caps
+#   the LIST by the ledger's own fit_weight and the block says it IS the demand set; the
+#   prompt only states that, and no longer asks the model to rank or to count. Both
+#   letter doors share the wiring point, so both are bounded. Net -36 chars on both
+#   doors (prose 12,861 -> 12,825; terminal 16,253 -> 16,217), and the ratchets drop by
+#   exactly that: a reworded rule that gives characters back must give the ceiling back
+#   too, or the next addition spends them silently. Real-provider measurement n=5 per arm: WP-L report §2.1.)
 # Prompt version: v6 (#668 letter half / #664, 2026-09-11 — `repetition` LEAVES the
 #   minor-by-definition line and becomes NAMED blocking check 6, REDUNDANCY, on BOTH
 #   letter doors; the clause-9 terminal checks renumber 6/7 -> 7/8 and `_MINOR_TERMINAL`
@@ -243,13 +257,13 @@ or incomplete; anything you notice outside them is `minor` by definition.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
      term would stretch past its stated evidence, waive it (name the term and why) and it
-     stops blocking. Grounding outranks coverage, always. DEMAND AT MOST TWO terms per
-     round — rank by how central each is to this role, and cite that term's own evidence
-     from the block inside your issue text; a demand with no evidence cited is not a valid
-     demand, and a term you cannot tie to evidence is waived, never demanded to fill a
-     slot. Terms beyond the cap stay un-waived and eligible next round. Never phrase a
-     demand in a way the writer can only satisfy by listing terms: three or more claimable
-     terms strung together as a flat enumeration is itself a failure of this check.
+     stops blocking. Grounding outranks coverage, always. The block is already ranked and
+     already capped for this round: demand the terms it lists and no others, and cite that
+     term's own evidence from the block inside your issue text; a demand with no evidence
+     cited is not a valid demand, and a term you cannot tie to evidence is waived, never
+     demanded to fill a slot. Never phrase a demand in a way the writer can only satisfy
+     by listing terms: three or more claimable terms strung together as a flat enumeration
+     is itself a failure of this check.
    - CROSS-DOCUMENT CONSISTENCY. You hold the already-generated CV as well as this
      letter. They must not disagree about a concept the KEYWORD LEDGER marks CLAIMABLE.
      Such a concept is never a DO-NOT-CLAIM term and must never be named as an absence

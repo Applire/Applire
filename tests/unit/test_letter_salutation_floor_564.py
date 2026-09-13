@@ -108,7 +108,6 @@ def _draft_564() -> dict:
             "address": "Stuttgart",
             "phone": "+49 711 0000000",
             "email": "katrin.hoffmann@example.com",
-            "photo_url": None,
         },
         "recipient": {
             "name": None,

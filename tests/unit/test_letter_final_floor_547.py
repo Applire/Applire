@@ -412,7 +412,11 @@ async def test_final_floor_target_is_largest_in_norm_word_count_547(db):
     assert "AT MOST 300 words" in condense_prompts2[1], condense_prompts2[1]
 
 
-# === 3. selection reverts a regrown post-condense corrector change ========
+# === 3. the revert is now the FALLBACK, not the rule (ADR-076 cl. 3 amended
+#        2026-09-13): it fires only when the re-condense of the corrector's
+#        repair fails or does not improve the page count. The primary
+#        `recondensed_repair` path lives in
+#        tests/unit/test_letter_final_floor_coverage_half.py ===================
 
 
 _FLOOR_REGROW_547 = "FLOOR-ROUND-REGROWTH, past the norm yet again."
@@ -425,7 +429,11 @@ def _floor_regrow_547(draft: dict) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_final_floor_selection_reverts_regrown_corrector_change_547(db, caplog):
+async def test_final_floor_reverts_when_the_recondense_does_not_improve_547(db, caplog):
+    """The 2026-08-29 selection, demoted to a fallback. Reaching it now needs the
+    re-condense of the corrector's repair to come back STILL over the norm and no
+    closer to it than the repair itself — otherwise the repair is delivered
+    re-condensed (ADR-076 clause 3 amended 2026-09-13, #547 letter half)."""
     from applire.services.cover_letter import MeasuredLetter
 
     caplog.set_level(logging.INFO, logger="applire.llm.review")
@@ -440,12 +448,17 @@ async def test_final_floor_selection_reverts_regrown_corrector_change_547(db, ca
         MeasuredLetter(page_count=2, letter_pages=1, word_count=250, word_budget=300),  # loop round1 regrowth
         MeasuredLetter(page_count=1, letter_pages=1, word_count=140, word_budget=300),  # floor condense
         MeasuredLetter(page_count=2, letter_pages=1, word_count=245, word_budget=300),  # floor round regrowth
+        MeasuredLetter(page_count=2, letter_pages=1, word_count=243, word_budget=300),  # re-condense: no better
         MeasuredLetter(page_count=1, letter_pages=1, word_count=140, word_budget=300),  # revert re-apply
     ]
     result, _ = await _invoke_terminal_review(
         db, cl,
         draft=_letter("SEED-547-C"),
-        condense_payloads=[_letter("LOOP-CONDENSE-547-C"), _letter("FLOOR-CONDENSE-547-C")],
+        condense_payloads=[
+            _letter("LOOP-CONDENSE-547-C"),
+            _letter("FLOOR-CONDENSE-547-C"),
+            _letter("RECONDENSE-547-C"),
+        ],
         measures=measures,
         measured_seed=measured_seed,
         script=[_loop_regrow_547, _identity, _floor_regrow_547],
@@ -459,6 +472,7 @@ async def test_final_floor_selection_reverts_regrown_corrector_change_547(db, ca
     delivered = " ".join(delivered_row.letter_data["body"]["paragraphs"])
     assert "FLOOR-CONDENSE-547-C" in delivered
     assert _FLOOR_REGROW_547 not in delivered
+    assert "RECONDENSE-547-C" not in delivered
 
     lines = _final_floor_lines(caplog)
     assert lines and "fired=True" in lines[-1].getMessage()
@@ -617,7 +631,7 @@ async def test_final_floor_never_on_identity_reentry_547(db, caplog):
 
 
 @pytest.mark.asyncio
-async def test_final_floor_condense_bound_is_two_per_delivery_547(db):
+async def test_final_floor_condense_bound_is_two_without_a_repair_547(db):
     ids = await _seed(db)
 
     fired = {"n": 0}
@@ -643,7 +657,9 @@ async def test_final_floor_condense_bound_is_two_per_delivery_547(db):
 
     assert calls["condense"] == 2, \
         "the loop's pre-verdict condense + the floor's one second condense " \
-        "— exactly two in the initial invocation"
+        "— exactly two when the floor's review round changes nothing (the THIRD " \
+        "condense of ADR-051 §6 amended 2026-09-13 is minted only on the repair " \
+        "path, see test_letter_final_floor_coverage_half.py)"
 
     from applire.models.cover_letter import GeneratedCoverLetter
     cl = await db.get(GeneratedCoverLetter, ids[2].id)

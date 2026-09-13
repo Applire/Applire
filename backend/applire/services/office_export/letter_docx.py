@@ -45,20 +45,23 @@ the SAME two levels ``cv_docx.py`` uses:
 **Two deliberate asymmetries with the CV writer — both grounded in the
 schema and the seven existing letter templates, not invented here:**
 
-* **No ``photo_bytes`` parameter.** ``LetterHeader.photo_url`` carries the
-  schema's own docstring (``schemas/cover_letter.py``): "Present in the
-  writer shape but never rendered by any letter template. The
-  render_document entry point STRIPS it (storage-read safety, US250)."
-  Grepping all seven ``*_letter.html.j2`` templates confirms it: not one of
-  them renders ``letter.header.photo_url``. Unlike the CV (where the photo
-  IS content, just resolved one layer up by the caller), there is no letter
-  content this leaf could ever contribute — so this writer takes no photo
-  parameter at all, and ``header.photo_url`` is this module's one
-  ``_NOT_RENDERED_LEAVES`` entry. (#359 added a ``signature_bytes``
-  parameter, which is NOT the photo's twin: it is the user's own signature
-  image, it IS rendered by all seven letter templates, and it comes from
-  ``personal_info.signature_url`` rather than from ``LetterData`` — so it
-  still corresponds to no schema leaf and this asymmetry stands.)
+* **No ``photo_bytes`` parameter, and no photo leaf to not render.**
+  ``LetterHeader`` carried a ``photo_url`` field until M5.4.2 (1) (founder
+  ruling, 2026-09-13): grepping all seven ``*_letter.html.j2`` templates had
+  already confirmed not one of them renders ``letter.header.photo_url``, and
+  the render_document agent door only ever stripped it before persisting
+  agent-authored content (storage-read safety, US250) — a field the writer
+  was asked for that nothing downstream ever read. It is gone from the
+  schema now, so ``_iter_leaf_paths`` no longer finds it at all. Unlike the
+  CV (where the photo IS content, just resolved one layer up by the
+  caller), the asymmetry is now that the letter shape carries **no photo
+  leaf whatsoever** — not that it carries one this writer declines to
+  render — and ``_NOT_RENDERED_LEAVES`` is accordingly empty. (#359 added a
+  ``signature_bytes`` parameter, which is NOT the photo's twin: it is the
+  user's own signature image, it IS rendered by all seven letter templates,
+  and it comes from ``personal_info.signature_url`` rather than from
+  ``LetterData`` — so this writer still takes that one parameter with no
+  corresponding schema leaf, and that half of the asymmetry stands.)
 * **One heading, not three.** The CV has labelled section headings sourced
   from ``cv_labels()`` (``experience``, ``skills``, ...). ``cover_letter_
   labels()`` has no equivalent key naming a "recipient"/"body"/"signature"
@@ -202,17 +205,14 @@ _RENDERED_LEAVES: frozenset[str] = frozenset({
     "signature.name",
 })
 
-_NOT_RENDERED_LEAVES: dict[str, str] = {
-    "header.photo_url": (
-        "schemas/cover_letter.py's own docstring: present in the writer "
-        "shape but never rendered by any letter template; render_document "
-        "STRIPS it before an agent-authored letter is even persisted "
-        "(storage-read safety, US250). Confirmed against all seven "
-        "*_letter.html.j2 templates by grep — none references it. Unlike "
-        "the CV, this writer takes no photo_bytes parameter at all: there "
-        "is no content this leaf could ever contribute to a letter .docx."
-    ),
-}
+# Empty since M5.4.2 (1) (2026-09-13): this dict's one entry, header.photo_url,
+# is gone from the schema entirely rather than merely undeclared-as-rendered —
+# see the module docstring's first asymmetry. Kept (typed, empty) rather than
+# deleted so a future leaf that genuinely needs this escape hatch has a
+# documented place to go, and so the coverage-guard tests
+# (test_office_export_letter_docx.py::TestNestedLeafCoverageGuard) keep
+# importing a real name rather than a conditional one.
+_NOT_RENDERED_LEAVES: dict[str, str] = {}
 
 
 def _document_title(labels: dict, letter: LetterData) -> str:

@@ -107,7 +107,6 @@ LETTER_FIXTURE = {
         "address": "Beispielstraße 1, 80331 München",
         "phone": "+49 89 1234567",
         "email": "joerg.mueller@example.de",
-        "photo_url": None,
     },
     "recipient": {
         "name": "Frau Dr. Sabine Vogt",
