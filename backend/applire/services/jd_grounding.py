@@ -403,9 +403,20 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
 
     scalar_lines = [
         f"{label} — {r}"
-        for label in ("role_title", "company_name", "seniority_level")
+        for label in ("role_title", "company_name")
         if (r := fact(view.get(label))) is not None
     ]
+    # #675 line 44 — seniority_level is a closed ENGLISH vocabulary
+    # (check 5), grounded by the posting's title/metadata-line/experience-bar,
+    # never by the bare enum word appearing verbatim in a German posting. A
+    # "verbatim no" here is structurally uninformative almost always (check
+    # 5's own prose already says so); enum-aware means keeping the genuine
+    # confirming signal (a "verbatim yes" — an English loanword literally
+    # used, e.g. "Senior Consultant") and dropping the uninformative "no"
+    # line rather than emitting noise every call.
+    seniority = view.get("seniority_level")
+    if isinstance(seniority, str) and seniority.strip() and is_verbatim(seniority, posting_norm):
+        scalar_lines.append(f'seniority_level — {fact(seniority)}')
     if scalar_lines:
         lines.append("")
         lines.extend(scalar_lines)

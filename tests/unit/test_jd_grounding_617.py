@@ -481,6 +481,33 @@ def test_grounding_facts_normalises_the_posting_through_strip_locators_617():
 
 
 # ---------------------------------------------------------------------------
+# #675 line 44 — seniority_level is a closed ENGLISH vocabulary
+# (Junior/Mid/Senior/Lead/Executive); it is grounded by the posting's TITLE,
+# a job-board metadata line, or a stated experience bar (check 5's own three
+# grounds) — never by the bare enum word appearing verbatim in a German
+# posting. A "verbatim no" line for this field is therefore structurally
+# uninformative almost always (check 5's prose already says so explicitly),
+# while a "verbatim yes" (an English loanword literally used, e.g. "Senior
+# Consultant") IS a genuine confirming signal and is kept. Made enum-aware:
+# suppress the noise, keep the signal.
+# ---------------------------------------------------------------------------
+
+
+def test_grounding_facts_never_emits_a_seniority_verbatim_no_line_675_line_44():
+    view = {"seniority_level": "Lead"}
+    facts = grounding_facts(view, "Leiter Operations (m/w/d) bei Rheinwerk Verpackungen.")
+    assert "seniority_level" not in facts
+
+
+def test_grounding_facts_still_emits_a_seniority_verbatim_yes_line_675_line_44():
+    """The genuine confirming signal (an English loanword literally used in
+    the posting) survives the enum-aware change."""
+    view = {"seniority_level": "Senior"}
+    facts = grounding_facts(view, "Senior Backend Engineer at Acme GmbH.")
+    assert 'seniority_level — "Senior": verbatim yes' in facts
+
+
+# ---------------------------------------------------------------------------
 # #675 line 41 — German leadership NOMINAL constructions ("Führung ...
 # von/der/eines"), deterministic. Captured corpus (2026-08-11 .. 2026-09-06,
 # operations_marcus_de and controlling_emma_de postings): check 2d's own
