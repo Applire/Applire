@@ -183,9 +183,10 @@ class TestProfileServiceReviewIntegration:
     """Verify that _import_from_text calls review_and_refine with the right arguments."""
 
     @pytest.mark.asyncio
-    async def test_import_from_text_passes_source_to_reviewer(self):
+    async def test_import_from_text_passes_source_to_reviewer(self, tmp_path):
         from unittest.mock import AsyncMock, patch
         from applire.services.profile import _import_from_text
+        from applire.storage.local import LocalStorageProvider
 
         extracted = {
             "work_history": [{"company": "Acme", "role": "Dev", "start_date": "2020", "end_date": None, "bullets": []}],
@@ -235,7 +236,16 @@ class TestProfileServiceReviewIntegration:
              ), \
              patch("applire.services.session.get_ui_language", new=AsyncMock(return_value="en")), \
              patch("applire.services.profile.LLM_REVIEW_MAX_RETRIES", 2):
-            await _import_from_text("Acme Dev 2020-2022", mock_db, mock_provider)
+            storage = LocalStorageProvider(str(tmp_path))
+            await _import_from_text(
+                "Acme Dev 2020-2022",
+                mock_db,
+                mock_provider,
+                storage=storage,
+                source_bytes=b"Acme Dev 2020-2022",
+                filename="cv.txt",
+                content_type="text/plain",
+            )
 
         assert captured.get("source") == "Acme Dev 2020-2022"
         assert captured.get("draft") == extracted

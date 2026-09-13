@@ -1097,8 +1097,10 @@ async def test_create_application_duplicate_reuses_existing():
 @pytest.mark.asyncio
 async def test_import_from_text_wrapper_rejects_empty():
     from applire.services.profile import import_from_text
+    # storage= is required by the signature (#367) even though the empty-text
+    # ValueError fires before it would ever be used.
     with pytest.raises(ValueError):
-        await import_from_text("   ", db=MagicMock(), provider=MagicMock())
+        await import_from_text("   ", db=MagicMock(), provider=MagicMock(), storage=MagicMock())
 
 
 # ---------------------------------------------------------------------------

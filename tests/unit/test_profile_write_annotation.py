@@ -45,11 +45,14 @@ async def sqlite_session():
 
     Uses a selective table list (mirrors test_cv_upload.py) to avoid bare JSONB
     columns in models that are not SQLite-safe (job_analyses, generated_cover_letters,
-    flow_sessions, etc.).  import_from_text only touches MasterProfile and
-    ProfileSnapshot (pre-merge snapshot on second import).
+    flow_sessions, etc.).  import_from_text touches MasterProfile and ProfileSnapshot
+    (pre-merge snapshot on second import), and — since #367 — always writes an
+    UploadRecord too (SF-DOOR.3: the ingest persists a source document on every
+    door, unconditionally).
     """
     from applire.db.session import Base
     from applire.models.profile import MasterProfile, ProfileSnapshot
+    from applire.models.uploads import UploadRecord
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -59,6 +62,7 @@ async def sqlite_session():
                 tables=[
                     MasterProfile.__table__,
                     ProfileSnapshot.__table__,
+                    UploadRecord.__table__,
                 ],
             )
         )
@@ -76,7 +80,7 @@ async def sqlite_session():
 
 
 @pytest.mark.asyncio
-async def test_import_from_text_annotates_expected_fields(sqlite_session):
+async def test_import_from_text_annotates_expected_fields(sqlite_session, tmp_path):
     """import_from_text stores profiles with expected_fields populated on all work entries.
 
     MockLLMProvider._PROFILE_PARSE_RESPONSE has two IC work_experience entries:
@@ -89,11 +93,13 @@ async def test_import_from_text_annotates_expected_fields(sqlite_session):
     from applire.providers.llm.mock import MockLLMProvider
     from applire.services.profile import import_from_text
     from applire.schemas.profile import MasterProfileData
+    from applire.storage.local import LocalStorageProvider
 
     provider = MockLLMProvider()
+    storage = LocalStorageProvider(str(tmp_path))
     cv_text = "Senior Software Engineer at TechVision GmbH, 2021–present."
 
-    response = await import_from_text(cv_text, sqlite_session, provider)
+    response = await import_from_text(cv_text, sqlite_session, provider, storage=storage)
 
     # The stored profile must have work entries with expected_fields set (not None)
     entries = response.profile.work_experience
@@ -110,7 +116,7 @@ async def test_import_from_text_annotates_expected_fields(sqlite_session):
 
 
 @pytest.mark.asyncio
-async def test_import_from_text_ic_roles_get_empty_expected_fields(sqlite_session):
+async def test_import_from_text_ic_roles_get_empty_expected_fields(sqlite_session, tmp_path):
     """IC roles ("Senior Software Engineer", "Software Engineer") get expected_fields == [].
 
     MockLLMProvider routes IC roles (no management keywords) to expected=[], so
@@ -119,11 +125,13 @@ async def test_import_from_text_ic_roles_get_empty_expected_fields(sqlite_sessio
     """
     from applire.providers.llm.mock import MockLLMProvider
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     provider = MockLLMProvider()
+    storage = LocalStorageProvider(str(tmp_path))
     cv_text = "Software Engineer at StartupX AG, 2018–2021."
 
-    response = await import_from_text(cv_text, sqlite_session, provider)
+    response = await import_from_text(cv_text, sqlite_session, provider, storage=storage)
     entries = response.profile.work_experience
 
     for entry in entries:

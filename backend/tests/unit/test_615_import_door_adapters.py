@@ -268,11 +268,13 @@ async def test_staged_resolve_discard_door_defaults_to_applied_empty(sqlite_sess
 
 
 @pytest.mark.asyncio
-async def test_import_from_text_door_returns_profile_import_response(sqlite_session):
+async def test_import_from_text_door_returns_profile_import_response(sqlite_session, tmp_path):
     from applire.schemas.profile import ProfileImportResponse
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     await _seed_first_profile(sqlite_session)
+    storage = LocalStorageProvider(str(tmp_path))
 
     with (
         patch("applire.services.profile.extract_with_fallback",
@@ -283,7 +285,9 @@ async def test_import_from_text_door_returns_profile_import_response(sqlite_sess
         patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)),
         patch("applire.services.profile.reconcile_import", new=AsyncMock(return_value=_partial_merge_result())),
     ):
-        response = await import_from_text("pasted CV text", sqlite_session, AsyncMock())
+        response = await import_from_text(
+            "pasted CV text", sqlite_session, AsyncMock(), storage=storage
+        )
 
     assert isinstance(response, ProfileImportResponse)
     assert response.merge_status == "partial"
@@ -298,11 +302,13 @@ async def test_import_from_text_door_returns_profile_import_response(sqlite_sess
 
 
 @pytest.mark.asyncio
-async def test_linkedin_import_route_returns_profile_import_response(sqlite_session):
+async def test_linkedin_import_route_returns_profile_import_response(sqlite_session, tmp_path):
     from applire.schemas.profile import ProfileImportResponse
     from applire.services.profile import import_from_linkedin
+    from applire.storage.local import LocalStorageProvider
 
     await _seed_first_profile(sqlite_session)
+    storage = LocalStorageProvider(str(tmp_path))
 
     with (
         patch("applire.services.profile.extract_with_fallback",
@@ -313,7 +319,9 @@ async def test_linkedin_import_route_returns_profile_import_response(sqlite_sess
         patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)),
         patch("applire.services.profile.reconcile_import", new=AsyncMock(return_value=_partial_merge_result())),
     ):
-        response = await import_from_linkedin({"name": "Katrin Hoffmann"}, sqlite_session, AsyncMock())
+        response = await import_from_linkedin(
+            {"name": "Katrin Hoffmann"}, sqlite_session, AsyncMock(), storage=storage
+        )
 
     assert isinstance(response, ProfileImportResponse)
     assert response.merge_status == "partial"
@@ -321,10 +329,13 @@ async def test_linkedin_import_route_returns_profile_import_response(sqlite_sess
 
 
 @pytest.mark.asyncio
-async def test_first_import_via_text_door_is_applied_empty(sqlite_session):
+async def test_first_import_via_text_door_is_applied_empty(sqlite_session, tmp_path):
     """No existing profile — nothing to reconcile against; #615's "applied, []"
     default for a first-profile creation, not a special case."""
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
+
+    storage = LocalStorageProvider(str(tmp_path))
 
     with (
         patch("applire.services.profile.extract_with_fallback",
@@ -333,7 +344,9 @@ async def test_first_import_via_text_door_is_applied_empty(sqlite_session):
         patch("applire.services.profile.annotate_expected_fields", new=AsyncMock(return_value=None)),
         patch("applire.services.profile.enrich_skills", new=AsyncMock(side_effect=lambda p, _: p)),
     ):
-        response = await import_from_text("first CV text", sqlite_session, AsyncMock())
+        response = await import_from_text(
+            "first CV text", sqlite_session, AsyncMock(), storage=storage
+        )
 
     assert response.merge_status == "applied"
     assert response.not_applied == []
@@ -360,12 +373,17 @@ def test_mcp_profile_summary_reports_merge_status_and_not_applied():
     )
     summary = _profile_summary(response)
 
-    # The five pre-existing fields stay — #615 only adds to this dict.
+    # The five pre-existing fields stay — #615 only adds to this dict. #367
+    # (ADR-054 amended) adds "merged"/"gated" — the outcome is stated on
+    # every call, not just when a merge held.
     assert set(summary) == {
         "profile_id", "positions", "skills_count", "completeness", "merge_conflicts",
-        "merge_status", "not_applied",
+        "merge_status", "not_applied", "merged", "gated",
     }
     assert summary["merge_status"] == "partial"
     assert summary["not_applied"] == [
         {"section": "languages", "label": "Englisch", "reason": "no_op_carried_entry"}
     ]
+    # #367 — a merged (non-held) import reports merged=True, gated=False.
+    assert summary["merged"] is True
+    assert summary["gated"] is False
