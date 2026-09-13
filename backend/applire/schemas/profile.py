@@ -969,7 +969,12 @@ def _has_meaningful_data(profile: "MasterProfileData", section: str) -> bool:
     if isinstance(value, PersonalInfo):
         return bool(value.name or value.email)
     if isinstance(value, ProfessionalSummary):
-        return bool(value.de or value.en)
+        # ONE predicate with the gap agenda (#675 line 42 / ruling V-1) — the two
+        # readers of this fact disagreed for as long as both existed, and the
+        # agenda was the one that was wrong.
+        from applire.services.profile.completeness import summary_present
+
+        return summary_present(value)
     return bool(value)
 
 
