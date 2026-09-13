@@ -117,6 +117,16 @@ def review_output_schema(
       scaffold the model walks them with. The field is dead in our code and alive
       in the model's procedure, which is only visible at the delivery-shaped door.
 
+    **Corroborated from a second population (Lead V, 2026-09-13):** on
+    ``review_profile_extraction``, the self-reported ``check`` VALUE is unreliable —
+    ``ministral-8b`` labelled a technologies issue ``check: 3``, and ``luna`` labelled one
+    ``check: 4`` before check 5 existed. Nothing read it, and it was wrong. Note what that
+    does and does not say about the one door that keeps the field: ``cv_terminal_review``
+    is not helped by the value being right, it is helped by being ASKED for a check number
+    at all. That is prompt scaffolding, not data — so if the terminal prompt ever gains an
+    explicit "answer each numbered check in order" instruction, re-measure and probably
+    drop the field there too.
+
     So the parameter is not a style switch: a door passes ``structural_fields=True``
     only with a measurement saying it degrades without them, and that measurement
     belongs in its call site's comment.

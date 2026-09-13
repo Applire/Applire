@@ -388,6 +388,7 @@
     "assistSending": "Generating…",
     "assistSend": "Send",
     "assistSuggests": "Kaile suggests:",
+    "assistWithheld": "{count, plural, one {One sentence was withheld because neither your profile nor your answer supports it. Add the evidence to your profile if it is true.} other {# sentences were withheld because neither your profile nor your answer supports them. Add the evidence to your profile if they are true.}}",
     "assistEditBtn": "Edit",
     "assistReject": "Reject",
     "assistRetry": "Try again",
