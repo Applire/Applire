@@ -724,3 +724,73 @@ async def test_each_condense_call_runs_under_its_own_stage_label(db):
         "letter_condense_final_floor",
         "letter_condense_recondense_repair",
     ], seen
+
+
+# ── 5. Letter collector #673: the producer reports its own shape deviations ──
+
+
+def test_the_producer_reports_a_letter_data_deviation_without_blocking_it(caplog):
+    """The measurement half of the fail-closed producer gate #673 asks for.
+    Measured at delivery tier on 2026-09-13: 3 of 4 in-process generations
+    persisted a row that fails `LetterData`, every one on exactly
+    `body.signature` — the stray duplicate the writer prompt never asks for and
+    a key `_coerce_stored_letter_data` already drops."""
+    import logging as _logging
+
+    from applire.services.cover_letter import _log_letter_data_deviation
+
+    caplog.set_level(_logging.WARNING, logger="applire.services.cover_letter")
+    deviant = {
+        "header": {"name": "Max Prober"},
+        "recipient": {"name": None, "company": None, "date": None},
+        "body": {
+            "paragraphs": ["Sehr geehrte Damen und Herren,", "Ein Absatz."],
+            "signature": {"closing": None, "name": ""},   # the observed deviation
+        },
+        "signature": {"closing": None, "name": "Max Prober"},
+    }
+    _log_letter_data_deviation("cl-1", deviant)
+    lines = [r.getMessage() for r in caplog.records if "LETTER_DATA_DEVIATION" in r.getMessage()]
+    assert lines, caplog.text
+    assert "body.signature" in lines[0]
+
+
+def test_a_valid_letter_logs_nothing(caplog):
+    import logging as _logging
+
+    from applire.services.cover_letter import _log_letter_data_deviation
+
+    caplog.set_level(_logging.WARNING, logger="applire.services.cover_letter")
+    _log_letter_data_deviation("cl-2", _letter("clean"))
+    assert not [
+        r for r in caplog.records if "LETTER_DATA_DEVIATION" in r.getMessage()
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_deviation_check_never_blocks_the_persist(db):
+    """Fail-open by construction: the row is still written, byte-identical."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.norms import REGION_NORMS
+    from applire.services.cover_letter import _persist_and_measure
+
+    _job, _profile, cl = await _seed(db)
+    deviant = {
+        "header": {"name": "Max Prober"},
+        "recipient": {"name": None, "company": None, "date": None},
+        "body": {
+            "paragraphs": ["Sehr geehrte Damen und Herren,", "Ein Absatz."],
+            "signature": {"closing": None, "name": ""},
+        },
+        "signature": {"closing": None, "name": "Max Prober"},
+    }
+    with (
+        patch("applire.services.cover_letter_pdf.render_pdf",
+              new=AsyncMock(return_value=b"%PDF-fake")),
+        patch("applire.services.ats_audit.extract_text_and_pages",
+              return_value=("text", 1)),
+    ):
+        await _persist_and_measure(cl, db, deviant, REGION_NORMS["DACH"])
+
+    row = await db.get(GeneratedCoverLetter, cl.id)
+    assert row.letter_data == deviant

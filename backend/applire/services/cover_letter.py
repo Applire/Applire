@@ -2217,6 +2217,49 @@ class MeasuredLetter:
     word_budget: int
 
 
+def _log_letter_data_deviation(cl_id, composed: dict) -> None:
+    """Letter collector #673 — the PRODUCER's own view of its output shape.
+
+    Nothing validated `letter_data` before persisting it: the `.docx` export was
+    the first strict consumer and answered 409 where `/pdf` answered 200 for the
+    same row. The line's remedy is a fail-CLOSED producer gate, and its own
+    acceptance condition is *"only if every failure is a key
+    `_coerce_stored_letter_data` already drops"*.
+
+    This is the measurement half, not the gate: it validates and REPORTS, and
+    never changes what is persisted. Turning it fail-closed is a separate change
+    with its own regression risk on legacy rows, and it needs occurrence data
+    from real runs rather than from the four this package could afford.
+
+    Measured so far (2026-09-13, four in-process delivery-tier generations on
+    `operations_marcus_de`): 3 of 4 persisted rows fail `LetterData`, every one
+    on exactly `body.signature` — the stray half-empty duplicate of the top-level
+    signature the writer prompt never asks for, and exactly a key
+    `_coerce_stored_letter_data` already drops. So the line's condition holds at
+    n=4 and the failing key is a single, known one.
+    """
+    from pydantic import ValidationError
+
+    from applire.schemas.cover_letter import LetterData
+
+    try:
+        LetterData.model_validate(composed)
+    except ValidationError as exc:
+        paths = sorted({
+            ".".join(str(p) for p in err.get("loc", ())) for err in exc.errors()
+        })
+        logger.warning(
+            "LETTER_DATA_DEVIATION cl_id=%s fields=%s — the composed letter does "
+            "not validate against LetterData and is persisted anyway "
+            "(fail-open; #673, the producer gate is not yet closed)",
+            cl_id, ",".join(paths) or "?",
+        )
+    except Exception as exc:  # pragma: no cover - defensive, never fails a render
+        logger.warning(
+            "LETTER_DATA_DEVIATION cl_id=%s check failed: %s", cl_id, exc
+        )
+
+
 async def _persist_and_measure(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -2234,6 +2277,7 @@ async def _persist_and_measure(
     fail generation (the pre-#539 contract, unchanged)."""
     from applire.services.cover_letter_positioning import body_word_count
 
+    _log_letter_data_deviation(cl.id, composed)
     cl.letter_data = composed
     await db.commit()
     pdf_bytes: bytes | None = None
