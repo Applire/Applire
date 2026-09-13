@@ -324,6 +324,44 @@ def test_mcp_profile_health_tools_advertise_their_relay_contract():
     )
 
 
+def test_mcp_import_cv_advertises_the_hold_contract():
+    """#367 / ADR-054 amended 2026-09-13 — `import_cv` can now end in a HOLD, and
+    the tool description is the only thing a naive agent reads at call time.
+
+    Before #367 this door merged whatever it was given: the US167/ADR-041
+    pre-merge gate had exactly one call site, inside the browser upload door. Now
+    every CV-ingestion door runs it, so an `import_cv` call can return
+    `gated: true` with a `staged_id` and nothing merged. An agent that does not
+    know that reads a successful-looking result and tells the candidate their CV
+    is in the vault when it is parked — which is why the outcome is advertised
+    here, and why the description names `resolve_held_merge` as the next step
+    (that tool's own RELAY line, pinned above, carries the rest: identity is the
+    user's call, never the agent's).
+    """
+    _, responses = _run_mcp(_INIT + _INITIALIZED + _TOOLS_LIST)
+    resp = _find(responses, 2)
+    assert resp and "result" in resp
+    by_name = {t["name"]: t for t in resp["result"].get("tools", [])}
+    assert "import_cv" in by_name, "import_cv not advertised on the live stdio surface"
+
+    desc = by_name["import_cv"]["description"]
+    lowered = desc.lower()
+    assert "gated" in lowered, (
+        "import_cv's description must name the gated outcome — a hold that reads "
+        "as a success is the defect #367 exists to remove"
+    )
+    assert "staged_id" in lowered, "the hold must name the handle that resolves it"
+    assert "resolve_held_merge" in lowered, (
+        "import_cv's description must point at the relay tool; a held merge the "
+        "agent cannot resolve is a dead end"
+    )
+    # The gate is not the agent's to adjudicate: the human decides.
+    assert "human" in lowered, (
+        "import_cv's description must say the choice goes to the human "
+        "(ADR-041 amended: the system detects difference, the user adjudicates)"
+    )
+
+
 def test_mcp_tools_all_have_description():
     _, responses = _run_mcp(_INIT + _INITIALIZED + _TOOLS_LIST)
     resp = _find(responses, 2)
