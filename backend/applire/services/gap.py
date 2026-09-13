@@ -575,6 +575,12 @@ async def _run_analysis(
         # `previous` is already loaded above for the idempotency check — reuse
         # it, never a second query.
         previous_ledger=(previous.keyword_ledger if previous is not None else None),
+        # #415 (ruling W-4/W-5): the posting's own text, so each claimable entry can
+        # carry the VERBATIM sentence that qualifies its concept. A coarse concept
+        # ("HGB") satisfies every coverage instrument while the specific evidence the
+        # posting actually asked about is never selected — the ledger is where the
+        # writer's input view learns WHICH evidence answers the requirement.
+        jd_text=job.raw_text,
     )
 
     # ADR-069 clause 3 — scope entries join the ledger BEFORE the score and the
