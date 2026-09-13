@@ -94,7 +94,9 @@ class JobAnalysisResponse(BaseModel):
     required_skills: list[str]
     nice_to_have_skills: list[str]
     keywords: list[str]
-    seniority_level: str
+    # #675 line 39 / migration 0067: None means the posting grounds no tier —
+    # never coerced into "" (see services/job.py::analyze_jd).
+    seniority_level: Optional[str] = None
     company_culture_signals: list[str]
     language_requirement: str
     # E054 / ADR-038 amendment clause 5: the language the JD is WRITTEN in

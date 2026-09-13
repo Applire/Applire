@@ -42,7 +42,12 @@ class JobAnalysis(Base):
     required_skills: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     nice_to_have_skills: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     keywords: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
-    seniority_level: Mapped[str] = mapped_column(Text, nullable=False)
+    # #675 line 39 / migration 0067: NULL means the posting grounds no tier —
+    # the extractor's own prompt tells the model null is the correct answer
+    # here, not a missing value. Nullable so "the posting stated no tier" and
+    # "we lost the tier" stop being the same stored value (they used to both
+    # be "").
+    seniority_level: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_culture_signals: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     language_requirement: Mapped[str] = mapped_column(Text, nullable=False)
     # Language the JD document is *written in* ('de'/'en'), detected
