@@ -188,6 +188,14 @@ Check for these defects:
    not null, its "quote" must appear in the source posting (allowing whitespace/
    line-break differences) and must be a sentence that actually names a PEOPLE-
    leadership responsibility (leading, line-managing, mentoring, growing a team). A
+   German posting routinely states this as a NOMINAL phrase — "Führung [und
+   Entwicklung] von/der/eines <object>", optionally "fachliche"/"disziplinarische
+   Führung" — rather than an English-style gerund; that construction names
+   people-leadership by construction, exactly as much as "leading a team" does. The
+   GROUNDING FACTS block below lists any such construction the code found in the
+   posting (GERMAN LEADERSHIP CONSTRUCTIONS FOUND IN POSTING) — when the current quote
+   is NOT one of those constructions but the posting has one, ask for the listed
+   construction instead of asking for the field to be removed. A
    non-null leadership_emphasis on a posting that names no leadership responsibility at
    all is fabricated — instruct its removal (null). An "emphasis" of "leadership_led" or
    "hands_on_led" asserts the posting states which side is the larger part; when the

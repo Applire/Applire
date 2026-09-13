@@ -196,6 +196,29 @@ class TestJobAnalysisReviewApprovalBarNamesCompanyCultureSignals675Line40:
             assert marker in prompt
 
 
+# ---------------------------------------------------------------------------
+# #675 line 41 — check 2d's own examples ("leading, line-managing, mentoring,
+# growing a team") are English gerunds; the reviewer, given no matching
+# German example, rejected a plainly-people-leadership German NOMINAL
+# construction 3 of 13 invocations. jd_grounding.find_leadership_constructions
+# is pinned in tests/unit/test_jd_grounding_617.py; this class pins only that
+# check 2d's static prompt text now points the reviewer at it.
+# ---------------------------------------------------------------------------
+
+
+class TestJobAnalysisReviewCheck2dGermanLeadershipConstructions675Line41:
+    def test_check_2d_names_german_nominal_construction(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        check_2d = prompt.split("2d. LEADERSHIP EMPHASIS GROUNDING")[1].split("\n3. ")[0]
+        assert "führung" in check_2d.lower()
+        assert "GERMAN LEADERSHIP CONSTRUCTIONS FOUND IN POSTING" in check_2d
+
+    def test_check_2d_instructs_substitution_over_removal_when_a_construction_exists(self):
+        prompt = JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT
+        check_2d = prompt.split("2d. LEADERSHIP EMPHASIS GROUNDING")[1].split("\n3. ")[0]
+        assert "instead of asking for the field to be removed" in check_2d
+
+
 class TestJobAnalysisReviewPrompt617GroundingFacts:
     def test_anti_oscillation_rule_struck_and_reviewer_stays_memoryless_617(self):
         """Captured evidence (#617): seniority oscillated round to round
