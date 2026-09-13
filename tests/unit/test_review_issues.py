@@ -358,6 +358,7 @@ def test_only_the_cv_terminal_door_opts_in():
     the fields, and it is the one the replay showed degrading. If a second door
     starts asking, it needs its own paired measurement first."""
     from applire.prompts import (
+        review_cover_letter,
         review_cv_extraction,
         review_cv_language,
         review_cv_tailoring,
@@ -368,7 +369,13 @@ def test_only_the_cv_terminal_door_opts_in():
 
     assert '"check"' in review_cv_tailoring.TERMINAL_REVIEW_SYSTEM_PROMPT
     assert '"check"' not in review_cv_tailoring.REVIEW_SYSTEM_PROMPT
+    # `review_cover_letter` is package L's file and is NOT edited here — it serves the
+    # cover-letter drafting AND terminal doors, and both lose the keys through the new
+    # DEFAULT rather than through an edit. Asserted for exactly that reason: the change
+    # reaches nine doors while touching two prompt modules, and a silent regression there
+    # would otherwise be invisible from this side.
     for mod in (
+        review_cover_letter,
         review_cv_extraction,
         review_cv_language,
         review_job_analysis,
