@@ -58,6 +58,10 @@ from applire.constants import (
     ORACLE_MAX_JUDGEMENT_CALLS,
     ORACLE_MAX_TRIAGE_CALLS,
 )
+from applire.prompts.oracle_audit import (
+    ENTAILMENT_SYSTEM_PROMPT as _ENTAILMENT_SYSTEM_PROMPT,
+    build_entailment_prompt,
+)
 from applire.prompts.oracle_judgement import (
     ORACLE_JUDGEMENT_BATCH_SIZE,
     ORACLE_JUDGEMENT_SYSTEM_PROMPT,
@@ -889,21 +893,13 @@ def _unattributable_evidence_flag(
 # provider this call ALWAYS fell to the generic ``{"mock": ...}`` fallback,
 # which fails ``_VALID_ENTAILMENT_VERDICTS`` and degrades to ``fallback`` —
 # safe, but silently means the mock stack has never once exercised a real
-# entailment verdict. Split into a system identity line (fingerprinted below,
-# and pinned by ``test_mock_reviewer_chain_recognition.py``) + a user prompt
-# carrying the actual comparison.
-_ENTAILMENT_SYSTEM_PROMPT = (
-    "You are a strict verification function for job-application claims.\n"
-    "Compare the DOCUMENT CLAIM against the PROFILE EVIDENCE and return "
-    'STRICT JSON: {"verdict": "grounded" | "inflated" | "unbacked" | "unverifiable"}.\n'
-    "- grounded: the evidence supports the claim as stated\n"
-    "- inflated: the evidence is aspirational or weaker than the claim's rendering "
-    "(e.g. a target presented as an achieved result)\n"
-    "- unbacked: the evidence does not contain or contradicts the claim\n"
-    "- unverifiable: subjective, or the evidence cannot decide it"
-)
-
-_ENTAILMENT_USER_PROMPT = "PROFILE EVIDENCE:\n{evidence}\n\nDOCUMENT CLAIM:\n{claim}"
+# entailment verdict. Split into a system identity line (fingerprinted by
+# ``test_mock_reviewer_chain_recognition.py``) + a user prompt carrying the
+# actual comparison. M5.7.1: the two prompt constants themselves now live in
+# ``applire.prompts.oracle_audit`` (``ENTAILMENT_SYSTEM_PROMPT`` /
+# ``build_entailment_prompt``, imported above as ``_ENTAILMENT_SYSTEM_PROMPT``
+# to keep this module's own name — and existing external references to it —
+# unchanged); this module keeps only the call site and the verdict contract.
 
 _VALID_ENTAILMENT_VERDICTS = {"grounded", "inflated", "unbacked", "unverifiable"}
 
@@ -924,7 +920,7 @@ async def _entailment(
     evidence = "\n".join(f"- {u.text}" for u in evidence_units) or "- (no close evidence)"
     try:
         result = await provider.aparse_json(
-            _ENTAILMENT_USER_PROMPT.format(evidence=evidence, claim=claim_text),
+            build_entailment_prompt(evidence, claim_text),
             system=_ENTAILMENT_SYSTEM_PROMPT,
             temperature=0.0,
             max_tokens=ORACLE_ENTAILMENT_MAX_TOKENS,
