@@ -3380,21 +3380,65 @@ def build_keyword_ledger(
         if forms:
             previous_forms_by_concept[key] = forms
 
-    covered: set[str] = set()
-    ledger: list[dict[str, Any]] = []
+    # Precompute each item's final surface-forms/probes once (concept + LLM
+    # forms + SF-GAP.12 carry-forward) — reused below both to find each union
+    # key's EXACT owner and to do the actual per-item matching, so the two
+    # passes can never disagree on what an item's forms are.
+    def _final_surface_forms(concept: str, item: dict[str, Any]) -> list[str]:
+        forms = item.get("surface_forms") or [concept]
+        carried = previous_forms_by_concept.get(_norm(concept))
+        if carried:
+            forms = list(dict.fromkeys([*forms, *carried]))
+        return forms
 
-    for item in classifications:
+    # #675 line 46 (match-score investigation) — a union key contributes its
+    # fit_weight to AT MOST ONE ledger row, however many classification items'
+    # surface forms substring-match it. Pre-fix, each classification item
+    # summed sources over its OWN `matched_keys` independently, so a required
+    # union key already carried by its own dedicated row (e.g.
+    # "Budgetverantwortung") was credited AGAIN to a later, textually-similar
+    # item (e.g. a "Budgetplanung" keyword item whose surface form is a
+    # verbatim copy of the required text) — one real JD requirement spent
+    # twice in n_total, and twice in earned_total when both were `direct`.
+    #
+    # A naive "first item in list order claims every key it touches" dedup
+    # over-corrects: two GENUINELY DISTINCT required items can share a
+    # substring (JD mock fixture: "Python" is a literal substring of the
+    # separate required item "5+ years Python experience") without either
+    # one being a paraphrase of the other. So a union key's credit goes to
+    # its EXACT owner — the (first, by list order) item whose own concept or
+    # a surface form norm-EQUALS that key — whenever one exists; only an
+    # "orphan" key nothing exactly matches falls back to first-substring-
+    # match-wins. This lets "Python" and "5+ years Python experience" each
+    # keep their own dedicated key's credit while still stripping a
+    # paraphrase's SUBSTRING-only claim on a key some other item owns
+    # outright (Budgetplanung never exactly matches "Budgetverantwortung").
+    exact_owner: dict[str, int] = {}
+    for idx, item in enumerate(classifications):
         concept = item.get("concept", "")
         if not _norm(concept):
             continue
-        surface_forms = item.get("surface_forms") or [concept]
-        # SF-GAP.12 — union in any surface form a PRIOR build of this SAME
-        # concept already carried. A stale/no-longer-attested carried form
-        # changes nothing downstream: it is still subject to the same
-        # containment_release_form corpus check at the denial floor below.
-        carried = previous_forms_by_concept.get(_norm(concept))
-        if carried:
-            surface_forms = list(dict.fromkeys([*surface_forms, *carried]))
+        probes = {_norm(concept)} | {
+            _norm(sf) for sf in _final_surface_forms(concept, item)
+        }
+        for ukey in probes & union.keys():
+            exact_owner.setdefault(ukey, idx)
+
+    covered: set[str] = set()
+    # Union keys some EARLIER item in this same loop already turned into
+    # weight — a later item's own `sources` (and therefore `fit_weight`) are
+    # computed from only the union keys it is entitled to (see exact_owner
+    # above). `covered` (below) still tracks every matched key regardless, so
+    # the "unclassified JD expectation defaults to gap" pass never re-adds a
+    # key some row already matched (credited or not).
+    credited_keys: set[str] = set()
+    ledger: list[dict[str, Any]] = []
+
+    for idx, item in enumerate(classifications):
+        concept = item.get("concept", "")
+        if not _norm(concept):
+            continue
+        surface_forms = _final_surface_forms(concept, item)
         # Match the concept + each surface form against the JD union.
         probes = {_norm(concept)} | {_norm(sf) for sf in surface_forms}
         matched_keys = {
@@ -3408,8 +3452,18 @@ def build_keyword_ledger(
             continue
         covered |= matched_keys
 
+        # Claim a key only when it is not yet credited AND either nothing
+        # exactly owns it or THIS item is that exact owner (see exact_owner
+        # above) — a substring-only touch on someone else's key never wins.
+        new_keys = {
+            ukey
+            for ukey in matched_keys
+            if ukey not in credited_keys and exact_owner.get(ukey, idx) == idx
+        }
+        credited_keys |= new_keys
+
         sources: set[str] = set()
-        for ukey in matched_keys:
+        for ukey in new_keys:
             sources |= union[ukey]["sources"]
 
         status = item.get("status", "gap")
