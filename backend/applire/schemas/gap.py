@@ -96,6 +96,17 @@ class KeywordLedgerEntry(BaseModel):
     # by `GapAnalysisResponse.model_validate`, so an ownership fact the ledger
     # computes would never reach the agent channel or the frontend.
     evidence_owners: list[str] = Field(default_factory=list)
+    # #415 (Nougat build 3, ADR-048 amended 2026-09-13, ruling W-4b) — the
+    # posting's own qualifying sentence for a coarse concept, verbatim from the
+    # JD text (keyword_ledger.build_keyword_ledger, jd_text=…), so the writer's
+    # input view names WHICH evidence answers the requirement. Absent when the
+    # posting carries no sentence containing the concept verbatim.
+    #
+    # Declared here for the reason the `adjacent_evidence` comment records —
+    # the 2026-09-13 delivery run persisted it on 21 of 42 entries and the API
+    # published it on 0 of 42, because an undeclared key is stripped by
+    # `GapAnalysisResponse.model_validate` on every response.
+    jd_phrase: str | None = None
 
     @model_validator(mode="after")
     def _denial_level_only_when_denied(self) -> "KeywordLedgerEntry":
