@@ -158,10 +158,25 @@ export function AssistMicroSession({
 
       {phase === "suggestion" && (
         <>
-          <p className="text-gray-500 mb-1">{t("assistSuggests")}</p>
-          <p className="text-gray-800 bg-white border border-gray-100 rounded p-2 mb-3">
-            {suggestion}
-          </p>
+          {/* Adversarial pass, Nougat build 3 (writer controls, area A): the grounding
+              triage (ADR-040 amendment 2026-09-13) can withhold every sentence of a
+              suggestion, returning an empty string with a non-zero withheld count — a
+              valid response, not an error. An empty box with an enabled Accept button
+              let one click apply nothing over the section's existing content, which is
+              a document-harm shape the withhold control exists to prevent, not cause. */}
+          {suggestion.trim() ? (
+            <p className="text-gray-800 bg-white border border-gray-100 rounded p-2 mb-3">
+              <span className="block text-gray-500 mb-1">{t("assistSuggests")}</span>
+              {suggestion}
+            </p>
+          ) : (
+            <p
+              data-testid="assist-nothing-verified"
+              className="text-gray-600 bg-white border border-gray-100 rounded p-2 mb-3 italic"
+            >
+              {t("assistNothingVerified")}
+            </p>
+          )}
           {withheldCount > 0 && (
             <p
               data-testid="assist-withheld"
@@ -171,22 +186,26 @@ export function AssistMicroSession({
             </p>
           )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              data-testid="assist-accept"
-              onClick={() => onAccept(suggestion)}
-              className="flex-1 bg-teal text-white py-1.5 rounded text-xs font-semibold hover:opacity-90"
-            >
-              {t("apply")}
-            </button>
-            <button
-              type="button"
-              data-testid="assist-edit"
-              onClick={() => onEdit(suggestion)}
-              className="flex-1 border border-teal text-teal py-1.5 rounded text-xs font-semibold hover:opacity-90"
-            >
-              {t("assistEditBtn")}
-            </button>
+            {suggestion.trim() && (
+              <>
+                <button
+                  type="button"
+                  data-testid="assist-accept"
+                  onClick={() => onAccept(suggestion)}
+                  className="flex-1 bg-teal text-white py-1.5 rounded text-xs font-semibold hover:opacity-90"
+                >
+                  {t("apply")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="assist-edit"
+                  onClick={() => onEdit(suggestion)}
+                  className="flex-1 border border-teal text-teal py-1.5 rounded text-xs font-semibold hover:opacity-90"
+                >
+                  {t("assistEditBtn")}
+                </button>
+              </>
+            )}
             <button
               type="button"
               data-testid="assist-reject"
