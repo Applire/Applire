@@ -10,6 +10,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Master Profile Health reaches the agent channel (#58).** Three MCP tools that the browser has had since E033 and an agent has not: `get_profile_health` (the deterministic health assessment — severity-tagged integrity issues, a completeness score with its field-level gaps — plus every import the pre-merge integrity gate is currently holding, in one call), `undo_last_merge` (restore the snapshot taken before the most recent merge; single-level, idempotent, and explicit when later edits went with it), and `resolve_held_merge(staged_id, decision)`. The last is deliberately a **relay**: Applire holds an import when the document does not look like a CV, or when the name on it shares no token with the account holder's, and the agent's job is to put that question to the human and pass the answer back — identity is never the agent's call. There is no separate no-JD review-interview tool, by design: `completeness.field_gaps` is the same agenda the built-in review walks, so a capable caller asks in its own words and writes back through the doors that already exist.
 
 ### Changed
+- **A cover letter no longer throws away the content it was asked to add (#547's letter half).**
+  When the finished letter runs a line over the one page a DACH Anschreiben gets, Applire
+  shortens it once and reviews the result. If that review's correction made the letter longer
+  again, the shorter version used to win — so on one real run the three things the reviewer had
+  just demanded (Arbeitsvorbereitung, 5S, Supply Chain) were added and then discarded together,
+  and on the next run the same thing happened again. Now the corrected letter is shortened a
+  second time instead of being thrown away: what the review asked for stays in, and the page
+  norm still holds. The older version comes back only if that second shortening fails or does
+  not actually help. In the same pass, the length floor stopped being unreachable for a letter
+  that was inside the norm until the very last correction pushed it over — it is the page
+  guarantee, so it now applies whenever the page count says so.
+- **The letter's reviewer asks for two missing keywords a round, and now it really is two.**
+  The rule was a sentence in the prompt while the same prompt handed the model the full list of
+  everything absent and told it to name them in its findings — two halves saying opposite
+  things. On a captured run the first round demanded eight. The list itself is now capped and
+  ranked before the model sees it, and it says so. Measured on that run's own exchange, five
+  runs per arm: demands per round went from 5.6 on average (10 at worst) to exactly 2, and the
+  writer then delivered every term it was asked for (10 of 10, against 19 of 28 unbounded).
 - **JD analysis no longer loses the seniority the posting states (#617).** On a posting titled *Leiter Operations*, five runs produced five different answers — `''`, `Leitung`, `''`, `Senior`, `Manager` — and three of them are values the schema does not even permit. The cause was four missing sentences, not a flaky model: nothing told the extractor where a seniority tier may be grounded, the reviewer's check sanctioned a job-board metadata line but never the job TITLE, and the corrector's only way to answer "that tier overreaches" was to delete the field. Downstream, an empty tier silently withholds the *"N years of experience meets the seniority bar"* signal from gap analysis — on a 14-year candidate answering a posting that asks for 8+ years of leadership. The extractor now knows what grounds a tier (and may answer `null` when nothing does), and both the reviewer and the corrector know to **demote to the tier the posting does support** instead of deleting it. Measured on the real provider, n=5 per arm: the grounded tier was delivered 0/5 before and 5/5 after.
 - **Extracted job-posting terms follow the posting's language (#617).** It was never specified, so the same posting came back in German on one run and English on the next — while those terms are matched literally against a CV and letter that follow the posting's language, so a translated term matches nothing and reads as a missing keyword. The language is now computed and stated rather than argued for in prose: runs agreeing on one language went 4/5 → 5/5 on the German case, and term-set stability on the delivery-run posting improved from 0.63 to 0.79.
 - **A cover letter can no longer disclose a limit you never stated (#664).** Asked to name

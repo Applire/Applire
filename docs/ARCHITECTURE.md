@@ -1051,6 +1051,28 @@ Applire reviews a finished CV and hands the findings back for a correction. The 
 
 The second amendment is about the request itself. Applire asks the writer for a bullet when something the posting wants appears nowhere in your work history — and a skills tag does not count, because a tag is not evidence. That rule was applied too widely: "German — native speaker" was demanded as a bullet on a CV whose **Languages** section already said so, and with the length budget now yielding to such requests it bought that line at the cost of two quantified achievements. Languages, certifications and education are copied from your profile word for word and rendered as their own sections, so a reader sees them as evidence. They now count. The skills list still does not.
 
+**Amended (2026-09-13) — a length preference may not throw away the content the review asked for.**
+
+The cover letter gets one page in the DACH norm. When the finished letter runs over it, Applire
+shortens it once and reviews the result; if that review's correction made the letter longer
+again, the shorter version won and the correction was discarded whole. The truth direction was
+closed first (a correction that removed an invented limitation is kept, page count second); this
+closes the rest of it. The corrected letter is now shortened a second time rather than thrown
+away, so the terms the reviewer demanded and the page norm both survive — measured twice at
+delivery, the discarded corrections were coverage terms the same reviewer had just asked for.
+The older version returns only when that second shortening fails or does not improve the page
+count, and the per-delivery ceiling on shortening passes rises from two to three for this one
+path. The floor also stopped being unreachable for a letter that stayed inside the norm until
+the very last correction pushed it over: it is the page guarantee, so it applies whenever the
+page count says so, whether or not an earlier shortening had already run.
+
+Separately, the per-round cap on how many missing keywords the letter's reviewer may demand
+moved out of the prompt and into the list the reviewer is shown. The prompt asked for at most
+two while the same prompt handed the model everything that was missing and told it to name them
+— on a captured run the first round demanded eight. Measured on that run's own exchange, five
+runs per arm: demands per round 5.6 on average (10 at worst) to exactly 2, with the writer then
+delivering every term it was asked for.
+
 ---
 
 ### ADR-077 — A Fact Pin Is the User's Seat at the Budget Table (accepted + built 2026-08-25, amended 2026-08-26)
