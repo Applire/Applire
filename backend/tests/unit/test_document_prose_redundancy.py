@@ -549,3 +549,136 @@ def test_the_floor_and_the_stoplist_are_calibrated_together():
         "the #424 bullet fell under the floor — widening the stoplist without "
         "re-sweeping the floor turns this predicate off for short German bullets"
     )
+
+
+# ── 8. #424 / M5.3.1 — the project ENTITY, and which container writes it ──────
+
+
+def test_duplicate_project_names_the_shape_the_bullet_check_cannot():
+    """#424's blind hiring-manager finding was *"der CV-Abschnitt … ist doppelt
+    vorhanden"* — a statement about the PROJECT, not about two sentences. The bullet
+    check reports redundant prose; this one reports the entity, and it fires even when
+    the two copies' bullets were rewritten far enough apart to read as distinct.
+
+    The predicate is `skills_near_dupe` over the NAMES — ADR-082 clause 1's own line:
+    entity identity by name is a fact the deterministic layer may compute, and it is
+    already the reconciler's identity predicate for project names.
+    """
+    check = _check(_audit(_cv_project_in_both_containers()), "duplicate-project")
+    assert check is not None and check.status == "fail", check
+    assert "LucaNet" in check.details, check.details
+    assert "Projekte" in check.details, check.details
+
+
+def test_duplicate_project_catches_two_nested_copies_under_different_roles():
+    """The residue `_nest_projects`' own dedup cannot see: its nested check is scoped to
+    ONE role's list, so the same project under two different roles survives assembly.
+    Named in #424's last comment and never covered."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [
+            {"company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+             "start_date": "2017-04", "bullets": [],
+             "projects": [{"name": "Einführung eines MES-Systems",
+                           "bullets": ["MES an 14 Spritzgussmaschinen eingeführt."]}]},
+            {"company": "Rasselstein Umformtechnik GmbH", "role": "Fertigungsmeister",
+             "start_date": "2011-01", "bullets": [],
+             "projects": [{"name": "Einführung eines MES-Systems",
+                           "bullets": ["MES-Rollout in der Blechumformung begleitet."]}]},
+        ],
+        "skills": [],
+    })
+    check = _check(_audit(cv), "duplicate-project")
+    assert check is not None and check.status == "fail", check
+    assert "Weberit" in check.details and "Rasselstein" in check.details, check.details
+
+
+def test_duplicate_project_passes_on_two_genuinely_different_projects():
+    """The negative control. Two distinct project names under one role must not be
+    flagged, or the check is a permanent red."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+            "start_date": "2017-04", "bullets": [],
+            "projects": [
+                {"name": "Einführung eines MES-Systems", "bullets": ["MES eingeführt."]},
+                {"name": "SMED-Rüstworkshops", "bullets": ["Rüstzeiten halbiert."]},
+            ],
+        }],
+        "skills": [],
+    })
+    check = _check(_audit(cv), "duplicate-project")
+    assert check is not None and check.status == "pass", check.details
+
+
+def test_duplicate_project_is_not_emitted_when_nothing_can_be_compared():
+    """A document with fewer than two rendered projects has nothing to say here, and a
+    check that reports `pass` on an empty comparison is the kind of green ADR-082 exists
+    to stop."""
+    cv = _cv_with([], role_bullets=[_ROLE_BULLET_LEAN])
+    assert _check(_audit(cv), "duplicate-project") is None
+
+
+def test_the_audit_never_mutates_the_document_on_the_project_axis_either():
+    cv = _cv_project_in_both_containers()
+    before = cv.model_dump(mode="json")
+    _audit(cv)
+    assert cv.model_dump(mode="json") == before
+
+
+def test_the_single_call_writer_can_finally_emit_a_standalone_project():
+    """M5.3.1, and it is an applire-prompt-first CATEGORY A finding, not a model failure:
+    the single-call writer's response schema carried `work[].projects` and no top-level
+    `projects`, so a project the vault ties to no work entry could not be tailored at
+    all — `assemble_tailored_cv` has always accepted `prose["projects"]`, and only the
+    segmented path ever filled it. The untied project reached the single-call document
+    verbatim from the vault via `_nest_projects`' standalone fall-through: untailored,
+    unreviewed, outside the length budget.
+
+    Both writers now ask for the same thing (ADR-067 clause 2 is one contract, not two).
+    """
+    import json as _json
+
+    from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+    from applire.prompts.cv_segmented import PROJECTS_SECTION_SYSTEM_PROMPT
+
+    schema = SYSTEM_PROMPT[SYSTEM_PROMPT.index("Respond ONLY"):]
+    block = schema[schema.index("{"):]
+    depth = 0
+    for end, ch in enumerate(block):
+        depth += (ch == "{") - (ch == "}")
+        if depth == 0:
+            break
+    obj = _json.loads(
+        block[: end + 1].replace("string", '"string"').replace("[\"string\"]", '["s"]')
+    )
+    assert "projects" in obj, obj
+    assert "projects" in obj["work"][0], obj["work"][0]
+    # The rule that says which container, and that it is exactly one.
+    assert "PROJECTS, AND WHICH CONTAINER" in SYSTEM_PROMPT
+    assert "never in both" in SYSTEM_PROMPT
+    # Same job as the segmented path's dedicated writer, so the two paths agree.
+    assert "not tied to a work" in PROJECTS_SECTION_SYSTEM_PROMPT
+
+
+def test_the_corrector_is_told_about_the_top_level_projects_list():
+    """A corrector handed a shape it was never told about drops the section on its first
+    round — the same class as the `projects: []` the ADR-083 measurement found."""
+    from applire.prompts.cv_tailoring import CV_TAILORING_REFINEMENT_PROMPT
+
+    assert "top-level" in CV_TAILORING_REFINEMENT_PROMPT
+    assert "tied to no work entry" in CV_TAILORING_REFINEMENT_PROMPT
+
+
+def test_the_writer_prompt_still_fits_under_its_reviewer():
+    """The size gate that the #455 rule would have cost 485 characters of. Rule 10 is
+    ~460; this asserts the margin survived it."""
+    from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+    from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT
+
+    assert len(SYSTEM_PROMPT) < len(REVIEW_SYSTEM_PROMPT), (
+        len(SYSTEM_PROMPT), len(REVIEW_SYSTEM_PROMPT)
+    )

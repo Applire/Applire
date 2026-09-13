@@ -29,6 +29,35 @@
 #   ADR-062 clause 3, and of the 2026-08-31 incident where a widened rule reached the
 #   model verbatim and was violated in round 1). #455's remaining half is the ADR-051 §3
 #   budget question, exactly as PR #663's own comment recommended re-anchoring it.
+#   **Attempted a SECOND time and refused again — 2026-09-13, ruling W-3/W-3b.** Measured
+#   on the Nougat population this time: the 2026-09-11 delivery run's own captured writer
+#   call (`backend/logs/llm/2026-09-11.jsonl` record 128 — the only captured call whose
+#   INPUT holds the fact), n=5 per arm, system prompt the only variable, +485 chars.
+#   Baseline **4/5**, with the precedence line **2/5** — the rule pointed the wrong way.
+#   And the occurrence that motivated the re-attempt was not a ceiling trade at all: the
+#   2026-09-10 run's writer call (`2026-09-09.jsonl` record 46) contains the fact ZERO
+#   times in 51,885 characters of user prompt, and `28-profile-after-interview.json`
+#   carries it zero times either — the interview never elicited it, so nothing competed
+#   for a slot. #455's writer half is the ADR-071 sampling-variance residual; the
+#   elicitation gap is an Interview-collector line. If a third attempt is proposed, it
+#   arrives against TWO refusals on two independent populations, and needs a measurement
+#   that beats 4/5 rather than an argument that the rule ought to help.
+# Prompt version: v12 (#424 / M5.3.1, 2026-09-13 — rule 10 PROJECTS, AND WHICH CONTAINER,
+#   and the response schema gains a TOP-LEVEL `projects` list).
+#   applire-prompt-first category A, the highest-yield kind: the single-call writer could
+#   not emit a standalone project AT ALL. Its schema carried `work[].projects` and nothing
+#   else, while `assemble_tailored_cv` has always accepted `prose["projects"]` — the
+#   segmented path fills it from `cv_segmented.PROJECTS_SECTION_SYSTEM_PROMPT`
+#   (US187) and the single-call path left it empty, so a vault project tied to no work
+#   entry reached the single-call document VERBATIM from the vault via `_nest_projects`'
+#   standalone fall-through, untailored, un-reviewed and un-budgeted. Two writers, one
+#   assembly, one of them missing a section (ADR-067 clause 2 asks for one contract).
+#   Rule 10's wording mirrors the segmented projects writer's own brief so the two paths
+#   ask for the same thing, and it carries the ONE CONTAINER constraint the reconciler's
+#   rule 2 states vault-side (#424): a project named once belongs in one container. The
+#   cross-bin residue stays DETECTED, never deduped — `duplicate-project` in the ATS
+#   audit (ADR-082 clause 1: entity identity by NAME is a fact the deterministic layer
+#   may compute; deleting one of two project entries is not).
 # Prompt version: v11 (#391, 2026-08-28 — rule 7 gains A REQUIREMENT PHRASE IS NOT A
 #   SKILL. Charter runs 11-13 (2026-07-31…08-01): the writer put JD-requirement phrases
 #   into the skills list with no vault basis — "5 Jahre Controlling-Erfahrung" (a JD
@@ -174,6 +203,8 @@ Your job is to make true things read well, and land for THIS job.
 
 9. BULLET BUDGETS. Each entry's "max" in ROLE BULLET BUDGETS is a ceiling, not a quota. Prioritise the most JD-relevant achievements within it, and condense an older or less relevant role toward a single strong line rather than padding it out. A project's evidence lives in the project's own nested bullets ONCE — never duplicated into the entry's bullets: duplication spends budget the entry should spend on evidence nothing else in the document carries.
 
+10. PROJECTS, AND WHICH CONTAINER. A project the profile ties to one of the work entries is written as that entry's nested project. A project the profile ties to NO work entry — a freelance engagement, a voluntary or private project, a study project — goes in the top-level "projects" list, tailored the same way. Each project is written in exactly ONE of the two places: a project named once belongs in one container, never in both. If the profile has no untied projects, return an empty list.
+
 Respond ONLY with a valid JSON object — no markdown, no explanation:
 
 {
@@ -185,6 +216,7 @@ Respond ONLY with a valid JSON object — no markdown, no explanation:
       "projects": [{"name": string, "bullets": [string]}]
     }
   ],
+  "projects": [{"name": string, "bullets": [string]}],
   "skills": [string]
 }"""
 
@@ -348,7 +380,8 @@ def build_retry_prompt(
 
 CV_TAILORING_REFINEMENT_PROMPT = """\
 You are a tailored CV corrector. You receive (1) a previously-tailored CV prose JSON —
-`summary`, `work` (each entry an `id` with `bullets` and nested `projects`), `skills` —
+`summary`, `work` (each entry an `id` with `bullets` and nested `projects`), top-level
+`projects` (those tied to no work entry), `skills` —
 and (2) a quality reviewer's critique listing specific issues (ungrounded bullets,
 overstated claims, skills without profile basis, etc.). Patch the JSON to address every
 issue.

@@ -688,6 +688,61 @@ def delivered_bullets(tailored) -> list[tuple[str, str]]:
     return out
 
 
+def delivered_projects(tailored) -> list[tuple[str, str]]:
+    """Every project the document RENDERS, as ``(location, name)``, in render order.
+
+    Nested under each work entry, then the standalone top-level section. Same shape and
+    the same reason as :func:`delivered_bullets`: one enumeration of what the reader
+    actually sees, rather than a per-axis scan that never crosses the two containers.
+    """
+    out: list[tuple[str, str]] = []
+    for w in _field(tailored, "work_history") or []:
+        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
+        for proj in (_field(w, "projects") or []):
+            name = (_field(proj, "name") or "").strip()
+            if name:
+                out.append((where, name))
+    for proj in (_field(tailored, "projects") or []):
+        name = (_field(proj, "name") or "").strip()
+        if name:
+            out.append(("Projekte", name))
+    return out
+
+
+def duplicate_project_pairs(tailored) -> list[tuple[str, str, str, str]]:
+    """Project ENTITIES rendered twice, as ``(location_a, name_a, location_b, name_b)``.
+
+    #424: one real project reached both the nested section and the standalone section,
+    "leicht abweichend formuliert" as the blind hiring manager put it, and shipped twice.
+    `_nest_projects` deduplicates by normalised name WITHIN each destination bin and
+    never ACROSS them — and more narrowly still on the nested side, where the check is
+    scoped to one role's own list, so two nested copies under different roles also
+    survive. This enumerates the whole rendered set instead.
+
+    The predicate is :func:`skills_near_dupe`, deliberately, and this is the ADR-082
+    clause-1 line doing its job rather than being worked around: "is this project the
+    same entity as that one" is a question about NAMES, which is a FACT the deterministic
+    layer may compute — it is already the reconciler's entity-identity predicate for
+    project names (`reconcile/apply.py`) — whereas "do these two bullets state the same
+    achievement" is a judgement and gets the prose sibling. Name vs prose, one predicate
+    each.
+
+    DETECTION ONLY. ADR-082 clause 3 and ADR-058 clause 4: dropping one of two same-named
+    project entries risks deleting bullets only the dropped copy carries, which is the
+    `triage:document-harm` outcome #424 is labelled with. The double WRITE is the
+    reconciler's ONE CONTAINER rule to prevent; this makes the residue visible on every
+    delivered document, at both doors.
+    """
+    rendered = delivered_projects(tailored)
+    pairs: list[tuple[str, str, str, str]] = []
+    for i in range(len(rendered)):
+        for j in range(i + 1, len(rendered)):
+            (wa, a), (wb, b) = rendered[i], rendered[j]
+            if _norm(a) == _norm(b) or skills_near_dupe(a, b):
+                pairs.append((wa, a, wb, b))
+    return pairs
+
+
 def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
     """Delivered bullet pairs that state the same achievement, as
     ``(location_a, text_a, location_b, text_b)``.
@@ -1151,6 +1206,25 @@ def _audit_cv_text(
                    for wa, a, wb, b in dupe_pairs[:5]
                )
                + (f" (+{len(dupe_pairs) - 5} more)" if len(dupe_pairs) > 5 else ""))
+
+    # ── #424 (ADR-082 clause 1, 2026-09-13) ─────────────────────────────────
+    # The bullet-level check above cannot name the SHAPE when the two copies are
+    # paraphrases: it reports two redundant sentences, not "this project is on the
+    # page twice". The entity question is about NAMES and is therefore a fact the
+    # deterministic layer may compute — `skills_near_dupe` is already the
+    # reconciler's identity predicate for project names. Detection only: the double
+    # WRITE is prevented vault-side by the reconciler's ONE CONTAINER rule, and
+    # dropping one of two same-named entries risks deleting bullets only the dropped
+    # copy carries (ADR-082 clause 3, the `triage:document-harm` #424 carries).
+    project_pairs = duplicate_project_pairs(tailored)
+    if len(delivered_projects(tailored)) >= 2:
+        _check(checks, "duplicate-project", not project_pairs,
+               "the same project is rendered twice: "
+               + "; ".join(
+                   f"[{wa}] '{a[:50]}' ~ [{wb}] '{b[:50]}'"
+                   for wa, a, wb, b in project_pairs[:5]
+               )
+               + (f" (+{len(project_pairs) - 5} more)" if len(project_pairs) > 5 else ""))
 
     # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
     # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to

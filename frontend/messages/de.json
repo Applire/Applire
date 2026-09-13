@@ -1285,6 +1285,7 @@
       "body": "Anschreiben-Absatz erkannt",
       "content": "Textabschnitt vollständig erkannt",
       "duplicate-bullets": "Keine doppelten Aufzählungspunkte",
+      "duplicate-project": "Kein Projekt doppelt aufgeführt",
       "skills-near-dupe": "Keine ähnlichen Skills",
       "page-length": "Seitenlänge",
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",

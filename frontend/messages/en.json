@@ -1285,6 +1285,7 @@
       "body": "Letter paragraph parsed",
       "content": "Text section parsed in full",
       "duplicate-bullets": "No duplicate bullet points",
+      "duplicate-project": "No project listed twice",
       "skills-near-dupe": "No near-duplicate skills",
       "page-length": "Page length",
       "skills-weak-vault-tie": "Skills with only a weak profile link",
