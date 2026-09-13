@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import CV_EXTRACTION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
@@ -909,6 +909,18 @@ async def list_open_gates(
 
     These are the deferred Tier-1 gates US163 escalates into the JD interview —
     oldest first, so the longest-parked confirmation is asked first.
+
+    #367 (adversarial): a hold `import_cv` raises before any `User` row exists
+    is persisted with `user_id=NULL` (`mcp/server.py::_import_user_id` — "an
+    empty `users` table is an ownerless import rather than a failure", a real
+    state on the documented `python -m applire.mcp` standalone launch, which
+    never runs `applire.main`'s lifespan). An exact `user_id == :uid` filter
+    silently drops that row from the Health hub / `held_merges` the instant a
+    `User` row later appears, so the human is never asked to adjudicate a CV
+    the gate genuinely parked. Community is single-user (ADR-022 rejected), so
+    an ownerless row is unambiguously "the" user's — the same shape
+    `import_jobs.py::list_import_jobs` already uses for the sibling async-
+    import door (`or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))`).
     """
     query = (
         select(UploadRecord)
@@ -916,7 +928,9 @@ async def list_open_gates(
         .order_by(UploadRecord.created_at.asc())
     )
     if user_id is not None:
-        query = query.where(UploadRecord.user_id == user_id)
+        query = query.where(
+            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
+        )
     return list((await db.execute(query)).scalars().all())
 
 
@@ -1442,11 +1456,19 @@ async def resolve_staged_extraction(
 
     When ``user_id`` is given the lookup is scoped to that owner, so a foreign
     upload is indistinguishable from a missing one (IDOR guard) — a parked CV
-    can only be resolved by the account that uploaded it.
+    can only be resolved by the account that uploaded it. An ownerless row
+    (``user_id IS NULL`` — #367 adversarial: `import_cv` ran before any `User`
+    row existed) is included for any given ``user_id`` rather than excluded:
+    Community is single-user (ADR-022 rejected), so it is unambiguously "the"
+    user's, and an exact-equality filter made such a hold permanently
+    unresolvable the moment a `User` row appeared (`list_open_gates` carries
+    the same widening, and the same reasoning).
     """
     query = select(UploadRecord).where(UploadRecord.id == staged_id)
     if user_id is not None:
-        query = query.where(UploadRecord.user_id == user_id)
+        query = query.where(
+            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
+        )
     rec = (await db.execute(query)).scalar_one_or_none()
     if rec is None or rec.gate_status is None:
         raise StagedExtractionNotFound(str(staged_id))

@@ -26,7 +26,7 @@ import mimetypes
 
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -812,8 +812,14 @@ async def erase_profile(
     now = datetime.now(timezone.utc)
 
     # --- Collect file paths before deleting rows ---
+    # #367 (adversarial): also sweep OWNERLESS uploads (`user_id IS NULL`) —
+    # a hold `import_cv` raised before any `User` row existed. Community is
+    # single-user (ADR-022 rejected), so an ownerless upload is unambiguously
+    # this account's; an exact `user_id == uid` filter left such a row (with
+    # its full `staged_extraction` personal data) behind on an Art. 17 request.
+    _upload_owner_filter = or_(UploadRecord.user_id == uid, UploadRecord.user_id.is_(None))
     upload_paths_result = await db.execute(
-        select(UploadRecord.file_path).where(UploadRecord.user_id == uid)
+        select(UploadRecord.file_path).where(_upload_owner_filter)
     )
     upload_paths = [row[0] for row in upload_paths_result.fetchall()]
 
@@ -865,8 +871,8 @@ async def erase_profile(
     # referenced rows.  Deletion order: uploads → (break cycle) → flow_sessions
     # → generated_cvs → interview_sessions → applications → master_profiles → users.
     try:
-        # 1. uploads
-        r = await db.execute(delete(UploadRecord).where(UploadRecord.user_id == uid))
+        # 1. uploads — same ownerless-row widening as the path-collection SELECT above.
+        r = await db.execute(delete(UploadRecord).where(_upload_owner_filter))
         counts["uploads"] = r.rowcount
 
         # 2. Break Application ↔ FlowSession circular FK so each side can be deleted.
