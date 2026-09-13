@@ -2880,17 +2880,118 @@ async def _terminal_review_letter(
                             )
                         corrector_hash = subject_hash(cl.letter_data)
                         corrector_pages = m2.page_count
-                        current = condensed_draft
-                        await _apply(current)
-                        final_floor_selection = "reverted_to_condensed"
-                        logger.warning(
-                            "LETTER_FINAL_FLOOR selection reverted CL %s: "
-                            "corrector_hash=%s corrector_pages=%s "
-                            "condensed_hash=%s condensed_pages=%s",
-                            cl.id, corrector_hash, corrector_pages,
-                            subject_hash(cl.letter_data),
-                            measure_cell["measured"].page_count,
-                        )
+                        corrector_draft = current
+
+                        # ADR-076 clause 3 amended 2026-09-13 (#547 letter half,
+                        # #673; ADR-051 §6's bound 2 -> 3 for THIS path only,
+                        # ruling L-2/L-2b): where the truth key above does not
+                        # separate the two compositions, the difference between
+                        # them is content the corrector ADDED at the reviewer's
+                        # own demand — on 2026-09-10 the floor's round surfaced
+                        # Arbeitsvorbereitung, 5S and Supply Chain and this
+                        # selection threw all three away to hold the page count
+                        # (`target_words=235`; recurred 2026-09-11 with 254).
+                        # Two accepted decisions fighting each other is the #547
+                        # class, and #547's own resolution applies: act on the
+                        # REPAIRED artefact instead of reverting to the
+                        # unrepaired one. ONE further condense of the
+                        # corrector's own composition — same calibrated target,
+                        # same pins, the single composition site — and the
+                        # repair and the DACH page norm both survive. Cost: +1
+                        # condense call (~8 s) on this path, and the delivered
+                        # letter's last write is an instruction-only rewrite
+                        # that re-enters no verdict (the same accepted residual
+                        # `kept_corrector` already carries; the settle-time cut
+                        # in `_finish` still runs over it).
+                        #
+                        # The 2026-08-29 revert survives as the FALLBACK, on two
+                        # conditions only, both of which leave the delivery no
+                        # worse than before this change: the re-condense call
+                        # raised, or its result is still over the norm AND no
+                        # closer to it than the corrector's own draft.
+                        #
+                        # Guard on the truth fact in the other direction too: if
+                        # the CORRECTOR's draft is the one carrying an invented
+                        # limit, re-condensing it would carry that sentence
+                        # forward, so the old revert is the right answer there.
+                        recondensed = None
+                        if _limits_ok(cl.letter_data):
+                            try:
+                                recondensed = await provider.aparse_json(
+                                    build_condense_prompt(
+                                        _subject_of(corrector_draft),
+                                        target,
+                                        corrector_pages,
+                                        letter_pages=norm.letter_pages,
+                                        pinned_quotes=[pn.quote for pn in pins] or None,
+                                    ),
+                                    system=SYSTEM_PROMPT,
+                                    max_tokens=CV_GENERATION_MAX_TOKENS,
+                                )
+                            except Exception as recondense_err:
+                                # Fail-OPEN, exactly like both condenses above.
+                                logger.warning(
+                                    "LETTER_FINAL_FLOOR re-condense of the corrector's "
+                                    "repair failed for CL %s — falling back to the "
+                                    "condensed composition: %s",
+                                    cl.id, recondense_err,
+                                )
+                                try:
+                                    await db.rollback()
+                                    await db.refresh(cl)
+                                except Exception as restore_err:  # pragma: no cover
+                                    logger.warning(
+                                        "LETTER_FINAL_FLOOR re-condense rollback/restore "
+                                        "failed for CL %s: %s", cl.id, restore_err,
+                                    )
+                                recondensed = None
+                                recondense_failed = True
+                            else:
+                                recondense_failed = False
+                        else:
+                            recondense_failed = False
+
+                        kept_recondense = False
+                        if recondensed is not None:
+                            current = recondensed
+                            await _apply(current)
+                            m3 = measure_cell["measured"]
+                            kept_recondense = (
+                                m3.page_count is None
+                                or m3.page_count <= norm.letter_pages
+                                or m3.page_count < corrector_pages
+                            )
+                            if kept_recondense:
+                                final_floor_selection = "recondensed_repair"
+                                logger.warning(
+                                    "LETTER_FINAL_FLOOR re-condensed the corrector's "
+                                    "repair for CL %s instead of discarding it: "
+                                    "corrector_hash=%s corrector_pages=%s "
+                                    "recondensed_hash=%s recondensed_pages=%s "
+                                    "target_words=%s (ADR-076 clause 3 amended "
+                                    "2026-09-13, ADR-051 §6 bound 3, #547 letter half)",
+                                    cl.id, corrector_hash, corrector_pages,
+                                    subject_hash(cl.letter_data),
+                                    m3.page_count, target,
+                                )
+
+                        if not kept_recondense:
+                            current = condensed_draft
+                            await _apply(current)
+                            final_floor_selection = (
+                                "reverted_to_condensed_after_failed_recondense"
+                                if recondense_failed
+                                else "reverted_to_condensed"
+                            )
+                            logger.warning(
+                                "LETTER_FINAL_FLOOR selection reverted CL %s: "
+                                "corrector_hash=%s corrector_pages=%s "
+                                "condensed_hash=%s condensed_pages=%s selection=%s",
+                                cl.id, corrector_hash, corrector_pages,
+                                subject_hash(cl.letter_data),
+                                measure_cell["measured"].page_count,
+                                final_floor_selection,
+                            )
                     else:
                         final_floor_selection = "kept_corrector"
                 else:
