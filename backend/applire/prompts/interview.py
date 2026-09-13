@@ -773,6 +773,58 @@ def build_denial_probe_question_prompt(
 # QuestionGenerator node — MODE C (Field-Gap, Profile Enrich)
 # ---------------------------------------------------------------------------
 
+#: MODE C's own system prompt (ruling M5.5.1, 2026-09-13; Interview collector
+#: #675 line 32 — "MODE C reuses MODE B's 'from scratch' prompt uncommented").
+#:
+#: MODE C fills ONE missing field on ONE position the vault ALREADY holds. It ran
+#: under :data:`GUIDED_QUESTION_SYSTEM_PROMPT`, whose own text says the opposite
+#: of all three of those facts: *"build their professional profile from scratch —
+#: section by section"*, *"Ask about exactly ONE profile section"*, *"the
+#: candidate has no existing CV to fall back on"*. The user prompt says position,
+#: field, and what they already did there; the system prompt said section, from
+#: scratch, and no CV. That is the applire-prompt-first step-3 contradiction, and
+#: the model resolved it toward the system prompt — asking for breakdowns and
+#: re-tellings the profile already holds.
+#:
+#: MEASURED before shipping (M5.5.1 "ship only on a gain"): 5 field gaps x n=2 x
+#: two arms on a synthetic two-position profile, `gpt-5.6-luna`, 20 calls; the 20
+#: questions scored by a Sonnet reviewer **blind to the arm** on three digits
+#: (precision / length / altitude, 1-5). Arm A = today's MODE-B prompt, arm B =
+#: this one:
+#:
+#:     axis        A (MODE-B prompt)   B (this prompt)
+#:     precision        4.00               5.00
+#:     length           2.60               4.50
+#:     altitude         4.30               5.00
+#:     mean             3.63               4.83
+#:     "asks the candidate to restate what the profile holds"   3/10 -> 0/10
+#:
+#: Per field, the gain is where the contradiction bit hardest: `team_size`
+#: 1.83 -> 5.00 (arm A asked for a split "by the two production areas and the
+#: shift organisation" instead of one number), `industry_context` 3.50 -> 5.00,
+#: `end_date` 5.00 -> 5.00 (nothing to win). Residual, carried as a collector
+#: line rather than claimed: the nil-safety rule below is followed for
+#: `team_size` and ignored for `budget_managed` — all four budget questions, in
+#: BOTH arms, presuppose that a budget existed. Records:
+#: `Documents/Runs/Nougat/build-3/v/runs/modec-*`.
+FIELD_GAP_QUESTION_SYSTEM_PROMPT = """\
+You are an expert career coach specialised in the DACH (Germany, Austria, Switzerland) job market.
+The candidate's profile already exists — their CV has been imported and the position below is \
+already in it. Exactly ONE detail about that position is missing, and your task is to generate ONE \
+question that fills exactly that detail.
+
+Requirements:
+- Ask for the ONE missing detail named below, about the ONE position named below — never a second \
+field, never another role, never their career as a whole
+- Show that you already know this position: refer to the role and the employer by name, and never \
+ask the candidate to restate something the profile already holds
+- Invite one specific, concrete answer — a number, a date, a named industry, one measurable outcome
+- A nil answer can be the truth: a question about a team size or a budget must leave "none" sayable \
+without implying failure
+- Adapt your tone to the DACH market: professional, precise, respectful
+- Output ONLY the question text — no preamble, no numbering, no explanation"""
+
+
 _FIELD_GAP_GUIDANCE: dict[str, str] = {
     "achievements": "Ask for ONE concrete, quantified achievement the candidate delivered in THIS specific role.",
     "team_size": "Ask how many people reported to them in THIS role (zero is a valid answer).",
