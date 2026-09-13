@@ -3042,17 +3042,71 @@ async def _terminal_review_letter(
                                 or m3.page_count < corrector_pages
                             )
                             if kept_recondense:
-                                final_floor_selection = "recondensed_repair"
+                                # Adversarial finding (Nougat build 3, wt-adv-letter,
+                                # probe B(ii)): the re-condense call is a SCOPED LLM
+                                # REWRITE like the pre-verdict one above — instructed
+                                # to keep "the same factual claims" and the fixed
+                                # LETTER_REQUIRED_CONTENT list, but never told WHICH
+                                # sentence is the reason this call exists (the
+                                # coverage terms the corrector just added at the
+                                # reviewer's own demand). Nothing downstream checked
+                                # whether they survived: a fake provider whose
+                                # re-condense response was in-norm but had silently
+                                # dropped the added sentence still shipped labelled
+                                # `recondensed_repair` — the exact claim ("the
+                                # corrector's added coverage terms survive AND the
+                                # norm holds", ruling L-2) the selection's own name
+                                # asserts. This is the ADR-077 clause 3 pin pattern
+                                # applied to coverage: a FACT check (ADR-062 clause
+                                # 1), reusing the ledger's own coverage instrument
+                                # (ADR-066), reported honestly rather than silently
+                                # assumed. Fail-open is preserved — the recondensed,
+                                # in-norm letter still ships (no worse than the
+                                # fallback, which never carried these terms either)
+                                # — but the selection value stops overclaiming.
+                                from applire.services.keyword_ledger import (
+                                    claimable_present_entries,
+                                )
+
+                                covered_before = {
+                                    e.get("concept")
+                                    for e in claimable_present_entries(
+                                        _subject_of(corrector_draft), keyword_ledger
+                                    )
+                                }
+                                covered_after = {
+                                    e.get("concept")
+                                    for e in claimable_present_entries(
+                                        cl.letter_data, keyword_ledger
+                                    )
+                                }
+                                lost_coverage = sorted(
+                                    c for c in (covered_before - covered_after) if c
+                                )
+                                if lost_coverage:
+                                    final_floor_selection = "recondensed_repair_lost_coverage"
+                                    logger.warning(
+                                        "LETTER_FINAL_FLOOR re-condense for CL %s "
+                                        "dropped claimable term(s) the corrector's "
+                                        "repair had added: %s — shipped anyway "
+                                        "(fail-open, no worse than the pre-repair "
+                                        "fallback) but NOT labelled recondensed_repair "
+                                        "(#547 letter half, adversarial finding)",
+                                        cl.id, ", ".join(lost_coverage),
+                                    )
+                                else:
+                                    final_floor_selection = "recondensed_repair"
                                 logger.warning(
                                     "LETTER_FINAL_FLOOR re-condensed the corrector's "
                                     "repair for CL %s instead of discarding it: "
                                     "corrector_hash=%s corrector_pages=%s "
                                     "recondensed_hash=%s recondensed_pages=%s "
-                                    "target_words=%s (ADR-076 clause 3 amended "
-                                    "2026-09-13, ADR-051 §6 bound 3, #547 letter half)",
+                                    "target_words=%s selection=%s (ADR-076 clause 3 "
+                                    "amended 2026-09-13, ADR-051 §6 bound 3, #547 "
+                                    "letter half)",
                                     cl.id, corrector_hash, corrector_pages,
                                     subject_hash(cl.letter_data),
-                                    m3.page_count, target,
+                                    m3.page_count, target, final_floor_selection,
                                 )
 
                         if not kept_recondense:
