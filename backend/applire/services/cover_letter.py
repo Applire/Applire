@@ -1845,6 +1845,16 @@ async def _render_cover_letter_background(
                     provider=provider,
                     max_retries=LLM_REVIEW_MAX_RETRIES,
                     chain_id="cover_letter",
+                    # M5.4.2 (2) (founder, 2026-09-11): the CORRECTOR gets the
+                    # writer's own budget. `review_and_refine`'s default is
+                    # 4,096 tokens while the letter WRITER above runs at
+                    # CV_GENERATION_MAX_TOKENS (16,384) — so every round of the
+                    # loop asked a model to re-emit a whole letter, plus the
+                    # unchanged paragraphs it must carry forward, into a quarter
+                    # of the room the first draft had. A `finish=length` there
+                    # is not a shorter letter, it is a truncated JSON object and
+                    # a lost round. One number, three call sites, same document.
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     # #272 Task 3: the ADR-021 loop has no no-regression invariant — a
                     # reviewer mistake (RC-C/RC-E) can erode content a prior round had
                     # right (RC-D: the real closing paragraph, eroded to a bare stub).
@@ -2667,6 +2677,12 @@ async def _terminal_review_letter(
             provider=provider,
             max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
             chain_id="letter_terminal_review",
+            # M5.4.2 (2): the corrector's budget is the writer's — see the
+            # drafting mount's call site for the reasoning. The terminal
+            # corrector has strictly MORE to carry than the drafting one (it
+            # rewrites the COMPOSED letter, chrome included), so it is the call
+            # site that could least afford the 4,096 default.
+            generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             # #272 Task 3: the structural retention guard covers the terminal
             # round exactly as it covered both retired loops.
             retain_if=retain_if_fn,
@@ -2793,6 +2809,9 @@ async def _terminal_review_letter(
                     provider=provider,
                     max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
                     chain_id="letter_terminal_review",
+                    # M5.4.2 (2): the floor's own review round runs the same
+                    # corrector with the same budget as the two mounts above.
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     retain_if=retain_if_fn,
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
