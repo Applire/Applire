@@ -454,6 +454,21 @@ _COVER_LETTER_RESPONSE: dict[str, Any] = {
     },
 }
 
+#: M5.7.1 — the CV section assist's three responses. Deliberately German and
+#: deliberately CV-shaped: the point of a mock fingerprint is that a mock-stack run
+#: reads like the real one, and the assist's output is pasted into a CV section.
+_ASSIST_QUESTION = (
+    "Wie viele Mitarbeitende hast du in dieser Rolle direkt geführt, "
+    "und über welchen Zeitraum?"
+)
+_ASSIST_SUGGESTION = (
+    "Führung von zwei Fertigungsbereichen mit 38 Mitarbeitenden im Dreischichtbetrieb."
+)
+_ASSIST_REWRITE = (
+    "Verantwortung für zwei Fertigungsbereiche mit 38 Mitarbeitenden; "
+    "Ausschussquote von 4,1 % auf 2,3 % gesenkt."
+)
+
 _INTERVIEW_QUESTION = (
     "Can you describe a specific project where you implemented CI/CD pipelines "
     "and explain the tools and processes you used?"
@@ -634,6 +649,21 @@ class MockLLMProvider(LLMProvider):
         max_tokens: int = 4096,
         disable_thinking: bool | None = None,
     ) -> str:
+        # M5.7.1 (2026-09-13): the CV section assist's three prompts moved out of
+        # `services/cv_assist.py` into `prompts/cv_assist.py`, which is what made
+        # `test_mock_provider_fingerprints` able to SEE them — and it immediately
+        # reported what had always been true: every assist call under the mock stack
+        # returned the English interview question above, so an IQ/OQ/PQ run exercised
+        # the assist's plumbing while reading nothing like its real output. Three
+        # branches, each returning the SHAPE its call site consumes: a German question
+        # the candidate reads, and German CV section prose for the two writing calls.
+        system_lower = (system or "").lower()
+        if "einzigen präzisen frage" in system_lower:
+            return _ASSIST_QUESTION
+        if "generiere verbesserten lebenslauf-text" in system_lower:
+            return _ASSIST_SUGGESTION
+        if "rewrite the given cv section" in system_lower:
+            return _ASSIST_REWRITE
         return _INTERVIEW_QUESTION
 
     async def aparse_json(  # type: ignore[override]
@@ -650,6 +680,22 @@ class MockLLMProvider(LLMProvider):
 
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}
+
+        # M5.7.1 — the ADR-047 prose-segmentation fallback
+        # (`services/oracle/extract.py::_segment_prose_llm`). Its instruction became a
+        # `system=` argument in this build, which is what let the fingerprint check see
+        # it; before that it was invisible and the call degraded to the generic dict,
+        # so the segmenter's own fail-safe ("return the whole block as one claim") was
+        # the only behaviour a mock run ever exercised. Returns the real
+        # `{"claims": [...]}` shape, split on sentence punctuation so the response is a
+        # function of the input rather than a fixed string.
+        if "segment" in system_lower and "claim" in system_lower:
+            import re as _re
+
+            parts = [
+                c.strip() for c in _re.split(r"(?<=[.!?])\s+", prompt) if c.strip()
+            ]
+            return {"claims": parts or [prompt.strip()]}
 
         # ADR-046 / US181-US182a — single-call profile reconciler. Returns a
         # representative op batch (one upsert_skill) so the interview loop's

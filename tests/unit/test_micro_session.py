@@ -681,7 +681,7 @@ class TestGetCvSections:
 
 class TestAssistPromptBuilders:
     def test_question_prompt_contains_section(self):
-        from applire.services.cv_assist import _question_prompt
+        from applire.prompts.cv_assist import build_assist_question_prompt as _question_prompt
 
         prompt = _question_prompt("Introduction", "I am a developer", "Python")
         assert "Introduction" in prompt
@@ -689,20 +689,20 @@ class TestAssistPromptBuilders:
         assert "I am a developer" in prompt
 
     def test_suggestion_prompt_contains_answer(self):
-        from applire.services.cv_assist import _suggestion_prompt
+        from applire.prompts.cv_assist import build_assist_suggestion_prompt as _suggestion_prompt
 
         prompt = _suggestion_prompt("Introduction", "I am a developer", "Python", "5 Jahre")
         assert "5 Jahre" in prompt
         assert "Python" in prompt
 
     def test_question_prompt_returns_string(self):
-        from applire.services.cv_assist import _question_prompt
+        from applire.prompts.cv_assist import build_assist_question_prompt as _question_prompt
         result = _question_prompt("Skills", "Python", "Docker")
         assert isinstance(result, str)
         assert len(result) > 20
 
     def test_suggestion_prompt_returns_string(self):
-        from applire.services.cv_assist import _suggestion_prompt
+        from applire.prompts.cv_assist import build_assist_suggestion_prompt as _suggestion_prompt
         result = _suggestion_prompt("Skills", "Python", "Docker", "Ja, ich kenne Docker")
         assert isinstance(result, str)
         assert len(result) > 20
