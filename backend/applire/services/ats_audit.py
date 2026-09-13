@@ -645,6 +645,70 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
 
 
+def _field(obj, name):
+    """Read a field from either a `TailoredCVData`-shaped model or its `model_dump`.
+
+    The audit holds the typed model; the review loop's signal holds the same document
+    as a plain dict (``_subject_for(draft).model_dump(mode="json")``). One enumeration
+    serves both (ADR-066) rather than the signal growing a second copy that drifts.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def delivered_bullets(tailored) -> list[tuple[str, str]]:
+    """Every bullet the document DELIVERS, as ``(location, text)``, in render order.
+
+    Within each role's own list, within each project's own list (nested and
+    standalone), across the role/nested-project boundary — one flat set. Enumerating
+    the whole delivered set, rather than the handful of axes someone thought to name,
+    is what makes `duplicate-bullets`' scope equal to its name, and it is what reaches
+    #424's shape at all: one project entity rendered BOTH nested under its role and
+    standalone puts its bullets in two different containers, which no per-axis scan
+    compares.
+
+    The ``location`` string is the finding's only way of being actionable — it is read
+    by a human in the ATS report and by the corrector in the review loop.
+    """
+    out: list[tuple[str, str]] = []
+
+    def _collect(where: str, bullets) -> None:
+        for b in bullets or []:
+            if isinstance(b, str) and b.strip():
+                out.append((where, b))
+
+    for w in _field(tailored, "work_history") or []:
+        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
+        _collect(where, _field(w, "bullets"))
+        for proj in (_field(w, "projects") or []):
+            _collect(f"{where} > {_field(proj, 'name') or '?'}", _field(proj, "bullets"))
+    for proj in (_field(tailored, "projects") or []):
+        _collect(f"Projekte > {_field(proj, 'name') or '?'}", _field(proj, "bullets"))
+    return out
+
+
+def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
+    """Delivered bullet pairs that state the same achievement, as
+    ``(location_a, text_a, location_b, text_b)``.
+
+    THE one enumeration for prose redundancy on a delivered CV (ADR-066). Two readers:
+    the `duplicate-bullets` ATS check, which reports it to the candidate, and the
+    review loop's deterministic redundancy signal, which hands it to the corrector.
+    Both are detection — neither may cut content (ADR-082 clauses 1-3, narrowed
+    2026-09-05 to the DETERMINISTIC layer: the LLM corrector may repair, a threshold
+    may not delete).
+    """
+    delivered = delivered_bullets(tailored)
+    pairs: list[tuple[str, str, str, str]] = []
+    for i in range(len(delivered)):
+        for j in range(i + 1, len(delivered)):
+            (wa, a), (wb, b) = delivered[i], delivered[j]
+            if bullets_prose_dupe(a, b):
+                pairs.append((wa, a, wb, b))
+    return pairs
+
+
 # ── #391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): a
 # measurement-only advisory over skills_page_dupe's weakest disjunct ─────────
 #
@@ -1073,27 +1137,8 @@ def _audit_cv_text(
     # equal to its name. It is also what reaches #424's shape: one project entity
     # rendered BOTH nested under its role and standalone puts its bullets in two
     # different containers, which no per-axis scan compares.
-    delivered: list[tuple[str, str]] = []  # (location, bullet)
-
-    def _collect(where: str, bullets) -> None:
-        for b in bullets or []:
-            if isinstance(b, str) and b.strip():
-                delivered.append((where, b))
-
-    for w in tailored.work_history:
-        where = f"{w.company or '?'} / {w.role or '?'}"
-        _collect(where, w.bullets)
-        for proj in (w.projects or []):
-            _collect(f"{where} > {proj.name or '?'}", proj.bullets)
-    for proj in (tailored.projects or []):
-        _collect(f"Projekte > {proj.name or '?'}", proj.bullets)
-
-    dupe_pairs: list[tuple[str, str, str, str]] = []
-    for i in range(len(delivered)):
-        for j in range(i + 1, len(delivered)):
-            (wa, a), (wb, b) = delivered[i], delivered[j]
-            if bullets_prose_dupe(a, b):
-                dupe_pairs.append((wa, a, wb, b))
+    delivered = delivered_bullets(tailored)
+    dupe_pairs = redundant_bullet_pairs(tailored)
 
     # Emitted whenever a comparison was actually possible — a document with fewer
     # than two bullets has nothing to say here, and a check that reports `pass`
