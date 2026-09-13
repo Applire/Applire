@@ -10,6 +10,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **Master Profile Health reaches the agent channel (#58).** Three MCP tools that the browser has had since E033 and an agent has not: `get_profile_health` (the deterministic health assessment — severity-tagged integrity issues, a completeness score with its field-level gaps — plus every import the pre-merge integrity gate is currently holding, in one call), `undo_last_merge` (restore the snapshot taken before the most recent merge; single-level, idempotent, and explicit when later edits went with it), and `resolve_held_merge(staged_id, decision)`. The last is deliberately a **relay**: Applire holds an import when the document does not look like a CV, or when the name on it shares no token with the account holder's, and the agent's job is to put that question to the human and pass the answer back — identity is never the agent's call. There is no separate no-JD review-interview tool, by design: `completeness.field_gaps` is the same agenda the built-in review walks, so a capable caller asks in its own words and writes back through the doors that already exist.
 
 ### Changed
+- **A CV no longer says the same thing twice without anyone able to act on it, and the
+  redundancy detector now reads German (#659, #424).** The check that finds repeated
+  bullets filtered its words with an eleven-word ENGLISH stop list while the documents it
+  reads are German — so on the last two delivery runs it flagged two roles at two
+  different employers as duplicates on the strength of *als*, *der*, *tätig* and *und*,
+  and told the candidate their CV repeats itself when it does not. It now knows German
+  function words, and it keeps every real find (8/8 labelled pairs, zero false positives
+  across both delivered documents and 147 fixture pairs). The pairs it does find no longer
+  arrive one stage too late either: they are handed to the corrector during the review
+  loop, bounded at two per round, as something to merge — never as a deletion, because a
+  threshold that deletes a bullet can silently take the one achievement only that bullet
+  carried. Alongside it, a project rendered twice — once under its employer and once in
+  the projects section — is now reported as one finding about the PROJECT rather than two
+  about its sentences.
+- **The CV writer can finally write a project that belongs to no employer (#424).** A
+  freelance engagement, a voluntary project or a study project reached the single-call
+  writer's output — and vanished from it, five times out of five, because its response
+  format had nowhere to put one; the document then carried the vault's own wording
+  verbatim, untailored to the posting and outside the length budget. Both writers now ask
+  for the same sections, and the project lands in exactly one place: nested under its
+  employer when there is one, standalone when there is not.
+- **Kaile's section suggestions are checked against your own data before you see them
+  (M5.7.1).** The per-section assist is the oldest writing surface in the product and had
+  no truthfulness control at all — no reviewer, no grounding check. Every suggestion is
+  now checked against your profile *and* the answer you just typed, and a sentence neither
+  supports is withheld rather than shown with a warning: the count is named, so you know
+  something was held back, and nothing unsupported is one paste away from your CV.
+- **Reviewers stop being asked for two fields nobody reads.** Every reviewer prompt in the
+  chain solicited a `location` and a `check` on every finding, and the loop discarded both
+  — about 1,800 characters of instruction across nine doors, on prompts measured against
+  size limits. Replayed at all nine on captured real records before removing anything:
+  verdict validity unchanged, findings if anything better explained. One door measurably
+  needs the field and keeps it.
 - **JD analysis no longer loses the seniority the posting states (#617).** On a posting titled *Leiter Operations*, five runs produced five different answers — `''`, `Leitung`, `''`, `Senior`, `Manager` — and three of them are values the schema does not even permit. The cause was four missing sentences, not a flaky model: nothing told the extractor where a seniority tier may be grounded, the reviewer's check sanctioned a job-board metadata line but never the job TITLE, and the corrector's only way to answer "that tier overreaches" was to delete the field. Downstream, an empty tier silently withholds the *"N years of experience meets the seniority bar"* signal from gap analysis — on a 14-year candidate answering a posting that asks for 8+ years of leadership. The extractor now knows what grounds a tier (and may answer `null` when nothing does), and both the reviewer and the corrector know to **demote to the tier the posting does support** instead of deleting it. Measured on the real provider, n=5 per arm: the grounded tier was delivered 0/5 before and 5/5 after.
 - **Extracted job-posting terms follow the posting's language (#617).** It was never specified, so the same posting came back in German on one run and English on the next — while those terms are matched literally against a CV and letter that follow the posting's language, so a translated term matches nothing and reads as a missing keyword. The language is now computed and stated rather than argued for in prose: runs agreeing on one language went 4/5 → 5/5 on the German case, and term-set stability on the delivery-run posting improved from 0.63 to 0.79.
 - **A cover letter can no longer disclose a limit you never stated (#664).** Asked to name
