@@ -199,4 +199,22 @@ describe("AssistMicroSession — withheld grounding count", () => {
     await screen.findByTestId("assist-accept");
     expect(screen.queryByTestId("assist-withheld")).toBeNull();
   });
+
+  // Adversarial pass, Nougat build 3 (writer controls, area A): when EVERY sentence
+  // of the suggestion is withheld, `_ground_suggestion` returns an empty string with
+  // a non-zero count — a valid, non-error response. Before this fix the component
+  // still entered the "suggestion" phase and rendered an empty box with an ENABLED
+  // Accept button, so `onAccept("")` could wipe the section's existing content with
+  // one click. The control that withholds unverified content must not hand the user
+  // a one-click way to apply nothing.
+  it("disables Accept/Edit and shows a distinct message when everything was withheld", async () => {
+    withSuggestion({ suggestion: "", withheld_count: 1 });
+    await submit("de");
+    const note = await screen.findByTestId("assist-withheld");
+    expect(note.textContent).toContain("Ein Satz");
+    expect(screen.queryByTestId("assist-accept")).toBeNull();
+    expect(screen.queryByTestId("assist-edit")).toBeNull();
+    expect(screen.getByTestId("assist-reject")).toBeTruthy();
+    expect(screen.getByTestId("assist-nothing-verified")).toBeTruthy();
+  });
 });

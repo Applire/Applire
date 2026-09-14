@@ -158,6 +158,7 @@ async def submit_assist_answer(
         db,
         session_evidence=[("session.answer", answer)],
         prior_text=session.get("section_content"),
+        gap_ids=[session["gap_id"]],
     )
     return AssistAnswerResponse(suggestion=kept, withheld_count=withheld)
 
@@ -199,6 +200,7 @@ async def rewrite_section(
         db,
         session_evidence=[("session.directions", directions)],
         prior_text=section_content,
+        gap_ids=gap_ids,
     )
     return RewriteResponse(suggestion=kept, withheld_count=withheld)
 
@@ -302,6 +304,7 @@ async def _ground_suggestion(
     *,
     session_evidence: list[tuple[str, str]],
     prior_text: str | None = None,
+    gap_ids: list[str] | None = None,
 ) -> tuple[str, int]:
     """Withhold the sentences of ``suggestion`` the candidate's own data does not support.
 
@@ -341,6 +344,31 @@ async def _ground_suggestion(
     4): a broken check must not take the feature down, and the delivery-time truthfulness
     audit over the persisted ``tailored_data`` is the control that still looks at what
     actually ships.
+
+    **The ADR-059 denial floor, applied before grounding** (ruling D-1, 2026-09-14).
+    ``gap_ids`` — the concept(s) this micro-session targets (``submit_assist_answer``'s
+    own ``gap_id``, or ``rewrite_section``'s ``gap_ids``) — are checked against the
+    vault's ``metadata.denied_concepts`` with :func:`is_denied_concept`, at its EXISTING
+    calling convention (a concept label vs. ``denied_concepts[*].concept`` — the same
+    check ``keyword_ledger``'s ledger floor already runs, never a new classifier). W-2's
+    "fresh input is evidence" stands for a genuinely new fact; it must not let a fresh
+    answer to a targeted question silently reverse a denial the SAME interview recorded
+    minutes earlier. A hit withholds the WHOLE suggestion (every extracted claim), logged
+    with the denied concept and a distinct reason.
+
+    **Measured, honest limit.** This catches a DIRECT/literal concept overlap only. The
+    2026-09-13 delivery-run instance it was built to close (gap concept
+    "Investitionsverantwortung", denial concept "Investitionsentscheidungen selbst
+    treffen") is a semantic paraphrase, not a lexical one — German compound-noun
+    morphology means neither concept is a bounded substring of the other, in either
+    direction, so :func:`is_denied_concept` does not fire on it (pinned by
+    ``test_the_exact_delivery_run_pair_is_the_measured_honest_limit``). Checking the
+    denial's free-text ``statement`` instead was measured and rejected: the SAME
+    statement's other sentence explicitly AFFIRMS "Budgetverantwortung", which also
+    matches via ``is_denied_concept``'s compound-containment branch with no release
+    (``corpus=None``) — trading a miss for a new false positive against an affirmed
+    fact. Closing the semantic gap needs a bounded judgement seam or a clause-scoped
+    corpus, out of this pass's scope (collector line).
     """
     text = (suggestion or "").strip()
     if not text:
@@ -350,6 +378,7 @@ async def _ground_suggestion(
         from applire.services.oracle.audit import verify_claim
         from applire.services.oracle.extract import extract_claims_from_text
         from applire.services.oracle.matchers import build_vault_index, extend_vault_index
+        from applire.services.profile.reconcile.stance import is_denied_concept
 
         result = await db.execute(
             select(MasterProfile)
@@ -364,17 +393,44 @@ async def _ground_suggestion(
             # thing a new user does.
             return text, 0
 
+        claims = await extract_claims_from_text(text, provider=None)
+        if not claims:
+            return text, 0
+
+        denied_concepts = (record.profile_json or {}).get("metadata", {}).get(
+            "denied_concepts"
+        ) or []
+        denial_labels = [
+            dc.get("concept")
+            for dc in denied_concepts
+            if isinstance(dc, dict) and dc.get("concept")
+        ]
+        denied_hit = next(
+            (
+                gid
+                for gid in (gap_ids or [])
+                if gid and denial_labels and is_denied_concept(gid, denial_labels)
+            ),
+            None,
+        )
+        if denied_hit is not None:
+            withheld = [c.text for c in claims]
+            kept = ""
+            logger.info(
+                "CV_ASSIST_WITHHELD_DENIAL concept=%r reason=contradicts_recorded_denial "
+                "count=%d",
+                denied_hit,
+                len(withheld),
+            )
+            return kept, len(withheld)
+
         index = build_vault_index(record.profile_json or {})
         evidence = list(session_evidence)
         if prior_text:
             evidence.append(("section.current", prior_text))
         index = extend_vault_index(index, evidence)
 
-        claims = await extract_claims_from_text(text, provider=None)
-        if not claims:
-            return text, 0
-
-        withheld: list[str] = []
+        withheld = []
         for claim in claims:
             verdict = await verify_claim(claim, record.profile_json or {}, index=index)
             if getattr(verdict, "verdict", None) in _WITHHOLD_VERDICTS:

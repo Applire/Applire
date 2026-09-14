@@ -229,9 +229,14 @@ def assemble_tailored_cv(prose: dict, profile_json: dict) -> dict:
         "languages": _dedup_languages(
             [l for l in (profile_json.get("languages") or []) if isinstance(l, dict)]
         ),
-        # Standalone projects from the segmented path's projects writer; the
-        # single-call prose shape has none (vault standalone projects are nested
-        # by _nest_projects downstream).
+        # Standalone (untied) projects. Since M5.3.1 (#424, rule 10) BOTH the
+        # segmented path's dedicated projects writer AND the single-call
+        # writer's own top-level "projects" field can populate this — the
+        # single-call prose shape is no longer necessarily empty here, per
+        # ADR-067 clause 2's "one contract, not two". Vault projects the
+        # writer left untied are joined separately by _nest_projects
+        # downstream, which also guards against a name colliding with what
+        # the writer already placed here.
         "projects": [p for p in (prose.get("projects") or []) if isinstance(p, dict)],
     }
 
@@ -756,6 +761,28 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 for p in work_history[target_idx].get("projects") or []
             }
             if _ats_norm(name) in existing_names:
+                # Adversarial pass, Nougat build 3 (writer controls, area C):
+                # this skip was written for ONE shape (the writer already
+                # tailored this project; the vault's raw copy is redundant,
+                # not lost) but fires identically on a DIFFERENT shape it
+                # cannot tell apart — two DISTINCT vault ProjectEntry rows
+                # that happen to share a normalised name, a plausible
+                # pre-existing import/reconcile residual. In that shape the
+                # SECOND row's own facts vanish from the delivered document,
+                # and #424's own duplicate_project_pairs check cannot see it
+                # either: by delivery there is only one rendered copy, so
+                # there is no pair to flag. Log it, so the loss this file's
+                # own #424 docstring warns about ("dropping one of two
+                # same-named entries risks deleting bullets only the dropped
+                # copy carries") is at least visible, matching the "never
+                # silent" standard `_suppress_duplicate_project_bullets`
+                # already holds itself to in this module.
+                log_deletion(
+                    "_nest_projects",
+                    "same-name nested-project skip",
+                    name,
+                    role_id=str(work_history[target_idx].get("id") or ""),
+                )
                 continue
             work_history[target_idx].setdefault("projects", []).append(entry)
         else:
@@ -764,6 +791,11 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 for p in list(data.get("projects") or []) + standalone
             ]
             if _ats_norm(name) in already:
+                # Same defect, standalone-container branch — see the nested
+                # branch's comment above.
+                log_deletion(
+                    "_nest_projects", "same-name standalone-project skip", name,
+                )
                 continue
             standalone.append(entry)
 
