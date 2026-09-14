@@ -7,6 +7,7 @@ Run:
     pytest tests/unit/test_reviewer.py -v
 """
 import sys
+import json
 import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
@@ -22,7 +23,7 @@ from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTruncatedError, LLMTimeoutError
 from applire.providers.llm import debug_log
 from applire.services.corrector_feedback import fold_issues_into_feedback
-from applire.services.review_issues import normalize_issues
+from applire.services.review_issues import ReviewSettle, normalize_issues
 from applire.services.signal_disposition import (
     ExhaustionDisposition,
     UndeclaredSignalDispositionError,
@@ -413,6 +414,44 @@ async def test_refiner_truncation_keeps_last_good_draft(mock_provider, caplog, e
     assert mock_provider.aparse_json.call_count == 2  # reviewer + one failed refiner, no further loop
 
 
+@pytest.mark.asyncio
+async def test_refiner_malformed_json_keeps_last_good_draft(mock_provider, caplog):
+    """#688: a weak model's malformed (non-truncated) JSON from the generator/corrector
+    retry call must not crash the loop either. Same precedent as
+    ``test_refiner_truncation_keeps_last_good_draft`` — the pre-refinement draft ships
+    — but the settle report must name the reason ``review_malformed`` rather than
+    ``generator_call_failed``, so a malformed payload is distinguishable from a
+    truncation/timeout in the review report."""
+    good_draft = {"work_history": [{"company": "Acme", "role": "Dev"}]}
+
+    mock_provider.aparse_json.side_effect = [
+        {"approved": False, "issues": ["fix summary"], "feedback": "tighten summary"},
+        json.JSONDecodeError("Extra data", '{"a": 1}{"b": 2}', 8),  # refiner returns malformed JSON
+    ]
+    settles: list[ReviewSettle] = []
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=good_draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            on_settle=settles.append,
+        )
+
+    assert result == good_draft
+    assert mock_provider.aparse_json.call_count == 2  # reviewer + one failed refiner, no further loop
+    assert len(settles) == 1
+    assert settles[0].path == "review_malformed"
+    assert any(
+        "JSONDecodeError" in r.getMessage() for r in caplog.records
+    ), "the parse error class must be named in a log line, no prompt text"
+
+
 # ---------------------------------------------------------------------------
 # #264 — review-loop observability: structured verdict/exhaustion signals
 # ---------------------------------------------------------------------------
@@ -543,6 +582,42 @@ async def test_reviewer_truncation_ships_current_draft(mock_provider, caplog):
 
     assert result == good_draft
     assert mock_provider.aparse_json.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reviewer_malformed_json_ships_current_draft(mock_provider, caplog):
+    """#688: a weak model's malformed (non-truncated) JSON reviewer verdict — an
+    unquoted property name, trailing extra data — must not crash the flow either.
+    Same precedent as ``test_reviewer_truncation_ships_current_draft``: the current
+    draft ships un-reviewed, and the settle report names the reason
+    ``review_malformed`` (visible in the terminal-review/review report the same way
+    exhaustion is), not a generic/unknown path."""
+    good_draft = {"work_history": [{"company": "Acme"}]}
+    mock_provider.aparse_json.side_effect = json.JSONDecodeError(
+        "Expecting property name enclosed in double quotes", "{bad: 1}", 1
+    )
+    settles: list[ReviewSettle] = []
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.reviewer"):
+        result = await review_and_refine(
+            source="src",
+            draft=good_draft,
+            generator_prompt_fn=lambda d, f, s: "retry",
+            generator_system="gen",
+            reviewer_prompt_fn=lambda s, d: "review prompt",
+            reviewer_system="rev",
+            provider=mock_provider,
+            max_retries=2,
+            on_settle=settles.append,
+        )
+
+    assert result == good_draft
+    assert mock_provider.aparse_json.call_count == 1
+    assert len(settles) == 1
+    assert settles[0].path == "review_malformed"
+    assert any(
+        "JSONDecodeError" in r.getMessage() for r in caplog.records
+    ), "the parse error class must be named in a log line, no prompt text"
 
 
 # ---------------------------------------------------------------------------

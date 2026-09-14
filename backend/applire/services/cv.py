@@ -512,10 +512,16 @@ async def _tailor_cv_with_fallback(
             temperature=0.3,
             max_tokens=CV_GENERATION_MAX_TOKENS,
         )
-    except (LLMTruncatedError, LLMTimeoutError):
+    except (LLMTruncatedError, LLMTimeoutError, _json.JSONDecodeError) as exc:
+        # #688: a weak model's single-call writer response can also be malformed
+        # (non-truncated) JSON — an unquoted property name, trailing extra data — and
+        # not just truncated/timed out. It falls to the SAME segmented-generation
+        # fallback as those two, never a crash; only the exception class is logged
+        # (no prompt text, no raw payload).
         logger.warning(
-            "single-call CV tailoring hit the output cap/timeout; switching to segmented "
-            "mode instead of doubling the budget (ADR-047)"
+            "single-call CV tailoring hit the output cap/timeout/malformed output (%s); "
+            "switching to segmented mode instead of doubling the budget (ADR-047)",
+            type(exc).__name__,
         )
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps,
