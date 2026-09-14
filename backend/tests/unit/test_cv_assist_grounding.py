@@ -221,6 +221,123 @@ async def test_the_question_call_site_is_not_triaged():
         assert "_ground_suggestion" in inspect.getsource(fn), fn.__name__
 
 
+# ── Ruling D-1 (2026-09-14, ADR-059 precedent) ────────────────────────────────
+#
+# Delivery run 2026-09-13-operations-marcus-de, outcome 12: a fresh PATCH answer
+# to the targeted gap "Investitionsverantwortung" produced a suggestion claiming
+# "Eigenverantwortliche Entscheidung ... einer Investition von 2 Mio. €" —
+# directly reversing the on-file `denied_concepts` entry "Investitionsentscheidungen
+# selbst treffen" (denial_level "direct"), recorded 20 minutes earlier in the SAME
+# interview — and shipped with `withheld_count: 0`. W-2's "fresh input is evidence"
+# stays; ADR-059's containment floor binds every writer surface, and assist is one.
+#
+# Measured (this file's own reproduction, before deciding the fix shape): the
+# gap's own concept "Investitionsverantwortung" shares no bounded literal token
+# with the denial's concept label "Investitionsentscheidungen selbst treffen" —
+# German compound-noun morphology ("-verantwortung" vs "-entscheidungen") defeats
+# `is_denied_concept`'s bounded-substring matching in EITHER direction, and so
+# does every one of the ledger entry's own `surface_forms`
+# ("Investitionsplanung", "Investitionsvorbereitung"). Using the denial's raw
+# free-text STATEMENT instead of its `concept` label DOES catch this exact pair —
+# but was measured and REJECTED: the same statement's OTHER sentence explicitly
+# AFFIRMS "Budgetverantwortung" ("das operative Budget habe ich verantwortet"),
+# and `is_denied_concept("Budgetverantwortung", [statement])` also returns True
+# with `corpus=None` (fail-closed, no release), which would wrongly withhold a
+# fact the candidate explicitly holds. So this fix reuses `is_denied_concept` at
+# its EXISTING, safe calling convention — `dc["concept"]` only, exactly how
+# `keyword_ledger.py`'s ledger floor already calls it — which closes the DIRECT/
+# literal-overlap case without opening the affirmed-fact false positive. It does
+# NOT close the exact 2026-09-13 case, because that contradiction is semantic
+# (a paraphrase), not lexical, and no bounded-token matcher — reused or new —
+# can prove a paraphrase without a judgement call ADR-062 reserves for a model.
+# Recorded as a `decide:` collector line for a judgement-seam or clause-scoped
+# corpus follow-up, not silently claimed as closed here.
+
+_DENIAL_INVESTMENT = {
+    "concept": "Investitionsentscheidungen selbst treffen",
+    "statement": (
+        "Bei der Investitionsverantwortung muss ich differenzieren: das operative "
+        "Budget habe ich verantwortet, aber Investitionsentscheidungen selbst lagen "
+        "bei der Geschäftsführung, ich habe sie vorbereitet, nicht getroffen."
+    ),
+    "source": "interview",
+    "date": "2026-09-13",
+    "denial_level": "direct",
+    "probe_asked": False,
+}
+
+
+def _profile_with_denial(**denial_over) -> dict:
+    denial = {**_DENIAL_INVESTMENT, **denial_over}
+    profile = dict(_PROFILE)
+    profile["metadata"] = {"denied_concepts": [denial]}
+    return profile
+
+
+class _DenialRecord:
+    def __init__(self, profile_json):
+        self.profile_json = profile_json
+
+
+async def test_a_suggestion_whose_TARGETED_GAP_CONCEPT_repeats_the_denial_is_withheld():
+    """The mechanism fires when the assist session's own gap concept is a bounded
+    literal match for (or of) a recorded denial's concept label — the SAFE,
+    existing calling convention, proven to work on the shape it CAN see.
+
+    The suggestion text here is deliberately something the ORDINARY per-claim
+    grounding would pass cleanly (it restates the vault's own attested fact,
+    word for word) — isolating that the withhold comes from the NEW denial
+    floor, not from the pre-existing numbers/coverage check. Mutation-killed:
+    hardcoding ``denied_hit = None`` left this suggestion grounded and kept,
+    which is exactly the false-negative the mutation must produce for this
+    test to be worth anything.
+    """
+    db = _FakeDB(record=_DenialRecord(_profile_with_denial(
+        concept="Investitionsentscheidungen"
+    )))
+    kept, withheld = await _ground_suggestion(
+        "Zwei Fertigungsbereiche mit 38 Mitarbeitenden im Dreischichtbetrieb geführt.",
+        db,
+        session_evidence=[("session.answer", "Ich habe eigenständig entschieden.")],
+        gap_ids=["Investitionsentscheidungen"],
+    )
+    assert kept == ""
+    assert withheld == 1
+
+
+async def test_the_denial_floor_names_no_gap_and_is_a_no_op_when_nothing_denied():
+    """No `denied_concepts` at all, or no `gap_ids` passed: the new check must be
+    inert, never a false trigger on an ordinary vault."""
+    kept, withheld = await _ground_suggestion(
+        "Zwei Fertigungsbereiche mit 38 Mitarbeitenden geführt.",
+        _FakeDB(),
+        session_evidence=[("session.answer", "")],
+        gap_ids=["Führung"],
+    )
+    assert withheld == 0
+    assert kept
+
+
+async def test_the_exact_delivery_run_pair_is_the_measured_honest_limit():
+    """Pins the REFUTATION, so nobody re-claims this closed on a re-read of the
+    docstring alone: the real gap concept from the 2026-09-13 run
+    ("Investitionsverantwortung") does NOT match the real denial concept label
+    ("Investitionsentscheidungen selbst treffen") under `is_denied_concept`, in
+    either direction, nor via any of the ledger entry's own captured
+    `surface_forms`. If this ever goes green, `is_denied_concept` gained cross-
+    compound matching and the collector line recommending a judgement seam
+    should be re-examined, not silently dropped."""
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    denial_label = _DENIAL_INVESTMENT["concept"]
+    for candidate in (
+        "Investitionsverantwortung",
+        "Investitionsplanung",
+        "Investitionsvorbereitung",
+    ):
+        assert not is_denied_concept(candidate, [denial_label]), candidate
+
+
 @pytest.mark.filterwarnings("ignore::pytest.PytestWarning")
 def test_the_evidence_set_extension_is_pure_and_role_agnostic():
     """`extend_vault_index` must not let session testimony masquerade as an experience
