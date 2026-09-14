@@ -549,6 +549,33 @@ _PROSE_STOPWORDS = _SKILL_STOPWORDS | frozenset({
     "worden", "sei", "seien", "hat", "haben", "hatte", "hatten", "habe",
     "kann", "können", "koennen", "konnte", "konnten",
     "soll", "sollen", "muss", "müssen", "muessen", "wollte", "will",
+} | {
+    # English closed-class function words (adversarial pass, Nougat build 3,
+    # area B follow-up on #659). The 2026-09-13 recalibration fixed HALF the
+    # population: `bullets_prose_dupe` audits documents in BOTH supported
+    # output languages (ADR-068 clause 2a), and `_SKILL_STOPWORDS` — eleven
+    # words calibrated for short skill NAMES — never stripped an English
+    # pronoun, demonstrative or auxiliary from PROSE either. Measured false
+    # positive, mirroring the German one this ADR-082 clause already fixed:
+    # "This is the position that was created for the team that needed the
+    # most support in the region." vs "...role...designed...group...help...
+    # district." — two candidates, two genuinely different sentences — shared
+    # exactly {this, is, that, needed, most}, five function words, reaching
+    # containment 0.45 against the 0.40 threshold before this addition.
+    # Closed class only, same discipline as the German list: pronouns and
+    # demonstratives, auxiliary/modal verbs, conjunctions/particles and
+    # prepositions — no content word, so no achievement vocabulary is
+    # silently discarded.
+    "this", "that", "these", "those", "it", "its", "he", "she", "they",
+    "them", "their", "we", "you", "who", "which", "what", "whom", "whose",
+    "is", "are", "was", "were", "be", "been", "being",
+    "has", "have", "had", "will", "would", "can", "could", "should",
+    "shall", "may", "might", "do", "does", "did",
+    "but", "so", "because", "although", "though", "while", "whereas",
+    "also", "further", "furthermore", "moreover", "therefore", "thus",
+    "on", "at", "by", "from", "into", "onto", "upon", "over", "under",
+    "between", "among", "through", "during", "before", "after", "about",
+    "against", "without", "within", "as", "than", "then",
 })
 
 

@@ -513,6 +513,65 @@ def test_the_prose_stoplist_contains_no_content_words():
     assert _SKILL_STOPWORDS < _PROSE_STOPWORDS
 
 
+# ── adversarial pass, Nougat build 3 — the fix swapped one monolingual failure
+# for another: #659 recalibrated the German half of the population and left the
+# English half on the original 11-word `_SKILL_STOPWORDS` list. `bullets_prose_dupe`
+# audits documents in BOTH supported document languages (ADR-068 clause 2a); an
+# English candidate faces the identical containment shape the German fix exists
+# to close, just built from different function words.
+
+_EN_DISTINCT_TEMPLATE_A = (
+    "This is the position that was created for the team that needed the most "
+    "support in the region."
+)
+_EN_DISTINCT_TEMPLATE_B = (
+    "This is the role that was designed for the group that needed the most "
+    "help in the district."
+)
+_EN_TRUE_DUPE_LONG = (
+    "Reduced production defect rate from 4.1 percent to 2.3 percent through "
+    "SMED implementation."
+)
+_EN_TRUE_DUPE_SHORT = (
+    "Achieved a defect rate reduction from 4.1 percent to 2.3 percent by "
+    "implementing SMED methodology."
+)
+
+
+def test_two_distinct_english_bullets_sharing_a_template_are_not_a_duplicate():
+    """The English mirror of `test_two_different_roles_at_two_employers_are_not_a_duplicate`.
+
+    Before this fix these two shared exactly {this, is, that, needed, most} — five
+    function words — reaching containment 0.45 against the 0.40 threshold, because
+    `_SKILL_STOPWORDS` (eleven English words calibrated for short skill NAMES) never
+    stripped a pronoun, demonstrative or auxiliary. A team in one region and a group
+    in another are not the same achievement.
+    """
+    assert not bullets_prose_dupe(_EN_DISTINCT_TEMPLATE_A, _EN_DISTINCT_TEMPLATE_B), (
+        "English function words alone must not carry a redundancy verdict"
+    )
+
+
+def test_the_real_english_restatement_is_still_caught():
+    """The other half of the bar, in English: widening the stoplist may not buy its
+    precision by blinding the predicate to a genuine restatement."""
+    assert bullets_prose_dupe(_EN_TRUE_DUPE_LONG, _EN_TRUE_DUPE_SHORT)
+
+
+def test_the_english_additions_to_the_prose_stoplist_contain_no_content_words():
+    """Same shape as `test_the_prose_stoplist_contains_no_content_words`, for the
+    English closed class: every addition is a pronoun, demonstrative, auxiliary,
+    conjunction or preposition, never a term a CV bullet could be ABOUT."""
+    from applire.services.ats_audit import _PROSE_STOPWORDS
+
+    forbidden = {
+        "defect", "rate", "percent", "smed", "implementation", "methodology",
+        "team", "region", "district", "support", "help", "position", "role",
+        "reduced", "achieved", "production",
+    }
+    assert not (_PROSE_STOPWORDS & forbidden), _PROSE_STOPWORDS & forbidden
+
+
 def test_skills_near_dupe_is_unaffected_by_the_prose_stoplist():
     """The scope assertion. `skills_near_dupe` feeds `_field_relation`, the
     reconciler's entity-identity predicate for companies, project names, volunteer
