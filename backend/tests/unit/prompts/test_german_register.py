@@ -85,7 +85,7 @@ def test_with_language_de_keeps_the_output_language_directive(
 
 def test_cv_assist_question_prompt_instructs_the_du_register():
     """Kaile's assist question is German prose the candidate reads directly."""
-    from applire.services.cv_assist import _question_prompt
+    from applire.prompts.cv_assist import build_assist_question_prompt as _question_prompt
 
     prompt = _question_prompt("Einleitung", "Erfahrener Entwickler", "Python")
     lower = prompt.lower()
@@ -97,7 +97,7 @@ def test_cv_assist_suggestion_prompt_stays_register_free():
     """The suggestion prompt writes CV *section* prose, not text addressed to
     the candidate. A du-directive here would leak "du" into the document, so
     this prompt is deliberately left alone."""
-    from applire.services.cv_assist import _suggestion_prompt
+    from applire.prompts.cv_assist import build_assist_suggestion_prompt as _suggestion_prompt
 
     prompt = _suggestion_prompt(
         "Einleitung", "Erfahrener Entwickler", "Seit 2019 Python", "Python"

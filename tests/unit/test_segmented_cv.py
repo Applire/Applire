@@ -290,6 +290,30 @@ async def test_timed_out_single_call_falls_back_to_segmented():
 
 
 @pytest.mark.asyncio
+async def test_malformed_json_single_call_falls_back_to_segmented():
+    """#688: a weak model's single-call writer response can be malformed (non-truncated)
+    JSON — an unquoted property name, trailing extra data — rather than truncated. This
+    must fall to the same segmented-generation fallback as truncation/timeout, not crash
+    the generation (the tier-2 z-ai/glm-5.3-flash run's uncaught JSONDecodeError)."""
+    import json
+
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import _tailor_cv_with_fallback, assemble_tailored_cv
+
+    exc = json.JSONDecodeError(
+        "Expecting property name enclosed in double quotes", "{bad: 1}", 1
+    )
+    provider = _SingleCallFails(exc)
+    prose = await _tailor_cv_with_fallback(
+        _JOB, _PROFILE, [], output_language="de", provider=provider
+    )
+    cv = TailoredCVData.model_validate(assemble_tailored_cv(prose, _PROFILE))
+
+    assert provider.single_calls == 1  # tried the fast path once
+    assert len(cv.work_history) == 2  # then completed via segmentation
+
+
+@pytest.mark.asyncio
 async def test_successful_single_call_skips_segmentation():
     """The happy path on a capable model stays a single call — segmentation is the
     fallback, not the default (ADR-047: happy path stays fast)."""

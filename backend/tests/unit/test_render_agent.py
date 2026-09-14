@@ -4,9 +4,21 @@
 """US250 (E044, ADR-054) — render_agent_cv / render_agent_letter.
 
 The agent door's core invariant: Applire renders and reports, it never
-rewrites. Content must be persisted VERBATIM (modulo the security photo strip
-and the letter chrome backfill), with origin='agent' and both reports in place
-before the row is observable as 'ready'.
+rewrites. Content must be persisted VERBATIM (modulo the CV's own security
+photo strip and the letter chrome backfill), with origin='agent' and both
+reports in place before the row is observable as 'ready'.
+
+M5.4.2 (1) (2026-09-13, founder ruling): the letter side of this used to have
+its OWN security photo strip — the door validated content, then overwrote
+``letter_data["header"]["photo_url"]`` with ``None`` so a caller-supplied file
+path could never reach ``storage.read``. ``LetterHeader.photo_url`` is now
+gone from the schema entirely (no letter template has ever rendered it), so
+that mechanism is retired: a caller naming ``header.photo_url`` at all now
+gets rejected by ``extra="forbid"`` before the door does anything else with
+the payload (see ``test_render_agent_letter_header_photo_url_rejected``). The
+CV side is unaffected — ``TailoredContact.photo_url`` stays real content,
+handled entirely by ``show_photo`` (see
+``test_render_agent_cv_show_photo_false_strips_entirely``).
 """
 import sys
 import uuid
@@ -73,7 +85,6 @@ AGENT_LETTER_CONTENT = {
         "address": "Hauptstraße 42, 10115 Berlin",
         "phone": None,
         "email": "anna@example.de",
-        "photo_url": "/etc/passwd",  # hostile — must be stripped
     },
     "recipient": {
         "name": "Frau Schmidt",
@@ -333,8 +344,8 @@ async def test_render_agent_letter_chrome_injected_when_absent(seeded):
     # chrome injected (DE job): a real date and the German closing
     assert cl.letter_data["recipient"]["date"]
     assert cl.letter_data["signature"]["closing"] == "Mit freundlichen Grüßen"
-    # photo stripped; body verbatim
-    assert cl.letter_data["header"]["photo_url"] is None
+    # body verbatim; no photo_url leaf exists on the schema since M5.4.2 (1)
+    assert "photo_url" not in cl.letter_data["header"]
     assert cl.letter_data["body"]["paragraphs"] == AGENT_LETTER_CONTENT["body"]["paragraphs"]
 
 
@@ -430,6 +441,32 @@ async def test_render_agent_letter_unknown_field_rejected(seeded):
     with pytest.raises(ValidationError) as exc_info:
         await render_agent_letter(content, seeded["job_id"], seeded["db"])
     assert "subject" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_render_agent_letter_header_photo_url_rejected(seeded):
+    """M5.4.2 (1) (2026-09-13, founder ruling): before this change,
+    ``render_agent_letter`` validated the caller's content, then
+    unconditionally overwrote ``letter_data["header"]["photo_url"]`` with
+    ``None`` — a security strip, since no letter template renders it and
+    ``storage.read`` has no traversal guard. ``LetterHeader.photo_url`` is
+    now dropped from the schema entirely, so a caller naming it at all gets
+    rejected by ``extra="forbid"`` before the door does anything else with
+    the content — the SAME property (a caller-supplied path never reaches
+    storage.read), enforced by the schema instead of by a post-validation
+    assignment. Mirrors ``test_render_agent_letter_unknown_field_rejected``
+    above (a top-level unknown field), but for a NESTED one, and pins the
+    field path the MCP layer surfaces (US251)."""
+    from applire.services.cover_letter import render_agent_letter
+
+    content = {
+        **AGENT_LETTER_CONTENT,
+        "header": {**AGENT_LETTER_CONTENT["header"], "photo_url": "/etc/passwd"},
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        await render_agent_letter(content, seeded["job_id"], seeded["db"])
+    errors = exc_info.value.errors()
+    assert any(err["loc"] == ("header", "photo_url") for err in errors), errors
 
 
 @pytest.mark.asyncio

@@ -293,8 +293,9 @@ def log_signal_fallback_applied(chain_id: str, signal_id: str, path: str) -> Non
 
     ``path`` carries WHICH settle path fired it (e.g. ``"exhausted"``,
     ``"cycle_detected"``, ``"reviewer_call_failed"``, ``"generator_call_failed"``,
-    ``"minor_only"``, ``"approved"``) — a fixed, small, closed vocabulary matching the
-    literal strings ``services/reviewer.py`` passes to ``_settle``. Never ``None``:
+    ``"review_malformed"``, ``"minor_only"``, ``"approved"``) — a fixed, small, closed
+    vocabulary matching the literal strings ``services/reviewer.py`` passes to
+    ``_settle``. Never ``None``:
     the loop never calls this for the ``max_retries<=0`` (review-disabled) path, which
     has no issues by construction and is excluded from signal-fallback consideration
     entirely (see that module's docstring for the reasoning).

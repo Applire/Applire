@@ -969,7 +969,12 @@ def _has_meaningful_data(profile: "MasterProfileData", section: str) -> bool:
     if isinstance(value, PersonalInfo):
         return bool(value.name or value.email)
     if isinstance(value, ProfessionalSummary):
-        return bool(value.de or value.en)
+        # ONE predicate with the gap agenda (#675 line 42 / ruling V-1) — the two
+        # readers of this fact disagreed for as long as both existed, and the
+        # agenda was the one that was wrong.
+        from applire.services.profile.completeness import summary_present
+
+        return summary_present(value)
     return bool(value)
 
 
@@ -1202,6 +1207,22 @@ VAULT_SECTIONS: frozenset[str] = frozenset(
 # replaced wholesale, which is what both doors document.
 OBJECT_SECTIONS: frozenset[str] = frozenset({"personal_info", "professional_summary"})
 
+#: `personal_info` fields ANOTHER WRITER owns — no vault door may write them and
+#: none may raise a dispute about them, because the candidate is not the party who
+#: would answer it. `photo_url` belongs to the photo endpoints
+#: (`services/photo.py`: upload records the GDPR consent, delete removes the
+#: stored file); a foreign URL there ends up in the CV's `<img src>`, rendered by
+#: headless Chromium.
+#:
+#: ONE constant because it is ONE rule (ADR-066 cl. 2). It was stated twice, in
+#: two vocabularies — `field_edit.py` RAISED on the section door and
+#: `reconcile/apply.py` SKIPPED on the import door — which is the shape that
+#: drifts silently: adding a second user-managed field would have protected one
+#: door and not the other, and the two behaviours (refuse vs. drop) are
+#: deliberately different, so nothing would have looked wrong. Vault collector
+#: #674, PR #663 (D).
+USER_MANAGED_PERSONAL_INFO_FIELDS: frozenset[str] = frozenset({"photo_url"})
+
 
 # ─── API response models ──────────────────────────────────────────────────────
 
@@ -1244,6 +1265,12 @@ class ProfileImportResponse(MasterProfileResponse):
 
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
+    # name every import caller already reads. `ProfileImportView.tsx` posts a
+    # LinkedIn/XING export to this door and then reads `data.completeness_score`
+    # (the CVUploadResponse spelling); it has been reading `undefined` since the
+    # ZIP branch was written. Additive alias, never a second computation.
+    completeness_score: float | None = None
 
 
 class LinkedInImportRequest(BaseModel):

@@ -93,12 +93,52 @@ def test_the_enumeration_finds_the_prompt_constants():
     )
 
 
+#: Constants whose call sites use ``acomplete`` (free prose), never ``aparse_json``.
+#: Probing those through ``aparse_json`` would test a path production never takes and
+#: would be satisfied by a branch nothing calls — so they are probed through the method
+#: they actually use, and asserted against the mock's DEFAULT prose rather than against
+#: the generic JSON fallback. M5.7.1: the four below became visible to this enumeration
+#: when their prompts moved into `applire/prompts/`, and all four were unrecognised.
+_ACOMPLETE_CONSTANTS = {
+    "ASSIST_QUESTION_SYSTEM_PROMPT",
+    "ASSIST_SUGGESTION_SYSTEM_PROMPT",
+    "ASSIST_REWRITE_SYSTEM_PROMPT",
+}
+
+
+@pytest.mark.asyncio
+async def test_every_acomplete_system_prompt_gets_its_own_mock_response():
+    """An ``acomplete`` call site that falls through returns the mock's interview
+    question — so a mock-stack IQ/OQ/PQ run exercises the plumbing while reading nothing
+    like the surface's real output. For the CV section assist that meant an English
+    interview question arriving where German CV prose belongs."""
+    from applire.providers.llm.mock import _INTERVIEW_QUESTION
+
+    provider = MockLLMProvider()
+    unmatched: list[str] = []
+    seen: set[str] = set()
+    for module_name, constant_name, system in _system_prompt_constants():
+        if constant_name not in _ACOMPLETE_CONSTANTS:
+            continue
+        seen.add(constant_name)
+        response = await provider.acomplete(_GENERIC_PROBE, system=system)
+        if response == _INTERVIEW_QUESTION:
+            unmatched.append(f"applire/prompts/{module_name}.py::{constant_name}")
+    assert seen == _ACOMPLETE_CONSTANTS, (
+        f"the enumeration no longer finds {_ACOMPLETE_CONSTANTS - seen} — a renamed or "
+        "moved constant makes this check silently cover less than it claims"
+    )
+    assert unmatched == [], unmatched
+
+
 @pytest.mark.asyncio
 async def test_every_system_prompt_constant_is_recognised_by_the_mock_provider():
     provider = MockLLMProvider()
     unmatched: list[str] = []
 
     for module_name, constant_name, system in _system_prompt_constants():
+        if constant_name in _ACOMPLETE_CONSTANTS:
+            continue
         prompt = _PROBE_PROMPTS.get(constant_name, _GENERIC_PROBE)
         response = await provider.aparse_json(prompt, system=system)
         if _is_generic_fallback(response):

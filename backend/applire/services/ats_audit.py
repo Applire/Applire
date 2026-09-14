@@ -472,7 +472,111 @@ _PROSE_DUPE_MIN_RUN = 3
 #: 4-token bullets naming different standards ("ISO 9001 verantwortet" /
 #: "ISO 45001 vorbereitet") share most of their tokens while stating distinct
 #: facts. Short bullets fall back to exact equality.
-_PROSE_DUPE_MIN_TOKENS = 8
+#:
+#: **8 → 6 on 2026-09-13 (#659), and the two constants are coupled.** This floor
+#: counts tokens AFTER stopword removal, so widening :data:`_PROSE_STOPWORDS` to
+#: German function words shortens every German bullet and silently pushed
+#: real bullets under the old floor — #424's LucaNet pair (7 content tokens on the
+#: shorter side) stopped being detected at all. Swept over the whole labelled
+#: population: 6 and 7 both keep every positive, and 6 is the one chosen, because
+#: at 7 the measured false positive is suppressed by the FLOOR (its shorter bullet
+#: has exactly 6 content tokens) rather than by the stoplist — a right answer for
+#: the wrong reason, and a reason that stops working on the next sentence. At 6 the
+#: short-bullet negatives still fall back to exact equality with margin
+#: ("ISO 9001 verantwortet" = 3 content tokens, "SAP PP für Disposition
+#: eingesetzt." = 4).
+_PROSE_DUPE_MIN_TOKENS = 6
+
+#: German closed-class function words, stripped from PROSE tokens only (#659,
+#: ADR-082 clause 5 amendment 2026-09-13).
+#:
+#: `_SKILL_STOPWORDS` is eleven ENGLISH words. It was calibrated for the
+#: population `skill_tokens` serves — short, mostly English/technical skill NAMES
+#: — and on a 2–5-token name a stray German article changes nothing. Over a
+#: 30-token German sentence it changes everything, because
+#: `_PROSE_DUPE_CONTAINMENT` divides by the SHORTER bullet's token count: a short
+#: bullet whose tokens are one-third articles and conjunctions reaches 0.40
+#: containment against any other German sentence, on function words alone.
+#:
+#: Measured on the delivered CV of the 2026-09-11 delivery run
+#: (`operations_marcus_de`): `work_history[1].bullets[0]` ("Führung einer Schicht
+#: mit 14 Mitarbeitenden …") and `work_history[2].bullets[0]` ("Als Facharbeiter
+#: in der Instandhaltung …") — two different roles at two different employers —
+#: were flagged at containment 0.444 on the shared token set
+#: {`als`, `der`, `tätig`, `und`}. Nothing about those four tokens is an
+#: achievement. `duplicate-bullets` FAILED on that delivered document, so this is
+#: a false accusation the candidate actually received.
+#:
+#: **Scope: PROSE only.** `skill_tokens` and therefore `skills_near_dupe` keep the
+#: English list unchanged — that predicate is the reconciler's entity-identity
+#: primitive at six vault-merge call sites (ADR-082 Context 1), and re-calibrating
+#: it here would silently move what the vault auto-merges. Two predicates over one
+#: normaliser (ADR-066), two stoplists over two populations.
+#:
+#: **Closed class only.** Articles, determiners, conjunctions/particles,
+#: prepositions, pronouns, auxiliaries and modals — no content word is on this
+#: list, so no achievement vocabulary can be silently discarded. The light verbs
+#: that also appeared in the measured false positive ("tätig", "erfolgt") were
+#: tried and are NOT needed: the closed-class set alone removes the false positive
+#: (`Documents/Runs/Nougat/build-3/w/659-calibration.md`).
+_PROSE_STOPWORDS = _SKILL_STOPWORDS | frozenset({
+    # articles and determiners
+    "der", "die", "das", "den", "dem", "des",
+    "ein", "eine", "einer", "eines", "einem", "einen",
+    "dieser", "diese", "dieses", "diesen", "diesem",
+    "jeder", "jede", "jedes", "alle", "allen", "aller",
+    "kein", "keine", "keinen", "keiner", "keinem",
+    # conjunctions, subjunctions and particles
+    "und", "oder", "aber", "sowie", "sowohl", "auch", "denn", "dass", "ob",
+    "wenn", "wie", "als", "dabei", "dadurch", "damit", "dazu", "somit",
+    "daher", "deshalb", "zudem", "ferner", "bzw",
+    "nicht", "noch", "nur", "mehr", "sehr", "schon", "bereits", "dann",
+    "hier", "dort", "so",
+    # prepositions
+    "in", "im", "ins", "an", "am", "ans", "auf", "aus", "bei", "beim",
+    "mit", "nach", "von", "vom", "vor", "zu", "zum", "zur",
+    "für", "fuer", "über", "ueber", "unter", "durch", "gegen", "ohne",
+    "um", "bis", "seit", "während", "waehrend", "wegen", "innerhalb",
+    "pro", "je", "per", "gemäß", "gemaess", "laut", "ab",
+    "hinter", "neben", "zwischen", "entlang", "samt", "inkl", "inklusive",
+    # pronouns
+    "sich", "es", "sie", "er", "ihn", "ihm", "ihr", "ihre", "ihrer",
+    "ihres", "ihren", "ihrem", "sein", "seine", "seiner", "seines",
+    "seinen", "seinem", "man", "wir", "uns", "unsere", "unserer",
+    "dessen", "deren", "welche", "welcher", "welches", "was", "wer",
+    # auxiliaries, copulas and modals
+    "ist", "sind", "war", "waren", "wurde", "wurden", "werden", "wird",
+    "worden", "sei", "seien", "hat", "haben", "hatte", "hatten", "habe",
+    "kann", "können", "koennen", "konnte", "konnten",
+    "soll", "sollen", "muss", "müssen", "muessen", "wollte", "will",
+} | {
+    # English closed-class function words (adversarial pass, Nougat build 3,
+    # area B follow-up on #659). The 2026-09-13 recalibration fixed HALF the
+    # population: `bullets_prose_dupe` audits documents in BOTH supported
+    # output languages (ADR-068 clause 2a), and `_SKILL_STOPWORDS` — eleven
+    # words calibrated for short skill NAMES — never stripped an English
+    # pronoun, demonstrative or auxiliary from PROSE either. Measured false
+    # positive, mirroring the German one this ADR-082 clause already fixed:
+    # "This is the position that was created for the team that needed the
+    # most support in the region." vs "...role...designed...group...help...
+    # district." — two candidates, two genuinely different sentences — shared
+    # exactly {this, is, that, needed, most}, five function words, reaching
+    # containment 0.45 against the 0.40 threshold before this addition.
+    # Closed class only, same discipline as the German list: pronouns and
+    # demonstratives, auxiliary/modal verbs, conjunctions/particles and
+    # prepositions — no content word, so no achievement vocabulary is
+    # silently discarded.
+    "this", "that", "these", "those", "it", "its", "he", "she", "they",
+    "them", "their", "we", "you", "who", "which", "what", "whom", "whose",
+    "is", "are", "was", "were", "be", "been", "being",
+    "has", "have", "had", "will", "would", "can", "could", "should",
+    "shall", "may", "might", "do", "does", "did",
+    "but", "so", "because", "although", "though", "while", "whereas",
+    "also", "further", "furthermore", "moreover", "therefore", "thus",
+    "on", "at", "by", "from", "into", "onto", "upon", "over", "under",
+    "between", "among", "through", "during", "before", "after", "about",
+    "against", "without", "within", "as", "than", "then",
+})
 
 
 @lru_cache(maxsize=2048)
@@ -485,15 +589,19 @@ def _prose_tokens(text: str) -> tuple[str, ...]:
     cache: 1,993 ms per audit. Returns a tuple so the cached value cannot be
     mutated by a caller.
 
-    Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and same
-    edge-punctuation/stopword treatment as :func:`skill_tokens`, so "Code-Review"
-    and "code review" tokenise alike here exactly as they do there — one
+    Same `_norm` (NFKC, dash->space, casefold, whitespace collapse) and the same
+    edge-punctuation treatment as :func:`skill_tokens`, so "Code-Review" and
+    "code review" tokenise alike here exactly as they do there — one
     normalisation for the module (ADR-066), two predicates over it.
+
+    The STOPLIST is the one thing that is deliberately not shared: this population
+    is German prose sentences, not English-leaning skill names — see
+    :data:`_PROSE_STOPWORDS`.
     """
     out: list[str] = []
     for raw in _norm(text).split():
         t = raw.strip(_SKILL_EDGE_PUNCT)
-        if t and t not in _SKILL_STOPWORDS:
+        if t and t not in _PROSE_STOPWORDS:
             out.append(_skill_stem(t))
     return tuple(out)
 
@@ -529,10 +637,18 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     real delivered document behind #659 — 9 of 15 human-labelled redundant pairs
     caught, including every pair the issue names, with the one genuinely distinct
     project bullet never flagged. Negatives: 0 of 139 distinct-bullet pairs drawn
-    from all four `tests/files/panel_review_case` CVs. The negative population is
-    hand-authored rather than LLM-written and therefore understates the
-    false-positive risk of the population this will meet; the threshold is
-    recorded as measured on n=1 delivered document and is expected to move.
+    from all four `tests/files/panel_review_case` CVs.
+
+    **Re-measured 2026-09-13 (#659, build 3) on the population the 2026-09-03 note
+    predicted would move it** — two further real delivered documents, from the
+    2026-09-10 and 2026-09-11 delivery runs. Both shipped with
+    `duplicate-bullets: fail`. Three pairs were flagged across them; two are true
+    (a verbatim copied clause, and a bullet restating its neighbour's Lean/KVP/SMED
+    content) and **one was a pure false positive driven by German function words**,
+    which is what :data:`_PROSE_STOPWORDS` now removes. After that change:
+    positives 2/2 and 5/5 on the #659 fixture pairs, false positives 0 — over the
+    two delivered documents, the module's nine negative controls, and 147
+    distinct-bullet pairs from the four `panel_review_case` CVs.
 
     Symmetric. This is the ONE implementation for prose redundancy (ADR-066): the
     three exact-match passes of arc42 §5.3.23's matrix converge onto it rather
@@ -554,6 +670,125 @@ def bullets_prose_dupe(a: str, b: str) -> bool:
     if not shared:
         return False
     return _longest_shared_run(ta, tb) >= _PROSE_DUPE_MIN_RUN
+
+
+def _field(obj, name):
+    """Read a field from either a `TailoredCVData`-shaped model or its `model_dump`.
+
+    The audit holds the typed model; the review loop's signal holds the same document
+    as a plain dict (``_subject_for(draft).model_dump(mode="json")``). One enumeration
+    serves both (ADR-066) rather than the signal growing a second copy that drifts.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def delivered_bullets(tailored) -> list[tuple[str, str]]:
+    """Every bullet the document DELIVERS, as ``(location, text)``, in render order.
+
+    Within each role's own list, within each project's own list (nested and
+    standalone), across the role/nested-project boundary — one flat set. Enumerating
+    the whole delivered set, rather than the handful of axes someone thought to name,
+    is what makes `duplicate-bullets`' scope equal to its name, and it is what reaches
+    #424's shape at all: one project entity rendered BOTH nested under its role and
+    standalone puts its bullets in two different containers, which no per-axis scan
+    compares.
+
+    The ``location`` string is the finding's only way of being actionable — it is read
+    by a human in the ATS report and by the corrector in the review loop.
+    """
+    out: list[tuple[str, str]] = []
+
+    def _collect(where: str, bullets) -> None:
+        for b in bullets or []:
+            if isinstance(b, str) and b.strip():
+                out.append((where, b))
+
+    for w in _field(tailored, "work_history") or []:
+        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
+        _collect(where, _field(w, "bullets"))
+        for proj in (_field(w, "projects") or []):
+            _collect(f"{where} > {_field(proj, 'name') or '?'}", _field(proj, "bullets"))
+    for proj in (_field(tailored, "projects") or []):
+        _collect(f"Projekte > {_field(proj, 'name') or '?'}", _field(proj, "bullets"))
+    return out
+
+
+def delivered_projects(tailored) -> list[tuple[str, str]]:
+    """Every project the document RENDERS, as ``(location, name)``, in render order.
+
+    Nested under each work entry, then the standalone top-level section. Same shape and
+    the same reason as :func:`delivered_bullets`: one enumeration of what the reader
+    actually sees, rather than a per-axis scan that never crosses the two containers.
+    """
+    out: list[tuple[str, str]] = []
+    for w in _field(tailored, "work_history") or []:
+        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
+        for proj in (_field(w, "projects") or []):
+            name = (_field(proj, "name") or "").strip()
+            if name:
+                out.append((where, name))
+    for proj in (_field(tailored, "projects") or []):
+        name = (_field(proj, "name") or "").strip()
+        if name:
+            out.append(("Projekte", name))
+    return out
+
+
+def duplicate_project_pairs(tailored) -> list[tuple[str, str, str, str]]:
+    """Project ENTITIES rendered twice, as ``(location_a, name_a, location_b, name_b)``.
+
+    #424: one real project reached both the nested section and the standalone section,
+    "leicht abweichend formuliert" as the blind hiring manager put it, and shipped twice.
+    `_nest_projects` deduplicates by normalised name WITHIN each destination bin and
+    never ACROSS them — and more narrowly still on the nested side, where the check is
+    scoped to one role's own list, so two nested copies under different roles also
+    survive. This enumerates the whole rendered set instead.
+
+    The predicate is :func:`skills_near_dupe`, deliberately, and this is the ADR-082
+    clause-1 line doing its job rather than being worked around: "is this project the
+    same entity as that one" is a question about NAMES, which is a FACT the deterministic
+    layer may compute — it is already the reconciler's entity-identity predicate for
+    project names (`reconcile/apply.py`) — whereas "do these two bullets state the same
+    achievement" is a judgement and gets the prose sibling. Name vs prose, one predicate
+    each.
+
+    DETECTION ONLY. ADR-082 clause 3 and ADR-058 clause 4: dropping one of two same-named
+    project entries risks deleting bullets only the dropped copy carries, which is the
+    `triage:document-harm` outcome #424 is labelled with. The double WRITE is the
+    reconciler's ONE CONTAINER rule to prevent; this makes the residue visible on every
+    delivered document, at both doors.
+    """
+    rendered = delivered_projects(tailored)
+    pairs: list[tuple[str, str, str, str]] = []
+    for i in range(len(rendered)):
+        for j in range(i + 1, len(rendered)):
+            (wa, a), (wb, b) = rendered[i], rendered[j]
+            if _norm(a) == _norm(b) or skills_near_dupe(a, b):
+                pairs.append((wa, a, wb, b))
+    return pairs
+
+
+def redundant_bullet_pairs(tailored) -> list[tuple[str, str, str, str]]:
+    """Delivered bullet pairs that state the same achievement, as
+    ``(location_a, text_a, location_b, text_b)``.
+
+    THE one enumeration for prose redundancy on a delivered CV (ADR-066). Two readers:
+    the `duplicate-bullets` ATS check, which reports it to the candidate, and the
+    review loop's deterministic redundancy signal, which hands it to the corrector.
+    Both are detection — neither may cut content (ADR-082 clauses 1-3, narrowed
+    2026-09-05 to the DETERMINISTIC layer: the LLM corrector may repair, a threshold
+    may not delete).
+    """
+    delivered = delivered_bullets(tailored)
+    pairs: list[tuple[str, str, str, str]] = []
+    for i in range(len(delivered)):
+        for j in range(i + 1, len(delivered)):
+            (wa, a), (wb, b) = delivered[i], delivered[j]
+            if bullets_prose_dupe(a, b):
+                pairs.append((wa, a, wb, b))
+    return pairs
 
 
 # ── #391 interim (PO-ruled 2026-08-15, ADR-076 amendment 4 point 6): a
@@ -984,27 +1219,8 @@ def _audit_cv_text(
     # equal to its name. It is also what reaches #424's shape: one project entity
     # rendered BOTH nested under its role and standalone puts its bullets in two
     # different containers, which no per-axis scan compares.
-    delivered: list[tuple[str, str]] = []  # (location, bullet)
-
-    def _collect(where: str, bullets) -> None:
-        for b in bullets or []:
-            if isinstance(b, str) and b.strip():
-                delivered.append((where, b))
-
-    for w in tailored.work_history:
-        where = f"{w.company or '?'} / {w.role or '?'}"
-        _collect(where, w.bullets)
-        for proj in (w.projects or []):
-            _collect(f"{where} > {proj.name or '?'}", proj.bullets)
-    for proj in (tailored.projects or []):
-        _collect(f"Projekte > {proj.name or '?'}", proj.bullets)
-
-    dupe_pairs: list[tuple[str, str, str, str]] = []
-    for i in range(len(delivered)):
-        for j in range(i + 1, len(delivered)):
-            (wa, a), (wb, b) = delivered[i], delivered[j]
-            if bullets_prose_dupe(a, b):
-                dupe_pairs.append((wa, a, wb, b))
+    delivered = delivered_bullets(tailored)
+    dupe_pairs = redundant_bullet_pairs(tailored)
 
     # Emitted whenever a comparison was actually possible — a document with fewer
     # than two bullets has nothing to say here, and a check that reports `pass`
@@ -1017,6 +1233,25 @@ def _audit_cv_text(
                    for wa, a, wb, b in dupe_pairs[:5]
                )
                + (f" (+{len(dupe_pairs) - 5} more)" if len(dupe_pairs) > 5 else ""))
+
+    # ── #424 (ADR-082 clause 1, 2026-09-13) ─────────────────────────────────
+    # The bullet-level check above cannot name the SHAPE when the two copies are
+    # paraphrases: it reports two redundant sentences, not "this project is on the
+    # page twice". The entity question is about NAMES and is therefore a fact the
+    # deterministic layer may compute — `skills_near_dupe` is already the
+    # reconciler's identity predicate for project names. Detection only: the double
+    # WRITE is prevented vault-side by the reconciler's ONE CONTAINER rule, and
+    # dropping one of two same-named entries risks deleting bullets only the dropped
+    # copy carries (ADR-082 clause 3, the `triage:document-harm` #424 carries).
+    project_pairs = duplicate_project_pairs(tailored)
+    if len(delivered_projects(tailored)) >= 2:
+        _check(checks, "duplicate-project", not project_pairs,
+               "the same project is rendered twice: "
+               + "; ".join(
+                   f"[{wa}] '{a[:50]}' ~ [{wb}] '{b[:50]}'"
+                   for wa, a, wb, b in project_pairs[:5]
+               )
+               + (f" (+{len(project_pairs) - 5} more)" if len(project_pairs) > 5 else ""))
 
     # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
     # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to
@@ -1209,7 +1444,20 @@ def _narrative_evidence_check(tailored: TailoredCVData, ledger: list[dict[str, A
                 "are evidenced in the work history could not be judged."
             ),
         )
-    missing = verified_narrative_underclaim(tailored.model_dump(mode="json"), ledger)
+    # #672 line 40/45 (2026-09-13): the SAME document, also as the structured-section
+    # corpus. `verified_narrative_underclaim` has exempted a concept the COMPOSED
+    # document already delivers in a vault-joined section since #666 — LANGUAGES,
+    # CERTIFICATIONS, EDUCATION — and this check, its only other caller, never passed
+    # the argument, so the corrector-side SIGNAL and the candidate-facing CHECK
+    # disagreed about the same question (ADR-066). Delivery-tier evidence: the
+    # 2026-09-11 delivery run's `narrative-evidence` read `fail` naming "Sehr gutes
+    # Deutsch" and "Gutes Englisch" on a CV whose LANGUAGES section states both — the
+    # candidate was told to put a language into a work bullet that the document already
+    # carries in its own headed block. `tailored` IS the composed document here (the
+    # audit runs after assembly on both doors), so this is the same dict, read twice
+    # through the two corpora the signal defines.
+    composed = tailored.model_dump(mode="json")
+    missing = verified_narrative_underclaim(composed, ledger, structured_document=composed)
     if not missing:
         return ATSCheck(id=NARRATIVE_EVIDENCE_CHECK_ID, status="pass", details=None)
     # Bounded by RANK, not by a character cap: `verified_narrative_underclaim` returns

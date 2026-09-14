@@ -103,7 +103,11 @@ export interface CoverLetterSummary {
 /** Subset of GET /api/job/{job_id} (JobAnalysisResponse) rendered in the header JD summary. */
 interface JobAnalysisSummary {
   role_title: string;
-  seniority_level: string;
+  // #675 line 39 (J-0): null when the posting grounds no tier — an honest
+  // absence, never coerced to "" server-side any more. Hide the row rather
+  // than render an empty value, the same precedent as required_skills/
+  // nice_to_have_skills/keywords below.
+  seniority_level: string | null;
   required_skills: string[];
   nice_to_have_skills: string[];
   keywords: string[];
@@ -616,10 +620,12 @@ export default function ApplicationDetailPage() {
                   {t("jdSummaryToggle")}
                 </summary>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                  <div>
-                    <dt className="text-on-surface-variant">{t("jdSeniority")}</dt>
-                    <dd className="text-neutral-dark mt-0.5">{jobAnalysis.seniority_level}</dd>
-                  </div>
+                  {jobAnalysis.seniority_level && (
+                    <div>
+                      <dt className="text-on-surface-variant">{t("jdSeniority")}</dt>
+                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.seniority_level}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt className="text-on-surface-variant">{t("jdLanguage")}</dt>
                     <dd className="text-neutral-dark mt-0.5">{jobAnalysis.language_requirement}</dd>

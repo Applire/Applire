@@ -464,7 +464,11 @@ async def analyze_jd(
         leadership_emphasis=_coerce_leadership_emphasis(
             data.get("leadership_emphasis"), text
         ),
-        seniority_level=data.get("seniority_level") or "",
+        # #675 line 39 / migration 0067: an honest null (the posting grounds
+        # no tier) is stored as NULL, never laundered into "" — the two used
+        # to be indistinguishable, which silently withheld
+        # gap_inference's "N years meets seniority bar" signal.
+        seniority_level=data.get("seniority_level") or None,
         company_culture_signals=data.get("company_culture_signals", []),
         language_requirement=data.get("language_requirement") or "",
         jd_language=detect_language(text),

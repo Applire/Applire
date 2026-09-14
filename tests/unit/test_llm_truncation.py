@@ -38,6 +38,18 @@ class _Stop(Exception):
     """Sentinel to short-circuit _import_from_text right after the extraction call."""
 
 
+class _FakeStorage:
+    """Storage double — the ingest persists a source document on every door (#367).
+    Unused here: the test short-circuits before storage.save is ever reached."""
+
+    def __init__(self):
+        self.saved: list[tuple[bytes, str]] = []
+
+    async def save(self, data: bytes, filename: str) -> str:
+        self.saved.append((data, filename))
+        return f"/tmp/{filename}"
+
+
 def _bad_request(message: str) -> openai.BadRequestError:
     request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
     response = httpx.Response(400, request=request)
@@ -345,6 +357,14 @@ async def test_cv_extraction_requests_reasoning_safe_budget(monkeypatch):
     monkeypatch.setattr(profile_mod, "review_and_refine", _stop)
 
     with pytest.raises(_Stop):
-        await profile_mod._import_from_text("raw cv text", db=AsyncMock(), provider=SpyProvider())
+        await profile_mod._import_from_text(
+            "raw cv text",
+            db=AsyncMock(),
+            provider=SpyProvider(),
+            storage=_FakeStorage(),
+            source_bytes=b"raw cv text",
+            filename="cv.txt",
+            content_type="text/plain",
+        )
 
     assert captured == [CV_EXTRACTION_MAX_TOKENS]

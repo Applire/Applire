@@ -101,6 +101,7 @@ function mockFetch(opts: {
   app: ReturnType<typeof baseApplication>;
   hasCoverLetter?: boolean;
   cvList?: unknown[];
+  job?: typeof JOB;
 }) {
   global.fetch = vi.fn((input: string, init?: RequestInit) => {
     const url = String(input);
@@ -122,7 +123,7 @@ function mockFetch(opts: {
       return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: "not found" }) });
     }
     if (url.includes("/api/job/")) {
-      return Promise.resolve({ ok: true, status: 200, json: async () => JOB });
+      return Promise.resolve({ ok: true, status: 200, json: async () => opts.job ?? JOB });
     }
     if (url.includes("/api/cv?job_id=")) {
       return Promise.resolve({ ok: true, status: 200, json: async () => opts.cvList ?? CV_LIST });
@@ -144,6 +145,7 @@ async function renderPage(opts: {
   app: ReturnType<typeof baseApplication>;
   hasCoverLetter?: boolean;
   cvList?: unknown[];
+  job?: typeof JOB;
 }) {
   mockFetch(opts);
   render(withIntl(<ApplicationDetailPage />));
@@ -251,5 +253,23 @@ describe("ApplicationDetailPage — cockpit header zone (US231)", () => {
       const body = JSON.parse((generateCall as [string, RequestInit])[1]!.body as string);
       expect(body.target_pages).toBe(3);
     });
+  });
+
+  // #675 line 39 (J-0): a null seniority_level is an honest "the posting
+  // grounds no tier", never rendered as an empty value — the row is hidden,
+  // the same precedent as required_skills/nice_to_have_skills/keywords.
+  it("JD summary hides the seniority row when seniority_level is null", async () => {
+    await renderPage({ app: baseApplication(), job: { ...JOB, seniority_level: null } });
+    fireEvent.click(screen.getByText("Job description summary"));
+    expect(screen.queryByText("Seniority")).not.toBeInTheDocument();
+    // A sibling row with a real value still renders — the hide is scoped to
+    // the null field, not the whole JD summary block.
+    expect(screen.getByText("German")).toBeInTheDocument();
+  });
+
+  it("JD summary shows the seniority row when seniority_level is present", async () => {
+    await renderPage({ app: baseApplication() });
+    fireEvent.click(screen.getByText("Job description summary"));
+    expect(screen.getByText("Senior")).toBeInTheDocument();
   });
 });

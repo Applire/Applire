@@ -91,6 +91,103 @@ def _matches(a_norm: str, b_norm: str) -> bool:
     return a_norm == b_norm or a_norm in b_norm or b_norm in a_norm
 
 
+#: The posting's own sentence is quoted to the writer at most this long. The writer
+#: already holds the whole posting's derivatives; this line exists to say WHICH evidence
+#: answers the requirement, not to re-deliver the JD.
+_JD_PHRASE_MAX_CHARS = 220
+
+#: Sentence-ish boundaries in a scraped posting: real punctuation, bullet markers and the
+#: line breaks a bullet list is actually made of.
+_JD_SENTENCE_SPLIT = re.compile(r"(?<=[.!?;:])\s+|\n+|(?:^|\s)[-–—•*]\s+")
+
+
+def jd_qualifying_phrase(
+    concept: str,
+    surface_forms: list[str] | None,
+    jd_text: str | None,
+) -> str | None:
+    """The posting's OWN sentence naming this concept, verbatim — or ``None`` (#415).
+
+    **Why a ledger entry needs one.** `HGB` is graded `direct` and claimable, the document
+    says "HGB" repeatedly, and every coverage instrument is therefore satisfied — while
+    the specific evidence answering the posting's actual sentence ("Eigenverantwortliche
+    Erstellung von Monats- und **Jahresabschluss**-Reporting (HGB)") is never selected.
+    The delivered CV contained neither `Jahresabschluss` nor `Wirtschaftsprüfer`, both of
+    which the vault held. The concept's GRANULARITY is what fails, not the writer's
+    honesty: a coarse token cannot tell the writer *which* HGB evidence answers the
+    requirement, because by the time the ledger is built the posting's sentence is gone
+    and only the extracted term survives.
+
+    Ruling W-4 (2026-09-13) takes the cheaper of #415's own two directions: carry the
+    posting's qualifying phrase now, leave ADR-065 decomposition (splitting `HGB` into
+    sub-capabilities) to Strawberry. The phrase changes no concept identity, so nothing
+    keyed on `concept` moves — not `compute_match_score`, not the coverage instruments,
+    not a published `docs/llm-models.md` matrix row.
+
+    **Verbatim, and that is load-bearing** (W-4's own note; PR #623's grounding rule).
+    The returned string is a contiguous span of ``jd_text``, never a paraphrase and never
+    assembled from pieces — so the phrase cannot itself become an inflated requirement.
+    A purely deterministic substring lookup: a FACT under ADR-062 clause 1, not a
+    judgement about what the posting means.
+
+    **Status, stated honestly (ruling W-4b, 2026-09-13): SHIPPED, UNEXERCISED ON ITS
+    TARGET POPULATION** — a coarse concept with no fine-grained sibling in the ledger.
+    Measured n=5 per arm on the captured 2026-08-01 `controlling_emma_de` writer call
+    (charter run 13, the run #415 reports): `Jahresabschluss` and `Wirtschaftsprüfer`
+    reach the draft **5/5 with the phrase and 5/5 without it**. The reason is not that
+    the phrase fails — it is that THAT run's ledger already carried `Jahresabschluss` as
+    its own claimable concept with the Wirtschaftsprüfer evidence, so the coarse-concept
+    mechanism #415 describes was not what the run exercised. Per-round attribution over
+    the same log (records 55-69) shows the writer emitting both terms in round 1 and
+    every corrector round through `cv_language` keeping them, so **the delivered loss
+    #415 measured happened after the writer chain** — see the Writer collector's
+    `_cap_bullets` TAIL_DELETE line. Keep-vs-revert is an open founder triage item; until
+    a run with a genuinely coarse concept is measured, this is recorded as *intended*,
+    not as *in force*.
+
+    Selection: among the posting's sentences that contain the concept or one of its
+    surface forms (case-insensitively, as a substring — the same predicate the union is
+    built with), the one carrying the MOST words, capped at ``_JD_PHRASE_MAX_CHARS``;
+    ties go to the first occurrence.
+
+    Most words, not fewest, and the first draft of this function had it backwards. On the
+    `HGB` posting the shortest matching sentence is *"Wir bieten HGB."* — a benefits line
+    — while the sentence the defect is actually about is *"Eigenverantwortliche Erstellung
+    von Monats- und Jahresabschluss-Reporting (HGB) für die Unternehmensgruppe."* The
+    whole point of #415 is that the bare token is not enough, so the useful sentence is
+    the one that QUALIFIES it. The cap is what keeps that from degenerating into a
+    paragraph, and a candidate sentence over the cap is skipped rather than truncated: a
+    truncated quote is no longer verbatim.
+    """
+    if not jd_text:
+        return None
+    probes = [p for p in ([concept] + list(surface_forms or [])) if p and p.strip()]
+    if not probes:
+        return None
+    probes_norm = [_norm(p) for p in probes]
+    best: tuple[int, str] | None = None
+    for raw in _JD_SENTENCE_SPLIT.split(jd_text):
+        # Leading list markers are the posting's FORMATTING, not its words — a scraped
+        # bullet arrives as "- Eigenverantwortliche …". Stripping them keeps the quoted
+        # span verbatim in content while not shipping a stray dash into the writer's
+        # input view. Nothing else is edited: no truncation, no re-casing, no joining of
+        # two sentences.
+        sentence = " ".join((raw or "").split()).lstrip("-–—•*\u00b7 ").strip()
+        if not sentence or len(sentence) > _JD_PHRASE_MAX_CHARS:
+            continue
+        low = sentence.casefold()
+        if not any(p in low for p in probes_norm):
+            continue
+        # A sentence that IS the bare term adds nothing the `concept` field does not
+        # already say — the whole defect is that the bare term is not enough.
+        if low.strip(".!?;:,()[] ") in probes_norm:
+            continue
+        words = len(sentence.split())
+        if best is None or words > best[0]:
+            best = (words, sentence)
+    return best[1] if best else None
+
+
 def _fit_weight(sources: set[str]) -> float:
     if "required" in sources:
         return REQUIRED_WEIGHT
@@ -917,7 +1014,17 @@ def render_ledger_prompt_block(keyword_ledger: list[dict[str, Any]] | None) -> s
                     f"evidence: {evidence}"
                 )
             else:
-                lines.append(f"  - {concept} [forms: {forms}] — evidence: {evidence}")
+                # #415 (ruling W-4): the posting's OWN sentence, verbatim, so the writer
+                # knows WHICH evidence answers this requirement. A coarse concept
+                # ("HGB") satisfies every coverage instrument while the specific
+                # evidence the posting actually asked about (year-end close, auditor
+                # liaison) is never selected — the concept's granularity fails, not the
+                # writer's honesty.
+                phrase = entry.get("jd_phrase")
+                qualifier = f' — the posting asks for it as: "{phrase}"' if phrase else ""
+                lines.append(
+                    f"  - {concept} [forms: {forms}]{qualifier} — evidence: {evidence}"
+                )
     else:
         lines.append("  (none)")
 
@@ -1507,13 +1614,62 @@ def rank_gate_missing_claimable(
     return blocking, below_rank
 
 
-def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
+def rank_coverage_demand(
+    blocking: list[dict[str, Any]],
+    max_terms_per_round: int | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """M5.4.2 (3) — split the blocking coverage entries into
+    ``(demanded_this_round, deferred)`` at ``max_terms_per_round``.
+
+    **A bound, not a request** (the founder's M5.4.2 wording; memory rule "a
+    bound replaces verdict memory"). ``review_cover_letter.py`` used to ask the
+    reviewer for the cap in prose — *"DEMAND AT MOST TWO terms per round"* —
+    while :func:`render_verified_coverage_block` handed it the FULL absent list
+    and closed with *"name the terms in your issues"*. Two halves of one prompt
+    stating opposite instructions: on the captured 2026-09-05 run the round-1
+    verdict raised **6 coverage demands** against a stated cap of 2, and the
+    terminal door's first round raised 10 issues
+    (`Runs/Nougat/build-1/p/prompts/review_cover_letter.md` §7). The list the
+    model receives IS the cap; nothing else can be.
+
+    Ranking is the ledger's own ``fit_weight``, descending, ties broken by the
+    caller's order — the same key :func:`rank_gate_missing_claimable` already
+    uses, so "which terms matter most for this role" has ONE definition
+    (ADR-066). The reviewer is no longer asked to rank; it is handed the ranked
+    head. Deferred terms are neither demanded nor waived: they are recomputed
+    next round from the new draft and return if still absent.
+
+    ``max_terms_per_round=None`` (the default everywhere but the letter's own
+    wiring point) returns ``(blocking, [])`` — today's behaviour, byte-identical.
+    """
+    if max_terms_per_round is None or len(blocking) <= max_terms_per_round:
+        return list(blocking), []
+    if max_terms_per_round <= 0:
+        return [], list(blocking)
+    ordered = sorted(
+        blocking, key=lambda e: -(e.get("fit_weight") or 0)
+    )
+    return ordered[:max_terms_per_round], ordered[max_terms_per_round:]
+
+
+def render_verified_coverage_block(
+    entries: list[dict[str, Any]],
+    *,
+    bounded: bool = False,
+    deferred_count: int = 0,
+) -> str:
     """Render the verified-absent claimable entries for the REVIEWER (US213, #122).
 
     This replaces the reviewer's own coverage *detection* (US202) with ground truth:
     the list is the output of a deterministic literal check, not something to
     re-derive. The reviewer's only coverage judgment left is the grounding waiver
     (ADR-048 §8 — grounding strictly outranks coverage). Returns "" when empty.
+
+    ``bounded`` (M5.4.2 (3)) states that the list is THIS ROUND'S COMPLETE DEMAND
+    SET — already ranked and already capped by :func:`rank_coverage_demand` — so
+    the block no longer contradicts a prose cap the caller's prompt used to state.
+    ``deferred_count`` is named honestly in that sentence: terms held back are not
+    waived, and the reviewer must not go looking for them.
     """
     if not entries:
         return ""
@@ -1524,12 +1680,21 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
     # (ADR-066).
     from applire.services.untrusted_text import items_note
 
-    lines = [
+    head = (
         "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, do "
         "not re-derive it). The following claimable keywords are ABSENT from the draft "
-        "in every known surface form:",
-        items_note("concept terms, surface forms and evidence quotes"),
-    ]
+        "in every known surface form:"
+    )
+    if bounded:
+        head = (
+            "VERIFIED COVERAGE CHECK (deterministic literal scan — this is ground truth, "
+            "do not re-derive it). The list below IS THIS ROUND'S COMPLETE DEMAND SET: "
+            "claimable keywords absent from the draft in every known surface form, "
+            "already ranked by how central each is to this role and already capped for "
+            "this round. Demand every term on it and no other — do not add a coverage "
+            "demand for a term the list does not carry."
+        )
+    lines = [head, items_note("concept terms, surface forms and evidence quotes")]
     any_owner = False
     for entry in entries:
         forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
@@ -1565,6 +1730,15 @@ def render_verified_coverage_block(entries: list[dict[str, Any]]) -> str:
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]
+    if bounded and deferred_count:
+        lines += [
+            "",
+            f"{deferred_count} further claimable term(s) are also absent and are HELD "
+            "BACK from this round on purpose. They are neither demanded nor waived here "
+            "and they are not yours to raise: the same deterministic scan puts them in "
+            "front of you in a later round if the next draft still omits them. Asking "
+            "for them now is what produces the flat enumeration this check forbids.",
+        ]
     return "\n".join(lines)
 
 
@@ -1572,6 +1746,7 @@ def coverage_reviewer_prompt_fn(
     base_fn,
     keyword_ledger: list[dict[str, Any]] | None,
     budget: "CoverageBudget | None" = None,
+    max_terms_per_round: int | None = None,
 ):
     """Wrap a reviewer_prompt_fn so every review sees the CURRENT draft's verified
     coverage state (US213, #122).
@@ -1586,12 +1761,31 @@ def coverage_reviewer_prompt_fn(
     demand under the ADR-042/051 length budget — see
     :func:`rank_gate_missing_claimable`. ``None`` (the default) reproduces
     today's behaviour exactly: every missing claimable entry blocks.
+
+    M5.4.2 (3) (2026-09-13): ``max_terms_per_round``, when given, makes the
+    per-round demand cap a BOUND instead of a prose request — the block carries
+    at most that many terms, ranked by ``fit_weight``, and says so
+    (:func:`rank_coverage_demand`). ``None`` (the default, and what the three CV
+    call sites in ``services/cv.py`` pass) leaves the rendered block
+    byte-identical. The letter's single wiring point
+    (``cover_letter.py::_wrap_reviewer``) passes 2, which is the number
+    ``prompts/review_cover_letter.py`` used to ask for and did not get.
     """
 
     def fn(source: str, draft: dict[str, Any]) -> str:
         prompt = base_fn(source, draft)
         missing = verified_missing_claimable(draft, keyword_ledger)
         blocking, below_rank = rank_gate_missing_claimable(missing, draft, budget)
+        blocking, deferred = rank_coverage_demand(blocking, max_terms_per_round)
+        if deferred:
+            logger.info(
+                "M5.4.2 coverage bound: %d of %d absent claimable term(s) demanded this "
+                "round (cap=%s); held back: %s",
+                len(blocking),
+                len(blocking) + len(deferred),
+                max_terms_per_round,
+                [e.get("concept", "") for e in deferred],
+            )
         if below_rank:
             logger.info(
                 "ADR-076 clause 6: %d claimable term(s) below rank under the length "
@@ -1605,7 +1799,10 @@ def coverage_reviewer_prompt_fn(
                 len(blocking),
                 [e.get("concept", "") for e in blocking],
             )
-            prompt = f"{prompt}\n\n{render_verified_coverage_block(blocking)}"
+            prompt = (
+                f"{prompt}\n\n"
+                f"{render_verified_coverage_block(blocking, bounded=max_terms_per_round is not None, deferred_count=len(deferred))}"
+            )
         return prompt
 
     return fn
@@ -3291,6 +3488,7 @@ def build_keyword_ledger(
     denied_concepts: list[dict[str, Any]] | list[str] | None = None,
     profile_json: dict[str, Any] | None = None,
     previous_ledger: list[dict[str, Any]] | None = None,
+    jd_text: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Keyword Ledger from LLM classifications + the JD's own lists.
 
@@ -3311,6 +3509,14 @@ def build_keyword_ledger(
             the vault independently, literally attests. ``None`` (the
             default) reproduces the pre-fix fail-closed behaviour exactly —
             back-compat for every caller that has no profile on hand.
+        jd_text: the posting's own raw text (#415, ruling W-4). When given, each
+            claimable entry gains a ``jd_phrase`` — the posting's own sentence
+            naming that concept, VERBATIM (see :func:`jd_qualifying_phrase`), so
+            the writer's input view can say WHICH evidence answers the
+            requirement instead of only naming a coarse token. ``None`` (the
+            default) reproduces the pre-#415 entries byte-for-byte: no key is
+            added, so every existing caller, persisted row and published
+            model-matrix fixture is untouched.
         previous_ledger: the SAME job's prior ``GapAnalysis.keyword_ledger``
             (SF-GAP.12, Nougat build-2 delivery-run 2026-09-11), when this
             build is a recompute rather than the first one. A fresh
@@ -3380,21 +3586,65 @@ def build_keyword_ledger(
         if forms:
             previous_forms_by_concept[key] = forms
 
-    covered: set[str] = set()
-    ledger: list[dict[str, Any]] = []
+    # Precompute each item's final surface-forms/probes once (concept + LLM
+    # forms + SF-GAP.12 carry-forward) — reused below both to find each union
+    # key's EXACT owner and to do the actual per-item matching, so the two
+    # passes can never disagree on what an item's forms are.
+    def _final_surface_forms(concept: str, item: dict[str, Any]) -> list[str]:
+        forms = item.get("surface_forms") or [concept]
+        carried = previous_forms_by_concept.get(_norm(concept))
+        if carried:
+            forms = list(dict.fromkeys([*forms, *carried]))
+        return forms
 
-    for item in classifications:
+    # #675 line 46 (match-score investigation) — a union key contributes its
+    # fit_weight to AT MOST ONE ledger row, however many classification items'
+    # surface forms substring-match it. Pre-fix, each classification item
+    # summed sources over its OWN `matched_keys` independently, so a required
+    # union key already carried by its own dedicated row (e.g.
+    # "Budgetverantwortung") was credited AGAIN to a later, textually-similar
+    # item (e.g. a "Budgetplanung" keyword item whose surface form is a
+    # verbatim copy of the required text) — one real JD requirement spent
+    # twice in n_total, and twice in earned_total when both were `direct`.
+    #
+    # A naive "first item in list order claims every key it touches" dedup
+    # over-corrects: two GENUINELY DISTINCT required items can share a
+    # substring (JD mock fixture: "Python" is a literal substring of the
+    # separate required item "5+ years Python experience") without either
+    # one being a paraphrase of the other. So a union key's credit goes to
+    # its EXACT owner — the (first, by list order) item whose own concept or
+    # a surface form norm-EQUALS that key — whenever one exists; only an
+    # "orphan" key nothing exactly matches falls back to first-substring-
+    # match-wins. This lets "Python" and "5+ years Python experience" each
+    # keep their own dedicated key's credit while still stripping a
+    # paraphrase's SUBSTRING-only claim on a key some other item owns
+    # outright (Budgetplanung never exactly matches "Budgetverantwortung").
+    exact_owner: dict[str, int] = {}
+    for idx, item in enumerate(classifications):
         concept = item.get("concept", "")
         if not _norm(concept):
             continue
-        surface_forms = item.get("surface_forms") or [concept]
-        # SF-GAP.12 — union in any surface form a PRIOR build of this SAME
-        # concept already carried. A stale/no-longer-attested carried form
-        # changes nothing downstream: it is still subject to the same
-        # containment_release_form corpus check at the denial floor below.
-        carried = previous_forms_by_concept.get(_norm(concept))
-        if carried:
-            surface_forms = list(dict.fromkeys([*surface_forms, *carried]))
+        probes = {_norm(concept)} | {
+            _norm(sf) for sf in _final_surface_forms(concept, item)
+        }
+        for ukey in probes & union.keys():
+            exact_owner.setdefault(ukey, idx)
+
+    covered: set[str] = set()
+    # Union keys some EARLIER item in this same loop already turned into
+    # weight — a later item's own `sources` (and therefore `fit_weight`) are
+    # computed from only the union keys it is entitled to (see exact_owner
+    # above). `covered` (below) still tracks every matched key regardless, so
+    # the "unclassified JD expectation defaults to gap" pass never re-adds a
+    # key some row already matched (credited or not).
+    credited_keys: set[str] = set()
+    ledger: list[dict[str, Any]] = []
+
+    for idx, item in enumerate(classifications):
+        concept = item.get("concept", "")
+        if not _norm(concept):
+            continue
+        surface_forms = _final_surface_forms(concept, item)
         # Match the concept + each surface form against the JD union.
         probes = {_norm(concept)} | {_norm(sf) for sf in surface_forms}
         matched_keys = {
@@ -3408,8 +3658,18 @@ def build_keyword_ledger(
             continue
         covered |= matched_keys
 
+        # Claim a key only when it is not yet credited AND either nothing
+        # exactly owns it or THIS item is that exact owner (see exact_owner
+        # above) — a substring-only touch on someone else's key never wins.
+        new_keys = {
+            ukey
+            for ukey in matched_keys
+            if ukey not in credited_keys and exact_owner.get(ukey, idx) == idx
+        }
+        credited_keys |= new_keys
+
         sources: set[str] = set()
-        for ukey in matched_keys:
+        for ukey in new_keys:
             sources |= union[ukey]["sources"]
 
         status = item.get("status", "gap")
@@ -3442,6 +3702,16 @@ def build_keyword_ledger(
         adjacent = str(item.get("adjacent_evidence") or "").strip()
         if status == "partial" and adjacent:
             entry["adjacent_evidence"] = adjacent
+        # #415 (ruling W-4): the posting's own qualifying sentence, verbatim. Carried
+        # ONLY on a claimable entry — on a gap or a denial there is nothing to surface,
+        # and quoting the posting's demand next to "never claim this" would read as an
+        # instruction to claim it. Absent (not empty) when the posting has no sentence
+        # naming the concept, so "the posting qualified it" stays distinguishable from
+        # "no posting text was available".
+        if claimable:
+            phrase = jd_qualifying_phrase(concept, surface_forms, jd_text)
+            if phrase:
+                entry["jd_phrase"] = phrase
         ledger.append(entry)
 
     # Any JD expectation the LLM did not classify defaults to a gap entry —

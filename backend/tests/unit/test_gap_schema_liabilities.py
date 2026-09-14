@@ -134,3 +134,27 @@ def test_response_keyword_liabilities_empty_for_legacy_ledger_without_narrative_
     ]
     resp = GapAnalysisResponse.model_validate(_base_kwargs(keyword_ledger=ledger))
     assert resp.keyword_liabilities == []
+
+
+def test_ledger_row_roundtrips_jd_phrase_through_gap_analysis_response():
+    """#415 (Nougat build 3, ruling W-4b): the ledger computes ``jd_phrase`` —
+    the posting's own qualifying sentence for a coarse concept — persists it
+    and feeds it to the writer, but the 2026-09-13 delivery run read it on
+    0 of 42 API entries (21 of 42 in the persisted row): KeywordLedgerEntry
+    did not declare the field, so GapAnalysisResponse stripped it — the same
+    Pydantic-drop class as adjacent_evidence / bar / evidence_owners
+    (2026-08-13). The field must survive the response."""
+    ledger = [
+        {
+            "concept": "HGB", "surface_forms": ["HGB"],
+            "sources": ["required"], "fit_weight": 1.0, "status": "direct",
+            "evidence": "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+            "claimable": True,
+            "jd_phrase": "Eigenverantwortliche Erstellung von Monats- und Jahresabschluss-Reporting (HGB)",
+        },
+    ]
+    resp = GapAnalysisResponse.model_validate(_base_kwargs(keyword_ledger=ledger))
+    assert resp.keyword_ledger[0].jd_phrase == (
+        "Eigenverantwortliche Erstellung von Monats- und Jahresabschluss-Reporting (HGB)"
+    )
+    assert "jd_phrase" in resp.keyword_ledger[0].model_dump()

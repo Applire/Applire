@@ -233,6 +233,7 @@ def _settle(path, *, approved=False, blocking=(), minor=(), rounds=1):
         ("generator_call_failed", "fail"),
         ("cycle_detected", "fail"),
         ("exhausted", "fail"),
+        ("review_malformed", "fail"),  # #688 — malformed JSON, treated like exhaustion
     ],
 )
 def test_every_settle_path_maps_to_one_of_the_three_adr_039_statuses(path, expected):
@@ -253,6 +254,20 @@ def test_a_fail_names_the_open_findings_in_details():
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert check.status == "fail"
     assert "LucaNet" in (check.details or "")
+
+
+def test_a_malformed_settle_names_the_reason_not_a_generic_open_finding():
+    """#688: a malformed-JSON settle carries no blocking issue text (the loop never
+    got a verdict to raise one from) — the details must still name WHY, not fall
+    through to the generic 'findings still open' phrasing meant for a verdict-bearing
+    fail path."""
+    outcome = settle_to_outcome(
+        _settle("review_malformed"),
+        chain_id="cv_terminal_review",
+    )
+    check = build_terminal_review_check(outcome, previous=None, document="cv")
+    assert check.status == "fail"
+    assert "malformed" in (check.details or "").lower()
 
 
 def test_a_minor_only_pass_still_names_the_observations():

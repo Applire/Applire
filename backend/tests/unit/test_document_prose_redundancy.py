@@ -435,3 +435,379 @@ def test_the_empty_intersection_shortcut_cannot_change_a_verdict():
     assert not (set(ta) & set(tb)), "fixture must actually be token-disjoint"
     assert _longest_shared_run(ta, tb) == 0
     assert not bullets_prose_dupe(*disjoint)
+
+
+# ── 7. #659 build 3 — the stoplist is calibrated for the document's LANGUAGE ──
+#
+# ADR-082 Context 2 established the rule "an instrument shared across call sites
+# is calibrated for its original population" for `skills_near_dupe`. The same
+# mistake was then made one level DOWN, inside the new prose predicate:
+# `_prose_tokens` filtered with `_SKILL_STOPWORDS`, eleven ENGLISH words, over
+# German prose. The pair below is not a fixture — it is `work_history[1].bullets[0]`
+# and `work_history[2].bullets[0]` of the CV the 2026-09-11 delivery run actually
+# delivered (`Documents/Runs/Nougat/build-2/delivery-run/artifacts/37-cv-tailored-data.json`),
+# and `duplicate-bullets` FAILED on that document naming this pair.
+
+_DELIVERED_0911_MEISTER = (
+    "Führung einer Schicht mit 14 Mitarbeitenden in der Blechumformung und Begleitung "
+    "der SAP-Einführung in der Fertigung; beim SAP-Rollout als Key-User für PP mit "
+    "Schwerpunkt auf Fertigungsaufträgen und Rückmeldungen tätig."
+)
+_DELIVERED_0911_MECHANIKER = (
+    "Als Facharbeiter in der Instandhaltung und später als Vorarbeiter in der "
+    "Umformtechnik tätig."
+)
+#: The true positive from the same delivered document, kept beside the false one so
+#: a stoplist that silences the noise by silencing everything fails here.
+_DELIVERED_0911_LEAN_LONG = (
+    "Shopfloor-Management und KVP-Routinen eingeführt und dadurch die Ausschussquote "
+    "von 4,1 % auf 2,3 % gesenkt; überarbeitete Feinplanung und Rüstworkshops nach "
+    "SMED verbesserten die Termintreue von 87 % auf 96 %."
+)
+_DELIVERED_0911_LEAN_SHORT = (
+    "Lean-Produktion mit Shopfloor-Management, KVP und SMED in der Fertigung umgesetzt."
+)
+
+
+def test_two_different_roles_at_two_employers_are_not_a_duplicate():
+    """The measured false positive. Before the German stoplist these two shared
+    exactly {als, der, tätig, und} — four function words — and that reached
+    containment 0.444 against a 0.40 threshold, because the divisor is the SHORTER
+    bullet's token count and the shorter bullet is one-third function words.
+
+    Nothing about a Schichtführung with 14 people and a Facharbeiter role at
+    another employer is the same achievement, and the candidate was told it was.
+    """
+    assert not bullets_prose_dupe(
+        _DELIVERED_0911_MEISTER, _DELIVERED_0911_MECHANIKER
+    ), "German function words alone must not carry a redundancy verdict"
+
+
+def test_the_real_restatement_in_the_same_document_is_still_caught():
+    """The other half of the bar: the stoplist may not buy its precision by
+    blinding the predicate. This pair IS redundant — the short bullet names
+    Shopfloor-Management, KVP and SMED, all three already stated (with figures) in
+    the long one — and it must stay flagged."""
+    assert bullets_prose_dupe(_DELIVERED_0911_LEAN_LONG, _DELIVERED_0911_LEAN_SHORT)
+
+
+def test_the_prose_stoplist_contains_no_content_words():
+    """A stoplist is a place where a real achievement can be deleted silently.
+    Every entry must be closed-class, so this pins the shape rather than the list:
+    the German additions are all short function words, and none of them is a term
+    a CV bullet could be ABOUT. The canary is a sample of the vocabulary the
+    delivered documents actually carry."""
+    from applire.services.ats_audit import _PROSE_STOPWORDS, _SKILL_STOPWORDS
+
+    forbidden = {
+        "lean", "kvp", "smed", "shopfloor", "management", "produktion",
+        "fertigung", "instandhaltung", "führung", "schicht", "projekt",
+        "iso", "sap", "mes", "oee", "budget", "audit", "team", "prozess",
+    }
+    assert not (_PROSE_STOPWORDS & forbidden), _PROSE_STOPWORDS & forbidden
+    # And the skills population keeps its own, unchanged list (ADR-082 Context 1:
+    # `skills_near_dupe` is the vault-merge primitive at six reconcile call sites).
+    assert _SKILL_STOPWORDS == frozenset(
+        {"and", "or", "the", "of", "for", "with", "a", "an", "to", "in", "&"}
+    )
+    assert _SKILL_STOPWORDS < _PROSE_STOPWORDS
+
+
+# ── adversarial pass, Nougat build 3 — the fix swapped one monolingual failure
+# for another: #659 recalibrated the German half of the population and left the
+# English half on the original 11-word `_SKILL_STOPWORDS` list. `bullets_prose_dupe`
+# audits documents in BOTH supported document languages (ADR-068 clause 2a); an
+# English candidate faces the identical containment shape the German fix exists
+# to close, just built from different function words.
+
+_EN_DISTINCT_TEMPLATE_A = (
+    "This is the position that was created for the team that needed the most "
+    "support in the region."
+)
+_EN_DISTINCT_TEMPLATE_B = (
+    "This is the role that was designed for the group that needed the most "
+    "help in the district."
+)
+_EN_TRUE_DUPE_LONG = (
+    "Reduced production defect rate from 4.1 percent to 2.3 percent through "
+    "SMED implementation."
+)
+_EN_TRUE_DUPE_SHORT = (
+    "Achieved a defect rate reduction from 4.1 percent to 2.3 percent by "
+    "implementing SMED methodology."
+)
+
+
+def test_two_distinct_english_bullets_sharing_a_template_are_not_a_duplicate():
+    """The English mirror of `test_two_different_roles_at_two_employers_are_not_a_duplicate`.
+
+    Before this fix these two shared exactly {this, is, that, needed, most} — five
+    function words — reaching containment 0.45 against the 0.40 threshold, because
+    `_SKILL_STOPWORDS` (eleven English words calibrated for short skill NAMES) never
+    stripped a pronoun, demonstrative or auxiliary. A team in one region and a group
+    in another are not the same achievement.
+    """
+    assert not bullets_prose_dupe(_EN_DISTINCT_TEMPLATE_A, _EN_DISTINCT_TEMPLATE_B), (
+        "English function words alone must not carry a redundancy verdict"
+    )
+
+
+def test_the_real_english_restatement_is_still_caught():
+    """The other half of the bar, in English: widening the stoplist may not buy its
+    precision by blinding the predicate to a genuine restatement."""
+    assert bullets_prose_dupe(_EN_TRUE_DUPE_LONG, _EN_TRUE_DUPE_SHORT)
+
+
+def test_the_english_additions_to_the_prose_stoplist_contain_no_content_words():
+    """Same shape as `test_the_prose_stoplist_contains_no_content_words`, for the
+    English closed class: every addition is a pronoun, demonstrative, auxiliary,
+    conjunction or preposition, never a term a CV bullet could be ABOUT."""
+    from applire.services.ats_audit import _PROSE_STOPWORDS
+
+    forbidden = {
+        "defect", "rate", "percent", "smed", "implementation", "methodology",
+        "team", "region", "district", "support", "help", "position", "role",
+        "reduced", "achieved", "production",
+    }
+    assert not (_PROSE_STOPWORDS & forbidden), _PROSE_STOPWORDS & forbidden
+
+
+def test_skills_near_dupe_is_unaffected_by_the_prose_stoplist():
+    """The scope assertion. `skills_near_dupe` feeds `_field_relation`, the
+    reconciler's entity-identity predicate for companies, project names, volunteer
+    organisations, languages and publications — widening ITS stoplist would change
+    what the vault silently auto-merges. These German-articled names must keep
+    their pre-change verdicts."""
+    assert not skills_near_dupe("Leitung der Fertigung", "Leitung der Instandhaltung")
+    # Identical content words + one differing German article: the English stoplist
+    # keeps "der"/"die" as tokens, and that verdict must not change here.
+    before = skills_near_dupe("Einführung der Fertigungssteuerung",
+                              "Einführung die Fertigungssteuerung")
+    assert before is skills_near_dupe("Einführung der Fertigungssteuerung",
+                                      "Einführung die Fertigungssteuerung")
+    from applire.services.ats_audit import skill_tokens
+    assert "der" in skill_tokens("Einführung der Fertigungssteuerung")
+
+
+def test_the_floor_and_the_stoplist_are_calibrated_together():
+    """The coupling that broke #424's pair when the stoplist was widened alone.
+
+    `_PROSE_DUPE_MIN_TOKENS` counts tokens AFTER `_PROSE_STOPWORDS` removal, so a
+    wider stoplist shortens every German bullet and can push a real one under the
+    floor — where the predicate degrades to exact equality and detects nothing.
+    This pins the margin for the shortest bullet in the #424 shape, so the next
+    stoplist edit fails here instead of silently losing a detection.
+    """
+    from applire.services.ats_audit import _PROSE_DUPE_MIN_TOKENS, _prose_tokens
+
+    nested = (
+        "Verantwortung für das Teilprojekt Abstimmung zwischen den Gesellschaften "
+        "bei der Einführung von LucaNet für die Konzernkonsolidierung."
+    )
+    assert len(_prose_tokens(nested)) >= _PROSE_DUPE_MIN_TOKENS, (
+        "the #424 bullet fell under the floor — widening the stoplist without "
+        "re-sweeping the floor turns this predicate off for short German bullets"
+    )
+
+
+# ── 8. #424 / M5.3.1 — the project ENTITY, and which container writes it ──────
+
+
+def test_duplicate_project_names_the_shape_the_bullet_check_cannot():
+    """#424's blind hiring-manager finding was *"der CV-Abschnitt … ist doppelt
+    vorhanden"* — a statement about the PROJECT, not about two sentences. The bullet
+    check reports redundant prose; this one reports the entity, and it fires even when
+    the two copies' bullets were rewritten far enough apart to read as distinct.
+
+    The predicate is `skills_near_dupe` over the NAMES — ADR-082 clause 1's own line:
+    entity identity by name is a fact the deterministic layer may compute, and it is
+    already the reconciler's identity predicate for project names.
+    """
+    check = _check(_audit(_cv_project_in_both_containers()), "duplicate-project")
+    assert check is not None and check.status == "fail", check
+    assert "LucaNet" in check.details, check.details
+    assert "Projekte" in check.details, check.details
+
+
+def test_duplicate_project_catches_two_nested_copies_under_different_roles():
+    """The residue `_nest_projects`' own dedup cannot see: its nested check is scoped to
+    ONE role's list, so the same project under two different roles survives assembly.
+    Named in #424's last comment and never covered."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [
+            {"company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+             "start_date": "2017-04", "bullets": [],
+             "projects": [{"name": "Einführung eines MES-Systems",
+                           "bullets": ["MES an 14 Spritzgussmaschinen eingeführt."]}]},
+            {"company": "Rasselstein Umformtechnik GmbH", "role": "Fertigungsmeister",
+             "start_date": "2011-01", "bullets": [],
+             "projects": [{"name": "Einführung eines MES-Systems",
+                           "bullets": ["MES-Rollout in der Blechumformung begleitet."]}]},
+        ],
+        "skills": [],
+    })
+    check = _check(_audit(cv), "duplicate-project")
+    assert check is not None and check.status == "fail", check
+    assert "Weberit" in check.details and "Rasselstein" in check.details, check.details
+
+
+def test_duplicate_project_passes_on_two_genuinely_different_projects():
+    """The negative control. Two distinct project names under one role must not be
+    flagged, or the check is a permanent red."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiter",
+            "start_date": "2017-04", "bullets": [],
+            "projects": [
+                {"name": "Einführung eines MES-Systems", "bullets": ["MES eingeführt."]},
+                {"name": "SMED-Rüstworkshops", "bullets": ["Rüstzeiten halbiert."]},
+            ],
+        }],
+        "skills": [],
+    })
+    check = _check(_audit(cv), "duplicate-project")
+    assert check is not None and check.status == "pass", check.details
+
+
+def test_duplicate_project_is_not_emitted_when_nothing_can_be_compared():
+    """A document with fewer than two rendered projects has nothing to say here, and a
+    check that reports `pass` on an empty comparison is the kind of green ADR-082 exists
+    to stop."""
+    cv = _cv_with([], role_bullets=[_ROLE_BULLET_LEAN])
+    assert _check(_audit(cv), "duplicate-project") is None
+
+
+def test_the_audit_never_mutates_the_document_on_the_project_axis_either():
+    cv = _cv_project_in_both_containers()
+    before = cv.model_dump(mode="json")
+    _audit(cv)
+    assert cv.model_dump(mode="json") == before
+
+
+def test_the_single_call_writer_can_finally_emit_a_standalone_project():
+    """M5.3.1, and it is an applire-prompt-first CATEGORY A finding, not a model failure:
+    the single-call writer's response schema carried `work[].projects` and no top-level
+    `projects`, so a project the vault ties to no work entry could not be tailored at
+    all — `assemble_tailored_cv` has always accepted `prose["projects"]`, and only the
+    segmented path ever filled it. The untied project reached the single-call document
+    verbatim from the vault via `_nest_projects`' standalone fall-through: untailored,
+    unreviewed, outside the length budget.
+
+    Both writers now ask for the same thing (ADR-067 clause 2 is one contract, not two).
+    """
+    import json as _json
+
+    from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+    from applire.prompts.cv_segmented import PROJECTS_SECTION_SYSTEM_PROMPT
+
+    schema = SYSTEM_PROMPT[SYSTEM_PROMPT.index("Respond ONLY"):]
+    block = schema[schema.index("{"):]
+    depth = 0
+    for end, ch in enumerate(block):
+        depth += (ch == "{") - (ch == "}")
+        if depth == 0:
+            break
+    obj = _json.loads(
+        block[: end + 1].replace("string", '"string"').replace("[\"string\"]", '["s"]')
+    )
+    assert "projects" in obj, obj
+    assert "projects" in obj["work"][0], obj["work"][0]
+    # The rule that says which container, and that it is exactly one.
+    assert "PROJECTS, AND WHICH CONTAINER" in SYSTEM_PROMPT
+    assert "never in both" in SYSTEM_PROMPT
+    # Same job as the segmented path's dedicated writer, so the two paths agree.
+    assert "not tied to a work" in PROJECTS_SECTION_SYSTEM_PROMPT
+
+
+def test_the_corrector_is_told_about_the_top_level_projects_list():
+    """A corrector handed a shape it was never told about drops the section on its first
+    round — the same class as the `projects: []` the ADR-083 measurement found."""
+    from applire.prompts.cv_tailoring import CV_TAILORING_REFINEMENT_PROMPT
+
+    assert "top-level" in CV_TAILORING_REFINEMENT_PROMPT
+    assert "tied to no work entry" in CV_TAILORING_REFINEMENT_PROMPT
+
+
+def test_the_writer_prompt_still_fits_under_its_reviewer():
+    """The size gate that the #455 rule would have cost 485 characters of. Rule 10 is
+    ~460; this asserts the margin survived it."""
+    from applire.prompts.cv_tailoring import SYSTEM_PROMPT
+    from applire.prompts.review_cv_tailoring import REVIEW_SYSTEM_PROMPT
+
+    assert len(SYSTEM_PROMPT) < len(REVIEW_SYSTEM_PROMPT), (
+        len(SYSTEM_PROMPT), len(REVIEW_SYSTEM_PROMPT)
+    )
+
+
+# ── 9. #672 lines 40/45 — the check and the signal answer one question ───────
+
+
+def test_narrative_evidence_does_not_demand_a_bullet_for_a_delivered_language():
+    """Two instruments over one question, disagreeing (ADR-066).
+
+    `verified_narrative_underclaim` has exempted a concept the COMPOSED document already
+    delivers in a vault-joined structured section since #666 — that exemption is what
+    stopped the corrector buying "Deutsch als Muttersprache." at the price of the LTIF
+    safety bullet. The ATS check is its only other caller and never passed the argument,
+    so the candidate-facing report kept making the demand the loop had stopped making.
+
+    Delivery-tier evidence: the 2026-09-11 delivery run shipped
+    `narrative-evidence: fail` naming "Sehr gutes Deutsch" and "Gutes Englisch" on a CV
+    whose LANGUAGES section states both.
+    """
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "start_date": "2017-04",
+            "bullets": ["Zwei Fertigungsbereiche mit 38 Mitarbeitenden geführt."],
+        }],
+        "languages": [
+            {"language": "Deutsch", "level": "Muttersprache"},
+            {"language": "Englisch", "level": "B2"},
+        ],
+        "skills": ["Deutsch", "Englisch"],
+    })
+    ledger = [
+        {"concept": "Deutsch", "surface_forms": ["Deutsch"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "Muttersprache"},
+        {"concept": "Englisch", "surface_forms": ["Englisch"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "B2"},
+    ]
+    from applire.services.ats_audit import _narrative_evidence_check
+
+    check = _narrative_evidence_check(cv, ledger)
+    assert check.status == "pass", check.details
+
+
+def test_narrative_evidence_still_fails_for_a_capability_only_tagged():
+    """The negative control — the check's whole job must survive the exemption. A skills
+    TAG is not evidence, which is this signal's own founding rule, and `skills` is
+    deliberately not one of the exempt structured sections."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Stefan Brandt"},
+        "summary": "Produktionsleiter.",
+        "work_history": [{
+            "company": "Weberit Kunststofftechnik GmbH",
+            "role": "Produktionsleiter",
+            "start_date": "2017-04",
+            "bullets": ["Zwei Fertigungsbereiche mit 38 Mitarbeitenden geführt."],
+        }],
+        "languages": [],
+        "skills": ["ISO 9001"],
+    })
+    ledger = [
+        {"concept": "ISO 9001", "surface_forms": ["ISO 9001"], "status": "direct",
+         "claimable": True, "fit_weight": 1.0, "evidence": "Bereichsverantwortung"},
+    ]
+    from applire.services.ats_audit import _narrative_evidence_check
+
+    check = _narrative_evidence_check(cv, ledger)
+    assert check.status == "fail", check.details
+    assert "ISO 9001" in check.details

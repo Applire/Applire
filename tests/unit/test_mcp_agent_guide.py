@@ -80,18 +80,37 @@ def test_guide_loads_and_carries_the_mandated_sections():
         assert marker in lowered, f"guide is missing mandated content: {marker!r}"
 
 
-def test_guide_does_not_promise_a_parking_import_cv_does_not_perform():
-    """#58 (adversarial) / ruling A-4: `evaluate_merge_gate` has exactly ONE
-    call site (`upload_cv`, the browser door) — `import_cv` always auto-merges,
-    open Bug #367. Before this fix the guide described `resolve_held_merge` /
-    `held_merges` right next to `import_cv` with no scoping sentence, which
-    reads as "call import_cv, and a divergent CV will be held for you to
-    relay" — false on this channel. The guide must say so, not imply the gate
-    (ruling A-4's own wording)."""
+def test_guide_describes_the_parking_import_cv_now_performs():
+    """#367 (rulings A-4 / V-2) — the inverse of the pin this test used to hold.
+
+    Until 2026-09-13 `evaluate_merge_gate` had exactly ONE call site
+    (`upload_cv`), so `import_cv` always auto-merged and the guide was required
+    to SCOPE the held-merge section away from this channel ("always merges",
+    "never parks", open Bug #367). The ingest is now one function behind all
+    three doors, so both of those sentences became false the moment the gate
+    moved — and a guide that still said them would talk an agent out of reading
+    the very field that tells it nothing was merged.
+
+    The test is inverted rather than deleted, because the failure mode is
+    symmetric: the guide must describe the outcome the tool actually has.
+    """
     guide = _guide()
+    lowered = guide.lower()
+
+    # The retired promise must be gone, in both of its old spellings.
+    assert "always merges" not in lowered, (
+        "the guide still tells agents import_cv always merges — it can park"
+    )
+    assert "never parks" not in lowered
+
+    # And the live contract must be stated where an agent will meet it.
     assert "#367" in guide
-    assert "always merges" in guide
-    assert "never parks" in guide.lower()
+    for marker in ("gated", "staged_id", "hold_reason", "resolve_held_merge"):
+        assert marker in lowered, f"guide does not name the hold's {marker!r}"
+    assert "held_merges" in lowered, (
+        "the guide must point at the read that carries the two names — they are "
+        "deliberately absent from import_cv's own reply (black-box invariant)"
+    )
 
 
 def test_guide_states_uniform_90d_ttl_and_no_24h_fiction():

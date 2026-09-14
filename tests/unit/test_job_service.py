@@ -144,17 +144,20 @@ class TestJdValidityGuard:
 
 class TestNullSeniorityLevel:
     """
-    The LLM sometimes returns null for seniority_level (e.g. when it cannot
-    determine level from context). The service must not crash; null should be
-    stored as an empty string to satisfy the NOT NULL DB constraint.
+    #675 line 39 (J-0, migration 0067): the extractor prompt already tells the
+    model null is the correct, expected answer when the posting grounds no
+    tier — "the posting stated no tier" and "we lost the tier" must not
+    collapse into the same stored value. The column is nullable as of
+    migration 0067; a null (or blank-string) extraction is stored as NULL,
+    never laundered into "".
     """
 
     @pytest.mark.asyncio
-    async def test_null_seniority_level_stored_as_empty_string(self, db):
+    async def test_null_seniority_level_stored_as_none(self, db):
         response = {**_VALID_JD_RESPONSE, "seniority_level": None}
         provider = _make_provider(response)
         result = await analyze_jd("full job description text", db, provider)
-        assert result.seniority_level == ""
+        assert result.seniority_level is None
 
     @pytest.mark.asyncio
     async def test_valid_seniority_level_stored_correctly(self, db):

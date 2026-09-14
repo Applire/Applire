@@ -219,6 +219,69 @@ def is_verbatim(term: Any, posting_norm: str) -> bool:
     return re.search(pattern, posting_norm, flags=re.UNICODE) is not None
 
 
+# #675 line 41 — a DACH posting routinely states people-leadership as a
+# NOMINAL phrase headed by "Führung" (optionally "fachliche"/
+# "disziplinarische Führung") plus a genitive/dative object ("... der
+# Schicht- und Bereichsleiter", "... von vier ... Bereichsleitern", "...
+# eines kleinen Controlling-Teams"), never as an English-style gerund
+# ("leading a team"). check 2d's own examples ("leading, line-managing,
+# mentoring, growing a team") are English gerunds only; a reviewer given no
+# matching German example under-recognises this nominal shape and rejects a
+# quote that plainly names people-leadership (captured corpus: 3 of 13
+# invocations of operations_marcus_de, all arms — every time asking the
+# corrector to substitute the EXACT sentence this pattern already matches).
+# Deliberately requires a SPACE after "führung" so the fused compound
+# "Führungserfahrung" (a candidate REQUIREMENT, not the posting's own duty
+# statement) never matches.
+_LEADERSHIP_CONSTRUCTION_RE = re.compile(
+    r"\b(?:fachliche[r]?\s+|disziplinarische[r]?\s+)?"
+    r"führung\s+(?:und\s+entwicklung\s+)?(?:von|der|des|eines|einer)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_BULLET_SPLIT_RE = re.compile(r"(?:^|\n)[ \t]*[-•][ \t]+", re.MULTILINE)
+
+
+def _candidate_clauses(jd_text: str) -> list[str]:
+    """Best-effort clause reconstruction for :func:`find_leadership_constructions`.
+
+    A Markdown "- " bullet's text routinely wraps onto a following line with
+    no marker of its own (both fixtures this rule is evidenced against do
+    this) — each bullet's internal newlines are collapsed to single spaces
+    so a pattern sees the whole clause, stopping at the next blank line (a
+    new paragraph). Plain sentences (a non-bulleted posting) are also
+    considered as a fallback. Order is bullets-then-sentences and duplicates
+    are not removed here — :func:`find_leadership_constructions` dedupes.
+    """
+    if not jd_text:
+        return []
+    clauses = []
+    for part in _BULLET_SPLIT_RE.split(jd_text)[1:]:
+        first_para = part.split("\n\n", 1)[0]
+        collapsed = _WHITESPACE_RE.sub(" ", first_para).strip()
+        if collapsed:
+            clauses.append(collapsed)
+    flattened = _WHITESPACE_RE.sub(" ", jd_text)
+    for sentence in re.split(r"(?<=[.!?])\s+", flattened):
+        sentence = sentence.strip()
+        if sentence:
+            clauses.append(sentence)
+    return clauses
+
+
+def find_leadership_constructions(jd_text: str) -> list[str]:
+    """Posting clauses matching a recognised GERMAN LEADERSHIP NOMINAL
+    construction — see :data:`_LEADERSHIP_CONSTRUCTION_RE`. A pure pattern
+    match over the posting's own words is a FACT (ADR-062 clause 1), never a
+    judgement about whether the object led IS a people-leadership
+    responsibility — that stays check 2d's job. Order-preserving, deduped.
+    """
+    found: list[str] = []
+    for clause in _candidate_clauses(jd_text):
+        if _LEADERSHIP_CONSTRUCTION_RE.search(clause) and clause not in found:
+            found.append(clause)
+    return found
+
+
 def reviewer_view(draft: dict[str, Any]) -> dict[str, Any]:
     """A DEEP COPY of ``draft`` keeping only :data:`JD_SCHEMA_KEYS`.
 
@@ -340,9 +403,20 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
 
     scalar_lines = [
         f"{label} — {r}"
-        for label in ("role_title", "company_name", "seniority_level")
+        for label in ("role_title", "company_name")
         if (r := fact(view.get(label))) is not None
     ]
+    # #675 line 44 — seniority_level is a closed ENGLISH vocabulary
+    # (check 5), grounded by the posting's title/metadata-line/experience-bar,
+    # never by the bare enum word appearing verbatim in a German posting. A
+    # "verbatim no" here is structurally uninformative almost always (check
+    # 5's own prose already says so); enum-aware means keeping the genuine
+    # confirming signal (a "verbatim yes" — an English loanword literally
+    # used, e.g. "Senior Consultant") and dropping the uninformative "no"
+    # line rather than emitting noise every call.
+    seniority = view.get("seniority_level")
+    if isinstance(seniority, str) and seniority.strip() and is_verbatim(seniority, posting_norm):
+        scalar_lines.append(f'seniority_level — {fact(seniority)}')
     if scalar_lines:
         lines.append("")
         lines.extend(scalar_lines)
@@ -366,5 +440,21 @@ def grounding_facts(view: dict[str, Any], jd_text: str) -> str:
         if r is not None:
             lines.append("")
             lines.append(f"leadership_emphasis.quote — {r}")
+
+    # #675 line 41 — surfaced regardless of what (or whether) a
+    # leadership_emphasis.quote is currently drafted: the captured defect is
+    # the extractor picking the WRONG sentence in the first place, so the
+    # hint must be visible on round 1, not only once a quote already exists.
+    constructions = find_leadership_constructions(jd_text or "")
+    if constructions:
+        lines.append("")
+        lines.append(
+            "GERMAN LEADERSHIP CONSTRUCTIONS FOUND IN POSTING (code-computed, "
+            'pattern-matched — a nominal "Führung ... von/der/eines" phrase names '
+            "people-leadership by construction, the same as an English leading/"
+            "managing/mentoring gerund; still your judgement under check 2d whether "
+            "the object led is a people-leadership responsibility):"
+        )
+        lines.extend(f'  - "{c}"' for c in constructions)
 
     return "\n".join(lines)

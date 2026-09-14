@@ -48,6 +48,7 @@ from applire.constants import (
 )
 from applire.prompts.interview import (
     DENIAL_PROBE_QUESTION_SYSTEM_PROMPT,
+    FIELD_GAP_QUESTION_SYSTEM_PROMPT,
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
@@ -566,7 +567,17 @@ async def question_generator_with_profile(
             with llm_log_stage("interview_draft"):
                 text = await provider.acomplete(
                     build_field_gap_question_prompt(field, entry, state["messages"]),
-                    system=with_language(GUIDED_QUESTION_SYSTEM_PROMPT, lang),
+                    # MODE C's OWN system prompt since 2026-09-13 (ruling M5.5.1,
+                    # #675 line 32). It ran under MODE B's, which tells the model
+                    # the candidate is building a profile "from scratch", has "no
+                    # existing CV to fall back on", and is being asked about a
+                    # "section" — three statements MODE C's own user prompt
+                    # contradicts on every call. Blind-scored gain, 5 field gaps
+                    # x n=2 per arm: precision 4.00 -> 5.00, length 2.60 -> 4.50,
+                    # altitude 4.30 -> 5.00; "asks the candidate to restate what
+                    # the profile already holds" 3/10 -> 0/10 (see the prompt's
+                    # own docstring for the per-field table).
+                    system=with_language(FIELD_GAP_QUESTION_SYSTEM_PROMPT, lang),
                     temperature=0.4,
                     max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
                     disable_thinking=True,  # chrome generation (F-B)

@@ -23,7 +23,17 @@ Two-step LLM interaction:
   PATCH assist → submit answer, generate suggested section text
 
 Sessions are kept in a module-level dict (_sessions) — per-process, lightweight.
+
+**M5.7.1 / ADR-040 amendment 2026-09-13 (ruling W-2) — this surface is now inside the
+truthfulness contract.** It is the oldest LLM *writing* surface in the product and was
+outside every control: ADR-021 never reviewed it, ADR-040 never named it, and its three
+prompts were inline f-strings outside ``prompts/``. What it produces is prose the
+candidate pastes into a CV section, which is exactly the "externally-harmful-if-wrong
+content" ADR-040 clause 1 governs. Both content-producing calls now run the Oracle triage
+over their own output before it is shown; see :func:`_ground_suggestion` for the evidence
+set, the withhold polarity and why the question call is not triaged.
 """
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -33,6 +43,14 @@ from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
+from applire.prompts.cv_assist import (
+    ASSIST_QUESTION_SYSTEM_PROMPT,
+    ASSIST_REWRITE_SYSTEM_PROMPT,
+    ASSIST_SUGGESTION_SYSTEM_PROMPT,
+    build_assist_question_prompt,
+    build_assist_rewrite_prompt,
+    build_assist_suggestion_prompt,
+)
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.cv_sections import (
     AssistAnswerResponse,
@@ -40,6 +58,14 @@ from applire.schemas.cv_sections import (
     ContentSnapshot,
     RewriteResponse,
 )
+
+logger = logging.getLogger(__name__)
+
+#: Verdicts that WITHHOLD a sentence. Deliberately the three ADVERSE ones only:
+#: ``unverifiable`` means the Oracle could not decide, and ADR-068's fail-safe polarity
+#: is permissive — withholding on it would make the feature refuse most true content a
+#: deterministic matcher simply cannot see. ``not_applicable`` is an explicit exemption.
+_WITHHOLD_VERDICTS = frozenset({"inflated", "misattributed", "unbacked"})
 
 # ---------------------------------------------------------------------------
 # Module-level session store (per-process, no DB)
@@ -70,13 +96,11 @@ async def start_assist_session(
     if not await _gap_exists(cv_id, gap_id, db):
         raise ValueError(f"gap_id {gap_id!r} not found in gap_analysis for CV {cv_id}")
 
+    # NOT triaged (ADR-040 amendment clause 3): this call produces a QUESTION for the
+    # candidate, not CV content. Nothing in it can leave the system as a truth claim.
     question = await provider.acomplete(
-        _question_prompt(section_label, section_content, gap_id),
-        system=(
-            "Du bist Kaile, ein KI-Karriereassistent. "
-            "Deine Aufgabe ist es, dem Nutzer mit einer einzigen präzisen Frage zu helfen, "
-            "eine Lücke in seinem Lebenslauf zu schließen."
-        ),
+        build_assist_question_prompt(section_label, section_content, gap_id),
+        system=ASSIST_QUESTION_SYSTEM_PROMPT,
         temperature=0.4,
         max_tokens=512,  # chrome ceiling, raised for thinking-model headroom (F-B)
         disable_thinking=True,
@@ -114,23 +138,29 @@ async def submit_assist_answer(
         raise ValueError(f"Invalid session_id: {session_id!r}")
 
     suggestion = await provider.acomplete(
-        _suggestion_prompt(
+        build_assist_suggestion_prompt(
             session["section_label"],
             session["section_content"],
             session["gap_id"],
             answer,
         ),
-        system=(
-            "Du bist Kaile, ein KI-Karriereassistent. "
-            "Generiere verbesserten Lebenslauf-Text, der natürlich klingt und die "
-            "identifizierte Lücke schließt."
-        ),
+        system=ASSIST_SUGGESTION_SYSTEM_PROMPT,
         temperature=0.5,
         max_tokens=600,
         disable_thinking=True,  # chrome generation (F-B)
     )
 
-    return AssistAnswerResponse(suggestion=suggestion.strip())
+    # The candidate's own ANSWER is part of the evidence set — it is testimony they gave
+    # seconds ago, and grounding this suggestion against the vault alone would withhold
+    # almost everything the feature exists to produce (ADR-040 amendment clause 1).
+    kept, withheld = await _ground_suggestion(
+        suggestion,
+        db,
+        session_evidence=[("session.answer", answer)],
+        prior_text=session.get("section_content"),
+        gap_ids=[session["gap_id"]],
+    )
+    return AssistAnswerResponse(suggestion=kept, withheld_count=withheld)
 
 
 async def rewrite_section(
@@ -156,18 +186,23 @@ async def rewrite_section(
     role_title = await _get_role_title(cv_id, db)
 
     suggestion = await provider.acomplete(
-        _rewrite_prompt(section_label, section_content, directions, gap_ids, role_title),
-        system=(
-            "Du bist Kaile, ein KI-Karriereassistent. "
-            "Rewrite the given CV section exactly as directed by the user. "
-            "Output only the improved section text — no commentary, no introduction."
+        build_assist_rewrite_prompt(
+            section_label, section_content, directions, gap_ids, role_title
         ),
+        system=ASSIST_REWRITE_SYSTEM_PROMPT,
         temperature=0.5,
         max_tokens=600,
         disable_thinking=True,  # chrome generation (F-B)
     )
 
-    return RewriteResponse(suggestion=suggestion.strip())
+    kept, withheld = await _ground_suggestion(
+        suggestion,
+        db,
+        session_evidence=[("session.directions", directions)],
+        prior_text=section_content,
+        gap_ids=gap_ids,
+    )
+    return RewriteResponse(suggestion=kept, withheld_count=withheld)
 
 
 # ---------------------------------------------------------------------------
@@ -247,43 +282,6 @@ async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession) -> bool:
     )
 
 
-def _question_prompt(section_label: str, section_content: str, gap_id: str) -> str:
-    """Kaile's assist question — German prose the candidate reads directly.
-
-    #311: the register clause is category B (never asked, so the model
-    defaulted to Sie). BRAND.md §2.3 pins the product UI to Du. Only the
-    *question* carries it; ``_suggestion_prompt``/``_rewrite_prompt`` write CV
-    section prose, which addresses nobody and must stay register-free.
-    Needs charter-run verification (ADR-062 clause 7).
-    """
-    return (
-        f"Abschnitt: {section_label}\n"
-        f"Aktueller Inhalt:\n{section_content}\n\n"
-        f"Identifizierte Lücke: {gap_id}\n\n"
-        "Stelle eine einzige, kurze, konkrete Frage auf Deutsch, die dem Nutzer hilft, "
-        "Informationen zu liefern, mit denen diese Lücke im Lebenslauf geschlossen werden kann. "
-        "Sprich den Nutzer dabei in der Du-Form an („du\", „dein\", „dir\") — "
-        "niemals in der Sie-Form. "
-        "Nur die Frage, keine Erklärung."
-    )
-
-
-def _suggestion_prompt(
-    section_label: str,
-    section_content: str,
-    gap_id: str,
-    answer: str,
-) -> str:
-    return (
-        f"Abschnitt: {section_label}\n"
-        f"Aktueller Inhalt:\n{section_content}\n\n"
-        f"Lücke: {gap_id}\n"
-        f"Antwort des Nutzers: {answer}\n\n"
-        "Generiere einen verbesserten Text für diesen Abschnitt, der die Lücke schließt "
-        "und natürlich klingt. Gib nur den verbesserten Text aus, ohne Kommentar oder Einleitung."
-    )
-
-
 async def _get_role_title(cv_id: uuid.UUID, db: AsyncSession) -> str | None:
     """Return the job role title linked to this CV, or None if not found."""
     flow_result = await db.execute(
@@ -300,28 +298,160 @@ async def _get_role_title(cv_id: uuid.UUID, db: AsyncSession) -> str | None:
     return job.role_title if job else None
 
 
-def _rewrite_prompt(
-    section_label: str,
-    section_content: str,
-    directions: str,
-    gap_ids: list[str],
-    role_title: str | None,
-) -> str:
-    # ADR-084 embedding point 28 (Form A, inline): the target role title is the
-    # posting's own text, and this prompt's output is written straight into the
-    # candidate's CV section.
-    from applire.services.untrusted_text import fence_inline
+async def _ground_suggestion(
+    suggestion: str,
+    db: AsyncSession,
+    *,
+    session_evidence: list[tuple[str, str]],
+    prior_text: str | None = None,
+    gap_ids: list[str] | None = None,
+) -> tuple[str, int]:
+    """Withhold the sentences of ``suggestion`` the candidate's own data does not support.
 
-    lines = [f"Abschnitt: {section_label}"]
-    if role_title:
-        lines.append(f"Zielrolle: {fence_inline(role_title)}")
-    lines.append(f"Aktueller Inhalt:\n{section_content}")
-    if gap_ids:
-        lines.append(f"Zu schließende Lücken: {', '.join(gap_ids)}")
-    if directions:
-        lines.append(f"Anweisungen des Nutzers: {directions}")
-    lines.append(
-        "\nSchreibe den Abschnitt neu und berücksichtige dabei die Anweisungen und Lücken. "
-        "Gib nur den verbesserten Text aus."
-    )
-    return "\n".join(lines)
+    Returns ``(kept_text, withheld_count)``.
+
+    **The evidence set is named, and it is not the vault alone** (ADR-040 amendment
+    2026-09-13 clause 1, ruling W-2). It is
+
+      * the vault (``MasterProfile.profile_json``), plus
+      * ``session_evidence`` — the candidate's own fresh input in THIS micro-session (the
+        answer they just submitted, or the directions they just gave), plus
+      * ``prior_text`` — the CV section as it already stands, because a rewrite that
+        preserves a sentence already in the document is not introducing a new claim.
+
+    A vault-only check would withhold essentially every suggestion this feature exists to
+    produce: the whole point of the assist is that the candidate is telling us something
+    the vault does not yet hold. Telling them a true fact they typed ten seconds ago is
+    unsupported is the failure mode `SF-ASSIST.2` records.
+
+    **Withhold polarity.** Only the three ADVERSE verdicts remove a sentence —
+    ``inflated``, ``misattributed``, ``unbacked``. ``unverifiable`` means the Oracle could
+    not decide and ADR-068's fail-safe polarity is permissive; ``not_applicable`` is an
+    explicit exemption. So this can under-withhold and never over-withhold, which is the
+    right direction for a control whose false positive costs the candidate a true
+    sentence and whose false negative is still caught by the delivery-time audit.
+
+    **Deterministic.** No provider is threaded, so no LLM call is added to an interactive
+    chrome-tier surface: the Oracle's deterministic matchers (grounding, numbers, stance,
+    attribution) decide, and the bounded judgement seams stay off — the same scoping
+    `oracle/selfaudit.py` applies at generation time (ADR-068 clause 7). A judgement seam
+    can only ever move a sentence from ``unverifiable`` toward a decision, so leaving it
+    off cannot cause a false withhold.
+
+    **Fail-open, always.** Any failure — no profile yet, a malformed profile, an
+    exception anywhere in the audit — returns the suggestion unchanged with a withheld
+    count of 0 and a logged error. This is a prevention tier, not a gate (ADR-040 clause
+    4): a broken check must not take the feature down, and the delivery-time truthfulness
+    audit over the persisted ``tailored_data`` is the control that still looks at what
+    actually ships.
+
+    **The ADR-059 denial floor, applied before grounding** (ruling D-1, 2026-09-14).
+    ``gap_ids`` — the concept(s) this micro-session targets (``submit_assist_answer``'s
+    own ``gap_id``, or ``rewrite_section``'s ``gap_ids``) — are checked against the
+    vault's ``metadata.denied_concepts`` with :func:`is_denied_concept`, at its EXISTING
+    calling convention (a concept label vs. ``denied_concepts[*].concept`` — the same
+    check ``keyword_ledger``'s ledger floor already runs, never a new classifier). W-2's
+    "fresh input is evidence" stands for a genuinely new fact; it must not let a fresh
+    answer to a targeted question silently reverse a denial the SAME interview recorded
+    minutes earlier. A hit withholds the WHOLE suggestion (every extracted claim), logged
+    with the denied concept and a distinct reason.
+
+    **Measured, honest limit.** This catches a DIRECT/literal concept overlap only. The
+    2026-09-13 delivery-run instance it was built to close (gap concept
+    "Investitionsverantwortung", denial concept "Investitionsentscheidungen selbst
+    treffen") is a semantic paraphrase, not a lexical one — German compound-noun
+    morphology means neither concept is a bounded substring of the other, in either
+    direction, so :func:`is_denied_concept` does not fire on it (pinned by
+    ``test_the_exact_delivery_run_pair_is_the_measured_honest_limit``). Checking the
+    denial's free-text ``statement`` instead was measured and rejected: the SAME
+    statement's other sentence explicitly AFFIRMS "Budgetverantwortung", which also
+    matches via ``is_denied_concept``'s compound-containment branch with no release
+    (``corpus=None``) — trading a miss for a new false positive against an affirmed
+    fact. Closing the semantic gap needs a bounded judgement seam or a clause-scoped
+    corpus, out of this pass's scope (collector line).
+    """
+    text = (suggestion or "").strip()
+    if not text:
+        return "", 0
+    try:
+        from applire.models.profile import MasterProfile
+        from applire.services.oracle.audit import verify_claim
+        from applire.services.oracle.extract import extract_claims_from_text
+        from applire.services.oracle.matchers import build_vault_index, extend_vault_index
+        from applire.services.profile.reconcile.stance import is_denied_concept
+
+        result = await db.execute(
+            select(MasterProfile)
+            .where(MasterProfile.deleted_at.is_(None))
+            .order_by(MasterProfile.created_at.desc())
+            .limit(1)
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            # No vault to check against. Everything the candidate says is, trivially,
+            # all the evidence there is — withholding here would block the very first
+            # thing a new user does.
+            return text, 0
+
+        claims = await extract_claims_from_text(text, provider=None)
+        if not claims:
+            return text, 0
+
+        denied_concepts = (record.profile_json or {}).get("metadata", {}).get(
+            "denied_concepts"
+        ) or []
+        denial_labels = [
+            dc.get("concept")
+            for dc in denied_concepts
+            if isinstance(dc, dict) and dc.get("concept")
+        ]
+        denied_hit = next(
+            (
+                gid
+                for gid in (gap_ids or [])
+                if gid and denial_labels and is_denied_concept(gid, denial_labels)
+            ),
+            None,
+        )
+        if denied_hit is not None:
+            withheld = [c.text for c in claims]
+            kept = ""
+            logger.info(
+                "CV_ASSIST_WITHHELD_DENIAL concept=%r reason=contradicts_recorded_denial "
+                "count=%d",
+                denied_hit,
+                len(withheld),
+            )
+            return kept, len(withheld)
+
+        index = build_vault_index(record.profile_json or {})
+        evidence = list(session_evidence)
+        if prior_text:
+            evidence.append(("section.current", prior_text))
+        index = extend_vault_index(index, evidence)
+
+        withheld = []
+        for claim in claims:
+            verdict = await verify_claim(claim, record.profile_json or {}, index=index)
+            if getattr(verdict, "verdict", None) in _WITHHOLD_VERDICTS:
+                withheld.append(claim.text)
+        if not withheld:
+            return text, 0
+
+        kept = text
+        for sentence in withheld:
+            kept = kept.replace(sentence, "")
+        kept = " ".join(kept.split())
+        logger.info(
+            "CV_ASSIST_WITHHELD count=%d verdicts_checked=%d",
+            len(withheld),
+            len(claims),
+        )
+        return kept, len(withheld)
+    except Exception:  # noqa: BLE001 — prevention tier, never a gate
+        logger.error(
+            "cv_assist grounding failed; showing the suggestion unchecked "
+            "(the delivery-time truthfulness audit remains the gate)",
+            exc_info=True,
+        )
+        return text, 0

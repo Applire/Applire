@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import CV_EXTRACTION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
@@ -207,6 +207,8 @@ def _to_import_response(
         updated_at=base.updated_at,
         merge_status=merge_status,
         not_applied=list(not_applied or []),
+        # #367 — the same number under the name the import callers read.
+        completeness_score=base.completeness,
     )
 
 
@@ -378,16 +380,45 @@ def _apply_import_metadata(
 # without a database and a service call.
 
 
+# ── The text-ingest doors (#367) ──────────────────────────────────────────────
+#
+# Five public wrappers, one ingest. Each does exactly what a door may do (ADR-066
+# cl. 1): turn its transport into text + the source bytes to keep, and hand both to
+# `ingest_cv`. None of them evaluates the gate, chooses a merge, or decides whether
+# an upload record is written — before #367 they did none of those things either,
+# which was the defect.
+#
+# `storage` is a REQUIRED keyword argument on every one of them. It used to be
+# absent, and that absence is precisely SF-DOOR.3: a door that can silently decline
+# to persist the source document is a door that decides what the audit trail says.
+# A caller that forgets it now fails loudly at the call site instead.
+
+
 async def import_from_pdf(
     file_bytes: bytes,
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
+    *,
+    storage,
+    filename: str = "import.pdf",
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
     raw_text = extract_pdf_text(file_bytes)
     if not raw_text:
         raise ValueError("Could not extract text from PDF")
-    return await _import_from_text(raw_text, db, provider, created_via="cv_upload", embedding_provider=embedding_provider)
+    return await _import_from_text(
+        raw_text,
+        db,
+        provider,
+        created_via="cv_upload",
+        embedding_provider=embedding_provider,
+        storage=storage,
+        source_bytes=file_bytes,
+        filename=filename,
+        content_type="application/pdf",
+        user_id=user_id,
+    )
 
 
 async def import_from_text(
@@ -395,12 +426,30 @@ async def import_from_text(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
-    """Public wrapper to seed/merge a profile from already-extracted CV text."""
+    *,
+    storage,
+    filename: str = "import.txt",
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
+    """Public wrapper to seed/merge a profile from already-extracted CV text.
+
+    The text IS the source document: it is persisted like an uploaded file so an
+    Art. 15 answer names it and the retention worker sweeps it (SF-DOOR.3).
+    """
     if not raw_text or not raw_text.strip():
         raise ValueError("text must not be empty")
+    stripped = raw_text.strip()
     return await _import_from_text(
-        raw_text.strip(), db, provider, created_via="cv_paste", embedding_provider=embedding_provider
+        stripped,
+        db,
+        provider,
+        created_via="cv_paste",
+        embedding_provider=embedding_provider,
+        storage=storage,
+        source_bytes=stripped.encode("utf-8"),
+        filename=filename,
+        content_type="text/plain",
+        user_id=user_id,
     )
 
 
@@ -409,9 +458,24 @@ async def import_from_linkedin(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
+    *,
+    storage,
+    filename: str = "linkedin-export.json",
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
     raw_text = _linkedin_to_text(linkedin_json)
-    return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
+    return await _import_from_text(
+        raw_text,
+        db,
+        provider,
+        created_via="linkedin_import",
+        embedding_provider=embedding_provider,
+        storage=storage,
+        source_bytes=json.dumps(linkedin_json, ensure_ascii=False).encode("utf-8"),
+        filename=filename,
+        content_type="application/json",
+        user_id=user_id,
+    )
 
 
 async def import_from_linkedin_zip(
@@ -419,9 +483,24 @@ async def import_from_linkedin_zip(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
+    *,
+    storage,
+    filename: str = "linkedin-export.zip",
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
     raw_text = parse_linkedin_zip(zip_bytes)
-    return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
+    return await _import_from_text(
+        raw_text,
+        db,
+        provider,
+        created_via="linkedin_import",
+        embedding_provider=embedding_provider,
+        storage=storage,
+        source_bytes=zip_bytes,
+        filename=filename,
+        content_type="application/zip",
+        user_id=user_id,
+    )
 
 
 async def import_from_linkedin_pdf(
@@ -429,9 +508,24 @@ async def import_from_linkedin_pdf(
     db: AsyncSession,
     provider: LLMProvider,
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
+    *,
+    storage,
+    filename: str = "linkedin-export.pdf",
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
     raw_text = parse_linkedin_pdf(pdf_bytes)
-    return await _import_from_text(raw_text, db, provider, created_via="linkedin_import", embedding_provider=embedding_provider)
+    return await _import_from_text(
+        raw_text,
+        db,
+        provider,
+        created_via="linkedin_import",
+        embedding_provider=embedding_provider,
+        storage=storage,
+        source_bytes=pdf_bytes,
+        filename=filename,
+        content_type="application/pdf",
+        user_id=user_id,
+    )
 
 
 async def _import_from_text(
@@ -440,138 +534,48 @@ async def _import_from_text(
     provider: LLMProvider,
     created_via: str = "cv_upload",
     embedding_provider: EmbeddingProvider | None = None,
-) -> ProfileImportResponse:
-    emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
-    # Cap-safe extraction: single call on the fast path, segmented (outline-then-expand)
-    # on truncation/timeout or a known-small cap (ADR-047 / US195) — so a dense CV is
-    # never silently dropped behind an optimistic "complete" UI.
-    data: dict = await extract_with_fallback(
-        raw_text, provider, system=SYSTEM_PROMPT, user_prompt=build_user_prompt(raw_text),
-    )
-    data = await review_and_refine(
-        source=raw_text,
-        draft=data,
-        generator_prompt_fn=_build_extraction_retry_prompt,
-        generator_system=PROFILE_EXTRACTION_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=_build_extraction_review_prompt,
-        reviewer_system=_EXTRACTION_REVIEW_SYSTEM_PROMPT,
-        provider=provider,
-        max_retries=LLM_REVIEW_MAX_RETRIES,
-        generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
-        chain_id="profile_extraction",
-    )
-    # US179 / ADR-041: annotate role-aware expected fields at write time so the
-    # stored completeness score and the enrichment gaps derive from one source.
-    # Best-effort: annotate_expected_fields never raises (provider errors leave
-    # entries unannotated → scorer's lean floor fallback).
-    await annotate_expected_fields(data, provider)
-    incoming = MasterProfileData.model_validate(data)
-    incoming = await enrich_skills(incoming, provider)
-    now = datetime.now(timezone.utc)
+    *,
+    storage,
+    source_bytes: bytes,
+    filename: str,
+    content_type: str,
+    user_id: uuid.UUID | None = None,
+) -> "ProfileImportResponse | CVUploadResponse":
+    """The text doors' adapter over :func:`ingest_cv` (#367).
 
-    existing = await _get_latest(db)
-    if existing:
-        existing_data = MasterProfileData.model_validate(existing.profile_json)
-        # Lazy import: session.py imports this package, so a module-top import
-        # would create a circular import (import applire.services.session fails).
-        from applire.services.session import get_ui_language
-
-        lang = await get_ui_language(db)
-        merge_result = await reconcile_import(
-            existing_data, incoming, source=created_via, provider=provider, lang=lang,
-        )
-
-        merged = merge_result.merged_profile
-        enrichment = _enrichment_from_merge(merge_result, source=created_via)
-
-        _apply_import_metadata(
-            merged,
-            existing_data,
-            merge_result,
-            created_via=created_via,
-            created_at=existing.created_at,
-        )
-
-        # ADR-063 — the ONE write path. The merge itself is the op (#480 PR 2 /
-        # ADR-063 amended 2026-08-09 second entry: no reconciler-op sequence can
-        # reproduce an import), and the committer owns the tail this function
-        # used to hand-roll: the trail, the completeness recompute, both clocks,
-        # the write token — and the ADR-042 pre-merge snapshot, which is now a
-        # named parameter instead of an inline call only two writers remembered.
-        await commit_ops(
-            db,
-            [
-                ApplyImportMerge(
-                    merged=merged,
-                    changes=enrichment.changes,
-                    reconciliation=enrichment.reconciliation,
-                    not_applied=enrichment.not_applied,
-                )
-            ],
-            CommitProvenance(source=created_via, intake="import", actor="candidate"),
-            record=existing,
-            snapshot=SnapshotClass.MERGE,
-            # The import already ran `enrich_skills` WITH a provider on
-            # `incoming` and `enrich_skills_deterministic` on the merged result
-            # (inside `reconcile_import`); re-running the deterministic half
-            # here would be a second pass over the same profile.
-            enrichment=EnrichPolicy.SKIP,
-            embedding_provider=emb_provider,
-        )
-        # Flush-not-commit (ADR-063 amended clause 6): the door still owns its
-        # transaction — dropping this line is a silent no-write.
-        await db.commit()
-        await db.refresh(existing)
-        # #615 (ADR-063 amended 2026-08-28) — a SEPARATE builder from
-        # `_to_response`, which also serves GET /api/profile and PATCH
-        # /{section} (neither is a merge; refuter B MAJOR 1).
-        merge_status: ImportMergeStatus = "partial" if merge_result.not_applied else "applied"
-        return _to_import_response(
-            existing, merge_status=merge_status, not_applied=merge_result.not_applied
-        )
-
-    # First import — the vault does not exist yet, so the committer creates it
-    # (#480 PR 8 / ADR-063 clause 6). This branch used to build the row with
-    # `MasterProfile(profile_json=…)`: a keyword-argument constructor the write
-    # inventory's grep could not see, outside the write token and outside every
-    # invariant, minting its own trail entry and its own completeness score
-    # alongside the ones the committer computes for every other write.
-    #
-    # What stays HERE is what only the intake can know: `created_via` and
-    # `created_at` (the merge branch supplies them through
-    # `_apply_import_metadata` for the same reason), and the "initial import"
-    # receipt, built by the same helper as before — the committer mints the
-    # EnrichmentRecord that carries it, exactly as it does for a merge.
-    enrichment = _make_enrichment_record(source=created_via, action="added", new_value="initial import")
-    incoming.metadata = ProfileMetadata(
-        completeness_score=incoming.calculate_completeness(),
-        created_via=created_via,
-        created_at=now,
-        last_updated=now,
-    )
-
-    committed = await commit_ops(
+    Everything this function used to do inline — extraction, the refinement review,
+    `annotate_expected_fields`, `enrich_skills`, the merge through `commit_ops` —
+    is the ingest's, and is now shared with `upload_cv` rather than duplicated
+    beside it. What is left here is the two response shapes: a held merge is the
+    same `CVUploadResponse` the browser door returns, a merged import is the
+    `ProfileImportResponse` subclass #615 introduced.
+    """
+    outcome = await ingest_cv(
         db,
-        [ApplyImportMerge(merged=incoming, changes=enrichment.changes)],
-        CommitProvenance(source=created_via, intake="import", actor="candidate"),
-        # The creation path: no row to hand over (#480 PR 8).
-        record=None,
-        # A first import has no pre-state, so there is nothing an ADR-042 undo
-        # could restore — the same `None` this branch has always effectively
-        # passed, now said out loud.
-        snapshot=None,
-        # `enrich_skills` already ran WITH the provider on `incoming` above.
-        enrichment=EnrichPolicy.SKIP,
-        embedding_provider=emb_provider,
+        provider,
+        storage,
+        raw_text=raw_text,
+        source_bytes=source_bytes,
+        filename=filename,
+        content_type=content_type,
+        created_via=created_via,
+        recipe=PROFILE_TEXT_RECIPE,
+        user_id=user_id,
+        embedding_provider=embedding_provider,
     )
-    # Flush-not-commit (ADR-063 amended clause 6): the door owns its transaction
-    # — dropping this line is a silent no-write, and here it would be a silent
-    # no-PROFILE.
-    await db.commit()
-    await db.refresh(committed.record)
-    # #615 — a first import has nothing to reconcile against: "applied", []
-    # (the defaults) is the honest fact, not a special case.
-    return _to_import_response(committed.record)
+    if outcome.held:
+        return gated_upload_response(outcome)
+
+    # #615 (ADR-063 amended 2026-08-28) — a SEPARATE builder from `_to_response`,
+    # which also serves GET /api/profile and PATCH /{section} (neither is a merge;
+    # refuter B MAJOR 1). A first import has nothing to reconcile against, so
+    # `_apply_merge` returns the honest "applied, []" defaults there.
+    record = await _get_latest(db)
+    return _to_import_response(
+        record,
+        merge_status=outcome.merge.merge_status,
+        not_applied=outcome.merge.not_applied,
+    )
 
 
 async def get_profile(db: AsyncSession) -> MasterProfileResponse | None:
@@ -905,6 +909,18 @@ async def list_open_gates(
 
     These are the deferred Tier-1 gates US163 escalates into the JD interview —
     oldest first, so the longest-parked confirmation is asked first.
+
+    #367 (adversarial): a hold `import_cv` raises before any `User` row exists
+    is persisted with `user_id=NULL` (`mcp/server.py::_import_user_id` — "an
+    empty `users` table is an ownerless import rather than a failure", a real
+    state on the documented `python -m applire.mcp` standalone launch, which
+    never runs `applire.main`'s lifespan). An exact `user_id == :uid` filter
+    silently drops that row from the Health hub / `held_merges` the instant a
+    `User` row later appears, so the human is never asked to adjudicate a CV
+    the gate genuinely parked. Community is single-user (ADR-022 rejected), so
+    an ownerless row is unambiguously "the" user's — the same shape
+    `import_jobs.py::list_import_jobs` already uses for the sibling async-
+    import door (`or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))`).
     """
     query = (
         select(UploadRecord)
@@ -912,13 +928,283 @@ async def list_open_gates(
         .order_by(UploadRecord.created_at.asc())
     )
     if user_id is not None:
-        query = query.where(UploadRecord.user_id == user_id)
+        query = query.where(
+            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
+        )
     return list((await db.execute(query)).scalars().all())
 
 
 def _undated_positions(data: MasterProfileData) -> int:
     """Count work entries missing a start date (FMEA JF-M-2.7)."""
     return sum(1 for w in data.work_experience if not (w.start_date and w.start_date.strip()))
+
+
+# Hard cap on the source text handed to the extraction LLM. Lives HERE, not in one
+# door, because it is a property of the ingest: a LinkedIn PDF can be 30k+ chars of
+# endorsements/courses, and before #367 only the browser door capped it. We cut at the
+# last newline before the limit so the model always receives complete lines.
+_MAX_CV_TEXT_CHARS = 25_000
+
+
+@dataclass(frozen=True)
+class ExtractionRecipe:
+    """The ONE sanctioned difference between the CV-ingestion doors (ADR-066 cl. 3).
+
+    #367 converged the doors on a single ingest function. They genuinely still run
+    different extraction prompts and different refinement reviewers — the browser CV
+    upload uses the `cv_extraction` pair, the agent/LinkedIn text doors the
+    `profile_extraction` pair. ADR-066 clause 3 permits an intentional difference
+    *expressed as a named parameter on the one implementation*, and forbids it as a
+    second function body. This dataclass is that parameter: two values, enumerable,
+    with exactly one seam for the eventual shared rule module (vault collector #674,
+    `decide:` line) to act on.
+    """
+
+    system: str
+    build_user_prompt: object          # Callable[[str], str]
+    refinement_system: str
+    build_retry_prompt: object         # Callable[..., str]
+    reviewer_system: str
+    build_review_prompt: object        # Callable[..., str]
+    chain_id: str
+
+
+#: The browser CV-upload door's recipe (`POST /api/profile/upload`, `/import-jobs`).
+CV_UPLOAD_RECIPE = ExtractionRecipe(
+    system=GENERIC_CV_EXTRACTION_PROMPT,
+    build_user_prompt=build_generic_prompt,
+    refinement_system=CV_EXTRACTION_REFINEMENT_PROMPT,
+    build_retry_prompt=_build_cv_extraction_retry_prompt,
+    reviewer_system=_CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+    build_review_prompt=_build_cv_extraction_review_prompt,
+    chain_id="cv_extraction",
+)
+
+#: The text doors' recipe — MCP `import_cv` and the LinkedIn/XING structured export.
+PROFILE_TEXT_RECIPE = ExtractionRecipe(
+    system=SYSTEM_PROMPT,
+    build_user_prompt=build_user_prompt,
+    refinement_system=PROFILE_EXTRACTION_REFINEMENT_PROMPT,
+    build_retry_prompt=_build_extraction_retry_prompt,
+    reviewer_system=_EXTRACTION_REVIEW_SYSTEM_PROMPT,
+    build_review_prompt=_build_extraction_review_prompt,
+    chain_id="profile_extraction",
+)
+
+
+@dataclass
+class IngestOutcome:
+    """What one CV ingest did — the fact, not a transport shape.
+
+    Every door adapts this into its own response (`CVUploadResponse`,
+    `ProfileImportResponse`, the MCP summary dict); none of them re-derives it.
+    """
+
+    gate: str                                   # "none" | "not_a_cv" | "name_divergence"
+    upload_record: UploadRecord                 # always written — SF-DOOR.3
+    incoming: MasterProfileData
+    looks_like_cv: bool
+    undated_positions: int
+    account_name: str | None = None
+    cv_name: str | None = None
+    merge: "ApplyMergeOutcome | None" = None    # None exactly when held
+
+    @property
+    def held(self) -> bool:
+        return self.gate != "none"
+
+
+async def _persist_upload_record(
+    db: AsyncSession,
+    *,
+    source_bytes: bytes,
+    filename: str,
+    content_type: str,
+    storage,
+    user_id: uuid.UUID | None,
+    provider: LLMProvider,
+    gate_status: str | None = None,
+    staged_extraction: dict | None = None,
+) -> UploadRecord:
+    """Persist the source document + its `UploadRecord` (SF-DOOR.3, GDPR Art. 15).
+
+    One writer for both outcomes and all three doors: content hash, mime type, byte
+    size, LLM provider and the ADR-005 expiry, plus the stored file the retention
+    worker sweeps. A door supplies the bytes; it cannot decline to persist them
+    (ADR-066 cl. 1 — a door may not hold state the core does not).
+    """
+    content_hash = hashlib.sha256(source_bytes).hexdigest()
+    file_path = await storage.save(source_bytes, filename)
+    record = UploadRecord(
+        user_id=user_id,
+        original_filename=filename,
+        content_hash=content_hash,
+        mime_type=content_type,
+        file_path=file_path,
+        byte_size=len(source_bytes),
+        llm_tokens_used=None,  # token tracking deferred — LLMProvider ABC not extended yet
+        llm_provider=provider.__class__.__name__,
+        gate_status=gate_status,
+        staged_extraction=staged_extraction,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+def gated_upload_response(outcome: IngestOutcome) -> CVUploadResponse:
+    """The ONE representation of a held merge, whichever door raised it (US167).
+
+    `ProfileImportView` reads exactly these field names (`status === "GATED"`,
+    `gate`, `staged_id`, `account_name`, `cv_name`), and the parked row is resolved
+    through the one `resolve_staged_extraction` regardless of origin.
+    """
+    return CVUploadResponse(
+        profile_id=None,
+        status="GATED",
+        completeness_score=0.0,
+        conflicts=[],
+        enrichment_record_id=None,
+        expires_at=outcome.upload_record.expires_at,
+        looks_like_cv=(outcome.gate != "not_a_cv"),
+        name_mismatch=(outcome.gate == "name_divergence"),
+        undated_positions=outcome.undated_positions,
+        gate=outcome.gate,
+        account_name=outcome.account_name,
+        cv_name=outcome.cv_name,
+        staged_id=outcome.upload_record.id,
+    )
+
+
+async def ingest_cv(
+    db: AsyncSession,
+    provider: LLMProvider,
+    storage,  # StorageProvider — imported inline to avoid circular imports
+    *,
+    raw_text: str,
+    source_bytes: bytes,
+    filename: str,
+    content_type: str,
+    created_via: str,
+    recipe: ExtractionRecipe,
+    user_id: uuid.UUID | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> IngestOutcome:
+    """Ingest ONE CV into the Master Profile — the single implementation behind every
+    CV-ingestion door (#367; ADR-066 cl. 1–3, ADR-041 amended 2026-09-13).
+
+    extraction (by *recipe*) → refinement review (by *recipe*) → role-aware expected
+    fields → skill enrichment → **the US167/ADR-041 pre-merge integrity gate** →
+    park-or-merge → `UploadRecord` + stored source.
+
+    The gate used to be called by `upload_cv` and by nothing else, so two of the three
+    doors merged an arbitrary document unheld and left no audit trail (SF-DOOR.2/.3).
+    It is called here, unconditionally, and a door cannot omit it without deleting it.
+    Doors supply transport facts (the already-extracted text, the source bytes to keep,
+    who is importing) and adapt the returned :class:`IngestOutcome`; they decide
+    nothing about the merge.
+    """
+    emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
+
+    if len(raw_text) > _MAX_CV_TEXT_CHARS:
+        cut = raw_text.rfind("\n", 0, _MAX_CV_TEXT_CHARS)
+        if cut == -1:
+            cut = _MAX_CV_TEXT_CHARS
+        logger.warning(
+            "CV text truncated for LLM extraction: %d → %d chars (file: %s)",
+            len(raw_text),
+            cut,
+            filename,
+        )
+        raw_text = raw_text[:cut]
+
+    # Cap-safe extraction: single call on the fast path, segmented (outline-then-expand)
+    # on truncation/timeout or a known-small cap (ADR-047 / US195) — so a dense CV is
+    # never silently dropped behind an optimistic "complete" UI.
+    data: dict = await extract_with_fallback(
+        raw_text,
+        provider,
+        system=recipe.system,
+        user_prompt=recipe.build_user_prompt(raw_text),
+    )
+    data = await review_and_refine(
+        source=raw_text,
+        draft=data,
+        generator_prompt_fn=recipe.build_retry_prompt,
+        generator_system=recipe.refinement_system,
+        reviewer_prompt_fn=recipe.build_review_prompt,
+        reviewer_system=recipe.reviewer_system,
+        provider=provider,
+        max_retries=LLM_REVIEW_MAX_RETRIES,
+        generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
+        chain_id=recipe.chain_id,
+    )
+    # US179 / ADR-041: annotate role-aware expected fields at write time so the stored
+    # completeness score and the enrichment gaps derive from one source. Best-effort:
+    # never raises (provider errors leave entries unannotated → lean-floor fallback).
+    await annotate_expected_fields(data, provider)
+    incoming = MasterProfileData.model_validate(data)
+    incoming = await enrich_skills(incoming, provider)
+    now = datetime.now(timezone.utc)
+
+    # Pre-merge integrity gate (US167 / ADR-041 amended) — HOLD before commit.
+    # not-a-CV and account-vs-CV name divergence are caught *before* the additive merge
+    # can overwrite anything; safe default = don't merge. A held merge parks the staged
+    # extraction for the user to resolve (merge / discard).
+    existing = await _get_latest(db)
+    account_name = (
+        MasterProfileData.model_validate(existing.profile_json).personal_info.name
+        if existing
+        else None
+    )
+    gate = evaluate_merge_gate(account_name, incoming)
+
+    if gate.gate != "none":
+        record = await _persist_upload_record(
+            db,
+            source_bytes=source_bytes,
+            filename=filename,
+            content_type=content_type,
+            storage=storage,
+            user_id=user_id,
+            provider=provider,
+            gate_status=gate.gate,
+            staged_extraction=incoming.model_dump(mode="json"),
+        )
+        return IngestOutcome(
+            gate=gate.gate,
+            upload_record=record,
+            incoming=incoming,
+            looks_like_cv=(gate.gate != "not_a_cv"),
+            undated_positions=_undated_positions(incoming),
+            account_name=gate.account_name,
+            cv_name=gate.cv_name,
+            merge=None,
+        )
+
+    merge_outcome = await _apply_merge(
+        db, incoming, source=created_via, emb_provider=emb_provider, provider=provider, now=now
+    )
+    record = await _persist_upload_record(
+        db,
+        source_bytes=source_bytes,
+        filename=filename,
+        content_type=content_type,
+        storage=storage,
+        user_id=user_id,
+        provider=provider,
+    )
+    return IngestOutcome(
+        gate="none",
+        upload_record=record,
+        incoming=incoming,
+        looks_like_cv=_looks_like_cv(incoming),
+        undated_positions=_undated_positions(incoming),
+        account_name=account_name,
+        cv_name=gate.cv_name,
+        merge=merge_outcome,
+    )
 
 
 async def upload_cv(
@@ -950,22 +1236,11 @@ async def upload_cv(
     from applire.services.cv_parser import extract_text
 
     # 1. Text extraction — each CV is analysed individually; never concatenated.
-    #    Hard cap prevents token overflow on verbose files (LinkedIn PDFs can be
-    #    30K+ chars due to endorsements/courses/recommendations).  We cut at the
-    #    last newline before the limit so the LLM always receives complete lines.
-    _MAX_CV_TEXT_CHARS = 25_000
+    #    Format-aware with an OCR fallback for scanned PDFs/images; this is the one
+    #    step that stays door-local (the agent door's `pypdf` read cannot OCR).
+    #    The 25k-char cap that used to live here is now part of the ingest, so all
+    #    three doors get it (#367).
     raw_text = await extract_text(file_bytes, filename, content_type, ocr_extractor)
-    if len(raw_text) > _MAX_CV_TEXT_CHARS:
-        cut = raw_text.rfind("\n", 0, _MAX_CV_TEXT_CHARS)
-        if cut == -1:
-            cut = _MAX_CV_TEXT_CHARS
-        logger.warning(
-            "CV text truncated for LLM extraction: %d → %d chars (file: %s)",
-            len(raw_text),
-            cut,
-            filename,
-        )
-        raw_text = raw_text[:cut]
 
     # 2. job_id is accepted for REST API compatibility only (M5.1.3) — it no longer
     #    selects a different extraction path. Every upload builds the generic prompt.
@@ -976,93 +1251,33 @@ async def upload_cv(
             job_id,
         )
 
-    # 3. LLM extraction + review layer + skill enrichment
-    prompt = build_generic_prompt(raw_text)
-    system = GENERIC_CV_EXTRACTION_PROMPT
-
-    # Cap-safe extraction (ADR-047 / US195): segmented fallback when the single call would
-    # truncate, so the /upload path never silently drops a dense CV either.
-    data: dict = await extract_with_fallback(
-        raw_text, provider, system=system, user_prompt=prompt,
+    # 3. THE ingest (#367 / ADR-066 cl. 1–3): extraction → review → expected fields →
+    #    skill enrichment → the US167 gate → park-or-merge → UploadRecord + source
+    #    file. This door adds the OCR-capable text extraction above and the response
+    #    shaping below; it decides nothing about the merge.
+    outcome = await ingest_cv(
+        db,
+        provider,
+        storage,
+        raw_text=raw_text,
+        source_bytes=file_bytes,
+        filename=filename,
+        content_type=content_type,
+        created_via="cv_upload",
+        recipe=CV_UPLOAD_RECIPE,
+        user_id=user_id,
+        embedding_provider=embedding_provider,
     )
-    data = await review_and_refine(
-        source=raw_text,
-        draft=data,
-        generator_prompt_fn=_build_cv_extraction_retry_prompt,
-        generator_system=CV_EXTRACTION_REFINEMENT_PROMPT,
-        reviewer_prompt_fn=_build_cv_extraction_review_prompt,
-        reviewer_system=_CV_EXTRACTION_REVIEW_SYSTEM_PROMPT,
-        provider=provider,
-        max_retries=LLM_REVIEW_MAX_RETRIES,
-        generator_max_tokens=CV_EXTRACTION_MAX_TOKENS,
-        chain_id="cv_extraction",
-    )
-    # US179 / ADR-041: annotate role-aware expected fields at write time (same as
-    # _import_from_text). The primary /upload path must annotate too, or expected_fields
-    # stays null and the completeness model can't be role-aware (#66 PQ finding).
-    await annotate_expected_fields(data, provider)
-    incoming = MasterProfileData.model_validate(data)
-    incoming = await enrich_skills(incoming, provider)
-    now = datetime.now(timezone.utc)
-    emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
 
-    # Upload-time input-plausibility signals (Input Integrity sprint, issue #43):
-    # document-type (US154/2.3) and per-CV completeness (US157/2.7) come from the
-    # just-extracted CV.
-    looks_like_cv = _looks_like_cv(incoming)
-    undated_positions = _undated_positions(incoming)
+    # 4. A held merge is the same object on every door (US167).
+    if outcome.held:
+        return gated_upload_response(outcome)
 
-    # 4. Pre-merge integrity gate (US167 / ADR-041 amended) — HOLD before commit.
-    #    not-a-CV and account-vs-CV name divergence are caught *before* the additive
-    #    merge can overwrite anything; safe default = don't merge. A held merge parks
-    #    the staged extraction for the user to resolve (merge / discard).
-    existing = await _get_latest(db)
-    account_name = (
-        MasterProfileData.model_validate(existing.profile_json).personal_info.name
-        if existing
-        else None
-    )
-    gate = evaluate_merge_gate(account_name, incoming)
-    if gate.gate != "none":
-        return await _park_gated_upload(
-            db,
-            gate,
-            incoming,
-            file_bytes=file_bytes,
-            filename=filename,
-            content_type=content_type,
-            storage=storage,
-            user_id=user_id,
-            provider=provider,
-        )
-
-    # 5. Clean CV — additive merge commits (or first profile is created).
-    merge_outcome = await _apply_merge(
-        db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider, now=now
-    )
-    profile_id = merge_outcome.profile_id
+    # 5. Clean CV — the merge committed (or the first profile was created).
+    merge_outcome = outcome.merge
     completeness = merge_outcome.completeness
     conflicts = merge_outcome.conflicts
-    enrichment_id = merge_outcome.enrichment_id
 
-    # 6. Persist file + cost metadata
-    content_hash = hashlib.sha256(file_bytes).hexdigest()
-    file_path = await storage.save(file_bytes, filename)
-
-    upload_record = UploadRecord(
-        user_id=user_id,
-        original_filename=filename,
-        content_hash=content_hash,
-        mime_type=content_type,
-        file_path=file_path,
-        byte_size=len(file_bytes),
-        llm_tokens_used=None,  # token tracking deferred — LLMProvider ABC not extended yet
-        llm_provider=provider.__class__.__name__,
-    )
-    db.add(upload_record)
-    await db.commit()
-
-    # 7. Build response
     status = "DRAFT" if (completeness < 0.5 or bool(conflicts)) else "COMPLETE"
     conflict_summaries = [
         ConflictSummary(
@@ -1075,15 +1290,17 @@ async def upload_cv(
     ]
 
     return CVUploadResponse(
-        profile_id=profile_id,
+        profile_id=merge_outcome.profile_id,
         status=status,
         completeness_score=completeness,
         conflicts=conflict_summaries,
-        enrichment_record_id=enrichment_id,
-        expires_at=upload_record.expires_at,
-        looks_like_cv=looks_like_cv,
+        enrichment_record_id=merge_outcome.enrichment_id,
+        expires_at=outcome.upload_record.expires_at,
+        # Upload-time input-plausibility signals (Input Integrity sprint, issue #43):
+        # document-type (US154/2.3) and per-CV completeness (US157/2.7).
+        looks_like_cv=outcome.looks_like_cv,
         name_mismatch=False,  # a clean merge by definition had no name divergence
-        undated_positions=undated_positions,
+        undated_positions=outcome.undated_positions,
         gate="none",
         # #615 (ADR-063 amended 2026-08-28) — the SAME fact on every import
         # door; the async job's result inherits it via CVImportStatusResponse
@@ -1223,56 +1440,6 @@ async def _apply_merge(
     )
 
 
-async def _park_gated_upload(
-    db: AsyncSession,
-    gate,
-    incoming: MasterProfileData,
-    *,
-    file_bytes: bytes,
-    filename: str,
-    content_type: str,
-    storage,
-    user_id: uuid.UUID | None,
-    provider: LLMProvider,
-) -> CVUploadResponse:
-    """HOLD the merge (US167): persist the source file, park the already-extracted
-    profile JSON on the upload row, and return a GATED response. Nothing is merged
-    — the user resolves it via ``resolve_staged_extraction``."""
-    content_hash = hashlib.sha256(file_bytes).hexdigest()
-    file_path = await storage.save(file_bytes, filename)
-
-    upload_record = UploadRecord(
-        user_id=user_id,
-        original_filename=filename,
-        content_hash=content_hash,
-        mime_type=content_type,
-        file_path=file_path,
-        byte_size=len(file_bytes),
-        llm_provider=provider.__class__.__name__,
-        gate_status=gate.gate,
-        staged_extraction=incoming.model_dump(mode="json"),
-    )
-    db.add(upload_record)
-    await db.commit()
-    await db.refresh(upload_record)
-
-    return CVUploadResponse(
-        profile_id=None,
-        status="GATED",
-        completeness_score=0.0,
-        conflicts=[],
-        enrichment_record_id=None,
-        expires_at=upload_record.expires_at,
-        looks_like_cv=(gate.gate != "not_a_cv"),
-        name_mismatch=(gate.gate == "name_divergence"),
-        undated_positions=_undated_positions(incoming),
-        gate=gate.gate,
-        account_name=gate.account_name,
-        cv_name=gate.cv_name,
-        staged_id=upload_record.id,
-    )
-
-
 async def resolve_staged_extraction(
     db: AsyncSession,
     staged_id: uuid.UUID,
@@ -1289,11 +1456,19 @@ async def resolve_staged_extraction(
 
     When ``user_id`` is given the lookup is scoped to that owner, so a foreign
     upload is indistinguishable from a missing one (IDOR guard) — a parked CV
-    can only be resolved by the account that uploaded it.
+    can only be resolved by the account that uploaded it. An ownerless row
+    (``user_id IS NULL`` — #367 adversarial: `import_cv` ran before any `User`
+    row existed) is included for any given ``user_id`` rather than excluded:
+    Community is single-user (ADR-022 rejected), so it is unambiguously "the"
+    user's, and an exact-equality filter made such a hold permanently
+    unresolvable the moment a `User` row appeared (`list_open_gates` carries
+    the same widening, and the same reasoning).
     """
     query = select(UploadRecord).where(UploadRecord.id == staged_id)
     if user_id is not None:
-        query = query.where(UploadRecord.user_id == user_id)
+        query = query.where(
+            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
+        )
     rec = (await db.execute(query)).scalar_one_or_none()
     if rec is None or rec.gate_status is None:
         raise StagedExtractionNotFound(str(staged_id))

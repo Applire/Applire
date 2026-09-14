@@ -73,11 +73,15 @@ loop or this codebase's other reviewer-authored blocks:
    block alone rather than an empty string — that gap, not a byte-identical
    no-op, is exactly what this clause exists to close.)
 5. **No ``location``/``check`` rendering.** ``ReviewIssue`` normalizes an issue
-   down to ``text`` and ``severity`` only: ``location`` and ``check`` are
-   accepted in the reviewer's JSON schema (``prompts/review_severity.py``) but
-   ``normalize_issues`` never captures them — see that function's
-   ``_ISSUE_TEXT_KEYS`` and ``test_review_issues.py``'s
-   ``test_the_new_keys_never_win_over_the_prose_key``, which pins the discard.
+   down to ``text`` and ``severity`` only: ``normalize_issues`` never captures
+   the other keys — see that function's ``_ISSUE_TEXT_KEYS`` and
+   ``test_review_issues.py``'s ``test_the_new_keys_never_win_over_the_prose_key``,
+   which pins the discard. **M5.4.1 (2026-09-13) closed the other half of that
+   asymmetry:** eight of the nine reviewer doors no longer SOLICIT the two keys
+   either, having paid ~202 schema characters each for output that was thrown
+   away. One door still asks — ``cv_terminal_review``, measurably (see
+   ``prompts/review_severity.py``) — so the parser's tolerance above is now more
+   load-bearing, not less, and this constraint is unchanged.
    They are gone before a ``ReviewIssue`` ever exists. Rendering them here
    would mean either reaching around ``normalize_issues`` to the raw reviewer
    dict — bypassing its deliberate fail-safe severity coercion — or extending

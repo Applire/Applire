@@ -27,6 +27,24 @@ def _mock_db():
     return cm, mock_session
 
 
+def _with_single_user(session, user_id=None):
+    """Shape `db.execute` the way SQLAlchemy really behaves: the AWAIT returns a
+    Result whose `scalar_one_or_none()` is SYNCHRONOUS. A bare `AsyncMock()`
+    session makes it a coroutine, which reads as "there is a user" to `is None`
+    and then explodes on `.id`.
+
+    Needed since #367: `import_cv` resolves the importing user so the
+    `UploadRecord` it writes is owned by somebody — an ownerless row is
+    invisible to the user-scoped uploads list and to `resolve_held_merge`.
+    """
+    user = MagicMock()
+    user.id = user_id or uuid.uuid4()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    session.execute = AsyncMock(return_value=result)
+    return user
+
+
 def _mock_result(**kwargs) -> MagicMock:
     """Build a Pydantic-like result mock whose model_dump(mode='json') returns kwargs."""
     m = MagicMock()
@@ -1097,8 +1115,10 @@ async def test_create_application_duplicate_reuses_existing():
 @pytest.mark.asyncio
 async def test_import_from_text_wrapper_rejects_empty():
     from applire.services.profile import import_from_text
+    # storage= is required by the signature (#367) even though the empty-text
+    # ValueError fires before it would ever be used.
     with pytest.raises(ValueError):
-        await import_from_text("   ", db=MagicMock(), provider=MagicMock())
+        await import_from_text("   ", db=MagicMock(), provider=MagicMock(), storage=MagicMock())
 
 
 # ---------------------------------------------------------------------------
@@ -1111,7 +1131,8 @@ async def test_import_cv_base64_happy_path():
     import base64
     from applire.mcp.server import import_cv
 
-    cm, _ = _mock_db()
+    cm, session = _mock_db()
+    _with_single_user(session)
     profile = MagicMock()
     profile.model_dump.return_value = {
         "id": str(uuid.uuid4()),
@@ -1179,7 +1200,8 @@ def test_profile_metadata_accepts_cv_paste():
 @pytest.mark.asyncio
 async def test_import_cv_text_happy_path():
     from applire.mcp.server import import_cv
-    cm, _ = _mock_db()
+    cm, session = _mock_db()
+    _with_single_user(session)
     profile = MagicMock()
     profile.model_dump.return_value = {
         "id": str(uuid.uuid4()),

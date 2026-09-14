@@ -478,3 +478,124 @@ def test_grounding_facts_normalises_the_posting_through_strip_locators_617():
     view = {"required_skills": ["AI"], "keywords": []}
     facts = grounding_facts(view, "Mehr zu uns finden Sie auf ai-solutions.de.")
     assert '"AI": verbatim no' in facts
+
+
+# ---------------------------------------------------------------------------
+# #675 line 44 — seniority_level is a closed ENGLISH vocabulary
+# (Junior/Mid/Senior/Lead/Executive); it is grounded by the posting's TITLE,
+# a job-board metadata line, or a stated experience bar (check 5's own three
+# grounds) — never by the bare enum word appearing verbatim in a German
+# posting. A "verbatim no" line for this field is therefore structurally
+# uninformative almost always (check 5's prose already says so explicitly),
+# while a "verbatim yes" (an English loanword literally used, e.g. "Senior
+# Consultant") IS a genuine confirming signal and is kept. Made enum-aware:
+# suppress the noise, keep the signal.
+# ---------------------------------------------------------------------------
+
+
+def test_grounding_facts_never_emits_a_seniority_verbatim_no_line_675_line_44():
+    view = {"seniority_level": "Lead"}
+    facts = grounding_facts(view, "Leiter Operations (m/w/d) bei Rheinwerk Verpackungen.")
+    assert "seniority_level" not in facts
+
+
+def test_grounding_facts_still_emits_a_seniority_verbatim_yes_line_675_line_44():
+    """The genuine confirming signal (an English loanword literally used in
+    the posting) survives the enum-aware change."""
+    view = {"seniority_level": "Senior"}
+    facts = grounding_facts(view, "Senior Backend Engineer at Acme GmbH.")
+    assert 'seniority_level — "Senior": verbatim yes' in facts
+
+
+# ---------------------------------------------------------------------------
+# #675 line 41 — German leadership NOMINAL constructions ("Führung ...
+# von/der/eines"), deterministic. Captured corpus (2026-08-11 .. 2026-09-06,
+# operations_marcus_de and controlling_emma_de postings): check 2d's own
+# examples ("leading, line-managing, mentoring, growing a team") are English
+# gerunds, and the reviewer — given no matching German example — rejected a
+# quote that plainly names people-leadership 3 of 13 invocations, all arms,
+# every time asking the corrector to substitute the exact sentence this
+# function recognises. A regex match over the posting's own words is a FACT
+# (ADR-062 clause 1), never a judgement about whether the object led IS a
+# people-leadership responsibility — that stays check 2d's job.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "jd_text,expected_construction",
+    [
+        pytest.param(
+            "Ihre Aufgaben:\n"
+            "- Gesamtverantwortung für Produktion (ca. 120 Mitarbeitende).\n"
+            "- Führung und Entwicklung der Schicht- und Bereichsleiter.\n"
+            "- Budgetverantwortung.\n",
+            "Führung und Entwicklung der Schicht- und Bereichsleiter.",
+            id="fuehrung-und-entwicklung-der",
+        ),
+        pytest.param(
+            "Ihre Aufgaben:\n"
+            "- Führung von vier direkt unterstellten Bereichsleitern, insgesamt rund 180 Mitarbeitende.\n"
+            "- Budgetplanung für den Standort.\n",
+            "Führung von vier direkt unterstellten Bereichsleitern, insgesamt rund 180 Mitarbeitende.",
+            id="fuehrung-von",
+        ),
+        pytest.param(
+            "Ihre Aufgaben:\n"
+            "- Produktions- und Projektcontrolling für den Anlagenbau.\n"
+            "- Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit\n"
+            "  Entwicklungsperspektive zur Teamleitung.\n"
+            "- Sparringspartner der Geschäftsführung.\n",
+            "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.",
+            id="fachliche-fuehrung-eines-wrapped-bullet",
+        ),
+    ],
+)
+def test_find_leadership_constructions_recognises_each_evidenced_construction_675_line_41(
+    jd_text, expected_construction
+):
+    from applire.services.jd_grounding import find_leadership_constructions
+
+    found = find_leadership_constructions(jd_text)
+    assert expected_construction in found
+
+
+def test_find_leadership_constructions_does_not_match_experience_requirements_675_line_41():
+    """'Führungserfahrung' (a candidate REQUIREMENT — years of leadership
+    experience) is a different fused compound, not the JD's own nominal duty
+    statement, and must never be mistaken for one."""
+    from applire.services.jd_grounding import find_leadership_constructions
+
+    jd_text = (
+        "Ihr Profil:\n"
+        "- Mehrjährige Führungserfahrung in der Produktion eines Industrieunternehmens.\n"
+        "- Durchsetzungsstarke, wertschätzende Führungspersönlichkeit.\n"
+    )
+    assert find_leadership_constructions(jd_text) == []
+
+
+def test_grounding_facts_surfaces_leadership_constructions_when_quote_differs_675_line_41():
+    """The reviewer's GROUNDING FACTS block carries the recognised
+    construction even when the DRAFT's own leadership_emphasis.quote is a
+    different (wrong) sentence — the exact captured mechanism: the extractor
+    picks the staff-count sentence, and the reviewer has to spend a round
+    asking for the right one every time."""
+    jd_text = (
+        "Ihre Aufgaben:\n"
+        "- Gesamtverantwortung für Produktion (ca. 120 Mitarbeitende).\n"
+        "- Führung und Entwicklung der Schicht- und Bereichsleiter.\n"
+    )
+    view = {
+        "leadership_emphasis": {
+            "emphasis": "balanced",
+            "quote": "Gesamtverantwortung für Produktion (ca. 120 Mitarbeitende).",
+        },
+    }
+    facts = grounding_facts(view, jd_text)
+    assert "GERMAN LEADERSHIP CONSTRUCTIONS FOUND IN POSTING" in facts
+    assert "Führung und Entwicklung der Schicht- und Bereichsleiter." in facts
+
+
+def test_grounding_facts_omits_leadership_constructions_block_when_none_found_675_line_41():
+    view = {"leadership_emphasis": None}
+    facts = grounding_facts(view, "No leadership language in this posting at all.")
+    assert "GERMAN LEADERSHIP CONSTRUCTIONS" not in facts

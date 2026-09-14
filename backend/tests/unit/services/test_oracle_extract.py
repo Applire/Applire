@@ -310,6 +310,41 @@ async def test_extract_from_text_without_provider_degrades_to_single_claim(monke
 
 
 @pytest.mark.asyncio
+async def test_segment_prose_llm_splits_system_and_prompt(monkeypatch):
+    """M5.7.1: the standing instruction travels as ``system=``, only the text
+    to segment as ``prompt=`` — and the two concatenated still contain every
+    sentence the former single-``prompt=`` call carried (the #404-shaped
+    defect fixed here, mirroring the audit.py entailment call's own #404
+    retrofit)."""
+    from applire.services.oracle import extract as mod
+    from applire.prompts.oracle_audit import SEGMENT_PROSE_SYSTEM_PROMPT
+
+    monkeypatch.setattr(mod, "ORACLE_PROSE_FALLBACK_CHARS", 50)
+    blob = "led everything and delivered many results without punctuation " * 4
+    spy = _SpyProvider({"claims": ["led everything", "delivered many results"]})
+    await extract_claims_from_text(blob, provider=spy)
+
+    assert len(spy.calls) == 1
+    call = spy.calls[0]
+    # (a) the system text is passed as system=
+    assert call["system"] == SEGMENT_PROSE_SYSTEM_PROMPT
+
+    # (b) system + prompt together still carry every sentence the old
+    # single-argument prompt contained.
+    original_sentences = [
+        "Split the following resume/cover-letter prose into its individual "
+        "factual claims (one short statement each).",
+        'Return STRICT JSON: {"claims": ["...", "..."]}.',
+        "Do not rephrase, do not add or drop content — segment only.",
+    ]
+    combined = call["system"] + "\n\n" + call["prompt"]
+    for sentence in original_sentences:
+        assert sentence in combined
+    # And the payload itself still reaches the model.
+    assert blob.strip() in call["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_extract_from_text_llm_failure_degrades(monkeypatch):
     from applire.services.oracle import extract as mod
 

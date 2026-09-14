@@ -39,3 +39,21 @@ issuer (`IHK Koblenz`, `TUEV Rheinland`).
   an issuer invented out of the German compound's own first morpheme
   ("Hersteller" = manufacturer). A fabricated issuer is a vault write the
   candidate never made.
+
+## Captured extractions (E-1, 2026-09-13)
+
+`multi_employer_kenntnisse_hard.violating.json` and `.clean.json` are two real
+extractions of `multi_employer_kenntnisse_hard.txt`, taken verbatim from the
+build-2 measurement records (`ministral-8b-2512`, runs 2 and 1). They exist so the
+REVIEWER can be measured without re-extracting: the positive case is guaranteed to
+carry the #407 defect (`SAP PP` / `MS Excel` backfilled onto the Kaltenbach role,
+whose own passage names neither) and the negative case is guaranteed not to
+(`Proficy` / `Grafana`, both named in its own bullet). Re-extracting instead would
+have left the measurement at the mercy of whether that run happened to reproduce
+the defect at all.
+
+They are also honest about themselves: BOTH carry unrelated defects the reviewer
+correctly blocks on (`team_size: 38` and a `budget_managed` the source never
+states), which is why "did the reviewer block?" is not the metric — "did it raise a
+blocking issue naming a misattributed tool?" is. Used by
+`scripts/extraction_probe.py --probe review_per_entry_tech`.

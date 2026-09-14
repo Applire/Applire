@@ -229,9 +229,14 @@ def assemble_tailored_cv(prose: dict, profile_json: dict) -> dict:
         "languages": _dedup_languages(
             [l for l in (profile_json.get("languages") or []) if isinstance(l, dict)]
         ),
-        # Standalone projects from the segmented path's projects writer; the
-        # single-call prose shape has none (vault standalone projects are nested
-        # by _nest_projects downstream).
+        # Standalone (untied) projects. Since M5.3.1 (#424, rule 10) BOTH the
+        # segmented path's dedicated projects writer AND the single-call
+        # writer's own top-level "projects" field can populate this — the
+        # single-call prose shape is no longer necessarily empty here, per
+        # ADR-067 clause 2's "one contract, not two". Vault projects the
+        # writer left untied are joined separately by _nest_projects
+        # downstream, which also guards against a name colliding with what
+        # the writer already placed here.
         "projects": [p for p in (prose.get("projects") or []) if isinstance(p, dict)],
     }
 
@@ -507,10 +512,16 @@ async def _tailor_cv_with_fallback(
             temperature=0.3,
             max_tokens=CV_GENERATION_MAX_TOKENS,
         )
-    except (LLMTruncatedError, LLMTimeoutError):
+    except (LLMTruncatedError, LLMTimeoutError, _json.JSONDecodeError) as exc:
+        # #688: a weak model's single-call writer response can also be malformed
+        # (non-truncated) JSON — an unquoted property name, trailing extra data — and
+        # not just truncated/timed out. It falls to the SAME segmented-generation
+        # fallback as those two, never a crash; only the exception class is logged
+        # (no prompt text, no raw payload).
         logger.warning(
-            "single-call CV tailoring hit the output cap/timeout; switching to segmented "
-            "mode instead of doubling the budget (ADR-047)"
+            "single-call CV tailoring hit the output cap/timeout/malformed output (%s); "
+            "switching to segmented mode instead of doubling the budget (ADR-047)",
+            type(exc).__name__,
         )
         return await generate_cv_segmented(
             job_analysis, profile, keyword_gaps,
@@ -756,6 +767,28 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 for p in work_history[target_idx].get("projects") or []
             }
             if _ats_norm(name) in existing_names:
+                # Adversarial pass, Nougat build 3 (writer controls, area C):
+                # this skip was written for ONE shape (the writer already
+                # tailored this project; the vault's raw copy is redundant,
+                # not lost) but fires identically on a DIFFERENT shape it
+                # cannot tell apart — two DISTINCT vault ProjectEntry rows
+                # that happen to share a normalised name, a plausible
+                # pre-existing import/reconcile residual. In that shape the
+                # SECOND row's own facts vanish from the delivered document,
+                # and #424's own duplicate_project_pairs check cannot see it
+                # either: by delivery there is only one rendered copy, so
+                # there is no pair to flag. Log it, so the loss this file's
+                # own #424 docstring warns about ("dropping one of two
+                # same-named entries risks deleting bullets only the dropped
+                # copy carries") is at least visible, matching the "never
+                # silent" standard `_suppress_duplicate_project_bullets`
+                # already holds itself to in this module.
+                log_deletion(
+                    "_nest_projects",
+                    "same-name nested-project skip",
+                    name,
+                    role_id=str(work_history[target_idx].get("id") or ""),
+                )
                 continue
             work_history[target_idx].setdefault("projects", []).append(entry)
         else:
@@ -764,6 +797,11 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 for p in list(data.get("projects") or []) + standalone
             ]
             if _ats_norm(name) in already:
+                # Same defect, standalone-container branch — see the nested
+                # branch's comment above.
+                log_deletion(
+                    "_nest_projects", "same-name standalone-project skip", name,
+                )
                 continue
             standalone.append(entry)
 
@@ -4213,6 +4251,7 @@ async def _terminal_review(
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
     # Both hooks are inert by default; naming them here is this chain's opt-in.
     from applire.services.cv_gap_hints import underclaim_signal_issues_fn
+    from applire.services.bullet_redundancy_signal import redundancy_signal_issues_fn
     from applire.services.terminal_review_outcome import TerminalReviewOutcome, settle_to_outcome
 
     outcome_cell: dict[str, TerminalReviewOutcome | None] = {"outcome": None}
@@ -4254,6 +4293,28 @@ async def _terminal_review(
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
     )
 
+    # #659 (ruling W-1, 2026-09-13): the redundant bullet pairs the ATS audit computes
+    # one stage LATER reach the corrector while a round can still act on them. Same
+    # subject as the under-claim signal — the COMPOSED document — because #659's six
+    # bullets never existed in any writer output; `_nest_projects` assembled them after
+    # the writer finished. Detection only: the signal writes a sentence, never a cut
+    # (ADR-082 clauses 1-3 for the deterministic layer).
+    _redundancy_fn = redundancy_signal_issues_fn(
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
+
+    def _terminal_signal_issues(draft: dict) -> list:
+        """Both deterministic signals for this chain, in a fixed order.
+
+        `review_and_refine` takes ONE `signal_issues_fn`; composing here rather than
+        teaching the shared loop about a list keeps the loop's contract unchanged (it
+        still evaluates one callable, past both early returns, and can still never let a
+        signal create a round). Each source carries its own bound, so the combined
+        demand is bounded by construction: at most `UNDERCLAIM_ISSUE_LIMIT` +
+        `REDUNDANCY_ISSUE_LIMIT` issues per round.
+        """
+        return [*_underclaim_fn(draft), *_redundancy_fn(draft)]
+
     current = prose_draft
     rounds = 0
     reentry_exhausted = False
@@ -4271,7 +4332,7 @@ async def _terminal_review(
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             chain_id="cv_terminal_review",
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
-            signal_issues_fn=_underclaim_fn,
+            signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
         )
         if _canon(settled) == _canon(current):

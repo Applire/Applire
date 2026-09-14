@@ -24,6 +24,10 @@ from applire.constants import (
     ORACLE_PROSE_FALLBACK_CHARS,
     ORACLE_SEGMENT_MAX_TOKENS,
 )
+from applire.prompts.oracle_audit import (
+    SEGMENT_PROSE_SYSTEM_PROMPT,
+    build_segment_prose_prompt,
+)
 from applire.schemas.oracle import Claim
 from applire.services.ats_audit import skill_tokens
 
@@ -948,19 +952,19 @@ def extract_claims_from_letter(
     return claims
 
 
-_SEGMENT_PROMPT = (
-    "Split the following resume/cover-letter prose into its individual factual "
-    "claims (one short statement each). Return STRICT JSON: "
-    '{{"claims": ["...", "..."]}}. Do not rephrase, do not add or drop content — '
-    "segment only.\n\nTEXT:\n{text}"
-)
-
-
 async def _segment_prose_llm(text: str, provider: Any) -> list[str]:
-    """ADR-047 bounded-output-by-contract prose segmentation fallback."""
+    """ADR-047 bounded-output-by-contract prose segmentation fallback.
+
+    M5.7.1: the standing instruction (:data:`SEGMENT_PROSE_SYSTEM_PROMPT`) now
+    travels as ``system=``; only the text to segment is ``prompt=``. It
+    previously went through as one combined ``prompt=`` argument (the
+    #404-shaped defect fixed here) — placement change only, the instruction
+    text is unchanged.
+    """
     try:
         result = await provider.aparse_json(
-            _SEGMENT_PROMPT.format(text=text),
+            build_segment_prose_prompt(text),
+            system=SEGMENT_PROSE_SYSTEM_PROMPT,
             temperature=0.0,
             max_tokens=ORACLE_SEGMENT_MAX_TOKENS,
         )

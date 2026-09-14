@@ -240,7 +240,6 @@ LETTER_DE = {
         "address": "Maximilianstraße 12, 80539 München",
         "phone": "+49 89 1234567",
         "email": "joerg.mueller@example.de",
-        "photo_url": None,
     },
     "recipient": {
         "name": "Frau Dr. Sabine Großmann",
@@ -285,7 +284,6 @@ LETTER_EN = {
         "address": "Bahnhofstrasse 21, 8001 Zürich",
         "phone": "+44 20 7946 0958",
         "email": "catherine.obrien@example.com",
-        "photo_url": None,
     },
     "recipient": {
         "name": "Mr. Daniel Weber",
@@ -516,7 +514,6 @@ async def test_letter_en_signoff_and_sender_name_survive_pdf_roundtrip(template)
             "address": "Bahnhofstrasse 21, 8001 Zürich",
             "phone": "+44 20 7946 0958",
             "email": "catherine.obrien@example.com",
-            "photo_url": None,
         },
         "recipient": {
             "name": "Mr. Daniel Weber",

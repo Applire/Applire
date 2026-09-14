@@ -52,6 +52,7 @@ from applire.schemas.profile import (
     Publication,
     SignatureStory,
     Skill,
+    USER_MANAGED_PERSONAL_INFO_FIELDS,
     VAULT_SECTIONS,
     VolunteerActivity,
     WorkEntry,
@@ -2738,7 +2739,12 @@ def _apply_set_field(op, resolve, changes):
 #: this door has always dropped it silently and must keep doing so — a parked
 #: "which photo is right?" question is a question about a file the import never
 #: saw.
-_USER_MANAGED_PERSONAL_INFO_FIELDS = frozenset({"photo_url"})
+#: ONE constant, two doors (ADR-066 cl. 2, vault collector #674): the set lives in
+#: `schemas/profile.py`; the two doors keep their deliberately different
+#: BEHAVIOURS — the section door refuses, this one drops silently, because a
+#: parked "which photo is right?" question is a question about a file the import
+#: never saw.
+_USER_MANAGED_PERSONAL_INFO_FIELDS = USER_MANAGED_PERSONAL_INFO_FIELDS
 
 
 def _apply_set_personal_info(op, profile, source, changes, conflicts):

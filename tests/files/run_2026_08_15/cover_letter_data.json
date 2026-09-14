@@ -11,8 +11,7 @@
       "name": "STEFAN BRANDT",
       "address": "Koblenz",
       "phone": "+49 261 0000000",
-      "email": "stefan.brandt@example.com",
-      "photo_url": null
+      "email": "stefan.brandt@example.com"
     },
     "recipient": {
       "name": null,

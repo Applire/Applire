@@ -64,7 +64,14 @@ _DETAILS_MAX_CHARS = 1200
 #: `exhausted` is #563's own case; `cycle_detected` is the likeliest exit for a demand
 #: the corrector structurally cannot satisfy (ADR-076 clause 2's 2026-08-15 amendment
 #: says so explicitly); `generator_call_failed` means the corrector never even ran.
-_FAIL_PATHS = frozenset({"exhausted", "cycle_detected", "generator_call_failed"})
+#: `review_malformed` (#688) is a reviewer or corrector call that returned malformed
+#: (non-truncated) JSON — treated like exhaustion rather than `reviewer_call_failed`'s
+#: "unknown" bucket below, because unlike a truncation/timeout on attempt 1 this can
+#: also happen on the CORRECTOR call, after a verdict already raised a real blocking
+#: finding that never got acted on — the same shape `generator_call_failed` reports.
+_FAIL_PATHS = frozenset(
+    {"exhausted", "cycle_detected", "generator_call_failed", "review_malformed"}
+)
 
 #: Settle paths where the loop ended without an outstanding blocking finding.
 _PASS_PATHS = frozenset({"approved", "minor_only"})
@@ -204,6 +211,11 @@ def _body(outcome: TerminalReviewOutcome) -> str:
             "generator_call_failed": (
                 "The terminal review's correction call failed, so its findings were never "
                 "acted on"
+            ),
+            "review_malformed": (
+                "The terminal review's reviewer or correction call returned malformed "
+                "output that could not be parsed, so the document was delivered without "
+                "a completed review"
             ),
         }.get(outcome.path or "", "The terminal review settled with findings still open")
         body = "; ".join(outcome.blocking_issues) or "(the verdict named no issue text)"

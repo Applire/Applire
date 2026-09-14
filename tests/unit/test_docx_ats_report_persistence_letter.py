@@ -84,6 +84,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.support.profile_factory import make_master_profile
@@ -385,7 +386,6 @@ AGENT_LETTER_CONTENT = {
         "address": "Hauptstraße 42, 10115 Berlin",
         "phone": None,
         "email": "anna@example.de",
-        "photo_url": "/etc/passwd",  # hostile — render_agent_letter must strip this
     },
     "recipient": {
         "name": "Frau Schmidt",
@@ -455,6 +455,31 @@ async def test_agent_authored_letter_persists_docx_ats_report(seeded):
     assert cl.docx_ats_report["passed"] == 88, (
         f"docx_ats_report must reflect the DOCX audit engine, got {cl.docx_ats_report}"
     )
+
+
+@pytest.mark.asyncio
+async def test_agent_authored_letter_header_photo_url_rejected(seeded):
+    """M5.4.2 (1) (2026-09-13, founder ruling): `AGENT_LETTER_CONTENT` above
+    used to carry `header.photo_url = "/etc/passwd"` — a hostile value the
+    door's post-validation strip neutralised before persisting anything.
+    `LetterHeader.photo_url` is now dropped from the schema entirely, so a
+    caller naming it at all gets rejected by `extra="forbid"` before
+    `render_agent_letter` does anything else with the payload — no row is
+    created, no `.docx` is ever prepared or audited. Same security property
+    (a caller-supplied path never reaches `storage.read`), enforced by the
+    schema instead of a post-validation assignment; letter twin of
+    `backend/tests/unit/test_render_agent.py::
+    test_render_agent_letter_header_photo_url_rejected`."""
+    from applire.services.cover_letter import render_agent_letter
+
+    content = {
+        **AGENT_LETTER_CONTENT,
+        "header": {**AGENT_LETTER_CONTENT["header"], "photo_url": "/etc/passwd"},
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        await render_agent_letter(content, seeded["job_id"], seeded["db"])
+    errors = exc_info.value.errors()
+    assert any(err["loc"] == ("header", "photo_url") for err in errors), errors
 
 
 # ---------------------------------------------------------------------------

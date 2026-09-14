@@ -511,6 +511,10 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 ---
 
+**Amended 2026-09-13 — the CV section assist comes under this tier.** Kaile's per-section help writes prose you paste straight into a CV, which is exactly the content this decision governs, and it had no control on it at all: no reviewer, no grounding check. Every suggestion is now checked before it is shown — and *what it is checked against* is the part worth stating. Not your stored profile alone: your profile **plus the answer you just typed in that same micro-session.** The whole point of the assist is that you are telling Applire something it does not know yet, so a profile-only check would reject nearly every true answer. A sentence neither supports is **withheld** rather than shown with a warning, and the response says how many were held back — a flagged-but-visible suggestion is one paste away from the document. The question the assist asks you is not checked; it is a question, not a claim.
+
+**A stated limit:** a suggestion you accept edits that CV section and does not reach your profile, so the next document is generated without it. Closing that is future work.
+
 ### ADR-048 — The Keyword Ledger (Unified JD-Expectation Classification)
 
 **Decision:** A JD's expectations (`required_skills`, `nice_to_have_skills`, `keywords`) are unified into a single **Keyword Ledger** built in the gap step (`gap_analyses.keyword_ledger` JSONB). One entry per expectation carries *both* a **concept** (the requirement, drives the fit score) and its literal **surface forms** (the alias strings an ATS scans for, e.g. `Kubernetes`/`K8s`, drive coverage), classified `direct`/`partial`/`gap` against the profile with the supporting **evidence**, a `fit_weight` (required 1.0 / nice-to-have 0.5 / pure-keyword 0.0), and a derived `claimable` flag. Fit scoring (ADR-035), the CV and cover-letter generators, both reviewers, the ATS panel (ADR-039), and honest-gap interview routing all read from this one ledger — no consumer classifies JD expectations independently any more. Both generators receive the **claimable** entries with their evidence ("surface these where the profile supports them") plus the honest-gap entries as an explicit **do-not-claim** list; the reviewers add a claimable-coverage check that feeds the existing refine loop.
@@ -551,6 +555,8 @@ Two consequences worth stating plainly, because both are visible. First, **a mat
 ---
 
 ### ADR-041 — Master Profile Health (Integrity Tiering & Standalone Review)
+
+**Amended 2026-09-13 — the pre-merge gate is a property of the INGEST, not of one door.** Importing a CV runs **one ingest function** behind every door — the browser upload (and its async import job), the LinkedIn/XING structured export, and the MCP `import_cv` tool: extraction → refinement review → role-aware expected fields → skill enrichment → **the pre-merge integrity gate** → merge or park → an upload record with the source file, its content hash, mime type, size, the provider that read it and its deletion date. Until now the gate had exactly one call site, inside the browser upload, so the other two doors merged an arbitrary document unheld and left no record of what had been ingested. A door is an adapter over the ingest (ADR-066): it turns transport into text plus the source bytes to keep, and shapes the result. A held import is the same object whichever door raised it, is listed in the same place, and is resolved by the same call — in the UI, or over the agent channel through `resolve_held_merge`, where the agent may only **relay** the human's merge-or-discard decision. `import_cv` reports a hold additively (`merged: false, gated: true` plus a `staged_id` and a `hold_reason`) and deliberately carries neither name: the tool's black-box contract holds, and an agent that needs to ask "is this CV yours?" reads the names from `get_profile_health`. The two doors still differ in one sanctioned way — the extraction prompt and its refinement reviewer are a **named parameter** on the one function, not a second implementation.
 
 **Amended 2026-08-28.** The merge count-reconciliation behind the Health hub's accuracy thread counts every list section (languages, publications, volunteering and signature stories included) on the vault's own natural keys, and derives its "stored" count from the same rule the import doors use for `not_applied` (ADR-063) — the hub and the door can no longer disagree about one merge.
 
@@ -876,6 +882,8 @@ Concretely (as implemented): both CV generation paths return the same prose-only
 
 ---
 
+**Amended 2026-09-13 — both CV writers ask for the same sections.** Applire has two ways of writing a CV (one call for the whole document, or one call per section). Only the second could produce a project tied to no employer — a freelance engagement, a voluntary or study project — so on the single-call path such a project was copied into the document verbatim from your profile: not tailored to the posting, not reviewed, and outside the length budget. Measured on a captured real run, the untied project vanished from the writer's output five times out of five before the fix and landed in the right section five times out of five after it.
+
 ### ADR-068 — Bounded Equivalence Judgement at the Oracle's Deterministic Boundary (accepted + implemented 2026-08-01)
 
 **Problem:** The Truthfulness Oracle verifies documents against the profile with deterministic instruments (literal surface matching, canonical figure matching, owner-set attribution). Two evidenced false-positive families showed those instruments answering questions that are *judgements* under ADR-062: **cross-language grounding** (the document language follows the job description per ADR-038, so an English CV over a German profile got most of its truthful skill labels flagged "unbacked" — `Budgeting & Forecasting` vs the profile's `Budgetierung & Forecast`), and the **unanchored-figure escalation** (a lexical word-overlap floor deciding "does this wording restate that evidence", which false-accuses honest paraphrases). Precision defects found in the same investigation were fixed deterministically first, in the same change (sentence-splitting on German magnitude abbreviations like `Mio.`; standard identifiers like `ISO 15189` extracted as figures; signature-story evidence resolving to the wrong owner).
@@ -1051,6 +1059,28 @@ Applire reviews a finished CV and hands the findings back for a correction. The 
 
 The second amendment is about the request itself. Applire asks the writer for a bullet when something the posting wants appears nowhere in your work history — and a skills tag does not count, because a tag is not evidence. That rule was applied too widely: "German — native speaker" was demanded as a bullet on a CV whose **Languages** section already said so, and with the length budget now yielding to such requests it bought that line at the cost of two quantified achievements. Languages, certifications and education are copied from your profile word for word and rendered as their own sections, so a reader sees them as evidence. They now count. The skills list still does not.
 
+**Amended (2026-09-13) — a length preference may not throw away the content the review asked for.**
+
+The cover letter gets one page in the DACH norm. When the finished letter runs over it, Applire
+shortens it once and reviews the result; if that review's correction made the letter longer
+again, the shorter version won and the correction was discarded whole. The truth direction was
+closed first (a correction that removed an invented limitation is kept, page count second); this
+closes the rest of it. The corrected letter is now shortened a second time rather than thrown
+away, so the terms the reviewer demanded and the page norm both survive — measured twice at
+delivery, the discarded corrections were coverage terms the same reviewer had just asked for.
+The older version returns only when that second shortening fails or does not improve the page
+count, and the per-delivery ceiling on shortening passes rises from two to three for this one
+path. The floor also stopped being unreachable for a letter that stayed inside the norm until
+the very last correction pushed it over: it is the page guarantee, so it applies whenever the
+page count says so, whether or not an earlier shortening had already run.
+
+Separately, the per-round cap on how many missing keywords the letter's reviewer may demand
+moved out of the prompt and into the list the reviewer is shown. The prompt asked for at most
+two while the same prompt handed the model everything that was missing and told it to name them
+— on a captured run the first round demanded eight. Measured on that run's own exchange, five
+runs per arm: demands per round 5.6 on average (10 at worst) to exactly 2, with the writer then
+delivering every term it was asked for.
+
 ---
 
 ### ADR-077 — A Fact Pin Is the User's Seat at the Budget Table (accepted + built 2026-08-25, amended 2026-08-26)
@@ -1138,6 +1168,12 @@ Two bugs prompted this: a delivered CV that shipped six near-duplicate bullets u
 So the dividing line is **name vs. prose**, not one component vs. another. Deciding that two *names* refer to the same company, project or language is settled by the data and stays deterministic — Applire already does it in six places. Deciding that two *sentences* describe the same achievement means reading them for meaning, which is a judgement, and under ADR-062 the deterministic layer does not make judgements. That is not a philosophical position here but a measured one: across ninety-one bullet pairs from a real document, no threshold cleanly separates the redundant pairs from the distinct ones.
 
 **Why detect and not repair.** A detector only has to be right often enough to surface a cluster, and a false positive costs you a glance. A repairer has to be right *every time*, because each hit deletes a line from a CV you are about to send — and a false positive there silently removes a real achievement. The measured predicate catches nine of fifteen redundant pairs while flagging none of 139 distinct-bullet pairs drawn from the project's four reference CVs. That is a good detector and an unacceptable editor, so nothing may use it to cut content.
+
+**Amended 2026-09-13 — the detector had to learn the language of the documents it reads.** The prose predicate filtered its words with an eleven-word *English* stop list, inherited from the skill-name matcher it was written to replace. Over a 2-token skill name a stray article changes nothing; over a 30-token German sentence it decides the verdict, because the comparison divides by the shorter bullet's word count. Measured on two real delivered CVs: three pairs flagged, two genuinely redundant, and one a pair of bullets describing two different jobs at two different employers — flagged on the strength of four German function words. The prose comparison now knows the German closed class; the name comparison keeps its own list, because it decides what the profile store merges and re-tuning it there would change what gets merged. Two comparisons, two populations, two calibrations.
+
+**And the finding now reaches the loop, not only the report.** The check runs after the document is finished, which is one stage after the last round that could have done anything about it — both recent delivery runs shipped a CV with a flagged pair and a review loop that had already given up. Redundant pairs are now handed to the corrector during the review, at most two per round, phrased as *merge these, and keep every detail only one of them carries*. Still never a deletion: the deterministic layer reports, the model repairs.
+
+**A project rendered twice is its own finding.** The bullet check reports two similar sentences; what a reader actually sees is one project on the page twice. That question is about *names*, so the deterministic layer may answer it — and it catches two shapes no per-section scan reaches: the same project nested under its job *and* standing alone, and the same project nested under two different jobs.
 
 **Where it runs.** In the ATS audit — which is also the one place that reaches **both** doors. Content you author yourself and hand to Applire through the agent (MCP) surface is persisted verbatim by design: Applire renders, checks and reports, but never rewrites what you wrote. The generation-side cleanup passes therefore deliberately do not run on that path. Detection does, so agent-authored documents get the same finding, and a test drives both doors with the same duplicate-bearing content to prove the verdicts agree.
 

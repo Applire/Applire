@@ -308,7 +308,9 @@ def _p27_color_detection_company_name() -> str:
 
 
 def _p28_cv_assist_role_title() -> str:
-    from applire.services.cv_assist import _rewrite_prompt
+    # M5.7.1: the builder moved to `prompts/cv_assist.py`; the ADR-084 point-28
+    # marking moved WITH the text, which is what this registry entry proves.
+    from applire.prompts.cv_assist import build_assist_rewrite_prompt as _rewrite_prompt
 
     return _rewrite_prompt("Zusammenfassung", "Inhalt", "", [], CANARY)
 

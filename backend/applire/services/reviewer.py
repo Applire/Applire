@@ -747,6 +747,23 @@ async def review_and_refine(
                     attempt + 1,
                 )
                 return _settle(current_draft, path="reviewer_call_failed")
+            except json.JSONDecodeError as exc:
+                # #688: a weak model's verdict can also be malformed JSON (an unquoted
+                # property name, trailing extra data) rather than truncated — a distinct
+                # failure class from LLMTruncatedError/LLMTimeoutError, treated the same
+                # way (ship un-reviewed) but reported under its OWN settle path so it
+                # stays distinguishable in the review/terminal-review report, exactly as
+                # exhaustion is. Only the parse error CLASS is logged, never the raw
+                # payload (PII-free, matches the truncation/timeout precedent above).
+                log_review_call_failed(chain_id, "reviewer", attempt + 1, type(exc).__name__)
+                logger.warning(
+                    "review_and_refine: chain=%s reviewer call returned malformed JSON "
+                    "(%s) on attempt %d; shipping current draft un-reviewed",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                )
+                return _settle(current_draft, path="review_malformed")
 
             approved = bool(review.get("approved", False))
             issues = normalize_issues(review.get("issues", []))
@@ -903,6 +920,21 @@ async def review_and_refine(
                     last_issues,
                 )
                 return _settle(current_draft, path="generator_call_failed")
+            except json.JSONDecodeError as exc:
+                # #688: same malformed-output failure class as the reviewer except above,
+                # at the corrector call site — `current_draft` was never reassigned, so
+                # the pre-refinement (last known-good) draft ships, under its own
+                # `review_malformed` settle path rather than `generator_call_failed`.
+                log_review_call_failed(chain_id, "generator", attempt + 1, type(exc).__name__)
+                logger.warning(
+                    "review_and_refine: chain=%s refiner call returned malformed JSON "
+                    "(%s) on attempt %d; keeping last known-good draft. Last issues: %r",
+                    chain_id,
+                    type(exc).__name__,
+                    attempt + 1,
+                    last_issues,
+                )
+                return _settle(current_draft, path="review_malformed")
 
             # #537 (ADR-076 clause 2, the floor): did the corrector's NEW draft
             # actually IMPLEMENT this round's blocking issues, not merely make

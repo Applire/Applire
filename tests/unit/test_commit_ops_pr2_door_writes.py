@@ -170,13 +170,21 @@ def _merge_of(*skill_names: str):
 
 
 @pytest.mark.asyncio
-async def test_import_door_write_survives_the_request(durable_db):
+async def test_import_door_write_survives_the_request(durable_db, tmp_path):
     from applire.services.profile import import_from_text
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
     profile_id = await _seed_profile(factory)
 
-    extracted = {"skills": [{"name": "Kafka", "category": "technical"}]}
+    # A CV-SHAPED extraction: since #367 the US167 pre-merge gate runs inside the one
+    # ingest function, so a skills-only stub is correctly HELD as not-a-CV and never
+    # reaches the merge this test is about.
+    extracted = {
+        "skills": [{"name": "Kafka", "category": "technical"}],
+        "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
+    }
     async with factory() as request_session:
         with (
             patch(
@@ -200,7 +208,9 @@ async def test_import_door_write_survives_the_request(durable_db):
                 new=AsyncMock(return_value=_merge_of("Kafka")),
             ),
         ):
-            await import_from_text("Kafka, three years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kafka, three years.", request_session, AsyncMock(), storage=storage
+            )
 
     stored = await _read_back(engine, profile_id)
     assert sorted(s["name"] for s in stored["skills"]) == ["Kafka", "Python"]
@@ -216,19 +226,27 @@ async def test_import_door_write_survives_the_request(durable_db):
 
 
 @pytest.mark.asyncio
-async def test_import_door_write_is_still_undoable(durable_db):
+async def test_import_door_write_is_still_undoable(durable_db, tmp_path):
     """The ADR-042 guarantee, now expressed as `snapshot=SnapshotClass.MERGE`
     instead of an inline call: the import is snapshotted BEFORE it lands, keyed
     to its own enrichment record, and `undo_last_merge` restores the exact
     pre-import vault."""
     from applire.services.profile import import_from_text
     from applire.services.profile.snapshots import undo_last_merge
+    from applire.storage.local import LocalStorageProvider
 
     engine, factory = durable_db
+    storage = LocalStorageProvider(str(tmp_path))
     profile_id = await _seed_profile(factory)
     before = await _read_back(engine, profile_id)
 
-    extracted = {"skills": [{"name": "Kafka", "category": "technical"}]}
+    # A CV-SHAPED extraction: since #367 the US167 pre-merge gate runs inside the one
+    # ingest function, so a skills-only stub is correctly HELD as not-a-CV and never
+    # reaches the merge this test is about.
+    extracted = {
+        "skills": [{"name": "Kafka", "category": "technical"}],
+        "work_experience": [{"company": "Acme GmbH", "role": "Engineer", "start_date": "2020-01"}],
+    }
     async with factory() as request_session:
         with (
             patch(
@@ -252,7 +270,9 @@ async def test_import_door_write_is_still_undoable(durable_db):
                 new=AsyncMock(return_value=_merge_of("Kafka")),
             ),
         ):
-            await import_from_text("Kafka, three years.", request_session, AsyncMock())
+            await import_from_text(
+                "Kafka, three years.", request_session, AsyncMock(), storage=storage
+            )
 
     snaps = await _snapshots(engine, profile_id)
     assert len(snaps) == 1
