@@ -6,6 +6,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.42.0-beta] – 2026-09-14
+
 ### Added
 - **Every way of importing a CV now passes the same integrity gate (#367).** Applire has always held an import before it commits when the document does not look like a CV, or when the name on it shares no token with the account holder's — and asked you. It held it on one of three doors. A CV sent by an agent over MCP, and a LinkedIn or XING export uploaded in the browser, both merged straight into the vault: no hold, no question, and no record of the source document at all — so an access request under-reported what had been ingested, and there was no way to tell which document a claim in your vault came from. The fix is one ingest function behind all three doors rather than a second copy of the gate, because a second copy is the same defect one layer down. What you see: a held import is a held import whichever way it arrived, resolvable in the same place; an agent gets `gated: true` with a handle and must put the merge-or-discard question to you (identity is never the agent's call); and every import — including a pasted CV and a LinkedIn export — now keeps its source document with a content hash, its size, the provider that read it and its deletion date.
 - **Master Profile Health reaches the agent channel (#58).** Three MCP tools that the browser has had since E033 and an agent has not: `get_profile_health` (the deterministic health assessment — severity-tagged integrity issues, a completeness score with its field-level gaps — plus every import the pre-merge integrity gate is currently holding, in one call), `undo_last_merge` (restore the snapshot taken before the most recent merge; single-level, idempotent, and explicit when later edits went with it), and `resolve_held_merge(staged_id, decision)`. The last is deliberately a **relay**: Applire holds an import when the document does not look like a CV, or when the name on it shares no token with the account holder's, and the agent's job is to put that question to the human and pass the answer back — identity is never the agent's call. There is no separate no-JD review-interview tool, by design: `completeness.field_gaps` is the same agenda the built-in review walks, so a capable caller asks in its own words and writes back through the doors that already exist.
@@ -204,14 +206,32 @@ New and re-meant environment variables in this release. Nothing here requires ac
 | `POSTGRES_DB` | `applire` | Database name. | optional |
 | `NOTICE_AUTO_DISMISS_SECONDS` | `30` | Seconds before an unattended in-app notice pop-up hides itself; `0` = never. Instance-wide, served read-only on `GET /api/settings` as `notice_auto_dismiss_seconds`. | optional |
 | `APPLIRE_TOPOLOGY` | `production` | Which compose topology this instance runs. Set by `docker-compose.override.yml` to `dev`, never by hand; surfaced as a startup WARNING and on `GET /health`. | do not set |
-| *(WP-O1's `LLM_USAGE_RETENTION_DAYS` and `OPS_*` variables are added here at integration — placeholder, replace with O1's report patch)* | | | |
+| `OPS_DISK_FREE_WARN_PERCENT` | `10` | Free space on the uploads filesystem, in percent, below which the ops health endpoint reports a warning. | optional |
+| `OPS_RETENTION_INTERVAL_SECONDS` | `86400` | How often the retention worker is expected to run. The ops layer warns after more than two of these without a run. | optional |
+| `OPS_RETENTION_ANOMALY_FACTOR` | `10` | A retention deletion counter is flagged when it exceeds this multiple of the median of previous runs. | optional |
+| `OPS_RETENTION_ANOMALY_MIN_RUNS` | `3` | How many previous retention runs must exist before the anomaly check runs at all. | optional |
+| `OPS_RETENTION_RUNS_KEEP` | `90` | How many retention-run records to keep. 0 = keep all. | optional |
+| `OPS_BACKUP_WARN_DAYS` | `30` | Days without a successful backup before the ops health endpoint warns. Requires `scripts/backup.sh` to have run. | optional |
+| `OPS_ERROR_WINDOW_MINUTES` | `60` | Rolling window for the ops error-rate counter. | optional |
+| `OPS_PROVIDER_PROBE` | `both` | Which checks the instance runs against your LLM provider: `both` (default), `reachability` (a tiny test call, about 96 a day), `credit` (reads your balance where the provider offers one — costs nothing), or `off`. | optional |
+| `OPS_PROVIDER_PROBE_INTERVAL_MINUTES` | `15` | Minimum minutes between two provider probes. | optional |
+| `OPS_PROVIDER_CREDIT_LOW_THRESHOLD` | `1.0` | Remaining provider credit below which the ops health endpoint reports 'low'. Only providers that publish a balance (OpenRouter, Requesty) can report anything but 'unknown'. | optional |
+| `OPS_REFRESH_SECONDS` | `60` | How often the backend recomputes its own health picture in the background, so the log warning and `/health`'s ops summary do not wait for someone to open the dashboard. | optional |
+| `LLM_USAGE_TRACKING` | `on` | Whether every LLM call records its token counts. Numbers and ids only — no prompt or answer text is ever stored. | optional |
+| `LLM_USAGE_RETENTION_DAYS` | `365` | How many days token-usage records are kept. 0 = keep forever. | optional |
 | `LLM_STRUCTURED_OUTPUT` | `auto` | **On by default.** `auto` sends your model the reconciler's operation vocabulary as a JSON schema alongside the prompt, on the one call that writes your vault. It costs about 2,300 extra input tokens per interview turn. An endpoint without schema support rejects it once and Applire falls back to plain JSON mode for that process; the turn still completes. Set `off` to save the tokens. | optional |
+
+This release runs Alembic migrations `0057`–`0067` on backend startup; no manual step.
+Two are user-visible: `0065`/`0066` add the document signature and its per-document
+on/off override, and `0067` makes `job_analyses.seniority_level` nullable — `NULL` now
+means the posting states no tier. The rest (`0057`–`0064`) are internal.
+
 **Re-meant since your last release** — these keep their names and no longer mean what they did:
 | Variable | Changed in | What changed |
 |---|---|---|
 | `INTERVIEW_MAX_QUESTIONS_TARGETED` | 0.41.0 | It is now a **cap** applied on top of a budget derived from the session's own gap plan, not the budget itself (ADR-080). Setting it below the derived budget truncates interviews on gap-rich jobs. This shipped in v0.41.0-beta without a changelog line; it is recorded here so the instance's own upgrade notice and this file agree. |
 | `INTERVIEW_MAX_QUESTIONS_GUIDED` | 0.41.0 | Same change, for guided (MODE B) interviews. |
-**Not re-meant, but worth knowing** — `OPENROUTER_DISABLE_THINKING` and `REQUESTY_DISABLE_THINKING` keep their names, their `false` defaults and their meaning. What changed is the honest description: they are a *request* the model may refuse. On a model that mandates reasoning the setting saves nothing, and until this release it cost a rejected request on every single call. `LLM_MAX_OUTPUT_TOKENS` likewise keeps its meaning — but on a reasoning model, note that it caps the budget the answer and the thinking *share*, so setting it low on such a model can leave no room for the answer.
+**Not re-meant, but worth knowing** — `OPENROUTER_DISABLE_THINKING` and `REQUESTY_DISABLE_THINKING` keep their names, their `false` defaults and their meaning. What changed is the honest description: they are a *request* the model may refuse. On a model that mandates reasoning the setting saves nothing, and until this release it cost a rejected request on every single call. `LLM_MAX_OUTPUT_TOKENS` likewise keeps its meaning — but on a reasoning model, note that it caps the budget the answer and the thinking *share*, so setting it low on such a model can leave no room for the answer. The generated `.env.example`'s suggested model ids also changed — `MISTRAL_MODEL` from `mistral-medium-latest` to `mistral-small-latest` and `OPENROUTER_MODEL` from `mistralai/mistral-medium-3` to `mistralai/mistral-large-latest` — an existing `.env` that already sets these is unaffected; `REQUESTY_MODEL`'s suggested value did not change.
 
 ## [0.41.1-beta] – 2026-09-06
 

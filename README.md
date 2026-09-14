@@ -634,8 +634,21 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.41.1-beta)
+### ✅ Current Release (v0.42.0-beta)
 
+- [x] A self-hosting operator can see whether the instance is healthy and what it costs: `GET /api/ops/health` aggregates database, migration, retention, disk, backup and LLM-provider probes behind one verdict, and `scripts/backup.sh` / `restore.sh` script and document backup, verification and restore
+- [x] Every environment variable the backend reads is declared once in a settings registry, `.env.example` is generated from it, and an upgrade notice on `GET /health` and the dashboard names settings a release introduced that your `.env` does not set
+- [x] A published model-qualification matrix (`docs/llm-models.md`) measures which LLMs clear Applire's two-tier bar — correct vault writes, then whether the documents they produce actually get you invited — across the model table
+- [x] Upload a signature image once and Applire places it on the cover letter and, if you switch it on, the CV — with a per-document-kind switch read at download time
+- [x] Master Profile Health reaches the agent channel: an agent reads the same health assessment and held imports the browser sees, undoes the last merge, and relays a decision on a held merge back — identity is never the agent's call
+- [x] Every way of importing a CV — browser upload, LinkedIn/XING export, or an agent over MCP — passes the same integrity gate, with the same hold-and-ask and the same kept source document
+- [x] The duplicate-bullet check now reads German as well as English function words, and a find reaches the corrector during the review loop instead of arriving one stage too late
+- [x] A cover letter's length floor no longer discards what the reviewer's correction just added — the corrected letter is shortened again instead of the correction being thrown away
+- [x] The letter reviewer's demand for missing keywords is capped and ranked before the model sees it, so "two a round" really is two
+- [x] Kaile's per-section CV suggestions are checked against your profile and your own answer before you see them; an unsupported sentence is withheld rather than shown with a warning
+- [x] Job-description analysis keeps the posting's stated seniority tier (or `null` when it states none) and the posting's own language, instead of losing or mistranslating either
+- [x] A four-round walk-through of the vault-writing and enrichment prompts fixed a denial-handling contradiction and a multi-employer attribution gap (measured on three models), gave a no-write turn a stated reason, and gave the enrichment interview its own prompt instead of reusing the from-scratch one
+- [x] A reviewer or corrector call that returns malformed JSON now settles the review loop the way exhaustion does, with the reason recorded, instead of failing the whole generation with a 500
 - [x] The provenance mark states only what Applire can attest: a document rendered for an external agent (BYOI) is marked `compositeWithTrainedAlgorithmicMedia`, and the mark no longer names the operator's model provider
 - [x] The CV drafting loop's coverage demand now yields to the length budget as ADR-076 intends (the rank gate read the wrong key and never engaged there)
 - [x] The generated document owns the screen: one review panel orders every finding by the question you actually have — in the document but not in my profile · missing although my profile covers it · missing and not covered · is the craft sound — headed by one verdict sentence, with an overview and a guided reading mode
@@ -686,8 +699,8 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 
 - [x] **Spaghettieis** — shipped with v0.38.0-beta (milestone closed, 27 issues). Parallel applications became first-class: an application dashboard with status tracking, one-click re-tailoring across multiple jobs, refreshed job-ad analysis, and better progress feedback on long-running steps
 - [x] **Tiramisu** — shipped with v0.39.0-beta. **Truthfulness Oracle**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself; likewise **`render_document`** (your agent's own content through Applire's norms-checked renderer, never rewritten), **`submit_claims`** / **`submit_testimony`** (agent-run interviews landing in the profile with receipts) and **`resolve_gap`**. The flavour closed on evidence *selection*: one write path into the profile, and a review loop whose verdict covers the document as composed
-- [ ] **Stracciatella** — Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
-- [ ] **Nougat** — The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
+- [x] **Stracciatella** — shipped with v0.41.1-beta. Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
+- [x] **Nougat** — shipped with v0.42.0-beta. The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
 - [ ] **Strawberry** — Multi-user capability: user roles, sign-in UI, an admin panel for user management, and the defaults an admin sets for other users
 
 Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
