@@ -203,14 +203,34 @@ required *also when merging into an existing entry* — on its own this line bou
 measurable, but with the schema on it is the difference between 4 and 19 rejected operations
 on the weakest model measured; the two are complements.
 
-| Model | Gateway | Reasoning | n | lost turn S6/S7/S8 | malformed | wrong-slot | Tier 1 **before** | Tier 1 **after** | tokens in/out |
-|---|---|---|---|---|---|---|---|---|---|
-| `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 260,790 / 26,510 |
-| `z-ai/glm-5.3-flash` | OpenRouter | on (model default, cannot be disabled there) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 257,451 / 42,163 |
-| `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 10% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 233,294 / 19,337 |
-| `glm-5.3-flash` | **Requesty** (an operator's actual route, run inside that install's container) | off (route default; the route does not reason even when asked) | 10 | **40%** / **30%** / 0% | 0% / 10% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 193,777 / 6,763 |
-| `glm-5.3-flash` | **Requesty**, schema off (control) | off | 10 | **50%** / **20%** / **20%** | 0% / 10% / 10% | 0% / 0% / 0% | sub-par | **sub-par** | 190,431 / 5,678 |
-| `openai/gpt-5.6-luna` | **Requesty** (an operator's actual route, run inside that install's container; model id `openai/gpt-5.6-luna`) | off (route default; luna reports no reasoning tokens on either gateway) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | n/a (first measurement) | **qualified** | 260,790 / 25,640 |
+| Model | Gateway | Reasoning | n | lost turn S6/S7/S8 | malformed | wrong-slot | Tier 1 **before** | Tier 1 **after** | tokens in/out | Panel (tier 2) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 260,790 / 26,510 | **HR yes / HM yes** [1] |
+| `z-ai/glm-5.3-flash` | OpenRouter | on (model default, cannot be disabled there) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 257,451 / 42,163 | **sub-par — did not complete the application** [2] |
+| `mistralai/ministral-8b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 10% / 0% / 10% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 233,294 / 19,337 | **HR yes / HM yes, with caveats** [3] |
+| `glm-5.3-flash` | **Requesty** (an operator's actual route, run inside that install's container) | off (route default; the route does not reason even when asked) | 10 | **40%** / **30%** / 0% | 0% / 10% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 193,777 / 6,763 | n/a (sub-par on tier 1) |
+| `glm-5.3-flash` | **Requesty**, schema off (control) | off | 10 | **50%** / **20%** / **20%** | 0% / 10% / 10% | 0% / 0% / 0% | sub-par | **sub-par** | 190,431 / 5,678 | n/a (sub-par on tier 1) |
+| `openai/gpt-5.6-luna` | **Requesty** (an operator's actual route, run inside that install's container; model id `openai/gpt-5.6-luna`) | off (route default; luna reports no reasoning tokens on either gateway) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | n/a (first measurement) | **qualified** | 260,790 / 25,640 | not measured (the tier-2 run below used the OpenRouter row) |
+
+[1] Case `operations_marcus_de`, blind HR + hiring-manager panel, Nougat build-3 delivery run
+(2026-09-13, 97 calls): both members decided yes, matching the case's designed outcome —
+`Documents/Runs/Nougat/build-3/delivery-run/2026-09-13-operations-marcus-de.md`.
+[2] Same case, tier-2 dispatch (2026-09-14, 47 pipeline calls, ≈$0.22): gap analysis failed 3/3
+on `llm_timeout`, interview session creation failed 2/2 on `llm_timeout`, and CV generation
+failed 3/3 (two uncaught malformed-JSON crashes, one timeout); the cover letter alone succeeded
+1/1, but the panel needs both documents and did not run —
+`Documents/Runs/Nougat/build-3/model-matrix/tier2-z-ai-glm-5.3-flash/report.md`.
+[3] Same case, tier-2 dispatch (2026-09-14, 93 pipeline calls): both members decided yes, but the
+delivered documents dropped a required, directly-evidenced skill bullet (ISO 9001), carried a
+duplicate-bullet pair, and shipped a reviewer false positive that flagged the candidate's honest
+denial as an "invented limit" —
+`Documents/Runs/Nougat/build-3/model-matrix/tier2-mistralai-ministral-8b-2512/report.md`.
+
+**Tier 1 does not guarantee tier 2.** `z-ai/glm-5.3-flash` is tier-1 **qualified** on this seam
+and still failed to produce a CV at all over OpenRouter — gap analysis, interview-session
+creation, and CV generation each hit `llm_timeout` or crashed on malformed JSON at the dev
+stack's default `LLM_TIMEOUT=180`, so the panel never ran. A clean vault write does not mean
+the model finishes the application in time.
 
 The same model on the two gateways is the sharpest row in this table: over OpenRouter
 `z-ai/glm-5.3-flash` reasons on every call (the gateway will not let it stop) and is clean;
@@ -230,9 +250,42 @@ The model had been spending its reasoning budget deliberating a contradiction in
 instructions; removing the contradiction removed the deliberation. Better and cheaper on
 the same call.
 
-The remaining nine models in the table above have **not** been re-measured against the new
-prompt. A row that says sub-par there is a statement about the old prompt; re-run the
-harness before trusting it.
+Every model in the **§Results** table above has now been re-measured: three against prompt v2
+on 2026-09-09 (this section), and the remaining eight against the prompt and schema as they
+stand on `feat/nougat-build-3` on 2026-09-14 — see the next section. A row's date is the prompt
+version it describes; re-run the harness before trusting either one against a prompt that has
+since changed again.
+
+### Re-measured on the Nougat prompt (2026-09-14)
+
+The eight models this section left untouched were re-measured today on `wt-nougat3` @
+`61423bd0` — several rounds of prompt and schema work past the 2026-09-09 "prompt v2" above —
+through `scripts/model_matrix.py`, same three shapes, `n=10` per shape, schema `auto`, over
+OpenRouter. Verdict thresholds are unchanged: lost turn (zero-op) > 5 %, malformed-op > 10 %,
+wrong-slot > 10 %, error (no response / transport failure) > 10 %.
+
+| Model | Gateway | Reasoning | n | lost turn S6/S7/S8 | malformed | wrong-slot | error | Tier 1 **before** | Tier 1 **after** | tokens in/out | ≈ cost |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `anthropic/claude-haiku-4.5` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **qualified** | 219,200 / 8,520 | $0.114019 |
+| `mistralai/mistral-small-2603` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 10% / 0% | 0% / 0% / 0% | sub-par | **usable, with caveats** | 283,394 / 12,989 | $0.035595 |
+| `mistralai/ministral-3b-2512` | OpenRouter | on (model default) | 10 | 0% / 0% / 0% | 0% / 40% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 212,725 / 13,219 | $0.003597 |
+| `qwen/qwen3.8-flash` | OpenRouter | on (model default) | 10 | 0% / 0% / 20% | 0% / 0% / 20% | 0% / 0% / 0% | 0% / 10% / 0% | sub-par | **sub-par** | 303,272 / 194,801 | $0.112907 |
+| `deepseek/deepseek-v4-flash-0731` | OpenRouter | on (model default) | 10 | 11% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | 10% / 30% / 10% | sub-par | **sub-par** | 244,947 / 72,654 | $0.116225 |
+| `nvidia/nemotron-3-super-120b-a12b:free` | OpenRouter | on (model default) | 10 | 0% / 11% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | 20% / 10% / 20% | sub-par | **sub-par** | 182,445 / 137,605 | $0.041667 |
+| `openai/gpt-5-nano` | OpenRouter | on (model default) | 10 | 44% / 0% / 30% | 0% / 0% / 0% | 0% / 0% / 0% | 10% / 10% / 0% | sub-par | **sub-par** | 256,344 / 140,964 | $0.068181 |
+| `cohere/command-r7b-12-2024` | OpenRouter | on (model default) | 10 | 100% / 100% / 100% | 0% / 0% / 0% | 0% / 0% / 0% | 0% / 0% / 0% | sub-par | **sub-par** | 187,690 / 1,675 | $0.0 |
+
+Two rows moved. `anthropic/claude-haiku-4.5` — sub-par under prompt v1 on lost turn (100 % on
+S6) and wrong-slot (100 % on S7) — is now **qualified**, clean on all three shapes and every
+rate. `mistralai/mistral-small-2603` moved from sub-par (100 % / 100 % / 30 % lost turn) to
+**usable, with caveats** — one wrong-slot turn on S7, no lost turns anywhere. The other six
+stay sub-par, each now failing a different bar than before: `cohere/command-r7b-12-2024` still
+loses every single turn (100 % zero-op on all three shapes, unchanged); `mistralai/ministral-3b-2512`
+now fails on malformed-op (40 % on S7) rather than wrong-slot; `qwen/qwen3.8-flash` and
+`openai/gpt-5-nano` still lose turns, but on different shapes than before (S8 for qwen; S6/S8
+for gpt-5-nano); and `deepseek/deepseek-v4-flash-0731` and
+`nvidia/nemotron-3-super-120b-a12b:free` now cross the error-rate bar (transport failures,
+10–30 %) rather than the lost-turn bar they crossed under prompt v1.
 
 ### The vault call now carries a schema (`LLM_STRUCTURED_OUTPUT`, on by default)
 
@@ -353,6 +406,14 @@ is the durable signal):
 | Occasional "couldn't finish — try again" | Transient provider error or a reasoning-heavy model | Retry; consider bounding reasoning (`OPENROUTER_REASONING_EFFORT=low`) |
 | Generation is much slower than expected, or a document cuts off | A forced-reasoning model spending the budget on "thinking" (see above) | `OPENROUTER_REASONING_EFFORT=low`, or switch to a model whose reasoning can be disabled |
 | Frequent malformed output on a tiny local model | Model too small for reliable structured output | Use a larger instruct model |
+
+**A weak model's malformed JSON no longer 500s.** If the reviewer, corrector, or writer step
+gets back JSON that does not parse — an unquoted property name, trailing extra data — Applire
+no longer crashes CV generation over it. The review report for that stage shows
+`review_malformed` (reported and surfaced the same way `exhausted` is), the document ships
+from the last valid draft rather than failing outright, and the container log names the exact
+stage and call site the malformed payload came from. A model whose JSON is always valid never
+hits this path; it exists for the ones that occasionally don't.
 
 > Model names and limits change quickly — treat any specific model mentioned here as an
 > example, not a pinned recommendation. The **capability floor** above is the durable guide.
