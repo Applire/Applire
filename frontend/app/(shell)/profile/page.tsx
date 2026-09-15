@@ -29,6 +29,7 @@ import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
+import { ProfileImportView } from "@/components/profile/ProfileImportView";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -217,6 +218,12 @@ export default function ProfilePage() {
   const [health, setHealth] = useState<ProfileHealth | null>(null);
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
   const [error, setError] = useState("");
+  // #704 (founder UAT, 2026-09-15) — true only for a genuine "no Master
+  // Profile yet" (the /api/profile fetch answered, just not ok); false for a
+  // transient `loadFailed` (network/exception), which keeps the old plain
+  // error + back-to-home rendering rather than misdirecting into an upload
+  // prompt for a problem uploading would not fix.
+  const [noProfileFound, setNoProfileFound] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [enrichDrawerOpen, setEnrichDrawerOpen] = useState(false);
   const [enrichScope, setEnrichScope] = useState<string | undefined>(undefined);
@@ -307,8 +314,18 @@ export default function ProfilePage() {
         setProfilePhotoUrl(
           data.profile.personal_info?.photo_url ?? null
         );
+        // A re-fetch after an inline import (#704) succeeding: clear any
+        // earlier "no profile" state so the empty state's own branch below
+        // stops matching and the real profile renders instead.
+        setError("");
+        setNoProfileFound(false);
       } else {
         setError(t("noProfile"));
+        // #704 — distinguishes "no profile yet" (this branch) from a
+        // transient `loadFailed` (the catch block below): only the former
+        // gets the inline upload empty state: a network hiccup showing an
+        // upload prompt would misdirect the user.
+        setNoProfileFound(true);
       }
 
       if (enrichmentRes.ok) {
@@ -322,6 +339,7 @@ export default function ProfilePage() {
     } catch (err) {
       console.error("Failed to load profile:", err);
       setError(t("loadFailed"));
+      setNoProfileFound(false);
     } finally {
       setLoading(false);
     }
@@ -342,6 +360,33 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
         <p className="text-gray-500">{t("loading")}</p>
+      </div>
+    );
+  }
+
+  // #704 (founder UAT, 2026-09-15) — a first-time user with no Master Profile
+  // saw a dead end ("No profile found. Please import a CV first." + "Back to
+  // Home") with no way to actually import a CV from this page. Reuses the
+  // same upload component the welcome screen offers instead of redirecting
+  // away (`ProfileImportView`, already usable standalone with no flowId — the
+  // same mount `/profile/upload?action=upload` uses); a successful import
+  // re-fetches the profile in place via `onImported`, no full page reload.
+  if (noProfileFound && !profile) {
+    return (
+      <div className="flex flex-col flex-1 overflow-y-auto bg-surface-dim">
+        <main className="flex-1 px-4 py-8">
+          <div className="max-w-3xl mx-auto text-center mb-2">
+            <h2 className="font-heading text-lg font-semibold text-neutral-dark">
+              {t("noProfileHeading")}
+            </h2>
+          </div>
+          <ProfileImportView hideTopbar onImported={loadProfile} />
+          <div className="max-w-3xl mx-auto text-center mt-4">
+            <Button variant="ghost" onClick={() => router.push("/dashboard")}>
+              {t("backToHome")}
+            </Button>
+          </div>
+        </main>
       </div>
     );
   }

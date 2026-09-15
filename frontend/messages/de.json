@@ -655,6 +655,7 @@
     "complete": "{pct}% Vollständig",
     "loading": "Profil wird geladen...",
     "noProfile": "Kein Profil gefunden. Bitte lade zuerst einen Lebenslauf hoch.",
+    "noProfileHeading": "Noch kein Profil — lade deinen Lebenslauf hoch, wir bauen dein Master-Profil daraus.",
     "loadFailed": "Profildaten konnten nicht geladen werden.",
     "backToHome": "Zurück zur Startseite",
     "sectionPersonalInfo": "Persönliche Daten",

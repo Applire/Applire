@@ -655,6 +655,7 @@
     "complete": "{pct}% Complete",
     "loading": "Loading profile...",
     "noProfile": "No profile found. Please import a CV first.",
+    "noProfileHeading": "No profile yet — upload your CV and we'll build your Master Profile from it.",
     "loadFailed": "Failed to load profile data.",
     "backToHome": "Back to Home",
     "sectionPersonalInfo": "Personal Info",

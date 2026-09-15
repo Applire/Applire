@@ -65,6 +65,15 @@ interface GateInfo {
 
 interface ProfileImportViewProps {
   flowId?: string;
+  // #704 (founder UAT, 2026-09-15) — the empty profile page embeds this view
+  // inline, standalone (no flowId), and already renders its own AppTopbar;
+  // this suppresses this view's OWN bar the same way `flowId` does for the
+  // in-flow case (US223), just triggered explicitly rather than by a flowId.
+  hideTopbar?: boolean;
+  // #704 — lets the caller re-fetch (e.g. the profile page's empty state)
+  // after a successful merge, without a full page reload. Called once the
+  // merge/import has landed, alongside the existing success-strip state.
+  onImported?: () => void;
 }
 
 // F3 (#72): route every upload/flow error through the shared sanitiser so raw
@@ -77,7 +86,7 @@ async function readApiError(res: Response): Promise<string> {
 // instead of a static "Uploading…" through minutes of LLM merge work.
 type UploadPhase = "idle" | "uploading" | "merging" | "importing";
 
-export function ProfileImportView({ flowId }: ProfileImportViewProps) {
+export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
   const tp = useTranslations("profileUpdate");
   const tg = useTranslations("mergeGate");
@@ -213,6 +222,7 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     setNotApplied(notAppliedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
+    onImported?.();
 
     if (flowId) {
       try {
@@ -279,8 +289,10 @@ export function ProfileImportView({ flowId }: ProfileImportViewProps) {
     <>
       {/* Standalone (/profile/upload) needs its own bar; inside a flow
           (flowId set) the flow layout already renders AppTopbar (mode="flow")
-          — a second bar here would stack two bars on one page (US223). */}
-      {!flowId && (
+          — a second bar here would stack two bars on one page (US223).
+          #704: the empty profile page embeds this view under ITS OWN topbar
+          and passes hideTopbar for the same reason. */}
+      {!flowId && !hideTopbar && (
         <AppTopbar
           mode="detail"
           backHref="/profile"
