@@ -26,7 +26,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { type HealthIssue, describeConflictIssue } from "@/components/profile/HealthPanel";
+import {
+  type HealthIssue,
+  describeConflictIssue,
+  groupNotAppliedItems,
+} from "@/components/profile/HealthPanel";
 import {
   type ProfileReviewMessageResult,
   sendProfileReviewMessage,
@@ -72,9 +76,21 @@ export interface ProfileReviewDrawerProps {
   // "All done" dead-end. onAction routes to the affected section to fix it.
   issue?: HealthIssue | null;
   onAction?: (issue: HealthIssue) => void;
+  // #705 (founder UAT, 2026-09-15) — per-section navigation for a
+  // `not_applied` issue carrying the full structured item list
+  // (`not_applied_items`): one action per affected section, naming the
+  // section and the labels it takes there, instead of `onAction`'s single
+  // button landing on "one of the affected sections" chosen at random.
+  onSectionAction?: (section: string, labels: string[]) => void;
 }
 
-export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileReviewDrawerProps) {
+export function ProfileReviewDrawer({
+  open,
+  onClose,
+  issue,
+  onAction,
+  onSectionAction,
+}: ProfileReviewDrawerProps) {
   const t = useTranslations("profileReview");
   // #626 — the same localized composition HealthPanel uses, so a `conflict`
   // issue shown here (the merge-loss/no-conflicts-to-walk state below) never
@@ -82,6 +98,11 @@ export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileR
   const tHealth = useTranslations("health");
   const tProfile = useTranslations("profile");
   const conflict = issue ? describeConflictIssue(issue, tHealth, tProfile) : null;
+  // #705 — the full per-item receipt, grouped by section. `[]` for every
+  // issue except a `not_applied` one carrying `not_applied_items` (a record
+  // from a backend predating #705 falls back to the single summary below).
+  const notAppliedGroups =
+    issue?.thread === "not_applied" ? groupNotAppliedItems(issue, tHealth, tProfile) : [];
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [choices, setChoices] = useState<string[] | null>(null);
@@ -213,7 +234,7 @@ export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileR
           // actual problem + an action — never a generic all-clear (F3b run3).
           <div
             data-testid="profile-review-issue"
-            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8 py-6 overflow-y-auto"
           >
             <p className="text-sm font-medium text-neutral-dark">{t("issueHeading")}</p>
             {conflict ? (
@@ -222,11 +243,52 @@ export function ProfileReviewDrawer({ open, onClose, issue, onAction }: ProfileR
                 <p className="text-xs text-on-surface-variant mt-1">{conflict.existingRow}</p>
                 <p className="text-xs text-on-surface-variant">{conflict.incomingRow}</p>
               </div>
+            ) : notAppliedGroups.length > 0 ? (
+              // #705 — the full receipt, grouped by section: which items, in
+              // which section, and why — scrollable when it runs long, with
+              // one "go to section" action per group instead of a single
+              // button that lands on an unnamed, randomly-chosen section.
+              <div
+                data-testid="profile-review-not-applied-groups"
+                className="w-full max-h-[320px] overflow-y-auto flex flex-col gap-3 text-left"
+              >
+                {notAppliedGroups.map((group) => (
+                  <div
+                    key={group.section ?? "none"}
+                    data-testid="not-applied-group"
+                    className="rounded-lg border border-outline-variant bg-white p-3"
+                  >
+                    <p className="text-sm font-semibold text-neutral-dark">
+                      {tHealth("notAppliedGroupHeading", {
+                        section: group.sectionLabel,
+                        count: group.labels.length,
+                      })}
+                    </p>
+                    <p className="text-xs text-on-surface-variant mt-1">
+                      {group.labels.join(", ")}
+                    </p>
+                    <p className="text-xs text-on-surface-variant mt-1 italic">
+                      {group.reasonText}
+                    </p>
+                    {group.section && onSectionAction && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2"
+                        data-testid="profile-review-section-action"
+                        onClick={() => onSectionAction(group.section!, group.labels)}
+                      >
+                        {t("goToSection", { section: group.sectionLabel })}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-on-surface-variant">{issue.summary}</p>
             )}
             <div className="flex flex-col items-center gap-2">
-              {onAction && (
+              {notAppliedGroups.length === 0 && onAction && (
                 <Button
                   data-testid="profile-review-action"
                   onClick={() => onAction(issue)}

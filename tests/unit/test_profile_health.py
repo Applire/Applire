@@ -168,15 +168,16 @@ class TestAccuracyThread:
         assert [i for i in assess_health(_profile(enrichments=[rec])).issues
                 if i.thread == "accuracy"] == []
 
-    def test_wider_nine_section_reconciliation_and_not_applied_do_not_change_the_mechanism(self):
+    def test_wider_nine_section_reconciliation_without_a_not_applied_witness_still_yields_the_accuracy_issue(self):
         """#615 (ADR-041 amended 2026-08-28) — `_accuracy_issue`/
         `classify_reconciliation` are UNCHANGED in mechanism; only their input
-        widened (5 -> 9 entities) and `EnrichmentRecord` gained a sibling
-        `not_applied` field this thread never reads. A record shaped like the
-        captured #615 loss (8 skills + 2 languages + 2 education, delta 12,
-        above MERGE_DATALOSS_CRITICAL_THRESHOLD=3) is still a SINGLE
-        `critical` accuracy issue naming the affected sections — exactly the
-        pre-existing contract, just fed by the richer computation."""
+        widened (5 -> 9 entities). A record shaped like the captured #615 loss
+        (8 skills + 2 languages + 2 education, delta 12, above
+        MERGE_DATALOSS_CRITICAL_THRESHOLD=3) is still a SINGLE `critical`
+        accuracy issue naming the affected sections — exactly the pre-existing
+        contract, just fed by the richer computation. No `not_applied` witness
+        here (a record predating #615) — see the sibling test below for the
+        U-4 retirement when one IS present."""
         rec = EnrichmentRecord(
             timestamp=datetime.now(timezone.utc),
             source="cv_upload",
@@ -191,9 +192,6 @@ class TestAccuracyThread:
                 "volunteer_activities": {"extracted": 0, "stored": 0, "delta": 0},
                 "signature_stories": {"extracted": 0, "stored": 0, "delta": 0},
             },
-            not_applied=[
-                ImportNotApplied(section="skills", label="SAP CO/FI", reason="no_op_carried_entry"),
-            ],
         )
         issues = [i for i in assess_health(_profile(enrichments=[rec])).issues
                   if i.thread == "accuracy"]
@@ -203,6 +201,32 @@ class TestAccuracyThread:
         assert "languages" in issues[0].summary
         assert "skills" in issues[0].summary
         assert "work_experience" not in issues[0].summary  # delta 0 — not affected
+
+    def test_the_same_reconciliation_WITH_a_not_applied_witness_retires_the_duplicate_accuracy_issue(self):
+        """Ruling U-4 (2026-09-15, founder UAT on the Nougat RC): the SAME loss
+        must not render as TWO Health cards. #615 gave `EnrichmentRecord` a
+        sibling `not_applied` field this thread used to never read; U-4 makes
+        it read exactly enough to retire its own loss issue in favour of the
+        `not_applied` thread (`services/profile/health.py::_not_applied_issue`,
+        V-6/V-7), which already names the same fact with WHY per item."""
+        rec = EnrichmentRecord(
+            timestamp=datetime.now(timezone.utc),
+            source="cv_upload",
+            reconciliation={
+                "skills": {"extracted": 8, "stored": 0, "delta": 8},
+                "languages": {"extracted": 2, "stored": 0, "delta": 2},
+                "education": {"extracted": 2, "stored": 0, "delta": 2},
+                "work_experience": {"extracted": 3, "stored": 3, "delta": 0},
+            },
+            not_applied=[
+                ImportNotApplied(section="skills", label="SAP CO/FI", reason="no_op_carried_entry"),
+            ],
+        )
+        health = assess_health(_profile(enrichments=[rec]))
+        assert [i for i in health.issues if i.thread == "accuracy"] == []
+        not_applied = [i for i in health.issues if i.thread == "not_applied"]
+        assert len(not_applied) == 1
+        assert not_applied[0].profile_mismatch_severity == "review"
 
 
 class TestCompleteness:

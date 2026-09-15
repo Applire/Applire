@@ -997,12 +997,16 @@
       "no_write": "von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein",
       "no_write_already_known": "das steht so schon in deinem Profil",
       "no_write_question_only": "deine Frage ist angekommen — dazu wurde nichts geändert"
-    }
+    },
+    "notAppliedNoSection": "Ohne festen Abschnitt",
+    "notAppliedGroupHeading": "{section} ({count})",
+    "notAppliedCallout": "Aus deinem Import nicht übernommen: {labels} — trage nach, was fehlt."
   },
   "profileReview": {
     "title": "Profil prüfen",
     "loading": "Deine Prüfung wird vorbereitet…",
     "done": "Alles erledigt – dein Profil ist aktuell.",
+    "goToSection": "Zum Abschnitt {section}",
     "close": "Schließen",
     "placeholder": "Antwort eingeben…",
     "send": "Senden",

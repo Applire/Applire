@@ -29,13 +29,32 @@ vi.mock("@/lib/providers/locale-provider", () => ({
   useLocale: () => ({ locale: "en", setLocale: vi.fn() }),
 }));
 
-// The drawers drive the real session engine — stub them so we can drive onClose.
+// The drawers drive the real session engine — stub them so we can drive
+// onClose and (#705) onSectionAction without the real chat flow.
 vi.mock("@/components/profile/ProfileReviewDrawer", () => ({
-  ProfileReviewDrawer: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+  ProfileReviewDrawer: ({
+    open,
+    onClose,
+    onSectionAction,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onSectionAction?: (section: string, labels: string[]) => void;
+  }) =>
     open ? (
-      <button data-testid="stub-review-close" onClick={onClose}>
-        close-review
-      </button>
+      <>
+        <button data-testid="stub-review-close" onClick={onClose}>
+          close-review
+        </button>
+        {onSectionAction && (
+          <button
+            data-testid="stub-review-section-action"
+            onClick={() => onSectionAction("work_experience", ["Acme Corp", "Beta GmbH"])}
+          >
+            go-to-work-experience
+          </button>
+        )}
+      </>
     ) : null,
 }));
 vi.mock("@/components/profile/EnrichmentDrawer", () => ({
@@ -142,6 +161,8 @@ function mockFetch(health: unknown = HEALTH) {
 describe("ProfilePage", () => {
   beforeEach(() => {
     global.fetch = mockFetch() as unknown as typeof fetch;
+    // jsdom does not implement scrollIntoView (used by the section deep-link).
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   // F8 (#76): sections render as readable fields, never raw JSON with internal ids.
@@ -263,6 +284,31 @@ describe("ProfilePage", () => {
         expect(screen.getAllByText("Senior Software Engineer").length).toBeGreaterThan(0),
       );
       expect(screen.queryByTestId("budget-unit-hint")).not.toBeInTheDocument();
+    });
+  });
+
+  // #705 (founder UAT, 2026-09-15) — the review drawer's per-section action
+  // brings THAT section into view with a dismissible callout naming what the
+  // import did not carry over there, instead of the old single "Resolve"
+  // landing on an unnamed section with no receipt of which labels were lost.
+  describe("not-applied section callout (#705)", () => {
+    it("shows the callout on the section the action named, and it can be dismissed", async () => {
+      render(withIntl(<ProfilePage />, "en"));
+
+      await waitFor(() => expect(screen.getByTestId("health-panel")).toBeInTheDocument());
+      expect(screen.queryByTestId("not-applied-callout")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("health-resolve"));
+      fireEvent.click(screen.getByTestId("stub-review-section-action"));
+
+      const callout = await screen.findByTestId("not-applied-callout");
+      expect(callout.textContent).toContain("Acme Corp, Beta GmbH");
+      // …scoped to the work_experience card, not some other section.
+      const workExperienceCard = document.getElementById("section-work_experience");
+      expect(workExperienceCard?.contains(callout)).toBe(true);
+
+      fireEvent.click(screen.getByTestId("not-applied-callout-dismiss"));
+      expect(screen.queryByTestId("not-applied-callout")).not.toBeInTheDocument();
     });
   });
 });

@@ -293,6 +293,106 @@ describe("ProfileReviewDrawer", () => {
     expect(screen.queryByTestId("profile-review-issue")).not.toBeInTheDocument();
   });
 
+  // #705 (founder UAT, 2026-09-15) — a `not_applied` issue carrying the FULL
+  // per-item receipt (`not_applied_items`) renders one group per section with
+  // its own action, instead of the single "Review the affected section"
+  // button that "just randomly moves to one of the affected sections".
+  it("groups a not_applied issue's full item list by section, with one action per section", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Nothing to review",
+      gaps_total: 0,
+      gaps_remaining: 0,
+      choices: null,
+    });
+
+    const onSectionAction = vi.fn();
+    const items = [
+      { section: "work_experience", label: "Acme Corp", reason: "no_op_carried_entry" },
+      { section: "work_experience", label: "Beta GmbH", reason: "no_op_carried_entry" },
+      { section: "skills", label: "Rust", reason: "op_rejected" },
+    ];
+    const issue = {
+      id: "not_applied:rec-1",
+      thread: "not_applied" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "3 items from your cv_upload did not reach your profile (…) — …",
+      field_ref: "skills, work_experience",
+      source_record_ref: "rec-1",
+      not_applied_count: items.length,
+      not_applied_source: "cv_upload",
+      not_applied_reasons: ["no_op_carried_entry", "op_rejected"],
+      not_applied_labels: ["Acme Corp", "Beta GmbH", "Rust"],
+      not_applied_items: items,
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer
+          open
+          onClose={vi.fn()}
+          issue={issue}
+          onAction={vi.fn()}
+          onSectionAction={onSectionAction}
+        />,
+        "en",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("profile-review-not-applied-groups")).toBeInTheDocument(),
+    );
+    const groups = screen.getAllByTestId("not-applied-group");
+    expect(groups).toHaveLength(2);
+    expect(screen.getByText(/Acme Corp, Beta GmbH/)).toBeInTheDocument();
+    expect(screen.getByText("Rust")).toBeInTheDocument();
+    // The old single generic action is gone — replaced by per-section ones.
+    expect(screen.queryByTestId("profile-review-action")).not.toBeInTheDocument();
+
+    // Groups render in the backend's item order (sorted by section) — the
+    // fixture lists work_experience's two items before skills' one.
+    const sectionButtons = screen.getAllByTestId("profile-review-section-action");
+    expect(sectionButtons).toHaveLength(2);
+    fireEvent.click(sectionButtons[0]);
+    expect(onSectionAction).toHaveBeenCalledWith("work_experience", ["Acme Corp", "Beta GmbH"]);
+    fireEvent.click(sectionButtons[1]);
+    expect(onSectionAction).toHaveBeenCalledWith("skills", ["Rust"]);
+  });
+
+  // Backward compatibility: a `not_applied` issue from a backend predating
+  // #705 (no `not_applied_items`) keeps the old single summary + one action.
+  it("falls back to the single summary + action for a not_applied issue with no item list", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question: "Nothing to review",
+      gaps_total: 0,
+      gaps_remaining: 0,
+      choices: null,
+    });
+
+    const onAction = vi.fn();
+    const issue = {
+      id: "not_applied:rec-2",
+      thread: "not_applied" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "2 items from your cv_upload did not reach your profile (A, B) — no change carried it",
+      field_ref: "skills",
+      source_record_ref: "rec-2",
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={onAction} />,
+        "en",
+      ),
+    );
+
+    await waitFor(() => expect(screen.getByTestId("profile-review-issue")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-review-not-applied-groups")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("profile-review-action"));
+    expect(onAction).toHaveBeenCalledWith(issue);
+  });
+
   it("renders German chrome under the de locale", async () => {
     startMock.mockResolvedValue({
       session_id: "s1",

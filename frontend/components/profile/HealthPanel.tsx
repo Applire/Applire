@@ -68,6 +68,14 @@ export interface HealthIssue {
   not_applied_source?: string | null;
   not_applied_reasons?: string[] | null;
   not_applied_labels?: string[] | null;
+  // #705 (founder UAT, 2026-09-15) — the FULL per-item receipt (never
+  // capped), so the overlay can list every item grouped by section instead
+  // of guessing from a 3-item-capped sentence. `label`/`reason` are raw keys
+  // — see `groupNotAppliedItems` for how a reader composes them. `undefined`
+  // for a record from a backend predating #705 (falls back to the old
+  // single-summary rendering); `null` never sent by the backend but accepted
+  // defensively.
+  not_applied_items?: { section: string | null; label: string; reason: string }[] | null;
 }
 
 export interface ProfileHealth {
@@ -135,6 +143,86 @@ export function describeNotApplied(
   });
 }
 
+
+// Machine section key → `profile` namespace label key, covering every value
+// `ImportNotApplied.section` can carry (the nine list-valued content sections
+// plus `professional_summary`; `null`/`op_rejected`/`no_write` items have no
+// section and group under a synthetic key handled by the caller).
+const NOT_APPLIED_SECTION_LABEL_KEY: Record<string, string> = {
+  professional_summary: "sectionSummary",
+  work_experience: "sectionWorkExperience",
+  education: "sectionEducation",
+  skills: "sectionSkills",
+  languages: "sectionLanguages",
+  certifications: "sectionCertifications",
+  projects: "sectionProjects",
+  publications: "sectionPublications",
+  volunteer_activities: "sectionVolunteer",
+  signature_stories: "sectionSignatureStories",
+};
+
+export interface NotAppliedGroup {
+  // The machine section key, or `null` for a sectionless item (`op_rejected`/
+  // `no_write` — a raw op or a statement turn, neither tied to a profile
+  // section). The overlay only offers a "go to section" action when this is
+  // non-null — there is nowhere to navigate for a `null` group.
+  section: string | null;
+  sectionLabel: string;
+  labels: string[];
+  reasonText: string;
+}
+
+/**
+ * #705 (founder UAT, 2026-09-15) — group the FULL `not_applied_items` receipt
+ * by section, so the overlay can say WHICH items were not carried over and
+ * where to add them back, instead of the founder's reported experience: a
+ * 3-item-capped sentence and one action that "just randomly moves to one of
+ * the affected sections". Reuses the reason clauses `describeNotApplied`
+ * already composes (`health.notAppliedReason.*`) and the same
+ * `professional_summary` slot mapping.
+ *
+ * Returns `[]` when `issue.not_applied_items` is absent (a record from a
+ * backend predating #705) — the caller keeps rendering the old single
+ * summary + one action for that case.
+ */
+export function groupNotAppliedItems(
+  issue: HealthIssue,
+  t: Translator,
+  tProfile: Translator,
+): NotAppliedGroup[] {
+  const items = issue.not_applied_items ?? [];
+  const order: string[] = [];
+  const groups = new Map<string, { labels: string[]; reasons: Set<string> }>();
+  for (const item of items) {
+    const key = item.section ?? "";
+    if (!groups.has(key)) {
+      groups.set(key, { labels: [], reasons: new Set() });
+      order.push(key);
+    }
+    const group = groups.get(key)!;
+    group.labels.push(
+      item.section === "professional_summary"
+        ? t(item.label === "de" ? "fieldLabel.summaryDe" : "fieldLabel.summaryEn")
+        : item.label,
+    );
+    group.reasons.add(item.reason);
+  }
+  return order.map((key) => {
+    const group = groups.get(key)!;
+    return {
+      section: key || null,
+      sectionLabel: key
+        ? tProfile(NOT_APPLIED_SECTION_LABEL_KEY[key] ?? "sectionSkills")
+        : t("notAppliedNoSection"),
+      labels: group.labels,
+      reasonText: Array.from(group.reasons)
+        .map((reason) =>
+          t.has(`notAppliedReason.${reason}`) ? t(`notAppliedReason.${reason}`) : reason,
+        )
+        .join("; "),
+    };
+  });
+}
 
 const THREAD_LABEL: Record<
   HealthThread,

@@ -209,6 +209,18 @@ def _accuracy_issue(record: EnrichmentRecord) -> HealthIssue | None:
 
     lost = _reconciliation_loss(record.reconciliation)
     if lost:
+        # Ruling U-4 (2026-09-15, founder UAT on the Nougat RC) — the SAME lost
+        # items must not render as TWO Health cards. Once a record carries a
+        # `not_applied` witness (#615 onward), `_not_applied_issue` (V-6/V-7)
+        # already names this fact — with WHY, per item — so this thread's loss
+        # branch retires for that record rather than duplicating it at a
+        # different (and inconsistent) severity. A record predating #615 has
+        # no witness at all; its loss issue is the only record of the loss and
+        # keeps firing exactly as before. The low-confidence branch below is
+        # untouched — it fires from `record.confidence` alone, nothing to do
+        # with `not_applied`.
+        if record.not_applied:
+            return None
         affected = sorted(
             section
             for section, entity in (record.reconciliation or {}).items()
@@ -317,6 +329,11 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
     more = len(record.not_applied) - len(labels)
     named = ", ".join(labels) + (f" and {more} more" if more > 0 else "")
     count = len(record.not_applied)
+    # #705 (founder UAT, 2026-09-15) — the FULL receipt, every item, sorted by
+    # section (then label) for a stable grouped render. `raw_labels`/
+    # `raw_reasons` above stay capped at three — they keep the V-7 hub
+    # sentence working unchanged; this is the overlay's full list.
+    items_detail = sorted(record.not_applied, key=lambda i: (i.section or "", i.label))
     return HealthIssue(
         id=f"not_applied:{record.id}",
         thread="not_applied",
@@ -335,6 +352,7 @@ def _not_applied_issue(record: EnrichmentRecord) -> HealthIssue | None:
         not_applied_source=record.source,
         not_applied_reasons=raw_reasons,
         not_applied_labels=raw_labels,
+        not_applied_items=items_detail,
     )
 
 

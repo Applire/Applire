@@ -209,6 +209,7 @@ function hasProfileGaps(
 export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
+  const tHealth = useTranslations("health");
   const { locale } = useLocale();
   const uiLanguage: UiLanguage = locale === "de" ? "de" : "en";
   const [loading, setLoading] = useState(true);
@@ -225,6 +226,15 @@ export default function ProfilePage() {
   // drawer so a merge-loss/accuracy issue (no conflicts to walk) shows the real
   // problem + an action instead of a dead-end "All done".
   const [resolveIssue, setResolveIssue] = useState<HealthIssue | null>(null);
+  // #705 (founder UAT, 2026-09-15) — the section a per-item "go to section"
+  // action landed on, plus the labels the import did not carry over there.
+  // Rendered as a dismissible callout at the top of that one section — never
+  // a query param or navigation, since the review drawer and the sections
+  // below are the SAME page instance.
+  const [sectionCallout, setSectionCallout] = useState<{
+    section: SectionKey;
+    labels: string[];
+  } | null>(null);
 
   const openEnrichForAll = () => {
     setEnrichScope(undefined);
@@ -263,6 +273,22 @@ export default function ProfilePage() {
     if (typeof document !== "undefined") {
       document
         .getElementById(`section-${section}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
+  // #705 — the review drawer's PER-SECTION action for a `not_applied` issue's
+  // full item list: bring THAT section into view (never "one of the affected
+  // sections" at random) and show which labels the import did not carry over
+  // there, in a callout the user can dismiss.
+  const handleSectionAction = (section: string, labels: string[]) => {
+    setReviewDrawerOpen(false);
+    setResolveIssue(null);
+    const key = (section in SECTION_LABEL_KEYS ? section : sectionForFieldRef(section)) as SectionKey;
+    setSectionCallout({ section: key, labels });
+    if (typeof document !== "undefined") {
+      document
+        .getElementById(`section-${key}`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   };
@@ -434,6 +460,31 @@ export default function ProfilePage() {
                     {t(SECTION_LABEL_KEYS[section])}
                   </h3>
                 </div>
+
+                {/* #705 (founder UAT, 2026-09-15) — the labels an import did
+                    NOT carry over into THIS section, named at the point where
+                    the user can add them back. Dismissible; never reappears
+                    on its own (no re-fetch resurrects it). */}
+                {sectionCallout && sectionCallout.section === section && (
+                  <div
+                    data-testid="not-applied-callout"
+                    className="mb-3 flex items-start justify-between gap-2 rounded-lg border border-warning/40 bg-warning-container px-3 py-2"
+                  >
+                    <p className="text-xs text-on-surface-variant">
+                      {tHealth("notAppliedCallout", {
+                        labels: sectionCallout.labels.join(", "),
+                      })}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      data-testid="not-applied-callout-dismiss"
+                      onClick={() => setSectionCallout(null)}
+                    >
+                      {tHealth("dismissNudge")}
+                    </Button>
+                  </div>
+                )}
 
                 {READ_ONLY_SECTIONS.has(section) ? (
                   <div className="text-sm text-gray-700">
@@ -727,6 +778,7 @@ export default function ProfilePage() {
         open={reviewDrawerOpen}
         issue={resolveIssue}
         onAction={handleResolveAction}
+        onSectionAction={handleSectionAction}
         onClose={() => {
           setReviewDrawerOpen(false);
           setResolveIssue(null);
