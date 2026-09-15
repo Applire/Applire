@@ -239,7 +239,7 @@ const THREAD_LABEL: Record<
   not_applied: "threadNotApplied",
 };
 
-type Translator = ReturnType<typeof useTranslations>;
+export type Translator = ReturnType<typeof useTranslations>;
 
 /**
  * #626 — compose a `conflict` issue into a localized heading + two

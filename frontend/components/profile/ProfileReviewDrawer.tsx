@@ -28,6 +28,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   type HealthIssue,
+  type NotAppliedGroup,
+  type Translator,
   describeConflictIssue,
   groupNotAppliedItems,
 } from "@/components/profile/HealthPanel";
@@ -65,6 +67,62 @@ export const PROFILE_LEVEL_SECTIONS = new Set(["professional_summary", "personal
 
 export function keepBothApplies(issue?: { section?: string | null } | null): boolean {
   return !PROFILE_LEVEL_SECTIONS.has(issue?.section ?? "");
+}
+
+/**
+ * #705 — the full not-retained receipt, grouped by section. A standalone
+ * component (rather than an inline `.map()` in `ProfileReviewDrawer`'s own
+ * render) because the React Compiler could not preserve `submit`'s existing
+ * manual memoization (`[sessionId]`) once that `.map()` was inlined —
+ * isolating it here keeps `ProfileReviewDrawer`'s own body analysis
+ * unaffected (`react-hooks/preserve-manual-memoization` was clean before and
+ * after this extraction).
+ */
+function NotAppliedGroupsList({
+  groups,
+  t,
+  tHealth,
+  onSectionAction,
+}: {
+  groups: NotAppliedGroup[];
+  t: Translator;
+  tHealth: Translator;
+  onSectionAction?: (section: string, labels: string[]) => void;
+}) {
+  return (
+    <div
+      data-testid="profile-review-not-applied-groups"
+      className="w-full max-h-[320px] overflow-y-auto flex flex-col gap-3 text-left"
+    >
+      {groups.map((group) => (
+        <div
+          key={group.section ?? "none"}
+          data-testid="not-applied-group"
+          className="rounded-lg border border-outline-variant bg-white p-3"
+        >
+          <p className="text-sm font-semibold text-neutral-dark">
+            {tHealth("notAppliedGroupHeading", {
+              section: group.sectionLabel,
+              count: group.labels.length,
+            })}
+          </p>
+          <p className="text-xs text-on-surface-variant mt-1">{group.labels.join(", ")}</p>
+          <p className="text-xs text-on-surface-variant mt-1 italic">{group.reasonText}</p>
+          {group.section && onSectionAction && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              data-testid="profile-review-section-action"
+              onClick={() => onSectionAction(group.section!, group.labels)}
+            >
+              {t("goToSection", { section: group.sectionLabel })}
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export interface ProfileReviewDrawerProps {
@@ -248,42 +306,12 @@ export function ProfileReviewDrawer({
               // which section, and why — scrollable when it runs long, with
               // one "go to section" action per group instead of a single
               // button that lands on an unnamed, randomly-chosen section.
-              <div
-                data-testid="profile-review-not-applied-groups"
-                className="w-full max-h-[320px] overflow-y-auto flex flex-col gap-3 text-left"
-              >
-                {notAppliedGroups.map((group) => (
-                  <div
-                    key={group.section ?? "none"}
-                    data-testid="not-applied-group"
-                    className="rounded-lg border border-outline-variant bg-white p-3"
-                  >
-                    <p className="text-sm font-semibold text-neutral-dark">
-                      {tHealth("notAppliedGroupHeading", {
-                        section: group.sectionLabel,
-                        count: group.labels.length,
-                      })}
-                    </p>
-                    <p className="text-xs text-on-surface-variant mt-1">
-                      {group.labels.join(", ")}
-                    </p>
-                    <p className="text-xs text-on-surface-variant mt-1 italic">
-                      {group.reasonText}
-                    </p>
-                    {group.section && onSectionAction && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="mt-2"
-                        data-testid="profile-review-section-action"
-                        onClick={() => onSectionAction(group.section!, group.labels)}
-                      >
-                        {t("goToSection", { section: group.sectionLabel })}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <NotAppliedGroupsList
+                groups={notAppliedGroups}
+                t={t}
+                tHealth={tHealth}
+                onSectionAction={onSectionAction}
+              />
             ) : (
               <p className="text-sm text-on-surface-variant">{issue.summary}</p>
             )}
