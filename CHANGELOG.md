@@ -34,6 +34,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (`OPS_PROVIDER_PROBE` = `off` / `reachability` / `credit` / `both`) because a credit check makes no
   sense for a local Ollama. Alembic 0063.
 - **A first-use explainer can be dismissed for good, and the mechanism is general (#679).** `user_settings` gains `dismissed_explainers`, a set of explainer ids the user has turned off with *Nicht mehr anzeigen*, served on `GET /api/settings` and written additively with `PATCH {dismiss_explainer}` against a server-side allowlist (unknown id → 422; Alembic 0061). The first entry is the fact-pin explainer; the next explainer costs an allowlist entry rather than a migration. `hide_predownload_notice` is unchanged, and no setting is exposed over MCP.
+- **The empty My Profile page offers the CV upload (#704).** A first-time user with no Master Profile met a dead end — "No profile found. Please import a CV first." and a link home — with no way to import from that page. The empty state now embeds the same upload component the welcome screen uses, under the page's own bar, with a link back to the dashboard; a successful import loads the profile in place. A transient load failure keeps the plain error, because an upload prompt would misdirect for a problem an upload does not fix.
 
 ### Changed
 - **A weak model's malformed JSON no longer crashes CV generation.** The reviewer and corrector steps caught a truncated or timed-out answer but not one the model had simply mangled, so a model that returned an unquoted key or trailing text took the whole generation down with a 500. Malformed output now settles the review the way exhaustion does — the last valid draft ships and the review report names `review_malformed` as the reason — and the writer's own malformed answer falls to the segmented fallback it already had. Found on the glm-5.3-flash tier-2 run.
@@ -198,6 +199,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Removed
 - **`NGINX_PROXY_TIMEOUT` is gone from the documentation, because it was never read by anything.** Both READMEs and the old env template offered it; the reverse proxy's `proxy_read_timeout` is 300 s and is baked into the `applire-nginx` image. Keep `LLM_TIMEOUT` below 300, or bind-mount your own nginx config.
+
+### Fixed
+- **The "not retained" overlay names every item, grouped by section, with one way in per section (#705).** After a second CV upload the Health hub's overlay said how many extracted items were not carried over, named at most three, and its single button landed on one of the affected sections at random. The health assessment now carries the full receipt (section, label and reason per item, never capped); the overlay lists it grouped by section with the reason per group and a "go to the section" action per group, and the section it opens shows a dismissible callout naming exactly what the import did not carry over there.
+- **One lost import is one Health card, not two.** The same not-retained items showed as a red "critical" accuracy card and a yellow "review" not-retained card, with different resolution paths. When a merge record carries the not-retained receipt, the older loss detector defers to it; a record from before that receipt existed keeps its loss card, and the low-confidence check is unchanged.
 
 ### Upgrade notes
 New and re-meant environment variables in this release. Nothing here requires action on an existing install — every default reproduces current behaviour.

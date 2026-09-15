@@ -373,8 +373,12 @@ export default function ProfilePage() {
   // re-fetches the profile in place via `onImported`, no full page reload.
   if (noProfileFound && !profile) {
     return (
-      <div className="flex flex-col flex-1 overflow-y-auto bg-surface-dim">
-        <main className="flex-1 px-4 py-8">
+      <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
+        {/* The same page bar the loaded profile renders, so the empty state
+            is still "My Profile" (title, bell, avatar) and the embedded
+            import view's own bar is suppressed via hideTopbar. */}
+        <AppTopbar mode="section" titleKey="shell.profile" />
+        <main className="flex-1 overflow-y-auto px-4 py-8">
           <div className="max-w-3xl mx-auto text-center mb-2">
             <h2 className="font-heading text-lg font-semibold text-neutral-dark">
               {t("noProfileHeading")}

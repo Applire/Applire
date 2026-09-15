@@ -36,9 +36,13 @@ test.describe("#704 — the empty profile page offers the CV upload", () => {
     await expect(page.getByTestId("main-upload-button")).toBeVisible();
     await expect(page.getByRole("button", { name: /back to home/i })).toBeVisible();
 
-    // The dropzone's OWN AppTopbar must not stack on top of the profile
-    // page's own chrome — hideTopbar suppresses it (#704).
-    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(0);
+    // Exactly one bar: the profile page's own ("My Profile" — the same bar
+    // the loaded profile renders). The dropzone's OWN AppTopbar (a "detail"
+    // bar with a back link) must not stack under it — hideTopbar suppresses
+    // it (#704).
+    const pageBar = page.getByRole("heading", { level: 1 });
+    await expect(pageBar).toHaveCount(1);
+    await expect(pageBar).toHaveText(/my profile/i);
   });
 
   test("renders the German heading and upload copy under the de locale", async ({ page }) => {

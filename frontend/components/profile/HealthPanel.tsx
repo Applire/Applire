@@ -161,6 +161,15 @@ const NOT_APPLIED_SECTION_LABEL_KEY: Record<string, string> = {
   signature_stories: "sectionSignatureStories",
 };
 
+// A section the map above does not know renders under its raw key rather
+// than under a wrong human label — a mislabel would send the user to the
+// wrong section, which is the #705 defect in a new coat.
+function notAppliedSectionLabel(key: string, t: Translator, tProfile: Translator): string {
+  if (!key) return t("notAppliedNoSection");
+  const labelKey = NOT_APPLIED_SECTION_LABEL_KEY[key];
+  return labelKey ? tProfile(labelKey) : key;
+}
+
 export interface NotAppliedGroup {
   // The machine section key, or `null` for a sectionless item (`op_rejected`/
   // `no_write` — a raw op or a statement turn, neither tied to a profile
@@ -211,9 +220,7 @@ export function groupNotAppliedItems(
     const group = groups.get(key)!;
     return {
       section: key || null,
-      sectionLabel: key
-        ? tProfile(NOT_APPLIED_SECTION_LABEL_KEY[key] ?? "sectionSkills")
-        : t("notAppliedNoSection"),
+      sectionLabel: notAppliedSectionLabel(key, t, tProfile),
       labels: group.labels,
       reasonText: Array.from(group.reasons)
         .map((reason) =>
