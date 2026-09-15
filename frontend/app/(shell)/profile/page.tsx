@@ -29,6 +29,7 @@ import { cn, displayValue } from "@/lib/utils";
 import { PhotoManager } from "@/components/profile/PhotoManager";
 import { SignatureManager } from "@/components/profile/SignatureManager";
 import { TestimonyIntake } from "@/components/profile/TestimonyIntake";
+import { ProfileImportView } from "@/components/profile/ProfileImportView";
 import { EnrichmentDrawer } from "@/components/profile/EnrichmentDrawer";
 import { ProfileReviewDrawer } from "@/components/profile/ProfileReviewDrawer";
 import { HealthPanel, type ProfileHealth, type HealthIssue } from "@/components/profile/HealthPanel";
@@ -209,6 +210,7 @@ function hasProfileGaps(
 export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
+  const tHealth = useTranslations("health");
   const { locale } = useLocale();
   const uiLanguage: UiLanguage = locale === "de" ? "de" : "en";
   const [loading, setLoading] = useState(true);
@@ -216,6 +218,12 @@ export default function ProfilePage() {
   const [health, setHealth] = useState<ProfileHealth | null>(null);
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
   const [error, setError] = useState("");
+  // #704 (founder UAT, 2026-09-15) — true only for a genuine "no Master
+  // Profile yet" (the /api/profile fetch answered, just not ok); false for a
+  // transient `loadFailed` (network/exception), which keeps the old plain
+  // error + back-to-home rendering rather than misdirecting into an upload
+  // prompt for a problem uploading would not fix.
+  const [noProfileFound, setNoProfileFound] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [enrichDrawerOpen, setEnrichDrawerOpen] = useState(false);
   const [enrichScope, setEnrichScope] = useState<string | undefined>(undefined);
@@ -225,6 +233,15 @@ export default function ProfilePage() {
   // drawer so a merge-loss/accuracy issue (no conflicts to walk) shows the real
   // problem + an action instead of a dead-end "All done".
   const [resolveIssue, setResolveIssue] = useState<HealthIssue | null>(null);
+  // #705 (founder UAT, 2026-09-15) — the section a per-item "go to section"
+  // action landed on, plus the labels the import did not carry over there.
+  // Rendered as a dismissible callout at the top of that one section — never
+  // a query param or navigation, since the review drawer and the sections
+  // below are the SAME page instance.
+  const [sectionCallout, setSectionCallout] = useState<{
+    section: SectionKey;
+    labels: string[];
+  } | null>(null);
 
   const openEnrichForAll = () => {
     setEnrichScope(undefined);
@@ -267,6 +284,22 @@ export default function ProfilePage() {
     }
   };
 
+  // #705 — the review drawer's PER-SECTION action for a `not_applied` issue's
+  // full item list: bring THAT section into view (never "one of the affected
+  // sections" at random) and show which labels the import did not carry over
+  // there, in a callout the user can dismiss.
+  const handleSectionAction = (section: string, labels: string[]) => {
+    setReviewDrawerOpen(false);
+    setResolveIssue(null);
+    const key = (section in SECTION_LABEL_KEYS ? section : sectionForFieldRef(section)) as SectionKey;
+    setSectionCallout({ section: key, labels });
+    if (typeof document !== "undefined") {
+      document
+        .getElementById(`section-${key}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
   const loadProfile = useCallback(async () => {
     try {
       const [profileRes, enrichmentRes, healthRes] = await Promise.all([
@@ -281,8 +314,18 @@ export default function ProfilePage() {
         setProfilePhotoUrl(
           data.profile.personal_info?.photo_url ?? null
         );
+        // A re-fetch after an inline import (#704) succeeding: clear any
+        // earlier "no profile" state so the empty state's own branch below
+        // stops matching and the real profile renders instead.
+        setError("");
+        setNoProfileFound(false);
       } else {
         setError(t("noProfile"));
+        // #704 — distinguishes "no profile yet" (this branch) from a
+        // transient `loadFailed` (the catch block below): only the former
+        // gets the inline upload empty state: a network hiccup showing an
+        // upload prompt would misdirect the user.
+        setNoProfileFound(true);
       }
 
       if (enrichmentRes.ok) {
@@ -296,6 +339,7 @@ export default function ProfilePage() {
     } catch (err) {
       console.error("Failed to load profile:", err);
       setError(t("loadFailed"));
+      setNoProfileFound(false);
     } finally {
       setLoading(false);
     }
@@ -316,6 +360,37 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col flex-1 items-center justify-center bg-surface-dim">
         <p className="text-gray-500">{t("loading")}</p>
+      </div>
+    );
+  }
+
+  // #704 (founder UAT, 2026-09-15) — a first-time user with no Master Profile
+  // saw a dead end ("No profile found. Please import a CV first." + "Back to
+  // Home") with no way to actually import a CV from this page. Reuses the
+  // same upload component the welcome screen offers instead of redirecting
+  // away (`ProfileImportView`, already usable standalone with no flowId — the
+  // same mount `/profile/upload?action=upload` uses); a successful import
+  // re-fetches the profile in place via `onImported`, no full page reload.
+  if (noProfileFound && !profile) {
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden bg-surface-dim">
+        {/* The same page bar the loaded profile renders, so the empty state
+            is still "My Profile" (title, bell, avatar) and the embedded
+            import view's own bar is suppressed via hideTopbar. */}
+        <AppTopbar mode="section" titleKey="shell.profile" />
+        <main className="flex-1 overflow-y-auto px-4 py-8">
+          <div className="max-w-3xl mx-auto text-center mb-2">
+            <h2 className="font-heading text-lg font-semibold text-neutral-dark">
+              {t("noProfileHeading")}
+            </h2>
+          </div>
+          <ProfileImportView hideTopbar onImported={loadProfile} />
+          <div className="max-w-3xl mx-auto text-center mt-4">
+            <Button variant="ghost" onClick={() => router.push("/dashboard")}>
+              {t("backToHome")}
+            </Button>
+          </div>
+        </main>
       </div>
     );
   }
@@ -434,6 +509,31 @@ export default function ProfilePage() {
                     {t(SECTION_LABEL_KEYS[section])}
                   </h3>
                 </div>
+
+                {/* #705 (founder UAT, 2026-09-15) — the labels an import did
+                    NOT carry over into THIS section, named at the point where
+                    the user can add them back. Dismissible; never reappears
+                    on its own (no re-fetch resurrects it). */}
+                {sectionCallout && sectionCallout.section === section && (
+                  <div
+                    data-testid="not-applied-callout"
+                    className="mb-3 flex items-start justify-between gap-2 rounded-lg border border-warning/40 bg-warning-container px-3 py-2"
+                  >
+                    <p className="text-xs text-on-surface-variant">
+                      {tHealth("notAppliedCallout", {
+                        labels: sectionCallout.labels.join(", "),
+                      })}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      data-testid="not-applied-callout-dismiss"
+                      onClick={() => setSectionCallout(null)}
+                    >
+                      {tHealth("dismissNudge")}
+                    </Button>
+                  </div>
+                )}
 
                 {READ_ONLY_SECTIONS.has(section) ? (
                   <div className="text-sm text-gray-700">
@@ -727,6 +827,7 @@ export default function ProfilePage() {
         open={reviewDrawerOpen}
         issue={resolveIssue}
         onAction={handleResolveAction}
+        onSectionAction={handleSectionAction}
         onClose={() => {
           setReviewDrawerOpen(false);
           setResolveIssue(null);

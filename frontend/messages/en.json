@@ -655,6 +655,7 @@
     "complete": "{pct}% Complete",
     "loading": "Loading profile...",
     "noProfile": "No profile found. Please import a CV first.",
+    "noProfileHeading": "No profile yet — upload your CV and we'll build your Master Profile from it.",
     "loadFailed": "Failed to load profile data.",
     "backToHome": "Back to Home",
     "sectionPersonalInfo": "Personal Info",
@@ -997,12 +998,16 @@
       "no_write": "nothing was recorded from what you said — say it again in one sentence, or enter it in your profile",
       "no_write_already_known": "that is already in your profile, as stated",
       "no_write_question_only": "your question arrived — nothing was changed for it"
-    }
+    },
+    "notAppliedNoSection": "Not tied to a section",
+    "notAppliedGroupHeading": "{section} ({count})",
+    "notAppliedCallout": "Not carried over from your import: {labels} — add back what's missing."
   },
   "profileReview": {
     "title": "Review profile",
     "loading": "Preparing your review…",
     "done": "All done — your profile is up to date.",
+    "goToSection": "Go to the {section} section",
     "close": "Close",
     "placeholder": "Type your answer…",
     "send": "Send",

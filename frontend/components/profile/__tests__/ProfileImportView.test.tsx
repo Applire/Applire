@@ -111,6 +111,29 @@ describe("ProfileImportView", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 
+  // #704 (founder UAT, 2026-09-15) — the empty profile page embeds this view
+  // inline, standalone (no flowId), but must not stack ITS OWN AppTopbar on
+  // top of the profile page's own topbar (the same US223 concern the
+  // in-flow case above already handles, triggered a different way: by an
+  // explicit flag rather than by the presence of a flowId).
+  it("suppresses its own AppTopbar via hideTopbar even with no flowId", () => {
+    render(<ProfileImportView hideTopbar />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+  });
+
+  it("calls onImported after a successful standalone upload, so the caller can re-fetch", async () => {
+    global.fetch = importJobsMock(READY({ completeness_score: 0.84 }));
+    const onImported = vi.fn();
+
+    render(<ProfileImportView onImported={onImported} />);
+
+    const input = screen.getByTestId("main-file-input");
+    const file = new File(["content"], "cv.pdf", { type: "application/pdf" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
+  });
+
   it("routes a ZIP file to /api/profile/import", async () => {
     const importResponse = { completeness_score: 0.0 };
     global.fetch = vi.fn()

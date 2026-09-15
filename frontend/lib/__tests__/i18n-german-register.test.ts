@@ -139,6 +139,9 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   // #626 conflict headings — pure ICU placeholder patterns, no prose to translate
   "health.conflictHeadingWithEntity",
   "health.conflictHeadingGeneral",
+  // #705 not-applied group heading — same pattern: "{section} ({count})" is
+  // pure ICU placeholders with punctuation, no prose to translate.
+  "health.notAppliedGroupHeading",
 ]);
 
 describe("German UI register (BRAND.md §2.3)", () => {

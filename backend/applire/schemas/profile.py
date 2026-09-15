@@ -1461,6 +1461,19 @@ class HealthIssue(BaseModel):
     #: maps through the same ``health.fieldLabel.summaryDe/summaryEn`` the
     #: dispute surface uses — one name for one thing.
     not_applied_labels: list[str] | None = None
+    #: #705 (founder UAT, 2026-09-15) — the FULL receipt, every item, never
+    #: capped: the ``labels``/``reasons`` pair above lets a reader compose a
+    #: short sentence but caps at three items and loses the per-item
+    #: section↔label↔reason pairing (a merge with items in five sections could
+    #: not say which reason applied to which item). Sorted by ``section`` (then
+    #: ``label``) so a grouped reader renders sections in a stable order. The
+    #: reported defect: the overlay's single action "just randomly moves to
+    #: one of the affected sections" because nothing told the user WHICH items
+    #: landed where — additive alongside ``not_applied_labels``/``_reasons``,
+    #: which keep the V-7 hub sentence working unchanged. Reuses
+    #: ``ImportNotApplied`` itself (same fact, no transformation) rather than a
+    #: parallel shape.
+    not_applied_items: list[ImportNotApplied] | None = None
     # ── #626 (conflict legibility) — structured fields, populated for the
     # ``conflict`` thread only (every other thread leaves them ``None`` and its
     # existing reader is unaffected). The reported defect: a conflict's summary
