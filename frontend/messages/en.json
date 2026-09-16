@@ -713,6 +713,7 @@
     "enrichEntry": "Enrich",
     "completenessLabel": "Completeness: {pct}%",
     "changeLog": "{action}: {section}/{field}",
+    "matchedLog": "Recognised as already present in {section}: {incoming} → {existing}",
     "photo": {
       "title": "Profile Photo",
       "subtitle": "Optional. Used in your CV when applying to DACH roles.",
@@ -1001,7 +1002,7 @@
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Not carried over from your import: {labels} — add back what's missing."
+    "notAppliedCallout": "Not confirmed as carried over from your import: {labels} — check whether they are already listed here under another name before adding them."
   },
   "profileReview": {
     "title": "Review profile",

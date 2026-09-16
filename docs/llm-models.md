@@ -289,7 +289,7 @@ for gpt-5-nano); and `deepseek/deepseek-v4-flash-0731` and
 
 ### The vault call now carries a schema (`LLM_STRUCTURED_OUTPUT`, on by default)
 
-The single call that writes your profile is handed the 15 operations it may emit as a JSON
+The single call that writes your profile is handed the 16 operations it may emit as a JSON
 schema, not only as prose in the prompt. The schema is generated from the same types that
 validate the answer, so the two cannot drift apart, and it lists exactly the fields the
 prompt asks for — nothing more, so it cannot invite a field the prompt deliberately avoids.

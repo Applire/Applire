@@ -671,6 +671,10 @@ async def commit_ops(
         # carried-predicate facts, riding the identical path as `reconciliation`
         # above; empty for every non-import batch.
         not_applied=applied.not_applied,
+        # #707 (ADR-046/ADR-063 amended 2026-09-16) — the `match_existing`
+        # bindings of the same batch; a receipt for something that did NOT
+        # write, kept off `changes` on purpose (see `MatchReceipt`).
+        matched=applied.matched,
     )
     profile.metadata.enrichment_history.append(enrichment_record)
 

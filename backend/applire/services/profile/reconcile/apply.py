@@ -45,6 +45,7 @@ from applire.schemas.profile import (
     ExperienceBase,
     FieldChange,
     ImportNotApplied,
+    MatchReceipt,
     Language,
     MasterProfileData,
     ProfileMetaBlock,
@@ -84,6 +85,7 @@ from applire.services.profile.reconcile.ops import (
     EscalateDenialLevel,
     FlagConflict,
     MarkProbeAsked,
+    MatchExisting,
     ReplaceSection,
     RequestConfirmation,
     ResolveConfirmation,
@@ -240,6 +242,9 @@ class ApplyResult(BaseModel):
     # identical path onto the committer's `EnrichmentRecord`. Set exclusively
     # by `ApplyImportMerge`; empty for every other batch.
     not_applied: list[ImportNotApplied] = []
+    # #707 — `match_existing` receipts: recognised-as-present, nothing written.
+    # Kept OFF `changes` on purpose (see `schemas.profile.MatchReceipt`).
+    matched: list[MatchReceipt] = []
 
 
 @dataclass(frozen=True)
@@ -525,6 +530,7 @@ def apply_ops(
     denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
+    matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
     ref_map: dict[str, ExperienceBase] = {}
@@ -664,6 +670,10 @@ def apply_ops(
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
             _apply_flag_conflict(op, resolve_any, source, conflicts)
+        elif isinstance(op, MatchExisting):
+            # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
+            # a receipt on `matched`, never a change, never a write.
+            _apply_match_existing(op, resolve_any, matched)
         elif isinstance(op, RequestConfirmation):
             pending.append(op)
         elif isinstance(op, ReplaceSection):
@@ -710,6 +720,7 @@ def apply_ops(
             # promises never to mutate anything it was handed.
             new_profile = op.merged.model_copy(deep=True)
             changes.extend(op.changes)
+            matched.extend(op.matched)  # #707 — the intake's bindings ride with it
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
 
@@ -760,7 +771,15 @@ def apply_ops(
     if turn_text and not any(
         (changes, pending, conflicts, demotions, denials, not_applied)
     ):
-        not_applied.extend(compute_no_write(turn_text, empty_reason))
+        # #707 (ADR-046 amended 2026-09-16, clause 4): a turn whose only output
+        # is `match_existing` bindings is a restatement the vault already carries
+        # — not a landing (so `addressed` stays False upstream), but not the
+        # fail-safe "nothing was recorded — say it again" either. The model has
+        # told us WHY the batch wrote nothing, in the one vocabulary the receipt
+        # already speaks (`already_known`, ruling M5.1.4).
+        not_applied.extend(
+            compute_no_write(turn_text, "already_known" if matched else empty_reason)
+        )
 
     return ApplyResult(
         profile=new_profile,
@@ -771,6 +790,7 @@ def apply_ops(
         denials=denials,
         reconciliation=reconciliation,
         not_applied=not_applied,
+        matched=matched,
     )
 
 
@@ -2711,6 +2731,38 @@ def _apply_upsert_story(op, profile, resolve, source, changes):
     changes.append(_added(
         "signature_stories", story.title, story.model_dump(mode="json"),
     ))
+
+
+def _apply_match_existing(op, resolve, matched):
+    """#707 (ADR-046 amended 2026-09-16, clause 3) — record the model's binding
+    of an incoming entry to an existing entity; write nothing.
+
+    ``resolve`` is ``resolve_any`` (every id-bearing section, #633). A target that
+    resolves to nothing records nothing: an op that binds to nothing rescues
+    nothing, and the import witness keeps the incoming entry on its list. The
+    receipt names the existing entry by its own natural-key label
+    (``_ENTRY_NATURAL_KEYS``), so the history line reads
+    "English → Englisch" / "TU Munich / M.Sc. → TU München / M.Sc.".
+    """
+    entity = resolve(op.target)
+    if entity is None:
+        logger.warning(
+            "reconcile: match_existing target %r resolves to no entity — "
+            "binding for %r recorded nowhere (#707)", op.target, op.incoming,
+        )
+        return
+    section = _section_for(entity)
+    fields = _ENTRY_NATURAL_KEYS.get(section, ())
+    parts = [str(getattr(entity, f, "") or "").strip() for f in fields]
+    existing = " / ".join(p for p in parts if p) or str(op.target)
+    matched.append(
+        MatchReceipt(
+            section=section,
+            entity_id=str(op.target),
+            incoming=op.incoming,
+            existing=existing,
+        )
+    )
 
 
 def _apply_set_field(op, resolve, changes):

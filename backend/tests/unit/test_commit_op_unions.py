@@ -129,6 +129,7 @@ def test_commit_op_union_still_accepts_every_model_emittable_op():
             "incoming": "B",
         },
         {"op": "request_confirmation", "question": "Which one?"},
+        {"op": "match_existing", "target": "w1", "incoming": "X"},  # #707
     ]
     for sample in samples:
         assert type(adapter.validate_python(sample)) is type(

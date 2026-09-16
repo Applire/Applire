@@ -665,6 +665,36 @@ class FieldChange(BaseModel):
     rationale_key: str | None = None
 
 
+class MatchReceipt(BaseModel):
+    """One `match_existing` binding the reconciler emitted and the applier
+    resolved (#707, ADR-046 / ADR-063 amended 2026-09-16).
+
+    The receipt for something that DID happen without a write: the model judged
+    an incoming flat-section entry — ``incoming``, the name exactly as the new
+    information wrote it — to be the existing entity ``entity_id`` in
+    ``section``, whose own natural-key label is ``existing``. Nothing in the
+    vault changed. It rides ``ApplyResult.matched`` → ``ApplyImportMerge.matched``
+    → ``EnrichmentRecord.matched`` and is rendered on the profile page's history
+    ("Recognised as already present: English → Englisch").
+
+    Deliberately NOT a :class:`FieldChange`: five readers take ``bool(changes)``
+    as "the vault changed" — the interview bridge's ``addressed`` (which closes
+    the gap and paints the *resolved* badge), the agent bridge's ledger upgrade,
+    MCP ``resolve_gap``'s ``status="addressed"``, ``migrate`` — and a restatement
+    must never address a gap (refuter BLOCKER, 2026-09-16). A wrong binding — a
+    genuinely new skill bound to an unrelated existing id — is a loss the import
+    witness cannot see; this receipt is its only detection (System-FMEA
+    ``SF-PROFILE.11``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    section: str
+    entity_id: str
+    incoming: str
+    existing: str
+
+
 class ImportNotApplied(BaseModel):
     """One incoming CV-import entry the merge's own ops do not carry (#615,
     ADR-063 amended 2026-08-28, second entry of the day).
@@ -757,6 +787,11 @@ class EnrichmentRecord(BaseModel):
     # default-empty so a receipt persisted before this field existed loads
     # unchanged (no `extra="forbid"` on this class — see refuter A's C2/(ii)).
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #707 (ADR-046 / ADR-063 amended 2026-09-16) — the `match_existing` bindings
+    # of the same batch: entries the reconciler recognised as already present
+    # under another surface form. Optional and default-empty for the same
+    # reason `not_applied` is; NOT folded into `changes` (see `MatchReceipt`).
+    matched: list[MatchReceipt] = Field(default_factory=list)
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────

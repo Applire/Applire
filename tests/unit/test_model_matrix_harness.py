@@ -223,6 +223,23 @@ def test_a_turn_that_only_asks_a_question_back_is_a_lost_turn(fixtures):
     assert wrote["no_write"] is False
 
 
+def test_a_turn_that_only_matches_existing_entries_is_a_lost_turn(fixtures):
+    """#707 (ADR-063 amended 2026-09-16, clause 5): `match_existing` writes
+    nothing. Against a shape that expects stations, a match-only turn has lost
+    the answer exactly as a question-only turn has."""
+    shape = "S6_incident_shape_all_present"
+    matched_only = mm.classify(
+        fixtures,
+        shape,
+        [{"op": "match_existing", "target": "w-helv", "incoming": "Helvetia Pharma"}],
+        [],
+        None,
+    )
+    assert matched_only["zero_op"] is False
+    assert matched_only["no_write"] is True
+    assert matched_only["n_writing_ops"] == 0
+
+
 def test_a_transport_failure_is_not_counted_as_model_silence():
     """`reconcile()` swallows a timeout into an empty result, so a call that never
     returned looks exactly like a model that chose to say nothing. It made

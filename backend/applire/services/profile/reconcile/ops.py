@@ -42,6 +42,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportNotApplied,
     MasterProfileData,
+    MatchReceipt,
     render_localized_confirmation,
 )
 
@@ -359,6 +360,37 @@ ADAPTER_ONLY_CONFIRMATION_FIELDS = (
     "options_i18n",
     "option_keys",
 )
+
+
+class MatchExisting(BaseModel):
+    """The reconciler's way to SAY "already there" (#707, ADR-046 amended
+    2026-09-16) — model-emittable, writes nothing.
+
+    The new information names an entity the profile already holds under another
+    surface form — a translation ("English" for "Englisch"), a synonym, an
+    abbreviation — and adds nothing new about it. Before this op the model's only
+    channel for that judgement was SILENCE, and the import witness
+    (``reconcile/import_witness.py``) cannot tell silence from dropping: on a
+    DE→EN second-source import it listed nearly every entry of the second CV as
+    ``no_op_carried_entry`` while the vault held every one of them (#707).
+
+    ``target`` is the existing entity's id (the profile view the model reads keeps
+    ids on EXISTING entries — ADR-078 strips them from the INCOMING block only);
+    ``incoming`` is the incoming entry's name exactly as the new information
+    writes it. Scope: the six flat sections, whose upsert ops carry no
+    ``target``; engagements keep rule 7's ``upsert_*(target=…)`` mechanism, and
+    a ``match_existing`` aimed at an engagement id records its receipt and
+    rescues nothing at the witness.
+
+    The applier (``_apply_match_existing``) resolves ``target`` through
+    ``resolve_any``, records ONE :class:`applire.schemas.profile.MatchReceipt`
+    on ``ApplyResult.matched`` and mutates nothing. Never a ``set_field``: it
+    fills nothing, overwrites nothing, creates no alias.
+    """
+
+    op: Literal["match_existing"] = "match_existing"
+    target: str
+    incoming: str
 
 
 class RequestConfirmation(BaseModel):
@@ -915,6 +947,9 @@ class ApplyImportMerge(BaseModel):
     #: -> the committer's ``EnrichmentRecord.not_applied``) so the doors' fact
     #: and the hub's count can never disagree about the same merge.
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #707 — the merge's `match_existing` receipts, riding the same path as
+    # `not_applied` (only the intake computes them; empty for every other batch).
+    matched: list[MatchReceipt] = Field(default_factory=list)
 
 
 # ── Discriminated unions, split by EMITTER ────────────────────────────────────
@@ -984,6 +1019,7 @@ _MODEL_EMITTABLE = (
     SetPersonalInfo,
     SetSummary,
     FlagConflict,
+    MatchExisting,
     RequestConfirmation,
 )
 

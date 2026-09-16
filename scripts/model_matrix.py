@@ -99,7 +99,11 @@ THRESHOLDS = {"zero_op": 0.05, "malformed_op": 0.10, "wrong_slot": 0.10, "error"
 # and `cohere/command-r7b-12-2024` scored "qualified" on the first pass by emitting
 # one `request_confirmation` and nothing else on 21 of 30 turns (2026-09-09). The
 # zero-op bar is therefore measured on `no_write`, which counts that turn as lost.
-NON_WRITING_OPS = frozenset({"request_confirmation"})
+# `match_existing` (#707, ADR-046 amended 2026-09-16) records that the model
+# recognised an incoming entry as already present and writes NOTHING — a turn
+# whose only output is matches, against a shape that expects stations, has lost
+# the answer exactly as a question-only turn has (ADR-063 amended, clause 5).
+NON_WRITING_OPS = frozenset({"request_confirmation", "match_existing"})
 # A model is `qualified` when no threshold is crossed on any shape and it never
 # lost a turn; `caveat` when it stayed under every threshold but did lose one;
 # `sub-par` as soon as any threshold is crossed on any shape.

@@ -139,6 +139,9 @@ def test_a_field_the_prompt_calls_required_is_required_in_the_schema():
     assert "existing" in defs["FlagConflict"]["required"]
     assert "incoming" in defs["FlagConflict"]["required"]
     assert "options" in defs["RequestConfirmation"]["required"]
+    # #707 — `match_existing` has no defaults, so pydantic itself requires both.
+    assert "target" in defs["MatchExisting"]["required"]
+    assert "incoming" in defs["MatchExisting"]["required"]
 
 
 def test_a_field_the_prompt_never_asks_for_is_not_in_the_schema():

@@ -133,6 +133,19 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   the longest rule in the prompt, never exercised by any shape until now — its
   first measurement: ``flag_conflict`` on **10/10 turns for all three models**
   in arm A3, and nothing else emitted. Rule 13 earns its 1,399 chars.
+* **20,106 (#707, 2026-09-16).** The vocabulary gains
+  ``match_existing`` (target + incoming; writes nothing; the six flat sections)
+  and rule 5 an ALREADY THERE paragraph: a translated / synonymous /
+  abbreviated restatement with nothing new is a match, never an upsert, never
+  silence. Why: on a DE→EN second-source import the model correctly emitted
+  nothing for ``English``/``Englisch`` and the import witness — which can only
+  see ops and near-dupes — listed nearly every entry of the second CV as not
+  carried (Bug #707). Silence was the model's only way to say "already there",
+  and silence is indistinguishable from dropping. Placed in rule 5, the rule
+  that already owns flat-section restatements (a refuter showed rule 7's
+  engagement scope would have generalised the op onto jobs). *Measured
+  (arm B1 vs the A3 baseline of 2026-09-11, n=10 × S6/S7/S8/S9/S10, three
+  models):* MEASUREMENT_PLACEHOLDER
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -278,6 +291,16 @@ Operations:
       in full — in "existing" and "incoming". See rule 13.
   Copy both sides verbatim; the user is shown them side by side and picks one.
 
+- match_existing — the new information names an entity the profile ALREADY holds
+  under another surface form — a translation ("English" for "Englisch"), a
+  synonym, an abbreviation — and adds nothing new about it. Fields: target (that
+  existing entity's id), incoming (the name EXACTLY as the new information
+  writes it: the skill / certification / language name, the publication or
+  story title, "Institution / Degree" for education). REQUIRED: target,
+  incoming. Writes nothing — it records that you SAW the entry and where it
+  already lives. Not for jobs, projects or volunteering (rule 7). A
+  WORD-FOR-WORD restatement needs no op.
+
 - request_confirmation — a targeted yes/no (or short-choice) question for the
   user. Fields: question, options (list of short answers), context (a dict with
   any helpful keys). REQUIRED: question, options. Emit this when you cannot
@@ -336,6 +359,12 @@ Operations:
    institution/name/title from the CURRENT MASTER PROFILE and add only the
    genuinely new field(s). Never a second entry under the new source's
    alternate phrasing.
+   ALREADY THERE, NOTHING NEW (#707): when the new information names a skill,
+   language, certification, degree, publication or story the profile already
+   has under a different name — a translation, a synonym, an abbreviation —
+   and adds no new field, emit match_existing with "target" = that entry's
+   `id` and "incoming" = the name as written. Never an upsert for it (that
+   creates a second entry) and never silence (silence reads as dropped).
 
 6. When you cannot confidently decide whether a fact belongs to an existing
    entity vs is new, or which parent a project belongs to, emit

@@ -35,6 +35,7 @@ from applire.schemas.profile import (
     Conflict,
     FieldChange,
     ImportNotApplied,
+    MatchReceipt,
     MasterProfileData,
     PendingConfirmation,
 )
@@ -60,6 +61,7 @@ class MergeResult:
     # receipt field each — see `reconciliation.compute_merge_reconciliation`'s
     # module docstring).
     not_applied: list[ImportNotApplied] = field(default_factory=list)
+    matched: list[MatchReceipt] = field(default_factory=list)  # #707 — `match_existing` receipts
     # E037 PQ #4 — import-time reconciler ambiguities (N-option questions). Carried
     # on their own channel rather than coerced into the 2-value `conflicts` shape,
     # so they surface as a clean question + per-option buttons in the profile-review

@@ -713,6 +713,7 @@
     "enrichEntry": "Ergänzen",
     "completenessLabel": "Vollständigkeit: {pct}%",
     "changeLog": "{action}: {section}/{field}",
+    "matchedLog": "Als bereits vorhanden erkannt in {section}: {incoming} → {existing}",
     "photo": {
       "title": "Profilfoto",
       "subtitle": "Optional. Wird in deinem Lebenslauf bei DACH-Bewerbungen verwendet.",
@@ -1001,7 +1002,7 @@
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
-    "notAppliedCallout": "Aus deinem Import nicht übernommen: {labels} — trage nach, was fehlt."
+    "notAppliedCallout": "Aus deinem Import nicht sicher übernommen: {labels} — prüfe, ob sie hier schon unter anderem Namen stehen, bevor du sie nachträgst."
   },
   "profileReview": {
     "title": "Profil prüfen",
