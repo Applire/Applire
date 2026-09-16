@@ -86,6 +86,28 @@ table, imported here rather than copied), CARRIED when:
       entry (not "any set_field anywhere in this section") so one targeted
       edit cannot blanket-rescue an unrelated loss in the same batch.
 
+**Arm (c), sub-clause 3 (#707, ADR-063 amended 2026-09-16) — the model SAID it
+is already there.** A ``match_existing`` op (ADR-046 amended the same day) whose
+``target`` resolves BY ID to a merged entry E of the SAME flat section binds the
+incoming entries whose formatted label or any single non-empty natural-key
+field equals its ``incoming`` (normalised). One candidate -> carried. Several ->
+those that share a further non-empty natural-key field with E itself survive,
+and exactly one survivor is carried; otherwise none is rescued (the AMBIGUOUS
+conservatism). Target-first, because the refuted first draft checked
+``incoming``'s uniqueness alone and threw the model's own disambiguating id
+away: an incoming CV with two ``M.Sc.`` entries — TU München (in the vault) and
+LMU München (new) — would have rescued neither although ``target`` named the TU
+entry. A target that resolves to nothing, or to another section, rescues
+nothing. Engagement sections are OUT of this sub-clause's scope: rule 7's
+``target`` mechanism and sub-clause 2 already carry them. Why this exists at all:
+``classify_dupe`` clears NONE of English/Englisch, German/Deutsch, Project
+Management/Projektmanagement, Machine Learning/Maschinelles Lernen (measured
+2026-09-16), and the model — correctly, under rule 1 — emitted no op for an
+entry it judged present, so arm (b) and arm (c) both failed and a CLEAN DE->EN
+merge listed nearly every entry of the second CV. Silence was the only channel
+the model had for "already there"; this sub-clause is what reading the new one
+looks like.
+
 Otherwise -> ``not_applied`` item, reason ``no_op_carried_entry``. Every raw
 op in ``rejected_ops`` (``ReconcileResult.rejected_ops`` — a model op that
 failed schema validation at ``engine._parse_ops``) is its own item, reason
@@ -135,6 +157,7 @@ from applire.services.profile.reconcile.dedupe import (
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     CommitOp,
+    MatchExisting,
     SetField,
     UpsertCertification,
     UpsertEducation,
@@ -251,6 +274,63 @@ def _flat_set_field_touched_entries(
     return [e for e in merged_entries if getattr(e, "id", None) in targets]
 
 
+def _flat_match_existing_bound_keys(
+    incoming_entries: Sequence[Any],
+    merged_entries: Sequence[Any],
+    ops: Sequence[CommitOp],
+    fields: tuple[str, ...],
+) -> set[tuple[str, ...]]:
+    """Arm (c), sub-clause 3 (#707) — the natural keys of the incoming entries a
+    `match_existing` op binds to a merged entry of THIS section, target-first.
+
+    See the module docstring. Distinct incoming keys only (a literal duplicate
+    incoming entry is one data point, as everywhere else in this module)."""
+    merged_by_id = {
+        getattr(e, "id", None): e for e in merged_entries if getattr(e, "id", None)
+    }
+    distinct: dict[tuple[str, ...], Any] = {}
+    for entry in incoming_entries:
+        distinct.setdefault(_entry_key(entry, fields), entry)
+    bound: set[tuple[str, ...]] = set()
+    for op in ops:
+        if not isinstance(op, MatchExisting):
+            continue
+        target = merged_by_id.get(op.target)
+        if target is None:
+            continue  # unresolvable, or an entity of another section
+        wanted = _norm(op.incoming or "")
+        if not wanted:
+            continue
+        candidates = [
+            (key, entry)
+            for key, entry in distinct.items()
+            if _norm(_format_label(entry, fields)) == wanted
+            or any(
+                _norm(getattr(entry, f, "") or "") == wanted
+                for f in fields
+                if _norm(getattr(entry, f, "") or "")
+            )
+        ]
+        if len(candidates) > 1:
+            # Several incoming entries fit the label — let the TARGET's own
+            # fields decide (the two-M.Sc. case): keep those sharing a further
+            # non-empty natural-key field with E.
+            candidates = [
+                (key, entry)
+                for key, entry in candidates
+                if any(
+                    _norm(getattr(entry, f, "") or "")
+                    and _norm(getattr(entry, f, "") or "")
+                    == _norm(getattr(target, f, "") or "")
+                    and _norm(getattr(entry, f, "") or "") != wanted
+                    for f in fields
+                )
+            ]
+        if len(candidates) == 1:
+            bound.add(candidates[0][0])
+    return bound
+
+
 def _flat_section_not_applied(
     section: str, incoming: MasterProfileData, merged: MasterProfileData, ops: Sequence[CommitOp]
 ) -> list[ImportNotApplied]:
@@ -260,6 +340,7 @@ def _flat_section_not_applied(
     merged_keys = {_entry_key(e, fields) for e in merged_entries}
     op_keys = _op_natural_keys(ops, _FLAT_OP_TYPES[section], fields)
     touched_entries = _flat_set_field_touched_entries(ops, merged_entries)
+    bound_keys = _flat_match_existing_bound_keys(incoming_entries, merged_entries, ops, fields)
     getters = _getters_for(fields)
     containment_is_same = _FLAT_CONTAINMENT_IS_SAME.get(section, False)
 
@@ -271,6 +352,8 @@ def _flat_section_not_applied(
             continue
         seen.add(key)
         if key in merged_keys:  # arm (a)
+            continue
+        if key in bound_keys:  # arm (c), sub-clause 3 (#707) — the model said so
             continue
         if section == "certifications":
             # N1 (adversarial pass 2026-08-28): the REAL applier

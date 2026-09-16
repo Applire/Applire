@@ -386,4 +386,5 @@ async def reconcile_import(
         reconciliation=compute_merge_reconciliation(incoming, applied.profile, not_applied),
         pending_confirmations=pending_confirmations,
         not_applied=not_applied,
+        matched=list(applied.matched),  # #707
     )

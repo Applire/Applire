@@ -287,9 +287,33 @@ for gpt-5-nano); and `deepseek/deepseek-v4-flash-0731` and
 `nvidia/nemotron-3-super-120b-a12b:free` now cross the error-rate bar (transport failures,
 10–30 %) rather than the lost-turn bar they crossed under prompt v1.
 
+### Re-measured on the `match_existing` prompt (2026-09-16)
+
+The reconciler's vocabulary gained a sixteenth operation on 2026-09-16 — `match_existing`, the
+model's way to record that an incoming entry is one the vault already holds under another name
+(a translation, a synonym, an abbreviation) instead of staying silent, which the import's
+post-merge check could not tell from dropping. The prompt grew from 19,007 to 20,106 characters.
+Per the rule this guide's numbers rest on, the change was measured before it shipped: the three
+reference models, same five shapes (S6–S10), `n=10`, schema `auto`, reasoning at each model's own
+default, against the 2026-09-11 baseline records of the same models on the previous prompt.
+
+| Model | lost turn S6/S7/S8/S9 | malformed | wrong-slot | error | movement vs baseline |
+|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | 0% / 0% / 0% / 0% | 0% | 0% | 0% | none |
+| `z-ai/glm-5.3-flash` | 0% / 0% / 0% / 0% | 0% | 0% | 0% | S10 (a verbatim restatement, correct answer: write nothing) 100% → 90% zero-op — one turn restated the line as a bullet |
+| `mistralai/ministral-8b-2512` | 0% / 0% / 0% / 0% | 0% / **10%** / 0% / 0% | 0% | 0% | S7 malformed 0% → 10%: one `upsert_work` without `company`, the shape this model has shown on S7 in earlier arms; at the threshold, not over it |
+
+No model crossed a threshold it was under, and none emitted `match_existing` on these shapes —
+none of them restates an entry in another language, so the matrix measures that the new operation
+costs nothing here, not what it does. What it does was measured on a real German-then-English
+two-CV import on the dev stack (three runs per arm): before, the import listed the two translated
+languages as "not carried over" in two runs and duplicated them as new rows in the third; after,
+the not-carried list was empty in all three, the vault kept exactly two language rows, and the
+duplicated translated skills fell from three per run to three, one and none.
+
 ### The vault call now carries a schema (`LLM_STRUCTURED_OUTPUT`, on by default)
 
-The single call that writes your profile is handed the 15 operations it may emit as a JSON
+The single call that writes your profile is handed the 16 operations it may emit as a JSON
 schema, not only as prose in the prompt. The schema is generated from the same types that
 validate the answer, so the two cannot drift apart, and it lists exactly the fields the
 prompt asks for — nothing more, so it cannot invite a field the prompt deliberately avoids.

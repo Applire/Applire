@@ -165,6 +165,36 @@ describe("ProfilePage", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
+  // #707 — a `match_existing` receipt renders as its own history line, never
+  // as a change: the import recognised an entry as already present.
+  it("renders a recognised-as-already-present receipt on the enrichment history", async () => {
+    const base = mockFetch();
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/profile/enrichment-history"))
+        return {
+          ok: true,
+          json: async () => [
+            {
+              timestamp: "2026-09-16T20:00:00Z",
+              source: "cv_upload",
+              changes: [],
+              matched: [
+                { section: "languages", entity_id: "lang-en", incoming: "English", existing: "Englisch" },
+              ],
+            },
+          ],
+        };
+      return base(input);
+    }) as unknown as typeof fetch;
+    render(withIntl(<ProfilePage />, "en"));
+    await waitFor(() =>
+      expect(screen.getByTestId("enrichment-matched")).toHaveTextContent(
+        "Recognised as already present in languages: English → Englisch",
+      ),
+    );
+  });
+
   // F8 (#76): sections render as readable fields, never raw JSON with internal ids.
   it("renders structured profile fields and hides internal plumbing", async () => {
     render(withIntl(<ProfilePage />, "en"));

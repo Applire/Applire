@@ -269,6 +269,7 @@ def _enrichment_from_merge(merge_result, source, session_id: str | None = None) 
         # #615 (ADR-063 amended 2026-08-28, second entry) — the merge's own
         # carried-predicate facts, persisted beside `reconciliation`.
         not_applied=list(merge_result.not_applied),
+        matched=list(getattr(merge_result, "matched", None) or []),  # #707
     )
 
 
@@ -1380,6 +1381,7 @@ async def _apply_merge(
                     changes=enrichment.changes,
                     reconciliation=enrichment.reconciliation,
                     not_applied=enrichment.not_applied,
+                    matched=enrichment.matched,  # #707
                 )
             ],
             CommitProvenance(source=source, intake="import", actor="candidate"),

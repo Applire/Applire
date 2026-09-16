@@ -112,6 +112,14 @@ interface EnrichmentRecord {
     new_value?: unknown;
     rationale?: string | null;
   }>;
+  // #707 — `match_existing` receipts: entries the import recognised as already
+  // present under another name. A receipt for something that did NOT change.
+  matched?: Array<{
+    section: string;
+    entity_id: string;
+    incoming: string;
+    existing: string;
+  }>;
 }
 
 const stringifyValue = displayValue;
@@ -806,6 +814,22 @@ export default function ProfilePage() {
                         </div>
                       );
                     })}
+                    {/* #707 — the bindings the reconciler recorded instead of
+                        writing: "English → Englisch". Not a change; rendered as
+                        its own line so a wrong binding is readable somewhere. */}
+                    {(record.matched ?? []).map((m, mIdx) => (
+                      <div
+                        key={`m-${mIdx}`}
+                        className="text-gray-600"
+                        data-testid="enrichment-matched"
+                      >
+                        {t("matchedLog", {
+                          section: m.section,
+                          incoming: m.incoming,
+                          existing: m.existing,
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
