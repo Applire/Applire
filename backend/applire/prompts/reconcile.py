@@ -145,7 +145,22 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   that already owns flat-section restatements (a refuter showed rule 7's
   engagement scope would have generalised the op onto jobs). *Measured
   (arm B1 vs the A3 baseline of 2026-09-11, n=10 × S6/S7/S8/S9/S10, three
-  models):* MEASUREMENT_PLACEHOLDER
+  models):* no threshold crossed on any model — the shipping condition holds.
+  ``gpt-5.6-luna`` 0.00 on every rate S6–S9, identical to A3 (S10 100 % zero-op
+  both arms — the correct outcome, excluded from the verdict). ``glm-5.3-flash``
+  0.00 on every rate S6–S9, identical to A3; S10 zero-op 100 % → 90 % (one turn
+  restated the vault line as an ``add_bullets`` — not the new op, which no model
+  emitted on S6–S10: no shape restates in another language). ``ministral-8b``
+  0.00 everywhere except S7 malformed 0 % → 10 % (= the threshold, not over it;
+  the one rejected op is ``upsert_work.company:missing``, its historical S7
+  shape). n=10 cannot call either movement an effect. The op's USE is measured
+  on the real DE→EN two-CV replay (dev stack, luna, n=3 per arm): before, the
+  witness listed the two translated languages in 2/3 runs and the model upserted
+  them as duplicates in the third; after, ``not_applied`` was empty 3/3, the
+  vault kept exactly two language rows 3/3, and translated-skill duplication fell
+  from 3 extra rows per run to 3/1/0. The model also matches word-for-word
+  restatements the paragraph exempts (a receipt line, no write). Records:
+  ``Documents/Runs/Nougat/uat-fixes-2/``; $0.32 for the arm.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
