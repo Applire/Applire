@@ -455,12 +455,18 @@ def _configured_model(family: str) -> str:
     return str(getattr(settings, f"{family}_model", "") or "")
 
 
+# Enough for a model that simply answers to end on its own stop, so the probe
+# spends one call rather than one plus the truncation safety net's retry.
+_REACHABILITY_MAX_TOKENS = 16
+
+
 async def _probe_reachability() -> tuple[str, str]:
     """One tiny generation. Chrome-sized: about 96 a day at the default TTL."""
     from applire.exceptions import (
         LLMProviderUnavailableError,
         LLMRateLimitError,
         LLMTimeoutError,
+        LLMTruncatedError,
     )
     from applire.providers.llm import get_provider
     from applire.providers.llm.usage import llm_usage_context
@@ -474,7 +480,15 @@ async def _probe_reachability() -> tuple[str, str]:
         # Attributed so the probe's own cost is visible in the same table it
         # reports — a monitoring call that hides its own spend is dishonest.
         with llm_usage_context(stage="ops_probe"):
-            await provider.acomplete("ping", max_tokens=1, temperature=0.0)
+            await provider.acomplete(
+                "ping", max_tokens=_REACHABILITY_MAX_TOKENS, temperature=0.0
+            )
+        return "ok", ""
+    except LLMTruncatedError:
+        # ADR-086 amended 2026-09-17: a length stop is an answer. The gateway
+        # accepted the key and the model produced tokens; every Core provider
+        # raises on that stop (ADR-009), and reading it as "did not answer" put a
+        # working provider — and the whole instance — at `down` all night.
         return "ok", ""
     except LLMRateLimitError:
         return "rate_limited", "provider rate-limited the probe"
