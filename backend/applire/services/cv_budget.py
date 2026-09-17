@@ -146,6 +146,17 @@ class BudgetResult:
     # of 8 bullets exempt against a ceiling of 5. Empty on every other path, which is
     # the pre-amendment behaviour exactly.
     demanded_concepts: tuple[tuple[str, ...], ...] = ()
+    # ADR-072 clause 4 amended 2026-09-17 (#415, founder ruling W-1) — the SECOND
+    # provenance the 2026-09-05 ruling already named and #666 did not build: the retention
+    # forms of the concepts the ADR-048/US213 VERIFIED COVERAGE demand raised in the round
+    # that produced the draft being composed. Recorded at that demand's own call
+    # (`keyword_ledger.coverage_reviewer_prompt_fn(on_demand=…)`) and threaded here the
+    # same way `demanded_concepts` is. Kept as its OWN field rather than merged into the
+    # one above because the two carry different corpora: this demand measures absence over
+    # the WHOLE serialised document, the clause-5 one over the narrative corpus, and
+    # `bullet_cuts.demanded_exempt_indices` must apply each with its own test — an
+    # exemption wider than its demand is the 7-of-8 shape #666 measured and refused.
+    coverage_demanded_concepts: tuple[tuple[str, ...], ...] = ()
 
 
 def _tier_table(target_pages: int, region: str) -> dict[TierName, BulletTier]:
@@ -574,6 +585,7 @@ def condense_to_budget(
         # was just cut from a previous role is protected here.
         external = ""
         narrative_external = ""
+        evidence_external = ""
         if concept_groups:
             saved_bullets, saved_projects = entry.get("bullets"), entry.get("projects")
             entry["bullets"], entry["projects"] = [], []
@@ -589,6 +601,15 @@ def condense_to_budget(
 
             narrative_external = "\n".join(
                 _tailored_narrative_texts(narrative_corpus_view(data))
+            )
+            # #415 (ADR-072 clause 1 amended 2026-09-17): the sole-carrier TIER reads the
+            # corpus the delivered `narrative-evidence` check grades — the narrative slice
+            # PLUS the vault-joined structured sections, through the same function the
+            # check's own signal uses (ADR-066: no second list of section names).
+            from applire.services.cv_gap_hints import structured_section_texts
+
+            evidence_external = "\n".join(
+                [narrative_external, *structured_section_texts(data)]
             )
             entry["bullets"], entry["projects"] = saved_bullets, saved_projects
 
@@ -623,6 +644,11 @@ def condense_to_budget(
             # pass re-delete the very bullet the other one protected.
             demanded_groups=budgets.demanded_concepts,
             narrative_external_text=narrative_external,
+            # #415 (2026-09-17): the second demand provenance and the tier's own corpus.
+            # #377's scope note for the third time — a rule stated against `_cap_bullets`
+            # alone is live on one of three ceiling enforcers.
+            coverage_demanded_groups=budgets.coverage_demanded_concepts,
+            evidence_external_text=evidence_external,
         )
         log_cuts(
             "condense_to_budget", cuts,

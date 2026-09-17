@@ -30,7 +30,7 @@ derived ``fit_weight`` — never the LLM (mirrors ADR-035's slot-weight rule).
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -1747,6 +1747,7 @@ def coverage_reviewer_prompt_fn(
     keyword_ledger: list[dict[str, Any]] | None,
     budget: "CoverageBudget | None" = None,
     max_terms_per_round: int | None = None,
+    on_demand: "Callable[[Sequence[dict[str, Any]]], None] | None" = None,
 ):
     """Wrap a reviewer_prompt_fn so every review sees the CURRENT draft's verified
     coverage state (US213, #122).
@@ -1770,6 +1771,18 @@ def coverage_reviewer_prompt_fn(
     byte-identical. The letter's single wiring point
     (``cover_letter.py::_wrap_reviewer``) passes 2, which is the number
     ``prompts/review_cover_letter.py`` used to ask for and did not get.
+
+    #415 (2026-09-17, ADR-072 clause 4 amended; founder ruling W-1): ``on_demand`` is
+    called with the entries this round actually DEMANDS — after the rank gate and after
+    the per-round bound, i.e. the terms the block really carries, never the raw missing
+    list. It is a REPORT, the same contract ``underclaim_signal_issues_fn`` has carried
+    since #666 and ``review_and_refine`` has carried for ``on_settle``: it returns
+    nothing, it cannot change which terms are demanded, and it is called on every
+    evaluation including the empty one, so a caller can see that a round demanded nothing
+    rather than having to infer it. Its consumer is the deterministic tail's cap
+    exemption, so the bullet this demand produces is not deleted inside the round that
+    demanded it (`SF-WRITE.29`'s measured deadlock: 2 of 3 repairs never reached the
+    document).
     """
 
     def fn(source: str, draft: dict[str, Any]) -> str:
@@ -1777,6 +1790,8 @@ def coverage_reviewer_prompt_fn(
         missing = verified_missing_claimable(draft, keyword_ledger)
         blocking, below_rank = rank_gate_missing_claimable(missing, draft, budget)
         blocking, deferred = rank_coverage_demand(blocking, max_terms_per_round)
+        if on_demand is not None:
+            on_demand(blocking)
         if deferred:
             logger.info(
                 "M5.4.2 coverage bound: %d of %d absent claimable term(s) demanded this "

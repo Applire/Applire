@@ -1005,6 +1005,8 @@ def _cap_bullets(
     pinned: set[int] = frozenset(),
     demanded_groups: Sequence[Sequence[str]] = (),
     narrative_external_text: str = "",
+    coverage_demanded_groups: Sequence[Sequence[str]] = (),
+    evidence_external_text: str | None = None,
 ) -> list[str]:
     """Trim ``bullets`` down to ``max_bullets``, sharing ONE ranking
     implementation with ``cv_budget.condense_to_budget`` — both delegate to
@@ -1069,6 +1071,12 @@ def _cap_bullets(
         # narrative carrier of a concept this round's demands will raise again.
         demanded_groups=demanded_groups,
         narrative_external_text=narrative_external_text,
+        # ADR-072 amended 2026-09-17 (#415, ruling W-1): the coverage demand's answer is
+        # exempt too (its own corpus is the whole document), and the sole-carrier TIER
+        # reads the corpus the delivered `narrative-evidence` check grades. This is the
+        # pass whose 2026-09-11 deletion produced that check's own `fail`.
+        coverage_demanded_groups=coverage_demanded_groups,
+        evidence_external_text=evidence_external_text,
     )
     log_cuts("_cap_bullets", cuts, ceiling=max_bullets, **(context or {}))
     return apply_cuts(bullets, cuts)
@@ -1183,6 +1191,9 @@ def _restore_ledger_bullets(
     # made in an earlier entry is correctly absent from the picture.
     concept_groups = budget.claimable_concepts if budget is not None else ()
     demanded_groups = budget.demanded_concepts if budget is not None else ()
+    coverage_demanded_groups = (
+        budget.coverage_demanded_concepts if budget is not None else ()
+    )
     non_work = {k: v for k, v in draft_json.items() if k != "work_history"}
     pending_dumps = [w.model_dump(mode="json") for w in tailored.work_history]
 
@@ -1220,6 +1231,36 @@ def _restore_ledger_bullets(
         others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
         return "\n".join(
             _tailored_narrative_texts(narrative_corpus_view({"work_history": others}))
+        )
+
+    def _evidence_external_text(index: int, entry_dict: dict) -> str:
+        """The corpus the DELIVERED ``narrative-evidence`` check grades as evidence
+        (ADR-072 clause 1 amended 2026-09-17, #415, founder rulings W-1 / W-1b).
+
+        The narrative slice above PLUS the composed document's vault-joined
+        ``languages`` / ``certifications`` / ``education`` sections — built through
+        ``cv_gap_hints.structured_section_texts``, the same function (and therefore the
+        same ``_STRUCTURED_SECTIONS`` constant) ``verified_narrative_underclaim`` uses,
+        so there is no second list of section names to drift (ADR-066).
+
+        ``skills`` and ``summary`` stay OUT, which is ADR-076 clause 5's founding rule:
+        a tag is not evidence. That exclusion is the whole point — on 2026-09-11 the cap
+        read the skills tag "ISO 9001" as coverage, deleted the role's only ISO-9001
+        bullet at ``sole_carrier=False``, and the delivered report then reported the
+        concept as claimed-but-not-evidenced. The structured sections are IN for the
+        mirror-image reason (RULING W1-3): a recruiter reads "Deutsch — Muttersprache"
+        under LANGUAGES as evidence, so a bullet restating it is not a sole carrier and
+        must not be protected at a quantified bullet's expense.
+        """
+        if not concept_groups:
+            return ""
+        from applire.services.cv_gap_hints import structured_section_texts
+
+        return "\n".join(
+            [
+                _narrative_external_text(index, entry_dict),
+                *structured_section_texts(draft_json),
+            ]
         )
 
     for w_index, w in enumerate(tailored.work_history):
@@ -1325,6 +1366,11 @@ def _restore_ledger_bullets(
                     # restore path would silently undo what the cap path protects.
                     demanded_groups=demanded_groups,
                     narrative_external_text=_narrative_external_text(w_index, w_dict),
+                    # #415 (2026-09-17): this branch is ceiling enforcer 2 of 3 and gets
+                    # both halves too, or the restore path would silently undo what the
+                    # cap path protects — the same reason amendment 2 of 2026-08-02 gave.
+                    coverage_demanded_groups=coverage_demanded_groups,
+                    evidence_external_text=_evidence_external_text(w_index, w_dict),
                 )
                 log_cuts(
                     "_restore_ledger_bullets", cuts,
@@ -1375,6 +1421,10 @@ def _restore_ledger_bullets(
                 ),
                 demanded_groups=demanded_groups,
                 narrative_external_text=_narrative_external_text(w_index, w_dict),
+                # #415 (2026-09-17): ceiling enforcer 1 of 3 — the pass that made the
+                # 2026-09-11 ISO-9001 deletion.
+                coverage_demanded_groups=coverage_demanded_groups,
+                evidence_external_text=_evidence_external_text(w_index, w_dict),
             )
             if capped != existing_bullets:
                 changed = True
@@ -4144,6 +4194,13 @@ async def _terminal_review(
     # A cell rather than a closure variable because `_compose` is defined before the
     # wrapper that fills it, and because the loop below re-reads it every round.
     demanded_cell: dict[str, tuple[tuple[str, ...], ...]] = {"groups": ()}
+    # ADR-072 clause 4 amended 2026-09-17 (#415, ruling W-1): the SECOND provenance. The
+    # 2026-09-05 ruling reads "a coverage OR under-claim signal"; #666 built one of the
+    # two, and `SF-WRITE.29`'s measured deadlock is on the other — round 1's corrector
+    # added the two bullets the reviewer's blocking COVERAGE finding demanded, the compose
+    # that followed cut both, round 2 re-raised the same absence. Own cell because the two
+    # demands measure absence over different corpora (see `BudgetResult`).
+    coverage_demanded_cell: dict[str, tuple[tuple[str, ...], ...]] = {"groups": ()}
 
     def _budget_for_round() -> "BudgetResult":
         """``budget`` carrying this round's demanded concepts.
@@ -4156,7 +4213,11 @@ async def _terminal_review(
         """
         from dataclasses import replace
 
-        return replace(budget, demanded_concepts=demanded_cell["groups"])
+        return replace(
+            budget,
+            demanded_concepts=demanded_cell["groups"],
+            coverage_demanded_concepts=coverage_demanded_cell["groups"],
+        )
 
     def _compose(draft: dict) -> TailoredCVData:
         return _compose_document(
@@ -4191,8 +4252,35 @@ async def _terminal_review(
     # the composed document — so restored/joined content finally counts toward
     # coverage (the run-C class: evidence present in the writer's input,
     # invisible to a prose-only coverage check).
+    def _record_coverage_demand(entries) -> None:
+        """#415: remember which claimable concepts THIS round's VERIFIED COVERAGE block
+        actually demanded, so the tail that runs after the corrector does not delete the
+        answer inside the round that asked for it.
+
+        ACCUMULATES for the same reason ``_record_demand`` does (#666): a round-scoped set
+        protects round 1's answers through round 1's compose and then hands them to round
+        2's cap unprotected — the loop deleting its own repair one round late. Bounded by
+        the ledger: at most one group per claimable entry, deduped, per invocation.
+
+        The groups are derived through ``cv_budget._group_claimable_forms`` — the SAME
+        function that built ``BudgetResult.claimable_concepts`` — and not through a second
+        call to ``retention_forms``. ``demanded_exempt_indices`` matches a demanded group
+        against the concept groups by tuple IDENTITY, so a derivation that merely looks
+        equivalent (an un-deduped list, an unfiltered empty form) matches nothing and the
+        exemption silently does not exist. ADR-066, in its smallest possible shape.
+        """
+        from applire.services.cv_budget import _group_claimable_forms
+
+        coverage_demanded_cell["groups"] = tuple(
+            dict.fromkeys(
+                coverage_demanded_cell["groups"]
+                + _group_claimable_forms(list(entries))
+            )
+        )
+
     _coverage_fn = coverage_reviewer_prompt_fn(
-        _terminal_base, keyword_ledger, budget=coverage_budget
+        _terminal_base, keyword_ledger, budget=coverage_budget,
+        on_demand=_record_coverage_demand,
     )
 
     # ADR-077 amended 2026-08-26 (#580): the PINNED FACTS CHECK over the COMPOSED
