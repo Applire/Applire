@@ -145,6 +145,36 @@ class TestProfileExtractionReviewPrompts:
         assert isinstance(REVIEW_SYSTEM_PROMPT, str)
         assert len(REVIEW_SYSTEM_PROMPT) > 100
 
+    def test_date_rule_polices_components_not_the_source_wording(self):
+        """#713 — "must match exactly what is stated in the source" made the reviewer
+        block `2024-12` against a German "Dezember 2024"; the corrector then rewrote
+        every date into month names and the import witness matched no position.
+        The rule the CV reviewer has carried since v5 (2026-06-30) is the contract."""
+        from applire.prompts.review_profile_extraction import REVIEW_SYSTEM_PROMPT
+
+        assert "must match exactly what is stated in the source" not in REVIEW_SYSTEM_PROMPT
+        assert "COMPONENTS, not format" in REVIEW_SYSTEM_PROMPT
+        assert '"Dezember 2024"' in REVIEW_SYSTEM_PROMPT
+        assert "Never ask for the source's own date wording" in REVIEW_SYSTEM_PROMPT
+
+    def test_an_issue_that_finds_nothing_is_not_listed(self):
+        """#713 — the exhausted loop's verdicts filed "blocking" issues that concluded
+        "no issue", so a clean extraction could never be approved."""
+        from applire.prompts.review_profile_extraction import REVIEW_SYSTEM_PROMPT
+
+        assert "APPROVAL BAR" in REVIEW_SYSTEM_PROMPT
+        assert '"no issue", it is not' in REVIEW_SYSTEM_PROMPT
+
+    def test_closing_question_names_all_four_checks(self):
+        """The last sentence the reviewer reads named three of the four checks and
+        dropped INVENTED BULLETS (Vault collector #674)."""
+        from applire.prompts.review_profile_extraction import build_review_prompt
+
+        closing = build_review_prompt(_SAMPLE_RAW_CV, _SAMPLE_PROFILE).rsplit("\n", 1)[-1]
+        for check in ("duplicate entries", "fabricated entries", "invented dates", "invented bullets"):
+            assert check in closing
+        assert "completely" not in closing
+
 
 class TestProfileExtractionGeneratorPrompts:
     def test_build_user_prompt_includes_raw_text(self):

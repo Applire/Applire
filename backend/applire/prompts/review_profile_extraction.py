@@ -15,7 +15,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1
+# Prompt version: v2 (2026-09-17, #713 — the date rule and the approval bar ported from
+#                  review_cv_extraction.py v5 (2026-06-30), which this door never received.
+#                  Check 3 said dates "must match exactly what is stated in the source"; on a
+#                  German LinkedIn export the reviewer blocked `2024-12` against "Dezember 2024",
+#                  the corrector rewrote every date into German month names, the import witness
+#                  could then match no position, and the loop exhausted 5/5 on issues that
+#                  concluded "no issue". Check 3 now forbids invented date COMPONENTS only;
+#                  format normalisation is named as expected; an issue that finds nothing is
+#                  not listed; the closing question names all four checks (it dropped check 4 —
+#                  Vault collector #674). Replay evidence: see the #713 PR body.)
+#            v1
 # Used by: services/profile/__init__.py → ingest_cv → reviewer.review_and_refine
 #
 # 2026-09-13 (ruling E-1, then ruling V-3) — A FIFTH CHECK WAS BUILT, MEASURED AND NOT SHIPPED.
@@ -73,6 +83,12 @@ from applire.prompts.review_severity import review_output_schema
 REVIEW_SYSTEM_PROMPT = """\
 You are a strict CV data quality auditor. Your task is to verify that an extracted
 profile JSON faithfully represents the source CV text — nothing more, nothing less.
+Extraction is a NORMALISING transform into a fixed schema: judge meaning and provenance,
+never surface form.
+
+APPROVAL BAR: list an issue ONLY when it names a defect that needs a correction. If what you
+would write about an entry is "faithful", "supported", "acceptable" or "no issue", it is not
+an issue — leave it out. When nothing needs correcting, approve with an empty issues list.
 
 Check for ALL of the following:
 1. DUPLICATE ENTRIES: Each employer and role must appear exactly once in work_history.
@@ -80,8 +96,12 @@ Check for ALL of the following:
    different or missing dates).
 2. FABRICATED ENTRIES: Every work_history entry must have a clear corresponding passage
    in the source text. Flag any entry with no basis in the source.
-3. INVENTED DATES: start_date and end_date must match exactly what is stated in the source.
-   If a date is absent from the source, the field must be null — never inferred or invented.
+3. INVENTED DATES: a start_date or end_date must not assert a year or month that the source
+   does not state for that entry. If a date is absent from the source, the field must be null —
+   never inferred or invented. This is about date COMPONENTS, not format: the schema stores dates
+   as "YYYY-MM" or "YYYY", so a source month name in any language ("Dezember 2024", "Dec 2024")
+   rendered as "2024-12" is CORRECT, and an ongoing role ("Present", "heute") is stored as
+   end_date null with is_current true. Never ask for the source's own date wording.
 4. INVENTED BULLETS: Bullets must reflect what is explicitly stated in the source text.
    Flag any bullet that adds responsibilities, achievements, or skills not present in the source.
 
@@ -112,6 +132,6 @@ def build_review_prompt(raw_cv_text: str, extracted_json: dict) -> str:
         "Review this extracted profile against the source CV text.\n\n"
         f"SOURCE CV TEXT:\n{raw_cv_text}\n\n"
         f"EXTRACTED PROFILE:\n{json.dumps(extracted_json, ensure_ascii=False, indent=2)}\n\n"
-        "Does the extracted profile faithfully and completely represent the source — "
-        "no duplicates, no fabrications, no invented dates? Return your review JSON."
+        "Does the extracted profile faithfully represent the source — no duplicate entries, "
+        "no fabricated entries, no invented dates, no invented bullets? Return your review JSON."
     )
