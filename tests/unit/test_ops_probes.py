@@ -453,6 +453,72 @@ async def test_provider_probe_reads_a_timeout_as_unreachable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_probe_reads_a_length_stop_as_reachable(monkeypatch):
+    """ADR-086 amended 2026-09-17 / SF-OPS.10 — a model that stops on the probe's
+    budget has answered; it must not turn a working provider into `down`."""
+    from applire.exceptions import LLMTruncatedError
+
+    _install_provider(
+        monkeypatch, _StubProvider(LLMTruncatedError("hit the token budget"))
+    )
+    result = await probes.probe_provider(force=True)
+    assert result.detail["reachability"] == "ok"
+    assert result.status == probes.OK
+    assert result.message == ""
+
+
+@pytest.mark.asyncio
+async def test_a_real_provider_that_stops_on_the_budget_is_reachable(monkeypatch):
+    """SF-OPS.10 seam test — the production shape, not a stub that raises.
+
+    Found on a self-hosted instance (Requesty, glm-5.3-flash, 2026-09-16): the
+    one-token call stopped on its budget, the provider's own truncation safety
+    net retried once and raised `LLMTruncatedError`, and the probe reported
+    "provider did not answer" all night. This drives a real provider class, so
+    its retry and its truncation guard both run.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import applire.config as cfg
+    import applire.providers.llm as llm
+
+    monkeypatch.setattr(cfg.settings, "requesty_model", "z-ai/glm-5.3-flash")
+    with patch("openai.AsyncOpenAI"):
+        from applire.providers.llm.requesty import RequestyProvider
+
+        provider = RequestyProvider(api_key="sk-test")
+
+    def _length_stop(*_a, **kwargs):
+        choice = MagicMock()
+        choice.message.content = "Po"
+        choice.message.reasoning = None
+        choice.message.reasoning_content = None
+        choice.finish_reason = "length"
+        response = MagicMock()
+        response.choices = [choice]
+        response.usage = MagicMock(
+            prompt_tokens=13,
+            completion_tokens=kwargs.get("max_tokens", 1),
+            completion_tokens_details=None,
+        )
+        return response
+
+    create = AsyncMock(side_effect=_length_stop)
+    provider._client.chat.completions.create = create
+    monkeypatch.setattr(cfg.settings, "llm_provider", "requesty")
+    monkeypatch.setattr(llm, "get_provider", lambda: provider)
+
+    result = await probes.probe_provider(force=True)
+
+    assert result.detail["reachability"] == "ok"
+    assert result.status == probes.OK
+    # the stop really happened inside the provider: the safety net retried once
+    assert create.await_count == 2
+    budgets = [c.kwargs["max_tokens"] for c in create.await_args_list]
+    assert budgets == [16, 32]
+
+
+@pytest.mark.asyncio
 async def test_provider_probe_degrades_on_a_rate_limit(monkeypatch):
     from applire.exceptions import LLMRateLimitError
 
