@@ -594,12 +594,17 @@ def condense_to_budget(
             # list and no summary. `_cap_bullets` and this pass must agree about what
             # "carried elsewhere in narrative form" means, or one would protect a
             # demanded bullet and the other would delete it two passes later.
+            from applire.services.ats_audit import join_corpus_fragments
             from applire.services.keyword_ledger import (
                 _tailored_narrative_texts,
                 narrative_corpus_view,
             )
 
-            narrative_external = "\n".join(
+            # #415 follow-up (2026-09-17, adversarial pass on PR #720): `join_corpus_fragments`,
+            # not a bare "\n".join — a newline does not survive `_norm`'s whitespace
+            # collapse, so two unrelated bullets could otherwise spell out a claimable
+            # concept across their boundary.
+            narrative_external = join_corpus_fragments(
                 _tailored_narrative_texts(narrative_corpus_view(data))
             )
             # #415 (ADR-072 clause 1 amended 2026-09-17): the sole-carrier TIER reads the
@@ -608,7 +613,7 @@ def condense_to_budget(
             # check's own signal uses (ADR-066: no second list of section names).
             from applire.services.cv_gap_hints import structured_section_texts
 
-            evidence_external = "\n".join(
+            evidence_external = join_corpus_fragments(
                 [narrative_external, *structured_section_texts(data)]
             )
             entry["bullets"], entry["projects"] = saved_bullets, saved_projects
