@@ -749,18 +749,30 @@ async def _ask_queued_confirmation(
     db: AsyncSession,
     queue: list[dict],
     current_idx: int,
+    lang: str,
 ) -> SessionMessageResponse:
     """Ask the next confirmation the SAME turn already owed the candidate (#353).
 
     The head of ``queue`` becomes the new ``pending_interview_confirmation``, so
     the next answer is resolved by the same deterministic handler (#187) — no LLM
-    re-run, no reconciler pass that could fail to re-emit it."""
+    re-run, no reconciler pass that could fail to re-emit it.
+
+    #669 residual (2026-09-17 close-out) — a state-dict-shaped queue entry
+    carries the same language-independent form ``_confirmation_state`` stores
+    (plain ``question``/``options`` are the ENGLISH back-compat fields, see
+    ``reconcile/confirmations.py::_build``); rendering happens HERE, against
+    ``lang``, exactly like ``_ask_confirmation``'s ``_to_confirmation_prompts``
+    call for the turn's FIRST confirmation. Before this, the promoted head's
+    plain English fields were surfaced verbatim and ``option_keys`` was never
+    carried at all — the delivery-run defect (`11b-interview-confirm-sap-pp.
+    json`): a German answer to the re-emitted (English, key-less) confirmation
+    resolves through the back-compat English substring matcher instead.
+    """
     head, tail = queue[0], queue[1:]
     state["resolving_confirmation"] = True
     state["pending_interview_confirmation"] = head
     state["pending_interview_confirmation_queue"] = tail
-    question = head.get("question", "")
-    options = list(head.get("options") or [])
+    question, options = render_confirmation(head, lang)
     state["current_question"] = question
     state["current_choices"] = options
     state["messages"].append({"role": "assistant", "content": question})
@@ -778,12 +790,7 @@ async def _ask_queued_confirmation(
         gaps_remaining=gaps_remaining,
         choices=options,
         pending_confirmations=[
-            ConfirmationPrompt(
-                question=c.get("question", ""),
-                options=list(c.get("options") or []),
-                context=dict(c.get("context") or {}),
-            )
-            for c in queue
+            _confirmation_prompt_from_state(c, lang) for c in queue
         ],
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
@@ -841,6 +848,27 @@ def render_confirmation(pending_conf: dict, lang: str) -> tuple[str, list[str]]:
         question_i18n=q_i18n if isinstance(q_i18n, dict) else None,
         options_i18n=i18n if isinstance(i18n, list) else None,
         lang=lang,
+    )
+
+
+def _confirmation_prompt_from_state(pending_conf: dict, lang: str) -> ConfirmationPrompt:
+    """One state-dict-shaped parked confirmation as a rendered API DTO (#669
+    residual, 2026-09-17 close-out).
+
+    ``_to_confirmation_prompts`` (below) does the same job for the engine's
+    ``RequestConfirmation``/``PendingConfirmation`` op objects (``.rendered()``
+    + ``.option_keys``); this is its counterpart for the ``_confirmation_state``
+    dict shape that lives in ``pending_interview_confirmation_queue`` — the
+    ONLY other place a confirmation is turned into the wire DTO, so no site
+    can emit one without going through a ``lang``-aware renderer that also
+    carries ``option_keys``.
+    """
+    question, options = render_confirmation(pending_conf, lang)
+    return ConfirmationPrompt(
+        question=question,
+        options=options,
+        context=dict(pending_conf.get("context") or {}),
+        option_keys=list(pending_conf.get("option_keys") or []),
     )
 
 
@@ -919,7 +947,7 @@ async def _handle_interview_confirmation_answer(
     # reconciler raised is answered by the candidate, none is dropped in silence.
     queue = list(state.get("pending_interview_confirmation_queue") or [])
     if queue:
-        return await _ask_queued_confirmation(record, state, db, queue, current_idx)
+        return await _ask_queued_confirmation(record, state, db, queue, current_idx, lang)
     state.pop("pending_interview_confirmation_queue", None)
 
     current_gap = state["critical_gaps"][current_idx]
@@ -2602,9 +2630,14 @@ async def send_message(
         # A targeted micro-session (ceiling=1) completes here, BEFORE the US185
         # confirmation-surfacing branch below — so carry any reconciler ambiguity
         # into the completion response instead of silently dropping it.
+        #
+        # #669 residual (2026-09-17 close-out) — `lang` (resolved once above,
+        # for this whole turn) was omitted here, so `_to_confirmation_prompts`
+        # silently fell back to its `"en"` default regardless of the session's
+        # actual language. Pass it through, same as `_ask_confirmation`'s call.
         return await _complete_session(
             record, state, db, "max_questions_reached", provider, profile_record,
-            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations)
+            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations, lang)
             if turn.pending_confirmations
             else None,
             conflict_summaries=conflict_summaries or None,
