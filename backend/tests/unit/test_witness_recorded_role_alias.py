@@ -138,8 +138,24 @@ def test_the_existing_role_itself_does_not_carry_a_different_employer():
     assert _labels(items) == ["Zeta Beratung AG / Consultant / 2020-01"]
 
 
+def test_an_alias_at_an_unrelated_employer_stays_listed():
+    """A generic alias recorded elsewhere does not carry a new employer that
+    started the same month; a shared legal form or function word is not a
+    shared name."""
+    vault = MasterProfileData(work_experience=[
+        WorkEntry(company="Acme der Beratung GmbH", role="Working Student",
+                  start_date="2020-01", role_aliases=["Werkstudent"]),
+    ])
+    incoming = MasterProfileData(work_experience=[
+        WorkEntry(company="Zeta der Logistik GmbH", role="Werkstudent", start_date="2020-01"),
+    ])
+    items = compute_import_not_applied(incoming, vault, ops=[])
+    assert _labels(items) == ["Zeta der Logistik GmbH / Werkstudent / 2020-01"]
+
+
 def test_two_positions_holding_the_alias_in_that_month_rescue_nothing():
-    vault = _vault(roche={"start_date": "2012-08", "role_aliases": ["Systementwickler"]})
+    vault = _vault(roche={"company": "Blutspendedienst Hessen", "start_date": "2012-08",
+                          "role_aliases": ["Systementwickler"]})
     incoming = MasterProfileData(work_experience=[
         WorkEntry(company="Blutspendedienst des Bayerischen Roten Kreuzes gGmbH",
                   role="Systementwickler", start_date="2012-08"),
