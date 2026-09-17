@@ -40,7 +40,6 @@ from applire.schemas.enrich import (
     EnrichStartResponse,
     GapItem,
 )
-from applire.schemas.session import ConfirmationPrompt
 from applire.services.interview.budget import derive_hard_ceiling
 from applire.services.interview.signals import is_termination_signal
 from applire.services.interview_graph import (
@@ -50,7 +49,7 @@ from applire.services.interview_graph import (
 from applire.services.profile.commit import CommitProvenance, commit_ops
 from applire.services.profile.reconcile.interview_bridge import reconcile_interview_turn
 from applire.services.profile.reconcile.ops import SetProfileMeta
-from applire.services.session import get_ui_language
+from applire.services.session import _to_confirmation_prompts, get_ui_language
 
 router = APIRouter(prefix="/api/profile/enrich", tags=["profile-enrich"])
 
@@ -366,8 +365,16 @@ async def respond_to_enrich(
     # answers next; the reconciler never guesses entity identity. Surface it
     # instead of advancing to the next gap question.
     if turn.pending_confirmations:
+        # #669 residual (2026-09-17 close-out) — this door built its
+        # `ConfirmationPrompt`s from the raw (English back-compat) plain
+        # fields, with no `lang` rendering and no `option_keys`: the same
+        # defect class the interview-turn queued-confirmation path had,
+        # independently reproduced here. Route through the SAME renderer
+        # `_ask_confirmation` uses (`_to_confirmation_prompts`) so no
+        # confirmation-emitting site in `backend/applire/` can skip it.
         confirmation = turn.pending_confirmations[0]
-        state["current_question"] = confirmation.question
+        question, _options = confirmation.rendered(lang)
+        state["current_question"] = question
         session.state = state
         await db.commit()
         gap_items = _build_gap_items(
@@ -378,16 +385,11 @@ async def respond_to_enrich(
             state.get("skipped_gaps", []),
         )
         return EnrichRespondResponse(
-            next_question=confirmation.question,
+            next_question=question,
             gaps=gap_items,
             done=False,
             profile_updated=turn.addressed,
-            pending_confirmations=[
-                ConfirmationPrompt(
-                    question=c.question, options=list(c.options), context=dict(c.context)
-                )
-                for c in turn.pending_confirmations
-            ],
+            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations, lang),
         )
 
     next_question, done = await _next_question_or_done(
