@@ -236,7 +236,7 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 **No model metadata required.** Segmentation works on *any* backend, including a local Ollama or an opaque OpenAI-compatible endpoint where the output ceiling can't be discovered. Where it *can* be discovered (OpenRouter's model metadata, Ollama's `/api/show`), Applire pre-empts the doomed first call by segmenting from the start — an optimisation, not a requirement.
 
-**Choosing a model:** see **[`docs/llm-models.md`](llm-models.md)** for the recommended-models matrix and the minimum-capability floor (output budget, structured-output support, reasoning behaviour). Models below the floor still work via segmentation, but the recommended set gives the smoothest first-run experience.
+**Choosing a model:** see **[`docs/llm-models.md`](llm-models.md)** for the models measured to work and not to work, and the minimum a model needs (output budget, structured output, reasoning behaviour); every individual run is in [`docs/llm-models-measurements.md`](llm-models-measurements.md). Models below the floor still work via segmentation, but the recommended set gives the smoothest first-run experience.
 
 ---
 
