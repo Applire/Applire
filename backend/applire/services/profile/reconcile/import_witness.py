@@ -124,6 +124,25 @@ a/b/c, matching ``compute_merge_reconciliation``'s own ``extracted`` count
 (a set of distinct keys), so the two numbers can never disagree about how
 many distinct things were extracted.
 
+**Arm (b), second engagement instrument (ADR-063 amended 2026-09-17) — a
+recorded alternate title.** An engagement entry none of the arms above carry is
+CARRIED when EXACTLY ONE merged entry E of the same section (1) has a start
+date with the same ``YYYY-MM`` month as the incoming entry (both sides must
+state a month), (2) lists the incoming role, normalised, among its own
+``role_aliases``, and (3) shares at least one content word with the incoming
+organisation name (legal form and function words removed). The near-dupe
+organisation relation is deliberately not required: the real case is a German
+LinkedIn export naming "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH"
+for the vault's "Bayerischer Blutspendedienst gGmbH" (``_field_relation``:
+DISTINCT) and "Roche" for "Roche Diagnostics GmbH" (AMBIGUOUS). The model saw
+both, found the title already recorded as an alternate title (rule 7) and
+emitted nothing, so no other arm could fire. An alias in E is a fact the vault
+already holds (written by an extraction or a merge the model made, or by the
+candidate); reading it is not a new identity judgement (ADR-062 clause 1).
+E's own ``role`` does not count, and the shared word keeps a generic alias
+("Werkstudent") at an unrelated employer that started the same month from
+being read as this position.
+
 **Known limitation — arm (c)'s local-ref resolution does not distinguish "the
 ref's own entity op landed" from "it parked as an ambiguous confirmation".**
 An ``add_bullets`` targeting a local ref whose entity op turned out AMBIGUOUS
@@ -145,7 +164,9 @@ from __future__ import annotations
 from typing import Any, Callable, NamedTuple, Sequence
 
 from applire.schemas.profile import ImportNotApplied, MasterProfileData
+from applire.services.ats_audit import skill_tokens
 from applire.services.profile.reconcile.apply import _ENTRY_NATURAL_KEYS, _norm
+from applire.services.profile.reconcile.attribution import _core_company_name
 from applire.services.profile.reconcile.dedupe import (
     _field_relation,
     _SAME,
@@ -442,6 +463,41 @@ def _same_month_or_unknown(a: str | None, b: str | None) -> bool:
     return _norm(str(a))[:7] == _norm(str(b))[:7]
 
 
+#: Function words that two unrelated organisation names share freely.
+_ORG_STOPWORDS: frozenset[str] = frozenset(
+    {"der", "die", "das", "des", "dem", "den", "und", "für", "fur", "the", "of", "and", "for", "co"}
+)
+
+
+def _org_tokens(name: str | None) -> frozenset[str]:
+    """Content words of an organisation name, legal form stripped."""
+    if not name or not name.strip():
+        return frozenset()
+    return frozenset(skill_tokens(_core_company_name(name))) - _ORG_STOPWORDS
+
+
+def _recorded_alias_match(
+    entry: Any, merged_entries: Sequence[Any], org_field: str
+) -> bool:
+    """Arm (b), second engagement instrument — see the module docstring."""
+    role = _norm(getattr(entry, "role", "") or "")
+    start = _norm(str(getattr(entry, "start_date", "") or ""))
+    org = _org_tokens(getattr(entry, org_field, None))
+    if not role or len(start) < 7 or not org:
+        return False
+    hits = 0
+    for existing in merged_entries:
+        if not org & _org_tokens(getattr(existing, org_field, None)):
+            continue
+        existing_start = _norm(str(getattr(existing, "start_date", "") or ""))
+        if len(existing_start) < 7 or existing_start[:7] != start[:7]:
+            continue
+        aliases = {_norm(a) for a in (getattr(existing, "role_aliases", None) or []) if isinstance(a, str)}
+        if role in aliases:
+            hits += 1
+    return hits == 1
+
+
 def _op_touched_orgs(
     ops: Sequence[CommitOp], merged: MasterProfileData
 ) -> dict[str, list[tuple[str, str | None]]]:
@@ -522,6 +578,8 @@ def _engagement_section_not_applied(
             org_getter=lambda e, f=section.org_field: getattr(e, f, None),
         )
         if verdict.match is not None:  # arm (b), MATCH only
+            continue
+        if _recorded_alias_match(entry, merged_entries, section.org_field):  # arm (b), recorded alternate title
             continue
         if key in op_keys:  # arm (c), sub-clause 1
             continue
