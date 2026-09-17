@@ -1223,13 +1223,18 @@ def _restore_ledger_bullets(
         """
         if not concept_groups:
             return ""
+        from applire.services.ats_audit import join_corpus_fragments
         from applire.services.keyword_ledger import (
             _tailored_narrative_texts,
             narrative_corpus_view,
         )
 
         others = new_work + [{**entry_dict, "bullets": []}] + pending_dumps[index + 1:]
-        return "\n".join(
+        # #415 follow-up (2026-09-17, adversarial pass on PR #720): `join_corpus_fragments`,
+        # not a bare "\n".join — a newline does not survive `_norm`'s whitespace collapse,
+        # so two unrelated bullets could otherwise spell out a claimable concept across
+        # their boundary.
+        return join_corpus_fragments(
             _tailored_narrative_texts(narrative_corpus_view({"work_history": others}))
         )
 
@@ -1254,9 +1259,10 @@ def _restore_ledger_bullets(
         """
         if not concept_groups:
             return ""
+        from applire.services.ats_audit import join_corpus_fragments
         from applire.services.cv_gap_hints import structured_section_texts
 
-        return "\n".join(
+        return join_corpus_fragments(
             [
                 _narrative_external_text(index, entry_dict),
                 *structured_section_texts(draft_json),
