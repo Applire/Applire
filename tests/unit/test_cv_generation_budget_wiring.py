@@ -227,7 +227,10 @@ async def test_render_cv_background_threads_the_real_budget_into_the_tailoring_c
 
     coverage_budgets_seen: list = []
 
-    def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None):
+    def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None, **kw):
+        # `**kw` absorbs `on_demand=` (#415, 2026-09-17): the terminal chain now passes a
+        # demand REPORT through this factory. A spy that pins the factory's signature
+        # would fail on any additive parameter — which is what this test caught.
         coverage_budgets_seen.append(budget)
         return lambda source, draft: base_fn(source, draft)
 
@@ -286,7 +289,10 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
 
     seen: list = []
 
-    def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None):
+    def spy_coverage_reviewer_prompt_fn(base_fn, keyword_ledger, budget=None, **kw):
+        # `**kw` absorbs `on_demand=` (#415, 2026-09-17): the terminal chain now passes a
+        # demand REPORT through this factory. A spy that pins the factory's signature
+        # would fail on any additive parameter — which is what this test caught.
         seen.append(budget)
         return lambda source, draft: base_fn(source, draft)
 
