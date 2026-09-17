@@ -124,6 +124,21 @@ a/b/c, matching ``compute_merge_reconciliation``'s own ``extracted`` count
 (a set of distinct keys), so the two numbers can never disagree about how
 many distinct things were extracted.
 
+**Arm (b), second engagement instrument (ADR-063 amended 2026-09-17) — a
+recorded alternate title.** An engagement entry none of the arms above carry is
+CARRIED when EXACTLY ONE merged entry E of the same section has a start date
+with the same ``YYYY-MM`` month as the incoming entry (both sides must state a
+month) AND lists the incoming role, normalised, among its own
+``role_aliases``. The organisation is not compared: the real case is a German
+LinkedIn export naming "Blutspendedienst des Bayerischen Roten Kreuzes gGmbH"
+for the vault's "Bayerischer Blutspendedienst gGmbH" (``_field_relation``:
+DISTINCT) and "Roche" for "Roche Diagnostics GmbH" (AMBIGUOUS). The model saw
+both, found the title already recorded as an alternate title (rule 7) and
+emitted nothing, so no other arm could fire. An alias in E is a fact the vault
+already holds; reading it is not a new identity judgement (ADR-062 clause 1).
+E's own ``role`` does not count here: a shared job title plus a shared start
+month is common across employers, a recorded alias of THIS entity is not.
+
 **Known limitation — arm (c)'s local-ref resolution does not distinguish "the
 ref's own entity op landed" from "it parked as an ambiguous confirmation".**
 An ``add_bullets`` targeting a local ref whose entity op turned out AMBIGUOUS
@@ -442,6 +457,23 @@ def _same_month_or_unknown(a: str | None, b: str | None) -> bool:
     return _norm(str(a))[:7] == _norm(str(b))[:7]
 
 
+def _recorded_alias_match(entry: Any, merged_entries: Sequence[Any]) -> bool:
+    """Arm (b), second engagement instrument — see the module docstring."""
+    role = _norm(getattr(entry, "role", "") or "")
+    start = _norm(str(getattr(entry, "start_date", "") or ""))
+    if not role or len(start) < 7:
+        return False
+    hits = 0
+    for existing in merged_entries:
+        existing_start = _norm(str(getattr(existing, "start_date", "") or ""))
+        if len(existing_start) < 7 or existing_start[:7] != start[:7]:
+            continue
+        aliases = {_norm(a) for a in (getattr(existing, "role_aliases", None) or []) if isinstance(a, str)}
+        if role in aliases:
+            hits += 1
+    return hits == 1
+
+
 def _op_touched_orgs(
     ops: Sequence[CommitOp], merged: MasterProfileData
 ) -> dict[str, list[tuple[str, str | None]]]:
@@ -522,6 +554,8 @@ def _engagement_section_not_applied(
             org_getter=lambda e, f=section.org_field: getattr(e, f, None),
         )
         if verdict.match is not None:  # arm (b), MATCH only
+            continue
+        if _recorded_alias_match(entry, merged_entries):  # arm (b), recorded alternate title
             continue
         if key in op_keys:  # arm (c), sub-clause 1
             continue
