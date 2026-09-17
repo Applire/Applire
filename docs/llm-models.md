@@ -10,15 +10,15 @@ How we measure, and every individual run, is in the [measurement log](llm-models
 ## Models measured to work
 
 State as of **2026-09-16**. Every row was measured on this release's prompts, between 2026-09-14 and
-2026-09-16.
+2026-09-16. One row per model; the route a result was measured through is named, and where a
+gateway changed the result, the row says so.
 
-| Model | Set `LLM_PROVIDER` to | Your profile stays correct¹ | A full application gets you invited² | Cost per interview turn³ | Worth knowing |
+| Model | Measured through | Your profile stays correct¹ | A full application gets you invited² | Cost per interview turn³ | Worth knowing |
 |---|---|---|---|---|---|
-| `openai/gpt-5.6-luna` | `openrouter` | **yes** | **yes** — both reviewers invited | ≈ $0.002 | The model we develop and test Applire on. US-hosted. |
-| `openai/gpt-5.6-luna` | `requesty` | **yes** | not measured on this route | billed by Requesty, not measured | Requesty's gateway is in the EU (Frankfurt). Whether the model itself runs in the EU depends on the model id you choose there. |
-| `anthropic/claude-haiku-4.5` | `openrouter` | **yes** | not measured yet | ≈ $0.004 | About twice the cost of `gpt-5.6-luna`. US-hosted. |
-| `mistralai/ministral-8b-2512` | `openrouter` | yes, with rare slips (1 in 10 on two of the tested situations) | yes, with flaws — the documents left out one required skill and repeated one bullet | ≈ $0.001 | The cheapest model that has completed a full application. |
-| `mistralai/mistral-small-2603` | `openrouter` | yes, with rare slips (1 in 10 facts filed under the wrong employer, in one tested situation) | not measured yet | ≈ $0.001 | |
+| **`gpt-5.6-luna`** (OpenAI) | OpenRouter, Requesty | **yes** | **yes** — both reviewers invited | ≈ $0.002 | **Our recommendation for price versus performance.** The full application was measured through OpenRouter; through Requesty, the profile step was measured and was equally clean. Model id `openai/gpt-5.6-luna` on both. |
+| `claude-haiku-4.5` (Anthropic) | OpenRouter | **yes** | not measured yet | ≈ $0.004 | About twice the cost of `gpt-5.6-luna`. Model id `anthropic/claude-haiku-4.5`. |
+| `ministral-8b` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 on two of the tested situations) | yes, with flaws — the documents left out one required skill and repeated one bullet | ≈ $0.001 | The cheapest model that has completed a full application. Model id `mistralai/ministral-8b-2512`. |
+| `mistral-small` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 facts filed under the wrong employer, in one tested situation) | not measured yet | ≈ $0.001 | Model id `mistralai/mistral-small-2603`. |
 
 ¹ **Your profile stays correct:** after an interview answer, the model records what you said,
 under the right employer, without losing the answer. This is the step where a mistake changes
@@ -32,20 +32,21 @@ them larger than an interview turn, so an application costs many times this figu
 
 ## Models measured not to work
 
-| Model | Set `LLM_PROVIDER` to | What went wrong | Measured |
+| Model | Measured through | What went wrong | Measured |
 |---|---|---|---|
-| `glm-5.3-flash` | `requesty` | Recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…". On a real install, imports and quality checks also ran past the model's output limit and failed. | 2026-09-09, 2026-09-16 |
-| `z-ai/glm-5.3-flash` | `openrouter` | Keeps the profile correct, but could not finish an application: gap analysis, interview and CV generation timed out or returned broken output. | 2026-09-14 |
-| `cohere/command-r7b-12-2024` | `openrouter` | Recorded nothing for every interview answer. | 2026-09-14 |
-| `openai/gpt-5-nano` | `openrouter` | Lost up to 44 % of interview answers. | 2026-09-14 |
-| `qwen/qwen3.8-flash` | `openrouter` | Lost answers and produced invalid output; very slow. | 2026-09-14 |
-| `deepseek/deepseek-v4-flash-0731` | `openrouter` | 10–30 % of calls failed. | 2026-09-14 |
-| `nvidia/nemotron-3-super-120b-a12b:free` | `openrouter` | 10–20 % of calls failed. | 2026-09-14 |
-| `mistralai/ministral-3b-2512` | `openrouter` | 40 % invalid output in one tested situation. | 2026-09-14 |
+| `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it keeps the profile correct, but could not finish an application: gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-09-16 |
+| `command-r7b` (Cohere) | OpenRouter | Recorded nothing for every interview answer. | 2026-09-14 |
+| `gpt-5-nano` (OpenAI) | OpenRouter | Lost up to 44 % of interview answers. | 2026-09-14 |
+| `qwen3.8-flash` (Qwen) | OpenRouter | Lost answers and produced invalid output; very slow. | 2026-09-14 |
+| `deepseek-v4-flash` (DeepSeek) | OpenRouter | 10–30 % of calls failed. | 2026-09-14 |
+| `nemotron-3-super-120b` free tier (NVIDIA) | OpenRouter | 10–20 % of calls failed. | 2026-09-14 |
+| `ministral-3b` (Mistral) | OpenRouter | 40 % invalid output in one tested situation. | 2026-09-14 |
 
-**The route matters as much as the model.** The same `glm-5.3-flash` behaves differently through
-OpenRouter and through Requesty, because the two gateways run it with different settings. A result
-is only valid for the route it was measured on.
+**The gateway can change a result.** A gateway decides some settings for you — whether the model
+reasons before answering, for example — and may serve the model from a different backend. That is
+why `glm-5.3-flash` failed in two different ways above, while `gpt-5.6-luna` measured the same
+through both gateways we tried. If a model behaves differently for you than in this table, the
+gateway is the first thing to suspect.
 
 ## Your model isn't on either list
 
@@ -78,8 +79,8 @@ Then it is unmeasured, which is not the same as bad. You have three options:
 EU-region model id — it reaches the large US models through their EU deployments. Mistral's own
 API (`LLM_PROVIDER=mistral`) is EU-hosted, but has not been through the measurement above yet.
 
-**Lowest cost.** `mistralai/ministral-8b-2512` and `mistralai/mistral-small-2603` cost about half
-as much per call as `openai/gpt-5.6-luna`. Only ministral-8b has completed a full application so
+**Lowest cost.** `ministral-8b` and `mistral-small` cost about half as much per call as
+`gpt-5.6-luna`. Only ministral-8b has completed a full application so
 far, with the flaws noted in the table; luna made no mistakes.
 
 **Nothing leaves your machine.** Run a local model with Ollama (`LLM_PROVIDER=ollama`). Pick a
