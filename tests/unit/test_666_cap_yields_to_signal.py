@@ -205,6 +205,16 @@ def test_condense_to_budget_honours_the_same_exemption():
     ledger = [
         {"concept": "ISO 9001", "surface_forms": ["ISO 9001"], "claimable": True,
          "status": "direct", "fit_weight": 1.0, "evidence": "x"},
+        # **Second concept added 2026-09-17 (#415).** The baseline arm below used to be
+        # produced by the skills tag alone: "ISO 9001" sat in `skills`, so the
+        # sole-carrier tier read the demanded bullet as covered and cut it. Since ADR-072
+        # clause 1's amendment the tier reads the EVIDENCE corpus and a tag is not
+        # evidence, so a single protected bullet is never the one that yields. The
+        # baseline the exemption has to beat is therefore the one it was always FOR: a
+        # ceiling tighter than the protected set, where a TIER is silently defeated and
+        # only a PARTITION holds (ADR-077 clause 4's precedent, named by the ruling).
+        {"concept": "Ausschussquote", "surface_forms": ["Ausschussquote"],
+         "claimable": True, "status": "direct", "fit_weight": 1.0, "evidence": "x"},
     ]
     work = [{"id": "w1", "company": "A", "role": "R", "start_date": "2022-01",
              "is_current": True,
@@ -218,15 +228,18 @@ def test_condense_to_budget_honours_the_same_exemption():
     }
     tight = dataclasses.replace(
         budgets,
-        roles={"w1": dataclasses.replace(budgets.roles["w1"], max_bullets=3)},
+        roles={"w1": dataclasses.replace(budgets.roles["w1"], max_bullets=1)},
     )
     plain, _ = condense_to_budget(doc, tight, iteration=1)
-    assert DEMANDED_BULLET not in plain["work_history"][0]["bullets"]
+    assert DEMANDED_BULLET not in plain["work_history"][0]["bullets"], (
+        "two sole carriers, one slot — the tier cannot save both, which is the whole "
+        "reason clause 4's exemption is a partition"
+    )
 
     with_demand = dataclasses.replace(tight, demanded_concepts=(("ISO 9001",),))
     protected, _ = condense_to_budget(doc, with_demand, iteration=1)
     assert DEMANDED_BULLET in protected["work_history"][0]["bullets"]
-    assert len(protected["work_history"][0]["bullets"]) == 3
+    assert len(protected["work_history"][0]["bullets"]) == 1
 
 
 def test_the_signal_wrapper_reports_the_concepts_it_demanded():

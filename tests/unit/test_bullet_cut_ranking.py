@@ -263,7 +263,20 @@ def _budget(role_ceilings: dict[str, int], concept_groups=()) -> BudgetResult:
     )
 
 
-def test_condense_protects_the_sole_carrier_across_the_whole_document():
+def test_condense_protects_the_sole_carrier_over_the_EVIDENCE_corpus():
+    """**Rewritten 2026-09-17 (#415, founder ruling W-1) — the premise reversed, and the
+    reversal is the point.**
+
+    This test used to assert that a skills-list entry counts as coverage: with
+    "Lean Management" in `skills`, the LEAN bullet was expendable and the packaging
+    bullet was the only protected one. That is exactly the disagreement the 2026-09-11
+    delivery run turned into a delivered defect — the cap counted the tag, the
+    `narrative-evidence` check that grades the document does not, and a legal deletion
+    manufactured the finding the report then showed the candidate.
+
+    Since ADR-072 clause 1's amendment the tier reads the EVIDENCE corpus, so BOTH
+    bullets are sole carriers and the unprotected figure bullet yields instead. The
+    ceiling still holds — that is what keeps this a tier and not a partition."""
     data = {
         "contact": {"name": "X"}, "skills": ["Lean Management", "Six Sigma"],
         "work_history": [{"id": "r1", "bullets": [FIGURE_A, LEAN, PACKAGING]}],
@@ -272,7 +285,24 @@ def test_condense_protects_the_sole_carrier_across_the_whole_document():
         data, _budget({"r1": 2}, [PACKAGING_GROUP, LEAN_GROUP]), 1,
     )
     assert changed
-    assert out["work_history"][0]["bullets"] == [FIGURE_A, PACKAGING]
+    assert out["work_history"][0]["bullets"] == [LEAN, PACKAGING], (
+        "a tag is not evidence: both concepts keep their only bullet, the figure yields"
+    )
+
+
+def test_condense_still_counts_ANOTHER_BULLET_as_coverage():
+    """The half that did NOT change, pinned so the amendment cannot be read as "nothing
+    is expendable any more": a bullet whose concept a SECOND bullet also carries is still
+    unprotected, because the evidence corpus contains that second bullet."""
+    data = {
+        "contact": {"name": "X"}, "skills": [],
+        "work_history": [{"id": "r1", "bullets": [PACKAGING, PACKAGING_TWIN, FIGURE_A]}],
+    }
+    out, changed = condense_to_budget(data, _budget({"r1": 2}, [PACKAGING_GROUP]), 1)
+    assert changed
+    kept = out["work_history"][0]["bullets"]
+    assert FIGURE_A in kept, "the figure bullet is not cut while a redundant carrier remains"
+    assert len(kept) == 2
 
 
 def test_condense_sees_coverage_in_another_role_it_has_already_cut():

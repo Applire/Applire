@@ -124,6 +124,8 @@ def demanded_exempt_indices(
     concept_groups: ConceptGroups,
     demanded_groups: ConceptGroups,
     narrative_external_text: str,
+    coverage_demanded_groups: ConceptGroups = (),
+    external_text: str = "",
 ) -> set[int]:
     """ADR-072 clause 4 amended 2026-09-08 (#666) — the indices the cap may not take.
 
@@ -157,21 +159,41 @@ def demanded_exempt_indices(
     tie-break). Computed once, because this is a PARTITION — ADR-077 clause 4's
     precedent, named by the ruling itself — not a ranking tier: a tier is silently
     defeated by a tight ceiling, which is the whole defect.
+
+    **Amended 2026-09-17 (#415, founder ruling W-1): there are TWO provenances, and each
+    carries the corpus its OWN producer measures absence in.** The 2026-09-05 ruling this
+    exemption implements says *"a bullet introduced in this round in response to a COVERAGE
+    or under-claim signal"* — two demand kinds in one sentence, of which #666 built one.
+    ``coverage_demanded_groups`` is the ADR-048/US213 VERIFIED COVERAGE demand
+    (``keyword_ledger.verified_missing_claimable`` through
+    ``coverage_reviewer_prompt_fn(on_demand=…)``), and its absence test is the WHOLE
+    serialised document (``external_text``), because that is the corpus that demand is
+    computed over. Giving it the narrative corpus instead would make the exemption wider
+    than the demand — the direction that measured 7 of 8 in #666, i.e. the cap switched off
+    rather than amended. A demand's exemption may never be wider than the demand.
+
+    The two sets are unioned, not merged: the exempt INDEX is the earliest carrier either
+    way, so a bullet answering both demands occupies one budget slot, not two.
     """
-    if not demanded_groups or not concept_groups:
+    if not concept_groups or not (demanded_groups or coverage_demanded_groups):
         return set()
     groups = [list(g) for g in concept_groups]
-    demanded_keys = {tuple(g) for g in demanded_groups}
     per_text = [_concepts_carried(t, groups) for t in texts]
-    narrative_covered = _concepts_carried(narrative_external_text, groups)
 
     exempt: set[int] = set()
-    for gi, group in enumerate(groups):
-        if tuple(group) not in demanded_keys or gi in narrative_covered:
+    for demanded, covered_elsewhere in (
+        (demanded_groups, _concepts_carried(narrative_external_text, groups)),
+        (coverage_demanded_groups, _concepts_carried(external_text, groups)),
+    ):
+        if not demanded:
             continue
-        carriers = [i for i, carried in enumerate(per_text) if gi in carried]
-        if carriers:
-            exempt.add(carriers[0])
+        demanded_keys = {tuple(g) for g in demanded}
+        for gi, group in enumerate(groups):
+            if tuple(group) not in demanded_keys or gi in covered_elsewhere:
+                continue
+            carriers = [i for i, carried in enumerate(per_text) if gi in carried]
+            if carriers:
+                exempt.add(carriers[0])
     return exempt
 
 
@@ -185,6 +207,8 @@ def rank_cuts(
     pinned: Sequence[int] | set[int] = (),
     demanded_groups: ConceptGroups = (),
     narrative_external_text: str = "",
+    coverage_demanded_groups: ConceptGroups = (),
+    evidence_external_text: str | None = None,
 ) -> list[Cut]:
     """Choose which of ``texts`` to remove so that ``keep`` survive.
 
@@ -195,8 +219,31 @@ def rank_cuts(
     this function prepends the coverage criterion above it.
 
     ``external_text`` is everything in the document that this call cannot cut —
-    the summary, the skills list, other roles' surviving bullets. A concept
-    present there is covered no matter what happens here.
+    the summary, the skills list, other roles' surviving bullets. Since 2026-09-17 it
+    answers exactly one question: whether a concept a VERIFIED COVERAGE demand raised is
+    still absent from the whole document (that demand's own corpus, see
+    :func:`demanded_exempt_indices`).
+
+    ``evidence_external_text`` (ADR-072 clause 1 amended 2026-09-17, #415, founder ruling
+    W-1) is the corpus the SOLE-CARRIER TIER reads: the same text the delivered
+    ``narrative-evidence`` check grades as evidence — work-entry and project bullets ∪ the
+    vault-joined ``languages``/``certifications``/``education`` sections, with ``skills``
+    and ``summary`` excluded (ADR-076 clause 5's founding rule, as amended by RULING W1-3).
+    ``None`` falls back to ``external_text``, which is the pre-2026-09-17 behaviour exactly
+    and is what every non-production caller gets.
+
+    **Why the tier needed its own corpus.** 2026-09-11 delivery run: the cap removed the
+    role's only ISO-9001 bullet at ``sole_carrier=False`` — false because the skills list
+    carried the tag — and the delivered report then read
+    ``narrative-evidence: fail … ISO 9001 (claimed but not evidenced)``. Two instruments,
+    one question, two populations of the same document; ``bullet_cuts``' own docstring had
+    named the hazard since 2026-08-02 and that run is its first occurrence on a delivered
+    document. This stays a **ranking tier and is deliberately not promoted to a partition**:
+    a partition is right for a bounded provenance and wrong for an unbounded property — the
+    property form was measured at 7 of 8 bullets exempt against a ceiling of 5. So the
+    per-role ceiling ALWAYS holds here; when every bullet is a sole carrier the cut is made
+    by the caller's own key and logged as a budget-vs-coverage conflict (see
+    :func:`log_cuts`).
 
     ``pinned`` (ADR-077 clause 4) — indices of fact-pin carriers. This is a
     PARTITION, not a ranking tier: pinned indices never enter the removable
@@ -232,6 +279,10 @@ def rank_cuts(
         concept_groups=concept_groups,
         demanded_groups=demanded_groups,
         narrative_external_text=narrative_external_text,
+        # ADR-072 clause 4 amended 2026-09-17 (#415): the second provenance, with the
+        # whole-document corpus its own producer measures absence in.
+        coverage_demanded_groups=coverage_demanded_groups,
+        external_text=external_text,
     ) - pinned_set
     if exempt_set:
         pinned_set = pinned_set | exempt_set
@@ -241,7 +292,8 @@ def rank_cuts(
                 "demanded=%d pinned=%d keep=%d — the per-role ceiling (ADR-051 §3, "
                 "producer: cv_budget.RoleBudget) is tighter than the set the "
                 "under-claim signal raised THIS round and will raise again "
-                "(producer: cv_gap_hints.verified_narrative_underclaim). "
+                "(producers: cv_gap_hints.verified_narrative_underclaim, "
+                "keyword_ledger.verified_missing_claimable). "
                 "The ceiling yields — "
                 "founder ruling 1 of 2026-09-05, ADR-077 clause 4's partition precedent.",
                 len(exempt_set),
@@ -252,7 +304,14 @@ def rank_cuts(
 
     groups = [list(g) for g in concept_groups]
     per_text = [_concepts_carried(t, groups) for t in texts]
-    external = _concepts_carried(external_text, groups) if groups else frozenset()
+    # ADR-072 clause 1 amended 2026-09-17 (#415, ruling W-1): the sole-carrier TIER reads
+    # the EVIDENCE corpus — what the delivered `narrative-evidence` check grades — while
+    # `external_text` stays the whole document for the coverage provenance above. `None`
+    # (every non-production caller) reproduces the pre-amendment behaviour exactly.
+    tier_external_text = (
+        external_text if evidence_external_text is None else evidence_external_text
+    )
+    external = _concepts_carried(tier_external_text, groups) if groups else frozenset()
     # A pinned (or #666-exempt) bullet survives by construction, so the concepts it
     # carries are covered exactly like external text — a rest bullet repeating them is
     # not a sole carrier.
@@ -303,14 +362,33 @@ def log_cuts(pass_name: str, cuts: Sequence[Cut], **context: Any) -> None:
     four captured runs. A cut that removes a PROTECTED bullet logs at WARNING —
     the ceiling was tighter than the protected set and clause 1 could not be
     honoured, which is a real constraint conflict, not routine trimming.
+
+    **Amended 2026-09-17 (#415, ruling W-1).** Now that the sole-carrier tier reads the
+    EVIDENCE corpus, a ``sole_carrier=True`` cut is exactly the case the delivered
+    ``narrative-evidence`` check will go on to report — so the WARNING names **both
+    producers**, the ceiling's and the coverage grader's, which is the standard
+    ``BUDGET_VS_SIGNAL_CONFLICT`` and ``PIN_CEILING_VIOLATED`` already set. The
+    ``TAIL_DELETE`` line's own shape is unchanged; the conflict clause is appended, so every
+    existing reader and log assertion still parses it.
     """
     ctx = " ".join(f"{k}={v!r}" for k, v in context.items())
     for c in cuts:
         level = logging.WARNING if c.sole_carrier else logging.INFO
+        conflict = (
+            " BUDGET_VS_COVERAGE (ADR-051 §3 vs ADR-076 clause 5) — the per-role ceiling "
+            "(producer: cv_budget.RoleBudget) is tighter than the evidence this document "
+            "needs; the removed bullet was the LAST carrier of a claimable concept in the "
+            "corpus the delivered report grades (producers: "
+            "cv_gap_hints.verified_narrative_underclaim, "
+            "ats_audit._narrative_evidence_check). The ceiling holds — ADR-072 clause 1 is "
+            "a ranking tier, not a partition."
+            if c.sole_carrier
+            else ""
+        )
         logger.log(
             level,
-            "TAIL_DELETE (ADR-072 clause 4) pass=%s %s sole_carrier=%s tier=%r removed=%r",
-            pass_name, ctx, c.sole_carrier, c.tier, c.text,
+            "TAIL_DELETE (ADR-072 clause 4) pass=%s %s sole_carrier=%s tier=%r removed=%r%s",
+            pass_name, ctx, c.sole_carrier, c.tier, c.text, conflict,
         )
 
 

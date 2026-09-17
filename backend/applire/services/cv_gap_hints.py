@@ -344,8 +344,26 @@ def _structured_norm(document: dict[str, Any] | None) -> str:
     function-local import to avoid a cv.py <-> cv_gap_hints.py cycle (cv.py already
     imports this module locally, inside `_terminal_review`).
     """
+    return _norm("\n".join(structured_section_texts(document)))
+
+
+def structured_section_texts(document: dict[str, Any] | None) -> list[str]:
+    """The raw strings of the composed document's vault-joined structured sections.
+
+    The un-normalised half of :func:`_structured_norm`, split out on 2026-09-17 (#415)
+    because a THIRD reader needs it: ADR-072 clause 1's sole-carrier tier asks "is this
+    bullet the last carrier?" and must ask it over the same corpus the delivered
+    ``narrative-evidence`` check grades — narrative bullets PLUS these sections (ADR-066:
+    one corpus, three readers — the clause-5 signal, the check, and now the cap). That
+    reader needs TEXT, because ``bullet_cuts._concepts_carried`` normalises its own input;
+    handing it an already-normalised string would fold twice.
+
+    Empty list when no composed document is available (every non-terminal caller), which is
+    what keeps the pre-#666 behaviour of the demand and the pre-#415 behaviour of the cap
+    exactly reproducible.
+    """
     if not document:
-        return ""
+        return []
     from applire.services.cv import _LANGUAGE_NAME_CANON
 
     out: list[str] = []
@@ -365,7 +383,7 @@ def _structured_norm(document: dict[str, Any] | None) -> str:
                         canon = _LANGUAGE_NAME_CANON.get(v.strip().casefold())
                         if canon:
                             out.append(canon)
-    return _norm("\n".join(out))
+    return out
 
 
 def verified_narrative_underclaim(
