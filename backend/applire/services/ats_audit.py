@@ -57,6 +57,34 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).lower().strip()
 
 
+#: #415 follow-up (2026-09-17, adversarial pass on PR #720): the boundary between two
+#: FRAGMENTS of a matching corpus (a bullet, a structured-section field value, …) must
+#: survive `_norm`. A bare `"\n"` does not — `_norm`'s `re.sub(r"\s+", " ", s)` collapses
+#: EVERY run of whitespace, including the join itself, to one space, so two unrelated
+#: fragments ("…ISO" / "9001…") read as one continuous phrase ("…iso 9001…") once joined
+#: and normalised — proven on `structured_section_texts` (two certifications) and on
+#: `load_bearing.stringify_draft` (the pre-#415 whole-document corpus, same shape).
+#: `SYMBOL FOR RECORD SEPARATOR` (U+241E): survives NFKC unchanged, is not `\s`-matched
+#: (verified), and — being neither whitespace nor a letter/digit — cannot appear inside
+#: any real surface form, so neither `surface_present`'s direct substring check nor its
+#: "loose" extra-space-tolerant fallback (`_find`'s `r" *".join(...)`, which only ever
+#: inserts SPACES between the needle's own characters) can bridge it.
+_CORPUS_FRAGMENT_BOUNDARY = "␞"
+
+
+def join_corpus_fragments(parts: Sequence[str]) -> str:
+    """Join independent fragments (bullets, structured-section field values, …) into
+    ONE string for `_norm` + `surface_present` matching, with a boundary between
+    fragments that survives `_norm`'s whitespace collapse (#415 follow-up).
+
+    THE single join for every matching corpus assembled from more than one fragment —
+    callers stop hand-rolling `"\\n".join(...)`, which silently drops the boundary once
+    `_norm` runs (ADR-066: one implementation, so the fix cannot drift out of sync
+    across its call sites).
+    """
+    return _CORPUS_FRAGMENT_BOUNDARY.join(parts)
+
+
 def _find(needle: str, haystack_norm: str) -> int:
     """First index of normalised needle in pre-normalised haystack; -1 if absent or empty.
 

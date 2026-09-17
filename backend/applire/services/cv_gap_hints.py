@@ -38,7 +38,7 @@ from typing import Any
 
 from applire.prompts.review_severity import SEVERITY_BLOCKING
 from applire.schemas.cv_sections import GapHintItem
-from applire.services.ats_audit import _norm, surface_present
+from applire.services.ats_audit import _norm, join_corpus_fragments, surface_present
 from applire.services.cv_gap_mapper import map_gaps_to_sections
 from applire.services.keyword_ledger import is_scope_entry
 from applire.services.review_issues import ReviewIssue
@@ -344,7 +344,7 @@ def _structured_norm(document: dict[str, Any] | None) -> str:
     function-local import to avoid a cv.py <-> cv_gap_hints.py cycle (cv.py already
     imports this module locally, inside `_terminal_review`).
     """
-    return _norm("\n".join(structured_section_texts(document)))
+    return _norm(join_corpus_fragments(structured_section_texts(document)))
 
 
 def structured_section_texts(document: dict[str, Any] | None) -> list[str]:
@@ -361,6 +361,15 @@ def structured_section_texts(document: dict[str, Any] | None) -> list[str]:
     Empty list when no composed document is available (every non-terminal caller), which is
     what keeps the pre-#666 behaviour of the demand and the pre-#415 behaviour of the cap
     exactly reproducible.
+
+    **Every caller MUST join this list with ``ats_audit.join_corpus_fragments``, never a
+    bare ``"\\n".join`` (#415 follow-up, 2026-09-17).** ``_norm``'s whitespace collapse
+    erases a bare newline, so two unrelated fragments — two certifications, a name and an
+    issuing organisation — can spell out a claimable concept across their join that
+    neither one states alone. Proven on a real fixture: it deleted the CV's only genuine
+    evidence for a concept, the exact harm this whole amendment exists to close. The
+    return SHAPE here is deliberately unchanged (raw, un-joined fragments) — the fix lives
+    at the join, once, not duplicated into this function.
     """
     if not document:
         return []
@@ -417,7 +426,7 @@ def verified_narrative_underclaim(
     if not candidates:
         return []
 
-    narrative_norm = _norm("\n".join(_tailored_narrative_texts(narrative_corpus_view(draft))))
+    narrative_norm = _norm(join_corpus_fragments(_tailored_narrative_texts(narrative_corpus_view(draft))))
     document_norm = _norm("\n".join(_draft_strings(draft or {})))
     # #666 (founder ruling, 2026-09-08): a concept the COMPOSED document already carries
     # in a vault-joined structured section is DELIVERED, not under-claimed, and demanding
