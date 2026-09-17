@@ -17,7 +17,7 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ProfileReviewDrawer } from "../ProfileReviewDrawer";
+import { ProfileReviewDrawer, keepBothApplies } from "../ProfileReviewDrawer";
 import { withIntl } from "@/lib/test-utils/with-intl";
 
 vi.mock("@/lib/api/profileReview", () => ({
@@ -405,5 +405,108 @@ describe("ProfileReviewDrawer", () => {
     render(withIntl(<ProfileReviewDrawer open onClose={vi.fn()} />, "de"));
 
     await waitFor(() => expect(screen.getByText("Profil prüfen")).toBeInTheDocument());
+  });
+
+  // #685 (refute-v.md §2) — keepBothApplies is exported from THIS module
+  // (ProfileReviewDrawer.tsx:66-69), not from lib/conflict-display.ts as the
+  // issue's own acceptance text names it; verified against the source before
+  // writing this suite. Same PROFILE_LEVEL_SECTIONS gate either way: a
+  // profile-level dispute (professional_summary, personal_info) has no
+  // second entry to keep, so the "keep both" escape hatch (F4/#73) must not
+  // be offered for one.
+  describe("keepBothApplies", () => {
+    it("is false for a professional_summary dispute", () => {
+      expect(keepBothApplies({ section: "professional_summary" })).toBe(false);
+    });
+
+    it("is false for a personal_info dispute", () => {
+      expect(keepBothApplies({ section: "personal_info" })).toBe(false);
+    });
+
+    it("is true for a work_experience dispute", () => {
+      expect(keepBothApplies({ section: "work_experience" })).toBe(true);
+    });
+
+    it("is true when no issue is passed", () => {
+      expect(keepBothApplies(undefined)).toBe(true);
+    });
+
+    it("is true when the issue is null", () => {
+      expect(keepBothApplies(null)).toBe(true);
+    });
+  });
+
+  // #685 — the drawer render itself: a profile-level conflict (professional_
+  // summary) must not offer "keep both" even though it has real choices to
+  // walk, because the summary has one slot per language, not a second entry
+  // to keep. Mirrors the #73 "offers a 'keep both'" test's setup (gaps_total
+  // 1, real choices) with an issue prop added.
+  it("hides the 'keep both' affordance for a professional_summary conflict", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question:
+        "Your profile has two values for professional_summary.en. Which is correct?",
+      gaps_total: 1,
+      gaps_remaining: 1,
+      choices: ["Keep current: Senior Engineer.", "Use imported: 15 years in GMP manufacturing."],
+    });
+
+    const issue = {
+      id: "conflict:summary-en",
+      thread: "conflict" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "professional_summary.en: 'Senior Engineer.' vs '15 years in GMP manufacturing.'",
+      field_ref: "en",
+      source_record_ref: "cv_upload",
+      section: "professional_summary",
+      field: "en",
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />,
+        "en",
+      ),
+    );
+
+    await waitFor(() =>
+      screen.getByRole("button", { name: /Keep current: Senior Engineer\./ }),
+    );
+    expect(screen.queryByTestId("profile-review-keep-both")).not.toBeInTheDocument();
+  });
+
+  // #685 counterpart: an entity-level dispute (work_experience) keeps the
+  // affordance — the gate is scoped to the two profile-level sections only.
+  it("still shows the 'keep both' affordance for a work_experience conflict", async () => {
+    startMock.mockResolvedValue({
+      session_id: "s1",
+      first_question:
+        "start_date '2020-03' vs '2023-01' — which is correct for Senior Software Engineer at Logivia?",
+      gaps_total: 1,
+      gaps_remaining: 1,
+      choices: ["Keep current: 2020-03", "Use imported: 2023-01"],
+    });
+
+    const issue = {
+      id: "conflict:w-1",
+      thread: "conflict" as const,
+      profile_mismatch_severity: "review" as const,
+      summary: "work_experience.start_date: '2020-03' vs '2023-01'",
+      field_ref: "start_date",
+      source_record_ref: "cv_upload",
+      entity_label: "Senior Software Engineer @ Logivia",
+      section: "work_experience",
+      field: "start_date",
+    };
+
+    render(
+      withIntl(
+        <ProfileReviewDrawer open onClose={vi.fn()} issue={issue} onAction={vi.fn()} />,
+        "en",
+      ),
+    );
+
+    await waitFor(() => screen.getByTestId("profile-review-keep-both"));
+    expect(screen.getByTestId("profile-review-keep-both")).toBeInTheDocument();
   });
 });
