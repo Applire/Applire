@@ -271,3 +271,107 @@ def test_third_party_delegation_still_classified_denial(text: str) -> None:
     """Naming a genuine second party stays a delegation — the fix must not
     swallow the real case it was built for."""
     assert _is_pure_denial_clause(text) is True
+
+
+# ── #697 lines 15 + 20 — the register the delivery tier actually used ───────
+#
+# The marker list above recognised NONE of the four stated limits the Nougat
+# delivery runs shipped (2026-09-10, 09-11, 09-13, 09-17) — measured over the
+# 207 captured delivery-tier claim texts of
+# ``Documents/Runs/Nougat/*/delivery-run/artifacts/*truthfulness-report.json``:
+# 0 fires before, 4 after, 0 false positives on the other 203. The three
+# sentences pinned here are our own SYNTHETIC delivery persona's
+# (``operations_marcus_de``); the two 2026-09-18 edge phrasings are the
+# founder's real letter and appear only as same-SHAPE twins.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 2026-09-10 / 09-11 / 09-17, three runs, one sentence: the bare
+        # "keine Erfahrung" the qualified markers ("keine direkte Erfahrung")
+        # never covered, plus a second negated verb in the same clause.
+        "Mit IFS oder BRC habe ich keine Erfahrung und produzierte nie "
+        "direkt für Lebensmittelkunden.",
+        # 2026-09-13: the plural of "fehlt mir", missing for no reason but
+        # number agreement.
+        "IFS, BRC, direkte Lebensmittelproduktion und Verpackungsproduktion "
+        "fehlen mir.",
+        # 2026-09-18 edge UAT, twin: the possessive-bound scope disclaimer.
+        "Eine werksübergreifende Investitionssteuerung gehört nicht zu "
+        "meiner Rolle.",
+        "A group-wide investment steering board is not part of my remit.",
+    ],
+)
+def test_captured_delivery_tier_limits_are_classified_denial(text: str) -> None:
+    assert _is_pure_denial_clause(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Affirmative sentences carrying a negation word — the false-positive
+        # shape the widening had to survive. A wrong True here exempts a real
+        # claim from verification: a hole in the Oracle.
+        "Durch die neue Rüstroutine fiel keine Nacharbeit mehr an.",
+        "Ich führte Shopfloor-Management ein, ohne die laufende Produktion "
+        "zu unterbrechen.",
+        "Trotz des Widerstands ließ ich die Schichtleiter nicht außen vor, "
+        "sondern band sie früh ein.",
+        "Die Termintreue stieg auf 96 %, und kein Kundenauftrag ging in "
+        "dieser Zeit verloren.",
+        "Verzögerungen in der Feinplanung sind seitdem nicht mehr aufgetreten.",
+        "Ich habe keine Mühe gescheut, das Unterweisungssystem neu "
+        "aufzusetzen.",
+        # The captured smuggler (2026-09-10 delivery run, verbatim): a limit
+        # AND a real positive claim in one sentence — stays gradeable.
+        "Eine eigenständige Investitionsplanung verantwortete ich nicht, "
+        "bereitete aber den MES-Investitionsfall mit der Geschäftsführung vor.",
+    ],
+)
+def test_negation_inside_a_positive_claim_is_never_a_denial(text: str) -> None:
+    assert _is_pure_denial_clause(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # German verb-second: the smuggled clause carries its subject in the
+        # MIDDLE, invisible to a leading-pronoun match.
+        "Keine Erfahrung mit BRC; Hygiene-Disziplin bringe ich aus "
+        "Kosmetikverpackungen mit.",
+        # …and a smuggled clause can carry no pronoun at all (captured
+        # 2026-09-11, the CV twin of the letter's limit sentence).
+        "Keine Erfahrung mit IFS oder BRC; Hygiene- und "
+        "Dokumentationsdisziplin aus der Fertigung für Kosmetik-Verpackungen "
+        "im Sauberraumbereich sowie zehn Jahre ISO-9001-Audit-Praxis.",
+    ],
+)
+def test_a_segment_long_enough_to_be_a_claim_is_treated_as_one(text: str) -> None:
+    """The guard the new markers made necessary: "keine Erfahrung mit X" now
+    matches, so the rest of the sentence decides whether the whole thing is
+    still a pure denial."""
+    assert _is_pure_denial_clause(text) is False
+
+
+@pytest.mark.asyncio
+async def test_the_delivered_verdict_for_a_captured_limit_is_not_applicable():
+    """The DELIVERY point, not the predicate: the four captured occurrences
+    verdicted ``unverifiable`` / ``checker: grounding``."""
+    letter = {
+        "body": {
+            "paragraphs": [
+                "Bei Alpha Systems verantwortete ich die ML-Plattform über "
+                "drei Squads. Mit IFS oder BRC habe ich keine Erfahrung und "
+                "produzierte nie direkt für Lebensmittelkunden.",
+            ]
+        },
+        "recipient": {"company": "ClaimFlow GmbH"},
+    }
+    report = await audit_document(
+        "cover_letter", profile=PROFILE, letter_data=letter, provider=None
+    )
+    limit = next(r for r in report.claims if "IFS" in r.claim.text)
+    assert limit.claim.is_denial is True
+    assert limit.verdict.verdict == "not_applicable"
+    assert limit.verdict.checker == "extraction"
