@@ -406,14 +406,160 @@ def _foreign_employers(text: str, candidates: dict[str, str], target_core: str) 
     return {core for core in _employers_named_in(text, candidates) if core != target_core}
 
 
+# ── clause scoping: the model's OWN split is the evidence (#674 L34, #723) ───
+
+
+def _guarded_content_ops(
+    ops: list[ReconcileOp], profile: MasterProfileData
+) -> list[tuple[ReconcileOp, str]]:
+    """Every op in the batch that puts guarded content on a KNOWN employer, with
+    that employer's core name.
+
+    The shared first pass of both clause-scoping rules below. It reads exactly
+    what the two channels read — ``add_bullets`` free text and a guarded
+    ``set_field`` value — so "the employers this batch writes to" can never
+    drift from "the employers the guard adjudicates".
+    """
+    out: list[tuple[ReconcileOp, str]] = []
+    for op in ops:
+        if isinstance(op, AddBullets):
+            if not any(getattr(op, f) for f in _BULLET_FIELDS):
+                continue
+        elif isinstance(op, SetField):
+            if op.field not in _GUARDED_SET_FIELDS or not isinstance(op.value, str):
+                continue
+        else:
+            continue
+        entity = _resolve_existing(op.target, profile)
+        core = _entity_employer_core(entity, profile) if entity is not None else None
+        if core:
+            out.append((op, core))
+    return out
+
+
+def _muted_sentences(
+    content_ops: list[tuple[ReconcileOp, str]], sentences: list[str]
+) -> set[str]:
+    """Sentences the MODEL has already split across employers (#674 line 34).
+
+    #243's design says a sentence naming two or more distinct employers is
+    ambiguous and must fail open rather than guess. Its detector for that —
+    ``_anchor_company``'s literal, legal-form-stripped CORE-name match — badly
+    under-counts: measured over all 80 captured #684 spike records, the compact
+    three-station sentence reads as naming exactly ONE employer, because
+    "NovaRNA" is not the core "NovaRNA Biotech" and "the blood donation service"
+    is not "Blutspendedienst Nord". So the ambiguity rule never engaged and
+    **23 of 29 flagged items were over-fires**: correctly targeted bullets
+    ("blood bags at the blood donation service" -> Blutspendedienst) each asked
+    about against Helvetia Pharma, 10/10 runs on that shape.
+
+    The fix keys the same rule on evidence the model itself produced instead:
+    a sentence anchors nothing when the batch **PARTITIONS** it — draws guarded
+    content from it for two or more distinct target employers, and gives no two
+    of those employers the same text. A partition is the model attributing that
+    sentence at a granularity this guard cannot read, so the guard must not
+    re-attribute one share of it to the single employer it could literally
+    match. A FACT about the op batch (ADR-062 clause 1) — never a clause
+    splitter, and channel 2 (the bullet's own words, M-2c) is untouched.
+
+    **Why "partition" and not merely "two employers".** #243's own ground truth
+    (`test_reconcile_attribution.py`, live turn 2026-07-24) is a batch that gave
+    the SAME bullet — "Built deterministic verification layer (Truthfulness
+    Oracle) …" — to both the NordPharm role and the Applire role. Two employers
+    drew from the sentence, but that is not a split; it is the model
+    contradicting itself, and the anchor is exactly what catches it. A shared
+    text anywhere among the drawing employers therefore leaves the sentence
+    speaking.
+
+    Measured effect over the 80 captured records: channel-1 flags 23 -> 2,
+    channel 2 unchanged at 6, and #243's live incident still routes both
+    mis-targeted ops into the confirmation.
+    """
+    per_sentence: dict[str, dict[str, set[str]]] = {}
+    for op, core in content_ops:
+        texts = (
+            [t for f in _BULLET_FIELDS for t in getattr(op, f)]
+            if isinstance(op, AddBullets)
+            else [op.value]
+        )
+        for text in texts:
+            sentence = _owning_sentence(text, sentences)
+            if sentence is not None:
+                per_sentence.setdefault(sentence, {}).setdefault(core, set()).add(text)
+    muted: set[str] = set()
+    for sentence, by_core in per_sentence.items():
+        if len(by_core) < 2:
+            continue
+        shares = list(by_core.values())
+        if any(
+            shares[i] & shares[j]
+            for i in range(len(shares))
+            for j in range(i + 1, len(shares))
+        ):
+            continue  # a duplicated text is not a partition — see above
+        muted.add(sentence)
+    return muted
+
+
+def _batch_anchor(
+    content_ops: list[tuple[ReconcileOp, str]],
+    corpus: str,
+    candidates: dict[str, str],
+) -> tuple[str, str] | None:
+    """The employer the WHOLE answer is about, when the batch contradicts it.
+
+    #723's unflagged sibling: the answer was "Als ich 2018 zu BioNTech kam …
+    Teamleitung während der Elternzeit", the reconciler put every bullet of it
+    under the PREVIOUS employer, and the guard flagged only the one bullet whose
+    own text repeats "BioNTech". The sibling and the ``technologies`` from the
+    same answer merged silently — the bullet's own words say nothing (channel 2
+    is blind), and the owning-sentence channel cannot reach across the answer's
+    German and the bullet's English (token coverage ~0).
+
+    The narrow fact that survives both blindnesses: **this batch writes guarded
+    content to exactly ONE employer, and the answer names exactly one, and they
+    are different.** There is then no split to respect and no clause to guess —
+    the whole op is held, and the candidate's answer places all of it (ADR-063
+    am. 2026-09-18 clause 1: ``keep_here`` puts it back, so nothing is lost by
+    asking). ``None`` whenever the batch touches two or more employers — the
+    model split it, and rule (a) above governs instead.
+
+    Measured over the same 80 captured records: fires on 10 (all S7 — the
+    one-station vault, the very fold shape founder ruling M-2c was written for),
+    holding 12 bullets that ship silently today, and on 0 of the four
+    multi-station shapes.
+    """
+    cores = {core for _, core in content_ops}
+    if len(cores) != 1:
+        return None
+    if _RELATIONAL_MARKER_RE.search(corpus or ""):
+        # The same exclusion channel 2 makes per bullet (`_foreign_employers`),
+        # at corpus granularity: an answer about the Siemens ACCOUNT while
+        # employed at Bosch names Siemens as a client, not a second job. Without
+        # it this channel re-flags the very shape `_RELATIONAL_MARKER_RE` was
+        # built for (`test_set_field_naming_a_client_account_is_not_rerouted`).
+        return None
+    anchor = _anchor_company(corpus, candidates)
+    if anchor is None or anchor[0] in cores:
+        return None
+    return anchor
+
+
 # ── the guard itself ─────────────────────────────────────────────────────────
 
 # Technologies are short generic nouns ("Databricks", "LangGraph") — the
 # owning-sentence coverage check is unreliable at that granularity (a
 # one-token bullet trivially "covers" many unrelated sentences), so they stay
-# out of scope; the live incident's misattributions were both free-text
-# achievement/responsibility bullets.
+# out of scope OF CHANNELS 1 AND 2; the live incident's misattributions were
+# both free-text achievement/responsibility bullets.
 _GUARDED_FIELDS = ("responsibilities", "achievements")
+
+#: Channel 3 (``_batch_anchor``) reads no bullet text at all — it decides from
+#: the batch's own targeting — so the granularity objection above does not apply
+#: and ``technologies`` is in scope there. #723: the same answer's
+#: ``technologies: ["Clean Code", "Software architecture"]`` merged under the
+#: wrong employer beside the sibling bullet, for exactly this reason.
+_BULLET_FIELDS = ("responsibilities", "achievements", "technologies")
 
 
 def _build_confirmation(
@@ -473,10 +619,18 @@ def enforce_attribution(
     if not candidates:
         return ops
 
+    # Clause scoping (ADR-063 amended 2026-09-18): one pass over the batch,
+    # read by both new rules — the sentences the model itself already split
+    # (rule a, #674 line 34) and the one-employer batch a one-employer answer
+    # contradicts (rule b, #723's unflagged sibling).
+    content_ops = _guarded_content_ops(ops, profile)
+    muted = _muted_sentences(content_ops, sentences)
+    batch_anchor = _batch_anchor(content_ops, corpus, candidates)
+
     result: list[ReconcileOp] = []
     for op in ops:
         if isinstance(op, SetField):
-            result.extend(_guard_set_field(op, profile, candidates))
+            result.extend(_guard_set_field(op, profile, candidates, batch_anchor))
             continue
         if not isinstance(op, AddBullets):
             result.append(op)
@@ -491,26 +645,35 @@ def enforce_attribution(
 
         kept: dict[str, list[str]] = {}
         flagged: list[tuple[str, str, str]] = []
-        for field in _GUARDED_FIELDS:
+        for field in _BULLET_FIELDS:
             kept_bullets: list[str] = []
             for bullet in getattr(op, field):
-                # Channel 2 (M-2c) FIRST: the bullet's own words are decisive and
-                # cannot be ambiguous — a bullet naming an employer other than its
-                # target is mis-attributed however many it names.
-                foreign = _foreign_employers(bullet, candidates, target_core)
-                if foreign:
-                    flagged.append(
-                        (field, bullet, " / ".join(sorted(candidates[c] for c in foreign)))
-                    )
+                if field in _GUARDED_FIELDS:
+                    # Channel 2 (M-2c) FIRST: the bullet's own words are decisive
+                    # and cannot be ambiguous — a bullet naming an employer other
+                    # than its target is mis-attributed however many it names.
+                    foreign = _foreign_employers(bullet, candidates, target_core)
+                    if foreign:
+                        flagged.append(
+                            (field, bullet, " / ".join(sorted(candidates[c] for c in foreign)))
+                        )
+                        continue
+                    # Channel 1 (#243): the OWNING SENTENCE, for the common case
+                    # of a bullet that names no employer at all in its own text —
+                    # silent on a sentence the model already split (rule a).
+                    sentence = _owning_sentence(bullet, sentences)
+                    if sentence is not None and sentence not in muted:
+                        anchor = _anchor_company(sentence, candidates)
+                        if anchor is not None and anchor[0] != target_core:
+                            flagged.append((field, bullet, anchor[1]))
+                            continue
+                # Channel 3 (rule b): neither channel above can see across a
+                # translated paraphrase, and this batch names one employer while
+                # the answer names another. Held, not re-attributed.
+                if batch_anchor is not None and batch_anchor[0] != target_core:
+                    flagged.append((field, bullet, batch_anchor[1]))
                     continue
-                # Channel 1 (#243): the OWNING SENTENCE, for the common case of a
-                # bullet that names no employer at all in its own text.
-                sentence = _owning_sentence(bullet, sentences)
-                anchor = _anchor_company(sentence, candidates) if sentence else None
-                if anchor is not None and anchor[0] != target_core:
-                    flagged.append((field, bullet, anchor[1]))
-                else:
-                    kept_bullets.append(bullet)
+                kept_bullets.append(bullet)
             kept[field] = kept_bullets
 
         if not flagged:
@@ -525,7 +688,10 @@ def enforce_attribution(
 
 
 def _guard_set_field(
-    op: SetField, profile: MasterProfileData, candidates: dict[str, str]
+    op: SetField,
+    profile: MasterProfileData,
+    candidates: dict[str, str],
+    batch_anchor: tuple[str, str] | None = None,
 ) -> list[ReconcileOp]:
     """M-2c for `set_field`: the same question, a whole VALUE instead of a bullet.
 
@@ -542,9 +708,16 @@ def _guard_set_field(
     if target_core is None:
         return [op]
     foreign = _foreign_employers(op.value, candidates, target_core)
-    if not foreign:
+    if foreign:
+        anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
+    elif batch_anchor is not None and batch_anchor[0] != target_core:
+        # Channel 3 (rule b) reaches the scalar too: `ministral-8b` folded a
+        # three-employer span into `industry_context` rather than into a bullet
+        # (taxonomy §3.3), and a fold whose text names no employer at all is
+        # exactly what the batch-level anchor is for.
+        anchor_text = batch_anchor[1]
+    else:
         return [op]
-    anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
     target_display = candidates.get(target_core, target_core)
     section = "work_experience" if isinstance(entity, WorkEntry) else "projects"
     return [
