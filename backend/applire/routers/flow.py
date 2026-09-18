@@ -96,8 +96,12 @@ async def advance_flow_endpoint(
     """Request a step transition.
 
     The backend validates against VALID_TRANSITIONS — illegal jumps return 409.
-    For steps that produce an artifact (gap_analysis, interview, cv_generation),
-    artifact_id must be provided — missing it returns 422.
+    Steps that produce an artifact RECORD artifact_id (gap_analysis, interview,
+    cv_generation, complete); gap_analysis, interview and complete also REQUIRE
+    it — missing it returns 422. `cv_generation` does not (#676 line 35: the step
+    is entered in order to generate the CV), but records the id whenever it is
+    supplied instead of dropping it. An artifact_id on any other step comes back
+    as a `notices` entry on the response.
     """
     try:
         return await advance_flow(flow_id, body, db, base_url=_base_url(request))
