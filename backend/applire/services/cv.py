@@ -50,6 +50,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
+    from applire.services.ledger_restore import PreseedPlan
     from applire.services.terminal_review_outcome import TerminalReviewOutcome
     from applire.storage.base import StorageProvider
 
@@ -534,12 +535,221 @@ async def _tailor_cv_with_fallback(
         )
 
 
+def _plan_language_preseed(
+    prose_draft: dict,
+    profile_json: dict,
+    *,
+    keyword_ledger: list[dict] | None,
+    budget: "BudgetResult | None",
+    document_language: str,
+) -> tuple[dict, "PreseedPlan"]:
+    """ADR-072/ADR-062/ADR-067 amended 2026-09-18 (#724, founder ruling W-1) —
+    put every piece of vault-verbatim text that would otherwise reach the
+    delivered document PAST the last language pass in FRONT of it instead.
+
+    Three classes reached the page untranslated, all by the same structural
+    reason (ADR-067 clause 5: the deterministic tail runs after the last LLM
+    review, where no reviewer can see it):
+
+    1. **restored ledger bullets** — the #724 defect itself (4 of 15 delivered
+       work bullets English on the founder's German CV);
+    2. **``industry_context``** — the ``Branche: …`` furniture line, English on
+       all eight roles of the same document;
+    3. **vault project bullets** ``_nest_projects`` adds for a project the writer
+       did not tailor itself (ruling W-1b: "rather than leaving a third
+       bilingual class").
+
+    The selection is computed against the PROVISIONAL composition — literally
+    ``_compose_prefix``, the same state the tail reads — so what gets restored is
+    unchanged; only WHEN it is chosen moves. The chosen text is injected into the
+    prose draft verbatim, and ``_review_cv_language`` then translates it like any
+    other bullet.
+
+    **Only genuinely foreign text is injected.** Every item is gated on
+    ``item_language_mismatch`` against the document language, so a German vault
+    feeding a German document produces an EMPTY plan and a byte-identical
+    pipeline. That gate is deliberately the under-reporting direction (see
+    ``ITEM_LANGUAGE_MIN_WORDS``): the failure mode is "this run behaves exactly
+    as it did yesterday", never "a vault fact was re-worded for no reason".
+
+    Returns the (new) prose draft and the plan. Pure: no LLM, no I/O; the input
+    draft is not mutated.
+    """
+    import copy as _copy
+
+    from applire.services.ats_audit import _norm
+    from applire.services.ledger_restore import PreseedPlan, select_restore_candidates
+    from applire.utils.language_detection import item_language_mismatch
+
+    plan = PreseedPlan()
+    prose_work = prose_draft.get("work")
+    if not isinstance(prose_work, list):
+        return prose_draft, plan
+
+    provisional = _compose_prefix(prose_draft, profile_json)
+    provisional_json = provisional.model_dump(mode="json")
+    candidates = select_restore_candidates(
+        provisional_json, profile_json, keyword_ledger, budget
+    )
+
+    vault_by_id = {
+        str(w.get("id") or ""): w
+        for w in (profile_json.get("work_experience") or [])
+        if isinstance(w, dict) and w.get("id")
+    }
+    provisional_by_id = {
+        str(w.get("id") or ""): w for w in (provisional_json.get("work_history") or [])
+    }
+
+    new_draft = _copy.deepcopy(prose_draft)
+    for entry in new_draft.get("work") or []:
+        if not isinstance(entry, dict):
+            continue
+        eid = str(entry.get("id") or "")
+        if not eid:
+            continue
+        bullets = [b for b in (entry.get("bullets") or []) if isinstance(b, str)]
+
+        # (1) restored ledger bullets
+        placed: list[Any] = []
+        for cand in candidates.get(eid, ()):
+            if not item_language_mismatch(cand.vault_text, document_language):
+                continue
+            placed.append(cand)
+        if placed:
+            from applire.services.ledger_restore import PreseededBullet
+
+            plan._pre_lengths[eid] = len(bullets)
+            plan.by_entry[eid] = [
+                PreseededBullet(
+                    entry_id=eid,
+                    vault_text=c.vault_text,
+                    translated_text=c.vault_text,
+                    concept=c.concept,
+                    load_bearing=c.load_bearing,
+                )
+                for c in placed
+            ]
+            entry["bullets"] = bullets + [c.vault_text for c in placed]
+
+        # (2) the role-facts furniture line
+        industry = (vault_by_id.get(eid) or {}).get("industry_context") or ""
+        if isinstance(industry, str) and item_language_mismatch(
+            industry, document_language
+        ):
+            entry["industry_context"] = industry
+            plan.industry_context[eid] = industry
+
+        # (3) vault project copies _nest_projects would add to THIS role
+        drafted = {
+            _norm(p.get("name") or "")
+            for p in (entry.get("projects") or [])
+            if isinstance(p, dict)
+        }
+        for proj in (provisional_by_id.get(eid) or {}).get("projects") or []:
+            name = (proj.get("name") or "").strip()
+            if not name or _norm(name) in drafted:
+                continue
+            if not any(
+                item_language_mismatch(b, document_language)
+                for b in (proj.get("bullets") or [])
+                if isinstance(b, str)
+            ):
+                continue
+            entry.setdefault("projects", []).append(
+                {"name": name, "bullets": list(proj.get("bullets") or [])}
+            )
+
+    # (3b) the standalone container, same rule
+    drafted_top = {
+        _norm(p.get("name") or "")
+        for p in (new_draft.get("projects") or [])
+        if isinstance(p, dict)
+    }
+    for proj in provisional_json.get("projects") or []:
+        name = (proj.get("name") or "").strip()
+        if not name or _norm(name) in drafted_top:
+            continue
+        if not any(
+            item_language_mismatch(b, document_language)
+            for b in (proj.get("bullets") or [])
+            if isinstance(b, str)
+        ):
+            continue
+        new_draft.setdefault("projects", []).append(
+            {"name": name, "bullets": list(proj.get("bullets") or [])}
+        )
+
+    if plan.is_empty() and new_draft == prose_draft:
+        return prose_draft, plan
+    logger.info(
+        "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-18) document_language=%s "
+        "bullets=%d roles_with_industry_line=%d",
+        document_language,
+        sum(len(v) for v in plan.by_entry.values()),
+        len(plan.industry_context),
+    )
+    return new_draft, plan
+
+
+def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
+    """ADR-069 clause 4 settle guard for the #724 preseed — deterministic,
+    structural-only, no LLM.
+
+    The language refiner is instructed never to add, remove, reorder, split or
+    merge an entry. This VERIFIES it for the bullets the preseed injected, which
+    is the one place where trusting the instruction would cost a claimable
+    concept: the entry's bullet count is what it was at injection plus what was
+    injected, or the vault text is re-appended verbatim and this entry falls back
+    to the pre-#724 behaviour. A prompt rule is not a guarantee (#229).
+
+    Also settles the two single-value classes: the translated ``industry_context``
+    is taken from the draft only when the pass actually returned one.
+    """
+    from applire.services.ats_audit import _norm
+
+    for entry in settled.get("work") or []:
+        if not isinstance(entry, dict):
+            continue
+        eid = str(entry.get("id") or "")
+        bullets = [b for b in (entry.get("bullets") or []) if isinstance(b, str)]
+
+        industry = entry.pop("industry_context", None)
+        if eid in plan.industry_context and isinstance(industry, str) and industry.strip():
+            plan.industry_context[eid] = industry.strip()
+
+        placed = plan.by_entry.get(eid)
+        if not placed:
+            continue
+        expected = plan._pre_lengths.get(eid, 0) + len(placed)
+        if len(bullets) == expected:
+            for offset, p in enumerate(placed):
+                p.translated_text = bullets[plan._pre_lengths[eid] + offset]
+            continue
+        # The pass did not keep the shape it was told to keep. Re-append whatever
+        # is missing, verbatim — exactly what the tail used to do — and leave the
+        # plan's translated_text at the vault text so the ordering below still
+        # treats these as restorations.
+        logger.warning(
+            "LANGUAGE_PRESEED_SETTLE_FALLBACK (#724): work entry id=%s came back "
+            "with %d bullets, expected %d — re-appending %d vault bullet(s) verbatim",
+            eid, len(bullets), expected, len(placed),
+        )
+        present = {_norm(b) for b in bullets}
+        for p in placed:
+            if _norm(p.vault_text) not in present:
+                bullets.append(p.vault_text)
+        entry["bullets"] = bullets
+    return settled
+
+
 async def _review_cv_language(
     draft: dict,
     output_language: str,
     provider,
     keyword_ledger: list | None = None,
     budget: Any = None,
+    preseed: "PreseedPlan | None" = None,
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -575,6 +785,13 @@ async def _review_cv_language(
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
         generator_max_tokens=CV_GENERATION_MAX_TOKENS,
         chain_id="cv_language",
+        # #724: verify the shape the refiner was told to keep, for the vault text
+        # the preseed put in front of this pass. ADR-069 clause 4 hook.
+        settle_guard=(
+            (lambda settled, _history: _settle_language_preseed(settled, preseed))
+            if preseed is not None and not preseed.is_empty()
+            else None
+        ),
     )
 
 logger = logging.getLogger(__name__)
@@ -969,7 +1186,12 @@ def _apply_certifications(tailored: TailoredCVData, profile_json: dict) -> Tailo
 # fields they repaired.
 
 
-def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredCVData:
+def _apply_role_facts(
+    tailored: TailoredCVData,
+    profile_json: dict,
+    *,
+    preseed: "PreseedPlan | None" = None,
+) -> TailoredCVData:
     """#328 (ADR-062 clause 1) — deterministically copy each work entry's
     quantified role facts (``team_size`` / ``budget_managed`` /
     ``industry_context``) from the vault ``WorkEntry`` onto the matching
@@ -1003,6 +1225,21 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
     same-employer-twice profile). Mirrors ``_apply_certifications``: pure
     passthrough, no LLM, no I/O. Returns a new TailoredCVData; the input is
     left unmutated.
+
+    **ADR-062 clause 1 amended 2026-09-18 (#724, founder ruling W-1).** The
+    delivered German CV rendered ``Branche: …`` in English on all eight roles,
+    because this pass copies the vault's own wording and the last language
+    authority ran before it. The furniture is now shown in the document's
+    language: ``industry_context`` is carried through the SAME ADR-038 language
+    pass as every bullet (:func:`_plan_language_preseed`) and this pass writes the
+    settled rendering when the plan has one.
+
+    The single-writer guarantee above is preserved rather than weakened, and
+    structurally so: the value is still written on EVERY entry unconditionally,
+    and still only from the vault or from the plan — **never** from whatever the
+    draft happened to carry. A model that invented an industry line in the draft
+    still cannot launder it onto the page; only a value this plan put in front of
+    the language pass, verbatim from the vault, can come back translated.
     """
     vault_by_id: dict[str, dict] = {
         str(w.get("id") or ""): w
@@ -1037,6 +1274,10 @@ def _apply_role_facts(tailored: TailoredCVData, profile_json: dict) -> TailoredC
         if budget_needs_unit(budget_managed):
             budget_managed = None
         industry_context = vault_entry.get("industry_context") or None
+        if industry_context and preseed is not None:
+            settled_industry = preseed.industry_context.get(w.id or "")
+            if settled_industry:
+                industry_context = settled_industry
 
         if (w.team_size, w.budget_managed, w.industry_context) == (
             team_size, budget_managed, industry_context
@@ -1149,6 +1390,7 @@ def _restore_ledger_bullets(
     keyword_ledger: list[dict] | None,
     budget: "BudgetResult | None",
     pins: Sequence = (),
+    preseed: "PreseedPlan | None" = None,
 ) -> TailoredCVData:
     """#234 (Tiramisu founder-acceptance F1/F2) — deterministic post-draft guard.
 
@@ -1186,51 +1428,38 @@ def _restore_ledger_bullets(
     later-listed before earlier — mirrors ``cv_budget.condense_to_budget``'s cut
     order exactly. Entries already within budget keep their original bullets
     AND order untouched.
+
+    **ADR-072 amended 2026-09-18 (#724) — "verbatim" is verbatim INTO the draft.**
+    The SELECTION above now also runs before ``_review_cv_language``
+    (:func:`_plan_language_preseed`), so the language pass translates a restored
+    bullet like any other. This function keeps everything else: the same selection
+    instrument (``ledger_restore.select_restore_candidates`` — ADR-066, one
+    definition), the ordering, the ceiling, and clause 4's logging. ``preseed``,
+    when given, does two things and nothing else: a vault bullet it already placed
+    is never selected again (or the document would carry the translation AND the
+    English original), and the settled translation is carried into this pass's
+    ordering as the restoration it is, so the delivered order and the delivered
+    ceiling are the ones this ADR already specifies.
     """
     if not keyword_ledger:
         return tailored
 
-    from applire.services.ats_audit import _norm, surface_present
-    from applire.services.keyword_ledger import (
-        is_load_bearing,
-        verified_missing_claimable,
-        verified_missing_load_bearing,
-    )
+    from applire.services.ats_audit import _norm, surface_present  # noqa: F401
+    from applire.services.ledger_restore import select_restore_candidates
     from applire.services.load_bearing import stringify_draft
 
-    # NOTE: deliberately no early return when ``missing`` is empty — an entry can
+    # NOTE: deliberately no early return when nothing is selected — an entry can
     # still be over its RoleBudget ceiling with nothing left to restore (the #122
     # coverage-review loop pushing an ADD with no ceiling awareness of its own),
     # and the per-entry loop below must run to enforce that ceiling regardless.
     draft_json = tailored.model_dump(mode="json")
-    missing = verified_missing_claimable(draft_json, keyword_ledger)
-    # #315: a LOAD-BEARING concept (a `direct`+`claimable` figure a hiring
-    # reviewer checks for by name) is missing its evidence even when a bare
-    # keyword mention elsewhere (skills list, summary) already satisfies the
-    # whole-document check above -- that check alone let charter run #7 ship
-    # "Budgetverantwortung" as a tag while its "6 Mio. €" bullet was silently
-    # dropped by the writer and never restored. Union in, deduped by concept
-    # (verified_missing_claimable already covers a concept absent everywhere;
-    # this only adds concepts present ONLY as a bare tag).
-    already = {e.get("concept") for e in missing}
-    for entry in verified_missing_load_bearing(draft_json, keyword_ledger):
-        if entry.get("concept") not in already:
-            missing.append(entry)
-            already.add(entry.get("concept"))
-
-    # Vault entries keyed by id — the identity ``assemble_tailored_cv`` establishes
-    # structurally on every tailored entry (E049/ADR-067).
-    vault_by_id: dict[str, dict] = {}
-    for w in profile_json.get("work_experience") or []:
-        wid = str(w.get("id") or "")
-        if wid:
-            vault_by_id[wid] = w
-
-    def _entry_forms(entry: dict) -> list[str]:
-        forms = list(entry.get("surface_forms") or [])
-        if entry.get("concept"):
-            forms.append(entry["concept"])
-        return forms
+    candidates = select_restore_candidates(
+        draft_json,
+        profile_json,
+        keyword_ledger,
+        budget,
+        exclude=preseed.excluded_vault_norms() if preseed is not None else None,
+    )
 
     claimable_forms: tuple[str, ...] = budget.claimable_forms if budget is not None else ()
 
@@ -1240,7 +1469,6 @@ def _restore_ledger_bullets(
         n = _norm(text)
         return bool(n) and any(surface_present(f, n) for f in claimable_forms)
 
-    remaining = list(missing)  # concepts still unrestored; consumed as entries claim them
     changed = False
     new_work: list[dict] = []
 
@@ -1336,37 +1564,40 @@ def _restore_ledger_bullets(
         existing_bullets = [b for b in (w_dict.get("bullets") or []) if isinstance(b, str)]
         existing_norms = {_norm(b) for b in existing_bullets}
 
-        vault_entry = vault_by_id.get(eid)
         # #315 follow-up: a restored bullet answering a LOAD-BEARING concept is
         # tracked separately from every other restoration, so it can be placed
         # ahead of generic pre-existing hits before the ceiling cap below --
         # see that cap's comment for why this split exists.
         restored_load_bearing: list[str] = []
         restored_other: list[str] = []
-        if vault_entry is not None and remaining:
-            vault_bullets = [
-                b for key in ("responsibilities", "achievements")
-                for b in (vault_entry.get(key) or [])
-                if isinstance(b, str) and b.strip()
-            ]
-            for vb in vault_bullets:
-                vb_norm = _norm(vb)
-                if not vb_norm or vb_norm in existing_norms:
-                    continue
-                hit_idx = next(
-                    (i for i, m in enumerate(remaining)
-                     if any(surface_present(f, vb_norm) for f in _entry_forms(m))),
-                    None,
-                )
-                if hit_idx is None:
-                    continue
-                matched_entry = remaining[hit_idx]
-                if is_load_bearing(matched_entry):
-                    restored_load_bearing.append(vb)
-                else:
-                    restored_other.append(vb)
-                existing_norms.add(vb_norm)
-                remaining.pop(hit_idx)
+        for cand in candidates.get(eid, ()):  # ADR-066: one selection instrument
+            if cand.load_bearing:
+                restored_load_bearing.append(cand.vault_text)
+            else:
+                restored_other.append(cand.vault_text)
+            existing_norms.add(_norm(cand.vault_text))
+
+        # ADR-072 amendment 2026-09-18 (#724): a bullet the preseed placed BEFORE
+        # the language pass is a restoration that already happened, and it is
+        # ordered here as one — otherwise moving the restore earlier would
+        # silently drop #234's hit-first order and #315's load-bearing placement
+        # for exactly the entries the restore touched. Matched by the SETTLED
+        # text, so a reorder inside the language pass cannot break it; a later
+        # terminal-round REWORDING drops the bullet back to ordinary status,
+        # which costs it this priority and nothing else.
+        if preseed is not None:
+            settled = preseed.settled_by_norm(eid)
+            if settled:
+                carried_over: list[str] = []
+                for b in existing_bullets:
+                    placed = settled.get(_norm(b))
+                    if placed is None:
+                        carried_over.append(b)
+                    elif placed.load_bearing:
+                        restored_load_bearing.append(b)
+                    else:
+                        restored_other.append(b)
+                existing_bullets = carried_over
 
         rb = budget.roles.get(eid) if budget is not None else None
         restored = restored_load_bearing + restored_other
@@ -3475,10 +3706,25 @@ async def _render_cv_background(
                 # Vault facts joined below are verbatim by design and are not re-worded.
                 # Carries the ledger: this pass is the LAST writer, so the US213 coverage
                 # gate must also watch its rewording (#122 follow-up).
+                # #724 (ADR-072/ADR-062/ADR-067 amended 2026-09-18, founder ruling
+                # W-1): every piece of vault-verbatim text that would otherwise
+                # reach the page PAST this pass is put in FRONT of it, so the
+                # delivered document is one language. Empty plan ⇒ byte-identical
+                # pipeline; the plan then rides the whole tail so a terminal-round
+                # re-composition makes the same choices.
+                preseed_plan = None
+                if CV_LANGUAGE_REVIEW_MAX_RETRIES > 0:
+                    prose_draft, preseed_plan = _plan_language_preseed(
+                        prose_draft, profile_json,
+                        keyword_ledger=keyword_ledger,
+                        budget=budget,
+                        document_language=document_language,
+                    )
                 prose_draft = await _review_cv_language(
                     prose_draft, document_language, provider,
                     keyword_ledger=keyword_ledger,
                     budget=budget,
+                    preseed=preseed_plan,
                 )
 
                 # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
@@ -3499,6 +3745,7 @@ async def _render_cv_background(
                     job_dict=job_dict,
                     language=document_language,
                     pins=cv_pins,
+                    preseed=preseed_plan,
                 )
 
                 from applire.services.cv_section_editor import build_content_snapshot
@@ -3560,6 +3807,7 @@ async def _render_cv_background(
                         condense_ctx=condense_ctx,
                         coverage_budget=coverage_budget,
                         measured=measured,
+                        preseed=preseed_plan,
                     )
                     prose_draft, measured = tr.prose_draft, tr.measured
                     terminal_rounds = tr.rounds
@@ -3618,6 +3866,7 @@ async def _render_cv_background(
                             condense_ctx=condense_ctx,
                             coverage_budget=coverage_budget,
                             measured=measured,
+                            preseed=preseed_plan,
                         )
                         prose_draft, measured = tr.prose_draft, tr.measured
                         terminal_rounds += tr.rounds
@@ -3647,6 +3896,53 @@ async def _render_cv_background(
 # ---------------------------------------------------------------------------
 
 
+def _compose_prefix(
+    prose_draft: dict,
+    profile_json: dict,
+    *,
+    preseed: "PreseedPlan | None" = None,
+) -> TailoredCVData:
+    """The join + transcription head of the deterministic tail, up to and
+    including the role-facts projection — everything ``_restore_ledger_bullets``
+    reads as "the document" when it decides what is missing.
+
+    Extracted 2026-09-18 (#724) so the PRESEED can compute the restore's selection
+    against exactly the state the tail will see, rather than against a second,
+    nearly-identical assembly (ADR-066: one instrument). ``_compose_document``
+    calls it; nothing else in the chain may re-implement it.
+    """
+    # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
+    # facts (contact, employer/role/dates by id, education, languages).
+    # Fail-closed on an unknown id; shared by both generation paths.
+    tailored = TailoredCVData.model_validate(
+        assemble_tailored_cv(prose_draft, profile_json)
+    )
+
+    # US187: deterministically nest source projects under their parent
+    # position (or the standalone list). The LLM tailors prose; code
+    # disposes. Runs after assembly (it matches on the joined company/role
+    # identity). The nested copies are verbatim vault facts — carried in the
+    # vault's own language (ADR-067: transcription is not re-worded by any LLM
+    # pass), EXCEPT where the #724 preseed already put them in front of the
+    # language pass, in which case this function's own same-name skip finds the
+    # tailored copy already on the page and does not append the verbatim one.
+    tailored = _nest_projects(tailored, profile_json)
+
+    # PQ F7: deterministically copy the profile's certifications verbatim
+    # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
+    # single-call and segmented paths, since both converge here.
+    tailored = _apply_certifications(tailored, profile_json)
+
+    # #328: deterministically copy each work entry's quantified role facts
+    # (team_size / budget_managed / industry_context) from the vault onto the
+    # matching tailored entry, for rendering as document furniture (ADR-062
+    # clause 1) — bypassing prose (and the writer LLM) entirely. Matched by
+    # the WorkEntry.id identity assemble_tailored_cv establishes
+    # structurally, never by company-name string. Uses the SORTED
+    # profile_json.
+    return _apply_role_facts(tailored, profile_json, preseed=preseed)
+
+
 def _compose_document(
     prose_draft: dict,
     profile_json: dict,
@@ -3657,6 +3953,7 @@ def _compose_document(
     job_dict: dict,
     language: str,
     pins: Sequence = (),
+    preseed: "PreseedPlan | None" = None,
 ) -> TailoredCVData:
     """ADR-076 clause 3 (#538): the CV's ENTIRE deterministic tail as one pure,
     re-runnable function — the E049/ADR-067 join, the ADR-040/ADR-067 compose
@@ -3676,40 +3973,15 @@ def _compose_document(
     none. When a SIGNAL pass migrates, it leaves this function; the compose
     block stays.
     """
-    # E049/ADR-067 clauses 2–3: THE deterministic join — prose onto vault
-    # facts (contact, employer/role/dates by id, education, languages).
-    # Fail-closed on an unknown id; shared by both generation paths.
-    tailored = TailoredCVData.model_validate(
-        assemble_tailored_cv(prose_draft, profile_json)
-    )
-
-    # US187: deterministically nest source projects under their parent
-    # position (or the standalone list). The LLM tailors prose; code
-    # disposes. Runs after assembly (it matches on the joined company/role
-    # identity). The nested copies are verbatim vault facts — like
-    # education, they are carried in the vault's own language (ADR-067:
-    # transcription is not re-worded by any LLM pass).
-    tailored = _nest_projects(tailored, profile_json)
-
-    # PQ F7: deterministically copy the profile's certifications verbatim
-    # (ADR-040 truthfulness) — never routed through the LLM. Covers both the
-    # single-call and segmented paths, since both converge here.
-    tailored = _apply_certifications(tailored, profile_json)
-
-    # #328: deterministically copy each work entry's quantified role facts
-    # (team_size / budget_managed / industry_context) from the vault onto the
-    # matching tailored entry, for rendering as document furniture (ADR-062
-    # clause 1) — bypassing prose (and the writer LLM) entirely. Matched by
-    # the WorkEntry.id identity assemble_tailored_cv establishes
-    # structurally, never by company-name string. Uses the SORTED
-    # profile_json.
-    tailored = _apply_role_facts(tailored, profile_json)
+    tailored = _compose_prefix(prose_draft, profile_json, preseed=preseed)
 
     # #234 (Tiramisu founder-acceptance F1/F2): deterministically restore any
     # verbatim vault bullet that carries a claimable Keyword Ledger concept the
     # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
     # the budget uses (structural since assemble_tailored_cv).
-    tailored = _restore_ledger_bullets(tailored, profile_json, keyword_ledger, budget, pins=pins)
+    tailored = _restore_ledger_bullets(
+        tailored, profile_json, keyword_ledger, budget, pins=pins, preseed=preseed
+    )
 
     # #261 (run-4 blind hiring-panel finding): deterministically prefer a
     # MEASURED outcome over a bare target/projection for the same initiative
@@ -4212,6 +4484,7 @@ async def _terminal_review(
     condense_ctx: CondenseContext,
     coverage_budget,
     measured: MeasuredRender | None,
+    preseed: "PreseedPlan | None" = None,
 ) -> TerminalReviewResult:
     """ADR-076 clause 3 (#538): the TERMINAL review — the verdict that closes
     over the COMPOSED document (the delivered artifact), with the real render
@@ -4298,6 +4571,9 @@ async def _terminal_review(
             # ADR-077 clause 4: a terminal-round re-compose keeps the same
             # pin partition as the original compose (rule-against-one-of-N).
             pins=condense_ctx.pins,
+            # #724: and the same language preseed, so a re-composition cannot
+            # re-add the English vault bullet next to its own translation.
+            preseed=preseed,
         )
 
     subject_by_draft: dict[str, TailoredCVData] = {
@@ -4668,6 +4944,10 @@ async def _update_ats_report(
             pins=audit_pins,
             terminal_review=terminal_review,
             previous_report=previous_report,
+            # #724: the DOCUMENT's own pinned language (ADR-038 clause 3b — a
+            # read/render path reads the document's stamp, never re-resolves the
+            # seam, which is user-mutable while a generation is in flight).
+            document_language=getattr(record, "document_language", None),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
