@@ -506,6 +506,7 @@ def _muted_sentences(
 def _batch_anchor(
     content_ops: list[tuple[ReconcileOp, str]],
     corpus: str,
+    sentences: list[str],
     candidates: dict[str, str],
 ) -> tuple[str, str] | None:
     """The employer the WHOLE answer is about, when the batch contradicts it.
@@ -534,15 +535,24 @@ def _batch_anchor(
     cores = {core for _, core in content_ops}
     if len(cores) != 1:
         return None
-    if _RELATIONAL_MARKER_RE.search(corpus or ""):
-        # The same exclusion channel 2 makes per bullet (`_foreign_employers`),
-        # at corpus granularity: an answer about the Siemens ACCOUNT while
-        # employed at Bosch names Siemens as a client, not a second job. Without
-        # it this channel re-flags the very shape `_RELATIONAL_MARKER_RE` was
-        # built for (`test_set_field_naming_a_client_account_is_not_rerouted`).
-        return None
     anchor = _anchor_company(corpus, candidates)
     if anchor is None or anchor[0] in cores:
+        return None
+    # The same exclusion channel 2 makes per bullet (`_foreign_employers`),
+    # applied to the sentences that actually NAME the anchor rather than to the
+    # whole answer: an answer about the Siemens ACCOUNT while employed at Bosch
+    # names Siemens as a client, not a second job
+    # (`test_set_field_naming_a_client_account_is_not_rerouted`). Scoped to the
+    # naming sentences on purpose — "übernommen" ("took over") is in the marker
+    # vocabulary for "Übernahme"/acquisition, and #723's own answer says
+    # "Teamleitung … übernommen" in a LATER sentence, which at corpus
+    # granularity silenced the channel on the very case it exists for.
+    naming = [
+        sentence
+        for sentence in sentences
+        if anchor[0] in _employers_named_in(sentence, {anchor[0]: anchor[1]})
+    ]
+    if naming and all(_RELATIONAL_MARKER_RE.search(s) for s in naming):
         return None
     return anchor
 
@@ -627,7 +637,7 @@ def enforce_attribution(
     # contradicts (rule b, #723's unflagged sibling).
     content_ops = _guarded_content_ops(ops, profile)
     muted = _muted_sentences(content_ops, sentences)
-    batch_anchor = _batch_anchor(content_ops, corpus, candidates)
+    batch_anchor = _batch_anchor(content_ops, corpus, sentences, candidates)
 
     result: list[ReconcileOp] = []
     for op in ops:
@@ -671,8 +681,14 @@ def enforce_attribution(
                             continue
                 # Channel 3 (rule b): neither channel above can see across a
                 # translated paraphrase, and this batch names one employer while
-                # the answer names another. Held, not re-attributed.
-                if batch_anchor is not None and batch_anchor[0] != target_core:
+                # the answer names another. Held, not re-attributed — unless the
+                # bullet's own words describe a RELATIONSHIP, the exclusion
+                # channel 2 already makes.
+                if (
+                    batch_anchor is not None
+                    and batch_anchor[0] != target_core
+                    and not _RELATIONAL_MARKER_RE.search(bullet)
+                ):
                     flagged.append((field, bullet, batch_anchor[1]))
                     continue
                 kept_bullets.append(bullet)
@@ -712,7 +728,11 @@ def _guard_set_field(
     foreign = _foreign_employers(op.value, candidates, target_core)
     if foreign:
         anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
-    elif batch_anchor is not None and batch_anchor[0] != target_core:
+    elif (
+        batch_anchor is not None
+        and batch_anchor[0] != target_core
+        and not _RELATIONAL_MARKER_RE.search(op.value)
+    ):
         # Channel 3 (rule b) reaches the scalar too: `ministral-8b` folded a
         # three-employer span into `industry_context` rather than into a bullet
         # (taxonomy §3.3), and a fold whose text names no employer at all is
