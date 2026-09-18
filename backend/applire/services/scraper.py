@@ -99,6 +99,11 @@ _TIER2_WAIT_SELECTOR = (
     "[class*=description__text], [class*=show-more-less-html__markup]"
 )
 
+# ADR-001 amended 2026-09-18: a job board's GUEST posting page — served to
+# anyone without signing in — is fetched by tier 1 like any other board. Only a
+# page actually behind a login falls back to manual paste. linkedin.com is
+# therefore deliberately absent from this set (it is not JS-only) and is not
+# blocked anywhere; `_DESCRIPTION_HINTS` names its two posting containers.
 _JS_HOSTS: frozenset[str] = frozenset(
     {
         "www.stepstone.de",

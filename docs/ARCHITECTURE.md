@@ -47,7 +47,7 @@ Every architecture decision traces back to one or more of these principles. If a
 2. Playwright/Chromium (JS-heavy sites)
 3. Manual paste fallback (login-gated or hostile sites — we deliberately skip server-side scraping of these)
 
-**Why:** Higher tailoring quality. Extracting JD requirements first lets gap detection and interview questioning be precise rather than generic. Tiered scraping maximises URL success rate without legal risk (no LinkedIn scraping).
+**Why:** Higher tailoring quality. Extracting JD requirements first lets gap detection and interview questioning be precise rather than generic. Tiered scraping maximises URL success rate while staying off login-gated pages: a posting a job board serves to anyone without signing in is fetched like any other page, and anything behind a login falls back to pasting the text.
 
 **Consequence to watch:** Playwright adds ~400MB to the Docker image. This is intentional and shared with the PDF generation pipeline.
 
