@@ -790,8 +790,62 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                     role_id=str(work_history[target_idx].get("id") or ""),
                 )
                 continue
+            # Writer collector #672 line 100 (founder's edge UAT 2026-09-18) — the
+            # WRONG-CONTAINER half of the same duplicate. The skip above covers
+            # "the writer already nested this project"; it cannot see the writer
+            # having placed the SAME project in the top-level `projects` list
+            # while the vault ties it to this role. `_nest_projects` deduplicates
+            # by normalised name WITHIN each destination bin and never ACROSS
+            # them — the gap `ats_audit.duplicate_project_pairs`' own docstring
+            # names, and on the delivered document both `duplicate-project` and
+            # `duplicate-bullets` FAILED while the CV shipped anyway.
+            #
+            # Resolved by the two rules this module already owns rather than by a
+            # new one: ADR-067 gives the CONTAINER decision to code ("the LLM
+            # tailors prose; code disposes"), and the branch above already ruled
+            # that the reviewed, tailored copy wins over the vault's verbatim one.
+            # So the writer's copy is MOVED into its owning role — not deleted and
+            # not replaced by the verbatim copy — which keeps the tailored prose,
+            # renders the entity exactly once, and loses no bullet at all.
+            # ADR-082 clause 1 permits it: "is this project the same entity as
+            # that one" is a question about NAMES, a fact the deterministic layer
+            # may compute.
+            writer_top = data.get("projects") or []
+            moved_idx = next(
+                (
+                    i
+                    for i, p in enumerate(writer_top)
+                    if isinstance(p, dict)
+                    and _ats_norm(p.get("name") or "") == _ats_norm(name)
+                ),
+                None,
+            )
+            if moved_idx is not None:
+                moved = writer_top.pop(moved_idx)
+                logger.info(
+                    "TAIL_RELOCATE (#672 L100) pass=_nest_projects predicate="
+                    "top-level copy of a role-tied project role_id=%r moved=%r",
+                    str(work_history[target_idx].get("id") or ""),
+                    moved.get("name") or name,
+                )
+                work_history[target_idx].setdefault("projects", []).append(moved)
+                continue
             work_history[target_idx].setdefault("projects", []).append(entry)
         else:
+            # #672 line 100, second shape: the vault leaves this project UNTIED,
+            # so it lands here — while the writer has already nested its own copy
+            # under a role. Rendering the standalone copy too is the same
+            # cross-container duplicate, produced by the other half of the same
+            # blind spot, so the same rule applies one container over: a project
+            # already rendered inside a role is not rendered again at the top
+            # level. Recomputed per iteration because an earlier source project in
+            # this very loop may have been the one that nested the name.
+            nested_names = {
+                _ats_norm(p.get("name") or "")
+                for w in work_history
+                for p in (w.get("projects") or [])
+                if isinstance(p, dict)
+            }
             already = [
                 _ats_norm(p.get("name") or "")
                 for p in list(data.get("projects") or []) + standalone
@@ -801,6 +855,13 @@ def _nest_projects(tailored: TailoredCVData, profile_json: dict) -> TailoredCVDa
                 # branch's comment above.
                 log_deletion(
                     "_nest_projects", "same-name standalone-project skip", name,
+                )
+                continue
+            if _ats_norm(name) in nested_names:
+                log_deletion(
+                    "_nest_projects",
+                    "already rendered inside a role (#672 L100)",
+                    name,
                 )
                 continue
             standalone.append(entry)
