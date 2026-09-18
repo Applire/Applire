@@ -310,6 +310,30 @@ _DENIAL_MARKERS: tuple[str, ...] = (
     "keine eigene erfahrung", "noch nie", "noch keine",
     "wurde von", "wurde durch", "wurden von", "wurden durch",
     "fehlt mir", "mir fehlt",
+    # #697 lines 15 + 20 (2026-09-18) — the register the FOUR delivery-tier
+    # occurrences actually use, and the one the letter-side twin
+    # (``services/limit_grounding.py``) already carries. Each is a literal
+    # the list's own rule admits (a first-person or dative-of-person
+    # construction naming the gap), never a general "keine"/"nicht" match:
+    #   * "keine erfahrung" — the bare form of the two qualified entries
+    #     above ("Mit IFS und BRC habe ich keine Erfahrung …", 3 of the 4);
+    #   * "fehlen mir"/"mir fehlen" — the plural twins of "fehlt mir"/"mir
+    #     fehlt", missing for no reason other than number agreement ("IFS,
+    #     BRC … fehlen mir.", the 2026-09-13 run);
+    #   * "gehört nicht zu meine…"/"not part of my" — the scope disclaimer
+    #     ("… gehört nicht zu meiner Rolle", 2026-09-18 edge UAT), bound to
+    #     the candidate by its own possessive.
+    # The verb-final negation of that same run ("… leiste ich dabei nicht")
+    # is deliberately NOT here: no literal captures it without matching the
+    # bare "nicht", and a false ``not_applicable`` is a hole in the Oracle.
+    # The ``candidate-limit`` triage class (ADR-068 amended 2026-09-18) is
+    # what answers the phrasing-independent question; this list stays the
+    # floor for a document audited with the judgement seam down.
+    "keine erfahrung",
+    "fehlen mir", "mir fehlen",
+    "gehört nicht zu meiner", "gehört nicht zu meinen",
+    "gehoert nicht zu meiner", "gehoert nicht zu meinen",
+    "not part of my",
 )
 
 # A clause/comma-segment that STARTS with (an optional pivot word, then) a
@@ -327,6 +351,14 @@ _DENIAL_PIVOT_THEN_PRONOUN_RE = re.compile(
 )
 
 _DENIAL_SEGMENT_SPLIT_RE = re.compile(r"[;,]\s+")
+
+#: Words in a marker-free comma/semicolon segment above which it is treated as
+#: an independent claim riding along with the denial (#697 lines 15 + 20). Set
+#: from the captured delivery-tier population: the enumeration fragments a
+#: denial leaves behind are 1–4 words ("IFS", "BRC", "direkte
+#: Lebensmittelproduktion und Verpackungsproduktion"), the one captured
+#: smuggled clause is 20.
+_DENIAL_SMUGGLE_MIN_WORDS = 6
 
 # A delegation marker only distances the candidate when the work went to
 # SOMEBODY ELSE. The passive voice is equally at home in an OWNERSHIP claim —
@@ -372,6 +404,28 @@ def _is_pure_denial_clause(text: str) -> bool:
         if any(marker in segment for marker in _DENIAL_MARKERS):
             continue
         if _DENIAL_PIVOT_THEN_PRONOUN_RE.match(segment):
+            return False
+        # #697 lines 15 + 20 (2026-09-18): German main clauses are verb-second,
+        # so an independent smuggled clause routinely carries its subject in
+        # the MIDDLE ("…; Hygiene- und Dokumentationsdisziplin bringe ich aus
+        # Kosmetikverpackungen mit.") — invisible to the leading-pronoun match
+        # above, which was written on the EN "though I …" shape. A captured
+        # delivery-tier sentence of exactly that shape exists (2026-09-11 CV,
+        # "Keine Erfahrung mit IFS oder BRC; Hygiene- und … zehn Jahre
+        # ISO-9001-Audit-Praxis."), and the "keine erfahrung" marker added
+        # above would have exempted it whole. Anywhere-in-segment is the safe
+        # direction by construction: it can only make this predicate return
+        # False (stay gradeable), never True.
+        if _FIRST_PERSON_RE.search(segment):
+            return False
+        # …and a marker-free segment can smuggle a whole claim with no
+        # pronoun at all: "Keine Erfahrung mit IFS oder BRC; Hygiene- und
+        # Dokumentationsdisziplin aus der Fertigung … sowie zehn Jahre
+        # ISO-9001-Audit-Praxis." (captured 2026-09-11, delivery tier). A
+        # segment long enough to BE a claim is treated as one; the short
+        # fragments a denial enumeration leaves behind ("IFS", "BRC", …
+        # before the "fehlen mir" segment that carries the marker) are not.
+        if len(segment.split()) >= _DENIAL_SMUGGLE_MIN_WORDS:
             return False
     return True
 
