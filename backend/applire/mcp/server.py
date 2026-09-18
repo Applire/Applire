@@ -134,7 +134,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-13"
+GUIDE_VERSION = "2026-09-18"
 
 logger = logging.getLogger(__name__)
 
@@ -1235,9 +1235,10 @@ async def start_flow(job_id: str | None = None) -> dict:
 
 @mcp.tool(
     description=(
-        "Advance a flow to the next step. Steps that produce an artifact require "
-        "artifact_id (gap_analysis→gap_analysis_id, interview→interview_session_id, "
-        "complete→generated_cv_id). flow_id is the stable handle for session recovery."
+        "Advance a flow to the next step. artifact_id is recorded at "
+        "gap_analysis→gap_analysis_id, interview→interview_session_id, "
+        "cv_generation/complete→generated_cv_id (required except at "
+        "cv_generation); elsewhere it returns a notice. See the guide."
     )
 )
 async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) -> dict:

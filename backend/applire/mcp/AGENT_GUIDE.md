@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-09-13 · re-fetch anytime with `get_guide`*
+*Revision 2026-09-18 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -97,6 +97,27 @@ Use
 `start_flow`/`advance_flow`/`get_flow_state` to track the state machine —
 `flow_id` is your stable recovery handle; steps that produce artifacts need
 the matching `artifact_id` when advancing.
+
+**Which artifact id goes with which step.** Four steps record one, and each
+takes the id of the artifact THAT step is about. "Recorded as" is the field it
+lands on — the same name a refusal message quotes:
+
+| step | pass the id returned by | recorded as | required? |
+|---|---|---|---|
+| `gap_analysis` | `analyze_gaps` | `gap_analysis_id` | yes |
+| `interview` | `run_interview` | `interview_session_id` | yes |
+| `cv_generation` | `generate_cv` | `generated_cv_id` | no — see below |
+| `complete` | `generate_cv` (the same id) | `generated_cv_id` | yes |
+
+`cv_generation` is the one that does not refuse, because you enter that step in
+order to produce the CV — so pass the id on a second, idempotent
+`advance_flow(step="cv_generation", artifact_id=<cv_id>)` once `generate_cv`
+has returned it, and the flow then knows its CV (`get_flow_state` reports
+`cv_summary`). Any other step records nothing: an `artifact_id` there is
+answered with a `notices` entry on the response rather than dropped in
+silence, and the transition still succeeds. **There is no `cover_letter`
+step** — `generate_cover_letter` links the letter to the flow itself, so you
+never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
 
 **À-la-carte (BYOI)** (you write; preferred when your model is strong):
 - `get_profile` — the full vault, your evidence base. Signature stories
