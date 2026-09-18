@@ -373,6 +373,84 @@ def has_clustering_input(gap_analysis: GapAnalysis) -> bool:
     return bool(askable_gap_inputs(gap_analysis) or list(gap_analysis.category_b or []))
 
 
+def _reconcile_cluster_categories(
+    clusters: list[dict],
+    *,
+    category_c: list[str],
+    category_b: list[str],
+    category_a: list[str],
+) -> list[dict]:
+    """Set each cluster's ``category`` from its members, and refuse a member
+    the analysis calls a strength (#675 line 60).
+
+    **ADR-062 clause 1 classification: FACT.** Nothing here re-judges whether a
+    concept is a gap, how severe it is, or which cluster it belongs in — those
+    are the model's and stay the model's. The only questions asked are which of
+    the caller's own input lists a member string came from, and whether the same
+    analysis already published it under ``category_a``. Both are list lookups on
+    data this function is handed.
+
+    Two rules, in this order:
+
+    1. **A member the analysis calls a strength is dropped.** ``category_a`` is
+       "already demonstrated"; a cluster naming one positions a strength as an
+       absence, and the agent guide tells an agent a C cluster is a true gap to
+       position, never to claim. A concept that is in ``category_a`` *and* was
+       nevertheless submitted for clustering is kept — that is the deliberate
+       keyword-liability fold of :func:`askable_gap_inputs` (#260), not a model
+       error. A cluster left with no members at all is dropped whole, the same
+       disposition :func:`~applire.services.interview_graph.filter_answered_concepts`
+       already gives a cluster whose concepts have all gone "direct".
+    2. **The category is derived**: "C" when any surviving member came from the
+       Category C input, else "B". The clustering prompt used to state exactly
+       this rule and the model could only restate it; measured over every
+       captured clustering record (63 records / 198 clusters across
+       ``logs/llm/`` and ``backend/logs/llm/``), 53 clusters carried a category
+       contradicting their own members — all 53 understating severity, which
+       silently demotes a C-cluster question in the interview plan's C-before-B
+       ordering and tells the agent door the gap is softer than it is.
+
+    A member that matches NO input list (a paraphrase — "microservices
+    architecture" for an input "microservices", 49 captured occurrences) is
+    neither dropped nor counted: it is not a fact against the member, and
+    dropping it would delete a real gap the model merely reworded. Prompt v2
+    asks for verbatim copies instead.
+    """
+    submitted = {_norm_gap(g) for g in category_c} | {_norm_gap(g) for g in category_b}
+    c_members = {_norm_gap(g) for g in category_c}
+    strengths = {_norm_gap(g) for g in category_a or []} - submitted
+
+    kept: list[dict] = []
+    for cluster in clusters:
+        members = [g for g in (cluster.get("gaps") or []) if isinstance(g, str)]
+        surviving = [g for g in members if _norm_gap(g) not in strengths]
+        for dropped in [g for g in members if _norm_gap(g) in strengths]:
+            logger.info(
+                "cluster_gaps: dropped %r from cluster %r — this analysis "
+                "publishes it under category_a (a strength is not a gap)",
+                dropped,
+                cluster.get("id"),
+            )
+        if not surviving:
+            logger.info(
+                "cluster_gaps: dropped cluster %r — every member is a "
+                "category_a strength",
+                cluster.get("id"),
+            )
+            continue
+        derived = "C" if any(_norm_gap(g) in c_members for g in surviving) else "B"
+        if cluster.get("category") != derived:
+            logger.info(
+                "cluster_gaps: cluster %r category %r → %r (derived from its "
+                "members, #675 line 60)",
+                cluster.get("id"),
+                cluster.get("category"),
+                derived,
+            )
+        kept.append({**cluster, "gaps": surviving, "category": derived})
+    return kept
+
+
 async def cluster_gaps(
     gap_analysis: GapAnalysis,
     job: JobAnalysis,
@@ -423,6 +501,14 @@ async def cluster_gaps(
             len(list(gap_analysis.category_b or [])),
             type(raw).__name__,
         )
+    # #675 line 60: the B/C category is a fact about the members, not the
+    # model's to write, and a member the analysis calls a strength is not a gap.
+    validated = _reconcile_cluster_categories(
+        validated,
+        category_c=category_c,
+        category_b=list(gap_analysis.category_b or []),
+        category_a=list(getattr(gap_analysis, "category_a", None) or []),
+    )
     gap_analysis.gap_clusters = validated
     # Persist only when the record is already in the session (the standalone
     # re-cluster path). _run_analysis now clusters BEFORE adding the record so

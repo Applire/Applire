@@ -15,8 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-# Prompt version: v1
+# Prompt version: v2
 # Used by: services/gap.py (cluster_gaps)
+#
+# v2 (#675 line 60, 2026-09-18): the cluster's B/C category is no longer solicited.
+# It was stated here as a rule the model could only restate - "C if any constituent
+# gap is Category C, else B" - and it is not a judgement at all: which input list a
+# gap came from is a FACT the caller already holds (ADR-062 clause 1). Measured over
+# every captured clustering record (63 records, 198 clusters, logs/llm + backend/
+# logs/llm): 53 clusters carried a category that contradicted their own members,
+# all 53 understating severity. cluster_gaps() now derives it.
 
 import json
 
@@ -34,7 +42,6 @@ Schema for each cluster object:
 {
   "id": "cluster-<label-kebab-lowercase>",
   "label": "Human-readable cluster name (concise, 2-5 words)",
-  "category": "C or B (C if any member gap is Category C, else B)",
   "gaps": ["exact gap strings absorbed into this cluster"],
   "jd_skills": ["matching entries from required_skills or nice_to_have_skills"],
   "jd_context": "One sentence, first-person role perspective, written in the OUTPUT LANGUAGE stated in the user message, explaining why this cluster matters for the role."
@@ -42,7 +49,9 @@ Schema for each cluster object:
 
 Rules:
 - Merge gaps that share the same semantic domain (not just keywords)
-- category = "C" if any constituent gap is Category C, else "B"
+- Copy each gap into "gaps" EXACTLY as it is written in the input list - same \
+wording, same language, same spelling. Do not rephrase, expand or translate a gap, \
+and never add one that is not in the two input lists.
 - jd_skills: only include skills that directly motivate this cluster (may be empty)
 - jd_context: one sentence, written entirely in the OUTPUT LANGUAGE stated in the user message (the candidate's UI language), regardless of the language of the gaps or the job description
 - Target 5-12 clusters; never more clusters than input gaps
