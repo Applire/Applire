@@ -535,12 +535,46 @@ async def _tailor_cv_with_fallback(
         )
 
 
+def _vault_dominant_language(profile_json: dict) -> str:
+    """The vault's OWN dominant language, over its CONCATENATED work text.
+
+    The same rule ADR-068 clause 2a gives ``VaultIndex.dominant_language``, and for
+    the same reason: ``detect_language`` is a stopword-frequency instrument built
+    for whole documents, so a two-word skill chip or a bare label classifies on
+    noise and a per-item vote would swing on it. Concatenating is what makes the
+    verdict meaningful, and it is why the SKILLS half of the #724 preseed is gated
+    on this rather than on the per-item predicate — measured 2026-09-18: every one
+    of "Large Language Models", "Data Integrity", "Agentic Systems", "Stakeholder
+    Management" and "Continuous Improvement" reads as `de` on its own, because none
+    of them carries an English function word.
+    """
+    from applire.utils.language_detection import detect_language
+
+    parts: list[str] = []
+    for w in profile_json.get("work_experience") or []:
+        if not isinstance(w, dict):
+            continue
+        for key in ("responsibilities", "achievements"):
+            parts.extend(b for b in (w.get(key) or []) if isinstance(b, str))
+    for pr in profile_json.get("projects") or []:
+        if not isinstance(pr, dict):
+            continue
+        for key in ("description", "responsibilities", "achievements"):
+            v = pr.get(key)
+            if isinstance(v, str):
+                parts.append(v)
+            elif isinstance(v, list):
+                parts.extend(x for x in v if isinstance(x, str))
+    return detect_language(" ".join(parts)) if parts else "de"
+
+
 def _plan_language_preseed(
     prose_draft: dict,
     profile_json: dict,
     *,
     keyword_ledger: list[dict] | None,
     budget: "BudgetResult | None",
+    job_dict: dict,
     document_language: str,
 ) -> tuple[dict, "PreseedPlan"]:
     """ADR-072/ADR-062/ADR-067 amended 2026-09-18 (#724, founder ruling W-1) —
@@ -680,6 +714,33 @@ def _plan_language_preseed(
             {"name": name, "bullets": list(proj.get("bullets") or [])}
         )
 
+    # (4) #672 line 102 — the SKILLS mount of the same class. `_tailor_skills_to_jd`
+    # re-adds a JD-required vault skill the page is missing, in the VAULT's own
+    # spelling, at the very end of the tail; on a bilingual vault that delivered
+    # "Large Language Models" next to the "Große Sprachmodelle" the language pass
+    # had just produced, and `_dedup_skills` — which runs earlier and compares
+    # within one language — could not see the pair.
+    #
+    # Gated on the VAULT's dominant language rather than on the per-item predicate,
+    # because a 2–3-word competency chip carries no English function word and
+    # `detect_language` calls every one of them German (measured). On a
+    # same-language vault this whole block is inert and the pipeline is unchanged.
+    if _vault_dominant_language(profile_json) != document_language:
+        from applire.services.ats_audit import skills_page_dupe, skill_tokens  # noqa: F401
+        from applire.services.profile.reconcile.stance import claimable_skill_names
+
+        drafted_skills = [
+            s for s in (new_draft.get("skills") or []) if isinstance(s, str) and s.strip()
+        ]
+        tier_fn = _jd_required_tier_fn(job_dict, keyword_ledger)
+        guaranteed = _guaranteed_vault_skills(
+            drafted_skills, claimable_skill_names(profile_json), tier_fn, skills_page_dupe
+        )
+        if guaranteed:
+            plan._pre_skills_len = len(drafted_skills)
+            plan.skills = {name: name for name in guaranteed}
+            new_draft["skills"] = drafted_skills + list(guaranteed)
+
     if plan.is_empty() and new_draft == prose_draft:
         return prose_draft, plan
     logger.info(
@@ -707,6 +768,24 @@ def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
     is taken from the draft only when the pass actually returned one.
     """
     from applire.services.ats_audit import _norm
+
+    if plan.skills:
+        skills = [x for x in (settled.get("skills") or []) if isinstance(x, str)]
+        expected = plan._pre_skills_len + len(plan.skills)
+        if len(skills) == expected:
+            for offset, name in enumerate(list(plan.skills)):
+                plan.skills[name] = skills[plan._pre_skills_len + offset]
+        else:
+            logger.warning(
+                "LANGUAGE_PRESEED_SETTLE_FALLBACK (#672 L102): the skills list came "
+                "back with %d entries, expected %d — re-appending %d vault skill(s) "
+                "verbatim", len(skills), expected, len(plan.skills),
+            )
+            present = {_norm(x) for x in skills}
+            for name in plan.skills:
+                if _norm(name) not in present:
+                    skills.append(name)
+            settled["skills"] = skills
 
     for entry in settled.get("work") or []:
         if not isinstance(entry, dict):
@@ -1940,6 +2019,62 @@ def _jd_skill_terms(
     return required, nice, keyword
 
 
+def _jd_required_tier_fn(job_dict: dict, keyword_ledger: list[dict] | None):
+    """The "is this skill a JD-REQUIRED term" half of ``_tailor_skills_to_jd``'s
+    ranking, as a standalone predicate the #724 preseed can call.
+
+    Deliberately only the tier-0 half: tier 0 is the ONLY tier the #192 guarantee
+    reads, and a second full copy of the ranking is exactly the drift ADR-066
+    forbids. Returns a callable with the same 0/3 contract the guarantee expects.
+    """
+    from applire.services.ats_audit import _NEAR_DUPE_JACCARD, skill_tokens
+
+    required, _nice, _keyword = _jd_skill_terms(job_dict, keyword_ledger)
+    req_toks = [t for t in (skill_tokens(x) for x in required) if t]
+
+    def _tier(skill: str) -> int:
+        st = skill_tokens(skill)
+        if not st:
+            return 3
+        for tt in req_toks:
+            if not tt:
+                continue
+            if st <= tt or tt <= st:
+                return 0
+            if len(st & tt) / len(st | tt) >= _NEAR_DUPE_JACCARD:
+                return 0
+        return 3
+
+    return _tier
+
+
+def _guaranteed_vault_skills(
+    tailored_skills: Sequence[str],
+    profile_skills: Sequence[str],
+    tier_fn,
+    page_dupe_fn,
+) -> list[str]:
+    """#192's guarantee set: the master-profile skills a JD REQUIRES, that the
+    candidate actually has, and that nothing already on the page covers.
+
+    Extracted 2026-09-18 (#672 L100/L102) so the #724 language preseed can put
+    exactly this set in front of the ADR-038 language pass instead of leaving
+    ``_tailor_skills_to_jd`` to place it behind — ADR-066: one definition of
+    "which vault skill is missing from the page", not two that can drift.
+
+    Profile spelling is used verbatim here, as it always was; whether the page
+    ends up showing the vault's spelling or the language pass's rendering of it
+    is decided by the preseed, never by this function.
+    """
+    out: list[str] = []
+    seen = list(tailored_skills)
+    for p in profile_skills:
+        if tier_fn(p) == 0 and not any(page_dupe_fn(p, x) for x in seen):
+            out.append(p)
+            seen.append(p)
+    return out
+
+
 def _tailor_skills_to_jd(
     tailored: TailoredCVData,
     profile_json: dict,
@@ -1948,6 +2083,7 @@ def _tailor_skills_to_jd(
     *,
     cap: int = CV_MAX_SKILLS,
     pins: Sequence = (),
+    preseed: "PreseedPlan | None" = None,
 ) -> TailoredCVData:
     """#192: present a prioritised, JD-relevant SUBSET of the candidate's skills.
 
@@ -2027,9 +2163,23 @@ def _tailor_skills_to_jd(
     # tag already on the page ('Lean Management' next to the writer's 'Lean') is
     # already covered, not missing (charter run 10 shipped six such clusters).
     pool = list(tailored_skills)
-    for p in profile_skills:
-        if _tier(p) == 0 and not any(skills_page_dupe(p, x) for x in pool):
-            pool.append(p)
+    excluded_by_preseed = set(preseed.skills) if preseed is not None else set()
+    for p in _guaranteed_vault_skills(
+        tailored_skills, profile_skills, _tier, skills_page_dupe
+    ):
+        # #672 line 102 (founder's edge UAT 2026-09-18): this re-add is the
+        # SKILLS mount of the #724 class — a deterministic pass placing
+        # vault-verbatim text on the page AFTER the last language pass. On a
+        # bilingual vault it delivered the candidate's own English spelling next
+        # to the German chip the language pass had just produced, and
+        # `_dedup_skills` (which ran earlier, and compares within one language)
+        # could not see the pair. When the preseed already put this vault skill
+        # in front of the language pass, the page carries it in the document's
+        # language and re-adding the vault spelling would restore exactly the
+        # duplicate the preseed removed.
+        if p in excluded_by_preseed:
+            continue
+        pool.append(p)
 
     # Collapse page-dupes (the newly re-added profile skills may twin a writer tag),
     # keeping the more-specific name — same shared page predicate as _dedup_skills.
@@ -3718,6 +3868,7 @@ async def _render_cv_background(
                         prose_draft, profile_json,
                         keyword_ledger=keyword_ledger,
                         budget=budget,
+                        job_dict=job_dict,
                         document_language=document_language,
                     )
                 prose_draft = await _review_cv_language(
@@ -4012,7 +4163,7 @@ def _compose_document(
     # JD-required skills the candidate actually has, drops no-relevance tags over
     # the cap, and never invents a skill.
     tailored = _tailor_skills_to_jd(
-        tailored, profile_json, job_dict, keyword_ledger, pins=pins
+        tailored, profile_json, job_dict, keyword_ledger, pins=pins, preseed=preseed
     )
 
     # Tiramisu wave-6 (blind hiring-panel run #6, 2026-07-26): restore any

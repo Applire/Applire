@@ -75,8 +75,14 @@ class PreseedPlan:
     by_entry: dict[str, list[PreseededBullet]] = field(default_factory=dict)
     #: work-entry id -> the language pass's rendering of that role's industry line
     industry_context: dict[str, str] = field(default_factory=dict)
+    #: vault skill name -> the language pass's rendering of it (#672 line 102).
+    #: Keys are the VAULT's own spelling; `_tailor_skills_to_jd` reads the keys to
+    #: know it must not place that spelling on the page a second time.
+    skills: dict[str, str] = field(default_factory=dict)
     #: bullet counts per entry at injection time, used to verify the settle
     _pre_lengths: dict[str, int] = field(default_factory=dict)
+    #: skills-list length at injection time, same purpose
+    _pre_skills_len: int = 0
 
     def excluded_vault_norms(self) -> dict[str, frozenset[str]]:
         """Per entry, the normalised vault bullets the tail may not restore again.
@@ -106,7 +112,11 @@ class PreseedPlan:
         return {_norm(p.translated_text): p for p in self.by_entry.get(entry_id, ())}
 
     def is_empty(self) -> bool:
-        return not any(self.by_entry.values()) and not self.industry_context
+        return (
+            not any(self.by_entry.values())
+            and not self.industry_context
+            and not self.skills
+        )
 
 
 def select_restore_candidates(

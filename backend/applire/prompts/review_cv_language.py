@@ -20,6 +20,10 @@
 #   line, and vault project bullets. ADR-072/ADR-062/ADR-067 amended, founder
 #   ruling W-1: "verbatim INTO the draft, then subject to the language pass like
 #   any other bullet.")
+# Prompt version: v2 also narrows the proper-noun carve-out (#672 line 102): a
+#   competency stated in English words is not a "technology name", and a bilingual
+#   twin in the skills list is translated into an exact duplicate on purpose so the
+#   page-scope dedup can collapse it.
 # Used by: services/cv.py → _review_cv_language(), wrapped with
 #          services/reviewer.review_and_refine (ADR-021, ADR-038).
 #          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
@@ -76,6 +80,19 @@ Crucial boundary (this is where models slip):
 - Only genuinely language-invariant PROPER NOUNS stay unchanged: company names,
   product/tool/framework/technology names (Figma, Adobe Photoshop, Python, AWS, React),
   certifications' official names, dates and numeric metrics.
+  A product or tool name is a NAMED ARTEFACT — something a company ships, sells or
+  installs, and that keeps that name in every language. A FIELD OF WORK or a
+  CAPABILITY described in ordinary English words is not one, however technical it
+  sounds: "Large Language Models", "Agentic Systems", "Data Integrity", "Stakeholder
+  Management", "Continuous Improvement", "Change Management" are competency phrases
+  and MUST be translated. The test is not "does this sound technical" — it is "could
+  I install it, buy it, or look it up in a vendor's catalogue".
+- The skills list may already carry the SAME competency twice, once in each language
+  ("Große Sprachmodelle" next to "Large Language Models") — the candidate's records
+  grew in two languages. Translate the foreign one anyway, and use the EXACT wording
+  the required-language entry already uses, so the two become identical. Producing a
+  duplicate here is correct and expected: the document's own dedup removes it. Leaving
+  the foreign entry to avoid the duplicate is the defect.
 - VERBATIM LABELS (a second, narrower boundary — this is ALSO where models slip): a
   skill name, certification name, employer name, job title, or named system/product may
   need its ordinary descriptive words translated, but a domain acronym riding inside it
@@ -120,6 +137,9 @@ dates, and numeric metrics unchanged. Keep every entry's `id` exactly as given �
 address vault entries and are never invented, dropped, or reassigned. Do NOT add,
 remove, reorder, split, or merge any entry, project, or skill — only translate text
 in place.
+When the list already contains the required-language form of a skill you are
+translating, reuse that entry's EXACT wording — the two are then identical, which is
+the intended outcome, and you must still not delete either one.
 VERBATIM LABELS: within a skill name, certification name, employer name, job title, or
 named system/product, a domain acronym — GxP, GMP, ALCOA+, CSV, LIMS, MES, ITIL, or an
 unfamiliar one — IS the name; copy it exactly and never expand it into its full words
