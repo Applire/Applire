@@ -998,7 +998,11 @@
       "summary_populated": "deine Selbstbeschreibung war schon geschrieben und blieb unverändert",
       "no_write": "von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein",
       "no_write_already_known": "das steht so schon in deinem Profil",
-      "no_write_question_only": "deine Frage ist angekommen — dazu wurde nichts geändert"
+      "no_write_question_only": "deine Frage ist angekommen — dazu wurde nichts geändert",
+      "confirmation_discarded": "du hast es verworfen",
+      "confirmation_held": "es wartet auf eine weitere Frage — zu welcher deiner Positionen bei diesem Arbeitgeber es gehört",
+      "confirmation_unresolvable": "der genannte Eintrag existiert nicht mehr, deshalb wurde nichts geschrieben",
+      "confirmation_already_present": "dieser Eintrag enthielt es bereits"
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",

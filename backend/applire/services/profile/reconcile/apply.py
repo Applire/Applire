@@ -33,6 +33,7 @@ import logging
 import types
 import typing
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Union
 
@@ -71,8 +72,16 @@ from applire.services.profile.reconcile.dedupe import (
 )
 from applire.services.profile.reconcile.confirmations import (
     entity_dupe_confirmation,
+    resolve_option_key,
     skill_containment_confirmation,
     skill_overlap_confirmation,
+)
+# Bug #723 — the attribution family's RESOLUTION. The plan is computed there
+# (pure, beside the guard that raised the ask — ADR-066, one implementation of
+# employer attribution) and executed here, where the profile is being edited.
+from applire.services.profile.reconcile.attribution import (
+    _held_label,
+    plan_attribution_resolution,
 )
 from applire.services.profile.reconcile.witness import compute_no_write
 from applire.services.profile.reconcile.ops import (
@@ -689,7 +698,9 @@ def apply_ops(
             # own string and may name no schema slot at all).
             new_profile = _apply_resolve_field(op, new_profile, changes)
         elif isinstance(op, ResolveConfirmation):
-            _apply_resolve_confirmation(op, new_profile, changes)
+            _apply_resolve_confirmation(
+                op, new_profile, changes, not_applied, pending, resolve_any
+            )
         elif isinstance(op, AddRole):
             # #480 PR 6 — the post-hire act. Un-adjudicated by design: see the
             # op's docstring on why the dupe guard belongs in front of model
@@ -1479,15 +1490,50 @@ def _apply_resolve_field(
 
 
 def _apply_resolve_confirmation(
-    op: ResolveConfirmation, profile: MasterProfileData, changes: list[FieldChange]
+    op: ResolveConfirmation,
+    profile: MasterProfileData,
+    changes: list[FieldChange],
+    not_applied: list[ImportNotApplied],
+    pending: list[RequestConfirmation],
+    resolve_any: Callable[[str | None], Any | None],
 ) -> None:
-    """Record the chosen option and clear the parked ask (design §4.5).
+    """Record the chosen option, clear the parked ask, and — for the attribution
+    family — WRITE what the answer places (design §4.5; ADR-063 am. 2026-09-18).
 
-    Bookkeeping, not content: the reconciler already applied its best-effort
-    merge when it raised the ambiguity. What this closes is the LIFECYCLE — a
-    parked confirmation with no durable clear would be re-asked by every later
-    session that reads `metadata.pending_confirmations` (#480 PR 2's
-    `park_confirmations` note).
+    Bookkeeping was the whole contract until Bug #723. It is still the whole
+    contract for the six entity-dupe families and the two skill families: the
+    reconciler already applied its best-effort merge when it raised those, and
+    the answer steers a merge of something that is in the vault.
+
+    It was never the right contract for family 4, the attribution guard (#243).
+    That guard's mechanism is to pull the content OUT of the op
+    (`attribution.enforce_attribution` — `kept` minus `flagged`) and carry it in
+    the question's own `context["flagged"]`. Nothing applied it. So the
+    bookkeeping-only resolution wrote `metadata|updated|pending_confirmations`
+    and nothing else: the candidate answered "move it to BioNTech", was told
+    "Recorded your answer to a confirmation question", and the attested bullet
+    existed in no role afterwards — twice in one edge run, `triage:vault-
+    integrity`.
+
+    So `move` / `keep_here` / `discard` are resolved here, against the profile
+    this function is already editing. **The placement is a PLAN computed by
+    `attribution.plan_attribution_resolution`** (pure, no DB, founder ruling
+    V-1 / D-6 on cardinality) and executed here, and **no path may leave a
+    metadata-only receipt for a decision that names a bullet**: every held item
+    ends as a `work_experience`/`projects` change or as an explicit
+    `ImportNotApplied` item saying why not.
+
+    It lives in the APPLIER, not beside `session._apply_engagement_confirmation`,
+    because `profile.resolve_confirmation` has exactly ONE caller —
+    `session._resolve_confirmation_safely` — reached from BOTH resolution routes:
+    the in-turn one (`_handle_interview_confirmation_answer`) and the standalone
+    profile-review one (`_handle_confirmation_answer`, which #686's "Decide now"
+    CTA opens and which is where an ask raised by `submit_testimony`,
+    `submit_claims` or a CV import is actually answered), each reachable from the
+    browser and from the agent door. Wiring the write into ONE of those handlers
+    is precisely the door-parity hole the 2026-09-09 adversarial pass found in
+    founder ruling V-5's first build; going through the committer cannot repeat
+    it.
 
     An unknown or already-resolved id is a quiet no-op: `resolve_confirmation`
     raises `LookupError` at the door for a genuinely unknown id, and the
@@ -1522,6 +1568,88 @@ def _apply_resolve_confirmation(
             rationale_key="confirmation_resolved",
         )
     )
+
+    # ── Bug #723 — the attribution family's answer places its held content ───
+    plan = plan_attribution_resolution(
+        entry.context or {},
+        resolve_option_key(entry.model_dump(), op.chosen_option),
+        profile,
+    )
+    if plan is None:
+        return  # not family 4, or a record with no stable keys — bookkeeping only
+
+    for section, label, reason in plan.not_applied:
+        not_applied.append(
+            ImportNotApplied(section=section, label=label, reason=reason)  # type: ignore[arg-type]
+        )
+    if plan.followup is not None:
+        pending.append(plan.followup)
+
+    for entity_id, field, text in plan.placements:
+        entity = resolve_any(entity_id)
+        if entity is None or not hasattr(entity, field):
+            not_applied.append(
+                ImportNotApplied(
+                    section=_section_for(entity) if entity is not None else None,
+                    label=_held_label(field, text),
+                    reason="confirmation_unresolvable",
+                )
+            )
+            continue
+        if _append_dedup(getattr(entity, field), [text]):
+            changes.append(_merged(_section_for(entity), field, None, [text]))
+        else:
+            # Already on that entry: the candidate's decision is satisfied and
+            # the vault is correct, but `changes` stays silent — so the receipt
+            # says it in the one channel that can (#723's invariant: never a
+            # metadata-only receipt for a decision that names a bullet).
+            not_applied.append(
+                ImportNotApplied(
+                    section=_section_for(entity),
+                    label=_held_label(field, text),
+                    reason="confirmation_already_present",
+                )
+            )
+
+    for entity_id, field, value in plan.scalars:
+        entity = resolve_any(entity_id)
+        if entity is None or not hasattr(entity, field):
+            not_applied.append(
+                ImportNotApplied(
+                    section=_section_for(entity) if entity is not None else None,
+                    label=_held_label(field, value),
+                    reason="confirmation_unresolvable",
+                )
+            )
+            continue
+        current = getattr(entity, field)
+        if _is_empty(current):
+            coerced = _coerce_to_field_type(entity, field, value)
+            if coerced is _SKIP:
+                not_applied.append(
+                    ImportNotApplied(
+                        section=_section_for(entity),
+                        label=_held_label(field, value),
+                        reason="confirmation_unresolvable",
+                    )
+                )
+                continue
+            setattr(entity, field, coerced)
+            changes.append(_updated(_section_for(entity), field, current, coerced))
+        else:
+            # Same refusal `_apply_set_field` makes: a populated scalar is a
+            # dispute, and an attribution answer is not the act that settles it.
+            not_applied.append(
+                ImportNotApplied(
+                    section=_section_for(entity),
+                    label=_held_label(field, value),
+                    reason=(
+                        "confirmation_already_present"
+                        if _norm(current) == _norm(value)
+                        else "confirmation_unresolvable"
+                    ),
+                )
+            )
 
 
 def _apply_add_role(

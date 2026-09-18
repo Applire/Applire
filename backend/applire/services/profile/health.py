@@ -274,6 +274,20 @@ _NOT_APPLIED_REASON = {
     "no_write_question_only": (
         "your question arrived — nothing was changed for it"
     ),
+    # Bug #723 (ADR-063 amended 2026-09-18) — the three outcomes of an answered
+    # attribution question that do NOT write. Each says what the candidate's own
+    # decision did, because each of them is a decision they made or one the
+    # system still needs from them; a silent metadata-only receipt for exactly
+    # these is the harm the Bug filed.
+    "confirmation_discarded": "you chose to discard it",
+    "confirmation_held": (
+        "it is waiting on one more question — which of your roles at that "
+        "employer it belongs to"
+    ),
+    "confirmation_unresolvable": (
+        "the entry it named is no longer there, so it was not written"
+    ),
+    "confirmation_already_present": "that entry already said it",
 }
 
 

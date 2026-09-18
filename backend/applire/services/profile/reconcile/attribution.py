@@ -112,12 +112,14 @@ implementation, which is the thing that rule forbids.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
 from applire.services.ats_audit import skill_tokens
 from applire.services.profile.reconcile.confirmations import (
     attribution_confirmation,
+    attribution_entry_confirmation,
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
@@ -406,14 +408,170 @@ def _foreign_employers(text: str, candidates: dict[str, str], target_core: str) 
     return {core for core in _employers_named_in(text, candidates) if core != target_core}
 
 
+# ── clause scoping: the model's OWN split is the evidence (#674 L34, #723) ───
+
+
+def _guarded_content_ops(
+    ops: list[ReconcileOp], profile: MasterProfileData
+) -> list[tuple[ReconcileOp, str]]:
+    """Every op in the batch that puts guarded content on a KNOWN employer, with
+    that employer's core name.
+
+    The shared first pass of both clause-scoping rules below. It reads exactly
+    what the two channels read — ``add_bullets`` free text and a guarded
+    ``set_field`` value — so "the employers this batch writes to" can never
+    drift from "the employers the guard adjudicates".
+    """
+    out: list[tuple[ReconcileOp, str]] = []
+    for op in ops:
+        if isinstance(op, AddBullets):
+            if not any(getattr(op, f) for f in _BULLET_FIELDS):
+                continue
+        elif isinstance(op, SetField):
+            if op.field not in _GUARDED_SET_FIELDS or not isinstance(op.value, str):
+                continue
+        else:
+            continue
+        entity = _resolve_existing(op.target, profile)
+        core = _entity_employer_core(entity, profile) if entity is not None else None
+        if core:
+            out.append((op, core))
+    return out
+
+
+def _muted_sentences(
+    content_ops: list[tuple[ReconcileOp, str]], sentences: list[str]
+) -> set[str]:
+    """Sentences the MODEL has already split across employers (#674 line 34).
+
+    #243's design says a sentence naming two or more distinct employers is
+    ambiguous and must fail open rather than guess. Its detector for that —
+    ``_anchor_company``'s literal, legal-form-stripped CORE-name match — badly
+    under-counts: measured over all 80 captured #684 spike records, the compact
+    three-station sentence reads as naming exactly ONE employer, because
+    "NovaRNA" is not the core "NovaRNA Biotech" and "the blood donation service"
+    is not "Blutspendedienst Nord". So the ambiguity rule never engaged and
+    **23 of 29 flagged items were over-fires**: correctly targeted bullets
+    ("blood bags at the blood donation service" -> Blutspendedienst) each asked
+    about against Helvetia Pharma, 10/10 runs on that shape.
+
+    The fix keys the same rule on evidence the model itself produced instead:
+    a sentence anchors nothing when the batch **PARTITIONS** it — draws guarded
+    content from it for two or more distinct target employers, and gives no two
+    of those employers the same text. A partition is the model attributing that
+    sentence at a granularity this guard cannot read, so the guard must not
+    re-attribute one share of it to the single employer it could literally
+    match. A FACT about the op batch (ADR-062 clause 1) — never a clause
+    splitter, and channel 2 (the bullet's own words, M-2c) is untouched.
+
+    **Why "partition" and not merely "two employers".** #243's own ground truth
+    (`test_reconcile_attribution.py`, live turn 2026-07-24) is a batch that gave
+    the SAME bullet — "Built deterministic verification layer (Truthfulness
+    Oracle) …" — to both the NordPharm role and the Applire role. Two employers
+    drew from the sentence, but that is not a split; it is the model
+    contradicting itself, and the anchor is exactly what catches it. A shared
+    text anywhere among the drawing employers therefore leaves the sentence
+    speaking.
+
+    Measured effect over the 80 captured records: channel-1 flags 23 -> 2,
+    channel 2 unchanged at 6, and #243's live incident still routes both
+    mis-targeted ops into the confirmation.
+    """
+    per_sentence: dict[str, dict[str, set[str]]] = {}
+    for op, core in content_ops:
+        texts = (
+            [t for f in _BULLET_FIELDS for t in getattr(op, f)]
+            if isinstance(op, AddBullets)
+            else [op.value]
+        )
+        for text in texts:
+            sentence = _owning_sentence(text, sentences)
+            if sentence is not None:
+                per_sentence.setdefault(sentence, {}).setdefault(core, set()).add(text)
+    muted: set[str] = set()
+    for sentence, by_core in per_sentence.items():
+        if len(by_core) < 2:
+            continue
+        shares = list(by_core.values())
+        if any(
+            shares[i] & shares[j]
+            for i in range(len(shares))
+            for j in range(i + 1, len(shares))
+        ):
+            continue  # a duplicated text is not a partition — see above
+        muted.add(sentence)
+    return muted
+
+
+def _batch_anchor(
+    content_ops: list[tuple[ReconcileOp, str]],
+    corpus: str,
+    sentences: list[str],
+    candidates: dict[str, str],
+) -> tuple[str, str] | None:
+    """The employer the WHOLE answer is about, when the batch contradicts it.
+
+    #723's unflagged sibling: the answer was "Als ich 2018 zu BioNTech kam …
+    Teamleitung während der Elternzeit", the reconciler put every bullet of it
+    under the PREVIOUS employer, and the guard flagged only the one bullet whose
+    own text repeats "BioNTech". The sibling and the ``technologies`` from the
+    same answer merged silently — the bullet's own words say nothing (channel 2
+    is blind), and the owning-sentence channel cannot reach across the answer's
+    German and the bullet's English (token coverage ~0).
+
+    The narrow fact that survives both blindnesses: **this batch writes guarded
+    content to exactly ONE employer, and the answer names exactly one, and they
+    are different.** There is then no split to respect and no clause to guess —
+    the whole op is held, and the candidate's answer places all of it (ADR-063
+    am. 2026-09-18 clause 1: ``keep_here`` puts it back, so nothing is lost by
+    asking). ``None`` whenever the batch touches two or more employers — the
+    model split it, and rule (a) above governs instead.
+
+    Measured over the same 80 captured records: fires on 10 (all S7 — the
+    one-station vault, the very fold shape founder ruling M-2c was written for),
+    holding 12 bullets that ship silently today, and on 0 of the four
+    multi-station shapes.
+    """
+    cores = {core for _, core in content_ops}
+    if len(cores) != 1:
+        return None
+    anchor = _anchor_company(corpus, candidates)
+    if anchor is None or anchor[0] in cores:
+        return None
+    # The same exclusion channel 2 makes per bullet (`_foreign_employers`),
+    # applied to the sentences that actually NAME the anchor rather than to the
+    # whole answer: an answer about the Siemens ACCOUNT while employed at Bosch
+    # names Siemens as a client, not a second job
+    # (`test_set_field_naming_a_client_account_is_not_rerouted`). Scoped to the
+    # naming sentences on purpose — "übernommen" ("took over") is in the marker
+    # vocabulary for "Übernahme"/acquisition, and #723's own answer says
+    # "Teamleitung … übernommen" in a LATER sentence, which at corpus
+    # granularity silenced the channel on the very case it exists for.
+    naming = [
+        sentence
+        for sentence in sentences
+        if anchor[0] in _employers_named_in(sentence, {anchor[0]: anchor[1]})
+    ]
+    if naming and all(_RELATIONAL_MARKER_RE.search(s) for s in naming):
+        return None
+    return anchor
+
+
 # ── the guard itself ─────────────────────────────────────────────────────────
 
 # Technologies are short generic nouns ("Databricks", "LangGraph") — the
 # owning-sentence coverage check is unreliable at that granularity (a
 # one-token bullet trivially "covers" many unrelated sentences), so they stay
-# out of scope; the live incident's misattributions were both free-text
-# achievement/responsibility bullets.
+# out of scope OF CHANNELS 1 AND 2; the live incident's misattributions were
+# both free-text achievement/responsibility bullets.
 _GUARDED_FIELDS = ("responsibilities", "achievements")
+
+#: Channel 3 (``_batch_anchor``) reads no bullet text at all — it decides from
+#: the batch's own targeting — so the granularity objection above does not apply
+#: and ``technologies`` is in scope there. #723: the same answer's
+#: ``technologies: ["Clean Code", "Software architecture"]`` merged under the
+#: wrong employer beside the sibling bullet, for exactly this reason.
+_BULLET_FIELDS = ("responsibilities", "achievements", "technologies")
 
 
 def _build_confirmation(
@@ -473,10 +631,18 @@ def enforce_attribution(
     if not candidates:
         return ops
 
+    # Clause scoping (ADR-063 amended 2026-09-18): one pass over the batch,
+    # read by both new rules — the sentences the model itself already split
+    # (rule a, #674 line 34) and the one-employer batch a one-employer answer
+    # contradicts (rule b, #723's unflagged sibling).
+    content_ops = _guarded_content_ops(ops, profile)
+    muted = _muted_sentences(content_ops, sentences)
+    batch_anchor = _batch_anchor(content_ops, corpus, sentences, candidates)
+
     result: list[ReconcileOp] = []
     for op in ops:
         if isinstance(op, SetField):
-            result.extend(_guard_set_field(op, profile, candidates))
+            result.extend(_guard_set_field(op, profile, candidates, batch_anchor))
             continue
         if not isinstance(op, AddBullets):
             result.append(op)
@@ -491,26 +657,41 @@ def enforce_attribution(
 
         kept: dict[str, list[str]] = {}
         flagged: list[tuple[str, str, str]] = []
-        for field in _GUARDED_FIELDS:
+        for field in _BULLET_FIELDS:
             kept_bullets: list[str] = []
             for bullet in getattr(op, field):
-                # Channel 2 (M-2c) FIRST: the bullet's own words are decisive and
-                # cannot be ambiguous — a bullet naming an employer other than its
-                # target is mis-attributed however many it names.
-                foreign = _foreign_employers(bullet, candidates, target_core)
-                if foreign:
-                    flagged.append(
-                        (field, bullet, " / ".join(sorted(candidates[c] for c in foreign)))
-                    )
+                if field in _GUARDED_FIELDS:
+                    # Channel 2 (M-2c) FIRST: the bullet's own words are decisive
+                    # and cannot be ambiguous — a bullet naming an employer other
+                    # than its target is mis-attributed however many it names.
+                    foreign = _foreign_employers(bullet, candidates, target_core)
+                    if foreign:
+                        flagged.append(
+                            (field, bullet, " / ".join(sorted(candidates[c] for c in foreign)))
+                        )
+                        continue
+                    # Channel 1 (#243): the OWNING SENTENCE, for the common case
+                    # of a bullet that names no employer at all in its own text —
+                    # silent on a sentence the model already split (rule a).
+                    sentence = _owning_sentence(bullet, sentences)
+                    if sentence is not None and sentence not in muted:
+                        anchor = _anchor_company(sentence, candidates)
+                        if anchor is not None and anchor[0] != target_core:
+                            flagged.append((field, bullet, anchor[1]))
+                            continue
+                # Channel 3 (rule b): neither channel above can see across a
+                # translated paraphrase, and this batch names one employer while
+                # the answer names another. Held, not re-attributed — unless the
+                # bullet's own words describe a RELATIONSHIP, the exclusion
+                # channel 2 already makes.
+                if (
+                    batch_anchor is not None
+                    and batch_anchor[0] != target_core
+                    and not _RELATIONAL_MARKER_RE.search(bullet)
+                ):
+                    flagged.append((field, bullet, batch_anchor[1]))
                     continue
-                # Channel 1 (#243): the OWNING SENTENCE, for the common case of a
-                # bullet that names no employer at all in its own text.
-                sentence = _owning_sentence(bullet, sentences)
-                anchor = _anchor_company(sentence, candidates) if sentence else None
-                if anchor is not None and anchor[0] != target_core:
-                    flagged.append((field, bullet, anchor[1]))
-                else:
-                    kept_bullets.append(bullet)
+                kept_bullets.append(bullet)
             kept[field] = kept_bullets
 
         if not flagged:
@@ -525,7 +706,10 @@ def enforce_attribution(
 
 
 def _guard_set_field(
-    op: SetField, profile: MasterProfileData, candidates: dict[str, str]
+    op: SetField,
+    profile: MasterProfileData,
+    candidates: dict[str, str],
+    batch_anchor: tuple[str, str] | None = None,
 ) -> list[ReconcileOp]:
     """M-2c for `set_field`: the same question, a whole VALUE instead of a bullet.
 
@@ -542,9 +726,20 @@ def _guard_set_field(
     if target_core is None:
         return [op]
     foreign = _foreign_employers(op.value, candidates, target_core)
-    if not foreign:
+    if foreign:
+        anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
+    elif (
+        batch_anchor is not None
+        and batch_anchor[0] != target_core
+        and not _RELATIONAL_MARKER_RE.search(op.value)
+    ):
+        # Channel 3 (rule b) reaches the scalar too: `ministral-8b` folded a
+        # three-employer span into `industry_context` rather than into a bullet
+        # (taxonomy §3.3), and a fold whose text names no employer at all is
+        # exactly what the batch-level anchor is for.
+        anchor_text = batch_anchor[1]
+    else:
         return [op]
-    anchor_text = " / ".join(sorted(candidates[c] for c in foreign))
     target_display = candidates.get(target_core, target_core)
     section = "work_experience" if isinstance(entity, WorkEntry) else "projects"
     return [
@@ -561,3 +756,199 @@ def _guard_set_field(
             },
         )
     ]
+
+
+# ── resolving an answered attribution ask (Bug #723) ─────────────────────────
+
+#: The one implementation of "which entry does this attribution answer place the
+#: held content on". A PLAN, not a write: `apply.py` executes it against the
+#: profile it is already editing, so the resolution reaches every route through
+#: the one committer rather than through one answer handler — the door-parity
+#: hole the 2026-09-09 adversarial pass found in founder ruling V-5's first
+#: build, not repeated here.
+@dataclass(frozen=True)
+class AttributionPlan:
+    #: ``(entity_id, field, text)`` — appended to that entity's bullet list.
+    placements: tuple[tuple[str, str, str], ...] = ()
+    #: ``(entity_id, field, value)`` — written into an EMPTY scalar slot only.
+    scalars: tuple[tuple[str, str, str], ...] = ()
+    #: ``(section, label, reason)`` — an ``ImportNotApplied`` item the applier mints.
+    not_applied: tuple[tuple[str, str, str], ...] = ()
+    #: The narrower keyed ask, parked when the anchor names several roles.
+    followup: RequestConfirmation | None = None
+
+
+_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+
+#: The held text, cut for a receipt label. Long enough that the candidate
+#: recognises their own sentence, short enough that a receipt stays a receipt —
+#: the same truncation idiom `compute_no_write`'s residue label uses.
+_LABEL_CHARS = 120
+
+
+def _held_label(field: str, text: str) -> str:
+    body = " ".join((text or "").split())
+    if len(body) > _LABEL_CHARS:
+        body = body[: _LABEL_CHARS - 1].rstrip() + "…"
+    return f"{field}: {body}"
+
+
+def _anchor_entries(anchor_text: str, profile: MasterProfileData) -> list[WorkEntry]:
+    """Every work entry the ANSWER's employer name(s) identify.
+
+    `anchor_employer` is a DISPLAY string, and `_build_confirmation` joins
+    several with " / " when one op was flagged against more than one employer.
+    Matching is on the same legal-form-stripped core the guard anchors on, so
+    "BioNTech SE" in the ask and "BioNTech" in the vault are one employer — and
+    a candidate with three stints there yields three entries, which is exactly
+    the cardinality founder ruling V-1 governs.
+    """
+    cores = {
+        _core_company_name(part.strip())
+        for part in (anchor_text or "").split(" / ")
+        if part.strip()
+    }
+    cores = {c.casefold() for c in cores if c}
+    if not cores:
+        return []
+    return [
+        w
+        for w in profile.work_experience
+        if w.company and _core_company_name(w.company).casefold() in cores
+    ]
+
+
+def _covers_year(entry: WorkEntry, year: int) -> bool:
+    """Whether ``year`` falls inside this role's own date range.
+
+    Clock-free on purpose (this module is pure): an open-ended role — no end
+    date, or `is_current` — covers every year from its start onwards, so a role
+    the candidate still holds never needs today's date to be decided.
+    """
+    start = (entry.start_date or "")[:4]
+    if not start.isdigit():
+        return False
+    if int(start) > year:
+        return False
+    end = (entry.end_date or "")[:4]
+    if entry.is_current or not end.isdigit():
+        return True
+    return year <= int(end)
+
+
+def _entry_label(entry: WorkEntry) -> str:
+    span = "–".join(p for p in [(entry.start_date or ""), (entry.end_date or "")] if p)
+    if entry.is_current and entry.start_date and not entry.end_date:
+        span = f"{entry.start_date}–"
+    role = (entry.role or "").strip() or (entry.company or "").strip()
+    return f"{role} ({span})" if span else role
+
+
+def _place_all(
+    entity_id: str, flagged: list[tuple[str, str]]
+) -> tuple[tuple[tuple[str, str, str], ...], tuple[tuple[str, str, str], ...]]:
+    placements = tuple(
+        (entity_id, field, text) for field, text in flagged if field in _BULLET_FIELDS
+    )
+    scalars = tuple(
+        (entity_id, field, text)
+        for field, text in flagged
+        if field in _GUARDED_SET_FIELDS
+    )
+    return placements, scalars
+
+
+def plan_attribution_resolution(
+    context: dict[str, Any], option_key: str | None, profile: MasterProfileData
+) -> AttributionPlan | None:
+    """Turn an answered attribution ask into what the vault should now hold.
+
+    Bug #723: the guard HOLDS the content (it is removed from the op and carried
+    only in `context["flagged"]`), and the resolution used to write the metadata
+    CLEAR and nothing else — so the candidate placed an attested fact and the
+    fact was gone, under a receipt reading "Recorded your answer". Twice in one
+    edge run, `triage:vault-integrity`.
+
+    ``None`` means "not this family, or not answerable" — a model-emitted
+    `request_confirmation` (prompt rule 6) carries neither `option_keys` nor
+    `flagged`, and a record persisted before #669 carries no keys either; both
+    keep the pre-#723 bookkeeping-only behaviour, correctly: nothing was held.
+
+    Founder ruling V-1 / D-6 (2026-09-18) on cardinality: exactly one candidate
+    entry places it; several, with one 4-digit year in the held text falling
+    into exactly one role's range, places it there; anything else asks the
+    narrower keyed question and keeps the content held. Never "the most recent
+    role".
+    """
+    flagged = [
+        (str(item.get("field") or ""), str(item.get("text") or ""))
+        for item in (context.get("flagged") or [])
+        if isinstance(item, dict) and (item.get("text") or "").strip()
+    ]
+    if not flagged or not context.get("anchor_employer"):
+        return None
+    section = str(context.get("section") or "work_experience")
+    held = tuple(
+        (section, _held_label(field, text), "confirmation_held") for field, text in flagged
+    )
+
+    def _lost(reason: str) -> tuple[tuple[str, str, str], ...]:
+        return tuple((section, _held_label(f, t), reason) for f, t in flagged)
+
+    if option_key == "discard":
+        return AttributionPlan(not_applied=_lost("confirmation_discarded"))
+
+    if option_key == "keep_here":
+        target = context.get("target")
+        if not target or _resolve_existing(str(target), profile) is None:
+            return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+        placements, scalars = _place_all(str(target), flagged)
+        return AttributionPlan(placements=placements, scalars=scalars)
+
+    # The narrower ask's own answer: an ENTRY id, never a rendered label (#669).
+    if option_key and option_key.startswith("entry:"):
+        entity_id = option_key.split(":", 1)[1]
+        if not entity_id or _resolve_existing(entity_id, profile) is None:
+            return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+        placements, scalars = _place_all(entity_id, flagged)
+        return AttributionPlan(placements=placements, scalars=scalars)
+
+    if option_key != "move":
+        return None
+
+    anchor_text = str(context.get("anchor_employer") or "")
+    candidates = _anchor_entries(anchor_text, profile)
+    if not candidates:
+        return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+    if len(candidates) > 1:
+        years = {int(y) for _, text in flagged for y in _YEAR_RE.findall(text)}
+        covering = (
+            [e for e in candidates if _covers_year(e, next(iter(years)))]
+            if len(years) == 1
+            else []
+        )
+        if len(covering) != 1:
+            return AttributionPlan(
+                not_applied=held,
+                followup=attribution_entry_confirmation(
+                    sample=flagged[0][1],
+                    anchor_text=anchor_text,
+                    candidates=[
+                        (str(e.id), _entry_label(e)) for e in candidates if e.id
+                    ],
+                    context={
+                        "section": section,
+                        "anchor_employer": anchor_text,
+                        "target_employer": anchor_text,
+                        "flagged": [
+                            {"field": field, "text": text} for field, text in flagged
+                        ],
+                    },
+                ),
+            )
+        candidates = covering
+    entity_id = str(candidates[0].id or "")
+    if not entity_id:
+        return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+    placements, scalars = _place_all(entity_id, flagged)
+    return AttributionPlan(placements=placements, scalars=scalars)

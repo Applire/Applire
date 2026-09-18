@@ -85,6 +85,18 @@ table, imported here rather than copied), CARRIED when:
       match arm (a) needs. Scoped to entries sharing a field with the touched
       entry (not "any set_field anywhere in this section") so one targeted
       edit cannot blanket-rescue an unrelated loss in the same batch.
+      **Amended 2026-09-18 (#674 line 82): the same sub-clause also binds
+      TARGET-FIRST.** Key equality is the one shape a TRANSLATION can never
+      satisfy — measured 2/2 on the founder's DE LinkedIn export onto his EN
+      profile, where the applier wrote what a `set_field` said and the witness
+      still called the entry lost, contradicting the same receipt's own
+      `changes`. So a `set_field` whose `target` resolves BY ID to a merged
+      entry E of this section binds the incoming entry whose OWN value for
+      `op.field` equals `op.value` (normalised), with sub-clause 3's cardinality
+      discipline: several candidates -> those sharing a further non-empty
+      natural-key field with E survive and exactly one survivor is bound,
+      otherwise none. The id is the fact; the written value is the
+      disambiguator. See `_flat_set_field_bound_keys`.
 
 **Arm (c), sub-clause 3 (#707, ADR-063 amended 2026-09-16) — the model SAID it
 is already there.** A ``match_existing`` op (ADR-046 amended the same day) whose
@@ -274,6 +286,83 @@ def _op_natural_keys(ops: Sequence[CommitOp], op_type: type, fields: tuple[str, 
     }
 
 
+def _flat_set_field_bound_keys(
+    incoming_entries: Sequence[Any],
+    merged_entries: Sequence[Any],
+    ops: Sequence[CommitOp],
+    fields: tuple[str, ...],
+) -> set[tuple[str, ...]]:
+    """Arm (c), sub-clause 2, TARGET-FIRST (#674 line 82, ADR-063 am. 2026-09-18).
+
+    The key-equality rescue below is the one shape a TRANSLATION can never
+    satisfy. Measured on the founder's DE LinkedIn export onto his EN profile
+    (edge, `ec2e6af5`, 2026-09-18, 2/2 imports): the reconciler emitted
+    ``set_field(target=<existing id>, field="degree", value="Diplom")`` and a
+    sibling for ``field``, the applier WROTE both (``education|updated|field``
+    in the same receipt), and the witness still listed
+    ``Julius-Maximilians-Universität Würzburg / Diplom`` as
+    ``no_op_carried_entry`` — the institution differs by a city suffix, the
+    degree by the translation, so no natural key is EQUAL after ``_norm``. The
+    receipt contradicted itself, ``merge_status`` went ``partial``, and the
+    agent door was made to report a loss that did not happen.
+
+    A ``set_field`` whose ``target`` resolves BY ID to a merged entry of this
+    section IS the model's identity judgement — the same judgement
+    ``match_existing`` records — so it binds target-first exactly as sub-clause
+    3 does, with the WRITTEN VALUE as the disambiguator: the incoming entry
+    whose own value for ``op.field`` equals ``op.value`` (normalised) is the
+    entry the model correlated. That is a fact check, not a judgement
+    (ADR-062 clause 1): the id is the fact, the value is the fact.
+
+    Cardinality discipline, borrowed verbatim from sub-clause 3: several
+    candidates -> those sharing a further non-empty natural-key field with the
+    TARGET survive, and exactly one survivor is bound; otherwise none. An empty
+    value, a target that resolves to nothing or to another section, and a
+    ``set_field`` on a field no incoming entry carries all rescue nothing.
+
+    Deliberately NOT reached for: ``services/cv._LANGUAGE_NAME_CANON``, the
+    closed-domain DE/EN language table (collector option (c)). Importing
+    ``services.cv`` from the vault write path would invert the package
+    dependency. A translated VALUE the model re-rendered rather than copied is
+    the named residual of this amendment.
+    """
+    merged_by_id = {
+        getattr(e, "id", None): e for e in merged_entries if getattr(e, "id", None)
+    }
+    distinct: dict[tuple[str, ...], Any] = {}
+    for entry in incoming_entries:
+        distinct.setdefault(_entry_key(entry, fields), entry)
+    bound: set[tuple[str, ...]] = set()
+    for op in ops:
+        if not isinstance(op, SetField):
+            continue
+        target = merged_by_id.get(op.target)
+        if target is None:
+            continue  # unresolvable, or an entity of another section
+        wanted = _norm(op.value)
+        if not wanted or not op.field:
+            continue
+        candidates = [
+            (key, entry)
+            for key, entry in distinct.items()
+            if _norm(getattr(entry, op.field, "") or "") == wanted
+        ]
+        if len(candidates) > 1:
+            candidates = [
+                (key, entry)
+                for key, entry in candidates
+                if any(
+                    _norm(getattr(entry, f, "") or "")
+                    and _norm(getattr(entry, f, "") or "")
+                    == _norm(getattr(target, f, "") or "")
+                    for f in fields
+                )
+            ]
+        if len(candidates) == 1:
+            bound.add(candidates[0][0])
+    return bound
+
+
 def _flat_set_field_touched_entries(
     ops: Sequence[CommitOp], merged_entries: Sequence[Any]
 ) -> list[Any]:
@@ -362,6 +451,11 @@ def _flat_section_not_applied(
     op_keys = _op_natural_keys(ops, _FLAT_OP_TYPES[section], fields)
     touched_entries = _flat_set_field_touched_entries(ops, merged_entries)
     bound_keys = _flat_match_existing_bound_keys(incoming_entries, merged_entries, ops, fields)
+    # ADR-063 amended 2026-09-18 (#674 line 82) — the target-first binder. A
+    # pure WIDENING: the key-equality arm below is untouched and still runs.
+    bound_keys |= _flat_set_field_bound_keys(
+        incoming_entries, merged_entries, ops, fields
+    )
     getters = _getters_for(fields)
     containment_is_same = _FLAT_CONTAINMENT_IS_SAME.get(section, False)
 
@@ -374,7 +468,11 @@ def _flat_section_not_applied(
         seen.add(key)
         if key in merged_keys:  # arm (a)
             continue
-        if key in bound_keys:  # arm (c), sub-clause 3 (#707) — the model said so
+        if key in bound_keys:
+            # arm (c), sub-clause 3 (#707, `match_existing`) — the model said so
+            # — or sub-clause 2 target-first (#674 L82): a `set_field` against
+            # an existing id, writing this entry's own value, is the same
+            # identity judgement through a different op.
             continue
         if section == "certifications":
             # N1 (adversarial pass 2026-08-28): the REAL applier
