@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Child resource summaries — lightweight DTOs for the FlowStateResponse
@@ -87,10 +87,14 @@ class CreateFlowResponse(BaseModel):
 
 class AdvanceFlowRequest(BaseModel):
     step: str
-    # Required when advancing into a step that produces an artifact:
-    #   gap_analysis    → gap_analysis_id
-    #   interview       → interview_session_id
-    #   complete        → generated_cv_id
+    # Recorded when advancing into a step that produces an artifact:
+    #   gap_analysis    → gap_analysis_id   (required)
+    #   interview       → interview_session_id (required)
+    #   cv_generation   → generated_cv_id   (recorded when supplied — #676 line 35:
+    #                     the step is entered in order to produce the CV, so the id
+    #                     usually arrives on a second, idempotent advance)
+    #   complete        → generated_cv_id   (required)
+    # Any other step answers with a `notices` entry instead of dropping the id.
     artifact_id: uuid.UUID | None = None
 
 
@@ -110,3 +114,9 @@ class FlowStateResponse(BaseModel):
     cover_letter_summary: CoverLetterSummary | None = None
     created_at: datetime
     updated_at: datetime
+    #: #676 line 35 — advance-only, additive, default-empty: what the call could
+    #: not do but did not fail over. Today its one producer is an `artifact_id`
+    #: passed at a step that records none (`unrecordable_artifact_notice`), which
+    #: used to be dropped in silence. A READ (`get_flow_state`) never populates
+    #: it, and no existing client breaks on a new empty list.
+    notices: list[str] = Field(default_factory=list)
