@@ -554,7 +554,7 @@ def _name_tokens(name: str) -> list[str]:
 
 
 def _distinctive_token_candidates(
-    candidates: list[tuple[str, str]]
+    candidates: list[tuple[str, str]], *, unique_only: bool = True
 ) -> list[tuple[str, str]]:
     """(distinctive leading token, experience id) pairs for the #372 anchor
     fallback — one entry per candidate whose legal-form-stripped name's
@@ -564,6 +564,17 @@ def _distinctive_token_candidates(
     companies could never disambiguate between them, so it is dropped
     outright rather than risked as a coincidental match — mirroring guard
     (b) of the #372 brief.
+
+    ``unique_only=False`` (#697 line 16, 2026-09-18) KEEPS the shared token.
+    Guard (b) is a RESOLUTION guard: a token naming two candidates cannot
+    say WHICH one, so the strict anchor must not use it. It is not a
+    MENTION guard — the sentence "Bei Rasselstein führte ich …" demonstrably
+    does name an employer even when the vault holds two Rasselstein roles,
+    and treating it as naming NOBODY is what let the paragraph anchor carry
+    a different company's id onto it (see
+    :func:`sentence_mentioned_ids`). The length and generic-word guards
+    still apply, so this never turns "Technik" or a three-letter fragment
+    into a mention.
     """
     parsed = [
         (_core_company_name(name), entity_id, _name_tokens(_core_company_name(name)))
@@ -584,10 +595,58 @@ def _distinctive_token_candidates(
             continue
         if key in _GENERIC_COMPANY_TOKENS:
             continue
-        if len(token_owner_ids.get(key, ())) > 1:
+        if unique_only and len(token_owner_ids.get(key, ())) > 1:
             continue
         fallback.append((leading, entity_id))
     return fallback
+
+
+def sentence_mentioned_ids(
+    text: str, loose_candidates: list[tuple[str, str]]
+) -> frozenset[str]:
+    """Every experience id whose employer/project name is MENTIONED in *text*
+    — the ambiguity-tolerant question, asked with the same reach as the
+    strict anchor's own ladder (#697 line 16).
+
+    The strict anchor (:func:`_find_employer_anchor`) resolves a sentence
+    through three passes: exact name, legal-form-stripped name, distinctive
+    leading token (#372). The two ambiguity-TOLERANT signals built on
+    :func:`_match_ids` — ``Claim.sentence_named_ids`` and the "this sentence
+    names no employer of its own" test that gates the paragraph anchor carry
+    — only ever ran the first two. A sentence whose mention is SHORTENED
+    ("Bei Rasselstein") and whose vault company holds MORE THAN ONE role is
+    therefore invisible to them, while the anchor's own third pass drops it
+    too (guard (b): the token names two candidates). The sentence then reads
+    as "names nothing of its own" and INHERITS the paragraph's carried
+    anchor — another employer's id, stamped onto a sentence that names this
+    one.
+
+    Ground truth (Nougat build-2 delivery run, 2026-09-11, letter claim
+    "Bei Rasselstein führte ich als Fertigungsmeister / Schichtleiter …"):
+    vault "Rasselstein Umformtechnik GmbH" ×2 roles, ``source_experience_id``
+    = the Weberit id carried from the previous sentence, verdict
+    ``grounded`` — the report named the wrong employer while its own
+    evidence array cited the right one (Oracle collector #697 line 16). The
+    build-1 twin, whose evidence happened to be foreign-owned WITHOUT a
+    role-agnostic unit riding along, verdicted ``misattributed`` instead:
+    the same defect, self-caught by luck.
+
+    Direction of the widening: it can only make a sentence name MORE ids.
+    The anchor gate turns a larger set into NO anchor (two candidates never
+    resolve — :func:`_find_employer_anchor` is untouched and still fails
+    open), so the strict signal can only ever lose a wrong id here, never
+    gain one. ``sentence_named_ids`` is by contract the permissive signal
+    ("ambiguity TOLERATED") whose only consumer,
+    ``audit._unattributable_evidence_flag``, uses it to NOT accuse — so a
+    larger set is quieter there, never louder.
+    """
+    if not loose_candidates:
+        return frozenset()
+    found = _match_ids(text, loose_candidates)
+    mention_tokens = _distinctive_token_candidates(
+        loose_candidates, unique_only=False
+    )
+    return found | _match_ids(text, mention_tokens)
 
 
 def _find_employer_anchor(
@@ -856,7 +915,11 @@ def extract_claims_from_letter(
             sentence_anchor = _find_employer_anchor(
                 sentence, candidates, current_ids, loose_candidates
             )
-            sentence_named = _match_ids(sentence, loose_candidates)
+            # #697 line 16: the same reach as the anchor's own three-pass
+            # ladder — a shortened mention of a multi-role employer must
+            # count as "this sentence names an employer of its own", or the
+            # paragraph carry below stamps another company's id onto it.
+            sentence_named = sentence_mentioned_ids(sentence, loose_candidates)
             if sentence_anchor is not None:
                 carried_anchor = sentence_anchor
                 effective_anchor = sentence_anchor
