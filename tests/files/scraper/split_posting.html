@@ -1,0 +1,46 @@
+<!-- Copyright (C) 2026 Tobias Rosenbaum -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  SYNTHETIC fixture for #722, NEGATIVE control. A board that lays its posting out
+  as three sibling sections inside <main>, with no named description container and
+  no chrome rail. No single descendant carries 40% of <main>'s text, so the
+  structural wrapper trim must NOT fire: the extractor has to return the whole
+  <main>, all three sections, or it would silently ship a third of the posting.
+
+  Every employer, person and figure below is invented.
+-->
+<html lang="de">
+<head><title>Referent Qualitätssicherung (m/w/d) | Wiesengrund Werke</title></head>
+<body>
+<nav class="global-nav"><a href="/">Start</a></nav>
+<main>
+  <section class="block block--intro">
+    <h1>Referent Qualitätssicherung (m/w/d)</h1>
+    <p>Die Wiesengrund Werke sind ein mittelständischer Hersteller von
+    Prüfsystemen mit Sitz in Aschendorf. Rund vierhundert Kolleginnen und
+    Kollegen entwickeln, fertigen und betreuen hier Anlagen, die bei Kunden in
+    ganz Europa im Dauerbetrieb laufen. Für unsere Qualitätsorganisation suchen
+    wir zum nächstmöglichen Zeitpunkt Verstärkung an unserem Hauptstandort.</p>
+  </section>
+  <section class="block block--tasks">
+    <h2>Aufgaben</h2>
+    <p>Sie betreuen unser Qualitätsmanagementsystem, bereiten interne und externe
+    Audits vor und begleiten sie, und Sie pflegen die Prüfdokumentation über den
+    gesamten Produktlebenszyklus. Sie analysieren Reklamationen, leiten
+    Korrekturmassnahmen ab und verfolgen deren Wirksamkeit gemeinsam mit der
+    Fertigung. Ausserdem schulen Sie Kolleginnen und Kollegen in den Verfahren,
+    die wir uns gegeben haben.</p>
+  </section>
+  <section class="block block--profile">
+    <h2>Profil</h2>
+    <p>Sie haben ein technisches Studium abgeschlossen oder eine vergleichbare
+    Qualifikation erworben und bringen erste Jahre Berufserfahrung im
+    Qualitätsumfeld eines produzierenden Unternehmens mit. Sie arbeiten genau,
+    formulieren verständlich und treten in Audits ruhig und sachlich auf. Gute
+    Englischkenntnisse und Freude an der Arbeit in der Fertigung runden Ihr
+    Profil ab. Wir bieten einen unbefristeten Vertrag und flexible Arbeitszeit.</p>
+  </section>
+</main>
+<footer class="global-footer">© 2026 Wiesengrund Werke</footer>
+</body>
+</html>
