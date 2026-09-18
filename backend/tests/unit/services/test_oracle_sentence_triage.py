@@ -413,3 +413,125 @@ def test_triage_prompt_states_the_three_classes_and_the_doubt_default():
     # doubt resolves toward being audited.
     assert re.search(r"doubt", SYS, re.IGNORECASE)
     assert "sentence_quote" in SYS
+
+
+# ── #697 lines 15 + 20 — the fourth class, ``candidate-limit`` ──────────────
+#
+# ADR-068 amended 2026-09-18. An honest stated limit ("… habe ich keine
+# Erfahrung", "… fehlen mir", "… gehört nicht zu meiner Rolle") asserts nothing
+# the vault could confirm, and ``schemas/oracle.py`` has routed such a sentence
+# to ``not_applicable`` since #282 — but only when the deterministic marker
+# list recognised it. Four delivery-tier occurrences across five phrasings did
+# not match a marker, and the one judgement that sees every letter sentence had
+# no class to put them in: all 7 stated-limit sentences in the 86 captured
+# triage calls answered ``candidate-claim``, quote-verified.
+#
+# Everything below is WIRING (the file's own rule): the routing, the visible
+# quoted verdict, the denominator, and the invariant that every exempting class
+# has a detail template. Classification correctness is the real-provider replay
+# of 2026-09-18 (arm "after": 4/4 limit shapes 5/5 ``candidate-limit``, six
+# affirmative negative controls 30/30 ``candidate-claim``), reported in
+# ``Documents/Runs/Nougat/final/o/report.md``.
+
+#: A limit whose phrasing the marker rail deliberately does NOT carry (a
+#: verb-final negation): it must travel through triage to be recognised, which
+#: is exactly what this section exercises.
+STATED_LIMIT = "Direkte Kundenakquise übernehme ich dabei nicht."
+
+LIMIT_LETTER = {
+    "body": {
+        "paragraphs": [
+            GROUNDED_SENTENCE,
+            STATED_LIMIT,
+            SUBSTANTIVE_SENTENCE,
+        ]
+    },
+    "recipient": {"company": "Rheinwerk Verpackungen GmbH"},
+}
+
+
+class _LimitTriageStub(_TriageStub):
+    """Answers the stated limit ``candidate-limit``, everything else as the
+    base stub does."""
+
+    async def aparse_json(self, prompt, *, system=None, max_tokens=0, **kwargs):
+        result = await super().aparse_json(
+            prompt, system=system, max_tokens=max_tokens, **kwargs
+        )
+        for item in result.get("items", []):
+            if _norm(item["sentence_quote"]) in _norm(STATED_LIMIT):
+                item["classification"] = "candidate-limit"
+        return result
+
+
+@pytest.mark.asyncio
+async def test_stated_limit_is_exempted_with_a_visible_quoted_verdict():
+    report = await audit_document(
+        "cover_letter",
+        profile=PROFILE,
+        letter_data=LIMIT_LETTER,
+        provider=_LimitTriageStub(),
+    )
+    limit = next(r for r in report.claims if _norm(STATED_LIMIT) in _norm(r.claim.text))
+    assert limit.verdict.verdict == "not_applicable"
+    assert limit.verdict.checker == "sentence_triage"
+    # The user reads WHICH sentence was exempted and why — never a bare label.
+    assert STATED_LIMIT in (limit.verdict.detail or "")
+    assert "candidate-limit" in (limit.verdict.detail or "")
+    # …and it leaves the unverifiable denominator (#282's whole point: the
+    # more honest letter must not score worse). Before the class existed this
+    # same sentence was one of the unverifiable claims.
+    assert report.counts["not_applicable"] == 1
+    assert all(
+        _norm(STATED_LIMIT) not in _norm(r.claim.text)
+        for r in report.claims
+        if r.verdict.verdict == "unverifiable"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_exempted_limit_is_not_counted_unavailable():
+    """A resolved classification is a resolution, whichever class it is."""
+    report = await audit_document(
+        "cover_letter",
+        profile=PROFILE,
+        letter_data=LIMIT_LETTER,
+        provider=_LimitTriageStub(),
+    )
+    assert report.judgement_unavailable == 0
+
+
+def test_every_exempting_triage_class_has_a_detail_template():
+    """The routing indexes ``_TRIAGE_EXEMPT_DETAIL`` by the model's answer —
+    a class in the accepted enum without a template is a KeyError at audit
+    time, on a real document, after the tokens are spent."""
+    from applire.prompts.oracle_triage import TRIAGE_CLASSES
+    from applire.services.oracle.audit import _TRIAGE_EXEMPT_DETAIL
+
+    exempting = TRIAGE_CLASSES - {"candidate-claim"}
+    assert exempting == set(_TRIAGE_EXEMPT_DETAIL)
+    for cls in exempting:
+        assert "{sentence}" in _TRIAGE_EXEMPT_DETAIL[cls]
+
+
+@pytest.mark.asyncio
+async def test_a_marker_recognised_limit_never_enters_the_triage_batch():
+    """The #282 rail keeps its job: a limit its markers know is decided
+    deterministically (checker ``extraction``) and costs no tokens — which is
+    what makes a seam-down document degrade to today's behaviour."""
+    stub = _LimitTriageStub()
+    marker_limit = "Mit IFS und BRC habe ich keine Erfahrung."
+    report = await audit_document(
+        "cover_letter",
+        profile=PROFILE,
+        letter_data={
+            "body": {"paragraphs": [GROUNDED_SENTENCE, marker_limit]},
+            "recipient": {"company": "Rheinwerk Verpackungen GmbH"},
+        },
+        provider=stub,
+    )
+    limit = next(r for r in report.claims if "IFS" in r.claim.text)
+    assert limit.verdict.verdict == "not_applicable"
+    assert limit.verdict.checker == "extraction"
+    # The sentence never reached the batch: nothing about it was ever sent.
+    assert not any("IFS" in (s or "") for s in stub.systems)

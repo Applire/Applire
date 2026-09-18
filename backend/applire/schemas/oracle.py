@@ -73,8 +73,9 @@ CheckerId = Literal[
     "cross_language_judgement",
     "restatement_judgement",
     # ADR-068 amended 2026-08-08 (#309 + #373) — the PRE-GRADING sentence
-    # triage seam: a letter sentence classified ``employer-fact`` or
-    # ``epistolary-form`` is exempted from vault grading and carries this
+    # triage seam: a letter sentence classified ``employer-fact``,
+    # ``epistolary-form`` or (amended 2026-09-18, #697 lines 15 + 20)
+    # ``candidate-limit`` is exempted from vault grading and carries this
     # checker on its visible, quoted ``not_applicable`` verdict. Permissive
     # polarity: a mis-classification exempts a real claim, so unavailability
     # of any kind audits the sentence instead of exempting it.

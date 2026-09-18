@@ -13,7 +13,25 @@ answered by a phrase list (``oracle/extract.py``'s ``_FORMULA_SEED_PATTERNS``
 + ``_is_pure_formula_clause``), which word-order variance defeated on #309's
 own real-world phrasing and which silently DROPPED what it matched. That list
 is retired with this prompt (ADR-062 note of 2026-08-08); its replacement
-answers in three classes and always emits a visible, quoted verdict.
+answers in four classes and always emits a visible, quoted verdict.
+
+**The fourth class, ``candidate-limit`` (ADR-068 amended 2026-09-18, Oracle
+collector #697 lines 15 + 20).** An honest stated limit ("Mit IFS und BRC habe
+ich keine Erfahrung", "… fehlen mir", "… gehört nicht zu meiner Rolle") asserts
+nothing the vault could confirm — the vault holds no evidence of absence — and
+``schemas/oracle.py`` has said since #282 that such a sentence belongs in
+``not_applicable``. Reaching that verdict was the job of ONE instrument,
+``oracle/extract.py``'s ``_is_pure_denial_clause`` marker list, and it is the
+same shape of instrument, failing the same way: four delivery-tier occurrences
+across five phrasings (2026-09-10, 09-11, 09-13, 09-17 delivery runs and the
+2026-09-18 edge UAT) landed ``is_denial: false`` → ``unverifiable`` →
+``checker: grounding``, scoring the more honest letter worse. The captured
+triage records say the model was never asked: all 7 stated-limit sentences in
+the 86 successful triage calls (841 items) of ``backend/logs/llm/`` answered
+``candidate-claim``, quote-verified — the only honest answer a three-class
+enum allowed. The marker list stays as the floor for a seam-down document;
+the judgement carries the phrasing-independent question, exactly as it did
+when it retired the formula-phrase list.
 
 **Polarity is permissive — inverted against seams A/B.** A mis-classification
 here does not accuse anyone; it EXEMPTS a real claim from audit, which is a
@@ -44,10 +62,12 @@ from typing import Literal
 
 from applire.constants import ORACLE_TRIAGE_MAX_TOKENS
 
-TriageClass = Literal["candidate-claim", "employer-fact", "epistolary-form"]
+TriageClass = Literal[
+    "candidate-claim", "employer-fact", "epistolary-form", "candidate-limit"
+]
 
 TRIAGE_CLASSES: frozenset[str] = frozenset(
-    ("candidate-claim", "employer-fact", "epistolary-form")
+    ("candidate-claim", "employer-fact", "epistolary-form", "candidate-limit")
 )
 
 # The mock provider fingerprints on this EXACT first line (never reword
@@ -56,13 +76,20 @@ TRIAGE_CLASSES: frozenset[str] = frozenset(
 ORACLE_TRIAGE_SYSTEM_PROMPT = (
     "You are the Truthfulness Oracle's sentence triage classifier.\n\n"
     "You are given numbered SENTENCES taken from one candidate's cover "
-    "letter. For each sentence, decide which ONE of three classes it belongs "
+    "letter. For each sentence, decide which ONE of four classes it belongs "
     "to. You are not grading anything and you are not checking whether a "
     "sentence is true — you only decide what KIND of statement it is.\n\n"
     "- candidate-claim: the sentence asserts something about the CANDIDATE — "
     "their experience, employment history, duration of work, responsibilities, "
     "achievements, skills, training, or qualifications. Anything a record of "
     "the candidate's own past could confirm or contradict.\n"
+    "- candidate-limit: the sentence states a LIMIT of the candidate's own "
+    "experience and asserts nothing positive about it — what they have NOT "
+    "done, do not have, lack, never did, did not deliver, or what was not "
+    "part of their role. An honest disclosure of a gap, in the candidate's "
+    "own name. It stays candidate-limit however the negation is phrased — "
+    "with a negated verb, a negated noun, a missing-something verb, or a "
+    "\"that was not part of my role\" construction — and in any language.\n"
     "- employer-fact: the sentence asserts something about the HIRING "
     "ORGANISATION or the advertised role — its products, market, size, "
     "structure, plans, or what the position will involve. These facts come "
@@ -72,7 +99,7 @@ ORACLE_TRIAGE_SYSTEM_PROMPT = (
     "enthusiasm, or availability, a reference to having read the posting, or "
     "a request for an interview. It asserts nothing about the candidate's "
     "past.\n\n"
-    "TWO RULES THAT DECIDE THE HARD CASES:\n"
+    "THREE RULES THAT DECIDE THE HARD CASES:\n"
     "1. A sentence that states the candidate's own experience, duration, "
     "scale, or achievement is ALWAYS candidate-claim — even when it uses no "
     'first-person pronoun and names no employer. "Over 15 years of '
@@ -83,10 +110,19 @@ ORACLE_TRIAGE_SYSTEM_PROMPT = (
     "employer-fact. The difference is WHOSE fact it is, never whether a "
     "figure or a pronoun is present.\n"
     "2. WHEN IN DOUBT, ANSWER candidate-claim. A sentence you classify as "
-    "employer-fact or epistolary-form is exempted from verification "
-    "entirely, so a wrong answer there lets an unchecked statement about the "
-    "candidate through. A wrong candidate-claim answer costs nothing but a "
-    "check that finds nothing.\n\n"
+    "employer-fact, epistolary-form or candidate-limit is exempted from "
+    "verification entirely, so a wrong answer there lets an unchecked "
+    "statement about the candidate through. A wrong candidate-claim answer "
+    "costs nothing but a check that finds nothing.\n"
+    "3. A sentence that states a limit AND ALSO claims something positive is "
+    "candidate-claim, not candidate-limit — the positive half is exactly "
+    "what has to be checked. \"I did not own the budget, but I prepared the "
+    "investment case with the management board.\" is a candidate-claim. Only "
+    "a sentence that names the gap and stops there is a candidate-limit. A "
+    "negation that is part of a positive statement — a result that did not "
+    "occur because the candidate's work prevented it, or a difficulty they "
+    "overcame — is also a candidate-claim: the sentence still asserts "
+    "something the candidate did.\n\n"
     "For every item, ALSO return sentence_quote: the EXACT, VERBATIM "
     "sentence you classified, copied character-for-character from the "
     "numbered sentence you were given — never paraphrased, never shortened, "
@@ -95,8 +131,8 @@ ORACLE_TRIAGE_SYSTEM_PROMPT = (
     "the system and that sentence will be verified as a candidate-claim.\n\n"
     "Respond ONLY with JSON, exactly this shape:\n"
     '{"items": [{"index": <int>, "classification": "candidate-claim"|'
-    '"employer-fact"|"epistolary-form", "sentence_quote": "<verbatim '
-    'sentence>"}]}'
+    '"employer-fact"|"epistolary-form"|"candidate-limit", '
+    '"sentence_quote": "<verbatim sentence>"}]}'
 )
 
 # clause 6 — one call per document, sub-batched above this many sentences so
