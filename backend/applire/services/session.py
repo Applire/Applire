@@ -457,46 +457,14 @@ async def _handle_confirmation_answer(
 _SKILL_OPTION_KEYS = frozenset({"distinct", "merge", "keep"})
 
 
-def resolve_option_key(pending_conf: dict, chosen: str) -> str | None:
-    """The stable key of the option the candidate picked (#669), or ``None``.
-
-    ADR-063 amended 2026-09-05: a confirmation's OPTIONS are the IDENTITY the
-    answer is matched on, so the identity may not be a rendered string. The
-    parked confirmation carries ``option_keys`` positionally paired with
-    ``options``; this finds WHICH option the answer names and returns its key.
-
-    Matched against every rendering the record carries — the plain ``options``
-    AND each language of ``options_i18n`` — so an answer submitted against a
-    German render resolves even if the caller re-rendered in English between
-    ask and answer. Exact (case- and whitespace-folded) equality, never a
-    substring: substring matching on rendered text is the defect this replaces.
-
-    ``None`` means "this record has no keys" (persisted before #669, or
-    model-emitted) — the caller falls back to the English matcher below.
-    """
-    keys = pending_conf.get("option_keys") or []
-    if not keys:
-        return None
-    answer = (chosen or "").strip().casefold()
-    if not answer:
-        return None
-    renderings: list[list[str]] = [list(pending_conf.get("options") or [])]
-    for payload in pending_conf.get("options_i18n") or []:
-        if isinstance(payload, dict):
-            renderings.append([])
-    # Build one list per language present, positionally aligned with `keys`.
-    i18n = pending_conf.get("options_i18n") or []
-    langs = {lang for payload in i18n if isinstance(payload, dict) for lang in payload}
-    for lang in sorted(langs):
-        renderings.append([
-            (payload.get(lang) or "") if isinstance(payload, dict) else ""
-            for payload in i18n
-        ])
-    for rendering in renderings:
-        for idx, text in enumerate(rendering):
-            if idx < len(keys) and text and text.strip().casefold() == answer:
-                return keys[idx]
-    return None
+# ADR-066 — the ONE implementation of "which option did the candidate pick"
+# moved to `reconcile/confirmations.py` on 2026-09-18 (#723), the module that
+# WRITES the option keys, because the applier's family-4 resolution now reads
+# them too. Re-exported here: this name is part of this module's surface for
+# the interview doors and for `test_669_confirmation_option_keys.py`.
+from applire.services.profile.reconcile.confirmations import (  # noqa: E402
+    resolve_option_key as resolve_option_key,
+)
 
 
 def _skill_confirmation_decision(chosen: str, option_key: str | None = None) -> str:

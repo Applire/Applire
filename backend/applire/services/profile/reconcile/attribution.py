@@ -112,12 +112,14 @@ implementation, which is the thing that rule forbids.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from applire.schemas.profile import MasterProfileData, ProjectEntry, WorkEntry
 from applire.services.ats_audit import skill_tokens
 from applire.services.profile.reconcile.confirmations import (
     attribution_confirmation,
+    attribution_entry_confirmation,
 )
 from applire.services.profile.reconcile.ops import (
     AddBullets,
@@ -734,3 +736,200 @@ def _guard_set_field(
             },
         )
     ]
+
+
+# ── resolving an answered attribution ask (Bug #723) ─────────────────────────
+
+#: The one implementation of "which entry does this attribution answer place the
+#: held content on". A PLAN, not a write: `apply.py` executes it against the
+#: profile it is already editing, so the resolution reaches BOTH doors (the REST
+#: `POST /api/profile/confirmations/{id}/resolve` and the interview's
+#: `_resolve_confirmation_safely`) through the one committer — the door-parity
+#: hole the 2026-09-09 adversarial pass found in founder ruling V-5's first
+#: build, not repeated here.
+@dataclass(frozen=True)
+class AttributionPlan:
+    #: ``(entity_id, field, text)`` — appended to that entity's bullet list.
+    placements: tuple[tuple[str, str, str], ...] = ()
+    #: ``(entity_id, field, value)`` — written into an EMPTY scalar slot only.
+    scalars: tuple[tuple[str, str, str], ...] = ()
+    #: ``(section, label, reason)`` — an ``ImportNotApplied`` item the applier mints.
+    not_applied: tuple[tuple[str, str, str], ...] = ()
+    #: The narrower keyed ask, parked when the anchor names several roles.
+    followup: RequestConfirmation | None = None
+
+
+_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+
+#: The held text, cut for a receipt label. Long enough that the candidate
+#: recognises their own sentence, short enough that a receipt stays a receipt —
+#: the same truncation idiom `compute_no_write`'s residue label uses.
+_LABEL_CHARS = 120
+
+
+def _held_label(field: str, text: str) -> str:
+    body = " ".join((text or "").split())
+    if len(body) > _LABEL_CHARS:
+        body = body[: _LABEL_CHARS - 1].rstrip() + "…"
+    return f"{field}: {body}"
+
+
+def _anchor_entries(anchor_text: str, profile: MasterProfileData) -> list[WorkEntry]:
+    """Every work entry the ANSWER's employer name(s) identify.
+
+    `anchor_employer` is a DISPLAY string, and `_build_confirmation` joins
+    several with " / " when one op was flagged against more than one employer.
+    Matching is on the same legal-form-stripped core the guard anchors on, so
+    "BioNTech SE" in the ask and "BioNTech" in the vault are one employer — and
+    a candidate with three stints there yields three entries, which is exactly
+    the cardinality founder ruling V-1 governs.
+    """
+    cores = {
+        _core_company_name(part.strip())
+        for part in (anchor_text or "").split(" / ")
+        if part.strip()
+    }
+    cores = {c.casefold() for c in cores if c}
+    if not cores:
+        return []
+    return [
+        w
+        for w in profile.work_experience
+        if w.company and _core_company_name(w.company).casefold() in cores
+    ]
+
+
+def _covers_year(entry: WorkEntry, year: int) -> bool:
+    """Whether ``year`` falls inside this role's own date range.
+
+    Clock-free on purpose (this module is pure): an open-ended role — no end
+    date, or `is_current` — covers every year from its start onwards, so a role
+    the candidate still holds never needs today's date to be decided.
+    """
+    start = (entry.start_date or "")[:4]
+    if not start.isdigit():
+        return False
+    if int(start) > year:
+        return False
+    end = (entry.end_date or "")[:4]
+    if entry.is_current or not end.isdigit():
+        return True
+    return year <= int(end)
+
+
+def _entry_label(entry: WorkEntry) -> str:
+    span = "–".join(p for p in [(entry.start_date or ""), (entry.end_date or "")] if p)
+    if entry.is_current and entry.start_date and not entry.end_date:
+        span = f"{entry.start_date}–"
+    role = (entry.role or "").strip() or (entry.company or "").strip()
+    return f"{role} ({span})" if span else role
+
+
+def _place_all(
+    entity_id: str, flagged: list[tuple[str, str]]
+) -> tuple[tuple[tuple[str, str, str], ...], tuple[tuple[str, str, str], ...]]:
+    placements = tuple(
+        (entity_id, field, text) for field, text in flagged if field in _BULLET_FIELDS
+    )
+    scalars = tuple(
+        (entity_id, field, text)
+        for field, text in flagged
+        if field in _GUARDED_SET_FIELDS
+    )
+    return placements, scalars
+
+
+def plan_attribution_resolution(
+    context: dict[str, Any], option_key: str | None, profile: MasterProfileData
+) -> AttributionPlan | None:
+    """Turn an answered attribution ask into what the vault should now hold.
+
+    Bug #723: the guard HOLDS the content (it is removed from the op and carried
+    only in `context["flagged"]`), and the resolution used to write the metadata
+    CLEAR and nothing else — so the candidate placed an attested fact and the
+    fact was gone, under a receipt reading "Recorded your answer". Twice in one
+    edge run, `triage:vault-integrity`.
+
+    ``None`` means "not this family, or not answerable" — a model-emitted
+    `request_confirmation` (prompt rule 6) carries neither `option_keys` nor
+    `flagged`, and a record persisted before #669 carries no keys either; both
+    keep the pre-#723 bookkeeping-only behaviour, correctly: nothing was held.
+
+    Founder ruling V-1 / D-6 (2026-09-18) on cardinality: exactly one candidate
+    entry places it; several, with one 4-digit year in the held text falling
+    into exactly one role's range, places it there; anything else asks the
+    narrower keyed question and keeps the content held. Never "the most recent
+    role".
+    """
+    flagged = [
+        (str(item.get("field") or ""), str(item.get("text") or ""))
+        for item in (context.get("flagged") or [])
+        if isinstance(item, dict) and (item.get("text") or "").strip()
+    ]
+    if not flagged or not context.get("anchor_employer"):
+        return None
+    section = str(context.get("section") or "work_experience")
+    held = tuple(
+        (section, _held_label(field, text), "confirmation_held") for field, text in flagged
+    )
+
+    def _lost(reason: str) -> tuple[tuple[str, str, str], ...]:
+        return tuple((section, _held_label(f, t), reason) for f, t in flagged)
+
+    if option_key == "discard":
+        return AttributionPlan(not_applied=_lost("confirmation_discarded"))
+
+    if option_key == "keep_here":
+        target = context.get("target")
+        if not target or _resolve_existing(str(target), profile) is None:
+            return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+        placements, scalars = _place_all(str(target), flagged)
+        return AttributionPlan(placements=placements, scalars=scalars)
+
+    # The narrower ask's own answer: an ENTRY id, never a rendered label (#669).
+    if option_key and option_key.startswith("entry:"):
+        entity_id = option_key.split(":", 1)[1]
+        if not entity_id or _resolve_existing(entity_id, profile) is None:
+            return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+        placements, scalars = _place_all(entity_id, flagged)
+        return AttributionPlan(placements=placements, scalars=scalars)
+
+    if option_key != "move":
+        return None
+
+    anchor_text = str(context.get("anchor_employer") or "")
+    candidates = _anchor_entries(anchor_text, profile)
+    if not candidates:
+        return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+    if len(candidates) > 1:
+        years = {int(y) for _, text in flagged for y in _YEAR_RE.findall(text)}
+        covering = (
+            [e for e in candidates if _covers_year(e, next(iter(years)))]
+            if len(years) == 1
+            else []
+        )
+        if len(covering) != 1:
+            return AttributionPlan(
+                not_applied=held,
+                followup=attribution_entry_confirmation(
+                    sample=flagged[0][1],
+                    anchor_text=anchor_text,
+                    candidates=[
+                        (str(e.id), _entry_label(e)) for e in candidates if e.id
+                    ],
+                    context={
+                        "section": section,
+                        "anchor_employer": anchor_text,
+                        "target_employer": anchor_text,
+                        "flagged": [
+                            {"field": field, "text": text} for field, text in flagged
+                        ],
+                    },
+                ),
+            )
+        candidates = covering
+    entity_id = str(candidates[0].id or "")
+    if not entity_id:
+        return AttributionPlan(not_applied=_lost("confirmation_unresolvable"))
+    placements, scalars = _place_all(entity_id, flagged)
+    return AttributionPlan(placements=placements, scalars=scalars)

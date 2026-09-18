@@ -138,19 +138,28 @@ def test_only_confirmations_module_and_parse_ambiguities_construct_request_confi
     )
 
 
-def test_confirmations_module_exposes_exactly_four_builder_functions():
-    """Four ask families, four public builders — the count the commit message
-    (and this module's own docstring) claims."""
+def test_confirmations_module_exposes_exactly_five_builder_functions():
+    """Five ask families, five public builders, plus the ONE reader of the keys
+    they write — the count this module's own docstring claims.
+
+    ``attribution_entry_confirmation`` (family 5) and ``resolve_option_key``
+    both arrived with #723 (ADR-063 amended 2026-09-18): the applier now
+    resolves a family-4 ask into vault content, which needs the narrower
+    "which of your roles at this employer" question AND the key reader that
+    used to live in ``services/session.py``. ADR-066 — the reader belongs in
+    the module that writes the vocabulary, not in a second copy."""
     source = (APPLIRE_ROOT / CONFIRMATIONS_MODULE).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    builder_names = sorted(
+    public_names = sorted(
         node.name
         for node in tree.body
         if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
     )
-    assert builder_names == [
+    assert public_names == [
         "attribution_confirmation",
+        "attribution_entry_confirmation",
         "entity_dupe_confirmation",
+        "resolve_option_key",
         "skill_containment_confirmation",
         "skill_overlap_confirmation",
     ]

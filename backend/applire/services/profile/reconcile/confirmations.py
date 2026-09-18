@@ -29,10 +29,14 @@ for doing it right already existed (LLM-generated questions and the outcome
 critic's advisories ship `{"de": …, "en": …}` pairs and follow `ui_language`);
 it had simply never been applied to these paths.
 
-**Nine builders, four ask families.** Every deterministic
+**Ten builders, five ask families.** Every deterministic
 `RequestConfirmation` in `applire/` is built here — `apply.py` x8 and
-`attribution.py` x1 — so a family's option vocabulary has one definition and a
-tenth call site cannot invent a tenth wording. (The ADR's draft said "10 call
+`attribution.py` x2 (the guard's ask, and the narrower "which of your roles at
+this employer" ask its RESOLUTION raises, #723 / ADR-063 am. 2026-09-18) — so a
+family's option vocabulary has one definition and an eleventh call site cannot
+invent an eleventh wording. `resolve_option_key`, the one READER of that
+vocabulary, lives here for the same reason (ADR-066); `services/session.py`
+re-exports it. (The ADR's draft said "10 call
 sites, including `stance.py:434`"; re-counted at `24ee8cd6`, `stance.py:434` is
 not a confirmation at all — it is a hard-coded English `FieldChange.rationale`,
 a different shape whose instrument is `rationale_key`. Fixed there, not here.)
@@ -223,6 +227,91 @@ def attribution_confirmation(
         context,
     )
 
+
+def attribution_entry_confirmation(
+    *,
+    sample: str,
+    anchor_text: str,
+    candidates: list[tuple[str, str]],
+    context: dict[str, Any],
+) -> RequestConfirmation:
+    """Family 5 — the attribution family's SECOND, narrower question (#723).
+
+    Raised only by the RESOLUTION of a family-4 ask, never by the reconciler:
+    the candidate answered "move it to <employer>" and the vault holds several
+    roles at that employer (three in the #723 incident). Founder ruling V-1 /
+    D-6 (2026-09-18) forbids guessing at that point — the answer's own date
+    anchor places it when exactly one role's date range contains a year the held
+    text itself carries, and otherwise the candidate picks the role.
+
+    Its option keys are ``entry:<id>`` per candidate role plus ``discard``, so
+    the identity the answer resolves on is an ID and stays language-independent
+    exactly as #669 requires — a rendered role label may be translated, a role
+    id may not. The ask sits outside the interview's question budget, like every
+    confirmation turn (ADR-080 clause 5).
+    """
+    pairs: list[tuple[dict[str, str], str]] = [
+        ({"en": label, "de": label}, f"entry:{entry_id}")
+        for entry_id, label in candidates
+    ]
+    pairs.append(({"en": "Discard it", "de": "Verwerfen"}, "discard"))
+    return _build(
+        (
+            f"Du hast mehrere Positionen bei {anchor_text}. Zu welcher geh\u00f6rt "
+            f"\u201e{sample}\u201c?"
+        ),
+        (
+            f"You have several positions at {anchor_text}. Which one does "
+            f"'{sample}' belong to?"
+        ),
+        pairs,
+        context,
+    )
+
+
+def resolve_option_key(pending_conf: dict, chosen: str) -> str | None:
+    """The stable key of the option the candidate picked (#669), or ``None``.
+
+    ADR-063 amended 2026-09-05: a confirmation's OPTIONS are the IDENTITY the
+    answer is matched on, so the identity may not be a rendered string. The
+    parked confirmation carries ``option_keys`` positionally paired with
+    ``options``; this finds WHICH option the answer names and returns its key.
+
+    Matched against every rendering the record carries — the plain ``options``
+    AND each language of ``options_i18n`` — so an answer submitted against a
+    German render resolves even if the caller re-rendered in English between
+    ask and answer. Exact (case- and whitespace-folded) equality, never a
+    substring: substring matching on rendered text is the defect this replaces.
+
+    ``None`` means "this record has no keys" (persisted before #669, or
+    model-emitted) — the caller falls back to the English matcher.
+
+    **Lives here since 2026-09-18** (#723). It is the reader of the vocabulary
+    the builders above write, and it has TWO callers now: the interview's answer
+    dispatch (`session.py`, which re-exports it) and the applier's own
+    resolution of a family-4 ask (`apply.py::_apply_resolve_confirmation`) —
+    ADR-066, one implementation per capability, in the module that owns the
+    keys.
+    """
+    keys = pending_conf.get("option_keys") or []
+    if not keys:
+        return None
+    answer = (chosen or "").strip().casefold()
+    if not answer:
+        return None
+    renderings: list[list[str]] = [list(pending_conf.get("options") or [])]
+    i18n = pending_conf.get("options_i18n") or []
+    langs = {lang for payload in i18n if isinstance(payload, dict) for lang in payload}
+    for lang in sorted(langs):
+        renderings.append([
+            (payload.get(lang) or "") if isinstance(payload, dict) else ""
+            for payload in i18n
+        ])
+    for rendering in renderings:
+        for idx, text in enumerate(rendering):
+            if idx < len(keys) and text and text.strip().casefold() == answer:
+                return keys[idx]
+    return None
 
 # ── internals ────────────────────────────────────────────────────────────────
 
