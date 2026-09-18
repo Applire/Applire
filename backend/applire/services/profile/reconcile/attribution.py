@@ -762,9 +762,8 @@ def _guard_set_field(
 
 #: The one implementation of "which entry does this attribution answer place the
 #: held content on". A PLAN, not a write: `apply.py` executes it against the
-#: profile it is already editing, so the resolution reaches BOTH doors (the REST
-#: `POST /api/profile/confirmations/{id}/resolve` and the interview's
-#: `_resolve_confirmation_safely`) through the one committer — the door-parity
+#: profile it is already editing, so the resolution reaches every route through
+#: the one committer rather than through one answer handler — the door-parity
 #: hole the 2026-09-09 adversarial pass found in founder ruling V-5's first
 #: build, not repeated here.
 @dataclass(frozen=True)

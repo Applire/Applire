@@ -1524,12 +1524,16 @@ def _apply_resolve_confirmation(
     `ImportNotApplied` item saying why not.
 
     It lives in the APPLIER, not beside `session._apply_engagement_confirmation`,
-    because both resolution routes — the REST
-    `POST /api/profile/confirmations/{id}/resolve` and the interview's
-    `_resolve_confirmation_safely` — funnel through `profile.resolve_confirmation`
-    -> `commit_ops([ResolveConfirmation])`. Putting it in `session.py` would have
-    covered the interview only: the exact door-parity hole the 2026-09-09
-    adversarial pass found in founder ruling V-5's first build.
+    because `profile.resolve_confirmation` has exactly ONE caller —
+    `session._resolve_confirmation_safely` — reached from BOTH resolution routes:
+    the in-turn one (`_handle_interview_confirmation_answer`) and the standalone
+    profile-review one (`_handle_confirmation_answer`, which #686's "Decide now"
+    CTA opens and which is where an ask raised by `submit_testimony`,
+    `submit_claims` or a CV import is actually answered), each reachable from the
+    browser and from the agent door. Wiring the write into ONE of those handlers
+    is precisely the door-parity hole the 2026-09-09 adversarial pass found in
+    founder ruling V-5's first build; going through the committer cannot repeat
+    it.
 
     An unknown or already-resolved id is a quiet no-op: `resolve_confirmation`
     raises `LookupError` at the door for a genuinely unknown id, and the
