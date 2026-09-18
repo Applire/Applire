@@ -215,6 +215,70 @@ def _parse_uuid(value: str, param: str) -> uuid.UUID:
         raise invalid_input(f"{param} must be a valid UUID, got: {value!r}")
 
 
+def _match_receipt_summary(receipts, *, reveal_existing: bool) -> list[dict]:
+    """Door adapter for the `match_existing` receipts of one write (#674 line 72).
+
+    #707/#708 (ADR-046 / ADR-063 amended 2026-09-16) mint a `MatchReceipt`
+    whenever the reconciler judged an incoming entry to BE an entry the vault
+    already holds under another surface form. It is the receipt for something
+    that happened without a write, so it is deliberately not a `FieldChange` —
+    which is exactly why it reached no agent-door envelope: the agent saw an
+    entry missing from `changes`, sometimes named in `not_applied`, and had no
+    statement of WHY (the founder's translated LinkedIn import, edge 2026-09-18).
+
+    Takes receipts as objects or as already-dumped dicts, because the three
+    doors reach them differently (two off their own response DTO, one off the
+    persisted enrichment record).
+
+    `reveal_existing` is the black-box split — ONE parameter on ONE function
+    rather than two adapters (ADR-066 clause 3, the `ExtractionRecipe`
+    precedent):
+
+    * ``False`` — `import_cv`, whose invariant is that it returns an extraction
+      summary and never vault content the caller did not submit
+      (`tests/test_mcp_agent_journey.py`). `incoming` is the caller's own word,
+      from the document it just sent, exactly like `not_applied[].label`;
+      `existing` is the VAULT's label, and a `match_existing` may legally aim at
+      an engagement id (see the op's docstring), which would put work-history
+      prose on the one payload that must never carry it.
+    * ``True`` — `get_profile_health` and `submit_testimony`, neither of which is
+      black-box (the first already returns `account_name`/`cv_name`, the second
+      returns `changes` with old and new values). Same doctrine as a held merge:
+      the summary door states the FACT, and the agent that needs the vault's own
+      wording asks the door that is allowed to give it (`_held_import_summary`).
+
+    `entity_id` is on neither: it is an internal vault id the caller never
+    submitted and cannot use through any tool on this surface.
+    """
+    def _f(receipt, name: str):
+        return receipt.get(name) if isinstance(receipt, dict) else getattr(receipt, name)
+
+    out = []
+    for r in receipts or []:
+        item = {"section": _f(r, "section"), "incoming": _f(r, "incoming")}
+        if reveal_existing:
+            item["existing"] = _f(r, "existing")
+        out.append(item)
+    return out
+
+
+async def _recent_matched(db) -> list[dict]:
+    """The `match_existing` receipts of the most recent vault write (#674 L72).
+
+    `get_profile_health` writes nothing of its own, so the honest scope is the
+    LAST write — the one whose `changes` the agent just failed to find its
+    entries in. The committer APPENDS its `EnrichmentRecord`
+    (`services/profile/commit.py`), so "most recent" is the last element.
+    A door-level read of an existing public service function, like
+    `list_open_gates` beside it (ADR-066: a door may adapt, never branch on a
+    business rule).
+    """
+    history = await profile_svc.get_enrichment_history(db)
+    if not history:
+        return []
+    return _match_receipt_summary(history[-1].matched, reveal_existing=True)
+
+
 def _profile_summary(profile_response) -> dict:
     """Non-sensitive extraction summary for agents — never the raw profile.
 
@@ -236,6 +300,14 @@ def _profile_summary(profile_response) -> dict:
         "merge_conflicts": len(data.get("merge_conflicts") or []),
         "merge_status": data.get("merge_status"),
         "not_applied": data.get("not_applied") or [],
+        # #674 line 72 (ADR-063 door parity) — the other half of the same
+        # merge's honesty: `not_applied` says what the merge did not carry,
+        # `matched` says which of those entries the vault already holds under
+        # another surface form. Without it a translated second CV reads as
+        # pure loss to the agent, which the guide then makes it report.
+        "matched": _match_receipt_summary(
+            data.get("matched"), reveal_existing=False
+        ),
         # #367 (ADR-054 amended 2026-09-13) — the outcome, stated on every call so
         # the caller branches on a field instead of on the absence of one.
         "merged": True,
@@ -599,8 +671,15 @@ async def get_profile_health() -> dict:
         except McpError:
             uid = None
         held = await profile_svc.list_open_gates(db, user_id=uid)
+        # #674 line 72 (ADR-063 door parity) — the hub's third fact beside the
+        # issues and the held merges: what the last write RECOGNISED as already
+        # present. An agent whose import came back `partial` reads the reason
+        # here, the same way it reads a hold's two names here and not off the
+        # black-box import summary.
+        recent_matched = await _recent_matched(db)
     payload = health.model_dump(mode="json")
     payload["held_merges"] = [_held_merge_summary(r, account_name) for r in held]
+    payload["recent_matched"] = recent_matched
     return payload
 
 
@@ -718,7 +797,14 @@ async def submit_testimony(text: str) -> dict:
             result = await submit_testimony_svc(request.text, db, provider)
         except LookupError as exc:
             raise not_found(str(exc))
-    return result.model_dump(mode="json")
+    # #674 line 72 — `matched` rides the result DTO (ADR-063 door parity); this
+    # door is not black-box (it returns `changes` with old and new values), so
+    # the vault's own surface form is included.
+    payload = result.model_dump(mode="json")
+    payload["matched"] = _match_receipt_summary(
+        payload.get("matched"), reveal_existing=True
+    )
+    return payload
 
 
 @mcp.tool(description="Analyse gaps between the current profile and the specified job.")
