@@ -324,7 +324,7 @@ Returning users skip `cv_import`. **The interview offer is gap-driven (amended 2
 Key invariants:
 - One `flow_session` per `(user_id, job_id)`, enforced by a unique constraint.
 - `user_type` (`"new"` | `"returning"`) is resolved once at flow creation and is **immutable** for the lifetime of the flow.
-- Steps that produce artifacts (gap analysis, interview, cv generation) require `artifact_id` in `AdvanceFlowRequest` — missing `artifact_id` returns HTTP 422.
+- Steps that produce an artifact RECORD its id on the flow (`gap_analysis` → `gap_analysis_id`, `interview` → `interview_session_id`, `cv_generation` and `complete` → `generated_cv_id`). All but `cv_generation` also REQUIRE it — missing `artifact_id` returns HTTP 422; `cv_generation` does not, because that step is entered in order to generate the CV, and records the id whenever one is supplied. An `artifact_id` passed at a step that records none comes back as a `notices` entry on the response rather than being dropped.
 - Invalid step transitions return HTTP 409 with `allowed_transitions` for client recovery.
 - `flow_sessions` carries no PII — it is a routing record. GDPR TTLs live on child records.
 - Concurrent gap-analysis kickoffs are DB-arbitrated (amended 2026-07-13): partial unique indexes allow one live gap job per `job_analysis_id` and one live analysis row per `(job_analysis_id, input_fingerprint)`; services recover from a lost race by adopting the winner, and an analysis row is committed only WITH its gap clusters (never readable half-built).

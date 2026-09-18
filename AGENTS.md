@@ -112,7 +112,7 @@ These are hard constraints. Do not work around them.
 | Interview + flow logic stays server-side | Services layer |
 | One active `interview_session` per `(user_id, job_id)` | `POST /api/session` must be idempotent |
 | One `flow_session` per `(user_id, job_id)` — unique constraint enforced at DB level | Flow orchestrator |
-| Steps that produce artifacts require `artifact_id` in `AdvanceFlowRequest` | Flow transitions |
+| Steps that produce artifacts record `artifact_id` from `AdvanceFlowRequest`; all but `cv_generation` also require it | Flow transitions |
 | LLM calls go through the `LLMProvider` abstraction — never instantiate a provider SDK directly | Any LLM usage |
 | Auth goes through the `AuthProvider` abstraction | Any auth check |
 | `applire.cloud.*` is never imported here | Everywhere |
