@@ -19,7 +19,10 @@ German answer whose clause names the OTHER employer, English bullets, and a
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from applire.models.profile import MasterProfile, authorized_profile_write
 from applire.schemas.profile import (
     MasterProfileData,
     PendingConfirmation,
@@ -464,3 +467,76 @@ def test_the_same_text_given_to_two_employers_is_not_a_partition():
     ]
     assert len(flagged) == 1
     assert flagged[0].context["target_employer"].startswith("Südwind")
+
+
+# ── through the real door, read off the PERSISTED receipt ───────────────────
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    from applire.db.session import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+async def _seed(db, profile: MasterProfileData) -> MasterProfile:
+    with authorized_profile_write():
+        record = MasterProfile(profile_json=profile.model_dump(mode="json"))
+    db.add(record)
+    await db.commit()
+    return record
+
+
+@pytest.mark.asyncio
+async def test_the_real_door_persists_the_write_and_the_receipt(db_session):
+    """`profile.resolve_confirmation` is the ONE thing both answer handlers call
+    (`session._resolve_confirmation_safely`). Read at the delivery point: the
+    persisted profile row and its own enrichment record, not an `ApplyResult`."""
+    from applire.services.profile import resolve_confirmation
+
+    profile = _profile(anchor_roles=1)
+    conf = _confirmation_of(_guarded(profile))
+    record = await _seed(db_session, _parked(profile, conf))
+
+    await resolve_confirmation("c-1", _option(conf, "move"), db_session)
+    await db_session.refresh(record)
+    stored = MasterProfileData.model_validate(record.profile_json)
+
+    assert HELD_NAMED in _bullets(stored, ANCHOR_2023)
+    assert HELD_TECH_A in _bullets(stored, ANCHOR_2023)
+    assert stored.metadata.pending_confirmations == []
+    receipt = stored.metadata.enrichment_history[-1]
+    assert [c.section for c in receipt.changes].count("work_experience") >= 1
+
+
+@pytest.mark.asyncio
+async def test_the_real_door_parks_the_narrower_ask_and_receipts_the_hold(db_session):
+    """Several roles at the anchor, nothing discriminating: the follow-up must
+    survive the commit as durable vault state, and `not_applied` must reach the
+    persisted receipt — the two channels the Health hub and the agent door read."""
+    from applire.services.profile import resolve_confirmation
+
+    profile = _profile(anchor_roles=3)
+    conf = _confirmation_of(_guarded(profile))
+    parked = _parked(profile, conf)
+    parked.metadata.pending_confirmations[0].context = {
+        **conf.context,
+        "flagged": [{"field": "responsibilities", "text": HELD_SIBLING}],
+    }
+    record = await _seed(db_session, parked)
+
+    await resolve_confirmation("c-1", _option(conf, "move"), db_session)
+    await db_session.refresh(record)
+    stored = MasterProfileData.model_validate(record.profile_json)
+
+    assert [c.confirmation_id for c in stored.metadata.pending_confirmations] != ["c-1"]
+    followup = stored.metadata.pending_confirmations[-1]
+    assert [k for k in followup.option_keys if k.startswith("entry:")]
+    receipt = stored.metadata.enrichment_history[-1]
+    assert [i.reason for i in receipt.not_applied] == ["confirmation_held"]
