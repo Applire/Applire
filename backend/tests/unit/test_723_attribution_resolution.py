@@ -390,3 +390,77 @@ def test_a_confirmation_without_stable_keys_keeps_bookkeeping_only_behaviour():
         None,
         _profile(),
     ) is None
+
+
+# ── #674 line 34: the sentence anchor and the model's own partition ──────────
+
+# Exactly ONE of the three stations is nameable against the vault: "Nordlicht
+# Biotech" matches, "the blood donation service" is a gloss of Westfalen
+# Blutspendedienst, and the third clause names no company at all. That is the
+# shape #243's "two or more employers → fail open" cannot see, measured 23/29 on
+# the captured #684 records.
+_THREE_STATIONS = (
+    "15+ years in pharmaceutical manufacturing — monoclonal antibodies at "
+    "Nordlicht Biotech, blood bags at the blood donation service and now mRNA "
+    "vaccines and personalised cancer vaccines."
+)
+
+
+def _three_station_profile() -> MasterProfileData:
+    return MasterProfileData(
+        work_experience=[
+            WorkEntry(id="w-sued", company="Südwind Therapeutics GmbH",
+                      role="Director Supply Chain", start_date="2019-03", is_current=True),
+            WorkEntry(id=PREV_ID, company="Westfalen Blutspendedienst gGmbH",
+                      role="IT Systems Lead", start_date="2012-01", end_date="2019-02"),
+            WorkEntry(id=ANCHOR_2018, company="Nordlicht Biotech SE",
+                      role="Systems Engineer", start_date="2005-09", end_date="2011-12"),
+        ]
+    )
+
+
+def test_a_sentence_the_model_partitioned_anchors_nothing():
+    """#674 line 34. The sentence names three stations but only ONE of them
+    matches a vault company literally ("Nordlicht Biotech"; "Südwind
+    Therapeutics" is there too but "the blood donation service" is a gloss), so
+    #243's "two or more employers → fail open" never engaged and every
+    correctly-targeted bullet of the sentence was asked about against the one
+    name that matched. The model gave each employer its OWN share — that is a
+    partition, and a partition silences the anchor."""
+    ops = enforce_attribution(
+        [
+            AddBullets(target="w-sued", responsibilities=["mRNA vaccines"]),
+            AddBullets(target=PREV_ID, responsibilities=["Blood bags"]),
+            AddBullets(target=ANCHOR_2018, responsibilities=["Monoclonal antibodies"]),
+        ],
+        profile=_three_station_profile(),
+        new_info={"answer": _THREE_STATIONS},
+        source="interview",
+    )
+    assert not [
+        o for o in ops
+        if isinstance(o, RequestConfirmation) and o.context.get("anchor_employer")
+    ]
+
+
+def test_the_same_text_given_to_two_employers_is_not_a_partition():
+    """#243's own live shape, abstracted: the model handed ONE bullet to TWO
+    employers. That is not a split, it is the model contradicting itself, and
+    the anchor must still speak — otherwise the fix for line 34 would delete
+    the guard's founding regression."""
+    shared = "Monoclonal antibodies"
+    ops = enforce_attribution(
+        [
+            AddBullets(target=ANCHOR_2018, achievements=[shared]),
+            AddBullets(target="w-sued", achievements=[shared]),
+        ],
+        profile=_three_station_profile(),
+        new_info={"answer": _THREE_STATIONS},
+        source="interview",
+    )
+    flagged = [
+        o for o in ops
+        if isinstance(o, RequestConfirmation) and o.context.get("anchor_employer")
+    ]
+    assert len(flagged) == 1
+    assert flagged[0].context["target_employer"].startswith("Südwind")

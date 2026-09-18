@@ -39,7 +39,14 @@ def _merged_education() -> MasterProfileData:
     """The EN vault as it stands AFTER the merge wrote the set_fields."""
     return MasterProfileData(
         education=[
-            EducationEntry(id=JMU_ID, institution="JMU Würzburg", degree="Diplom",
+            # Institution differs by a city suffix, degree by the TRANSLATION —
+            # the real shape, and the one no natural-key field can match. The
+            # `set_field(degree=…)` the model emitted for it wrote nothing
+            # (`_apply_set_field` refuses a populated slot), which is why the
+            # binder keys on the OP and not on the receipt's `changes`: on the
+            # real record this entry produced no change at all.
+            EducationEntry(id=JMU_ID, institution="JMU Würzburg",
+                           degree="Diploma (equivalent to M.Sc.)",
                            field="Biologie, allgemein", start_date="1998", end_date="2004"),
             EducationEntry(id=PROVADIS_ID, institution="Provadis Hochschule",
                            degree="Fachinformatiker", field="Anwendungsentwicklung"),
@@ -61,7 +68,7 @@ def _incoming_education() -> MasterProfileData:
 
 def _education_ops() -> list:
     return [
-        SetField(target=JMU_ID, field="field", value="Biologie, allgemein"),
+        SetField(target=JMU_ID, field="degree", value="Diplom"),
         SetField(target=PROVADIS_ID, field="field", value="Anwendungsentwicklung"),
     ]
 
@@ -114,7 +121,7 @@ def test_a_set_field_targeting_another_section_rescues_nothing():
     items = compute_import_not_applied(
         _incoming_education(),
         _merged_education(),
-        [SetField(target=EN_LANG_ID, field="field", value="Biologie, allgemein")],
+        [SetField(target=EN_LANG_ID, field="degree", value="Diplom")],
     )
     assert [i.label for i in items] == [
         "Julius-Maximilians-Universität Würzburg / Diplom"
@@ -125,7 +132,7 @@ def test_a_set_field_whose_target_resolves_to_nothing_rescues_nothing():
     items = compute_import_not_applied(
         _incoming_education(),
         _merged_education(),
-        [SetField(target="no-such-id", field="field", value="Biologie, allgemein")],
+        [SetField(target="no-such-id", field="degree", value="Diplom")],
     )
     assert [i.label for i in items] == [
         "Julius-Maximilians-Universität Würzburg / Diplom"
