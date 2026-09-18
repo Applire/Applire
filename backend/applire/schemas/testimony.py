@@ -31,7 +31,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from applire.schemas.profile import Conflict, FieldChange, PendingConfirmation
+from applire.schemas.profile import (
+    Conflict,
+    FieldChange,
+    MatchReceipt,
+    PendingConfirmation,
+)
 
 TESTIMONY_SCHEMA_VERSION = "testimony/1"
 
@@ -162,4 +167,11 @@ class TestimonyResult(BaseModel):
     #: Empty for a truncated (`status="error"`) submission: nothing was
     #: reconciled at all, so there is no op batch to check content against.
     not_applied: list[NotApplied] = Field(default_factory=list)
+    #: #674 line 72 (#707/#708, ADR-063 door parity) — the batch's
+    #: `match_existing` receipts: what the reconciler recognised as already
+    #: present rather than wrote. Deliberately NOT folded into `changes`
+    #: (see `MatchReceipt`: five readers take `bool(changes)` as "the vault
+    #: changed", and a restatement must never address a gap), and deliberately
+    #: not a `_derive_status` input for the same reason.
+    matched: list[MatchReceipt] = Field(default_factory=list)
     detail: str | None = None

@@ -1300,6 +1300,14 @@ class ProfileImportResponse(MasterProfileResponse):
 
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    #: #674 line 72 (#707/#708, ADR-046 / ADR-063 door parity) — the other half
+    #: of the same merge's honesty. `not_applied` names entries the merge's ops
+    #: did not carry; `matched` names the ones the reconciler recognised as
+    #: already present under another surface form, which is the answer to "why
+    #: is my translated entry not in `changes`?". It rode `ApplyResult.matched`
+    #: → `EnrichmentRecord.matched` to the profile page's history and stopped
+    #: there, so no import DOOR ever stated it.
+    matched: list[MatchReceipt] = Field(default_factory=list)
     # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
     # name every import caller already reads. `ProfileImportView.tsx` posts a
     # LinkedIn/XING export to this door and then reads `data.completeness_score`

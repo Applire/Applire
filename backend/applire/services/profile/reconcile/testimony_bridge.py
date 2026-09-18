@@ -223,6 +223,9 @@ async def submit_testimony(
             has_not_applied=bool(not_applied),
         ),
         changes=committed.enrichment_record.changes,
+        # #674 line 72 — the same record's `match_existing` receipts, beside the
+        # changes they are deliberately not part of.
+        matched=committed.enrichment_record.matched,
         confirmations=committed.pending_confirmations,
         conflicts=committed.conflicts,
         not_applied=not_applied,
