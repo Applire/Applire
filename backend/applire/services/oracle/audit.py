@@ -1148,6 +1148,7 @@ async def verify_claim(
     letter_named_ids: frozenset[str] | None = None,
     document_language: str | None = None,
     judgement_sink: "list[_SeamCandidate] | None" = None,
+    ledger_forms: list[list[str]] | None = None,
 ) -> "ClaimVerdict | _SeamCandidate":
     """Verdict for a single claim against the vault (ADR-052 §1).
 
@@ -1166,6 +1167,12 @@ async def verify_claim(
     :class:`_SeamCandidate`, not a :class:`ClaimVerdict`; a bare call (the
     common case for direct callers outside :func:`audit_document`) always
     gets back a real, immediately fail-safe :class:`ClaimVerdict`.
+
+    ``ledger_forms`` (blind Kaile probe, 2026-09-19) is the job's claimable
+    Keyword Ledger surface-form GROUPS; it reaches only the ``skill`` branch,
+    where :func:`ground_skill_claim` may follow a row's sibling forms to the
+    vault unit that actually backs the competence. ``None`` keeps the
+    vault-only behaviour.
     """
     if isinstance(claim, str):
         claim = Claim(text=claim, location="claim[0]")
@@ -1230,7 +1237,7 @@ async def verify_claim(
 
     # ── skills: shared-predicate grounding, deterministic either way ────────
     if claim.kind == "skill":
-        unit = ground_skill_claim(claim.text, idx)
+        unit = ground_skill_claim(claim.text, idx, ledger_forms)
         if unit is not None:
             return ClaimVerdict(
                 verdict="grounded", checker="grounding", evidence=_evidence_refs([unit])
@@ -1577,6 +1584,7 @@ async def audit_document(
     provider: Any | None = None,
     document_language: str | None = None,
     entailment: bool = True,
+    keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
 
@@ -1612,6 +1620,15 @@ async def audit_document(
     count/sequence. The agent-door ``audit_document`` tool (the OTHER
     caller) keeps ``entailment=True`` (the default) — entailment there was
     always live and intentional.
+
+    ``keyword_ledger`` (blind Kaile probe, 2026-09-19) is the job's latest
+    Keyword Ledger. Only its CLAIMABLE surface-form groups are read, and only
+    by the skill-chip grounding — a ledger row is the already-recorded fact
+    that the job's word and the candidate's word name one competence, so the
+    Oracle may follow it to the vault unit that backs it instead of grading
+    the document's own vocabulary ``unbacked``. ``None`` (every caller that
+    has no job on hand, including the agent door) keeps the vault-only
+    behaviour.
     """
     sources = [s for s in (tailored_data, letter_data, text) if s is not None]
     if len(sources) != 1:
@@ -1652,6 +1669,28 @@ async def audit_document(
     # ADR-068 clause 6 — every claim that defers to the judgement layer lands
     # here; ``pending`` remembers, in the SAME order, which ``results`` slot
     # each one fills once the batch resolves.
+    # Claimable ledger surface-form groups, resolved ONCE per document. A
+    # malformed/absent ledger is simply no groups — never an audit failure.
+    ledger_forms: list[list[str]] | None = None
+    if keyword_ledger:
+        try:
+            from applire.services.keyword_ledger import claimable_surface_form_groups
+
+            # ``exclude_keyword_only`` (ADR-066 clause 2): the SAME rows the
+            # CV writer's skills-list gap guard refuses to put on the page.
+            # A bare noun scraped from the ad's prose must not be able to
+            # endorse itself as a grounded competence here either.
+            ledger_forms = (
+                claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True)
+                or None
+            )
+        except Exception:
+            logger.exception(
+                "oracle: keyword-ledger surface forms unavailable — "
+                "auditing skill chips against the vault alone"
+            )
+            ledger_forms = None
+
     judgement_sink: list[_SeamCandidate] = []
     pending_result_indices: list[int] = []
     results: list[ClaimResult] = []
@@ -1669,6 +1708,7 @@ async def audit_document(
             letter_named_ids=letter_named_ids,
             document_language=document_language,
             judgement_sink=judgement_sink,
+            ledger_forms=ledger_forms,
         )
         if isinstance(verdict, _SeamCandidate):
             # The candidate's own fail-safe verdict is the placeholder — if

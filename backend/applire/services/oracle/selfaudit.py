@@ -53,6 +53,7 @@ async def build_self_audit_report(
     letter_data: dict[str, Any] | None = None,
     provider: Any | None = None,
     document_language: str | None = None,
+    keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Truthfulness report as a JSONB-safe dict, or None on any failure.
 
@@ -63,6 +64,11 @@ async def build_self_audit_report(
     language (``None`` keeps the cross-language seam off regardless of
     ``provider``) — see the CV/cover-letter callers in ``services/cv.py`` /
     ``services/cover_letter.py`` for which value they thread through and why.
+
+    ``keyword_ledger`` is the job's latest Keyword Ledger — read only for its
+    claimable surface-form groups, and only by the skill-chip grounding (see
+    :func:`applire.services.oracle.audit.audit_document`). ``None`` keeps the
+    vault-only behaviour.
     """
     try:
         if tailored_data is not None:
@@ -72,6 +78,7 @@ async def build_self_audit_report(
                 tailored_data=tailored_data,
                 provider=provider,
                 document_language=document_language,
+                keyword_ledger=keyword_ledger,
                 # ADR-068 clause 7 scoping (flagged deviation, see
                 # audit_document's own docstring): keep the OLDER, broader
                 # entailment mechanism off during generation — ``provider``
@@ -85,6 +92,7 @@ async def build_self_audit_report(
                 letter_data=letter_data,
                 provider=provider,
                 document_language=document_language,
+                keyword_ledger=keyword_ledger,
                 entailment=False,
             )
         else:

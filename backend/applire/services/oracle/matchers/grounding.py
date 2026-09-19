@@ -12,9 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from applire.services.ats_audit import (
+    _norm,
     skill_tokens,
     skills_near_dupe,
     surface_present,
+    surface_present_whole_token,
 )
 from applire.services.oracle.matchers.figures import Figure
 from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
@@ -298,19 +300,87 @@ def ground_via_role_union(
     )
 
 
-def ground_skill_claim(name: str, index: VaultIndex) -> EvidenceUnit | None:
+def _ledger_sibling_forms(name: str, ledger_forms: list[list[str]]) -> list[str]:
+    """Every OTHER surface form of the claimable ledger row(s) ``name`` is a
+    form of — the job's own synonym set for one competence.
+
+    Membership is decided on the normalised literal form only (``_norm``),
+    never on a near-dupe judgement: the row already IS the statement that
+    these strings name one competence, so no second equivalence decision is
+    taken here.
+    """
+    key = _norm(name)
+    if not key:
+        return []
+    out: list[str] = []
+    for group in ledger_forms or []:
+        forms = [f for f in group if isinstance(f, str) and f.strip()]
+        if not any(_norm(f) == key for f in forms):
+            continue
+        for f in forms:
+            if _norm(f) != key and f not in out:
+                out.append(f)
+    return out
+
+
+def ground_skill_claim(
+    name: str,
+    index: VaultIndex,
+    ledger_forms: list[list[str]] | None = None,
+) -> EvidenceUnit | None:
     """Evidence unit backing a skill claim, or None if the vault has nothing.
 
-    A skill is backed when its surface form appears anywhere in the vault
-    (skills, technologies, bullets) or a vault skill is a near-dupe of it —
-    both via the shared instruments, mirroring the reconciler and ATS layers.
+    A skill is backed when its surface form appears in the vault (skills,
+    technologies, bullets) **as a whole token**, or a vault skill is a
+    near-dupe of it, or — when the job's Keyword Ledger is supplied — one of
+    the SIBLING surface forms of the claimable ledger row naming this same
+    competence is backed that way. All three go through the shared
+    instruments, so the Oracle still adds no near-dupe implementation of its
+    own.
+
+    **Whole token, not substring** (blind Kaile probe, 2026-09-19,
+    ``generated_cvs`` 1b581b82…). This matcher used ``surface_present``,
+    whose substring reach is right for the ATS coverage question and wrong
+    for this one: the chips "Gruppe", "Vertrieb" and "Produktion" — bare
+    nouns lifted from the job ad, none of them a vault skill — all graded
+    ``grounded`` against a vault that only ever says "Diehl-Gruppe",
+    "Vertriebsreporting" and "Produktionsstandorte". A blind hiring manager
+    read the delivered section as keyword stuffing without evidence.
+    ``surface_present_whole_token`` keeps the same closed normalisation
+    (``_norm``, plural fold, the ``_verb_form_present`` token fallback) and
+    only requires word boundaries.
+
+    **The ledger arm** closes the twin false NEGATIVE the same probe found:
+    "Produktionscontrolling" graded ``unbacked`` although the job's own
+    keyword ledger carries it as ``status: direct, claimable: true`` with
+    ``surface_forms: [Produktionscontrolling, Werkscontrolling, Production
+    Controlling]`` and the vault says "Acht Jahre Werkscontrolling an zwei
+    Produktionsstandorten". The vault names the competence in the CANDIDATE's
+    vocabulary; the document names it in the JOB's. The ledger row is the
+    already-recorded statement that the two are one competence — an existing
+    decided fact, not a fresh equivalence judgement taken here (ADR-076
+    clause 4) — so the grounding follows it to a real vault unit and cites
+    THAT unit. ``ledger_forms`` is the claimable surface-form GROUPS of the
+    job's latest ledger (``keyword_ledger.claimable_surface_form_groups``);
+    omit it and the behaviour is vault-only, exactly as before — which is
+    what ``keyword_ledger._claimable_backing_violation`` must keep doing, or
+    a ledger row would be allowed to back itself.
     """
     for unit in index.units:
-        if surface_present(name, unit.text_norm):
+        if surface_present_whole_token(name, unit.text_norm):
             return unit
     for i, vault_skill in enumerate(index.skill_names):
         if skills_near_dupe(name, vault_skill):
             for unit in index.units:
                 if unit.path == f"skills[{i}]":
                     return unit
+    for sibling in _ledger_sibling_forms(name, ledger_forms or []):
+        for unit in index.units:
+            if surface_present_whole_token(sibling, unit.text_norm):
+                return unit
+        for i, vault_skill in enumerate(index.skill_names):
+            if skills_near_dupe(sibling, vault_skill):
+                for unit in index.units:
+                    if unit.path == f"skills[{i}]":
+                        return unit
     return None

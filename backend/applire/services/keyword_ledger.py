@@ -1098,8 +1098,37 @@ def claimable_surface_forms(
     return forms
 
 
+def is_jd_keyword_only(entry: dict[str, Any]) -> bool:
+    """Is this row's ONLY job provenance the posting's bare keyword list?
+
+    ``sources`` records which JD list each expectation came from —
+    ``required`` / ``nice_to_have`` (the posting's stated expectations) and
+    ``keyword`` (the raw ATS keyword scrape of the posting's prose). A row
+    carrying ``keyword`` and neither of the other two is a NOUN LIFTED FROM
+    THE AD, not something the ad asks for; it is exactly the class
+    :func:`_fit_weight` scores ``KEYWORD_ONLY_WEIGHT`` (0.0).
+
+    Blind Kaile probe, 2026-09-19: "Gruppe", "Vertrieb" and "Produktion" —
+    all three keyword-only rows, from the ad lines "Self-Service-Dashboards
+    für Vertrieb, Produktion und Geschäftsführung" and "Gruppenebene" —
+    reached a delivered CV's skills section as chips, and a blind hiring
+    manager read them as "ATS-Keyword-Stuffing ohne Beleg". A row with no
+    ``sources`` at all is NOT keyword-only (it came from somewhere else
+    entirely, e.g. a vault-side upgrade), and is untouched by this predicate.
+
+    THE shared predicate for that class (ADR-066 clause 2): the CV writer's
+    skills-list gap guard and the Oracle's skill grounding must agree on
+    which names the job authorises, or the generator writes what its own
+    audit then endorses — or rejects — on a different rule.
+    """
+    srcs = {s for s in (entry.get("sources") or []) if isinstance(s, str)}
+    return "keyword" in srcs and not (srcs & {"required", "nice_to_have"})
+
+
 def claimable_surface_form_groups(
     keyword_ledger: list[dict[str, Any]] | None,
+    *,
+    exclude_keyword_only: bool = False,
 ) -> list[list[str]]:
     """Every CLAIMABLE ledger entry's forms, ONE GROUP PER ENTRY (#386, E049).
 
@@ -1109,10 +1138,19 @@ def claimable_surface_form_groups(
     competence — charter run 10 shipped 'Dreischichtbetrieb' AND 'Schichtbetrieb'
     (sibling forms of one ledger row) as two skill tags because the flattened
     list makes every form an independent candidate.
+
+    ``exclude_keyword_only`` (blind Kaile probe, 2026-09-19) drops the rows
+    :func:`is_jd_keyword_only` names — set by the two consumers that decide
+    whether a name may stand as a SKILL CHIP on the delivered page, cleared
+    for every consumer asking the broader "does the job mention this at all"
+    question.
     """
     groups: list[list[str]] = []
     claimable, _ = split_ledger_for_prompt(keyword_ledger)
-    for entry in [e for e in claimable if not is_positioning_only(e)]:
+    rows = [e for e in claimable if not is_positioning_only(e)]
+    if exclude_keyword_only:
+        rows = [e for e in rows if not is_jd_keyword_only(e)]
+    for entry in rows:
         group: list[str] = []
         seen: set[str] = set()
         for sf in [entry.get("concept", "")] + list(entry.get("surface_forms") or []):

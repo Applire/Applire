@@ -2756,7 +2756,18 @@ def _restore_narrative_named_skills(
             seen_norm.add(n)
             groups.append([name])
 
-    for group in claimable_surface_form_groups(keyword_ledger):
+    # RULING E-5b (2026-09-19, blind Kaile probe): a name whose ONLY authority
+    # is a JD-keyword-only ledger row never enters this pass's candidate pool.
+    # The sibling pass ``_drop_ungrounded_jd_echo_skills`` (#250) already
+    # embodies the decision that an ungrounded JD echo does not reach the page
+    # — and this pass, running LAST in the skills pipeline, silently undid it:
+    # all three noise chips on the probe's delivered CV ("Gruppe", "Vertrieb",
+    # "Produktion") were re-added HERE, after that gate had run. Narrowing the
+    # pool can only ever add FEWER names; no writer-chosen chip can be removed
+    # by it. ``is_jd_keyword_only`` is the shared predicate the Oracle's own
+    # skill grounding reads too (ADR-066 clause 2), so generator and audit
+    # cannot disagree about which names the job authorises.
+    for group in claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True):
         fresh = [f.strip() for f in group if isinstance(f, str) and f.strip()]
         if fresh:
             groups.append(fresh)
@@ -5143,6 +5154,10 @@ async def _update_ats_report(
     # there and any later edit would launder a document that shipped on an exhausted
     # review into one that reads as cleanly audited (the #634 class).
     previous_report = record.ats_report if isinstance(record.ats_report, dict) else None
+    # Bound BEFORE the ATS try block: the truthfulness self-audit below is its
+    # own independent try (an ATS engine error may never change what the
+    # Oracle sees), so it cannot depend on a name that block assigns.
+    ledger: list[dict] | None = None
     try:
         from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
         from applire.services.cv_section_editor import apply_overrides_to_tailored
@@ -5255,6 +5270,13 @@ async def _update_ats_report(
                 record.document_language
                 or (resolve_jd_language(judgement_job) if judgement_job else None)
             ),
+            # Blind Kaile probe 2026-09-19: the job's own ledger is what says
+            # that the document's "Produktionscontrolling" and the vault's
+            # "Werkscontrolling" are one competence. Without it the Oracle
+            # graded the chip `unbacked` against a vault that plainly holds
+            # the evidence. Loaded above for the ATS audit; `None` when that
+            # load did not happen, which is the vault-only behaviour.
+            keyword_ledger=ledger,
         )
     except Exception:
         logger.exception(
