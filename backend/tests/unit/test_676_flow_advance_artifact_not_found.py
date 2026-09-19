@@ -84,6 +84,57 @@ async def test_advance_with_an_id_from_the_wrong_table_still_422s(
 
 
 @pytest.mark.asyncio
+async def test_advance_with_a_soft_deleted_artifact_id_still_422s(
+    async_client: AsyncClient, async_db: AsyncSession,
+):
+    """Adversarial pass, 2026-09-19. `_check_artifact_exists` is a plain
+    `db.get()` PK lookup — it never reads `deleted_at`, unlike every other
+    fetch-by-id in this codebase (`GapAnalysis.deleted_at.is_(None)` is the
+    established pattern in `services/gap.py`, `services/application.py`,
+    etc.). A soft-deleted GapAnalysis row still has a real primary key, so
+    `advance_flow(step="gap_analysis", artifact_id=<deleted gap.id>)` was
+    silently ACCEPTED and written into `flow_sessions.gap_analysis_id` — the
+    flow now points at a row the rest of the app treats as gone."""
+    from applire.models.gap import GapAnalysis
+    from applire.models.job import JobAnalysis
+
+    job = JobAnalysis(
+        raw_text_hash=f"hash-{uuid.uuid4()}", raw_text="Sample job description",
+        role_title="Software Engineer", seniority_level="mid",
+        language_requirement="English",
+    )
+    async_db.add(job)
+    await async_db.flush()
+
+    gap = GapAnalysis(
+        job_analysis_id=job.id,
+        profile_id=uuid.uuid4(),
+        input_fingerprint=f"fp-{uuid.uuid4()}",
+        match_score=0.5,
+        critical_gaps=[], minor_gaps=[], strengths=[], keyword_gaps=[],
+    )
+    async_db.add(gap)
+    await async_db.flush()
+    from datetime import datetime, timezone
+    gap.deleted_at = datetime.now(timezone.utc)
+    await async_db.commit()
+    await async_db.refresh(gap)
+
+    create_resp = await async_client.post("/api/flow", json={"job_id": str(job.id)})
+    assert create_resp.status_code == 201
+    flow_id = create_resp.json()["flow_id"]
+
+    advance_resp = await async_client.post(
+        f"/api/flow/{flow_id}/advance",
+        json={"step": "gap_analysis", "artifact_id": str(gap.id)},
+    )
+    assert advance_resp.status_code == 422, (
+        "a soft-deleted artifact_id must be refused like any other "
+        f"non-existent one, got {advance_resp.status_code}: {advance_resp.text}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_advance_with_real_artifact_id_still_succeeds(
     async_client: AsyncClient,
     async_db: AsyncSession,
