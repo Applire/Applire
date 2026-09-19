@@ -753,22 +753,49 @@ def _plan_language_preseed(
             s for s in (new_draft.get("skills") or []) if isinstance(s, str) and s.strip()
         ]
         tier_fn = _jd_required_tier_fn(job_dict, keyword_ledger)
+        vault_skill_names = claimable_skill_names(profile_json)
+        required_vault_skills = [p for p in vault_skill_names if tier_fn(p) == 0]
         guaranteed = _guaranteed_vault_skills(
-            drafted_skills, claimable_skill_names(profile_json), tier_fn, skills_page_dupe
+            drafted_skills, vault_skill_names, tier_fn, skills_page_dupe
         )
         if guaranteed:
             plan._pre_skills_len = len(drafted_skills)
             plan.skills = {name: name for name in guaranteed}
             new_draft["skills"] = drafted_skills + list(guaranteed)
 
+        # #672 L102 residual (delivery-run probe 2026-09-19): a required vault
+        # skill the WRITER's own draft already echoed verbatim needs no
+        # placement here — `_guaranteed_vault_skills` correctly sees it as
+        # already covering the page and leaves it out of `guaranteed`. But once
+        # the language pass translates that chip in place, the page carries
+        # only the translation, and `_tailor_skills_to_jd`'s end-of-tail
+        # recompute — reading the page AFTER translation, where
+        # `skills_page_dupe` cannot see a cross-language pair — judges the
+        # vault's own spelling "missing" again and re-adds it next to its own
+        # translation ("Contract testing" next to "Vertragstests"). Record it
+        # here, BEFORE the language pass runs, while the page is still in the
+        # vault's own script and the same-script dupe check can actually see
+        # the match.
+        already_covered = {
+            p
+            for p in required_vault_skills
+            if p not in plan.skills
+            and any(skills_page_dupe(p, x) for x in drafted_skills)
+        }
+        if already_covered:
+            plan.skills_already_covered = frozenset(already_covered)
+
     if plan.is_empty() and new_draft == prose_draft:
         return prose_draft, plan
     logger.info(
         "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-18) document_language=%s "
-        "bullets=%d roles_with_industry_line=%d",
+        "bullets=%d roles_with_industry_line=%d skills_placed=%d "
+        "skills_already_covered=%d",
         document_language,
         sum(len(v) for v in plan.by_entry.values()),
         len(plan.industry_context),
+        len(plan.skills),
+        len(plan.skills_already_covered),
     )
     return new_draft, plan
 
@@ -2183,7 +2210,9 @@ def _tailor_skills_to_jd(
     # tag already on the page ('Lean Management' next to the writer's 'Lean') is
     # already covered, not missing (charter run 10 shipped six such clusters).
     pool = list(tailored_skills)
-    excluded_by_preseed = set(preseed.skills) if preseed is not None else set()
+    excluded_by_preseed = (
+        preseed.excluded_skill_names() if preseed is not None else frozenset()
+    )
     for p in _guaranteed_vault_skills(
         tailored_skills, profile_skills, _tier, skills_page_dupe
     ):
@@ -2193,10 +2222,12 @@ def _tailor_skills_to_jd(
         # bilingual vault it delivered the candidate's own English spelling next
         # to the German chip the language pass had just produced, and
         # `_dedup_skills` (which ran earlier, and compares within one language)
-        # could not see the pair. When the preseed already put this vault skill
-        # in front of the language pass, the page carries it in the document's
-        # language and re-adding the vault spelling would restore exactly the
-        # duplicate the preseed removed.
+        # could not see the pair. `excluded_by_preseed` covers BOTH: a vault
+        # skill the preseed itself PLACED in front of the language pass, and one
+        # it found ALREADY covering the page before that pass ran (residual,
+        # delivery-run probe 2026-09-19 — a writer-drafted chip the preseed
+        # never had to place is exactly as protected as one it did place, once
+        # this recompute is blind to what language it is now rendered in).
         if p in excluded_by_preseed:
             continue
         pool.append(p)

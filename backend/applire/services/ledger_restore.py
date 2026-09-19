@@ -79,10 +79,33 @@ class PreseedPlan:
     #: Keys are the VAULT's own spelling; `_tailor_skills_to_jd` reads the keys to
     #: know it must not place that spelling on the page a second time.
     skills: dict[str, str] = field(default_factory=dict)
+    #: vault skill names (#192 tier-0/required) the preseed found ALREADY on the
+    #: page before the language pass ran — the writer's own echo of the vault's
+    #: spelling, not something this preseed placed. Tracked separately from
+    #: ``skills`` because `_tailor_skills_to_jd`'s end-of-tail recompute reads the
+    #: page AFTER translation and `skills_page_dupe` is blind to a cross-language
+    #: pair (ADR-066/067 — a same-script instrument, not a language-aware one):
+    #: without this record, a concept the writer already had — and the language
+    #: pass then correctly translated — looks "missing" again once translated,
+    #: and the tail re-adds the vault spelling next to its own translation
+    #: (#672 L102 residual, delivery-run probe 2026-09-19 — "Contract testing"
+    #: next to "Vertragstests").
+    skills_already_covered: frozenset[str] = field(default_factory=frozenset)
     #: bullet counts per entry at injection time, used to verify the settle
     _pre_lengths: dict[str, int] = field(default_factory=dict)
     #: skills-list length at injection time, same purpose
     _pre_skills_len: int = 0
+
+    def excluded_skill_names(self) -> frozenset[str]:
+        """Every vault skill name ``_tailor_skills_to_jd`` may not place a SECOND
+        time: what this preseed itself placed (``skills`` keys, the vault's own
+        spelling) UNION what it found already covering the page before the
+        language pass ran (``skills_already_covered``). ONE set — the tail's
+        recompute must never re-derive "missing" from the post-translation page
+        alone, because that page is exactly where a translated concept becomes
+        invisible to a same-script dupe check.
+        """
+        return frozenset(self.skills) | self.skills_already_covered
 
     def excluded_vault_norms(self) -> dict[str, frozenset[str]]:
         """Per entry, the normalised vault bullets the tail may not restore again.
@@ -116,6 +139,7 @@ class PreseedPlan:
             not any(self.by_entry.values())
             and not self.industry_context
             and not self.skills
+            and not self.skills_already_covered
         )
 
 
