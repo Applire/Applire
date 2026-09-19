@@ -869,16 +869,29 @@ def plan_attribution_resolution(
     fact was gone, under a receipt reading "Recorded your answer". Twice in one
     edge run, `triage:vault-integrity`.
 
-    ``None`` means "not this family, or not answerable" — a model-emitted
-    `request_confirmation` (prompt rule 6) carries neither `option_keys` nor
-    `flagged`, and a record persisted before #669 carries no keys either; both
-    keep the pre-#723 bookkeeping-only behaviour, correctly: nothing was held.
+    ``None`` means "not this family" — a model-emitted `request_confirmation`
+    (prompt rule 6) carries neither `option_keys` nor `flagged`, and a record
+    persisted before #669 carries no keys either; both keep the pre-#723
+    bookkeeping-only behaviour, correctly: nothing was held.
 
     Founder ruling V-1 / D-6 (2026-09-18) on cardinality: exactly one candidate
     entry places it; several, with one 4-digit year in the held text falling
     into exactly one role's range, places it there; anything else asks the
     narrower keyed question and keeps the content held. Never "the most recent
     role".
+
+    **Adversarial pass, 2026-09-19.** `option_key` can be `None` for a record
+    that DOES carry `flagged`/`anchor_employer` too: `resolve_option_key` only
+    matches an answer against a rendered option EXACTLY, and the agent channel
+    is free text, not a button click — an answer that paraphrases rather than
+    echoes a rendered option (or any other unrecognised key) used to fall
+    through every named branch to the same `return None` the "not this family"
+    case returns, silently repeating #723 on a well-formed ask. Once `flagged`
+    and `anchor_employer` are both present this function commits to being
+    family 4, so every remaining path returns a plan — an unrecognised
+    `option_key` parks the content exactly like the ambiguous-candidates case
+    below (`not_applied=held`, still `confirmation_held`, answerable again),
+    never a bare `None`.
     """
     flagged = [
         (str(item.get("field") or ""), str(item.get("text") or ""))
@@ -914,7 +927,11 @@ def plan_attribution_resolution(
         return AttributionPlan(placements=placements, scalars=scalars)
 
     if option_key != "move":
-        return None
+        # Not one of the recognised keys — an answer `resolve_option_key`
+        # could not match against any rendering (or a caller-supplied key
+        # this family has never had). This IS family 4 (flagged content is
+        # held), so the content is parked, never silently dropped.
+        return AttributionPlan(not_applied=held)
 
     anchor_text = str(context.get("anchor_employer") or "")
     candidates = _anchor_entries(anchor_text, profile)

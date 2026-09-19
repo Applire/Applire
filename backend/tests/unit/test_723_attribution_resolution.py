@@ -373,6 +373,26 @@ def test_no_answer_key_leaves_a_metadata_only_receipt(key: str):
     )
 
 
+def test_an_answer_matching_no_rendered_option_still_holds_never_vanishes():
+    """Adversarial pass, 2026-09-19. `resolve_option_key` only matches an
+    EXACT (case/whitespace-folded) rendering — the agent channel's free text
+    is not guaranteed to echo one back byte-for-byte. Before this fix, an
+    unmatched answer on a well-formed family-4 confirmation (flagged content
+    IS held, `anchor_employer` IS set) fell through every named branch to the
+    same `return None` a record with no stable keys returns at all — #723's
+    invariant broken again, silently, with no `not_applied` receipt and no
+    trace that anything was ever held.
+    """
+    profile = _profile(anchor_roles=1)
+    conf = _confirmation_of(_guarded(profile))
+    result = _answer(_parked(profile, conf), "Yes, please move it there.")
+
+    content = [c for c in result.changes if c.section != "metadata"]
+    assert content or result.not_applied, (
+        "an unmatched answer produced a metadata-only receipt for a decision naming a bullet"
+    )
+
+
 def test_an_english_render_of_the_same_option_resolves_identically():
     """#669's contract: the answer's identity is the KEY, not the rendering."""
     profile = _profile(anchor_roles=1)
@@ -387,12 +407,27 @@ def test_a_confirmation_without_stable_keys_keeps_bookkeeping_only_behaviour():
     `option_keys` and no `flagged` context — nothing was held, so nothing is
     written. Back-compat for records persisted before #669, too."""
     assert plan_attribution_resolution({"section": "work_experience"}, None, _profile()) is None
-    assert plan_attribution_resolution(
+
+
+def test_flagged_content_with_no_recognised_option_key_is_parked_not_dropped():
+    """Adversarial pass, 2026-09-19, corrects this test's own prior claim.
+
+    Unlike the case above, THIS record carries `flagged` + `anchor_employer` —
+    it IS family 4, so `option_key=None` here means an unmatched/unrecognised
+    answer, not "not this family". Returning `None` (the pre-fix behaviour)
+    would silently drop held content with no receipt at all; see
+    `test_an_answer_matching_no_rendered_option_still_holds_never_vanishes`
+    for the same defect through the real door.
+    """
+    plan = plan_attribution_resolution(
         {"section": "work_experience", "anchor_employer": "Nordlicht Biotech SE",
          "flagged": [{"field": "responsibilities", "text": HELD_SIBLING}]},
         None,
         _profile(),
-    ) is None
+    )
+    assert plan is not None
+    assert plan.placements == () and plan.scalars == ()
+    assert [reason for _, _, reason in plan.not_applied] == ["confirmation_held"]
 
 
 # ── #674 line 34: the sentence anchor and the model's own partition ──────────
