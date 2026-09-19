@@ -599,12 +599,19 @@ def _plan_language_preseed(
     prose draft verbatim, and ``_review_cv_language`` then translates it like any
     other bullet.
 
-    **Only genuinely foreign text is injected.** Every item is gated on
-    ``item_language_mismatch`` against the document language, so a German vault
-    feeding a German document produces an EMPTY plan and a byte-identical
-    pipeline. That gate is deliberately the under-reporting direction (see
-    ``ITEM_LANGUAGE_MIN_WORDS``): the failure mode is "this run behaves exactly
-    as it did yesterday", never "a vault fact was re-worded for no reason".
+    **Only genuinely foreign text is injected.** Bullets and vault project
+    copies (classes 1 and 3) are gated per item on ``item_language_mismatch``
+    against the document language, so a German vault feeding a German document
+    produces an EMPTY plan and a byte-identical pipeline. That gate is
+    deliberately the under-reporting direction (see ``ITEM_LANGUAGE_MIN_WORDS``):
+    the failure mode is "this run behaves exactly as it did yesterday", never
+    "a vault fact was re-worded for no reason". ``industry_context`` (class 2)
+    and the skills guarantee (class 4) are gated on the VAULT's dominant
+    language instead (``_vault_dominant_language``, ADR-068 clause 2a's own
+    rule) — a per-item guess is wrong for both, because a short furniture line
+    or competency chip routinely carries no English function word and reads as
+    German on its own (measured; residual #724/#672 L102, delivery-run probe
+    2026-09-19).
 
     Returns the (new) prose draft and the plan. Pure: no LLM, no I/O; the input
     draft is not mutated.
@@ -619,6 +626,12 @@ def _plan_language_preseed(
     prose_work = prose_draft.get("work")
     if not isinstance(prose_work, list):
         return prose_draft, plan
+
+    # Computed once (ADR-068 clause 2a's own rule): the same vault-level gate
+    # the skills half (block 4 below) already uses. `industry_context` (block 2)
+    # reads it too — see the residual note there for why a per-item guess is
+    # wrong for this class.
+    vault_cross_language = _vault_dominant_language(profile_json) != document_language
 
     provisional = _compose_prefix(prose_draft, profile_json)
     provisional_json = provisional.model_dump(mode="json")
@@ -666,11 +679,18 @@ def _plan_language_preseed(
             ]
             entry["bullets"] = bullets + [c.vault_text for c in placed]
 
-        # (2) the role-facts furniture line
+        # (2) the role-facts furniture line — gated on the VAULT's dominant
+        # language (same as block 4's skills gate), NOT a per-item guess.
+        # Residual (delivery-run probe 2026-09-19, `it_backend_daniel`): a
+        # 2-word `industry_context` phrase ("IT services") cleared
+        # `item_language_mismatch`'s ITEM_LANGUAGE_MIN_WORDS=4 floor uncaught —
+        # `roles_with_industry_line=2` of 3 in the container log, one role's
+        # English furniture line shipped untranslated. A short competency-style
+        # phrase carries no English function word any more reliably here than it
+        # does in the skills list (measured there; the same instrument, the same
+        # limit). On a same-language vault this is inert, same as before.
         industry = (vault_by_id.get(eid) or {}).get("industry_context") or ""
-        if isinstance(industry, str) and item_language_mismatch(
-            industry, document_language
-        ):
+        if isinstance(industry, str) and industry.strip() and vault_cross_language:
             entry["industry_context"] = industry
             plan.industry_context[eid] = industry
 
@@ -725,7 +745,7 @@ def _plan_language_preseed(
     # because a 2–3-word competency chip carries no English function word and
     # `detect_language` calls every one of them German (measured). On a
     # same-language vault this whole block is inert and the pipeline is unchanged.
-    if _vault_dominant_language(profile_json) != document_language:
+    if vault_cross_language:
         from applire.services.ats_audit import skills_page_dupe, skill_tokens  # noqa: F401
         from applire.services.profile.reconcile.stance import claimable_skill_names
 

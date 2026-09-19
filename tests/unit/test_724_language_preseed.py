@@ -290,6 +290,27 @@ def test_the_english_industry_line_is_injected_and_the_german_one_is_not():
     assert de_plan.industry_context == {}
 
 
+def test_a_two_word_industry_line_is_queued_via_the_vault_gate_not_a_per_item_guess():
+    """Delivery-run probe residual (2026-09-19, `it_backend_daniel`): role 2 of 3
+    delivered `industry_context` "IT services" in English on an otherwise-German
+    CV — `roles_with_industry_line=2` of 3 in the container log. The per-item
+    predicate `item_language_mismatch` needs >= ITEM_LANGUAGE_MIN_WORDS (4) words
+    carrying an English function word; "IT services" is two words and cleared it
+    uncaught. The industry half must use the SAME vault-level gate the skills
+    half (block 4) already uses — `_vault_dominant_language(profile_json) !=
+    document_language` — never a per-item guess on a short phrase."""
+    profile, budget = _profile(), _budget()
+    profile["work_experience"][0]["industry_context"] = "IT services"  # 2 words
+
+    new_prose, plan = _plan(_prose(), profile, budget)
+
+    assert plan.industry_context[SENIOR] == "IT services"
+    assert (
+        [e for e in new_prose["work"] if e["id"] == SENIOR][0]["industry_context"]
+        == "IT services"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. the guard that keeps the fix from being worse than the defect
 # ─────────────────────────────────────────────────────────────────────────────
