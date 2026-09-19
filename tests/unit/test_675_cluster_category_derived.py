@@ -156,9 +156,39 @@ def test_a_keyword_liability_folded_into_the_input_survives():
         category_c=["Produktion"],   # askable_gap_inputs folded it in
         category_b=[],
         category_a=["Produktion"],   # and the analysis also calls it a strength
+        liabilities=["Produktion"],  # ... because it is the #260 liability slice
     )
     assert out[0]["gaps"] == ["Produktion"]
+    # A liability is a claimable hard requirement WITHOUT a story — a strength to
+    # narrate, not an absence — so it never makes a cluster "C" (delivery run
+    # 2026-09-19: every cluster came out "C", two of them on liabilities alone).
+    assert out[0]["category"] == "B"
+
+
+def test_a_liability_beside_a_true_category_c_gap_still_yields_C():
+    out = _reconcile_cluster_categories(
+        [_cluster("cluster-sap", ["SAP PP", "SAP"], category="B")],
+        category_c=["SAP PP", "SAP"],   # SAP is the folded liability, SAP PP a true gap
+        category_b=[],
+        category_a=["SAP"],
+        liabilities=["SAP"],
+    )
     assert out[0]["category"] == "C"
+
+
+def test_a_cluster_of_liabilities_and_category_b_members_is_B():
+    """The 2026-09-19 delivery-run shape: ``cluster-sprachen`` = Deutsch
+    (category_a, folded as a liability) + Englisch (category_b, also a
+    liability) came out "C" with no true Category C member."""
+    out = _reconcile_cluster_categories(
+        [_cluster("cluster-sprachen", ["Deutsch", "Englisch"], category="B")],
+        category_c=["MES", "Deutsch", "Englisch"],
+        category_b=["Englisch"],
+        category_a=["Deutsch"],
+        liabilities=["Deutsch", "Englisch"],
+    )
+    assert out[0]["gaps"] == ["Deutsch", "Englisch"]
+    assert out[0]["category"] == "B"
 
 
 # ---------------------------------------------------------------------------

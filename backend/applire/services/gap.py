@@ -379,6 +379,7 @@ def _reconcile_cluster_categories(
     category_c: list[str],
     category_b: list[str],
     category_a: list[str],
+    liabilities: list[str] | None = None,
 ) -> list[dict]:
     """Set each cluster's ``category`` from its members, and refuse a member
     the analysis calls a strength (#675 line 60).
@@ -402,7 +403,12 @@ def _reconcile_cluster_categories(
        disposition :func:`~applire.services.interview_graph.filter_answered_concepts`
        already gives a cluster whose concepts have all gone "direct".
     2. **The category is derived**: "C" when any surviving member came from the
-       Category C input, else "B". The clustering prompt used to state exactly
+       Category C input, else "B" — where "the Category C input" EXCLUDES the
+       #260 keyword LIABILITIES :func:`askable_gap_inputs` folds in (``liabilities``):
+       a liability is a claimable hard requirement that lacks a story, i.e. a
+       strength to narrate, not an absence — the 2026-09-19 delivery run derived
+       every cluster as "C" (10 of 10, two of them carrying only liabilities and
+       Category B members) before this exclusion. The clustering prompt used to state exactly
        this rule and the model could only restate it; measured over every
        captured clustering record (63 records / 198 clusters across
        ``logs/llm/`` and ``backend/logs/llm/``), 53 clusters carried a category
@@ -417,7 +423,7 @@ def _reconcile_cluster_categories(
     asks for verbatim copies instead.
     """
     submitted = {_norm_gap(g) for g in category_c} | {_norm_gap(g) for g in category_b}
-    c_members = {_norm_gap(g) for g in category_c}
+    c_members = {_norm_gap(g) for g in category_c} - {_norm_gap(g) for g in liabilities or []}
     strengths = {_norm_gap(g) for g in category_a or []} - submitted
 
     kept: list[dict] = []
@@ -508,6 +514,10 @@ async def cluster_gaps(
         category_c=category_c,
         category_b=list(gap_analysis.category_b or []),
         category_a=list(getattr(gap_analysis, "category_a", None) or []),
+        liabilities=[
+            e.get("concept", "")
+            for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
+        ],
     )
     gap_analysis.gap_clusters = validated
     # Persist only when the record is already in the session (the standalone
