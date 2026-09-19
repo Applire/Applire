@@ -293,10 +293,19 @@ async def get_flow_state(
     flow_id: uuid.UUID,
     db: AsyncSession,
     base_url: str = "http://localhost:8001",
+    user_id: uuid.UUID | None = None,
 ) -> FlowStateResponse:
-    """Return the full flow state with eagerly-loaded child resource summaries."""
+    """Return the full flow state with eagerly-loaded child resource summaries.
+
+    ``user_id`` scopes the lookup to its owner (IDOR guard — same shape as
+    ``services/gap_jobs.get_gap_job`` and ``services/profile/import_jobs.get_import_job``):
+    a flow_id belonging to another user answers exactly like an unknown one, never
+    a distinguishing error. ``None`` (the default) keeps the lookup unscoped for
+    the MCP channel and the interview-completion hook, which resolve their own flow
+    trust boundary rather than a per-caller identity.
+    """
     flow = await db.get(FlowSession, flow_id)
-    if flow is None:
+    if flow is None or (user_id is not None and flow.user_id != user_id):
         raise LookupError(f"Flow {flow_id} not found")
     return await _build_state_response(flow, db, base_url)
 
@@ -306,10 +315,16 @@ async def advance_flow(
     request: AdvanceFlowRequest,
     db: AsyncSession,
     base_url: str = "http://localhost:8001",
+    user_id: uuid.UUID | None = None,
 ) -> FlowStateResponse:
-    """Validate and apply a step transition, writing artifact FK atomically."""
+    """Validate and apply a step transition, writing artifact FK atomically.
+
+    ``user_id`` scopes the lookup to its owner (IDOR guard, same shape as
+    ``get_flow_state`` above) — checked before any transition validation so a
+    foreign flow_id never leaks its current_step or allowed transitions.
+    """
     flow = await db.get(FlowSession, flow_id)
-    if flow is None:
+    if flow is None or (user_id is not None and flow.user_id != user_id):
         raise LookupError(f"Flow {flow_id} not found")
 
     target = request.step
