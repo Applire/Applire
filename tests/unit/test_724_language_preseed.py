@@ -345,9 +345,21 @@ def test_the_tail_never_re_adds_a_vault_bullet_the_preseed_placed():
     assert len([b for b in delivered if "Auditprogramm" in b]) == 1
 
 
-def test_without_the_exclusion_the_english_original_comes_back(monkeypatch):
-    """The baseline this guard rescues — asserted, not assumed. With the plan's
-    exclusion neutered, the same lossy translation delivers BOTH copies."""
+def test_the_cross_language_gate_protects_this_shape_even_without_the_exclusion(
+    monkeypatch, caplog
+):
+    """ADR-072 amended 2026-09-19 (#724 residual, M-27) supersedes the old
+    baseline this test used to assert: that without the preseed's by-entry
+    ``excluded_vault_norms``, a lossy translation lets the vault's English
+    original come back. It no longer does — a cross-language document's tail
+    may not inject ANY vault text from its own second derivation, whether or
+    not the by-entry exclusion would also have blocked it. The concept is
+    logged (``LANGUAGE_RESTORE_SKIPPED``) and left missing, never papered
+    over with an untranslated bullet (the M-27 shape:
+    `Q09-tailored-data.json`'s duplicated Stripe bullet, reproduced for the
+    bullet class in the section below)."""
+    import logging
+
     from applire.services.cv import _settle_language_preseed
     from applire.services.ledger_restore import PreseedPlan
 
@@ -356,7 +368,7 @@ def test_without_the_exclusion_the_english_original_comes_back(monkeypatch):
     settled = _fake_translate(
         new_prose,
         {
-            EN_ISO: "Leitete das Auditprogramm fuer das gesamte Werk.",
+            EN_ISO: "Leitete das Auditprogramm fuer das gesamte Werk.",  # 'ISO 9001' gone
             EN_MES: DE_MES,
             EN_SMED: DE_SMED,
         },
@@ -364,10 +376,16 @@ def test_without_the_exclusion_the_english_original_comes_back(monkeypatch):
     _settle_language_preseed(settled, plan)
     monkeypatch.setattr(PreseedPlan, "excluded_vault_norms", lambda self: {})
 
-    delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+    with caplog.at_level(logging.INFO):
+        delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
 
-    assert EN_ISO in delivered
+    assert EN_ISO not in delivered
     assert "Leitete das Auditprogramm fuer das gesamte Werk." in delivered
+    assert len([b for b in delivered if "Auditprogramm" in b]) == 1
+    assert any(
+        "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and "ISO 9001" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -577,3 +595,126 @@ def test_the_swapped_back_order_delivers_the_untranslated_vault_bullet():
     assert sorted(text for _where, text in foreign) == sorted(
         [EN_INDUSTRY, EN_ISO, EN_MES, EN_SMED]
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. the M-27 residual — a concept the WRITER already covered, pre-pass
+#
+# Delivery-run probe re-run (2026-09-19, `it_backend_daniel`, PR #720 M-27):
+# the writer's OWN draft already narrated a concept in English ("Rolled out a
+# Stripe-based checkout..."), so the preseed correctly saw it as covered and
+# placed NOTHING for it (`bullets=0` in the real container log — the plain
+# ISO/MES/SMED-style class above never exercises this, because those concepts
+# are acronyms/numbers that survive translation unchanged; a full English
+# PHRASE does not). The language pass then translated the writer's OWN
+# sentence to German. `_restore_ledger_bullets`'s SECOND, independent
+# `select_restore_candidates` call — run at compose time, against the
+# document AFTER the language pass — could no longer see the coverage
+# (`surface_present` is a same-script instrument) and restored the vault's
+# own English bullet a SECOND time, verbatim: the delivered document
+# (`Q09-tailored-data.json`) carried both "Integrated a Stripe-based
+# checkout for a subscription billing feature." and the writer's own
+# (translated) sentence about the very same fact.
+# ─────────────────────────────────────────────────────────────────────────────
+
+STRIPE_CONCEPT = "Stripe-based checkout"
+EN_STRIPE_VAULT = "Implemented a Stripe-based checkout for a subscription billing feature."
+EN_STRIPE_DRAFT = "Rolled out a Stripe-based checkout ahead of the subscription launch."
+DE_STRIPE_DRAFT = "Fuehrte einen Stripe-basierten Bezahlvorgang vor dem Abo-Start ein."
+
+
+def _stripe_fixture():
+    from dataclasses import replace
+
+    profile = _profile()
+    profile["work_experience"][0]["responsibilities"].append(EN_STRIPE_VAULT)
+    ledger = LEDGER + [_ledger_entry(STRIPE_CONCEPT)]
+    budget = replace(_budget(max_bullets=8), claimable_forms=FORMS + (STRIPE_CONCEPT,))
+    prose = _prose(bullets=[DRAFT_GENERIC_1, DRAFT_GENERIC_2, EN_STRIPE_DRAFT])
+    return profile, ledger, budget, prose
+
+
+def test_the_preseed_sees_the_writers_own_draft_already_covers_the_concept():
+    """The premise the residual rests on: at preseed time (pre-pass), the
+    writer's own English sentence covers the concept, so nothing is placed
+    for it — and the coverage is RECORDED rather than silently lost."""
+    from applire.services.cv import _plan_language_preseed
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    _, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+
+    assert not any(p.concept == STRIPE_CONCEPT for p in plan.by_entry.get(SENIOR, []))
+    assert STRIPE_CONCEPT in plan.bullets_already_covered
+
+
+def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(caplog):
+    """The delivered shape `Q09-tailored-data.json` reproduced and closed:
+    the vault's own English bullet must never join the writer's own
+    (translated) sentence about the same fact — and, because the preseed
+    recorded the concept as covered pre-pass rather than merely relying on
+    the blanket cross-language gate, the skip is SILENT (no
+    `LANGUAGE_RESTORE_SKIPPED` line): distinguishes "already covered" from
+    "genuinely went missing", which the gate alone cannot."""
+    import logging
+
+    from applire.services.cv import (
+        _compose_document,
+        _plan_language_preseed,
+        _settle_language_preseed,
+    )
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    new_prose, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+    settled = _fake_translate(new_prose, {**TRANSLATIONS, EN_STRIPE_DRAFT: DE_STRIPE_DRAFT})
+    _settle_language_preseed(settled, plan)
+
+    with caplog.at_level(logging.INFO):
+        doc = _compose_document(
+            settled, profile, raw_profile_json=profile, keyword_ledger=ledger,
+            budget=budget, job_dict={}, language="de", preseed=plan,
+        )
+    delivered = _senior_bullets(doc)
+
+    assert EN_STRIPE_VAULT not in delivered
+    assert DE_STRIPE_DRAFT in delivered
+    assert len([b for b in delivered if "stripe" in b.lower()]) == 1
+    assert not any(
+        "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and STRIPE_CONCEPT in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_without_the_cross_language_gate_the_tail_re_adds_the_vault_bullet():
+    """The baseline this residual fix rescues — asserted, not assumed. The
+    pre-fix call shape (the tail's restore pass with no `document_language`)
+    reproduces the exact `Q09-tailored-data.json` duplicate."""
+    from applire.services.cv import (
+        _compose_prefix,
+        _plan_language_preseed,
+        _restore_ledger_bullets,
+        _settle_language_preseed,
+    )
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    new_prose, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+    settled = _fake_translate(new_prose, {**TRANSLATIONS, EN_STRIPE_DRAFT: DE_STRIPE_DRAFT})
+    _settle_language_preseed(settled, plan)
+
+    tailored = _compose_prefix(settled, profile, preseed=plan)
+    tailored = _restore_ledger_bullets(
+        tailored, profile, ledger, budget, preseed=plan,
+        # document_language deliberately omitted — the pre-fix call shape.
+    )
+    delivered = _senior_bullets(tailored)
+
+    assert EN_STRIPE_VAULT in delivered
+    assert DE_STRIPE_DRAFT in delivered

@@ -91,6 +91,28 @@ class PreseedPlan:
     #: (#672 L102 residual, delivery-run probe 2026-09-19 — "Contract testing"
     #: next to "Vertragstests").
     skills_already_covered: frozenset[str] = field(default_factory=frozenset)
+    #: claimable ledger CONCEPTS the preseed found already covered by the
+    #: PROVISIONAL draft (the writer's own narration, before the language
+    #: pass ran) — a bullet half of the same class ``skills_already_covered``
+    #: closes for chips (#724 residual, delivery-run probe re-run 2026-09-19,
+    #: M-27: "Integrated a Stripe-based checkout for a subscription billing
+    #: feature." delivered verbatim beside the writer's own, differently-
+    #: phrased German bullet covering the same concept). ``select_restore_
+    #: candidates``'s coverage predicate (``ats_audit.surface_present``,
+    #: ADR-066) is a same-script instrument: a SECOND derivation, run at
+    #: compose time against the document AFTER ``_review_cv_language`` has
+    #: translated it, can no longer see that this concept was already
+    #: narrated — it reads as newly "missing" and the tail would restore the
+    #: vault's own English text a second time, verbatim, past the language
+    #: pass. Recorded once, here, while the draft is still in whatever script
+    #: the ledger's surface forms were built to match; consulted by
+    #: ``_restore_ledger_bullets`` (``services/cv.py``) to tell a concept
+    #: that was ALREADY covered (silent) from one that GENUINELY went missing
+    #: since (logged, and still never papered over with a verbatim bullet —
+    #: on a cross-language document the tail may not inject vault text at
+    #: all, since anything it selects at that point is past the last chance
+    #: to translate it).
+    bullets_already_covered: frozenset[str] = field(default_factory=frozenset)
     #: bullet counts per entry at injection time, used to verify the settle
     _pre_lengths: dict[str, int] = field(default_factory=dict)
     #: skills-list length at injection time, same purpose
@@ -140,6 +162,7 @@ class PreseedPlan:
             and not self.industry_context
             and not self.skills
             and not self.skills_already_covered
+            and not self.bullets_already_covered
         )
 
 
