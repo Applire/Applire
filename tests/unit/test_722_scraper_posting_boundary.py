@@ -196,6 +196,25 @@ def test_a_posting_split_across_siblings_is_returned_whole():
         assert passage in text
 
 
+def test_a_posting_split_across_two_siblings_is_returned_whole():
+    """Adversarial pass, 2026-09-19: a TWO-way split, not the three-way case.
+
+    Both halves individually clear `_MIN_BLOCK_SHARE` (roughly 50/50), so both
+    are legitimate `_trim_wrapper` candidates. Picking "the densest" would ship
+    the profile half and silently drop the tasks half (or vice versa) — the
+    same corruption #722 fixed, one shape further. The wrapper must come back
+    whole, exactly as the three-way split does.
+    """
+    from applire.services.scraper import _extract_text
+
+    html = _fixture("two_way_split_posting.html")
+    text = _extract_text(html)
+
+    assert text == _main_text(html)
+    for passage in ("Qualitätsabteilung", "IATF-16949-Audits"):
+        assert passage in text
+
+
 def test_chrome_tags_never_reach_the_extracted_text():
     from applire.services.scraper import _extract_text
 

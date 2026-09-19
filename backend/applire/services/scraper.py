@@ -181,21 +181,39 @@ def _trim_wrapper(wrapper, wrapper_len: int):
     Fires only when both bounds hold (see the module constants): the wrapper
     carries more than `_WRAPPER_TEXT_RATIO` times the block's text, AND the
     block still carries at least `_MIN_BLOCK_SHARE` of the wrapper's. The
-    second bound is the guard against trimming a posting that is split across
-    sibling sections.
+    second bound is the guard against trimming a posting that is split THREE OR
+    MORE ways (each sibling under the share floor, so nothing qualifies and the
+    wrapper is returned whole).
+    It is not a guard against a TWO-way split where both siblings individually
+    clear the floor (adversarial pass, 2026-09-19): a 50/50 layout has each half
+    at 50% > 40%, so both are legitimate candidates and picking "the densest"
+    silently ships one half and drops the other — the same corruption #722
+    fixed, one shape further. So candidates are checked for disjointness first:
+    when two qualifying nodes are siblings (neither contains the other), which
+    is over the age of one HTML page, which one is "the posting" is genuinely
+    ambiguous, and the safe answer is the same as the three-way case — return
+    None and let the caller ship the wrapper whole. Only when every candidate
+    is one continuous nested chain (the LinkedIn shape: a container inside a
+    container inside a container, same text at every depth) does "densest
+    wins" pick a real single posting.
     """
     upper = wrapper_len / _WRAPPER_TEXT_RATIO
     lower = max(_MIN_TEXT_LENGTH, wrapper_len * _MIN_BLOCK_SHARE)
     if lower > upper:
         return None
-    best = None
-    best_len = 0
+    candidates = []
     for node in wrapper.find_all(["div", "section", "article"]):
         length = len(_node_text(node))
-        if length < lower or length > upper:
-            continue
-        if length > best_len:
-            best, best_len = node, length
+        if lower <= length <= upper:
+            candidates.append((length, node))
+    if not candidates:
+        return None
+    for i, (_, a) in enumerate(candidates):
+        for _, b in candidates[i + 1:]:
+            if a in b.parents or b in a.parents:
+                continue
+            return None  # disjoint candidates: which half is "the posting"?
+    best_len, best = max(candidates, key=lambda pair: pair[0])
     return best
 
 
