@@ -215,6 +215,51 @@ def test_a_posting_split_across_two_siblings_is_returned_whole():
         assert passage in text
 
 
+def test_two_disjoint_comparably_sized_named_blocks_both_survive():
+    """Adversarial pass, 2026-09-19: two SEPARATE description-hint-named
+    containers (not one nested inside the other, unlike the LinkedIn shape),
+    each carrying about half the posting. "Densest wins" would silently drop
+    whichever is shorter; both halves must survive."""
+    from applire.services.scraper import _extract_text
+
+    html = _fixture("two_way_named_split_posting.html")
+    text = _extract_text(html)
+
+    assert text is not None
+    assert "Qualitätsabteilung" in text
+    assert "Six Sigma" in text
+
+
+def test_a_short_named_teaser_still_loses_to_the_full_named_posting():
+    """Guard: the size-ratio check must not turn EVERY disjoint named pair
+    ambiguous — a short teaser (clearly a minority of the full text, same
+    shape as `test_a_short_teaser_container_does_not_beat_the_full_posting`)
+    must still lose to the full posting, not trigger a fallback."""
+    from applire.services.scraper import _extract_text
+
+    html = """
+    <html><body><main>
+      <div class="job-description job-description--teaser">
+        <p>Kurzfassung: Wir suchen eine Qualitaetsleitung fuer unseren
+        Hauptstandort, in Vollzeit und unbefristet.</p>
+      </div>
+      <div class="job-description job-description--full">
+        <p>Sie leiten die Qualitaetsabteilung und verantworten die Einhaltung
+        unserer ISO-9001-Zertifizierung ueber alle Fertigungslinien hinweg.
+        Sie planen interne und externe Audits, begleiten sie persoenlich und
+        leiten aus den Ergebnissen Korrekturmassnahmen ab, deren Wirksamkeit
+        Sie gemeinsam mit der Fertigungsleitung nachhalten. Sie bauen unser
+        Reklamationsmanagement weiter aus und fuehren ein Team von sechs
+        Qualitaetsingenieuren fachlich und disziplinarisch.</p>
+      </div>
+    </main></body></html>
+    """
+    text = _extract_text(html)
+    assert text is not None
+    assert "Qualitaetsabteilung" in text
+    assert "Kurzfassung" not in text
+
+
 def test_chrome_tags_never_reach_the_extracted_text():
     from applire.services.scraper import _extract_text
 

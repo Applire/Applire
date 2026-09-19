@@ -175,6 +175,31 @@ def _description_blocks(soup) -> list:
     return sorted(nodes, key=lambda n: len(_node_text(n)), reverse=True)
 
 
+def _disjoint_pair_exists(nodes: list, *, min_ratio: float = 0.0) -> bool:
+    """True if two of *nodes* are siblings (neither ancestor nor descendant of
+    the other) AND comparably sized — the smaller carries at least *min_ratio*
+    of the larger's text.
+
+    The ratio guard matters for the NAMED arm: a short "Kurzfassung" teaser and
+    the full posting can share a description-hint class and both clear
+    `_MIN_TEXT_LENGTH`, but the teaser is a clear minority (~25% of the full
+    text) — that is `_description_blocks`' own "densest wins" case, not an
+    ambiguous split, so `min_ratio=0.0` (any disjoint pair) would wrongly
+    reject it. `_trim_wrapper`'s structural candidates are already bounded to
+    `_MIN_BLOCK_SHARE` each, so any two of THOSE are comparable by
+    construction and the default `min_ratio=0.0` is exact there.
+    """
+    lengths = [(len(_node_text(n)), n) for n in nodes]
+    for i, (len_a, a) in enumerate(lengths):
+        for len_b, b in lengths[i + 1:]:
+            if a in b.parents or b in a.parents:
+                continue
+            larger, smaller = max(len_a, len_b), min(len_a, len_b)
+            if larger == 0 or smaller / larger >= min_ratio:
+                return True
+    return False
+
+
 def _trim_wrapper(wrapper, wrapper_len: int):
     """The posting inside a page *wrapper*, or None if the wrapper IS the posting.
 
@@ -208,11 +233,8 @@ def _trim_wrapper(wrapper, wrapper_len: int):
             candidates.append((length, node))
     if not candidates:
         return None
-    for i, (_, a) in enumerate(candidates):
-        for _, b in candidates[i + 1:]:
-            if a in b.parents or b in a.parents:
-                continue
-            return None  # disjoint candidates: which half is "the posting"?
+    if _disjoint_pair_exists([node for _, node in candidates]):
+        return None  # disjoint candidates: which half is "the posting"?
     best_len, best = max(candidates, key=lambda pair: pair[0])
     return best
 
@@ -224,16 +246,29 @@ def _extract_text(html: str) -> str | None:
     Strips chrome (`_CHROME_TAGS`), then prefers a description-named container
     (densest match) over the page wrapper, and trims a wrapper that is chrome
     around a posting. Returns None if nothing reaches _MIN_TEXT_LENGTH.
+
+    A board can name TWO separate description containers (a "job-description-
+    tasks" block and a sibling "job-description-profile" block, adversarial
+    pass 2026-09-19) — not one container nested inside another. Picking the
+    densest of those would silently drop the other half, exactly the defect
+    `_trim_wrapper` guards against structurally; the named arm reuses the same
+    disjointness check and, when ambiguous, falls through to the structural
+    arm below, which — reading the same wrapper — resolves to the same safe
+    whole-wrapper answer instead of guessing.
     """
     soup = BeautifulSoup(html, "lxml")
 
     for tag in soup(list(_CHROME_TAGS)):
         tag.decompose()
 
-    for node in _description_blocks(soup):
-        text = _node_text(node)
-        if len(text) >= _MIN_TEXT_LENGTH:
-            return text
+    description_nodes = [
+        node for node in _description_blocks(soup)
+        if len(_node_text(node)) >= _MIN_TEXT_LENGTH
+    ]
+    if description_nodes and not _disjoint_pair_exists(
+        description_nodes, min_ratio=_MIN_BLOCK_SHARE
+    ):
+        return _node_text(description_nodes[0])  # already densest-first
 
     for name in _WRAPPER_TAGS:
         node = soup.find(name)
