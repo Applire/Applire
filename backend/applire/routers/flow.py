@@ -47,7 +47,7 @@ def _base_url(request: Request) -> str:
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     # `request` is accepted (unused) to keep this a drop-in for the three
-    # call sites below, one of which also needs it for auth.get_current_user.
+    # call sites below, all of which also need it for auth.get_current_user.
     del request
     return settings.applire_base_url.rstrip("/")
 
@@ -76,11 +76,17 @@ async def get_flow_state_endpoint(
     flow_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> FlowStateResponse:
-    """Return current flow step, available actions, and child resource summaries."""
+    """Return current flow step, available actions, and child resource summaries.
+
+    Resolved for its owner only — a flow_id belonging to another authenticated
+    user 404s exactly like an unknown one (IDOR guard, same shape as the
+    profile.py import-job and job.py gap-job lookups).
+    """
+    user = await auth.get_current_user(request)
     try:
-        return await get_flow_state(flow_id, db, base_url=_base_url(request))
+        return await get_flow_state(flow_id, db, base_url=_base_url(request), user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -91,7 +97,7 @@ async def advance_flow_endpoint(
     body: AdvanceFlowRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    auth: AuthProvider = Depends(get_auth_provider),
 ) -> FlowStateResponse:
     """Request a step transition.
 
@@ -102,9 +108,14 @@ async def advance_flow_endpoint(
     is entered in order to generate the CV), but records the id whenever it is
     supplied instead of dropping it. An artifact_id on any other step comes back
     as a `notices` entry on the response.
+
+    Resolved for its owner only — a flow_id belonging to another authenticated
+    user 404s exactly like an unknown one (IDOR guard), checked before any
+    transition validation so it never leaks the flow's current_step.
     """
+    user = await auth.get_current_user(request)
     try:
-        return await advance_flow(flow_id, body, db, base_url=_base_url(request))
+        return await advance_flow(flow_id, body, db, base_url=_base_url(request), user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except InvalidTransitionError as exc:
