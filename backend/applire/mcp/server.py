@@ -1049,16 +1049,50 @@ async def get_cv_ats_report(cv_id: str) -> dict:
 
 
 async def _audit_stored_document(record, kind: str, db) -> dict:
-    """Persisted-or-fresh truthfulness report for a generated CV/letter row."""
+    """Persisted-or-fresh truthfulness report for a generated CV/letter row.
+
+    The FRESH branch is a second call site of the same audit the generation
+    path runs, and a second call site is where a door-parity defect lives.
+    Measured on the dev stack 2026-09-19, with the skill-chip fix already
+    live: nulling ``truthfulness_report`` on ``generated_cvs 1b581b82…`` and
+    re-auditing over this door returned "Produktionscontrolling" ``unbacked``
+    again, because this call did not hand the Oracle the job's Keyword Ledger
+    and the generation-time self-audit does. Same input, same vault, two
+    doors, two verdicts.
+
+    ``entailment`` is NOT mirrored, deliberately: ``audit_document``'s own
+    docstring records that the agent door keeps ``entailment=True`` while
+    ``build_self_audit_report`` passes ``False`` (ADR-068 clause 7 scoping).
+    ``document_language`` is not mirrored here either — that seam's parity is
+    a separate question with its own cost profile, and nothing in this
+    defect's evidence touches it.
+    """
     if record.truthfulness_report:
         return {"document_id": str(record.id), **record.truthfulness_report}
     profile = await db.get(MasterProfile, record.profile_id)
     profile_json = (profile.profile_json if profile else {}) or {}
+    # THE ledger read of the whole CV chain (``cv._latest_keyword_ledger``,
+    # ADR-048/US203; it persists and re-scores per the 2026-09-05 amendment,
+    # exactly as the generation-time read does). Fail-safe: a ledger that
+    # cannot be loaded audits against the vault alone, never fails the audit.
+    keyword_ledger: list[dict] | None = None
+    if kind == "cv":
+        try:
+            keyword_ledger = await cv_svc._latest_keyword_ledger(
+                db, record.job_analysis_id, profile_json=profile_json or None
+            )
+        except Exception:
+            logger.exception(
+                "agent door: keyword ledger unavailable for CV %s — auditing "
+                "skill chips against the vault alone",
+                record.id,
+            )
     try:
         if kind == "cv":
             report = await oracle_svc.audit_document(
                 "cv", profile_json, tailored_data=record.tailored_data or {},
                 provider=get_provider(),
+                keyword_ledger=keyword_ledger,
             )
         else:
             report = await oracle_svc.audit_document(
