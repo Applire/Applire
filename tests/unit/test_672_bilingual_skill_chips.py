@@ -233,6 +233,47 @@ def test_a_required_vault_skill_missing_from_the_page_still_reaches_it():
     assert set(plan.skills) == {EN_CHIP}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# the residual: a WRITER-DRAFTED vault chip, not a preseed-placed one
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_a_writer_drafted_vault_chip_is_not_re_added_after_its_own_translation():
+    """Delivery-run probe residual (2026-09-19, `it_backend_daniel`): the vault's
+    own English spelling ("Contract testing" / "Incident management") shipped
+    NEXT TO its own German translation ("Vertragstests" / "Störungsmanagement").
+    SQL confirmed the vault spelling is English (the #192 guarantee's placement)
+    and the German twin is the writer's/language pass's own chip.
+
+    The vector: the WRITER's draft already echoed the vault's own spelling
+    verbatim (before the language pass ever ran), so the preseed's block 4 never
+    needed to place it — `plan.skills` stays empty for this concept. The
+    language pass then correctly translates it in place (one chip, not two).
+    But `_tailor_skills_to_jd`'s end-of-tail recompute reads the PAGE AFTER
+    translation, and `skills_page_dupe` is blind to a cross-language pair — so
+    the vault's English spelling looks "missing" again and gets re-added right
+    next to its own translation. `excluded_by_preseed` only tracked what the
+    preseed itself PLACED, not what it found already covering the page."""
+    from applire.services.cv import _settle_language_preseed, _tailor_skills_to_jd
+
+    profile = _profile(english=True)
+    prose = _prose([EN_CHIP, "Python"])  # the writer already echoed the vault spelling
+
+    new_prose, plan = _plan(prose, profile)
+    assert plan.skills == {}  # nothing to PLACE — the writer's draft already had it
+    assert plan.skills_already_covered == frozenset({EN_CHIP})  # but it IS pinned
+
+    settled = dict(new_prose)
+    settled["skills"] = [DE_CHIP, "Python"]  # the language pass translated it in place
+    _settle_language_preseed(settled, plan)
+
+    final = _tailor_skills_to_jd(
+        _tailored(settled["skills"]), profile, JOB, None, preseed=plan
+    )
+
+    assert EN_CHIP not in final.skills
+    assert final.skills == [DE_CHIP, "Python"]
+
+
 def test_the_settle_guard_re_appends_a_skill_the_language_pass_dropped(caplog):
     import logging
 

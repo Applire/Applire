@@ -599,12 +599,19 @@ def _plan_language_preseed(
     prose draft verbatim, and ``_review_cv_language`` then translates it like any
     other bullet.
 
-    **Only genuinely foreign text is injected.** Every item is gated on
-    ``item_language_mismatch`` against the document language, so a German vault
-    feeding a German document produces an EMPTY plan and a byte-identical
-    pipeline. That gate is deliberately the under-reporting direction (see
-    ``ITEM_LANGUAGE_MIN_WORDS``): the failure mode is "this run behaves exactly
-    as it did yesterday", never "a vault fact was re-worded for no reason".
+    **Only genuinely foreign text is injected.** Bullets and vault project
+    copies (classes 1 and 3) are gated per item on ``item_language_mismatch``
+    against the document language, so a German vault feeding a German document
+    produces an EMPTY plan and a byte-identical pipeline. That gate is
+    deliberately the under-reporting direction (see ``ITEM_LANGUAGE_MIN_WORDS``):
+    the failure mode is "this run behaves exactly as it did yesterday", never
+    "a vault fact was re-worded for no reason". ``industry_context`` (class 2)
+    and the skills guarantee (class 4) are gated on the VAULT's dominant
+    language instead (``_vault_dominant_language``, ADR-068 clause 2a's own
+    rule) — a per-item guess is wrong for both, because a short furniture line
+    or competency chip routinely carries no English function word and reads as
+    German on its own (measured; residual #724/#672 L102, delivery-run probe
+    2026-09-19).
 
     Returns the (new) prose draft and the plan. Pure: no LLM, no I/O; the input
     draft is not mutated.
@@ -619,6 +626,12 @@ def _plan_language_preseed(
     prose_work = prose_draft.get("work")
     if not isinstance(prose_work, list):
         return prose_draft, plan
+
+    # Computed once (ADR-068 clause 2a's own rule): the same vault-level gate
+    # the skills half (block 4 below) already uses. `industry_context` (block 2)
+    # reads it too — see the residual note there for why a per-item guess is
+    # wrong for this class.
+    vault_cross_language = _vault_dominant_language(profile_json) != document_language
 
     provisional = _compose_prefix(prose_draft, profile_json)
     provisional_json = provisional.model_dump(mode="json")
@@ -666,11 +679,18 @@ def _plan_language_preseed(
             ]
             entry["bullets"] = bullets + [c.vault_text for c in placed]
 
-        # (2) the role-facts furniture line
+        # (2) the role-facts furniture line — gated on the VAULT's dominant
+        # language (same as block 4's skills gate), NOT a per-item guess.
+        # Residual (delivery-run probe 2026-09-19, `it_backend_daniel`): a
+        # 2-word `industry_context` phrase ("IT services") cleared
+        # `item_language_mismatch`'s ITEM_LANGUAGE_MIN_WORDS=4 floor uncaught —
+        # `roles_with_industry_line=2` of 3 in the container log, one role's
+        # English furniture line shipped untranslated. A short competency-style
+        # phrase carries no English function word any more reliably here than it
+        # does in the skills list (measured there; the same instrument, the same
+        # limit). On a same-language vault this is inert, same as before.
         industry = (vault_by_id.get(eid) or {}).get("industry_context") or ""
-        if isinstance(industry, str) and item_language_mismatch(
-            industry, document_language
-        ):
+        if isinstance(industry, str) and industry.strip() and vault_cross_language:
             entry["industry_context"] = industry
             plan.industry_context[eid] = industry
 
@@ -725,7 +745,7 @@ def _plan_language_preseed(
     # because a 2–3-word competency chip carries no English function word and
     # `detect_language` calls every one of them German (measured). On a
     # same-language vault this whole block is inert and the pipeline is unchanged.
-    if _vault_dominant_language(profile_json) != document_language:
+    if vault_cross_language:
         from applire.services.ats_audit import skills_page_dupe, skill_tokens  # noqa: F401
         from applire.services.profile.reconcile.stance import claimable_skill_names
 
@@ -733,22 +753,49 @@ def _plan_language_preseed(
             s for s in (new_draft.get("skills") or []) if isinstance(s, str) and s.strip()
         ]
         tier_fn = _jd_required_tier_fn(job_dict, keyword_ledger)
+        vault_skill_names = claimable_skill_names(profile_json)
+        required_vault_skills = [p for p in vault_skill_names if tier_fn(p) == 0]
         guaranteed = _guaranteed_vault_skills(
-            drafted_skills, claimable_skill_names(profile_json), tier_fn, skills_page_dupe
+            drafted_skills, vault_skill_names, tier_fn, skills_page_dupe
         )
         if guaranteed:
             plan._pre_skills_len = len(drafted_skills)
             plan.skills = {name: name for name in guaranteed}
             new_draft["skills"] = drafted_skills + list(guaranteed)
 
+        # #672 L102 residual (delivery-run probe 2026-09-19): a required vault
+        # skill the WRITER's own draft already echoed verbatim needs no
+        # placement here — `_guaranteed_vault_skills` correctly sees it as
+        # already covering the page and leaves it out of `guaranteed`. But once
+        # the language pass translates that chip in place, the page carries
+        # only the translation, and `_tailor_skills_to_jd`'s end-of-tail
+        # recompute — reading the page AFTER translation, where
+        # `skills_page_dupe` cannot see a cross-language pair — judges the
+        # vault's own spelling "missing" again and re-adds it next to its own
+        # translation ("Contract testing" next to "Vertragstests"). Record it
+        # here, BEFORE the language pass runs, while the page is still in the
+        # vault's own script and the same-script dupe check can actually see
+        # the match.
+        already_covered = {
+            p
+            for p in required_vault_skills
+            if p not in plan.skills
+            and any(skills_page_dupe(p, x) for x in drafted_skills)
+        }
+        if already_covered:
+            plan.skills_already_covered = frozenset(already_covered)
+
     if plan.is_empty() and new_draft == prose_draft:
         return prose_draft, plan
     logger.info(
         "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-18) document_language=%s "
-        "bullets=%d roles_with_industry_line=%d",
+        "bullets=%d roles_with_industry_line=%d skills_placed=%d "
+        "skills_already_covered=%d",
         document_language,
         sum(len(v) for v in plan.by_entry.values()),
         len(plan.industry_context),
+        len(plan.skills),
+        len(plan.skills_already_covered),
     )
     return new_draft, plan
 
@@ -2163,7 +2210,9 @@ def _tailor_skills_to_jd(
     # tag already on the page ('Lean Management' next to the writer's 'Lean') is
     # already covered, not missing (charter run 10 shipped six such clusters).
     pool = list(tailored_skills)
-    excluded_by_preseed = set(preseed.skills) if preseed is not None else set()
+    excluded_by_preseed = (
+        preseed.excluded_skill_names() if preseed is not None else frozenset()
+    )
     for p in _guaranteed_vault_skills(
         tailored_skills, profile_skills, _tier, skills_page_dupe
     ):
@@ -2173,10 +2222,12 @@ def _tailor_skills_to_jd(
         # bilingual vault it delivered the candidate's own English spelling next
         # to the German chip the language pass had just produced, and
         # `_dedup_skills` (which ran earlier, and compares within one language)
-        # could not see the pair. When the preseed already put this vault skill
-        # in front of the language pass, the page carries it in the document's
-        # language and re-adding the vault spelling would restore exactly the
-        # duplicate the preseed removed.
+        # could not see the pair. `excluded_by_preseed` covers BOTH: a vault
+        # skill the preseed itself PLACED in front of the language pass, and one
+        # it found ALREADY covering the page before that pass ran (residual,
+        # delivery-run probe 2026-09-19 — a writer-drafted chip the preseed
+        # never had to place is exactly as protected as one it did place, once
+        # this recompute is blind to what language it is now rendered in).
         if p in excluded_by_preseed:
             continue
         pool.append(p)
