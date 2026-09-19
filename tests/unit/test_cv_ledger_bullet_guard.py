@@ -812,6 +812,14 @@ class TestRestoreLedgerBulletsWiredIntoBackgroundRender:
         mock_cv = MagicMock()
         mock_cv.status = "pending"
         mock_cv.target_pages = 2
+        # #724 residual (M-27): an unset MagicMock attribute is truthy, so
+        # `record.document_language or resolve_jd_language(job)` would pick
+        # the mock itself rather than falling through — and `_restore_ledger_
+        # bullets` now reads `document_language` (ADR-072 amended 2026-09-19)
+        # to gate its cross-language suppression. This fixture is a
+        # same-language (English vault, English document) #234 restore test,
+        # not a #724 one, so the language is pinned explicitly.
+        mock_cv.document_language = "en"
 
         mock_job = MagicMock()
         mock_job.role_title = "Lead AI Engineer"

@@ -639,6 +639,28 @@ def _plan_language_preseed(
         provisional_json, profile_json, keyword_ledger, budget
     )
 
+    # #724 residual (delivery-run probe re-run 2026-09-19, M-27) — the bullet
+    # mount of the #672 L102 class. Record, while the draft is still in
+    # whatever script it was drafted in, which claimable concepts the draft
+    # ALREADY covers (the writer's own narration, English or German, needs no
+    # restoration here). `_restore_ledger_bullets` calls `select_restore_
+    # candidates` a SECOND time at compose time, against the document AFTER
+    # the language pass has translated it — a same-script coverage predicate
+    # cannot see a concept it already recognised pre-pass once translation
+    # changes the surface form, and would otherwise restore the vault's own
+    # English text a second time, verbatim, next to the writer's own (now
+    # German) sentence about the same fact.
+    if vault_cross_language and keyword_ledger:
+        from applire.services.keyword_ledger import claimable_present_entries
+
+        present_concepts = {
+            str(e.get("concept") or "")
+            for e in claimable_present_entries(provisional_json, keyword_ledger)
+            if e.get("concept")
+        }
+        if present_concepts:
+            plan.bullets_already_covered = frozenset(present_concepts)
+
     vault_by_id = {
         str(w.get("id") or ""): w
         for w in (profile_json.get("work_experience") or [])
@@ -788,14 +810,15 @@ def _plan_language_preseed(
     if plan.is_empty() and new_draft == prose_draft:
         return prose_draft, plan
     logger.info(
-        "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-18) document_language=%s "
+        "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-19) document_language=%s "
         "bullets=%d roles_with_industry_line=%d skills_placed=%d "
-        "skills_already_covered=%d",
+        "skills_already_covered=%d bullets_already_covered=%d",
         document_language,
         sum(len(v) for v in plan.by_entry.values()),
         len(plan.industry_context),
         len(plan.skills),
         len(plan.skills_already_covered),
+        len(plan.bullets_already_covered),
     )
     return new_draft, plan
 
@@ -1517,6 +1540,7 @@ def _restore_ledger_bullets(
     budget: "BudgetResult | None",
     pins: Sequence = (),
     preseed: "PreseedPlan | None" = None,
+    document_language: str | None = None,
 ) -> TailoredCVData:
     """#234 (Tiramisu founder-acceptance F1/F2) — deterministic post-draft guard.
 
@@ -1566,6 +1590,23 @@ def _restore_ledger_bullets(
     English original), and the settled translation is carried into this pass's
     ordering as the restoration it is, so the delivered order and the delivered
     ceiling are the ones this ADR already specifies.
+
+    **ADR-072 amended 2026-09-19 (#724 residual, delivery-run probe re-run,
+    M-27) — on a cross-language document this function's OWN selection call
+    (below) is never injected.** It still runs — the ceiling enforcement below
+    needs the coverage picture regardless — but a candidate it finds here is
+    always a SECOND derivation, made against the document AFTER the language
+    pass, and ``select_restore_candidates``' presence predicate is a
+    same-script instrument (ADR-066/067): it cannot see that a concept
+    already narrated pre-pass is still covered once translation changes its
+    surface form (the class #672 L102 closed for skill chips). A concept
+    ``preseed.bullets_already_covered`` recorded as covered pre-pass is
+    dropped silently; anything else this second derivation finds is logged
+    (``LANGUAGE_RESTORE_SKIPPED``) and left for the ``document-language`` /
+    ``narrative-evidence`` checks — never restored, because restoring it here
+    would always land untranslated, past the last chance to fix that. A
+    same-language document (or a generation where the #724 preseed never ran,
+    ``preseed is None``) is entirely unaffected — this whole block is inert.
     """
     if not keyword_ledger:
         return tailored
@@ -1586,6 +1627,32 @@ def _restore_ledger_bullets(
         budget,
         exclude=preseed.excluded_vault_norms() if preseed is not None else None,
     )
+
+    # #724 residual (M-27): a cross-language document's tail may not inject a
+    # vault bullet this SECOND derivation finds — see the docstring amendment
+    # above. Gated on `preseed is not None` so a generation where the #724
+    # preseed never ran (feature off, `CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0`)
+    # keeps the exact pre-#724 tail behaviour.
+    if preseed is not None and document_language is not None and candidates:
+        vault_cross_language = (
+            _vault_dominant_language(profile_json) != document_language
+        )
+        if vault_cross_language:
+            already_covered = preseed.bullets_already_covered
+            for eid, cands in candidates.items():
+                for cand in cands:
+                    if cand.concept in already_covered:
+                        continue
+                    logger.info(
+                        "LANGUAGE_RESTORE_SKIPPED (#724 residual, ADR-072 "
+                        "amended 2026-09-19) entry=%s concept=%s — this "
+                        "tail's own restore candidate is never injected on a "
+                        "cross-language document (it would land verbatim, "
+                        "past the language pass); left to the "
+                        "document-language / narrative-evidence checks",
+                        eid, cand.concept,
+                    )
+            candidates = {}
 
     claimable_forms: tuple[str, ...] = budget.claimable_forms if budget is not None else ()
 
@@ -4182,7 +4249,8 @@ def _compose_document(
     # writer's draft dropped entirely. Keyed by the same profile WorkEntry.id
     # the budget uses (structural since assemble_tailored_cv).
     tailored = _restore_ledger_bullets(
-        tailored, profile_json, keyword_ledger, budget, pins=pins, preseed=preseed
+        tailored, profile_json, keyword_ledger, budget, pins=pins, preseed=preseed,
+        document_language=language,
     )
 
     # #261 (run-4 blind hiring-panel finding): deterministically prefer a
