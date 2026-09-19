@@ -197,12 +197,25 @@ async def _check_artifact_exists(
 ) -> None:
     """Look the artifact_id up in its step's model before it is written to the FK.
 
-    #676 line 1 (was #581): db.get() is a PK lookup, not a query — cheap, and it
-    runs on the same session/transaction as the write that follows, so there is
-    no TOCTOU window between the check and the setattr.
+    #676 line 1 (was #581): a plain PK lookup, not a query — cheap, and it runs
+    on the same session/transaction as the write that follows, so there is no
+    TOCTOU window between the check and the setattr.
+
+    Adversarial pass, 2026-09-19 (#676 line 1 residual): a bare ``db.get()``
+    finds a SOFT-DELETED row too — every one of these models carries
+    ``deleted_at``, and every other fetch-by-id in this codebase
+    (``services/gap.py``, ``services/application.py``, …) filters
+    ``deleted_at.is_(None)``. This lookup did not, so a deleted CV/gap-
+    analysis/interview-session id was recorded into the flow's FK exactly
+    like a live one — same class of silent wrong-referent write #676 line 1
+    already closed for an id from another table. A ``SELECT … WHERE id = :id
+    AND deleted_at IS NULL`` on the same session keeps the no-TOCTOU property.
     """
     model = _ARTIFACT_MODEL[step]
-    if await db.get(model, artifact_id) is None:
+    row = await db.scalar(
+        select(model).where(model.id == artifact_id, model.deleted_at.is_(None))
+    )
+    if row is None:
         raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
 
 
