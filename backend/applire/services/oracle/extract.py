@@ -939,7 +939,12 @@ def extract_claims_from_letter(
        nor silently keeps the old anchor for ITSELF, and the carry NEVER
        crosses a paragraph boundary — a new paragraph starts fresh. Also
        narrowed by the same-company ``current_ids`` tie-break above (point
-       3's `_find_employer_anchor`).
+       3's `_find_employer_anchor`). A claim that INHERITED its anchor this
+       way carries ``anchor_inherited=True`` (#697 line 24) — the carried id
+       may ground the claim through that role's evidence, but
+       ``audit.verify_claim`` never lets it produce a ``misattributed``
+       verdict: the sentence names no role, so no role is being claimed
+       wrongly. See ``Claim.anchor_inherited``.
     6. (#237 round-3) Every clause/claim also carries ``is_employer_fact`` —
        True for a sentence naming the RECIPIENT company (``letter_data.
        recipient.company``, legal-form-suffix tolerant) with NO first-person
@@ -974,6 +979,11 @@ def extract_claims_from_letter(
             # count as "this sentence names an employer of its own", or the
             # paragraph carry below stamps another company's id onto it.
             sentence_named = sentence_mentioned_ids(sentence, loose_candidates)
+            # #697 line 24: did this sentence NAME its anchor, or INHERIT it?
+            # The two are indistinguishable in ``source_experience_id`` alone,
+            # and ``audit._attribution_red_flag`` needs the difference — see
+            # ``Claim.anchor_inherited``.
+            anchor_is_inherited = False
             if sentence_anchor is not None:
                 carried_anchor = sentence_anchor
                 effective_anchor = sentence_anchor
@@ -981,6 +991,7 @@ def extract_claims_from_letter(
                 # Names no employer of its own at all (exact or loose) —
                 # inherit the paragraph's last established anchor, if any.
                 effective_anchor = carried_anchor
+                anchor_is_inherited = effective_anchor is not None
             else:
                 # Names something, but not resolvably (ambiguous) — never
                 # guess; also never overwrite the carried anchor with this
@@ -1006,6 +1017,11 @@ def extract_claims_from_letter(
                 if len(clause) < _MIN_CLAIM_CHARS:
                     continue
                 clause_anchor = effective_anchor
+                # An inherited anchor stays inherited for every clause that
+                # uses it; a clause that anchors on its OWN name below does
+                # not (``effective_anchor`` is ``None`` there, so
+                # ``anchor_is_inherited`` is ``False`` by construction).
+                clause_anchor_inherited = anchor_is_inherited
                 if clause_anchor is None and multi:
                     # #248 direction 1: the sentence itself was ambiguous
                     # (two+ employers) or named none — give this CLAUSE its
@@ -1063,6 +1079,7 @@ def extract_claims_from_letter(
                         sentence_named_ids=sentence_named,
                         is_employer_fact=clause_is_employer_fact,
                         is_denial=clause_is_denial,
+                        anchor_inherited=clause_anchor_inherited,
                     )
                 )
             in_employer_fact_run = run_state_for_next_sentence

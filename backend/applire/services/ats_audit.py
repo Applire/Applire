@@ -203,6 +203,45 @@ def surface_present(form: str, text_norm: str) -> bool:
     return _verb_form_present(n, text_norm)
 
 
+def surface_present_whole_token(form: str, text_norm: str) -> bool:
+    r"""Is this surface form in this normalised text AS A WHOLE TOKEN?
+
+    The word-boundary sibling of :func:`surface_present`, added for the ONE
+    caller whose question is "does the vault actually name this COMPETENCE"
+    rather than "does this string occur anywhere" — the Oracle's skill
+    grounding (``oracle/matchers/grounding.ground_skill_claim``). Blind Kaile
+    probe, 2026-09-19 (``generated_cvs`` 1b581b82…): the delivered skills
+    section carried the bare job-ad nouns "Gruppe", "Vertrieb" and
+    "Produktion" as chips and the Oracle graded all three grounded — by bare
+    substring, against a vault that says "Diehl-Gruppe",
+    "Vertriebsreporting" and "Produktionsstandorte" and never claims any of
+    the three as a skill. A blind hiring manager read the result as
+    "ATS-Keyword-Stuffing ohne Beleg".
+
+    The same closed, mechanical normalisation as ``surface_present``
+    (``_norm``, ``_fold_variants``) — the needle is only required to sit on
+    word boundaries in the haystack. Boundaries are ``\w``-based, so a
+    token-internal symbol still matches ("SAP CO" inside "SAP CO/FI"), and
+    the ``#415`` RECORD SEPARATOR fragment boundary is not a word character
+    either, so it keeps separating fragments here exactly as it does there.
+    The ``_verb_form_present`` token-level fallback is reused unchanged — it
+    was always whole-token by construction.
+
+    Deliberately NOT a change to ``surface_present`` itself: that predicate
+    answers the ATS panel's COVERAGE question ("would a keyword scanner see
+    this term on the page"), where substring reach is correct and is pinned
+    by ADR-048's own amendments. This one answers a grounding question, where
+    it is not.
+    """
+    n = _norm(form)
+    if not n:
+        return False
+    for v in _fold_variants(n):
+        if re.search(r"(?<!\w)" + re.escape(v) + r"(?!\w)", text_norm):
+            return True
+    return _verb_form_present(n, text_norm)
+
+
 # ── #172: near-duplicate skill detection ─────────────────────────────────────
 # ONE shared instrument for the reconciler (merge on import, apply.py), the
 # render-side CV skill dedup (cv.py), and the ATS "skills-near-dupe" audit — so
