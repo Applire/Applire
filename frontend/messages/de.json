@@ -1302,7 +1302,9 @@
       "page-length": "Seitenlänge",
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
       "terminal-review": "Abschlussprüfung des Dokuments",
-      "narrative-evidence": "Belege im Werdegang statt nur als Skill"
+      "narrative-evidence": "Belege im Werdegang statt nur als Skill",
+      "document-language": "Dokument durchgehend in einer Sprache",
+      "document-language": "Dokument durchgehend in einer Sprache"
     },
     "checkDetails": {
       "page-length-target": "{pages} Seiten — entspricht deinem gewählten Ziel von {target}; die {region}-Norm sind {standard} Seiten",
@@ -1312,6 +1314,8 @@
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}",
       "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
+      "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
+      "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },
     "pinnedFacts": {

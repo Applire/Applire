@@ -764,6 +764,43 @@ def delivered_projects(tailored) -> list[tuple[str, str]]:
     return out
 
 
+def foreign_language_items(tailored, document_language: str) -> list[tuple[str, str]]:
+    """Every delivered text item NOT written in the document's own language, as
+    ``(location, text)`` (#724).
+
+    THE one enumeration for this question, in the same shape and for the same
+    reason as :func:`delivered_bullets`: one list of what the reader actually
+    sees, rather than a per-axis scan. Covered surfaces are exactly the ones a
+    deterministic pass can put vault text into after the ADR-038 language pass has
+    run — the summary, every work and project bullet (nested and standalone), and
+    every per-role ``industry_context`` furniture line.
+
+    The predicate is ``utils.language_detection.item_language_mismatch``, which
+    wraps THE detector (ADR-066) with a measured evidence floor. It UNDER-reports
+    on short items by construction — an English noun phrase carrying no English
+    function word reads as German — so this list is a floor on the mixing, never a
+    ceiling, and that is the right direction for a check that reports.
+
+    DETECTION ONLY. Nothing here removes or rewrites an item; the repair is the
+    #724 language preseed, one pipeline stage earlier.
+    """
+    from applire.utils.language_detection import item_language_mismatch
+
+    out: list[tuple[str, str]] = []
+    summary = _field(tailored, "summary")
+    if isinstance(summary, str) and item_language_mismatch(summary, document_language):
+        out.append(("Profil", summary))
+    for w in _field(tailored, "work_history") or []:
+        where = f"{_field(w, 'company') or '?'} / {_field(w, 'role') or '?'}"
+        industry = _field(w, "industry_context")
+        if isinstance(industry, str) and item_language_mismatch(industry, document_language):
+            out.append((f"{where} > Branche", industry))
+    for where, text in delivered_bullets(tailored):
+        if item_language_mismatch(text, document_language):
+            out.append((where, text))
+    return out
+
+
 def duplicate_project_pairs(tailored) -> list[tuple[str, str, str, str]]:
     """Project ENTITIES rendered twice, as ``(location_a, name_a, location_b, name_b)``.
 
@@ -1116,6 +1153,7 @@ def _audit_cv_text(
     pins: list | None = None,
     terminal_review=None,
     previous_report: dict | None = None,
+    document_language: str | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1280,6 +1318,32 @@ def _audit_cv_text(
                    for wa, a, wb, b in project_pairs[:5]
                )
                + (f" (+{len(project_pairs) - 5} more)" if len(project_pairs) > 5 else ""))
+
+    # ── #724 (ADR-039; ADR-072/ADR-062/ADR-067 amended 2026-09-18) ──────────
+    # The delivered document is written in ONE language. On the founder's edge
+    # UAT a German CV shipped 4 English work bullets and eight English "Branche:"
+    # lines, and both blind reviewers read the document as unedited. The
+    # `cv_language` REVIEWER is not this check: it exhausted its two rounds on
+    # that very document (`REVIEW_EXHAUSTED chain=cv_language issues=25`) and the
+    # CV shipped anyway — a reviewer's exhaustion is not a delivered signal.
+    #
+    # `not_applicable` rather than absent when the caller states no language
+    # (ADR-079 clause 4, the #634 shape): an omitted check is invisible to
+    # `passed` and `failed` alike and would read as a clean audit of something
+    # never evaluated.
+    if document_language:
+        foreign = foreign_language_items(tailored, document_language)
+        _check(checks, "document-language", not foreign,
+               f"items not written in the document language ({document_language}): "
+               + "; ".join(f"[{where}] '{text[:60]}'" for where, text in foreign[:5])
+               + (f" (+{len(foreign) - 5} more)" if len(foreign) > 5 else ""))
+    else:
+        checks.append(ATSCheck(
+            id="document-language", status="not_applicable",
+            details="not applicable — this caller did not state the document's language",
+            details_key="document-language-not-applicable",
+            details_params={},
+        ))
 
     # E042/US238 (ADR-051 §5 + amendment §3): target-aware page-length band, replacing
     # the #171a fixed 2/3 thresholds. ATSCheck has no "warn" status, so anything up to
@@ -1523,6 +1587,7 @@ def audit_cv(
     vault_text_norm: str | None = None,
     vault_skill_forms: list[str] | None = None,
     pins: list | None = None,
+    document_language: str | None = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
@@ -1555,6 +1620,7 @@ def audit_cv(
         text, tailored, keywords, ledger, page_count=page_count,
         target=target, region=region, condensation_exhausted=condensation_exhausted,
         vault_text_norm=vault_text_norm, vault_skill_forms=vault_skill_forms,
+        document_language=document_language,
     )
 
 
