@@ -157,6 +157,21 @@ class Claim(BaseModel):
     # claim to ``not_applicable`` exactly like ``is_employer_fact``; always
     # ``False`` for non-letter callers.
     is_denial: bool = False
+    # #697 line 24 (blind Kaile probe, 2026-09-19): True when this claim's
+    # ``source_experience_id`` was NOT named in its own sentence but INHERITED
+    # from the paragraph's carried anchor (``extract.extract_claims_from_letter``
+    # docstring point 5 — "At Company X, I did A. This also enabled B."). The
+    # carried id is a reading aid, not a claim the sentence makes: the reader
+    # of "HGB, Reporting und Konsolidierung bilden hierfuer eine angrenzende
+    # Grundlage" sees NO employer at all, so "rendered under a role it does not
+    # belong to" (the ``misattributed`` detail) describes a rendering the
+    # document never performed. ``verify_claim`` therefore lets an inherited
+    # anchor GROUND a claim through the carried role's evidence exactly as
+    # before, but never lets it ACCUSE — every ``_attribution_red_flag`` call
+    # sees ``None`` instead. Serialised into the report so a reader can see why
+    # no accusation fired on foreign-owned evidence. Always ``False`` for a
+    # sentence that names its own employer, and for every non-letter caller.
+    anchor_inherited: bool = False
 
 
 class ClaimVerdict(BaseModel):
