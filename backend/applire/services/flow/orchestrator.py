@@ -76,13 +76,37 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "complete":      [],
 }
 
-# Steps that require an artifact_id when advanced into — field name on FlowSession
+# Steps that RECORD an artifact_id when advanced into — field name on FlowSession.
+#
+# #676 line 35 (edge UAT 2026-09-18): `cv_generation` used to be absent here, so
+# `advance_flow(step="cv_generation", artifact_id=<cv_id>)` — the call the guide's
+# own "steps that produce artifacts need the matching artifact_id" asks for, and
+# the call the CV page makes (`frontend/.../flow/[flowId]/cv/page.tsx`) — was
+# accepted and SILENTLY dropped: the flow answered `current_step: cv_generation`
+# with `cv_summary: null` while `flow_sessions.generated_cv_id` stayed NULL until
+# the agent happened to re-pass the same id at `complete`. The REST door's own
+# docstring (`routers/flow.py`) has named cv_generation an artifact-producing step
+# the whole time. The id is now recorded at the step that PRODUCES it; `complete`
+# keeps accepting it unchanged (back-compat: every existing caller still works,
+# and re-passing the same id at `complete` is the idempotent same-value write).
 _ARTIFACT_FIELD: dict[str, str] = {
     "gap_analysis":   "gap_analysis_id",
     "interview":      "interview_session_id",
-    # generated_cv_id is recorded when the CV page advances to complete
+    "cv_generation":  "generated_cv_id",
     "complete":       "generated_cv_id",
 }
+
+# The subset of _ARTIFACT_FIELD whose id the caller MUST supply (422 / -32602
+# without it). RECORDING and REQUIRING are two different facts and were one map
+# until #676 line 35: `cv_generation` is entered in order to GENERATE the CV, so
+# at transition time the artifact does not exist yet — the gaps page and the
+# interview page both advance into it with no id, and the interview-completion
+# hook (`advance_flow_on_interview_complete`) does too. Requiring it there would
+# turn the fix into a breaking change for all three callers; the id is written
+# whenever it IS supplied, which is exactly what the dropped call needed.
+_ARTIFACT_REQUIRED: frozenset[str] = frozenset(
+    {"gap_analysis", "interview", "complete"}
+)
 
 # Same steps — ORM model the artifact_id must resolve to. #676 line 1 (was #581):
 # the FK used to be written straight from request.artifact_id with no lookup, so a
@@ -92,8 +116,40 @@ _ARTIFACT_FIELD: dict[str, str] = {
 _ARTIFACT_MODEL: dict[str, type] = {
     "gap_analysis":   GapAnalysis,
     "interview":      InterviewSession,
+    "cv_generation":  GeneratedCV,
     "complete":       GeneratedCV,
 }
+
+
+def _artifact_field_sentence() -> str:
+    """The step → field mapping as one sentence, derived from the map itself.
+
+    #676 line 35 / #673 line 46: the notice below and AGENT_GUIDE.md both have to
+    state which id goes where, and a hand-written copy of this mapping is exactly
+    the drift #603 found between GUIDE_VERSION and the guide's own revision line.
+    Pinned by `test_notice_names_every_recording_step`.
+    """
+    pairs = ", ".join(f"{step} → {field}" for step, field in _ARTIFACT_FIELD.items())
+    return (
+        f"artifact_id is recorded at these steps only: {pairs}. "
+        "The cover letter is not a flow step — generate_cover_letter links it "
+        "to the flow itself."
+    )
+
+
+def unrecordable_artifact_notice(step: str) -> str:
+    """The response notice for an artifact_id passed at a step that records none.
+
+    #676 line 35 / ruling D-4: an id the flow cannot record is answered with an
+    explicit notice, never a silent drop and never an error — an error would
+    break agents that follow today's tool description, and the silent drop is the
+    defect being fixed. The notice rides `FlowStateResponse.notices`, so the
+    transition itself still succeeds.
+    """
+    return (
+        f"artifact_id was not recorded: step '{step}' produces no artifact. "
+        + _artifact_field_sentence()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -141,12 +197,25 @@ async def _check_artifact_exists(
 ) -> None:
     """Look the artifact_id up in its step's model before it is written to the FK.
 
-    #676 line 1 (was #581): db.get() is a PK lookup, not a query — cheap, and it
-    runs on the same session/transaction as the write that follows, so there is
-    no TOCTOU window between the check and the setattr.
+    #676 line 1 (was #581): a plain PK lookup, not a query — cheap, and it runs
+    on the same session/transaction as the write that follows, so there is no
+    TOCTOU window between the check and the setattr.
+
+    Adversarial pass, 2026-09-19 (#676 line 1 residual): a bare ``db.get()``
+    finds a SOFT-DELETED row too — every one of these models carries
+    ``deleted_at``, and every other fetch-by-id in this codebase
+    (``services/gap.py``, ``services/application.py``, …) filters
+    ``deleted_at.is_(None)``. This lookup did not, so a deleted CV/gap-
+    analysis/interview-session id was recorded into the flow's FK exactly
+    like a live one — same class of silent wrong-referent write #676 line 1
+    already closed for an id from another table. A ``SELECT … WHERE id = :id
+    AND deleted_at IS NULL`` on the same session keeps the no-TOCTOU property.
     """
     model = _ARTIFACT_MODEL[step]
-    if await db.get(model, artifact_id) is None:
+    row = await db.scalar(
+        select(model).where(model.id == artifact_id, model.deleted_at.is_(None))
+    )
+    if row is None:
         raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
 
 
@@ -245,6 +314,13 @@ async def advance_flow(
 
     target = request.step
 
+    # #676 line 35 — an artifact_id the flow has nowhere to put is REPORTED, on
+    # both branches below (the drop the edge UAT hit was on the idempotent one:
+    # the CV page re-advances to the step it is already on).
+    notices: list[str] = []
+    if request.artifact_id is not None and target not in _ARTIFACT_FIELD:
+        notices.append(unrecordable_artifact_notice(target))
+
     # Idempotent re-advance: already on the target step. Treat as a no-op rather
     # than raising InvalidTransitionError (which the router maps to HTTP 409).
     # This absorbs benign double-submits (e.g. photo-skip firing twice) and lets
@@ -256,7 +332,7 @@ async def advance_flow(
             flow.updated_at = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(flow)
-        return await _build_state_response(flow, db, base_url)
+        return await _build_state_response(flow, db, base_url, notices=notices)
 
     allowed = VALID_TRANSITIONS.get(flow.current_step, [])
     if target not in allowed:
@@ -267,9 +343,13 @@ async def advance_flow(
     if target in _ARTIFACT_FIELD:
         field = _ARTIFACT_FIELD[target]
         if request.artifact_id is None:
-            raise ArtifactRequiredError(step=target, field=field)
-        await _check_artifact_exists(target, request.artifact_id, db)
-        setattr(flow, field, request.artifact_id)
+            # #676 line 35 — only the REQUIRED subset refuses. cv_generation is
+            # entered to produce the CV, so "no id yet" is its normal case.
+            if target in _ARTIFACT_REQUIRED:
+                raise ArtifactRequiredError(step=target, field=field)
+        else:
+            await _check_artifact_exists(target, request.artifact_id, db)
+            setattr(flow, field, request.artifact_id)
 
     flow.current_step = target
     flow.available_actions = _compute_actions(
@@ -305,7 +385,7 @@ async def advance_flow(
 
     await db.commit()
     await db.refresh(flow)
-    return await _build_state_response(flow, db, base_url)
+    return await _build_state_response(flow, db, base_url, notices=notices)
 
 
 async def repoint_flow_gap_analysis(
@@ -471,7 +551,14 @@ async def _build_state_response(
     flow: FlowSession,
     db: AsyncSession,
     base_url: str,
+    notices: list[str] | None = None,
 ) -> FlowStateResponse:
+    """Build the flow's state DTO.
+
+    ``notices`` is advance-only (#676 line 35): a READ of the state never has
+    anything to say about a call that was not made, so `get_flow_state` leaves
+    the list empty rather than echoing a stale notice off the record.
+    """
     # Job summary
     job_summary: JobAnalysisSummary | None = None
     job = await db.get(JobAnalysis, flow.job_id)
@@ -557,4 +644,5 @@ async def _build_state_response(
         cover_letter_summary=cover_letter_summary,
         created_at=flow.created_at,
         updated_at=flow.updated_at,
+        notices=list(notices or []),
     )

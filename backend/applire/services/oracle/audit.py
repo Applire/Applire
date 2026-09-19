@@ -439,10 +439,19 @@ async def _run_judgement_batches(
 # The third judgement seam, and the first shaped as a GATE: seams A/B above
 # escalate on residual deterministic misses, triage classifies EVERY letter
 # claim before any grading happens. Only ``candidate-claim`` proceeds to
-# vault grading; ``employer-fact`` and ``epistolary-form`` emit a visible,
-# quoted ``not_applicable`` verdict and leave the ``unverifiable_dominated``
+# vault grading; ``employer-fact``, ``epistolary-form`` and (ADR-068 amended
+# 2026-09-18, #697 lines 15 + 20) ``candidate-limit`` emit a visible, quoted
+# ``not_applicable`` verdict and leave the ``unverifiable_dominated``
 # denominator (``schemas/oracle.py``'s ``from_results`` already excludes
 # ``not_applicable``).
+#
+# ``candidate-limit`` is the judgement twin of the #282 denial rail below: an
+# honest stated limit has no positive claim to ground, and the deterministic
+# marker list that decided it alone missed five phrasings across four
+# delivery-tier runs. The rail keeps its job (a document audited with no
+# provider still recognises what its markers know); the judgement answers the
+# phrasing-independent question. Same verdict, same detail register, one
+# visible finding either way.
 #
 # Polarity is PERMISSIVE — inverted against seams A/B. A mis-classification
 # exempts a real claim from audit (a hole in the Oracle), never accuses, so
@@ -469,6 +478,16 @@ _TRIAGE_EXEMPT_DETAIL = {
         "motivation or availability — asserting nothing about the candidate's "
         'past that the vault could confirm. Sentence triage class '
         'epistolary-form: "{sentence}"'
+    ),
+    # ADR-068 amended 2026-09-18 (#697 lines 15 + 20) — the fourth class. The
+    # wording deliberately matches the #282 denial rail's own detail line: the
+    # user reads the same thing whether the deterministic marker list or the
+    # judgement recognised the limit, because it IS the same finding.
+    "candidate-limit": (
+        "An honest limit the candidate states about their own experience — a "
+        "negative statement with no positive claim to verify against the "
+        "vault (there is no evidence of absence to trace to). Sentence "
+        'triage class candidate-limit: "{sentence}"'
     ),
 }
 

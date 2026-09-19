@@ -1,0 +1,720 @@
+# Copyright (C) 2026 Tobias Rosenbaum
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+"""#724 — a German CV must not ship English vault bullets.
+
+Founder's edge UAT 2026-09-18 (`triage:document-harm`): a delivered German CV
+carried 4 of its 15 work bullets in English and an English `Branche:` line on
+every role, and both blind panel reviewers read the document as unedited.
+Nothing was wrong with any single pass. `_review_cv_language` runs on the PROSE
+shape and is the last language authority; `_restore_ledger_bullets`,
+`_apply_role_facts` and `_nest_projects` all run inside `_compose_document`, i.e.
+strictly after it, and all three carry vault text verbatim by their own rules. On
+every EN-vault -> DE-document generation the delivered document was bilingual by
+construction.
+
+ADR-072/ADR-062/ADR-067 amended 2026-09-18 (founder ruling W-1): "verbatim" is
+verbatim INTO the draft. The restore's SELECTION runs before the language pass,
+over the same provisional composition the tail reads, and the chosen text rides
+into the prose draft so that pass translates it like any other bullet.
+
+What these tests pin, in the order the properties matter:
+
+* the selection is the SAME selection (ADR-066 — one instrument, so what gets
+  restored cannot drift from what used to get restored);
+* a same-language run produces an EMPTY plan and a byte-identical document — the
+  change is inert everywhere except where the defect lived;
+* the tail can never re-add a vault bullet the preseed already placed, which is
+  the one way this fix could be worse than the defect (translation AND original);
+* a preseeded restoration keeps #315's load-bearing placement and the ceiling;
+* the settle guard turns the refiner's *instruction* not to drop a bullet into a
+  verified fact, and falls back to the pre-#724 behaviour rather than losing a
+  claimable concept (#229 — an instruction is not a guarantee);
+* the ORDER itself: a faithful translator double shows the restored bullet
+  delivered translated, and the swapped-back arm shows it delivered untranslated.
+
+Pure functions, faithful doubles, no LLM, no DB. Every German and English string
+here is synthetic and was checked against `detect_language` before being used.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_backend = Path(__file__).parent.parent.parent / "backend"
+if str(_backend) not in sys.path:
+    sys.path.insert(0, str(_backend))
+
+SENIOR = "11111111-1111-1111-1111-111111111111"
+JUNIOR = "22222222-2222-2222-2222-222222222222"
+
+# --- vault text (English) ----------------------------------------------------
+EN_ISO = "Ran the ISO 9001 audit programme for the whole plant."
+EN_MES = "Rolled out MES across fourteen machines and tracked OEE for the shift teams."
+EN_SMED = "Reduced changeover time with SMED on the packaging line."
+EN_INDUSTRY = "Manufacturing of technical plastics and packaging"
+
+# --- the same facts in German (the same-language control) --------------------
+DE_ISO = "Leitete das ISO-9001-Auditprogramm fuer das gesamte Werk."
+DE_MES = "Fuehrte MES auf vierzehn Maschinen ein und verfolgte die OEE der Schichtteams."
+DE_SMED = "Reduzierte die Ruestzeit mit SMED an der Verpackungslinie."
+DE_INDUSTRY = "Herstellung technischer Kunststoffe und Verpackungen"
+
+# --- what the writer produced (German prose, ledger concepts missing) --------
+DRAFT_GENERIC_1 = "Verantwortete die Fertigung an zwei Standorten."
+DRAFT_GENERIC_2 = "Fuehrte die Schichtplanung fuer achtzig Mitarbeitende."
+
+
+def _ledger_entry(concept: str, *, load_bearing: bool = False) -> dict:
+    return {
+        "concept": concept,
+        "surface_forms": [concept],
+        "claimable": True,
+        "status": "direct",
+        "sources": ["required"],
+        "fit_weight": 1.0,
+        "evidence": f"vault evidence for {concept}",
+        **({"load_bearing": True} if load_bearing else {}),
+    }
+
+
+LEDGER = [_ledger_entry("ISO 9001"), _ledger_entry("MES"), _ledger_entry("SMED")]
+FORMS = ("ISO 9001", "MES", "SMED")
+
+
+def _profile(*, english: bool = True, industry: bool = True) -> dict:
+    iso, mes, smed = (EN_ISO, EN_MES, EN_SMED) if english else (DE_ISO, DE_MES, DE_SMED)
+    ind = (EN_INDUSTRY if english else DE_INDUSTRY) if industry else None
+    return {
+        "contact": {"full_name": "Testperson", "email": "kontakt@applire.de"},
+        "work_experience": [
+            {
+                "id": SENIOR,
+                "company": "Nordwerk Kunststoff GmbH",
+                "role": "Werkleiter",
+                "start_date": "2020-01",
+                "end_date": None,
+                "industry_context": ind,
+                "responsibilities": [iso, mes],
+                "achievements": [smed],
+            },
+            {
+                "id": JUNIOR,
+                "company": "Suedpack Systeme AG",
+                "role": "Schichtleiter",
+                "start_date": "2016-01",
+                "end_date": "2019-12",
+                "responsibilities": [],
+                "achievements": [],
+            },
+        ],
+        "projects": [],
+        "education": [],
+        "languages": [],
+        "skills": [],
+        "certifications": [],
+    }
+
+
+def _prose(bullets=None, *, projects=None, top_projects=None) -> dict:
+    return {
+        "summary": "Werkleiter in der Kunststoffverarbeitung.",
+        "skills": [],
+        "work": [
+            {
+                "id": SENIOR,
+                "bullets": list(bullets if bullets is not None else [DRAFT_GENERIC_1, DRAFT_GENERIC_2]),
+                "projects": list(projects or []),
+            },
+            {"id": JUNIOR, "bullets": [], "projects": []},
+        ],
+        "projects": list(top_projects or []),
+    }
+
+
+def _budget(max_bullets: int = 5):
+    from applire.services.cv_budget import BudgetResult, BulletTier, RoleBudget
+
+    tiers = {
+        "top": BulletTier("top", max_bullets, max(0, max_bullets - 1)),
+        "mid": BulletTier("mid", 3, 2),
+        "bottom": BulletTier("bottom", 1, 0),
+    }
+    return BudgetResult(
+        roles={
+            SENIOR: RoleBudget(work_entry_id=SENIOR, tier="top", max_bullets=max_bullets),
+            JUNIOR: RoleBudget(work_entry_id=JUNIOR, tier="mid", max_bullets=3),
+        },
+        tiers=tiers,
+        target_pages=2,
+        region="DACH",
+        claimable_forms=FORMS,
+    )
+
+
+def _compose(prose, profile, budget, *, preseed=None):
+    from applire.services.cv import _compose_document
+
+    return _compose_document(
+        prose,
+        profile,
+        raw_profile_json=profile,
+        keyword_ledger=LEDGER,
+        budget=budget,
+        job_dict={},
+        language="de",
+        preseed=preseed,
+    )
+
+
+def _plan(prose, profile, budget, language="de", job_dict=None):
+    from applire.services.cv import _plan_language_preseed
+
+    return _plan_language_preseed(
+        prose,
+        profile,
+        keyword_ledger=LEDGER,
+        budget=budget,
+        job_dict=job_dict or {},
+        document_language=language,
+    )
+
+
+def _senior_bullets(doc) -> list[str]:
+    return [w for w in doc.work_history if w.id == SENIOR][0].bullets
+
+
+def _fake_translate(prose: dict, mapping: dict[str, str]) -> dict:
+    """A faithful double of the `cv_language` refiner: translates in place,
+    keeps every list's length and every id, touches nothing else.
+
+    Faithful, not convenient — the real refiner's contract is exactly this, and
+    the settle guard exists because a real model may break it. The tests that
+    care about breakage use a DIFFERENT, deliberately unfaithful double.
+    """
+    import copy
+
+    out = copy.deepcopy(prose)
+    for entry in out.get("work") or []:
+        entry["bullets"] = [mapping.get(b, b) for b in entry.get("bullets") or []]
+        if isinstance(entry.get("industry_context"), str):
+            entry["industry_context"] = mapping.get(
+                entry["industry_context"], entry["industry_context"]
+            )
+        for proj in entry.get("projects") or []:
+            proj["bullets"] = [mapping.get(b, b) for b in proj.get("bullets") or []]
+    for proj in out.get("projects") or []:
+        proj["bullets"] = [mapping.get(b, b) for b in proj.get("bullets") or []]
+    return out
+
+
+TRANSLATIONS = {EN_ISO: DE_ISO, EN_MES: DE_MES, EN_SMED: DE_SMED, EN_INDUSTRY: DE_INDUSTRY}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. the selection is the same selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_the_preseed_selects_exactly_what_the_tail_would_have_restored():
+    """ADR-066: one instrument. Moving WHEN the restore is chosen may not change
+    WHAT is chosen — otherwise this fix would quietly re-scope #234."""
+    profile, budget = _profile(), _budget()
+    prose = _prose()
+
+    _, plan = _plan(prose, profile, budget)
+    preseeded = sorted(p.vault_text for p in plan.by_entry[SENIOR])
+
+    tail_only = _compose(prose, profile, budget, preseed=None)
+    restored_by_tail = sorted(
+        b for b in _senior_bullets(tail_only) if b in {EN_ISO, EN_MES, EN_SMED}
+    )
+
+    assert preseeded == restored_by_tail
+    assert preseeded == sorted([EN_ISO, EN_MES, EN_SMED])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. inert where the defect never lived
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_a_german_vault_feeding_a_german_document_produces_an_empty_plan():
+    """The gate is per item, against the document's own language. A same-language
+    run must be byte-identical to yesterday's pipeline."""
+    profile, budget = _profile(english=False), _budget()
+    prose = _prose()
+
+    new_prose, plan = _plan(prose, profile, budget)
+
+    assert plan.is_empty()
+    assert new_prose == prose
+    assert _compose(new_prose, profile, budget, preseed=plan).model_dump() == _compose(
+        prose, profile, budget, preseed=None
+    ).model_dump()
+
+
+def test_an_english_document_from_an_english_vault_also_produces_an_empty_plan():
+    """The check is AGREEMENT with the document's language, not a preference for
+    German."""
+    profile, budget = _profile(), _budget()
+
+    _, plan = _plan(_prose(), profile, budget, language="en")
+
+    assert plan.is_empty()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. the injection itself
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_an_english_vault_bullet_is_injected_into_the_prose_draft():
+    profile, budget = _profile(), _budget()
+    prose = _prose()
+
+    new_prose, plan = _plan(prose, profile, budget)
+    senior = [e for e in new_prose["work"] if e["id"] == SENIOR][0]
+
+    assert senior["bullets"][:2] == [DRAFT_GENERIC_1, DRAFT_GENERIC_2]
+    assert set(senior["bullets"][2:]) == {EN_ISO, EN_MES, EN_SMED}
+    assert plan._pre_lengths[SENIOR] == 2
+    assert prose["work"][0]["bullets"] == [DRAFT_GENERIC_1, DRAFT_GENERIC_2]  # unmutated
+
+
+def test_the_english_industry_line_is_injected_and_the_german_one_is_not():
+    en_profile, de_profile, budget = _profile(), _profile(english=False), _budget()
+
+    en_prose, en_plan = _plan(_prose(), en_profile, budget)
+    _, de_plan = _plan(_prose(), de_profile, budget)
+
+    assert en_plan.industry_context[SENIOR] == EN_INDUSTRY
+    assert [e for e in en_prose["work"] if e["id"] == SENIOR][0]["industry_context"] == EN_INDUSTRY
+    assert de_plan.industry_context == {}
+
+
+def test_a_two_word_industry_line_is_queued_via_the_vault_gate_not_a_per_item_guess():
+    """Delivery-run probe residual (2026-09-19, `it_backend_daniel`): role 2 of 3
+    delivered `industry_context` "IT services" in English on an otherwise-German
+    CV — `roles_with_industry_line=2` of 3 in the container log. The per-item
+    predicate `item_language_mismatch` needs >= ITEM_LANGUAGE_MIN_WORDS (4) words
+    carrying an English function word; "IT services" is two words and cleared it
+    uncaught. The industry half must use the SAME vault-level gate the skills
+    half (block 4) already uses — `_vault_dominant_language(profile_json) !=
+    document_language` — never a per-item guess on a short phrase."""
+    profile, budget = _profile(), _budget()
+    profile["work_experience"][0]["industry_context"] = "IT services"  # 2 words
+
+    new_prose, plan = _plan(_prose(), profile, budget)
+
+    assert plan.industry_context[SENIOR] == "IT services"
+    assert (
+        [e for e in new_prose["work"] if e["id"] == SENIOR][0]["industry_context"]
+        == "IT services"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. the guard that keeps the fix from being worse than the defect
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_the_tail_never_re_adds_a_vault_bullet_the_preseed_placed():
+    """The failure this exclusion exists for: a claimable surface form that does
+    NOT survive translation leaves the concept "missing" again, and an unguarded
+    tail would restore the English original next to its own German translation.
+
+    The double here deliberately drops the surface form, which is exactly the
+    shape the language pass's own coverage wrapper is meant to prevent and cannot
+    be relied on to.
+    """
+    profile, budget = _profile(), _budget(max_bullets=8)
+    prose = _prose()
+
+    new_prose, plan = _plan(prose, profile, budget)
+    lossy = {
+        EN_ISO: "Leitete das Auditprogramm fuer das gesamte Werk.",  # 'ISO 9001' gone
+        EN_MES: DE_MES,
+        EN_SMED: DE_SMED,
+    }
+    settled = _fake_translate(new_prose, lossy)
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(settled, plan)
+
+    delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+
+    assert EN_ISO not in delivered
+    assert "Leitete das Auditprogramm fuer das gesamte Werk." in delivered
+    assert len([b for b in delivered if "Auditprogramm" in b]) == 1
+
+
+def test_the_cross_language_gate_protects_this_shape_even_without_the_exclusion(
+    monkeypatch, caplog
+):
+    """ADR-072 amended 2026-09-19 (#724 residual, M-27) supersedes the old
+    baseline this test used to assert: that without the preseed's by-entry
+    ``excluded_vault_norms``, a lossy translation lets the vault's English
+    original come back. It no longer does — a cross-language document's tail
+    may not inject ANY vault text from its own second derivation, whether or
+    not the by-entry exclusion would also have blocked it. The concept is
+    logged (``LANGUAGE_RESTORE_SKIPPED``) and left missing, never papered
+    over with an untranslated bullet (the M-27 shape:
+    `Q09-tailored-data.json`'s duplicated Stripe bullet, reproduced for the
+    bullet class in the section below)."""
+    import logging
+
+    from applire.services.cv import _settle_language_preseed
+    from applire.services.ledger_restore import PreseedPlan
+
+    profile, budget = _profile(), _budget(max_bullets=8)
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(
+        new_prose,
+        {
+            EN_ISO: "Leitete das Auditprogramm fuer das gesamte Werk.",  # 'ISO 9001' gone
+            EN_MES: DE_MES,
+            EN_SMED: DE_SMED,
+        },
+    )
+    _settle_language_preseed(settled, plan)
+    monkeypatch.setattr(PreseedPlan, "excluded_vault_norms", lambda self: {})
+
+    with caplog.at_level(logging.INFO):
+        delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+
+    assert EN_ISO not in delivered
+    assert "Leitete das Auditprogramm fuer das gesamte Werk." in delivered
+    assert len([b for b in delivered if "Auditprogramm" in b]) == 1
+    assert any(
+        "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and "ISO 9001" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. the ordering and the ceiling this ADR already specifies
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_a_preseeded_restoration_is_ordered_ahead_of_a_no_hit_draft_bullet():
+    """#234's hit-first order must survive the move. Without the plan being read
+    in `_restore_ledger_bullets`, the entry takes the cap-only branch and keeps
+    the writer's generic bullets in front."""
+    profile, budget = _profile(), _budget(max_bullets=8)
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(new_prose, TRANSLATIONS)
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(settled, plan)
+
+    delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+
+    restored_positions = [delivered.index(t) for t in (DE_ISO, DE_MES, DE_SMED)]
+    generic_positions = [delivered.index(DRAFT_GENERIC_1), delivered.index(DRAFT_GENERIC_2)]
+    assert max(restored_positions) < min(generic_positions)
+
+
+def test_a_tight_ceiling_still_binds_and_keeps_the_restorations():
+    """The ceiling is unconditional (ADR-051 §3) and coverage outranks filler."""
+    profile, budget = _profile(), _budget(max_bullets=3)
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(new_prose, TRANSLATIONS)
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(settled, plan)
+
+    delivered = _senior_bullets(_compose(settled, profile, budget, preseed=plan))
+
+    assert len(delivered) == 3
+    assert set(delivered) == {DE_ISO, DE_MES, DE_SMED}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. the settle guard — an instruction is not a guarantee (#229)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_the_settle_guard_records_the_translated_text_when_the_shape_is_kept():
+    profile, budget = _profile(), _budget()
+    new_prose, plan = _plan(_prose(), profile, budget)
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(_fake_translate(new_prose, TRANSLATIONS), plan)
+
+    assert sorted(p.translated_text for p in plan.by_entry[SENIOR]) == sorted(
+        [DE_ISO, DE_MES, DE_SMED]
+    )
+
+
+def test_the_settle_guard_re_appends_a_bullet_the_language_pass_dropped(caplog):
+    """The refiner is told never to drop an entry. When it does anyway, the vault
+    text goes back verbatim — the pre-#724 behaviour — and a claimable concept is
+    never the price of this fix."""
+    import logging
+
+    from applire.services.cv import _settle_language_preseed
+
+    profile, budget = _profile(), _budget()
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(new_prose, TRANSLATIONS)
+    senior = [e for e in settled["work"] if e["id"] == SENIOR][0]
+    senior["bullets"] = [b for b in senior["bullets"] if b != DE_MES]  # the model lost one
+
+    with caplog.at_level(logging.WARNING, logger="applire.services.cv"):
+        _settle_language_preseed(settled, plan)
+
+    assert EN_MES in [e for e in settled["work"] if e["id"] == SENIOR][0]["bullets"]
+    assert any(
+        "LANGUAGE_PRESEED_SETTLE_FALLBACK" in r.getMessage() for r in caplog.records
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. the role-facts furniture line stays vault-or-plan, never draft
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_the_industry_line_is_delivered_in_the_document_language():
+    profile, budget = _profile(), _budget()
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(new_prose, TRANSLATIONS)
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(settled, plan)
+
+    doc = _compose(settled, profile, budget, preseed=plan)
+    senior = [w for w in doc.work_history if w.id == SENIOR][0]
+
+    assert senior.industry_context == DE_INDUSTRY
+
+
+def test_an_industry_line_the_draft_invented_is_never_laundered_onto_the_page():
+    """ADR-062 clause 1's single-writer guarantee is structural, not an
+    instruction: only a value this plan carried from the vault can come back."""
+    profile, budget = _profile(english=False), _budget()
+    prose = _prose()
+    prose["work"][0]["industry_context"] = "Space logistics for the lunar market"
+
+    new_prose, plan = _plan(prose, profile, budget)
+    doc = _compose(new_prose, profile, budget, preseed=plan)
+    senior = [w for w in doc.work_history if w.id == SENIOR][0]
+
+    assert senior.industry_context == DE_INDUSTRY
+
+
+def test_a_vault_without_an_industry_line_still_renders_none():
+    profile, budget = _profile(industry=False), _budget()
+    new_prose, plan = _plan(_prose(), profile, budget)
+    doc = _compose(new_prose, profile, budget, preseed=plan)
+
+    assert [w for w in doc.work_history if w.id == SENIOR][0].industry_context is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. the third bilingual class — vault project bullets (ruling W-1b)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_a_foreign_vault_project_is_preseeded_once_and_not_appended_twice():
+    profile, budget = _profile(), _budget(max_bullets=8)
+    profile["projects"] = [
+        {
+            "name": "Linie 4 Modernisierung",
+            "associated_experience": SENIOR,
+            "responsibilities": ["Rebuilt the line control system with the shift teams."],
+            "achievements": [],
+        }
+    ]
+    new_prose, plan = _plan(_prose(), profile, budget)
+    senior_prose = [e for e in new_prose["work"] if e["id"] == SENIOR][0]
+
+    assert [p["name"] for p in senior_prose["projects"]] == ["Linie 4 Modernisierung"]
+
+    settled = _fake_translate(
+        new_prose,
+        {
+            **TRANSLATIONS,
+            "Rebuilt the line control system with the shift teams.":
+                "Erneuerte die Liniensteuerung gemeinsam mit den Schichtteams.",
+        },
+    )
+    from applire.services.cv import _settle_language_preseed
+
+    _settle_language_preseed(settled, plan)
+    doc = _compose(settled, profile, budget, preseed=plan)
+    senior = [w for w in doc.work_history if w.id == SENIOR][0]
+
+    assert len(senior.projects) == 1
+    assert senior.projects[0].bullets == [
+        "Erneuerte die Liniensteuerung gemeinsam mit den Schichtteams."
+    ]
+
+
+def test_a_german_vault_project_is_left_to_the_deterministic_join():
+    profile, budget = _profile(english=False), _budget(max_bullets=8)
+    profile["projects"] = [
+        {
+            "name": "Linie 4 Modernisierung",
+            "associated_experience": SENIOR,
+            "responsibilities": ["Erneuerte die Liniensteuerung mit den Schichtteams."],
+            "achievements": [],
+        }
+    ]
+    new_prose, plan = _plan(_prose(), profile, budget)
+    senior_prose = [e for e in new_prose["work"] if e["id"] == SENIOR][0]
+
+    assert senior_prose["projects"] == []
+    doc = _compose(new_prose, profile, budget, preseed=plan)
+    assert len([w for w in doc.work_history if w.id == SENIOR][0].projects) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. THE seam: restore-before-language, and the swapped-back baseline
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_the_restored_bullet_is_delivered_translated_because_it_ran_before_the_pass():
+    """The property the whole change exists for, on the DELIVERED document."""
+    from applire.services.cv import _settle_language_preseed
+    from applire.services.ats_audit import foreign_language_items
+
+    profile, budget = _profile(), _budget(max_bullets=8)
+    new_prose, plan = _plan(_prose(), profile, budget)
+    settled = _fake_translate(new_prose, TRANSLATIONS)
+    _settle_language_preseed(settled, plan)
+
+    doc = _compose(settled, profile, budget, preseed=plan)
+
+    assert foreign_language_items(doc.model_dump(), "de") == []
+
+
+def test_the_swapped_back_order_delivers_the_untranslated_vault_bullet():
+    """The baseline, asserted rather than assumed: run the language pass FIRST and
+    the restore after it — the pre-#724 order — and the same twin delivers English
+    bullets and an English industry line."""
+    from applire.services.ats_audit import foreign_language_items
+
+    profile, budget = _profile(), _budget(max_bullets=8)
+    settled = _fake_translate(_prose(), TRANSLATIONS)  # nothing to translate yet
+
+    doc = _compose(settled, profile, budget, preseed=None)
+
+    foreign = foreign_language_items(doc.model_dump(), "de")
+    assert sorted(text for _where, text in foreign) == sorted(
+        [EN_INDUSTRY, EN_ISO, EN_MES, EN_SMED]
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. the M-27 residual — a concept the WRITER already covered, pre-pass
+#
+# Delivery-run probe re-run (2026-09-19, `it_backend_daniel`, PR #720 M-27):
+# the writer's OWN draft already narrated a concept in English ("Rolled out a
+# Stripe-based checkout..."), so the preseed correctly saw it as covered and
+# placed NOTHING for it (`bullets=0` in the real container log — the plain
+# ISO/MES/SMED-style class above never exercises this, because those concepts
+# are acronyms/numbers that survive translation unchanged; a full English
+# PHRASE does not). The language pass then translated the writer's OWN
+# sentence to German. `_restore_ledger_bullets`'s SECOND, independent
+# `select_restore_candidates` call — run at compose time, against the
+# document AFTER the language pass — could no longer see the coverage
+# (`surface_present` is a same-script instrument) and restored the vault's
+# own English bullet a SECOND time, verbatim: the delivered document
+# (`Q09-tailored-data.json`) carried both "Integrated a Stripe-based
+# checkout for a subscription billing feature." and the writer's own
+# (translated) sentence about the very same fact.
+# ─────────────────────────────────────────────────────────────────────────────
+
+STRIPE_CONCEPT = "Stripe-based checkout"
+EN_STRIPE_VAULT = "Implemented a Stripe-based checkout for a subscription billing feature."
+EN_STRIPE_DRAFT = "Rolled out a Stripe-based checkout ahead of the subscription launch."
+DE_STRIPE_DRAFT = "Fuehrte einen Stripe-basierten Bezahlvorgang vor dem Abo-Start ein."
+
+
+def _stripe_fixture():
+    from dataclasses import replace
+
+    profile = _profile()
+    profile["work_experience"][0]["responsibilities"].append(EN_STRIPE_VAULT)
+    ledger = LEDGER + [_ledger_entry(STRIPE_CONCEPT)]
+    budget = replace(_budget(max_bullets=8), claimable_forms=FORMS + (STRIPE_CONCEPT,))
+    prose = _prose(bullets=[DRAFT_GENERIC_1, DRAFT_GENERIC_2, EN_STRIPE_DRAFT])
+    return profile, ledger, budget, prose
+
+
+def test_the_preseed_sees_the_writers_own_draft_already_covers_the_concept():
+    """The premise the residual rests on: at preseed time (pre-pass), the
+    writer's own English sentence covers the concept, so nothing is placed
+    for it — and the coverage is RECORDED rather than silently lost."""
+    from applire.services.cv import _plan_language_preseed
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    _, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+
+    assert not any(p.concept == STRIPE_CONCEPT for p in plan.by_entry.get(SENIOR, []))
+    assert STRIPE_CONCEPT in plan.bullets_already_covered
+
+
+def test_the_tail_never_re_derives_a_candidate_for_a_concept_covered_pre_pass(caplog):
+    """The delivered shape `Q09-tailored-data.json` reproduced and closed:
+    the vault's own English bullet must never join the writer's own
+    (translated) sentence about the same fact — and, because the preseed
+    recorded the concept as covered pre-pass rather than merely relying on
+    the blanket cross-language gate, the skip is SILENT (no
+    `LANGUAGE_RESTORE_SKIPPED` line): distinguishes "already covered" from
+    "genuinely went missing", which the gate alone cannot."""
+    import logging
+
+    from applire.services.cv import (
+        _compose_document,
+        _plan_language_preseed,
+        _settle_language_preseed,
+    )
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    new_prose, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+    settled = _fake_translate(new_prose, {**TRANSLATIONS, EN_STRIPE_DRAFT: DE_STRIPE_DRAFT})
+    _settle_language_preseed(settled, plan)
+
+    with caplog.at_level(logging.INFO):
+        doc = _compose_document(
+            settled, profile, raw_profile_json=profile, keyword_ledger=ledger,
+            budget=budget, job_dict={}, language="de", preseed=plan,
+        )
+    delivered = _senior_bullets(doc)
+
+    assert EN_STRIPE_VAULT not in delivered
+    assert DE_STRIPE_DRAFT in delivered
+    assert len([b for b in delivered if "stripe" in b.lower()]) == 1
+    assert not any(
+        "LANGUAGE_RESTORE_SKIPPED" in r.getMessage() and STRIPE_CONCEPT in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_without_the_cross_language_gate_the_tail_re_adds_the_vault_bullet():
+    """The baseline this residual fix rescues — asserted, not assumed. The
+    pre-fix call shape (the tail's restore pass with no `document_language`)
+    reproduces the exact `Q09-tailored-data.json` duplicate."""
+    from applire.services.cv import (
+        _compose_prefix,
+        _plan_language_preseed,
+        _restore_ledger_bullets,
+        _settle_language_preseed,
+    )
+
+    profile, ledger, budget, prose = _stripe_fixture()
+    new_prose, plan = _plan_language_preseed(
+        prose, profile, keyword_ledger=ledger, budget=budget, job_dict={},
+        document_language="de",
+    )
+    settled = _fake_translate(new_prose, {**TRANSLATIONS, EN_STRIPE_DRAFT: DE_STRIPE_DRAFT})
+    _settle_language_preseed(settled, plan)
+
+    tailored = _compose_prefix(settled, profile, preseed=plan)
+    tailored = _restore_ledger_bullets(
+        tailored, profile, ledger, budget, preseed=plan,
+        # document_language deliberately omitted — the pre-fix call shape.
+    )
+    delivered = _senior_bullets(tailored)
+
+    assert EN_STRIPE_VAULT in delivered
+    assert DE_STRIPE_DRAFT in delivered

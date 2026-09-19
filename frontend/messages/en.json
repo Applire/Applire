@@ -998,7 +998,11 @@
       "summary_populated": "your self-description was already written, so it was left alone",
       "no_write": "nothing was recorded from what you said — say it again in one sentence, or enter it in your profile",
       "no_write_already_known": "that is already in your profile, as stated",
-      "no_write_question_only": "your question arrived — nothing was changed for it"
+      "no_write_question_only": "your question arrived — nothing was changed for it",
+      "confirmation_discarded": "you chose to discard it",
+      "confirmation_held": "it is waiting on one more question — which of your roles at that employer it belongs to",
+      "confirmation_unresolvable": "the entry it named is no longer there, so it was not written",
+      "confirmation_already_present": "that entry already said it"
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",
@@ -1298,7 +1302,8 @@
       "page-length": "Page length",
       "skills-weak-vault-tie": "Skills with only a weak profile link",
       "terminal-review": "Final document review",
-      "narrative-evidence": "Evidence in the work history, not only as a skill"
+      "narrative-evidence": "Evidence in the work history, not only as a skill",
+      "document-language": "Document written in a single language"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
@@ -1308,6 +1313,7 @@
       "page-length-exceeds": "{pages} pages — exceeds the {region} norm of {standard} pages (max {max})",
       "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}",
       "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
+      "document-language-not-applicable": "Not applicable — no language was stated for this document",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {

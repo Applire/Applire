@@ -57,6 +57,49 @@ def detect_language(text: str) -> str:
     return "en" if en_score > de_score else "de"
 
 
+#: Minimum number of alphabetic words an ITEM must carry before
+#: :func:`item_language_mismatch` is willing to classify it (#724).
+#:
+#: Measured, not chosen: over 83 delivered items in 7 clean German CVs from the
+#: captured LLM logs (`backend/logs/llm/2026-09-{02,05,09,11,13,14,17}.jsonl`,
+#: the terminal-corrected final record of each session) the false-positive count
+#: is **0 at every floor from 0 upwards** — `detect_language` carries no German
+#: stopword list, so a short German fragment never accumulates an `en_score` and
+#: the documented tie-default to 'de' protects it for free. The floor therefore
+#: buys nothing against false positives; it is set at the shortest item on which
+#: the detector has any demonstrated POSITIVE signal at all (a 4-word English
+#: `industry_context` phrase), so that below it the predicate is explicitly
+#: silent rather than accidentally right.
+#:
+#: The real limit of this instrument on short items is the opposite one, and it
+#: is stated here rather than discovered later: `detect_language` needs an
+#: English function word to fire, so English noun phrases without one
+#: ("Industrial automation", "Pharmaceutical industry") read as 'de'. It
+#: UNDER-reports. That is the correct direction for a check that reports and for
+#: a plan that sends vault text through a translation pass — both fail toward
+#: leaving the document exactly as it is today.
+ITEM_LANGUAGE_MIN_WORDS = 4
+
+_ITEM_WORD_RE = re.compile(r"[a-zA-ZäöüßÄÖÜ]+")
+
+
+def item_language_mismatch(
+    text: str, expected_language: str, *, min_words: int = ITEM_LANGUAGE_MIN_WORDS
+) -> bool:
+    """Is this ONE delivered item written in a language other than the document's?
+
+    THE predicate for per-item language (ADR-066) — used by the ADR-039
+    ``document-language`` check, by the #724 language preseed, and by nothing
+    else. It wraps :func:`detect_language` with an evidence floor; it is not a
+    second detector, and it never decides what happens to the item.
+    """
+    if not text or not expected_language:
+        return False
+    if len(_ITEM_WORD_RE.findall(text)) < min_words:
+        return False
+    return detect_language(text) != expected_language
+
+
 def resolve_jd_language(job) -> str:
     """Return the JD document language for a JobAnalysis row.
 

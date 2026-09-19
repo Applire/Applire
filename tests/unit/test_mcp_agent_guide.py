@@ -226,3 +226,52 @@ def test_no_single_tool_eats_the_shared_headroom():
         f"these tools exceed the per-tool ceiling of {PER_TOOL_CHAR_CEILING} chars: {over}; "
         "the contract belongs in the description, the guidance in AGENT_GUIDE.md (ADR-056 §4)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Letter collector #673 line 46 / Agent collector #676 line 35 — the guide says
+# WHICH artifact id goes with WHICH step, and that the letter is not a step
+# ---------------------------------------------------------------------------
+
+
+def test_guide_names_every_artifact_recording_step_and_its_field():
+    """#673 line 46: the guide said "steps that produce artifacts need the
+    matching artifact_id" and never said which id goes where — so an agent
+    following it passed the CV id at `cv_generation` (#676 line 35) and, before
+    the fix, watched it vanish. The mapping is now stated, and this pins it to
+    the orchestrator's own map so the two cannot drift (#603's lesson)."""
+    from applire.services.flow.orchestrator import _ARTIFACT_FIELD
+
+    guide = _guide()
+    for step, field in _ARTIFACT_FIELD.items():
+        assert step in guide, f"guide never names the recording step {step!r}"
+        assert field in guide, f"guide never names {step!r}'s field {field!r}"
+
+
+def test_guide_states_that_the_cover_letter_is_not_a_flow_step():
+    """#673 line 46: `VALID_TRANSITIONS` has no `cover_letter` step — the letter
+    links ITSELF to the flow inside `generate_cover_letter`
+    (`services/cover_letter.py`). An agent that does not know this looks for a
+    step to advance to, or assumes the letter is unlinked."""
+    from applire.services.flow.orchestrator import VALID_TRANSITIONS
+
+    assert "cover_letter" not in VALID_TRANSITIONS, (
+        "a cover_letter step would make this guide paragraph wrong; adding one "
+        "is a flow-model change, not a guide edit"
+    )
+    guide = _guide()
+    assert "no `cover_letter`\nstep" in guide or "no `cover_letter` step" in guide, (
+        "the guide must state that there is no cover_letter step"
+    )
+    assert "generate_cover_letter` links the letter to the flow itself" in guide
+
+
+def test_guide_states_that_cv_generation_does_not_require_the_id():
+    """The asymmetry is the whole point of #676 line 35's fix: `cv_generation`
+    RECORDS the id but does not REQUIRE it, because the step is entered in
+    order to produce the CV. An agent told only "required" would wait."""
+    from applire.services.flow.orchestrator import _ARTIFACT_REQUIRED
+
+    assert "cv_generation" not in _ARTIFACT_REQUIRED
+    guide = _guide()
+    assert 'advance_flow(step="cv_generation", artifact_id=<cv_id>)' in guide

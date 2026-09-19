@@ -760,6 +760,27 @@ class ImportNotApplied(BaseModel):
     #: stays as the third branch AND as the fail-safe for a model that emitted
     #: no reason at all — a receipt persisted before this amendment, or a
     #: model that ignored the ask, loads and renders unchanged.
+    #: The three ``confirmation_*`` values (Bug #723, ADR-063 amended
+    #: 2026-09-18) are what makes the CONFIRMATION-RESOLUTION intake honest.
+    #: The attribution guard (#243) pulls a bullet OUT of the merge and asks
+    #: where it belongs; the resolution now writes it (``move`` / ``keep_here``)
+    #: — and where it cannot, it must say so instead of minting a
+    #: metadata-only receipt that reads as success, which is the harm #723
+    #: filed. ``confirmation_discarded``: the candidate chose "discard it".
+    #: ``confirmation_held``: the answer names an employer the vault holds under
+    #: several roles and nothing in the held text discriminates between them, so
+    #: a narrower keyed ask is parked and the content stays held (founder ruling
+    #: V-1 / D-6 — never "the most recent role"). ``confirmation_unresolvable``:
+    #: the named entry is gone, or the scalar slot it would fill was already
+    #: populated by someone else. ``confirmation_already_present``: the entry
+    #: the answer named already carries that exact text (`_append_dedup`
+    #: suppressed the append, ADR-082), so the decision is satisfied and
+    #: ``changes`` is silent — the receipt says it here instead.
+    #: ``label`` carries the held field plus its own
+    #: text, truncated — the same shape ``no_write`` uses, and the thing that
+    #: makes the loss diagnosable from the receipt alone. All three are FACTS
+    #: (ADR-062 clause 1): which option key was answered, how many entries carry
+    #: the anchor's name, whether a slot was empty.
     reason: Literal[
         "no_op_carried_entry",
         "op_rejected",
@@ -767,6 +788,10 @@ class ImportNotApplied(BaseModel):
         "no_write",
         "no_write_already_known",
         "no_write_question_only",
+        "confirmation_discarded",
+        "confirmation_held",
+        "confirmation_unresolvable",
+        "confirmation_already_present",
     ]
 
 
@@ -1300,6 +1325,14 @@ class ProfileImportResponse(MasterProfileResponse):
 
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    #: #674 line 72 (#707/#708, ADR-046 / ADR-063 door parity) — the other half
+    #: of the same merge's honesty. `not_applied` names entries the merge's ops
+    #: did not carry; `matched` names the ones the reconciler recognised as
+    #: already present under another surface form, which is the answer to "why
+    #: is my translated entry not in `changes`?". It rode `ApplyResult.matched`
+    #: → `EnrichmentRecord.matched` to the profile page's history and stopped
+    #: there, so no import DOOR ever stated it.
+    matched: list[MatchReceipt] = Field(default_factory=list)
     # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
     # name every import caller already reads. `ProfileImportView.tsx` posts a
     # LinkedIn/XING export to this door and then reads `data.completeness_score`

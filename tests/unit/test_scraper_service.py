@@ -183,6 +183,13 @@ def test_requires_js_for_known_js_hosts(url):
     ],
 )
 def test_requires_js_false_for_generic_hosts(url):
+    """LinkedIn in this list is RECORDED behaviour, not an oversight.
+
+    ADR-001 amended 2026-09-18 (founder ruling J-1): a guest posting page a board
+    serves without a login is fetched by tier 1 like any other board; only a
+    login-gated page falls back to manual paste. The record's original
+    "no LinkedIn scraping" consequence is retired.
+    """
     from applire.services.scraper import _requires_js
 
     assert _requires_js(url) is False

@@ -88,6 +88,14 @@ _ALLOWED_SUMMARY_KEYS = {
     # still holds — the PII sweep runs over the whole summary regardless.
     "merge_status",
     "not_applied",
+    # #674 line 72 (#707/#708, ADR-063 door parity): the other half of the same
+    # merge's honesty — which entries of the caller's OWN submission the
+    # reconciler recognised as already present under another surface form, so a
+    # translated second CV does not read as pure loss. Section + the caller's
+    # own `incoming` label only; the vault's own wording (`existing`) and the
+    # entity id stay off this payload, for the same reason the `name_divergence`
+    # names do — an agent that needs them reads `get_profile_health()`.
+    "matched",
     # #367 (ADR-054 amended 2026-09-13): the ingest's OUTCOME, stated on every
     # call so a caller branches on a field rather than on the absence of one.
     # `merged`/`gated` ride every response; `staged_id`/`hold_reason` appear

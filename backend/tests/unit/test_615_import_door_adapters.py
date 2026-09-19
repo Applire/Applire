@@ -375,10 +375,15 @@ def test_mcp_profile_summary_reports_merge_status_and_not_applied():
 
     # The five pre-existing fields stay — #615 only adds to this dict. #367
     # (ADR-054 amended) adds "merged"/"gated" — the outcome is stated on
-    # every call, not just when a merge held.
+    # every call, not just when a merge held. #674 line 72 (ADR-063 door parity)
+    # adds "matched", the other half of the same merge's honesty: `not_applied`
+    # names what the ops did not carry, `matched` names what the reconciler
+    # recognised as already present under another surface form. Its own shape
+    # and the black-box rule it obeys are pinned in
+    # `tests/unit/test_674_agent_door_matched_parity.py`.
     assert set(summary) == {
         "profile_id", "positions", "skills_count", "completeness", "merge_conflicts",
-        "merge_status", "not_applied", "merged", "gated",
+        "merge_status", "not_applied", "merged", "gated", "matched",
     }
     assert summary["merge_status"] == "partial"
     assert summary["not_applied"] == [
@@ -387,3 +392,6 @@ def test_mcp_profile_summary_reports_merge_status_and_not_applied():
     # #367 — a merged (non-held) import reports merged=True, gated=False.
     assert summary["merged"] is True
     assert summary["gated"] is False
+    # #674 line 72 — always present, empty here: a caller branches on a field,
+    # never on the absence of one.
+    assert summary["matched"] == []

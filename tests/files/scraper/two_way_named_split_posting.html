@@ -1,0 +1,35 @@
+<!-- Copyright (C) 2026 Tobias Rosenbaum -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  SYNTHETIC fixture, adversarial pass 2026-09-19. Two SEPARATE (sibling, not
+  nested) description-hint-named containers, each about half the posting.
+  Unlike the LinkedIn shape (`description__text` nesting
+  `show-more-less-html__markup`, same text at both depths), these two blocks
+  are disjoint and comparably sized — the named arm's "densest wins" would
+  silently drop whichever block is shorter. The extractor must fall back to
+  the whole wrapper and keep both.
+
+  Every employer, person and figure below is invented.
+-->
+<html lang="de">
+<head><title>Qualitätsleitung (m/w/d) | Dornbach Systemtechnik</title></head>
+<body>
+<main>
+  <div class="job-description-tasks">
+    <h2>Aufgaben</h2>
+    <p>Sie leiten die Qualitätsabteilung der Dornbach Systemtechnik und
+    verantworten die Einhaltung unserer ISO-9001-Zertifizierung über alle
+    Fertigungslinien hinweg. Sie planen interne und externe Audits, begleiten
+    sie persönlich und leiten aus den Ergebnissen Korrekturmaßnahmen ab,
+    deren Wirksamkeit Sie gemeinsam mit der Fertigungsleitung nachhalten.</p>
+  </div>
+  <div class="job-description-profile">
+    <h2>Profil</h2>
+    <p>Sie verfügen über ein abgeschlossenes technisches Studium oder eine
+    vergleichbare Qualifikation und bringen mehrjährige Führungserfahrung in
+    einer Qualitätsorganisation eines fertigenden Unternehmens mit. Sie kennen
+    sich mit Lean-Methoden, Six Sigma und statistischer Prozesslenkung aus.</p>
+  </div>
+</main>
+</body>
+</html>

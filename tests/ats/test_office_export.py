@@ -988,7 +988,15 @@ def test_office_export_roundtrip_zero_failures(case, lang):
         f"but {len(na_ids)} checks carry the status: {na_ids}"
     )
     assert "page-length" in na_ids, f"{case.kind}-{lang}: page band missing from {na_ids}"
-    assert set(na_ids) <= {"page-length", "terminal-review", "narrative-evidence"}, (
+    # `document-language` (#724, 2026-09-19): a direct audit hands no
+    # `document_language` in, so the mixed-language check has nothing to
+    # compare against and reports `not_applicable` — named here on purpose.
+    assert set(na_ids) <= {
+        "page-length",
+        "terminal-review",
+        "narrative-evidence",
+        "document-language",
+    }, (
         f"{case.kind}-{lang}: unexpected not_applicable producer(s): {na_ids}"
     )
 

@@ -83,6 +83,7 @@ from applire.schemas.profile import (
     ImportNotApplied,
     MasterProfileData,
     MasterProfileResponse,
+    MatchReceipt,
     PendingConfirmation,
     ProfileChangesResponse,
     ProfileHealthResponse,
@@ -187,6 +188,7 @@ def _to_import_response(
     *,
     merge_status: ImportMergeStatus = "applied",
     not_applied: list[ImportNotApplied] | None = None,
+    matched: list[MatchReceipt] | None = None,
 ) -> ProfileImportResponse:
     """Same construction as :func:`_to_response`, plus the import fact (#615,
     ADR-063 amended 2026-08-28). A SEPARATE builder, not a parameter on
@@ -207,6 +209,9 @@ def _to_import_response(
         updated_at=base.updated_at,
         merge_status=merge_status,
         not_applied=list(not_applied or []),
+        # #674 line 72 — the merge's `match_existing` receipts reach the import
+        # doors' response, the same way `not_applied` does.
+        matched=list(matched or []),
         # #367 — the same number under the name the import callers read.
         completeness_score=base.completeness,
     )
@@ -576,6 +581,7 @@ async def _import_from_text(
         record,
         merge_status=outcome.merge.merge_status,
         not_applied=outcome.merge.not_applied,
+        matched=outcome.merge.matched,
     )
 
 
@@ -1326,6 +1332,10 @@ class ApplyMergeOutcome:
     enrichment_id: uuid.UUID
     not_applied: list[ImportNotApplied] = field(default_factory=list)
     merge_status: ImportMergeStatus = "applied"
+    # #674 line 72 — the same drop, one field later: `matched` reached the
+    # persisted `EnrichmentRecord` and stopped, because this outcome object did
+    # not carry it to either caller.
+    matched: list[MatchReceipt] = field(default_factory=list)
 
 
 async def _apply_merge(
@@ -1399,6 +1409,7 @@ async def _apply_merge(
             enrichment_id=uuid.UUID(committed.enrichment_record.id),
             not_applied=merge_result.not_applied,
             merge_status=("partial" if merge_result.not_applied else "applied"),
+            matched=enrichment.matched,  # #674 line 72
         )
 
     # First upload — the committer creates the profile (#480 PR 8), through the
