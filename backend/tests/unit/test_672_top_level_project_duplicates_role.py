@@ -4,7 +4,7 @@
 """Writer collector #672 line 100 — a top-level PROJEKTE section repeating a
 project already rendered inside its role.
 
-Founder's edge UAT 2026-09-18: two projects appeared BOTH under their BioNTech
+Founder's edge UAT 2026-09-18: two projects appeared BOTH under their employer
 role AND under PROJEKTE, with the same facts restated up to three times; the ATS
 `duplicate-project` and `duplicate-bullets` checks both FAILED and the document
 shipped anyway. Both blind reviewers cited the repetition as the reason the CV
