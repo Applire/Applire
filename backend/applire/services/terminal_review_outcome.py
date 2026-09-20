@@ -422,6 +422,76 @@ def _truncate(text: str) -> str:
     return text[: _DETAILS_MAX_CHARS - 1].rstrip() + "…"
 
 
+#: Below this many characters, naming a finding by a first-chars excerpt stops
+#: being useful — the finding is counted in a trailing "(+k more)" marker
+#: instead of shown as an unreadable fragment (adversarial finding, blind
+#: Kaile probe on the integrated tree, 2026-09-20: a 4-finding `not_applicable`
+#: report's whole-string `_truncate` at `_DETAILS_MAX_CHARS` cut off mid-word
+#: and silently dropped 2 of the 4 raised findings — the fact report's own
+#: contract, do-not #1, is that every finding is still named).
+_MIN_FINDING_EXCERPT_CHARS = 60
+
+
+def _findings_budget(outcome: "TerminalReviewOutcome", preamble: str) -> int:
+    """How many characters :func:`_join_findings_bounded` may spend on the
+    findings list, so the FULLY ASSEMBLED details string (preamble + findings
+    + notes) stays within `_DETAILS_MAX_CHARS` without the whole-string
+    `_truncate` (still the backstop for a pathological case this cannot
+    foresee, e.g. an unusually long note — never removed) needing to cut into
+    the findings text at all under realistic report sizes.
+
+    ``preamble`` is everything the caller has already composed for THIS body
+    (the head sentence, the compliance sentence when present, and the
+    findings-list label) — reserved in full, because dropping or truncating
+    the mechanism sentence would make the report unreadable, never the
+    findings. ``outcome.notes`` (#664) are reserved too: `_details` appends
+    them AFTER this body returns, so they must be budgeted for here or the
+    outer `_truncate` could still cut a finding to make room for them.
+    """
+    notes_text = " ".join(outcome.notes)
+    reserved = len(preamble) + (len(notes_text) + 1 if notes_text else 0)
+    return max(_DETAILS_MAX_CHARS - reserved, _MIN_FINDING_EXCERPT_CHARS)
+
+
+def _join_findings_bounded(findings: tuple[str, ...], *, budget: int) -> str:
+    """Every finding named, within `budget` characters — never a whole-string
+    truncation that silently drops the findings nearer the end of the join.
+
+    Each finding gets an EQUAL share of `budget` first (typically well over
+    the fix brief's own floor of "~150 chars" for a realistic finding count
+    and budget). When even `_MIN_FINDING_EXCERPT_CHARS` per finding will not
+    fit ALL of them, later findings are dropped from the TEXT and counted in
+    a trailing "(+k more)" marker instead — the report's "every finding named"
+    contract (do-not #1) is then satisfied by the COUNT, never by silence.
+    """
+    if not findings:
+        return "(the verdict named no issue text)"
+    sep = "; "
+    joined = sep.join(findings)
+    budget = max(budget, 0)
+    if len(joined) <= budget:
+        return joined
+    total = len(findings)
+    n = total
+    while n > 1:
+        tail = "" if n == total else f" (+{total - n} more)"
+        available = budget - len(tail) - len(sep) * (n - 1)
+        if available // n >= _MIN_FINDING_EXCERPT_CHARS:
+            break
+        n -= 1
+    tail = "" if n == total else f" (+{total - n} more)"
+    available = max(budget - len(tail) - len(sep) * max(n - 1, 0), n)
+    share = max(available // n, 1)
+    parts = []
+    for text in findings[:n]:
+        if len(text) <= share:
+            parts.append(text)
+        else:
+            cut = max(share - 1, 1)
+            parts.append(text[:cut].rstrip() + "…")
+    return sep.join(parts) + tail
+
+
 def _details(outcome: TerminalReviewOutcome) -> str:
     """The EN diagnostic. Names the mechanism AND the open findings — a status
     without the finding tells the user something is wrong and not what.
@@ -493,8 +563,11 @@ def _unverified_body(outcome: TerminalReviewOutcome) -> str:
     sentence = _compliance_sentence(outcome)
     if sentence:
         parts.append(sentence)
-    body = "; ".join(outcome.blocking_issues) or "(the verdict named no issue text)"
-    parts.append(f"Unverified findings: {body}")
+    label = "Unverified findings: "
+    preamble = " ".join(parts) + " " + label
+    budget = _findings_budget(outcome, preamble)
+    body = _join_findings_bounded(outcome.blocking_issues, budget=budget)
+    parts.append(f"{label}{body}")
     return " ".join(parts)
 
 
@@ -537,8 +610,11 @@ def _body(outcome: TerminalReviewOutcome) -> str:
                 "a completed review"
             ),
         }.get(outcome.path or "", "The terminal review settled with findings still open")
-        body = "; ".join(outcome.blocking_issues) or "(the verdict named no issue text)"
-        return f"{head} after {outcome.rounds} round(s). Open findings: {body}"
+        label = "Open findings: "
+        preamble = f"{head} after {outcome.rounds} round(s). {label}"
+        budget = _findings_budget(outcome, preamble)
+        body = _join_findings_bounded(outcome.blocking_issues, budget=budget)
+        return f"{head} after {outcome.rounds} round(s). {label}{body}"
     # pass
     if outcome.minor_issues:
         return (

@@ -32,6 +32,8 @@ from applire.services.review_issues import ReviewSettle, normalize_issues  # noq
 from applire.services.reviewer import review_and_refine  # noqa: E402
 from applire.services.terminal_review_outcome import (  # noqa: E402
     TERMINAL_REVIEW_CHECK_ID,
+    CorrectionFacts,
+    TerminalReviewOutcome,
     build_terminal_review_check,
     settle_to_outcome,
 )
@@ -365,6 +367,70 @@ def test_the_details_are_bounded_so_a_verbose_reviewer_cannot_flood_the_report()
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert len(check.details or "") <= 1200
+
+
+def test_a_realistic_finding_count_is_all_named_not_silently_cut_by_the_bound():
+    """Adversarial finding (blind Kaile probe on the integrated tree, 2026-09-20):
+    a letter `not_applicable` ("unverified") report with several findings of
+    realistic length (~350 chars each — a reviewer's actual verdict prose, not
+    the 20x400-char flood case above) plus a compliance sentence and a #664 note
+    hit `_DETAILS_MAX_CHARS`, and the OLD whole-string `_truncate` cut off
+    mid-word, silently dropping the LAST findings from `details` entirely — the
+    fact report's own contract (do-not #1: every finding still named) was
+    violated by its own length bound. This module is shared verbatim by the CV
+    mount (`build_terminal_review_check(..., document="cv")` uses the identical
+    `_body`/`_unverified_body`), so the fix covers both without a CV-side change.
+
+    Fixed behaviour: each finding gets an equal share of the remaining budget
+    (per-finding truncation, never a whole-string cut), so every finding is
+    identifiable in `details` and the total still respects the 1200 cap.
+
+    Mutation: replace the budgeted `_join_findings_bounded(...)` call in
+    `_unverified_body` (`terminal_review_outcome.py`) with the old
+    `"; ".join(outcome.blocking_issues)` — this test goes red by name (the
+    last findings' identifying text vanishes from `details`).
+    """
+    labels = [
+        "the LucaNet rollout", "the SAP S/4HANA migration", "the ISO 45001 audit",
+        "the Kubernetes platform", "the Databricks pipeline",
+    ]
+    findings = tuple(
+        f"Finding {i}: the paragraph about {label} makes a claim the profile does "
+        "not support — the candidate's own record states a narrower scope than "
+        "the sentence implies, and the reviewer read this as a material overstatement "
+        "that a hiring reader would notice and could not verify from the document alone."
+        for i, label in enumerate(labels, start=1)
+    )
+    assert all(300 <= len(f) <= 400 for f in findings), "fixture must be realistic-length"
+
+    outcome = TerminalReviewOutcome(
+        chain_id="letter_terminal_review",
+        path="exhausted",
+        approved=False,
+        blocking_issues=findings,
+        minor_issues=(),
+        rounds=2,
+        # A #664 grounding-cut note — realistic company for a real "unverified"
+        # report, and it eats into the same 1200-char budget the findings do.
+        notes=(
+            "One sentence was REMOVED from the delivered letter before it was "
+            "rendered: it stated that you lack Kubernetes administration, and "
+            "nothing you told Applire says so.",
+        ),
+        # `measured=0` (every finding unmeasurable) still produces a real
+        # compliance sentence — the preamble a genuine unverified report carries.
+        correction=CorrectionFacts(delivered_is_reviewed=False, unmeasurable=len(findings)),
+    )
+    check = build_terminal_review_check(outcome, previous=None, document="letter")
+    details = check.details or ""
+
+    assert check.status == "not_applicable"
+    assert len(details) <= 1200
+    for i, label in enumerate(labels, start=1):
+        assert f"Finding {i}: the paragraph about {label}" in details, (
+            f"finding {i} ({label}) is not identifiable in details — silently cut by "
+            f"the length bound: {details!r}"
+        )
 
 
 def test_normalize_issues_still_produces_what_the_settle_reports():
