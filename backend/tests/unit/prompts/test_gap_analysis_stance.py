@@ -98,10 +98,39 @@ def test_system_prompt_states_denial_is_evidence_against():
     assert 'never "direct" or "partial"' in SYSTEM_PROMPT
 
 
-def test_system_prompt_forbids_unsupported_tokens_in_claimable_surface_forms():
+def test_compound_requirements_keep_the_candidates_standing_out_of_surface_forms():
+    """The F4 rule (blind PQ 2026-07-02), as RECONCILED by ruling B-3/B-3b (2026-09-20).
+
+    This test used to assert the v4 wording verbatim — "a technology with no
+    profile signal ... must NOT appear among a claimable concept's surface forms".
+    That sentence was measured to be the reason a candidate's denial of "vector
+    databases" could not floor the requirement "RAG methods" (#731 / founder-UAT
+    F-2): `_enforce_denial_stance` reaches a parent only through the parent's own
+    surface forms, so the instruction to omit the component made the denial
+    invisible to every consumer.
+
+    What F4 was actually protecting against is NOT membership in the forms list —
+    it is a claimable concept READING as supported when part of it is not. That
+    protection is what this test now pins, in the two places that carry it: the
+    COMPOUND rule's own status/reason clause, and the component's own entry.
+    Measured on the change that made the swap (real provider, n=8 per arm,
+    `openai/gpt-5.6-luna`): 0 of 20 runs produced a still-claimable row carrying a
+    component the profile does not support, and the ATS `keywords.present` count
+    did not move (mean 8.6 -> 8.5). Evidence:
+    `Documents/Runs/Nougat/founder-uat-fixes/b/report.md`.
+    """
     low = " ".join(SYSTEM_PROMPT.lower().split())  # collapse line-wrapping
     assert "compound" in low
-    assert "must not appear among a claimable concept's surface forms" in low
+    # The protection, in the writer's own words: the parent may not CLAIM a part
+    # the profile does not support, and the part is classified on its own.
+    assert (
+        'never let the compound concept\'s own "status" or "reason" claim a technology '
+        "the profile does not support" in low
+    )
+    assert "each named technology also gets its own entry" in low
+    # And the v4 sentence must stay gone — re-adding it silently reverts the #731
+    # bridge that ADR-059 (as amended by WP-A) names as the only sanctioned one.
+    assert "must not appear among a claimable concept's surface forms" not in low
 
 
 def test_system_prompt_keeps_the_mock_fingerprint():
