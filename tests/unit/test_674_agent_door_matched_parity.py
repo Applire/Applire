@@ -347,6 +347,7 @@ async def test_the_import_door_carries_the_merges_matched_receipts(db):
         merge=SimpleNamespace(
             merge_status="partial",
             not_applied=[],
+            not_applied_loss_count=0,  # F-7 (#674) — new ApplyMergeOutcome field
             matched=[_receipt()],
         ),
     )

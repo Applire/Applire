@@ -81,6 +81,7 @@ from applire.schemas.profile import (
     FieldChange,
     ImportMergeStatus,
     ImportNotApplied,
+    is_loss_reason,
     MasterProfileData,
     MasterProfileResponse,
     MatchReceipt,
@@ -188,6 +189,7 @@ def _to_import_response(
     *,
     merge_status: ImportMergeStatus = "applied",
     not_applied: list[ImportNotApplied] | None = None,
+    not_applied_loss_count: int | None = None,
     matched: list[MatchReceipt] | None = None,
 ) -> ProfileImportResponse:
     """Same construction as :func:`_to_response`, plus the import fact (#615,
@@ -209,6 +211,7 @@ def _to_import_response(
         updated_at=base.updated_at,
         merge_status=merge_status,
         not_applied=list(not_applied or []),
+        not_applied_loss_count=not_applied_loss_count,
         # #674 line 72 — the merge's `match_existing` receipts reach the import
         # doors' response, the same way `not_applied` does.
         matched=list(matched or []),
@@ -581,6 +584,7 @@ async def _import_from_text(
         record,
         merge_status=outcome.merge.merge_status,
         not_applied=outcome.merge.not_applied,
+        not_applied_loss_count=outcome.merge.not_applied_loss_count,
         matched=outcome.merge.matched,
     )
 
@@ -1314,7 +1318,32 @@ async def upload_cv(
         # wrapping this class unchanged (import_jobs.py — no adapter needed).
         merge_status=merge_outcome.merge_status,
         not_applied=merge_outcome.not_applied,
+        not_applied_loss_count=merge_outcome.not_applied_loss_count,
     )
+
+
+def _merge_status_from_not_applied(
+    not_applied: list[ImportNotApplied],
+) -> tuple[ImportMergeStatus, int]:
+    """F-7 (#674, founder edge UAT 2026-09-20) — the ONE place `merge_status`
+    is derived (ADR-066: one implementation, no caller re-derives it).
+
+    Used to be a bare truthiness check over `not_applied` — ANY item, cosmetic
+    or not, flipped the status to `partial`. A batch of purely-cosmetic
+    `no_op_carried_entry` items (e.g. languages the vault already had) then
+    read as `partial`, and `mcp/AGENT_GUIDE.md` told the agent to report that
+    false loss to the candidate as something missing.
+
+    `not_applied` itself is untouched by this function — every fact stays on
+    the receipt (a receipt list has readers that gate on its truthiness; a
+    new meaning gets a new field, never a filtered list,
+    `feedback_a_receipt_list_has_readers_that_gate_on_truthiness`). Only the
+    derived `partial`/`applied` verdict — and the new `not_applied_loss_count`
+    reads off the same count — now asks whether any item is actually evidence
+    of loss (`is_loss_reason`), not merely whether the list is non-empty.
+    """
+    loss_count = sum(1 for item in not_applied if is_loss_reason(item.reason))
+    return ("partial" if loss_count else "applied"), loss_count
 
 
 @dataclass
@@ -1332,6 +1361,10 @@ class ApplyMergeOutcome:
     enrichment_id: uuid.UUID
     not_applied: list[ImportNotApplied] = field(default_factory=list)
     merge_status: ImportMergeStatus = "applied"
+    # F-7 (#674, founder edge UAT 2026-09-20) — the count of `not_applied`
+    # items that are `is_loss_reason`, computed at the same seam as
+    # `merge_status` so no caller re-derives it.
+    not_applied_loss_count: int = 0
     # #674 line 72 — the same drop, one field later: `matched` reached the
     # persisted `EnrichmentRecord` and stopped, because this outcome object did
     # not carry it to either caller.
@@ -1402,13 +1435,15 @@ async def _apply_merge(
         )
         await db.commit()
         await db.refresh(existing)
+        merge_status, loss_count = _merge_status_from_not_applied(merge_result.not_applied)
         return ApplyMergeOutcome(
             profile_id=existing.id,
             completeness=committed.completeness,
             conflicts=merge_result.conflicts,
             enrichment_id=uuid.UUID(committed.enrichment_record.id),
             not_applied=merge_result.not_applied,
-            merge_status=("partial" if merge_result.not_applied else "applied"),
+            merge_status=merge_status,
+            not_applied_loss_count=loss_count,
             matched=enrichment.matched,  # #674 line 72
         )
 
@@ -1450,6 +1485,7 @@ async def _apply_merge(
         # #615 — a first import has nothing to reconcile against.
         not_applied=[],
         merge_status="applied",
+        not_applied_loss_count=0,
     )
 
 
@@ -1529,6 +1565,7 @@ async def resolve_staged_extraction(
             # the "applied, []" defaults on that branch stay honest.
             merge_status=merge_outcome.merge_status,
             not_applied=merge_outcome.not_applied,
+            not_applied_loss_count=merge_outcome.not_applied_loss_count,
         )
 
     raise ValueError(f"unknown resolve action: {action!r}")

@@ -77,7 +77,15 @@ async def sqlite_session():
 
 
 def _partial_merge_result() -> MergeResult:
-    """A controlled `reconcile_import` stand-in: one skill landed, one did not."""
+    """A controlled `reconcile_import` stand-in: one skill landed, one did not.
+
+    F-7 (#674, founder edge UAT 2026-09-20) — the missing skill's reason is
+    `op_rejected`, a genuine loss, not `no_op_carried_entry` (the documented
+    false-positive shape): these tests exist to prove `merge_status`/
+    `not_applied` propagate through each door, and a bare-truthiness `partial`
+    over a non-loss reason is exactly the defect F-7 fixed. The dedicated
+    loss-classification pin lives in `test_uat_vault_merge_status_loss.py`.
+    """
     merged = MasterProfileData.model_validate(
         {
             "personal_info": {"name": "Katrin Hoffmann"},
@@ -93,7 +101,7 @@ def _partial_merge_result() -> MergeResult:
         added=["Python"],
         changes=[FieldChange(section="skills", field="name", action="added", new_value="Python")],
         reconciliation={"skills": {"extracted": 2, "stored": 1, "delta": 1}},
-        not_applied=[ImportNotApplied(section="skills", label="Kubernetes", reason="no_op_carried_entry")],
+        not_applied=[ImportNotApplied(section="skills", label="Kubernetes", reason="op_rejected")],
     )
 
 
@@ -150,13 +158,14 @@ async def test_sync_upload_door_carries_merge_status_and_not_applied(sqlite_sess
         )
 
     assert response.merge_status == "partial"
+    assert response.not_applied_loss_count == 1  # F-7 (#674)
     assert len(response.not_applied) == 1
     assert response.not_applied[0].section == "skills"
     assert response.not_applied[0].label == "Kubernetes"
     # Serialised artefact — the shape an API caller actually receives.
     dumped = response.model_dump(mode="json")
     assert dumped["merge_status"] == "partial"
-    assert dumped["not_applied"][0]["reason"] == "no_op_carried_entry"
+    assert dumped["not_applied"][0]["reason"] == "op_rejected"
 
 
 def test_old_enrichment_record_without_not_applied_loads_unchanged():
@@ -235,8 +244,9 @@ async def test_staged_resolve_merge_door_carries_merge_status_and_not_applied(sq
         )
 
     assert response.merge_status == "partial"
+    assert response.not_applied_loss_count == 1  # F-7 (#674)
     assert response.not_applied == [
-        ImportNotApplied(section="skills", label="Kubernetes", reason="no_op_carried_entry")
+        ImportNotApplied(section="skills", label="Kubernetes", reason="op_rejected")
     ]
 
 
@@ -291,6 +301,7 @@ async def test_import_from_text_door_returns_profile_import_response(sqlite_sess
 
     assert isinstance(response, ProfileImportResponse)
     assert response.merge_status == "partial"
+    assert response.not_applied_loss_count == 1  # F-7 (#674)
     assert response.not_applied[0].label == "Kubernetes"
     # #615 / refuter B MAJOR 1 — GET /api/profile and PATCH /{section} share
     # the PARENT class, which never gained this field (a separate builder,
@@ -325,6 +336,7 @@ async def test_linkedin_import_route_returns_profile_import_response(sqlite_sess
 
     assert isinstance(response, ProfileImportResponse)
     assert response.merge_status == "partial"
+    assert response.not_applied_loss_count == 1  # F-7 (#674)
     assert response.not_applied[0].section == "skills"
 
 
