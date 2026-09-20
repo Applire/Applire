@@ -592,3 +592,61 @@ def test_the_stable_key_itself_is_an_acceptable_answer():
             assert text.strip().casefold() not in SKILL_OPTION_KEYS, text
     # And a sentence that merely CONTAINS a key is still not an answer.
     assert resolve_skill_decision(entry, "please keep it out of my profile") is None
+
+
+# ── 7. The AGENT door, end to end through the MCP tool ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_mcp_send_message_tool_relays_the_re_ask_with_its_option_keys(
+    db_session, monkeypatch
+):
+    """#730 was found over the agent channel, so the envelope is asserted THROUGH
+    the tool, not only on the service response.
+
+    The response fed to the tool is the real one: it is produced by driving
+    `_handle_interview_confirmation_answer` with the verbatim refusal, then handed
+    to `mcp.server.send_message`, which is the code an agent actually reaches. No
+    provider call.
+    """
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock, patch
+
+    import applire.services.session as session_mod
+    from applire.mcp.server import send_message as send_message_tool
+
+    record = await _seed(db_session)
+    entry = _containment_entry()
+    state = _state(record.id, entry)
+    interview = await _interview(db_session, record, state)
+    monkeypatch.setattr(
+        session_mod,
+        "_ask_or_complete_at",
+        AsyncMock(return_value=SessionMessageResponse(complete=True, gaps_remaining=0)),
+    )
+    real_response = await session_mod._handle_interview_confirmation_answer(
+        interview, state, db_session, MagicMock(), 0, entry, REFUSAL, "en"
+    )
+
+    @asynccontextmanager
+    async def _db():
+        yield db_session
+
+    with (
+        patch("applire.mcp.server.get_db", _db),
+        patch("applire.mcp.server.get_provider"),
+        patch(
+            "applire.mcp.server.session_svc.send_message",
+            AsyncMock(return_value=real_response),
+        ),
+    ):
+        out = await send_message_tool(session_id=str(interview.id), message=REFUSAL)
+
+    assert out["complete"] is False
+    pending = out["pending_confirmations"]
+    assert len(pending) == 1
+    assert pending[0]["option_keys"] == ["distinct", "merge", "keep"]
+    assert pending[0]["options"][2].startswith("Neither")
+    # The agent is told, in the message it relays to its user, that nothing changed.
+    assert "doesn't match any of the options" in out["question"]
+    assert out["choices"] == entry["options"]
