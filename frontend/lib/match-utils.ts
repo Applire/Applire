@@ -30,6 +30,26 @@ export function scoreColor(score: number): "success" | "warning" | "critical" {
   return "critical";
 }
 
+/**
+ * A [0, 1] match score as a whole percentage — with `null` as the ONLY fallback.
+ *
+ * #675 / ruling B-1 (2026-09-20): a score of 0 is a real score. The backend
+ * clamp no longer holds the headline up when the candidate records a denial, so
+ * an analysis in which every weighted requirement is `denied` genuinely
+ * publishes `match_score: 0.0`. Every read on the gaps screen was
+ * `score ? Math.round(score * 100) : fallback` — a truthiness check, so a real 0
+ * took the fallback branch and the screen kept showing the previous, higher
+ * percentage: the same "the headline contradicts the analysis behind it" shape
+ * the backend fix removes, one layer up. `null`/`undefined` (no weighted
+ * requirement at all, so no score exists) is the only case that falls back.
+ */
+export function scoreToPercent(
+  score: number | null | undefined,
+  fallback: number,
+): number {
+  return score == null ? fallback : Math.round(score * 100);
+}
+
 /** Format a [0, 1] score as a percentage string e.g. "72%". */
 export function formatScore(score: number): string {
   return `${Math.round(score * 100)}%`;

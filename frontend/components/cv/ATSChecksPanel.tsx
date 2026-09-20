@@ -169,6 +169,12 @@ export default function ATSChecksPanel({
   const missingClaimable = report.keywords.missing_claimable ?? [];
   const missingHonestGap = report.keywords.missing_honest_gap ?? [];
   const presentUnsupported = report.keywords.present_unsupported ?? [];
+  // F-8 (founder UAT 2026-09-20): a present keyword whose Keyword Ledger row the
+  // candidate DENIED. `present` and the coverage count above are deliberately
+  // unchanged — the keyword IS literally on the page — but it must not read as
+  // coverage with nothing next to it. `?? []` keeps a legacy report (field never
+  // measured) rendering exactly as before.
+  const presentDenied = report.keywords.present_denied ?? [];
 
   // #234 (Tiramisu founder-acceptance F1): a document with zero failing ATSChecks
   // can still be missing keywords the vault genuinely supports — the #234 bullet-
@@ -331,6 +337,17 @@ export default function ATSChecksPanel({
                 {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
                 {" "}
                 <span>{presentUnsupported.join(", ")}</span>
+              </p>
+            )}
+            {presentDenied.length > 0 && (
+              <p
+                data-testid="ats-keywords-present-denied"
+                className="text-xs font-medium text-critical"
+              >
+                {t("presentDenied", { count: presentDenied.length })}
+                {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- space between label and keyword list */}
+                {" "}
+                <span>{presentDenied.join(", ")}</span>
               </p>
             )}
             {/* Back-compat sentinel: a legacy report (no buckets) still renders a flat line */}

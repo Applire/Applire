@@ -586,11 +586,19 @@ def render_required_limits_block(limits: list[str]) -> str:
     lines = [
         "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
         "Each statement below is the candidate's own wording about a concept THIS "
-        "posting asks for and they have denied. Every one of them needs an explicit "
-        "positioning decision in the body — name the gap in their own terms, then the "
-        "adjacent strength that transfers — all folded into the SAME single honest-gap "
-        "paragraph, never a litany and never an apology. Silence on one of these is "
-        "not one of the options.",
+        "posting asks for and they have denied. Every one of them needs ONE positioning "
+        "decision in the body, taken on the RANKED ladder (ADR-075 amended 2026-09-20): "
+        "a scoped claim at the highest rung that is true, else a transfer argument, and "
+        "a NAMED GAP only where neither exists. A scoped claim or a transfer argument "
+        "DISCHARGES the limit — it needs no negation beside it, and adding one anyway is "
+        "the defect, not the discipline.",
+        "Where the gap IS named, it comes first and the strength that transfers second, "
+        "in ONE sentence, the way the statement below already says it (#732). Never split "
+        "it into a negative sentence plus a separate list of adjacent strengths, and never "
+        "let a standalone negative sentence follow directly on a sentence stating a "
+        "strength — that pair is what a reader quotes back as the reason to decline. All "
+        "of it inside the SAME single honest-gap paragraph, never a litany, never an "
+        "apology.",
         "Never state a limit that is NOT listed here: an invented limit is as untrue "
         "as an inflated claim and throws away the candidate's own best evidence.",
     ]
@@ -624,6 +632,181 @@ def render_stated_limits_block(limits: list[str]) -> str:
     ]
     lines.extend(f"  - {text}" for text in limits)
     return "\n".join(lines)
+
+
+# ── #731: the stated-limit adjudication fact ─────────────────────────────────
+
+
+def claimed_concepts_in_draft(
+    draft: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """CLAIMABLE ledger concepts whose surface form THIS draft actually carries.
+
+    The missing half of the stated-limit question, and a FACT in the ADR-062
+    clause 1 sense: literal presence of a surface form in a text, computed with
+    THE shared presence predicate (``ats_audit.surface_present`` over the
+    serialised draft, ADR-066) — the same instrument
+    :func:`keyword_ledger.forbidden_terms_in_draft` and
+    :func:`keyword_ledger.verified_missing_claimable` use, one definition, not a
+    second matcher that could quietly disagree about presence.
+
+    **Why it exists (#731, measured 2026-09-20).** A denial of "vector databases"
+    and "embedding and reranking" cannot floor a ledger row labelled "RAG
+    methods": the labels share no token, so neither half of the denial machinery
+    reaches it (``declared_denial_matches`` returns ``[]``, ``is_denied_concept``
+    returns False — ``Runs/Nougat/founder-uat-fixes/c/probe_lemma.py``). And it
+    must not: "is RAG methods the same capability as a retrieval pipeline" is a
+    JUDGEMENT, which the deterministic layer may not make, and the matcher that
+    tried to pair limits with concepts answered it BACKWARDS on real data and was
+    deleted (see :func:`collect_stated_limits`). So the row stays claimable, the
+    forbidden list does not contain it, and the DO-NOT-CLAIM PRESENCE block
+    correctly says nothing about it.
+
+    The consequence was a letter delivering "I manage an AI automation use case
+    using Databricks, large language models and RAG methods" against a candidate
+    who had said the retrieval work was a colleague's. Measured on the real
+    provider with the reviewer isolated on that draft, n=5: the reviewer demanded
+    the vector-database limit be ADDED 5 of 5 times and demanded the RAG claim be
+    removed **0 of 5**, and it still demanded it 0 of 5 after a check-1 bullet
+    naming the case verbatim was added. A prohibition — or an instruction — is not
+    a substitute for supplying the presence answer the judgement presupposes;
+    that is ``forbidden_terms_in_draft``'s own lesson (#531), and this is its
+    claimable-side twin.
+
+    Direction: a concept this returns IS surfaced in the draft. A concept it does
+    not return is one the scan did not find, which is not the same as absent — the
+    fold behind ``surface_present`` is an ENGLISH verb-form fold, so an inflection
+    can defeat it. :func:`render_stated_limit_adjudication_block` states exactly
+    that, so a missed form stays raisable at the price of quoting the draft.
+
+    Pure; ``None``/empty tolerant. Scope entries appear in neither ledger half
+    (ADR-069) and therefore never here.
+    """
+    from applire.services.ats_audit import _norm as ats_text_norm
+    from applire.services.ats_audit import surface_present
+    from applire.services.keyword_ledger import _draft_strings, split_ledger_for_prompt
+
+    claimable, _ = split_ledger_for_prompt(keyword_ledger)
+    if not claimable:
+        return []
+    text_norm = ats_text_norm("\n".join(_draft_strings(draft)))
+    out: list[str] = []
+    for entry in claimable:
+        concept = (entry.get("concept") or "").strip()
+        if not concept:
+            continue
+        forms = [concept, *(f for f in (entry.get("surface_forms") or []) if f)]
+        if any(surface_present(f, text_norm) for f in forms):
+            out.append(concept)
+    return out
+
+
+def render_stated_limit_adjudication_block(
+    claimed: list[str],
+    limits: list[str],
+) -> str:
+    """The reviewer's STATED-LIMIT ADJUDICATION block: the presence fact, then the
+    one judgement that remains (#731; the ADR-021 amended 2026-08-13 clause-4
+    shape, applied to the CLAIMABLE half of the ledger).
+
+    Returns ``""`` when the vault holds no stated limit, or when the scan finds no
+    claimable concept in the draft — a letter with nothing to adjudicate adds
+    nothing, the ADR-074 discipline applied to this block too.
+    """
+    if not limits or not claimed:
+        return ""
+    from applire.services.untrusted_text import items_note
+
+    lines = [
+        "STATED-LIMIT ADJUDICATION (deterministic literal scan of THIS draft — the "
+        "presence half is ground truth, do not re-derive it). The scan finds these "
+        "CLAIMABLE Keyword-Ledger concepts surfaced in the draft:",
+        items_note("concepts"),
+    ]
+    lines += [f"  - {concept}" for concept in claimed]
+    lines += [
+        "",
+        "And these are the candidate's own stated limits, verbatim:",
+    ]
+    lines += [f"  {i}. {text}" for i, text in enumerate(limits, 1)]
+    lines += [
+        "",
+        "Presence is settled. The judgement that remains is yours and it is NOT "
+        "optional: for EACH concept listed above, does any statement above deny the "
+        "candidate that CAPABILITY — the work itself, not merely that word? The "
+        "SUBJECT TEST does not excuse you here: a sentence naming one of these "
+        "concepts as part of a system, platform, project or use case the CANDIDATE "
+        "owns, manages or runs is a sentence about the CANDIDATE, because a reader "
+        "credits the owner with the technology they name. The employer branch of the "
+        "SUBJECT TEST is the TARGET employer's own product, read from the job "
+        "description — never the candidate's own project. \"The use case I manage uses "
+        "X\" claims X for the candidate as surely as \"I do X\" does, and a statement "
+        "denying them X contradicts it. Such a sentence is not simply struck: it is reformed "
+        "into a SCOPED CLAIM — the scope the candidate does own, stated plainly, with the "
+        "limited part attributed to whoever did it — which under ADR-075 as amended "
+        "2026-09-20 DISCHARGES the positioning obligation for that limit, so no negation is "
+        "owed beside it. "
+        "ledger cannot answer this and its CLAIMABLE verdict is not a defence: a "
+        "ledger status is computed from vault surface forms and never from these "
+        "statements, so the very capability a statement denies is routinely marked "
+        "claimable, under a label that shares no word with the statement. Where the "
+        "answer is YES, the sentence asserting it as the candidate's own is an "
+        "UNGROUNDED CANDIDATE CLAIM (check 1) however plainly the vault's own wording "
+        "seems to back it — raise it, and QUOTE the statement. Where the answer is NO, "
+        "the concept stays fully claimable and must be claimed plainly: an invented "
+        "limit costs the candidate their own best evidence and is exactly as untrue as "
+        "an inflated claim.",
+        "The scan folds ENGLISH verb forms only, so an inflection or compound can "
+        "defeat it. A concept a statement denies that is NOT listed above may still be "
+        "raised — your issue MUST then quote the exact words of the draft that carry "
+        "it.",
+    ]
+    return "\n".join(lines)
+
+
+def stated_limit_adjudication_reviewer_prompt_fn(
+    base_fn: Any,
+    *,
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[Any] | None,
+):
+    """Wrap a ``reviewer_prompt_fn`` so every round carries which CLAIMABLE
+    concepts the CURRENT draft surfaces, beside the candidate's verbatim limits
+    (#731).
+
+    Composes with — never replaces — the coverage, unaddressed-requirement,
+    word-floor, figure-ownership and do-not-claim-presence wrappers, exactly the
+    way those compose with each other: ``review_and_refine`` calls
+    ``reviewer_prompt_fn(source, draft)`` fresh each round, so the block tracks
+    the draft the corrector just produced. No new LLM call, no new pass, no new
+    loop (ADR-058 freeze).
+
+    The limits are the SELECTED, JD-relevant set when there is one
+    (:func:`select_jd_relevant_limits`, ADR-075 clause 4's cap), falling back to
+    every limit the vault holds: the adjudication question is about the draft's
+    claims, so a denial this posting never asked about can still be the one a
+    claim contradicts.
+    """
+
+    def fn(source: str, draft: dict[str, Any]) -> str:
+        prompt = base_fn(source, draft)
+        limits = (select_jd_relevant_limits(denied_concepts, keyword_ledger)
+                  or collect_stated_limits(denied_concepts))
+        if not limits:
+            return prompt
+        claimed = claimed_concepts_in_draft(draft, keyword_ledger)
+        block = render_stated_limit_adjudication_block(claimed, limits)
+        if not block:
+            return prompt
+        logger.info(
+            "stated-limit adjudication (#731): %d claimable concept(s) surfaced in "
+            "the draft against %d stated limit(s): %s",
+            len(claimed), len(limits), claimed,
+        )
+        return f"{prompt}\n\n{block}"
+
+    return fn
 
 
 # ── reviewer wrapper ─────────────────────────────────────────────────────────

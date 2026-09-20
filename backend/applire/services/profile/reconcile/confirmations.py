@@ -150,18 +150,33 @@ def skill_containment_confirmation(
     The US291 namesake case ("SAP PP" beside "SAP"), raised twice in one German
     run of the v0.40.0-beta acceptance pass — the occurrence evidence behind the
     #620 collector line.
+
+    **The third option is #730's own vector** (founder UAT 2026-09-20, F-1/F-11,
+    ADR-063 amended 2026-09-20). This family's two options were both WRITES, so
+    "neither" was expressible only as free text — and the candidate's refusal
+    *"Please do not add it as a separate skill and do not merge it into my
+    existing Collaboration skill either"* was resolved by the back-compat
+    English substring matcher to `distinct`, because it quoted the option it was
+    rejecting. The vault gained a skill the candidate had just denied and it
+    shipped in the delivered CV.
+
+    The key is the EXISTING ``keep`` (family 2's vocabulary, already handled by
+    ``session._apply_skill_confirmation`` as "discard the incoming, the existing
+    skills stand"), never a new eleventh key: one vocabulary per decision
+    (ADR-066).
     """
     joined = _join(related, ", ")
     return _build(
         (
             f"„{incoming_skill}“ teilt ein Wort mit Fähigkeiten in deinem Profil "
             f"({joined}), könnte aber eine eigene Fähigkeit sein. Separat "
-            f"hinzufügen oder in eine vorhandene zusammenführen?"
+            f"hinzufügen, in eine vorhandene zusammenführen — oder gar nicht "
+            f"aufnehmen?"
         ),
         (
             f"'{incoming_skill}' shares a word with skills already on your "
             f"profile ({joined}) but may be a distinct skill. Add it separately, "
-            f"or merge it into an existing one?"
+            f"merge it into an existing one — or not add it at all?"
         ),
         [
             (
@@ -177,6 +192,18 @@ def skill_containment_confirmation(
                     "de": "In die vorhandene Fähigkeit zusammenführen",
                 },
                 "merge",
+            ),
+            (
+                # Ruling A-1 (Tobias, 2026-09-20) settled this wording verbatim.
+                # It deliberately does NOT interpolate the skill name: the
+                # question above already names it twice, and the option has to
+                # read as "none of the above" rather than as a third thing that
+                # might be done with the skill.
+                {
+                    "en": "Neither — don't add it",
+                    "de": "Weder noch — nicht hinzufügen",
+                },
+                "keep",
             ),
         ],
         context,
@@ -311,7 +338,168 @@ def resolve_option_key(pending_conf: dict, chosen: str) -> str | None:
         for idx, text in enumerate(rendering):
             if idx < len(keys) and text and text.strip().casefold() == answer:
                 return keys[idx]
+    # The KEY itself is an acceptable answer (#730, 2026-09-20). This clause is
+    # the most literal reading of the 2026-09-05 amendment — the identity is the
+    # key, not a rendered string — and it exists because the keys now decide
+    # outright: an agent door that relays an option's text with a trailing full
+    # stop or a pair of quotes would otherwise be re-asked forever, and the short
+    # unambiguous token is the thing we want it to send. Exact, case-folded
+    # equality against the key, so it can never collide with a rendered option
+    # (no rendering is one of `distinct`/`merge`/`keep`/`move`/`keep_here`/
+    # `discard`), and never with a sentence.
+    for key in keys:
+        if isinstance(key, str) and key.strip().casefold() == answer:
+            return key
     return None
+
+
+#: The skill-dedupe decision vocabulary (families 2 and 3). ``keep`` means
+#: "discard the incoming skill, the existing ones stand" — it is the only one of
+#: the three that writes nothing.
+SKILL_OPTION_KEYS = frozenset({"distinct", "merge", "keep"})
+
+
+#: What the candidate is told when their answer named none of the options
+#: (#730 / ADR-063 amended 2026-09-20). Rendered against the conversation
+#: language like every other deterministic string on this surface (#669).
+UNMATCHED_ANSWER_HINT: dict[str, str] = {
+    "en": (
+        "Your answer doesn't match any of the options, so nothing was changed. "
+        "Please pick one of them."
+    ),
+    "de": (
+        "Deine Antwort passt zu keiner der Optionen, deshalb wurde nichts "
+        "geändert. Bitte wähle eine davon."
+    ),
+}
+
+
+def render_unmatched_answer_hint(lang: str) -> str:
+    """The re-ask sentence in the reader's language (fallback chain ``[lang] ??
+    de ?? en``, the same one :func:`render_localized_confirmation` uses)."""
+    return (
+        UNMATCHED_ANSWER_HINT.get(lang)
+        or UNMATCHED_ANSWER_HINT.get("de")
+        or UNMATCHED_ANSWER_HINT["en"]
+    )
+
+
+def resolve_skill_decision(pending_conf: dict, chosen: str) -> str | None:
+    """THE skill-dedupe resolution: ``distinct`` / ``merge`` / ``keep``, or
+    ``None`` when the answer names no option (#730, ADR-063 amended
+    2026-09-20).
+
+    ``None`` is the whole point. Until this, the resolution ended in
+    ``session._skill_confirmation_decision``'s ``return "distinct"`` — an
+    unmatched answer WROTE the skill. The founder UAT of 2026-09-20 (F-1/F-11,
+    #730) hit it with a refusal that quoted the option it rejected: *"Please do
+    not add it as **a separate** skill and do not merge it into my existing
+    Collaboration skill either"* contains the word "separate", so branch 1 of
+    the English substring matcher fired and the vault gained a skill the
+    candidate had explicitly denied — at ``status="confirmed"``, which is what
+    the Oracle then checks every document against.
+
+    Resolution order, and why the substring matcher survives at all:
+
+    1. ``resolve_option_key`` — exact, case-folded equality against every
+       rendering the record carries. This is ADR-063's 2026-09-05 identity rule
+       and it is the ONLY path that can decide for a record built after #669.
+    2. **The record carries keys and none of them was named ⇒ ``None``.** Never
+       fall through to substring matching: the options ARE the identity, so an
+       answer that is not one of them is not an answer. Every confirmation that
+       can reach the vault write carries keys — ``context["incoming_skill"]`` is
+       emitted only by ``apply.py``'s two deterministic builders, both of which
+       go through :func:`_build` — so this branch is the real one.
+    3. No keys at all (a record parked before #669) ⇒ **the same identity rule,
+       applied without keys** (adversarial finding, Nougat UAT-fixes batch,
+       2026-09-20): the answer is matched EXACTLY (case- and whitespace-folded)
+       against every rendering the record itself carries (``options`` and each
+       language of ``options_i18n``), and only the MATCHED OPTION's own text is
+       ever handed to the back-compat English substring matcher
+       (:func:`match_skill_decision_text`). An answer equal to no option ⇒
+       ``None`` — the free-text answer itself is never substring-matched again.
+       Before this, a keyless record fed the raw answer straight to the
+       substring matcher, so a refusal that merely QUOTED the option it
+       rejected ("do not add it as a **separate** skill") still resolved to
+       ``"distinct"`` — the exact F-1 harm, on a population #669 did not key.
+
+    ADR-066: this is the one implementation. ``session`` re-exports it and its
+    own ``_skill_confirmation_decision`` delegates to it outright whenever the
+    caller can hand it the record (kept accepting bare ``option_key``/``keyed``
+    only for the tests that pin the back-compat matcher's behaviour directly,
+    with no record to match against).
+    """
+    key = resolve_option_key(pending_conf, chosen)
+    if key in SKILL_OPTION_KEYS:
+        return key
+    if pending_conf.get("option_keys"):
+        return None
+    matched_option = _match_answer_to_rendered_option(pending_conf, chosen)
+    if matched_option is None:
+        return None
+    return match_skill_decision_text(matched_option)
+
+
+def _match_answer_to_rendered_option(pending_conf: dict, chosen: str) -> str | None:
+    """Exact (case- and whitespace-folded) match of ``chosen`` against every
+    rendering a KEYLESS record carries, returning the matched option's own
+    text — never the raw answer.
+
+    Mirrors :func:`resolve_option_key`'s renderings loop (the plain ``options``
+    plus each language of ``options_i18n``): a keyless record still carries the
+    SAME identity (its own option wording) even though it carries no stable
+    keys to return instead. ``None`` means the answer named no option at all,
+    which is what lets :func:`resolve_skill_decision` refuse to fall back to
+    free-text substring matching (adversarial finding, Nougat UAT-fixes batch,
+    2026-09-20).
+    """
+    answer = (chosen or "").strip().casefold()
+    if not answer:
+        return None
+    options = list(pending_conf.get("options") or [])
+    renderings: list[list[str]] = [options]
+    i18n = pending_conf.get("options_i18n") or []
+    langs = {lang for payload in i18n if isinstance(payload, dict) for lang in payload}
+    for lang in sorted(langs):
+        renderings.append([
+            (payload.get(lang) or "") if isinstance(payload, dict) else ""
+            for payload in i18n
+        ])
+    for rendering in renderings:
+        for idx, text in enumerate(rendering):
+            if text and text.strip().casefold() == answer:
+                return options[idx] if idx < len(options) else text
+    return None
+
+
+def match_skill_decision_text(chosen: str) -> str | None:
+    """The pre-#669 English substring matcher — back-compat only, and no longer
+    a writing default.
+
+    Reachable for a confirmation persisted before #669 (which carries no
+    ``option_keys``). The three branches are byte-identical to the ones
+    ``session._skill_confirmation_decision`` has always had; only the final
+    ``return "distinct"`` is gone. It was the second half of #730: *any*
+    unmatched free-text answer minted the skill.
+
+    **The option-text classifier only** (adversarial finding, Nougat
+    UAT-fixes batch, 2026-09-20): ``resolve_skill_decision`` now calls this
+    with the record's own MATCHED option text, never the candidate's raw
+    free-text answer — a free-text refusal that merely quotes an option's
+    word (e.g. "do not add it as a **separate** skill") is no longer fed to
+    this matcher at all, because it is not, itself, one of the record's
+    options. This function's substring logic is unchanged; only what reaches
+    it changed.
+    """
+    c = (chosen or "").strip().lower()
+    if "separate" in c:
+        return "distinct"
+    if "keep" in c and "existing" in c:
+        return "keep"
+    if "merge" in c:
+        return "merge"
+    return None
+
 
 # ── internals ────────────────────────────────────────────────────────────────
 

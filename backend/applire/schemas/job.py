@@ -99,6 +99,10 @@ class JobAnalysisResponse(BaseModel):
     seniority_level: Optional[str] = None
     company_culture_signals: list[str]
     language_requirement: str
+    # Founder ruling B-2 / migration 0068 (#675 line 78): the posting's own
+    # wording of a formal education bar, or None when it states none (and on
+    # pre-migration rows). Never a list of skills — see models/job.py.
+    education_requirement: Optional[str] = None
     # E054 / ADR-038 amendment clause 5: the language the JD is WRITTEN in
     # ('de'/'en'; None for pre-migration rows) — the document-routing signal,
     # as opposed to language_requirement (what the job demands of the

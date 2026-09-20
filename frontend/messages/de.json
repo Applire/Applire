@@ -135,6 +135,7 @@
     "jdEchoSubtitle": "Prüfe kurz, ob das zur Anzeige passt, bevor du das Interview startest.",
     "jdEchoRole": "Rolle",
     "jdEchoCompany": "Unternehmen",
+    "jdEchoEducation": "Ausbildung",
     "jdEchoNoTitle": "Kein Titel erkannt — du kannst ihn im Profil ergänzen",
     "jdEchoUnknown": "Nicht angegeben",
     "jdEchoRequirements": "{count, plural, =0 {Keine Anforderungen erkannt} one {# Anforderung erkannt} other {# Anforderungen erkannt}}",
@@ -1060,6 +1061,7 @@
     "startTailoringFailed": "Das Zuschneiden konnte nicht gestartet werden. Bitte versuche es erneut.",
     "jdSummaryToggle": "Stellenbeschreibung – Zusammenfassung",
     "jdSeniority": "Level",
+    "jdEducation": "Ausbildung",
     "jdRequiredSkills": "Erforderliche Fähigkeiten",
     "jdNiceToHave": "Wünschenswert",
     "jdKeywords": "Schlüsselwörter",
@@ -1276,6 +1278,7 @@
     "unavailable": "ATS-Bericht für dieses Dokument nicht verfügbar.",
     "keywordCoverage": "Dokument-Abdeckung: {present} von {total} Stellen-Keywords enthalten",
     "presentUnsupported": "Im Dokument, aber nicht durch dein Profil belegt — entfernen oder Nachweis im Profil ergänzen ({count}):",
+    "presentDenied": "Im Dokument genannt, obwohl du angegeben hast, dass du es nicht hast — prüfe, dass es eine ehrliche Erwähnung ist und kein Anspruch ({count}):",
     "missingKeywords": "Fehlende Keywords ({count}):",
     "missingClaimable": "Durch dein Profil belegt, aber noch nicht im Dokument ({count}):",
     "missingHonestGap": "Nicht durch dein Profil belegt — eine ehrliche Lücke ({count}):",
@@ -1303,7 +1306,6 @@
       "skills-weak-vault-tie": "Skills mit nur schwachem Profilbezug",
       "terminal-review": "Abschlussprüfung des Dokuments",
       "narrative-evidence": "Belege im Werdegang statt nur als Skill",
-      "document-language": "Dokument durchgehend in einer Sprache",
       "document-language": "Dokument durchgehend in einer Sprache"
     },
     "checkDetails": {
@@ -1314,7 +1316,6 @@
       "page-length-exceeds": "{pages} Seiten — überschreitet die {region}-Norm von {standard} Seiten (max. {max})",
       "page-length-letter": "{pages} Seiten — ein {region}-Anschreiben hat {letterPages, plural, one {# Seite} other {# Seiten}}",
       "page-length-not-applicable": "Nicht anwendbar — dieses Dokument hat keine feste Seitenaufteilung, bis ein Textprogramm es umbricht",
-      "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "document-language-not-applicable": "Nicht anwendbar — für dieses Dokument wurde keine Sprache angegeben",
       "skills-weak-vault-tie": "{count, plural, one {# Skill ist} other {# Skills sind}} nur durch ein einzelnes gemeinsames Wort mit deinem Profil verknüpft — vor dem Versenden noch einmal prüfen: {skills}"
     },

@@ -16,7 +16,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from "vitest";
-import { canonicalRequirementChips, gapCounts } from "../match-utils";
+import { canonicalRequirementChips, gapCounts, scoreToPercent } from "../match-utils";
 
 const NONE = new Set<string>();
 
@@ -93,5 +93,26 @@ describe("canonicalRequirementChips", () => {
     expect(chips.required).toEqual(["raw-a"]);
     expect(chips.niceToHave).toEqual(["raw-c"]);
     expect(canonicalRequirementChips([], ["raw-a"], []).required).toEqual(["raw-a"]);
+  });
+});
+
+describe("scoreToPercent", () => {
+  // #675 / ruling B-1 (2026-09-20) — a recorded denial is no longer clamped, so
+  // an analysis in which every weighted requirement is `denied` genuinely
+  // publishes 0.0. The gaps screen's four reads were truthiness checks and
+  // displayed the previous, higher percentage instead.
+  it("renders a genuine zero as 0, never as the fallback", () => {
+    expect(scoreToPercent(0, 64)).toBe(0);
+  });
+
+  it("falls back only when no score exists at all", () => {
+    expect(scoreToPercent(null, 64)).toBe(64);
+    expect(scoreToPercent(undefined, 64)).toBe(64);
+  });
+
+  it("rounds a [0, 1] fraction to a whole percentage", () => {
+    expect(scoreToPercent(0.6292, 0)).toBe(63);
+    expect(scoreToPercent(0.6404, 0)).toBe(64);
+    expect(scoreToPercent(1, 0)).toBe(100);
   });
 });

@@ -149,6 +149,9 @@ class TestResponseSchema:
         record.seniority_level = "Senior"
         record.company_culture_signals = []
         record.language_requirement = "English"
+        # Founder ruling B-2 / migration 0068: a MagicMock attribute is not a
+        # string, so an unset new field fails validation rather than defaulting.
+        record.education_requirement = None
         record.jd_language = None
         record.company_name = None
         record.berufsbild_code = None
@@ -170,6 +173,9 @@ class TestResponseSchema:
         record.seniority_level = "Senior"
         record.company_culture_signals = []
         record.language_requirement = "English"
+        # Founder ruling B-2 / migration 0068: a MagicMock attribute is not a
+        # string, so an unset new field fails validation rather than defaulting.
+        record.education_requirement = None
         record.jd_language = None
         record.company_name = None
         record.berufsbild_code = None

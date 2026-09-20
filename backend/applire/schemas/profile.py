@@ -795,6 +795,54 @@ class ImportNotApplied(BaseModel):
     ]
 
 
+#: ADR-062 clause 1 (a FACT over the reason key, never a judgement) / ADR-066
+#: (one implementation — no caller re-derives this set) — F-7, #674, founder
+#: edge UAT 2026-09-20. `merge_status` used to test `not_applied`'s bare
+#: truthiness, which made a batch of purely-cosmetic `no_op_carried_entry`
+#: items (this class's own docstring: "the known false-positive shape, not a
+#: bug") read as `partial`, and `mcp/AGENT_GUIDE.md` then told the agent to
+#: report a false loss to the candidate.
+#:
+#: Only these five reasons are evidence that incoming content did NOT reach
+#: the vault: ``op_rejected`` (a raw op failed schema validation before it
+#: could carry anything), ``summary_populated`` (the incoming summary text
+#: was dropped rather than disputed), ``no_write`` (the candidate stated
+#: something and the turn produced no vault write at all),
+#: ``confirmation_held`` (the content is parked pending one more question —
+#: not yet written) and ``confirmation_unresolvable`` (the named entry is
+#: gone, or the slot it would fill was already taken by someone else).
+#:
+#: The other five reasons name entries that are NOT missing:
+#: ``no_op_carried_entry`` is the documented false-positive shape;
+#: ``no_write_already_known`` / ``no_write_question_only`` restated something
+#: already known or asked a question rather than stating something new;
+#: ``confirmation_discarded`` is the candidate's own choice; and
+#: ``confirmation_already_present`` means the vault already carries that
+#: exact text (`_append_dedup` suppressed the append, ADR-082).
+#:
+#: Any reader that needs "did the candidate lose something" — `merge_status`
+#: chief among them — calls :func:`is_loss_reason` rather than testing
+#: `not_applied`'s bare truthiness.
+LOSS_REASONS: frozenset[str] = frozenset(
+    {
+        "op_rejected",
+        "summary_populated",
+        "no_write",
+        "confirmation_held",
+        "confirmation_unresolvable",
+    }
+)
+
+
+def is_loss_reason(reason: str | None) -> bool:
+    """True when ``reason`` is one of :data:`LOSS_REASONS` — the FACT that
+    this :class:`ImportNotApplied` item is evidence incoming content did not
+    reach the vault. Never a judgement about severity (a held confirmation is
+    loss but recoverable; a rejected op is loss and needs a resend). ``None``
+    is NOT loss — silence about the reason is not evidence of loss."""
+    return reason in LOSS_REASONS
+
+
 class EnrichmentRecord(BaseModel):
     # Stable id so a pre-merge snapshot (US168 / ADR-042) can key to the merge
     # this record represents, and undo can detect whether it is still the head.
@@ -1325,6 +1373,15 @@ class ProfileImportResponse(MasterProfileResponse):
 
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    #: F-7 (#674, founder edge UAT 2026-09-20) — the count of `not_applied`
+    #: items that are :func:`is_loss_reason`, i.e. the same figure
+    #: `merge_status` derives `partial` from. A NEW field rather than a filter
+    #: on `not_applied`: the receipt keeps every fact it always has (a
+    #: not-loss item is still worth knowing about), and a reader that needs
+    #: "how many are actually missing" gets it without re-deriving the set
+    #: itself. Optional so a `CVUploadResponse` persisted (as a background
+    #: import job's `result`) before this field existed loads unchanged.
+    not_applied_loss_count: int | None = None
     #: #674 line 72 (#707/#708, ADR-046 / ADR-063 door parity) — the other half
     #: of the same merge's honesty. `not_applied` names entries the merge's ops
     #: did not carry; `matched` names the ones the reconciler recognised as
@@ -1396,6 +1453,11 @@ class CVUploadResponse(BaseModel):
     # a GATED response (nothing committed) honestly "applied, []".
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`. Optional
+    #: for the same reason: this class is persisted verbatim as a background
+    #: import job's `result` (`CVImportStatusResponse`), and a job stored
+    #: before this field existed must load unchanged.
+    not_applied_loss_count: int | None = None
 
 
 _IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
@@ -1461,6 +1523,8 @@ class StagedResolveResponse(BaseModel):
     # "discard" resolves nothing, so "applied, []" (the defaults) is honest.
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`.
+    not_applied_loss_count: int | None = None
 
 
 class UndoLastMergeResponse(BaseModel):

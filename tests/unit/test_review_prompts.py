@@ -2372,7 +2372,14 @@ class TestCoverLetterReviewerPromptV2:
         above the current size, so the next append meets the same question."""
         from applire.prompts.review_cover_letter import REVIEW_SYSTEM_PROMPT
         # 2026-09-11 (#668 letter half): the letter's prose door moved 12,500 -> 12,900 and its terminal door 16,100 -> 16,300 ONCE, on 2026-09-11, for #668's LETTER half: named blocking check 6 (REDUNDANCY), +377 chars net of what `repetition` gave back when it left `_MINOR_PROSE`. Measured BEFORE the ceiling moved, on the pinned run_2026_08_15 fixture (a letter naming Weberit ten times and restating the 38-employee / three-shift-leader scope in two paragraphs), n=5 per arm, real provider: redundancy raised 2/5 -> 5/5, BLOCKING 0/5 -> 5/5; the corrector then reduced the repetition 5/5 with the honest IFS/BRC gap disclosure intact 5/5.
-        assert len(REVIEW_SYSTEM_PROMPT) < 12_900, (
+        # 2026-09-20 (#732): moved ONCE for the named BLOCKING half-delivery finding in
+        # check 4 plus the check-5 scoping. Merge attempt paid first: a 1,245-char #731
+        # mirror bullet was written, measured 0/5 on the real provider and DELETED, and a
+        # 764-char writer rule was folded into the rule it duplicated. Measured before the
+        # move, luna, n=5 per arm: unfused-shape finding 0/5 -> 5/5 blocking; at delivery,
+        # gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures
+        # 3 -> 5, blind hiring manager NO -> YES. SF-WRITE, new row, id at integration.
+        assert len(REVIEW_SYSTEM_PROMPT) < 13_450, (
             f"reviewer prompt is {len(REVIEW_SYSTEM_PROMPT)} chars — it is regrowing. "
             "Map the new content to an SF-WRITE row and replace, do not append."
         )

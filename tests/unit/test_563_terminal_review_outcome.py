@@ -32,6 +32,8 @@ from applire.services.review_issues import ReviewSettle, normalize_issues  # noq
 from applire.services.reviewer import review_and_refine  # noqa: E402
 from applire.services.terminal_review_outcome import (  # noqa: E402
     TERMINAL_REVIEW_CHECK_ID,
+    CorrectionFacts,
+    TerminalReviewOutcome,
     build_terminal_review_check,
     settle_to_outcome,
 )
@@ -223,6 +225,15 @@ def _settle(path, *, approved=False, blocking=(), minor=(), rounds=1):
     )
 
 
+#: Settle paths on which the loop ships a draft whose last verdict carried BLOCKING
+#: findings. Whatever the status, none of them may ever read as a clean pass.
+_BLOCKING_PATHS = ("generator_call_failed", "cycle_detected", "exhausted", "review_malformed")
+
+
+def _details_of(outcome):
+    return build_terminal_review_check(outcome, previous=None, document="cv").details
+
+
 @pytest.mark.parametrize(
     "path,expected",
     [
@@ -232,28 +243,60 @@ def _settle(path, *, approved=False, blocking=(), minor=(), rounds=1):
         ("minor_only", "pass"),
         ("generator_call_failed", "fail"),
         ("cycle_detected", "fail"),
-        ("exhausted", "fail"),
+        # F-4: `exhausted` is the ONE blocking path on which the corrector provably ran
+        # AFTER the reported verdict, so the findings are UNVERIFIED against the
+        # delivered document rather than open against it (46 of 46 captured runs).
+        ("exhausted", "not_applicable"),
         ("review_malformed", "fail"),  # #688 — malformed JSON, treated like exhaustion
     ],
 )
 def test_every_settle_path_maps_to_one_of_the_three_adr_039_statuses(path, expected):
     outcome = settle_to_outcome(
-        _settle(path, approved=(path == "approved"), blocking=("open finding",) if expected == "fail" else ()),
+        _settle(
+            path,
+            approved=(path == "approved"),
+            blocking=("open finding",) if path in _BLOCKING_PATHS else (),
+        ),
         chain_id="cv_terminal_review",
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert check.status == expected
     assert check.id == TERMINAL_REVIEW_CHECK_ID
+    # The property every row of this table guards: a settle that shipped an
+    # unresolved-or-unverified verdict may never read as a clean pass.
+    if path in _BLOCKING_PATHS:
+        assert check.status != "pass"
 
 
 def test_a_fail_names_the_open_findings_in_details():
     outcome = settle_to_outcome(
-        _settle("exhausted", blocking=("the LucaNet project bullet omits the ownership limitation",)),
+        _settle(
+            "generator_call_failed",
+            blocking=("the LucaNet project bullet omits the ownership limitation",),
+        ),
         chain_id="cv_terminal_review",
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert check.status == "fail"
     assert "LucaNet" in (check.details or "")
+    assert "Open findings" in (check.details or "")
+
+
+def test_an_exhausted_settle_names_the_findings_as_unverified_not_open():
+    """F-4 (#672 line 123): the corrector revised the document after this verdict and
+    the revision was never re-reviewed. Naming the findings stays mandatory (the check
+    is not silenced); calling them OPEN against the delivered document is the false
+    alarm that made the founder distrust a document in which all four were fixed."""
+    outcome = settle_to_outcome(
+        _settle("exhausted", blocking=("the LucaNet project bullet omits the ownership limitation",)),
+        chain_id="cv_terminal_review",
+    )
+    check = build_terminal_review_check(outcome, previous=None, document="cv")
+    assert check.status == "not_applicable"
+    assert "LucaNet" in (check.details or "")
+    assert "UNVERIFIED" in (check.details or "")
+    assert "Open findings" not in (check.details or "")
+    assert "delivered unreviewed" not in (check.details or "")
 
 
 def test_a_malformed_settle_names_the_reason_not_a_generic_open_finding():
@@ -298,7 +341,8 @@ def test_a_re_audit_without_a_fresh_outcome_carries_the_previous_check_forward()
         document="cv",
     )
     carried = build_terminal_review_check(None, previous=first.model_dump(), document="cv")
-    assert carried.status == "fail"
+    assert carried.status == "not_applicable"
+    assert "UNVERIFIED" in (carried.details or "")
     assert carried.details == first.details
 
 
@@ -323,6 +367,70 @@ def test_the_details_are_bounded_so_a_verbose_reviewer_cannot_flood_the_report()
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert len(check.details or "") <= 1200
+
+
+def test_a_realistic_finding_count_is_all_named_not_silently_cut_by_the_bound():
+    """Adversarial finding (blind Kaile probe on the integrated tree, 2026-09-20):
+    a letter `not_applicable` ("unverified") report with several findings of
+    realistic length (~350 chars each — a reviewer's actual verdict prose, not
+    the 20x400-char flood case above) plus a compliance sentence and a #664 note
+    hit `_DETAILS_MAX_CHARS`, and the OLD whole-string `_truncate` cut off
+    mid-word, silently dropping the LAST findings from `details` entirely — the
+    fact report's own contract (do-not #1: every finding still named) was
+    violated by its own length bound. This module is shared verbatim by the CV
+    mount (`build_terminal_review_check(..., document="cv")` uses the identical
+    `_body`/`_unverified_body`), so the fix covers both without a CV-side change.
+
+    Fixed behaviour: each finding gets an equal share of the remaining budget
+    (per-finding truncation, never a whole-string cut), so every finding is
+    identifiable in `details` and the total still respects the 1200 cap.
+
+    Mutation: replace the budgeted `_join_findings_bounded(...)` call in
+    `_unverified_body` (`terminal_review_outcome.py`) with the old
+    `"; ".join(outcome.blocking_issues)` — this test goes red by name (the
+    last findings' identifying text vanishes from `details`).
+    """
+    labels = [
+        "the LucaNet rollout", "the SAP S/4HANA migration", "the ISO 45001 audit",
+        "the Kubernetes platform", "the Databricks pipeline",
+    ]
+    findings = tuple(
+        f"Finding {i}: the paragraph about {label} makes a claim the profile does "
+        "not support — the candidate's own record states a narrower scope than "
+        "the sentence implies, and the reviewer read this as a material overstatement "
+        "that a hiring reader would notice and could not verify from the document alone."
+        for i, label in enumerate(labels, start=1)
+    )
+    assert all(300 <= len(f) <= 400 for f in findings), "fixture must be realistic-length"
+
+    outcome = TerminalReviewOutcome(
+        chain_id="letter_terminal_review",
+        path="exhausted",
+        approved=False,
+        blocking_issues=findings,
+        minor_issues=(),
+        rounds=2,
+        # A #664 grounding-cut note — realistic company for a real "unverified"
+        # report, and it eats into the same 1200-char budget the findings do.
+        notes=(
+            "One sentence was REMOVED from the delivered letter before it was "
+            "rendered: it stated that you lack Kubernetes administration, and "
+            "nothing you told Applire says so.",
+        ),
+        # `measured=0` (every finding unmeasurable) still produces a real
+        # compliance sentence — the preamble a genuine unverified report carries.
+        correction=CorrectionFacts(delivered_is_reviewed=False, unmeasurable=len(findings)),
+    )
+    check = build_terminal_review_check(outcome, previous=None, document="letter")
+    details = check.details or ""
+
+    assert check.status == "not_applicable"
+    assert len(details) <= 1200
+    for i, label in enumerate(labels, start=1):
+        assert f"Finding {i}: the paragraph about {label}" in details, (
+            f"finding {i} ({label}) is not identifiable in details — silently cut by "
+            f"the length bound: {details!r}"
+        )
 
 
 def test_normalize_issues_still_produces_what_the_settle_reports():
@@ -373,7 +481,7 @@ def test_the_cv_report_always_carries_both_new_checks():
     assert "narrative-evidence" in ids
 
 
-def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_a_fail():
+def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_unverified():
     from applire.services.ats_audit import _audit_cv_text
 
     outcome = settle_to_outcome(
@@ -384,8 +492,26 @@ def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_a_fail(
         "Anna Bauer", _cv_fixture(), keywords=[], terminal_review=outcome
     )
     check = next(c for c in report.checks if c.id == "terminal-review")
-    assert check.status == "fail" and "LucaNet" in (check.details or "")
+    # F-4: the finding is named, the status is not a fail — and it is not a pass either.
+    assert check.status == "not_applicable" and "LucaNet" in (check.details or "")
     assert report.failed == sum(1 for c in report.checks if c.status == "fail")
+    assert report.not_applicable == sum(
+        1 for c in report.checks if c.status == "not_applicable"
+    )
+
+
+def test_a_corrector_call_failure_still_reaches_the_report_as_a_fail():
+    """The half of #563 that stays a fail: the corrector never ran, so the delivered
+    draft IS the draft the verdict was rendered over and the finding genuinely stands."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    outcome = settle_to_outcome(
+        _settle("generator_call_failed", blocking=("the LucaNet bullet omits the limit",)),
+        chain_id="cv_terminal_review",
+    )
+    report = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], terminal_review=outcome)
+    check = next(c for c in report.checks if c.id == "terminal-review")
+    assert check.status == "fail" and "LucaNet" in (check.details or "")
 
 
 def test_a_re_audit_carries_the_fail_forward_into_the_new_report():
@@ -401,7 +527,9 @@ def test_a_re_audit_carries_the_fail_forward_into_the_new_report():
     ).model_dump()
     second = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], previous_report=first)
     check = next(c for c in second.checks if c.id == "terminal-review")
-    assert check.status == "fail"
+    assert check.status == "not_applicable"
+    assert "UNVERIFIED" in (check.details or "")
+    assert "open finding" in (check.details or "")
 
 
 def test_the_letter_report_carries_the_check_too_and_no_narrative_twin():
@@ -476,9 +604,13 @@ def test_the_worse_outcome_of_a_delivery_survives_a_clean_later_round():
     round erase an earlier exhaustion that already shipped content."""
     bad = settle_to_outcome(_settle("exhausted", blocking=("open",)), chain_id="cv_terminal_review")
     good = settle_to_outcome(_settle("approved", approved=True), chain_id="cv_terminal_review")
-    assert good.worse_of(bad).status == "fail"
-    assert bad.worse_of(good).status == "fail"
+    # F-4: WITHOUT the measured draft-identity fact nothing is superseded — the fold is
+    # byte-identical to its pre-F-4 shape, and the earlier settle still outranks the
+    # clean one. `exhausted` itself now reports as unverified rather than as a fail.
+    assert good.worse_of(bad).status == "not_applicable"
+    assert bad.worse_of(good).status == "not_applicable"
     assert good.worse_of(bad).rounds == bad.rounds + good.rounds
+    assert "UNVERIFIED" in (_details_of(good.worse_of(bad)) or "")
 
 
 def test_the_narrative_evidence_details_are_bounded_by_rank_and_count_the_rest():

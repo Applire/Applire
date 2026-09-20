@@ -358,6 +358,11 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "analyze_jd": [
         "role_title", "company_name", "required_skills", "nice_to_have_skills",
         "keywords", "company_culture_signals", "language_requirement",
+        # Founder ruling B-2 / migration 0068: the posting's own wording of an
+        # education bar is posting text like every other entry here — a hostile
+        # advertisement can put an instruction in its "Master's degree in …"
+        # sentence exactly as easily as in a requirement.
+        "education_requirement",
         "scope_requirements[].quote", "leadership_emphasis.quote",
     ],
     "analyze_gaps": [
@@ -371,6 +376,7 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "ats_report": [
         "keywords.present", "keywords.missing", "keywords.missing_claimable",
         "keywords.missing_honest_gap", "keywords.present_unsupported",
+        "keywords.present_denied",
         "keywords.claimable_concepts", "keywords.keyword_liability_concepts",
     ],
     "session": ["current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question"],
@@ -381,7 +387,7 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "render_document": [
         "ats_report.keywords.present", "ats_report.keywords.missing",
         "ats_report.keywords.missing_claimable", "ats_report.keywords.missing_honest_gap",
-        "ats_report.keywords.present_unsupported",
+        "ats_report.keywords.present_unsupported", "ats_report.keywords.present_denied",
     ],
 }
 
@@ -847,8 +853,8 @@ async def run_interview(job_id: str) -> dict:
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when finished. "
         "Reply 'done' to end. If 'pending_confirmations' is present, reply "
-        "with one of the listed 'options' as the next message; never assume "
-        "the answer (guide)."
+        "with one of the listed 'options' VERBATIM; never paraphrase, and an "
+        "answer that is none of them changes nothing (guide)."
     )
 )
 async def send_message(session_id: str, message: str) -> dict:

@@ -152,9 +152,12 @@ async def refresh_gap_analysis(
 
     Reflects any profile enrichment from interview answers. Idempotent: if the
     profile is unchanged it returns the existing analysis (no LLM re-run, no score
-    wobble — E037 PQ #3). When inputs DID change, the headline score is clamped
-    monotonically up so added evidence never lowers it. Required for the animated
-    score update in Gap-Click mode.
+    wobble — E037 PQ #3). When inputs DID change, a lower recompute republishes
+    the previous row's WHOLE score slice (headline together with its breakdown)
+    for the evidence-added population only — a recompute carrying a new denial is
+    never clamped and the score drops with it (ruling B-1 2026-09-20, see
+    `gap.published_score_slice`). Required for the animated score update in
+    Gap-Click mode.
     """
     try:
         return await analyze_gaps(job_id, db, provider, clamp_to_previous=True)

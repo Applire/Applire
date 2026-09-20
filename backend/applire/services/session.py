@@ -442,6 +442,33 @@ async def _handle_confirmation_answer(
             session_id=str(record.id),
             option_key=resolve_option_key(confirmation_entry, chosen),
         )
+    elif context.get("incoming_skill") and resolve_skill_decision(
+        confirmation_entry, chosen
+    ) is None:
+        # #730 — the SKILL arm this route lacks (#674's open line: "a SKILL
+        # confirmation answered on the standalone profile-review route resolves
+        # nothing"). That line stays open on purpose: this fix adds only what the
+        # refusal option needs, which is the REFUSAL half, not the write half.
+        # An answer naming none of the options must not spend the park here
+        # either, or the candidate's "neither" is swallowed by the bookkeeping
+        # resolve below and the ask is gone for good. `distinct`/`merge`
+        # answered here still write nothing — unchanged, and still the collector
+        # line.
+        logger.warning(
+            "profile-review confirmation: the answer names none of the options "
+            "for incoming skill %r — re-asking, park left open (#730)",
+            context.get("incoming_skill"),
+        )
+        return await _re_ask_unmatched_confirmation(
+            record,
+            state,
+            db,
+            current_idx,
+            confirmation_entry,
+            confirmation_entry["question"],
+            options,
+            await get_conversation_language(db, job_id=state.get("job_id")),
+        )
 
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
 
@@ -454,49 +481,81 @@ async def _handle_confirmation_answer(
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
-_SKILL_OPTION_KEYS = frozenset({"distinct", "merge", "keep"})
-
-
 # ADR-066 — the ONE implementation of "which option did the candidate pick"
 # moved to `reconcile/confirmations.py` on 2026-09-18 (#723), the module that
 # WRITES the option keys, because the applier's family-4 resolution now reads
-# them too. Re-exported here: this name is part of this module's surface for
+# them too. Re-exported here: these names are part of this module's surface for
 # the interview doors and for `test_669_confirmation_option_keys.py`.
 from applire.services.profile.reconcile.confirmations import (  # noqa: E402
+    SKILL_OPTION_KEYS as _SKILL_OPTION_KEYS,
+    match_skill_decision_text as match_skill_decision_text,
+    render_unmatched_answer_hint as render_unmatched_answer_hint,
     resolve_option_key as resolve_option_key,
+    resolve_skill_decision as resolve_skill_decision,
 )
 
 
-def _skill_confirmation_decision(chosen: str, option_key: str | None = None) -> str:
-    """Map the user's answer to a skill-dedupe resolution (#187, #669).
+class ConfirmationAnswerUnmatched(Exception):
+    """The answer to a skill-dedupe confirmation named none of its options
+    (#730, ADR-063 amended 2026-09-20).
+
+    Raised BEFORE any write, by the applier rather than the door, so a door that
+    does not know about this case fails loudly instead of writing. The two doors
+    that own the ask (`_handle_interview_confirmation_answer` and the standalone
+    profile-review `_handle_confirmation_answer`) catch it and re-ask the same
+    question — the empty-answer path's precedent, one step further: an answer
+    that is not one of the options is not an answer.
+    """
+
+
+def _skill_confirmation_decision(
+    chosen: str,
+    option_key: str | None = None,
+    *,
+    keyed: bool = False,
+    pending_conf: dict | None = None,
+) -> str | None:
+    """Map the user's answer to a skill-dedupe resolution (#187, #669, #730).
 
     ``option_key`` is the stable key of the option they picked
     (``resolve_option_key``). When present it decides outright — matching stops
     depending on language at all, which is the whole point of ADR-063's
-    2026-09-05 amendment.
+    2026-09-05 amendment. ``keyed`` says the RECORD carries ``option_keys``: an
+    answer that named none of them then resolves to ``None``, never to the
+    substring matcher (ADR-063 amended 2026-09-20 — the options are the
+    identity).
 
-    **The English substring matcher below survives only as the back-compat
-    fallback** for confirmations persisted before #669 and for the ones the
-    MODEL emits (which carry no keys by construction —
-    ``engine._strip_adapter_only``). It is the defect the amendment names: a
-    German rendering of *"Keep the existing skills"* contains neither "keep" nor
-    "existing", so it fell to the ``distinct`` default and the vault GAINED a
-    skill the candidate asked it to discard. Pinned in
-    ``test_interview_confirmation_resolution.py``.
+    **The English substring matcher survives only as the back-compat fallback**
+    for confirmations persisted before #669 and for the ones the MODEL emits
+    (which carry no keys by construction — ``engine._strip_adapter_only``). It
+    is the defect the 2026-09-05 amendment names: a German rendering of *"Keep
+    the existing skills"* contains neither "keep" nor "existing", so it fell to
+    the ``distinct`` default and the vault GAINED a skill the candidate asked it
+    to discard. Pinned in ``test_interview_confirmation_resolution.py``.
 
-    An unrecognised non-empty answer still defaults to ``"distinct"`` — never
-    silently drop the user's skill.
+    **``None`` where this used to return ``"distinct"``** (#730, founder UAT
+    2026-09-20). An unrecognised answer no longer writes: the refusal *"Please
+    do not add it as a separate skill …"* matched branch 1 on the word it was
+    rejecting, and the fallback wrote the skill for every answer the three
+    branches missed. The caller re-asks; nothing reaches the vault.
+
+    ``pending_conf`` (adversarial finding, Nougat UAT-fixes batch, 2026-09-20):
+    when the caller can hand over the full record, this is a PURE delegation to
+    ``confirmations.resolve_skill_decision`` — ADR-066's one implementation,
+    computed fresh from the record instead of from the caller's already-derived
+    ``option_key``/``keyed``, so a keyless record's answer is matched against
+    its own rendered options (never substring-matched as raw free text) exactly
+    as a keyed record's is matched against its keys. The bare
+    ``option_key``/``keyed`` shape survives only for the tests that pin the
+    back-compat matcher's behaviour directly, with no record to match against.
     """
+    if pending_conf is not None:
+        return resolve_skill_decision(pending_conf, chosen)
     if option_key in _SKILL_OPTION_KEYS:
         return option_key
-    c = (chosen or "").strip().lower()
-    if "separate" in c:
-        return "distinct"
-    if "keep" in c and "existing" in c:
-        return "keep"
-    if "merge" in c:
-        return "merge"
-    return "distinct"
+    if keyed:
+        return None
+    return match_skill_decision_text(chosen)
 
 
 #: The three engagement families whose near-dupe confirmation the candidate can
@@ -624,6 +683,8 @@ async def _apply_interview_confirmation(
     *,
     session_id: str,
     option_key: str | None = None,
+    keyed: bool = False,
+    pending_conf: dict | None = None,
 ) -> bool:
     """Apply a resolved interview-turn skill confirmation to the profile (#187).
 
@@ -631,6 +692,19 @@ async def _apply_interview_confirmation(
     apply deterministically (a non-skill confirmation, or "keep the existing
     skills"). The caller advances the interview either way, which is what closes
     the loop.
+
+    Raises :class:`ConfirmationAnswerUnmatched` — before any write — when the
+    answer names none of the confirmation's options (#730, ADR-063 amended
+    2026-09-20). ``keyed`` is whether the record carries ``option_keys`` and is
+    what distinguishes "this answer is not one of the options" from "this record
+    predates #669 and only the substring matcher can read it".
+
+    ``pending_conf`` (adversarial finding, Nougat UAT-fixes batch, 2026-09-20):
+    the full parked record, handed through so a KEYLESS record's decision is
+    resolved against its own rendered options (ADR-063's identity rule, applied
+    without keys) instead of substring-matching the candidate's raw free-text
+    answer — the gap that let a refusal quoting a rejected option's own word
+    ("do not add it as a **separate** skill") still write the skill.
 
     ADR-063 (#480 PR 7) — **the family-list correction.** The design listed this
     function among the metadata writers; code contact says otherwise. Its
@@ -678,9 +752,35 @@ async def _apply_interview_confirmation(
         # applier's WARNING is what makes it diagnosable.
         return False
 
-    decision = _skill_confirmation_decision(chosen, option_key)
+    decision = _skill_confirmation_decision(
+        chosen, option_key, keyed=keyed, pending_conf=pending_conf
+    )
+    if decision is None:
+        # #730 — the answer named no option. Refuse the write and let the door
+        # re-ask. This is the guard the founder UAT of 2026-09-20 needed: the
+        # refusal *"Please do not add it as a separate skill and do not merge it
+        # into my existing Collaboration skill either"* used to resolve to
+        # `distinct` (it quotes the option it rejects), and the denied skill
+        # reached the vault at `confirmed` and then the delivered CV.
+        logger.warning(
+            "interview confirmation: the answer names none of the options for "
+            "incoming skill %r — refusing the write and re-asking (#730). "
+            "option_key=%r keyed=%s",
+            incoming,
+            option_key,
+            keyed,
+        )
+        raise ConfirmationAnswerUnmatched(incoming)
     if decision == "keep":
-        return False  # discard the incoming — the existing skills stand unchanged
+        # "Neither / keep the existing skills" — discard the incoming; the
+        # existing skills stand unchanged. Family 3 carries this option since
+        # #730 (`skill_containment_confirmation`), family 2 always has.
+        logger.info(
+            "interview confirmation: candidate declined incoming skill %r "
+            "(option key 'keep') — nothing written",
+            incoming,
+        )
+        return False
 
     from applire.services.profile.commit import CommitProvenance, commit_ops
     from applire.services.profile.reconcile.apply import UserConfirmedSkill
@@ -840,6 +940,61 @@ def _confirmation_prompt_from_state(pending_conf: dict, lang: str) -> Confirmati
     )
 
 
+async def _re_ask_unmatched_confirmation(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    current_idx: int,
+    entry: dict,
+    question: str,
+    options: list[str],
+    lang: str,
+) -> SessionMessageResponse:
+    """Re-ask a confirmation whose answer named none of its options (#730,
+    ADR-063 amended 2026-09-20). Shared by BOTH resolution doors.
+
+    Nothing is written, nothing is resolved, ``questions_asked`` does not move —
+    the ask is not spent, because it was not answered. The empty-answer paths in
+    both doors are the precedent (``session.py`` "An empty answer re-asks the
+    same question + options (never guess)"); the only thing that is new is that
+    an answer which is not one of the options counts as "never guess" too.
+
+    The response carries ``pending_confirmations`` so the AGENT door sees the
+    option TEXTS and their stable ``option_keys`` again on the re-ask — the first
+    ask already carries them (``_ask_confirmation`` /
+    ``_ask_queued_confirmation``) and a re-ask that dropped them would leave an
+    agent with rendered strings only, which is the shape #730's answer came out
+    of (ADR-063 door parity).
+    """
+    hint = render_unmatched_answer_hint(lang)
+    prompt = f"{hint}\n\n{question}"
+    state["current_question"] = prompt
+    state["current_choices"] = list(options)
+    state["messages"].append({"role": "assistant", "content": prompt})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=prompt,
+        gaps_remaining=gaps_remaining,
+        choices=list(options),
+        pending_confirmations=[
+            ConfirmationPrompt(
+                question=question,
+                options=list(options),
+                context=dict(entry.get("context") or {}),
+                option_keys=list(entry.get("option_keys") or []),
+            )
+        ],
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+    )
+
+
 async def _handle_interview_confirmation_answer(
     record: InterviewSession,
     state: InterviewState,
@@ -878,10 +1033,21 @@ async def _handle_interview_confirmation_answer(
         )
 
     profile_record = await _load_profile(state["profile_id"], db)
-    await _apply_interview_confirmation(
-        db, profile_record, context, chosen, session_id=str(record.id),
-        option_key=resolve_option_key(pending_conf, chosen),
-    )
+    try:
+        await _apply_interview_confirmation(
+            db, profile_record, context, chosen, session_id=str(record.id),
+            option_key=resolve_option_key(pending_conf, chosen),
+            keyed=bool(pending_conf.get("option_keys")),
+            pending_conf=pending_conf,
+        )
+    except ConfirmationAnswerUnmatched:
+        # #730 — nothing was written and the ask is NOT spent: the park stays
+        # open, `questions_asked` does not advance (a re-ask is not a new
+        # question, exactly as on the empty-answer path above) and the same
+        # question comes back with its options.
+        return await _re_ask_unmatched_confirmation(
+            record, state, db, current_idx, pending_conf, question, options, lang
+        )
 
     # #480 PR 5 — the turn's ask is parked DURABLY on
     # `metadata.pending_confirmations` now, so answering it in session state is
@@ -2967,8 +3133,11 @@ async def _complete_session(
     # but never touched the gap-analysis FK). Runs for every completion reason
     # (gaps_resolved, user_ended, max_questions_reached — the targeted
     # micro-session resolve_gap rides) so every way an interview ends refreshes
-    # the score. clamp_to_previous=True: added evidence is monotonic-up, so
-    # completing an interview can never LOWER the displayed score. Idempotent
+    # the score. clamp_to_previous=True: the WHOLE score slice (headline +
+    # requirement_breakdown + category_*/gaps) is clamped, and only for the
+    # evidence-added population — a recompute carrying a new denial is never
+    # clamped and the displayed score drops with it (ruling B-1 2026-09-20,
+    # gap.published_score_slice). Idempotent
     # per (job, profile-fingerprint) — if the profile didn't change this turn,
     # analyze_gaps cheaply reuses the existing row instead of re-running the LLM.
     # Best-effort: the interview is already committed complete above; a failure

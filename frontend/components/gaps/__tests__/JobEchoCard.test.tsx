@@ -58,4 +58,43 @@ describe("JobEchoCard", () => {
     expect(screen.getByTestId("job-echo-role")).not.toHaveTextContent("Acme");
     expect(screen.getByTestId("job-echo-role").textContent?.trim().length).toBeGreaterThan(0);
   });
+
+  it("renders the education requirement when the posting states one (#675)", () => {
+    render(
+      withIntl(
+        <JobEchoCard
+          companyName="Acme"
+          roleTitle="Data Scientist"
+          educationRequirement="Master's degree in computer science, data science, engineering"
+          requiredSkills={["Python"]}
+          niceToHaveSkills={[]}
+        />
+      )
+    );
+    expect(screen.getByTestId("job-echo-education")).toHaveTextContent(
+      "Master's degree in computer science, data science, engineering"
+    );
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["whitespace-only", "   "],
+  ])(
+    "renders no education field when educationRequirement is %s (#675)",
+    (_label, value) => {
+      render(
+        withIntl(
+          <JobEchoCard
+            companyName="Acme"
+            roleTitle="Data Scientist"
+            educationRequirement={value}
+            requiredSkills={["Python"]}
+            niceToHaveSkills={[]}
+          />
+        )
+      );
+      expect(screen.queryByTestId("job-echo-education")).toBeNull();
+    }
+  );
 });

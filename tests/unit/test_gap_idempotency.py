@@ -28,6 +28,7 @@ latest row instead of re-running the LLM when inputs are unchanged, and the
 never lowers it).
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -248,3 +249,153 @@ async def test_refresh_clamps_score_monotonically_up(db, seeded):
     assert r2.id != r1.id, "refresh with changed inputs creates a new row"
     assert r2.match_score is not None
     assert r2.match_score >= 0.99, "added evidence must never lower the headline score"
+
+
+# ===========================================================================
+# #675 line 77 / UAT F-3 — the clamp's denial arm (ruling B-1, 2026-09-20)
+# ===========================================================================
+#
+# The arm above (`test_refresh_clamps_score_monotonically_up`) exercises ADDED
+# EVIDENCE and asserts the headline alone. It is the population the E037 PQ #3
+# clamp was earned against and it stays green. What it never exercised is the
+# population the product exists for: a recorded DENIAL. On the founder UAT of
+# 2026-09-20 four requirements flipped to `denied` and the clamp republished the
+# pre-interview headline (0.6404) above a freshly written table whose own
+# arithmetic said 0.6292 — the headline contradicted its own explanation, and an
+# honest denial could never lower the displayed score.
+
+
+def _headline_from_breakdown(breakdown) -> float | None:
+    """The headline the breakdown itself implies.
+
+    `compute_match_score_from_ledger`'s formula, read off the persisted table:
+    sum(earned) / sum(slot). Never a magic number — if the breakdown changes,
+    the expected headline changes with it.
+    """
+    slots = 0.0
+    earned = 0.0
+    for item in breakdown or []:
+        if isinstance(item, dict):
+            slots += float(item.get("slot") or 0.0)
+            earned += float(item.get("earned") or 0.0)
+        else:
+            slots += float(item.slot or 0.0)
+            earned += float(item.earned or 0.0)
+    if slots == 0.0:
+        return None
+    return earned / slots
+
+
+def _statuses(response) -> dict[str, str]:
+    return {b.requirement: b.status for b in (response.requirement_breakdown or [])}
+
+
+async def _two_vault_backed_required_skills(db, job, profile) -> None:
+    """Both JD requirements are held AND backed by the vault.
+
+    Vault backing matters: #318's `assert_claimable_backed` heals a claimable
+    ledger row with no vault evidence down to `gap`, so a requirement that is
+    only in the mock's classification list scores 0 and could never demonstrate
+    a denial-driven DROP.
+    """
+    new_json = _profile_json()
+    new_json["skills"] = [
+        {"name": "Python", "category": "technical", "proficiency": "expert"},
+        {"name": "Docker", "category": "technical", "proficiency": "advanced"},
+    ]
+    set_profile_json(profile, new_json)
+    job.required_skills = ["Python", "Docker"]
+    job.keywords = ["Python"]
+    await db.commit()
+    return new_json
+
+
+@pytest.mark.asyncio
+async def test_refresh_after_a_denial_lowers_the_score_and_matches_its_breakdown(
+    db, seeded
+):
+    """A denial recorded between two analyses must LOWER the published headline.
+
+    And in both arms the headline must equal its own table's arithmetic — the
+    assertion the pre-B-1 code had nowhere.
+    """
+    job, profile, flow = seeded
+    spy = _SpyProvider()
+
+    base_json = await _two_vault_backed_required_skills(db, job, profile)
+
+    r1 = await analyze_gaps(job.id, db, spy)
+    assert _statuses(r1) == {"Python": "direct", "Docker": "direct"}
+    assert r1.match_score == pytest.approx(1.0)
+    assert r1.match_score == pytest.approx(_headline_from_breakdown(r1.requirement_breakdown))
+
+    # The interview persists the candidate's denial exactly here: a
+    # `denied_concepts` entry on the profile metadata, which is the deterministic
+    # floor build_keyword_ledger applies (#231 / ADR-064).
+    denied_json = json.loads(json.dumps(base_json))
+    denied_json.setdefault("metadata", {})["denied_concepts"] = [
+        {
+            "concept": "Docker",
+            "denial_level": "direct",
+            "statement": "I have never run Docker myself.",
+        }
+    ]
+    set_profile_json(profile, denied_json)
+    await db.commit()
+
+    r2 = await analyze_gaps(job.id, db, spy, clamp_to_previous=True)
+
+    assert r2.id != r1.id, "a recorded denial changes the fingerprint → new row"
+    assert _statuses(r2) == {"Python": "direct", "Docker": "denied"}, (
+        "the denial must reach the published table"
+    )
+    # THE defect: pre-B-1 this was 1.0 — the pre-denial headline above a table
+    # that says 1.0/2.0.
+    assert r2.match_score == pytest.approx(0.5), (
+        "an honest denial must lower the displayed score (ruling B-1)"
+    )
+    assert r2.match_score < r1.match_score
+    assert r2.match_score == pytest.approx(
+        _headline_from_breakdown(r2.requirement_breakdown)
+    ), "the headline must equal the arithmetic of its own requirement_breakdown"
+    # The rest of the slice is this run's own too — no half-clamped row.
+    assert "Docker" not in (r2.critical_gaps or []), (
+        "a denied requirement enters no gap list (#383)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_clamped_wobble_republishes_the_previous_whole_scored_slice(db, seeded):
+    """The surviving clamp moves the WHOLE row, never the headline alone.
+
+    Population: a lower recompute with no denial and no `direct`/`partial` →
+    `gap`/`denied` regression — here a widened JD denominator, the shape E037
+    PQ #3's score wobble takes. The published headline and the published table
+    both come from the previous row, so they still agree with each other.
+    """
+    job, profile, flow = seeded
+    spy = _SpyProvider()
+
+    await _two_vault_backed_required_skills(db, job, profile)
+    r1 = await analyze_gaps(job.id, db, spy)
+    assert r1.match_score == pytest.approx(1.0)
+
+    # A third requirement the candidate has no signal for: the denominator grows,
+    # nothing the candidate held was lost, nothing was denied.
+    job.required_skills = ["Python", "Docker", "GraphQL"]
+    await db.commit()
+
+    r2 = await analyze_gaps(job.id, db, spy, clamp_to_previous=True)
+
+    assert r2.id != r1.id
+    assert r2.match_score == pytest.approx(r1.match_score), "clamped headline"
+    # …and the table it is explained by travelled with it.
+    assert [
+        (b.requirement, b.status) for b in r2.requirement_breakdown
+    ] == [(b.requirement, b.status) for b in r1.requirement_breakdown]
+    assert list(r2.critical_gaps or []) == list(r1.critical_gaps or [])
+    assert list(r2.category_a or []) == list(r1.category_a or [])
+    assert list(r2.category_c or []) == list(r1.category_c or [])
+    assert r2.match_score == pytest.approx(
+        _headline_from_breakdown(r2.requirement_breakdown)
+    ), "a clamped row's headline still equals its own table"

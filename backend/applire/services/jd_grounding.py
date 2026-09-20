@@ -94,6 +94,10 @@ JD_SCHEMA_KEYS: frozenset[str] = frozenset(
         "seniority_level",
         "company_culture_signals",
         "language_requirement",
+        # Founder ruling B-2 / migration 0068 (#675 line 78) — the posting's own
+        # education bar. In the reviewer's view because the reviewer grounds its
+        # wording verbatim, exactly as it grounds leadership_emphasis.quote.
+        "education_requirement",
         "berufsbild_code",
         "berufsbild_label",
         "scope_requirements",

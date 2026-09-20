@@ -820,6 +820,11 @@ def build_stated_limits_entry(
             "explicit positioning decision in the body: name the gap in the "
             "candidate's own terms, then the adjacent strength that transfers — all "
             "folded into ONE honest paragraph, never a litany, never an apology. "
+            "The gap and that strength belong in ONE sentence, the way the "
+            "candidate's own statement says it (#732): a standalone negative "
+            "sentence, with the strength relegated to a later sentence or a generic "
+            "list, is this content HALF-delivered, and worst of all directly after a "
+            "sentence stating a strength. "
             "Silence on a limit listed here is not one of the options. The inverse "
             "is equally binding: never state a limit that is NOT listed here. "
             "Everything the Keyword Ledger marks claimable stays fully claimable, "
@@ -1705,6 +1710,7 @@ async def _render_cover_letter_background(
                 # approve any draft). The cross-document rule is now stated once in the
                 # reviewer prompt, which already holds both documents and the ledger.
                 from applire.services.cross_document import (
+                    stated_limit_adjudication_reviewer_prompt_fn,
                     unaddressed_requirements_reviewer_prompt_fn,
                 )
                 # ADR-076 clause 6 (#543): rank-gate the demand under the SAME
@@ -1787,7 +1793,29 @@ async def _render_cover_letter_background(
                     # substitute for supplying the answer. Positive direction only —
                     # the fold is English-only, so a term the scan misses stays
                     # raisable, at the price of a quote.
-                    return forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
+                    fn = forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
+                    # #731 (2026-09-20 founder UAT): a SIXTH deterministic wrapper —
+                    # the CLAIMABLE-side twin of the wrapper above. A denial of
+                    # "vector databases" cannot floor a ledger row labelled "RAG
+                    # methods" (no shared token), and must not: pairing a limit with
+                    # a concept is a JUDGEMENT, and the matcher that tried it answered
+                    # backwards on real data and was deleted (collect_stated_limits).
+                    # So the row stays claimable, nothing deterministic names it, and
+                    # the delivered letter claimed retrieval work the candidate had
+                    # attributed to a colleague. Measured with the reviewer isolated
+                    # on that draft, luna, n=5: the claim was demanded removed 0/5 —
+                    # and still 0/5 after a check-1 bullet naming the case verbatim,
+                    # because the DO-NOT-CLAIM PRESENCE block's "presence is not yours
+                    # to determine" reads as settling the whole question. This block
+                    # supplies the presence half so the judgement half can be asked at
+                    # all — #531's own lesson, applied to the claimable side. Same
+                    # composition as the five above: no new LLM call, no new pass, no
+                    # new loop.
+                    return stated_limit_adjudication_reviewer_prompt_fn(
+                        fn,
+                        keyword_ledger=keyword_ledger,
+                        denied_concepts=denied_concepts,
+                    )
 
                 reviewer_prompt_fn = _wrap_reviewer(build_review_prompt)
                 # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,
@@ -2560,7 +2588,13 @@ async def _terminal_review_letter(
         would empty the body keeps the letter and still reports."""
         delivered = cl.letter_data
         cut, findings = cut_ungrounded_limits(delivered, keyword_ledger, denied_concepts)
-        outcome = outcome_cell["outcome"]
+        # Adversarial finding, 2026-09-20: fold NOW, against whichever draft is
+        # ACTUALLY about to ship — this settle-time cut's own output when it
+        # fires, `delivered` otherwise — never against a round's own settled
+        # draft, which the final-length-floor recondense (or this very cut) may
+        # have already superseded.
+        final_identity_draft = cut if (findings and cut is not delivered) else delivered
+        outcome = _fold_terminal_outcome(final_identity_draft)
         limit_cuts: tuple = ()
         if findings:
             limit_cuts = tuple(dict.fromkeys(f.sentence for f in findings))
@@ -2632,7 +2666,17 @@ async def _terminal_review_letter(
 
     _wrapped = wrap_reviewer(_terminal_base)
 
+    # F-4 (#672 line 123, NOTE D-1): the draft the LAST verdict of the current
+    # `review_and_refine` invocation was rendered over — the same cell `cv.py`'s
+    # terminal mount keeps, so `settle_to_outcome` reports the MEASURED identity
+    # fact ("these findings are open against the delivered document" vs "the
+    # corrector revised it after this verdict and nobody re-read it") instead of
+    # the settle-path inference. Both `review_and_refine` call sites below (the
+    # terminal loop and the length-floor round) hand this function the draft.
+    reviewed_cell: dict[str, dict | None] = {"draft": None}
+
     def _reviewer_prompt(source: str, d: dict) -> str:
+        reviewed_cell["draft"] = d
         return _wrapped(source, _subject_of(d))
 
     # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
@@ -2660,14 +2704,40 @@ async def _terminal_review_letter(
     # settled; `worse_of` folds them into ONE outcome for the delivery, so the ADR-039
     # `terminal-review` check cannot be talked out of an earlier exhaustion by a clean
     # later round. Never raises into the loop (the hook is wrapped there).
-    from applire.services.terminal_review_outcome import settle_to_outcome
-
-    outcome_cell: dict = {"outcome": None}
+    #
+    # Adversarial finding (Nougat UAT-fixes batch, 2026-09-20): this used to fold
+    # EAGERLY, one `settle_to_outcome(...).worse_of(...)` call per settle, the
+    # instant it happened. That freezes `delivered_is_reviewed` at settle time —
+    # but the final-length-floor's bare recondense (below, ADR-076 clause 3-L2)
+    # can still reassign `cl.letter_data` to a rewrite NO round ever reviewed
+    # AFTER the last settle already reported "clean". `outcome_cell["raw"]`
+    # retains every settle instead; `_finish` (this function's one exit, reached
+    # only once the recondense — if any — has already run) folds them against
+    # the ACTUALLY delivered draft, so a recondense correctly demotes a stale
+    # `pass`/`delivered_is_reviewed=True` fact rather than shipping it unchecked.
+    outcome_cell: dict = {"raw": []}
 
     def _record_settle(settle) -> None:
-        outcome_cell["outcome"] = settle_to_outcome(
-            settle, chain_id="letter_terminal_review"
-        ).worse_of(outcome_cell["outcome"])
+        outcome_cell["raw"].append((settle, reviewed_cell["draft"]))
+
+    def _fold_terminal_outcome(delivered_draft: dict) -> "TerminalReviewOutcome | None":
+        from applire.services.terminal_review_outcome import settle_to_outcome
+
+        outcome = None
+        for settle, reviewed_draft in outcome_cell["raw"]:
+            this = settle_to_outcome(
+                settle,
+                chain_id="letter_terminal_review",
+                # F-4: the measured fact (see `reviewed_cell` above); `None` when no
+                # reviewer prompt was ever built, and the report is then unchanged.
+                reviewed_draft=reviewed_draft,
+                # Adversarial finding, 2026-09-20: the identity check runs against
+                # what ACTUALLY shipped, not this round's own settled draft — see
+                # `measure_correction`'s `delivered_draft` docstring.
+                delivered_draft=delivered_draft,
+            )
+            outcome = this.worse_of(outcome)
+        return outcome
 
     current = draft
     rounds = 0

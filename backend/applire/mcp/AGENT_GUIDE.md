@@ -383,6 +383,21 @@ apply it.
   existing profile entry (e.g. two role titles for one job) and is asking you
   to confirm — reply by sending one of the listed `options` as the next
   message; never assume the answer.
+  **Relay one option VERBATIM. Never paraphrase it, and never answer in your
+  own words.** The options are the answer's identity, not labels:
+  `option_keys[i]` is the stable meaning of `options[i]` (`distinct` = add it
+  as its own skill, `merge` = fold it into the existing one, `keep` = don't add
+  it at all). A message that is not one of the options **changes nothing** and
+  the same question comes back with a note saying so — so if your user declines
+  the whole ask, relay the option whose key is `keep` ("Neither — don't add
+  'X'"). Every skill question offers one. Writing the refusal in your own words
+  is how a denied skill once ended up in the vault as confirmed (Bug #730): a
+  sentence like *"do not add it as a separate skill"* names the option it is
+  rejecting, and only the verbatim option text is unambiguous.
+  If your user wants the concept recorded as something they do NOT have, answer
+  the confirmation with the `keep` option first, then say it as a normal
+  interview answer ("I have not led formal Scrum or SAFe delivery") — that is
+  what records a denial; a confirmation answer never does.
 - **Repost hint**: `analyze_jd` may return `duplicate_of` — offer to open the
   existing application (`get_application`, `list_applications`) instead of
   creating a duplicate.
@@ -390,14 +405,23 @@ apply it.
   to merge several CVs. It returns a summary, never the raw profile. **Read its
   three merge fields — a `partial` import that you report as "done" is the
   candidate silently losing a section of their CV:**
-  - `merge_status` is `applied` (everything landed), `partial` (some operations
-    landed, some did not) or `rejected` (nothing landed). On `partial` or
-    `rejected`, say so to your user and name what is missing — never claim the
-    import succeeded.
-  - `not_applied` lists the operations the vault refused, each with its reason.
-    Most are honest refusals (a claim the vault could not ground, a conflicting
-    scalar), not transport errors — re-sending the same payload will refuse
-    again. Fix the input, or surface the refusal.
+  - `merge_status` is `applied` (everything landed, or the only unlanded items
+    are bookkeeping — see below) or `partial` (at least one incoming item is
+    genuinely missing). On `partial`, say so to your user and name what is
+    missing — never claim the import succeeded.
+  - `not_applied` lists every incoming entry the merge's ops did not carry,
+    each with its reason — but **not every reason is a loss**, so read the
+    reason before you speak. `no_op_carried_entry`, `no_write_already_known`,
+    `no_write_question_only`, `confirmation_discarded` and
+    `confirmation_already_present` are bookkeeping, not refusals: the vault
+    already had it, nothing new was said, or the candidate chose that outcome
+    themselves — never report one of these to your user as something missing.
+    `op_rejected`, `summary_populated`, `no_write`, `confirmation_held` and
+    `confirmation_unresolvable` are the honest refusals that actually drive
+    `merge_status: partial` (a claim the vault could not ground, a conflicting
+    scalar, a still-open question) — name only these to your user. None are
+    transport errors; re-sending the same payload will refuse again. Fix the
+    input, or surface the refusal.
   - `merge_conflicts` lists disputes the vault recorded rather than resolved —
     two spellings of one employer, two dates for one role. They are questions
     for the candidate, and they stay open until answered; resolve them through

@@ -37,7 +37,12 @@ import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/Liability
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
-import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
+import {
+  canonicalRequirementChips,
+  gapCounts,
+  scoreToPercent,
+  type LedgerChipEntry,
+} from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -487,6 +492,7 @@ export default function GapsPage({
   const [jobEcho, setJobEcho] = useState<{
     role_title: string;
     company_name: string | null;
+    education_requirement: string | null;
     required_skills: string[];
     nice_to_have_skills: string[];
     jd_language: "de" | "en" | null;
@@ -567,6 +573,7 @@ export default function GapsPage({
               setJobEcho({
                 role_title: j.role_title ?? "",
                 company_name: j.company_name ?? null,
+                education_requirement: j.education_requirement ?? null,
                 required_skills: j.required_skills ?? [],
                 nice_to_have_skills: j.nice_to_have_skills ?? [],
                 jd_language: j.jd_language ?? null,
@@ -617,7 +624,7 @@ export default function GapsPage({
           throw new Error(await apiErrorMessage(gRes));
         }
         setGaps(gapData);
-        setMatchScore(gapData.match_score ? Math.round(gapData.match_score * 100) : 0);
+        setMatchScore(scoreToPercent(gapData.match_score, 0));
 
         try {
           const profileRes = await fetch(`${API_BASE}/api/profile`);
@@ -701,7 +708,7 @@ export default function GapsPage({
       if (res.ok) {
         const refreshed: GapAnalysis = await res.json();
         setGaps(refreshed);
-        setMatchScore(refreshed.match_score ? Math.round(refreshed.match_score * 100) : matchScore);
+        setMatchScore(scoreToPercent(refreshed.match_score, matchScore));
       }
     } catch {
       // Non-critical — the panel already reflects the action locally.
@@ -727,7 +734,7 @@ export default function GapsPage({
         });
         if (refreshRes.ok) {
           const refreshed: GapAnalysis = await refreshRes.json();
-          const newScore = refreshed.match_score ? Math.round(refreshed.match_score * 100) : matchScore;
+          const newScore = scoreToPercent(refreshed.match_score, matchScore);
           setMatchScore(newScore);
         }
       } catch {
@@ -827,7 +834,7 @@ export default function GapsPage({
         apiBase: API_BASE,
       })) as unknown as GapAnalysis;
       setGaps(data);
-      setMatchScore(data.match_score ? Math.round(data.match_score * 100) : 0);
+      setMatchScore(scoreToPercent(data.match_score, 0));
     } catch (e: unknown) {
       setError(
         e instanceof GapAnalysisError
@@ -955,6 +962,7 @@ export default function GapsPage({
               <JobEchoCard
                 companyName={jobEcho.company_name}
                 roleTitle={jobEcho.role_title}
+                educationRequirement={jobEcho.education_requirement}
                 requiredSkills={echoChips.required}
                 niceToHaveSkills={echoChips.niceToHave}
               />

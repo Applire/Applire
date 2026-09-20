@@ -221,25 +221,54 @@ def test_the_prose_ratchets_are_untouched_because_the_prose_doors_are():
         "else was appended, and the next append meets this question again."
     )
     # 2026-09-11 (#668 letter half): the letter's prose door moved 12,500 -> 12,900 and its terminal door 16,100 -> 16,300 ONCE, on 2026-09-11, for #668's LETTER half: named blocking check 6 (REDUNDANCY), +377 chars net of what `repetition` gave back when it left `_MINOR_PROSE`. Measured BEFORE the ceiling moved, on the pinned run_2026_08_15 fixture (a letter naming Weberit ten times and restating the 38-employee / three-shift-leader scope in two paragraphs), n=5 per arm, real provider: redundancy raised 2/5 -> 5/5, BLOCKING 0/5 -> 5/5; the corrector then reduced the repetition 5/5 with the honest IFS/BRC gap disclosure intact 5/5.
-    assert len(letter.REVIEW_SYSTEM_PROMPT) < 12_864
+    # 2026-09-20 (#732): moved ONCE for the named BLOCKING half-delivery finding in
+    # check 4 plus the check-5 scoping. Merge attempt paid first: a 1,245-char #731
+    # mirror bullet was written, measured 0/5 on the real provider and DELETED, and a
+    # 764-char writer rule was folded into the rule it duplicated. Measured before the
+    # move, luna, n=5 per arm: unfused-shape finding 0/5 -> 5/5 blocking; at delivery,
+    # gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures
+    # 3 -> 5, blind hiring manager NO -> YES. SF-WRITE, new row, id at integration.
+    assert len(letter.REVIEW_SYSTEM_PROMPT) < 13_450
 
 
 def test_the_cv_terminal_door_gets_its_own_ratchet():
     """The prose doors have had a ratchet since #580 / the letter's precedent; the
     terminal doors never did, which is how a 2,400-character append could land without
-    meeting the question the ratchet asks. Clause 9 landed at 13,743 (was 11,317)."""
-    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_100, (
+    meeting the question the ratchet asks. Clause 9 landed at 13,743 (was 11,317).
+
+    2026-09-20 (F-5 / F-9, RULING D-3): moved 14,100 → 14,600 for named blocking checks 11
+    (SIGNATURE STORY FIGURES) and 12 (SKILLS-LIST SHAPE), +412 chars net for TWO checks —
+    against #668's +296 for one. The ratchet's own demand was met in the only way a named
+    check allows: the checks themselves are a NAME plus a pointer, and every instruction
+    (what to raise, how many issues, what outranks it) lives in the per-round deterministic
+    block (`services/story_reach.py`, `services/skill_shape.py`), which is INPUT and costs
+    nothing against this ceiling. Replaced, not only appended: check 9 gave back its
+    "present only as a skills entry" clause and its under-claim overlap, and the SKILLS-LIST
+    SCOPE paragraph's blanket "never flag such a skill" was narrowed in place rather than
+    prefixed. Mapped to SF-REVIEW.6 (new: a curated vault fact the writer prompt demands
+    reaches no reviewer) and SF-WRITE.37 (occurrence after #729's control shipped).
+    """
+    assert len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT) < 14_600, (
         f"CV terminal reviewer prompt is {len(cv.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — it is "
         "regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
         "The ratchet moved 14,000 → 14,100 ONCE, on 2026-09-08, for #668's shared check 8 "
-        "(+296 chars, SF-WRITE.26/.27)."
+        "(+296 chars, SF-WRITE.26/.27), and 14,100 → 14,600 ONCE, on 2026-09-20, for the two "
+        "named blocking checks of F-5/F-9 (+412 chars, SF-REVIEW.6 / SF-WRITE.37) — with every "
+        "instruction moved into the per-round block instead of the system prompt."
     )
 
 
 def test_the_letter_terminal_door_gets_its_own_ratchet():
     """Clause 9 landed at 15,867 (was 13,928). This is the largest prompt in the family
     and the ceiling is deliberately tight."""
-    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_264, (
+    # 2026-09-20 (#732): moved ONCE for the named BLOCKING half-delivery finding in
+    # check 4 plus the check-5 scoping. Merge attempt paid first: a 1,245-char #731
+    # mirror bullet was written, measured 0/5 on the real provider and DELETED, and a
+    # 764-char writer rule was folded into the rule it duplicated. Measured before the
+    # move, luna, n=5 per arm: unfused-shape finding 0/5 -> 5/5 blocking; at delivery,
+    # gap sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures
+    # 3 -> 5, blind hiring manager NO -> YES. SF-WRITE, new row, id at integration.
+    assert len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, (
         f"letter terminal reviewer prompt is {len(letter.TERMINAL_REVIEW_SYSTEM_PROMPT)} chars — "
         "it is regrowing. Map the new content to an SF-WRITE row and REPLACE, do not append. "
         "The ratchet moved 16,100 → 16,300 ONCE, on 2026-09-11, for #668's letter half "

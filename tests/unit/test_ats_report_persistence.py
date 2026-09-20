@@ -1719,8 +1719,12 @@ async def test_terminal_review_outcome_reaches_the_persisted_cv_report(db_with_c
 
     checks = {c["id"]: c for c in record.ats_report["checks"]}
     assert "terminal-review" in checks, "the check must never be absent (#634 class)"
-    assert checks["terminal-review"]["status"] == "fail"
+    # F-4: an `exhausted` settle delivers the corrector's output from the same
+    # iteration, so the finding is UNVERIFIED against the delivered document, never
+    # "open" against it — and never a clean pass either.
+    assert checks["terminal-review"]["status"] == "not_applicable"
     assert "LucaNet" in checks["terminal-review"]["details"]
+    assert "UNVERIFIED" in checks["terminal-review"]["details"]
 
 
 @pytest.mark.asyncio
@@ -1728,7 +1732,8 @@ async def test_a_re_audit_door_cannot_launder_an_exhausted_terminal_review(db_wi
     """The section-editor and agent-authored doors reach the same seam with NO terminal
     review of their own. Recomputing `not_applicable` there would turn a document that
     shipped on an exhausted review into one that reads as cleanly audited after any
-    later edit — so the previously persisted check is re-emitted verbatim."""
+    later edit — so the previously persisted check is re-emitted verbatim. F-4 changed
+    what that check SAYS (unverified, not open); it did not change that it survives."""
     from applire.models.cv import GeneratedCV
     from applire.services.cv import _update_ats_report
 
@@ -1745,5 +1750,7 @@ async def test_a_re_audit_door_cannot_launder_an_exhausted_terminal_review(db_wi
         await _update_ats_report(record, session)
 
     carried = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
-    assert carried["status"] == "fail"
+    assert carried["status"] == "not_applicable"
+    assert carried["status"] != "pass"
+    assert "LucaNet" in carried["details"]
     assert carried["details"] == first["details"]

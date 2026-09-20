@@ -109,6 +109,11 @@ _JD_TEXT_FIELDS = (
     "role_title",
     "seniority_level",
     "language_requirement",
+    # Founder ruling B-2 / migration 0068: ONE string, never a list of fields of
+    # study — an unconverged loop that returns ["Master's degree", "Computer
+    # science"] here is exactly the shape this field exists to stop, so it is
+    # flattened and logged like every other text field rather than crashing.
+    "education_requirement",
     "berufsbild_code",
     "berufsbild_label",
 )
@@ -471,6 +476,11 @@ async def analyze_jd(
         seniority_level=data.get("seniority_level") or None,
         company_culture_signals=data.get("company_culture_signals", []),
         language_requirement=data.get("language_requirement") or "",
+        # Founder ruling B-2 / migration 0068 (#675 line 78): an honest "the
+        # posting states no education bar" is stored as NULL, never laundered
+        # into "" — the same distinction migration 0067 restored for
+        # seniority_level. A whitespace-only value is the model saying nothing.
+        education_requirement=(data.get("education_requirement") or "").strip() or None,
         jd_language=detect_language(text),
         berufsbild_code=berufsbild_code,
         berufsbild_label=berufsbild_label,

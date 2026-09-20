@@ -58,6 +58,15 @@
 # the same control ADR-069 clause 1 gave the scope quote, so an invented weighting is
 # bounded by a sentence the reviewer can find in the posting.
 #
+# Prompt version: v3 (founder ruling B-2, 2026-09-20): check 2e grounds
+#   `education_requirement` the way 2d already grounds `leadership_emphasis.quote`, and the
+#   approval bar + the blocking-scope sentence name the education bar so the new check is
+#   not outside the list they declare closed. The check states BOTH directions the field can
+#   be wrong in: fabricated on a posting with no bar, and split into its fields of study
+#   (the shape migration 0068 exists to stop). It also tells the reviewer that a degree in
+#   the concept lists is the defect, not this field — the two are the same finding seen from
+#   opposite ends, and the extractor's v10 rule says this field is the bar's only home.
+#
 # Prompt version: v2 (Wave-6: concept-term shape rule for required_skills/
 # nice_to_have_skills/keywords, reconciled with the verbatim-grounding rule)
 # Used by: services/job.py -> analyze_jd() -> reviewer.review_and_refine
@@ -86,9 +95,9 @@ a role "usually" needs.
 
 APPROVAL BAR (read first):
 Set "approved": true unless you find a MATERIAL defect — a requirement, keyword, title,
-company name, culture signal, scope figure, leadership quote, or seniority/language
-claim with no basis in the source text (checks 1-5 below name the full list; nothing
-outside it is material). Reasonable normalisation (merging
+company name, culture signal, scope figure, leadership quote, education bar, or
+seniority/language claim with no basis in the source text (checks 1-5 below name the full
+list; nothing outside it is material). Reasonable normalisation (merging
 "React.js" and "React" into one skill, translating a German requirement phrase into an
 English skill name, tidying wording) is NOT a defect — do not flag it. Populate "issues"
 ONLY with material defects. If a clean extraction has nothing wrong, APPROVE with an
@@ -203,6 +212,19 @@ Check for these defects:
    dominance the posting never states is an overreach. Never flag a NULL
    leadership_emphasis: omission is the correct handling for a posting that does not
    mention leading people.
+2e. EDUCATION REQUIREMENT GROUNDING (education_requirement only; founder ruling B-2,
+   2026-09-20): when this field is not null, its wording must come from the posting's own
+   education sentence — the posting must actually state a formal education bar (a degree,
+   a completed course of study, "Studium", "Abschluss", "Bachelor"/"Master", or an
+   explicit equivalence clause). A value on a posting that names no education bar at all
+   is fabricated — instruct its removal (null). A value that lightly trims or joins the
+   posting's own wording is correct normalisation, NOT a defect: do not ask for the whole
+   sentence back, and do not ask for it to be split into the fields of study it names
+   (one education sentence is ONE bar — splitting it is the defect this field exists to
+   stop). Never flag a NULL education_requirement: omission is the correct handling for a
+   posting that states no bar. And a degree or field of study appearing here is NOT ALSO
+   expected in required_skills/nice_to_have_skills/keywords — if you see it in both,
+   the concept-list copy is the defect, not this field.
 3. FABRICATED KEYWORDS: an ATS keyword with no textual basis in the posting. The same
    NORMALISING TRANSFORM named in check 1 applies here too — paraphrase, nominalisation,
    capitalisation, hyphenation, and sub-phrase presence are not fabrication.
@@ -235,7 +257,8 @@ Check for these defects:
 
 WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
 requirement, keyword, title, company name, culture signal, scope figure, leadership
-quote, or seniority/language claim with no basis in the source text. Nothing else.
+quote, education bar, or seniority/language claim with no basis in the source text.
+Nothing else.
 Reasonable normalisation is not an issue at all; anything else you notice is "minor" BY
 DEFINITION. This analysis is treated as ground truth by every downstream document, so a
 re-run that drops a correctly-extracted field to satisfy a phrasing preference is the single
@@ -296,7 +319,7 @@ JOB_ANALYSIS_REFINEMENT_PROMPT = """\
 You are a job-description analysis corrector. You receive a previously-extracted JD
 analysis JSON and a quality reviewer's critique listing material defects (fabricated
 requirements/keywords, misclassified must-have vs. nice-to-have, an invented title or
-company name, an unsupported seniority/language claim). Patch the JSON to address every
+company name, an unsupported seniority/language claim, an ungrounded education bar). Patch the JSON to address every
 issue, re-reading the source posting as the source of truth.
 
 Rules:

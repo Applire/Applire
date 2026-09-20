@@ -77,6 +77,21 @@ const REPORT_WITH_UNSUPPORTED: ATSReport = {
   },
 };
 
+// F-8 (founder UAT 2026-09-20, #672 line 125): a present keyword whose Keyword Ledger
+// row the candidate DENIED. `present` and the coverage tile deliberately still count it
+// — the keyword IS on the page — so the panel must say what it is next to it.
+const REPORT_WITH_DENIED: ATSReport = {
+  checks: [{ id: "contact-name", status: "pass" }],
+  keywords: {
+    present: ["Python", "DevOps"],
+    missing: [],
+    missing_claimable: [],
+    missing_honest_gap: [],
+    present_unsupported: [],
+    present_denied: ["DevOps"],
+  },
+};
+
 // E042/US239 (ADR-051): a page-length check can PASS with a non-null `details`
 // string (advisory states — "meets your chosen target" / "acceptable for senior
 // profiles"). The trap: the panel only rendered `details` for FAILING checks —
@@ -357,6 +372,22 @@ describe("ATSChecksPanel", () => {
   it("omits the unsupported row when empty or absent", () => {
     render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
     expect(screen.queryByTestId("ats-keywords-present-unsupported")).toBeNull();
+  });
+
+  // F-8: a denied capability may never read as coverage with nothing next to it.
+  it("renders present-but-denied keywords as their own warning row", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_DENIED} />));
+    const row = screen.getByTestId("ats-keywords-present-denied");
+    expect(row.textContent).toContain("DevOps");
+    // Its own row, not folded into the unsupported one (ADR-048/059 am. 2026-07-27).
+    expect(screen.queryByTestId("ats-keywords-present-unsupported")).toBeNull();
+    // `present` is unchanged: the coverage tile still counts both keywords.
+    expect(screen.getByTestId("ats-keywords-coverage").getAttribute("title")).toContain("2");
+  });
+
+  it("omits the denied row on a legacy report that never measured it", () => {
+    render(withIntl(<ATSChecksPanel report={REPORT_WITH_BUCKETS} />));
+    expect(screen.queryByTestId("ats-keywords-present-denied")).toBeNull();
   });
 
   // E042/US239: a passing check WITH details (page-length advisory) must surface
