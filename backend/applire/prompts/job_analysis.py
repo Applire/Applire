@@ -15,6 +15,29 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10 (founder ruling B-2, 2026-09-20): the degree/field-of-study class v9
+#   removed from the three concept lists gets a home instead of being lost —
+#   "education_requirement", ONE string in the posting's own words, migration 0068. v9 was
+#   shipped with the cost stated ("the bar is not lost from the record, only from the derived
+#   surfaces"); the founder ruled the column rather than the collector line, so the extractor
+#   now routes the bar to a field where it is neither scored nor matched literally against a
+#   candidate's documents. The reviewer grounds it verbatim, the way it already grounds
+#   leadership_emphasis.quote.
+#
+# Prompt version: v9 (#675 line 78 / founder-UAT F-6, 2026-09-20): FIELD SHAPE gains a
+#   closed NOT-A-CONCEPT-TERM list, and the schema line stops inviting "soft skills".
+#   Category B, not C — a narrower rule was looked for and does not exist: v4's FIELD
+#   SHAPE rule governs LENGTH ("never a full sentence") and says nothing about KIND, so
+#   "Master's degree" passes it; the schema line "must-have technical and soft skills"
+#   actively asked for the traits, while the rule's own justification is that every entry
+#   is matched LITERALLY against the candidate's documents — which a trait never can be.
+#   Baseline on the KION posting, n=6 full `analyze_jd` chains on openai/gpt-5.6-luna:
+#   45/52/47/35/50/37 required_skills with 3-10 non-skills each (degrees, fields of
+#   study, "Communication/Presentation/Interpersonal/Problem-solving skills", "English")
+#   and a case-folded duplicate in 5 of 6 runs. The duplicate is a FACT the prompt cannot
+#   see across sources, so it is also floored deterministically at the persistence seam
+#   (services/jd_shape_guard.py) — the prompt rule is measured, the fact is guaranteed.
+#
 # Prompt version: v8 (#617, 2026-09-11 — Nougat build 2, axis (c)): COMPANY CULTURE
 #   SIGNALS gets the grounding sentence every other field already has, and the
 #   schema line stops offering 'Mittelstand' as an example. Measured on 13 full
@@ -80,12 +103,13 @@ Schema:
 {
   "company_name": "string or null — company name if identifiable from the JD; null if anonymised or unclear",
   "role_title": "string — exact job title from the JD",
-  "required_skills": ["list of must-have technical and soft skills"],
-  "nice_to_have_skills": ["list of optional / preferred skills"],
+  "required_skills": ["must-have capabilities — concept terms only, see the shape rules below"],
+  "nice_to_have_skills": ["optional / preferred capabilities — same shape"],
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
   "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
   "language_requirement": "primary language required, e.g. 'German (C1)', 'English (B2)', 'Bilingual DE/EN'",
+  "education_requirement": "string or null — the posting's own wording of a formal education bar (see EDUCATION REQUIREMENT below); null when it states none",
   "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null",
   "scope_requirements": [
@@ -118,6 +142,39 @@ embeddings, ranking and retrieval pipelines", "Hands-on experience with agentic
 systems and tool-using LLM applications", "Building and deploying AI-powered products
 in production". If the posting only states a requirement as a long phrase, extract the
 concept(s) it names as separate short terms — do not quote the phrase whole.
+NOT A CONCEPT TERM — never emit these in any of the three lists, however plainly the
+posting states them. A concept term names a capability a candidate's CV can EVIDENCE;
+each entry below cannot be, so it only inflates the requirement count, the gap list and
+the interview agenda:
+  - a formal qualification or a field of study — "Master's degree", "Bachelor",
+    "Computer science", "Engineering", "Abschluss in Informatik". One posting sentence
+    ("Master's degree in Computer science, Data science or Engineering") is a single
+    education bar, not four requirements.
+  - a language or a language level — "English", "German", "Fluent English". The
+    posting's language demand belongs in "language_requirement" and nowhere else.
+  - a personality trait, an attitude, or a generic soft phrase — "Proactive approach",
+    "Communication skills", "Presentation skills", "Interpersonal skills",
+    "Problem-solving skills", "Willingness to learn", "Structured way of working",
+    "Team player", "Analytical working". Every posting asks for these and no document
+    can prove them.
+  - the employer's own product, platform, team or brand name — "KION GenAI Platform",
+    "the XY Group". The role works ON it; the candidate brings the technologies it is
+    BUILT from, and those are the concept terms to emit.
+Emit each concept ONCE across the whole list, even when the posting names it in two
+sections and even when the capitalisation differs — "Data science" and "Data Science"
+are one entry, not two.
+
+EDUCATION REQUIREMENT (where a degree goes instead):
+"education_requirement" is the posting's own wording of a formal education bar, as ONE
+string, copied from the posting and lightly trimmed to the requirement itself — "Master's
+degree in computer science, data science, engineering", "Abgeschlossenes Studium der
+Wirtschaftsinformatik oder vergleichbar", "Bachelor or equivalent practical experience".
+It is NOT a list, NOT a skill, and NOT split into the fields of study it names: one
+posting sentence about education is ONE education requirement. Emit null when the posting
+states no formal education bar at all — null is the correct, expected answer and you will
+not be penalised for it. Never infer a degree from the seniority, the title, or what such
+a role "usually" asks for, and never restate the bar in the three concept lists as well:
+this field is its only home.
 
 QUALIFIED REQUIREMENT DISPOSITION (decomposition, never demotion): when a requirement
 carries an explicitly-optional qualifier — "Sicherer Umgang mit SAP (idealerweise PP/MM)",

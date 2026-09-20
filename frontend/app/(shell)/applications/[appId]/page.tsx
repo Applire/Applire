@@ -108,6 +108,9 @@ interface JobAnalysisSummary {
   // than render an empty value, the same precedent as required_skills/
   // nice_to_have_skills/keywords below.
   seniority_level: string | null;
+  // #675: the posting's own wording of a formal-education requirement; null
+  // when the posting states none (a real answer, not a missing value).
+  education_requirement: string | null;
   required_skills: string[];
   nice_to_have_skills: string[];
   keywords: string[];
@@ -624,6 +627,12 @@ export default function ApplicationDetailPage() {
                     <div>
                       <dt className="text-on-surface-variant">{t("jdSeniority")}</dt>
                       <dd className="text-neutral-dark mt-0.5">{jobAnalysis.seniority_level}</dd>
+                    </div>
+                  )}
+                  {jobAnalysis.education_requirement && (
+                    <div>
+                      <dt className="text-on-surface-variant">{t("jdEducation")}</dt>
+                      <dd className="text-neutral-dark mt-0.5">{jobAnalysis.education_requirement}</dd>
                     </div>
                   )}
                   <div>

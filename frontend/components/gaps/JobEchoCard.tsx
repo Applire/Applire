@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 interface JobEchoCardProps {
   companyName?: string | null;
   roleTitle?: string | null;
+  educationRequirement?: string | null;
   requiredSkills: string[];
   niceToHaveSkills: string[];
 }
@@ -38,6 +39,7 @@ interface JobEchoCardProps {
 export function JobEchoCard({
   companyName,
   roleTitle,
+  educationRequirement,
   requiredSkills,
   niceToHaveSkills,
 }: JobEchoCardProps) {
@@ -64,6 +66,14 @@ export function JobEchoCard({
             {companyName && companyName.trim() ? companyName : t("jdEchoUnknown")}
           </p>
         </div>
+        {educationRequirement && educationRequirement.trim() ? (
+          <div>
+            <p className="text-xs uppercase tracking-wide text-on-surface-variant">{t("jdEchoEducation")}</p>
+            <p data-testid="job-echo-education" className="text-sm font-medium text-neutral-dark">
+              {educationRequirement}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <p className="text-xs uppercase tracking-wide text-on-surface-variant mb-2">

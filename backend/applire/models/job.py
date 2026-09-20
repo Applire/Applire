@@ -50,6 +50,17 @@ class JobAnalysis(Base):
     seniority_level: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_culture_signals: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     language_requirement: Mapped[str] = mapped_column(Text, nullable=False)
+    # Founder ruling B-2 / migration 0068 (#675 line 78, founder-UAT F-6): the
+    # posting's own wording of a formal EDUCATION bar ("Master's degree in
+    # computer science, data science, engineering"), as ONE string, never a list
+    # of skills. It used to land in `required_skills`, where every entry is a
+    # concept term matched literally against the candidate's documents — a degree
+    # is not a capability a bullet can evidence, so it could never move off `gap`
+    # and only inflated the match denominator, the gap chips and the interview
+    # agenda. NULL means "the posting states no education bar" OR "pre-migration
+    # row"; the two are deliberately not distinguished, because every reader
+    # treats them alike (hide the field) and nothing scores or gates on it.
+    education_requirement: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Language the JD document is *written in* ('de'/'en'), detected
     # deterministically at analysis time — the routing source for document
     # outputs per ADR-038. NULL for rows that pre-date migration 0032

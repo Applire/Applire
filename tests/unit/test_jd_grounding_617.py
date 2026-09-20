@@ -93,6 +93,11 @@ _DRAFT: dict = {
     "seniority_level": "Mid-Senior level",
     "company_culture_signals": ["Berlin-based", "senior team"],
     "language_requirement": "English",
+    # Founder ruling B-2 / migration 0068: a schema key since prompt v10, so it
+    # must be populated here — `reviewer_view`'s allowlist is asserted to be
+    # exactly JD_SCHEMA_KEYS on this draft, and the reviewer's check 2e grounds
+    # this field's wording against the posting.
+    "education_requirement": "Master's degree in computer science or a related field",
     "berufsbild_code": None,
     "berufsbild_label": None,
     "scope_requirements": [
