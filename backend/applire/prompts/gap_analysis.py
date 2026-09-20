@@ -64,6 +64,38 @@
 #     different quantities — direct reports vs total span) and must cite the vault
 #     entry for any "direct". Code enforces the fail-closed floor afterwards.
 #
+# Prompt version: v5 (ruling B-3/B-3b, 2026-09-20 — two measured defects of ONE field):
+#   `surface_forms` was specified as "literal aliases an ATS scans for" / "the literal strings an
+#   ATS would scan for", a description WIDER than both its examples (which are all abbreviations)
+#   and than what its three consumers can survive.
+#   (a) NOT COMPETENCE NAMES. Measured by WP-D on the real path, n=3/3 real provider: the delivered
+#   CV's skill chips `roadmap` and `AI automation use case` are NOT in the writer's draft (0/3) —
+#   they are ledger rows' surface forms, appended by `cv._restore_narrative_named_skills` when any
+#   form of a claimable row appears in the narrative (rows "Roadmap & Budget Ownership" →
+#   ["roadmap","budget estimation"], "AI Automation Delivery" → ["AI automation use case",
+#   "LLMOps"]). The blind hiring manager of 2026-09-19 read those chips, unprompted, as keyword
+#   stuffing. No rule here said a surface form must be a competence NAME; now one does.
+#   (b) MISSING COMPONENT TERMS. Measured by WP-A deterministically: `RAG methods` carried
+#   ["RAG","RAG methods"] and the candidate's denial of "vector databases" / "embedding and
+#   reranking" / "retrieval pipeline" therefore floored nothing — `_enforce_denial_stance` probes
+#   the concept AND every surface form, so with either component term present the row flips to
+#   `denied` and `forbidden_terms_in_draft` returns "RAG methods"; without them the letter
+#   reviewer's DO-NOT-CLAIM PRESENCE block listed nothing at all (#731, founder-UAT F-2).
+#   The v4 COMPOUND rule said the opposite of (b) — "a technology with no profile signal ... must
+#   NOT appear among a claimable concept's surface forms" (blind PQ F4, 2026-07-02). Reconciled,
+#   not reversed: membership in `surface_forms` describes the REQUIREMENT; the candidate's standing
+#   stays in `status`, in `reason` and in the component's own entry, which the COMPOUND rule
+#   already demanded. ADR-059 as amended by WP-A names `surface_forms` the only sanctioned bridge
+#   between a narrow denial and a broad requirement, so the bridge has to be built here.
+#   MEASURED ITERATION (why the "not alternatives" sentence exists): the first v5 draft said only
+#   that a named part "belongs among that requirement's surface forms". Real-provider n=4 on the
+#   KION posting: the RAG row carried a component in 1 of 4 runs — the same 1 of 4 as the v4
+#   baseline. The captured rows named the cause: in the run that complied, the listed parts were
+#   "Embeddings"/"Reranking"/"Retrieval pipelines", none of which is a requirement of its own,
+#   while `vector databases` — which IS its own REQUIREMENTS entry — was never listed. The model
+#   read this rule and the COMPOUND rule's "own entry" half as mutually exclusive. The rule now
+#   says in one sentence that they are not.
+#
 # Prompt version: v4
 # Used by: services/gap.py → LLMProvider.aparse_json
 #
@@ -150,10 +182,12 @@ Rules:
     A skill being merely MENTIONED in the profile or statements is not a signal; what counts
     is what the candidate actually did.
   - COMPOUND requirements that name multiple technologies (e.g. "Cloud environment
-    qualification (AWS, Azure)"): list in surface_forms ONLY the technologies the profile
-    actually supports. A technology with no profile signal — or an explicit denial — must NOT
-    appear among a claimable concept's surface forms; classify it as its own "gap" requirement
-    instead.
+    qualification (AWS, Azure)"): each named technology also gets its OWN entry, classified on
+    its own evidence — that entry, its "status" and its "reason" are where the candidate's
+    standing on it is stated. Never let the COMPOUND concept's own "status" or "reason" claim a
+    technology the profile does not support: name in "reason" only what the profile actually
+    shows. (What may be listed in "surface_forms" is decided by SURFACE FORMS below, and it is
+    a statement about the REQUIREMENT, not about the candidate.)
 
 SCOPE REQUIREMENTS (a separate labelled section, present only when the posting states a
 quantified scope bar — team size, budget). These are judged, never keyword-matched:
@@ -202,7 +236,7 @@ Schema:
       "reason": "PUBLISHED TO THE DOCUMENT WRITERS as the candidate's claimable evidence for this requirement: what the profile shows the candidate genuinely has. Never state a ceiling, a shortfall, or your grading logic here — those go in classification_note.",
       "classification_note": "INTERNAL, never shown to any writer or reviewer: why this status follows — including any declared-proficiency ceiling you applied. Omit when you have nothing to add beyond reason.",
       "adjacent_evidence": "ONLY when status is partial AND the reason is that the candidate has a DIFFERENT but adjacent capability: the profile's own name for that capability. Omit otherwise.",
-      "surface_forms": ["literal aliases an ATS scans for, e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
+      "surface_forms": ["other NAMES for this same competence — see SURFACE FORMS below. e.g. K8s for Kubernetes, CI/CD for CI/CD pipelines"]
     }
   ],
   "scope_classifications": [
@@ -220,10 +254,37 @@ Schema:
 
 Guidelines:
 - Echo each requirement string exactly as given so it can be matched back.
-- surface_forms: list the literal strings an ATS would scan for, including the requirement itself
-  plus common abbreviations/variants. When a JD keyword is a variant of a concept the candidate
-  already holds (e.g. keyword "CI/CD" vs required "CI/CD pipelines"), group it as a surface form of
-  that concept rather than marking it a separate gap.
+- SURFACE FORMS — other NAMES for the same competence, and nothing else. Every entry must read
+  as a competence a person could claim, in the SAME SHAPE as the concept: the requirement itself,
+  its abbreviations and spelling variants ("K8s" for Kubernetes, "CI/CD" for "CI/CD pipelines"),
+  and the component technologies or practices the posting names as PART of this requirement.
+  When a JD keyword is a variant of a concept the candidate already holds, group it as a surface
+  form of that concept rather than marking it a separate gap.
+  NEVER a bare noun lifted out of a posting sentence and never a fragment of one:
+  "roadmap", "budget estimation", "vendor selection", "application processes",
+  "enterprise-scale", "AI automation use case" are fragments, not competence names — the
+  competences they came from are "Product Roadmap Planning", "Budget Planning", "Vendor
+  Management", "Process Automation". Two things read these strings and both make a fragment
+  visible: they are matched LITERALLY inside the candidate's documents, and ONE of them can be
+  rendered to the candidate as a skill on their CV. A fragment there reads as keyword stuffing
+  and costs the candidate the document.
+  COMPONENT TERMS — list them, and list them EVEN IF the part is also a requirement of its own.
+  When the posting names this requirement's own parts in the same breath ("Profound understanding
+  of current AI technologies (ML models, LLMs, vector databases, RAG methods, modern frameworks)";
+  "Production experience with RAG, embeddings, ranking and retrieval pipelines" for a requirement
+  "RAG methods"; "Cloud environment qualification (AWS, Azure)"), every part it names belongs
+  among that requirement's surface forms.
+  The two places are NOT alternatives and you must do both: a part that is itself in REQUIREMENTS
+  gets its own classification entry AND appears among its parent requirement's surface_forms. They
+  answer different questions — the own entry answers "does the candidate have this part", the
+  surface form answers "which words name this requirement" — and omitting the surface form because
+  the part has its own entry is the single most common way this field is filled in wrongly.
+  Membership states what the REQUIREMENT IS; it is never a claim that the candidate has the part.
+  The candidate's standing lives in "status", in "reason", and in the part's own entry. This
+  matters because a candidate who tells us they have NOT done one named part ("I have not built a
+  retrieval pipeline", "do not credit me with vector databases") is answering about the
+  requirement that named it, and a later check can only carry that answer to the requirement if
+  the part is named here.
 - reason is the grounding evidence for a direct/partial status — cite the profile signal.
 - Do NOT reject inferred_b items without a clear counter-signal in the profile.
 - keyword_gaps: list exact terms from the JD absent from the profile."""
