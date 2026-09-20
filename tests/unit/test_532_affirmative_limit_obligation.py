@@ -252,7 +252,15 @@ def test_the_affirmative_block_is_rendered_only_when_something_is_owed():
     block = render_required_limits_block(["Mit IFS habe ich keine Erfahrung."])
     low = _flat(block)
     assert "required" in low
-    assert "silence on one of these is not one of the options" in low
+    # RULING C-3 (founder, 2026-09-20) reverses ADR-075 clause 1's unconditional
+    # naming: a scoped claim or a transfer argument DISCHARGES the obligation, so the
+    # block no longer says "silence is not one of the options" about the GAP. What it
+    # still says, and what #532 was really about, is that the limit owes a positioning
+    # DECISION — silence on the decision remains impossible.
+    assert "silence on one of these is not one of the options" not in low
+    assert "ranked ladder" in low
+    assert "discharges the limit" in low
+    assert "a named gap only where neither exists" in low
     assert "never state a limit that is not listed here" in low
     assert "Mit IFS habe ich keine Erfahrung." in block
 

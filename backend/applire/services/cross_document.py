@@ -586,16 +586,19 @@ def render_required_limits_block(limits: list[str]) -> str:
     lines = [
         "=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT (ADR-075) ===",
         "Each statement below is the candidate's own wording about a concept THIS "
-        "posting asks for and they have denied. Every one of them needs an explicit "
-        "positioning decision in the body — name the gap in their own terms, then the "
-        "adjacent strength that transfers — all folded into the SAME single honest-gap "
-        "paragraph, never a litany and never an apology. Silence on one of these is "
-        "not one of the options.",
-        "The gap and the strength that transfers belong in ONE sentence, the way the "
-        "statement below already says it (#732). Never split it into a negative "
-        "sentence plus a separate list of adjacent strengths, and never let a "
-        "standalone negative sentence follow directly on a sentence stating a "
-        "strength — that pair is what a reader quotes back as the reason to decline.",
+        "posting asks for and they have denied. Every one of them needs ONE positioning "
+        "decision in the body, taken on the RANKED ladder (ADR-075 amended 2026-09-20): "
+        "a scoped claim at the highest rung that is true, else a transfer argument, and "
+        "a NAMED GAP only where neither exists. A scoped claim or a transfer argument "
+        "DISCHARGES the limit — it needs no negation beside it, and adding one anyway is "
+        "the defect, not the discipline.",
+        "Where the gap IS named, it comes first and the strength that transfers second, "
+        "in ONE sentence, the way the statement below already says it (#732). Never split "
+        "it into a negative sentence plus a separate list of adjacent strengths, and never "
+        "let a standalone negative sentence follow directly on a sentence stating a "
+        "strength — that pair is what a reader quotes back as the reason to decline. All "
+        "of it inside the SAME single honest-gap paragraph, never a litany, never an "
+        "apology.",
         "Never state a limit that is NOT listed here: an invented limit is as untrue "
         "as an inflated claim and throws away the candidate's own best evidence.",
     ]
@@ -739,7 +742,11 @@ def render_stated_limit_adjudication_block(
         "SUBJECT TEST is the TARGET employer's own product, read from the job "
         "description — never the candidate's own project. \"The use case I manage uses "
         "X\" claims X for the candidate as surely as \"I do X\" does, and a statement "
-        "denying them X contradicts it. "
+        "denying them X contradicts it. Such a sentence is not simply struck: it is reformed "
+        "into a SCOPED CLAIM — the scope the candidate does own, stated plainly, with the "
+        "limited part attributed to whoever did it — which under ADR-075 as amended "
+        "2026-09-20 DISCHARGES the positioning obligation for that limit, so no negation is "
+        "owed beside it. "
         "ledger cannot answer this and its CLAIMABLE verdict is not a defence: a "
         "ledger status is computed from vault surface forms and never from these "
         "statements, so the very capability a statement denies is routinely marked "

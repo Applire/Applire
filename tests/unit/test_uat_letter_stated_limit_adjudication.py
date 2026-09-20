@@ -267,7 +267,10 @@ class TestThe732PositioningRules:
         from applire.prompts.cover_letter import SYSTEM_PROMPT
 
         assert "RANKED" in SYSTEM_PROMPT
-        assert "take the HIGHEST response TRUE of the candidate" in SYSTEM_PROMPT
+        assert "take the HIGHEST rung TRUE of the candidate" in SYSTEM_PROMPT
+        # RULING C-3 (founder, 2026-09-20): rungs (1) and (2) DISCHARGE the
+        # requirement — a letter delivering one owes no negation about it.
+        assert "DISCHARGE the requirement" in SYSTEM_PROMPT
         assert "choose one of exactly three responses" not in SYSTEM_PROMPT
 
     def test_the_writer_states_the_fused_form_inside_the_rule_that_owns_ordering(self):
@@ -281,10 +284,15 @@ class TestThe732PositioningRules:
         assert "THE SHAPE OF A NAMED GAP" not in SYSTEM_PROMPT, (
             "the form rule regrew into a second rule about gap shape")
         i = SYSTEM_PROMPT.index("(b) OBLIGATION:")
-        rule_b = SYSTEM_PROMPT[i:SYSTEM_PROMPT.index("- EVERY UNMET JD HARD REQUIREMENT", i)]
+        rule_b = " ".join(
+            SYSTEM_PROMPT[i:SYSTEM_PROMPT.index("- EVERY UNMET JD HARD REQUIREMENT", i)].split()
+        )
         assert "in the SAME SENTENCE" in rule_b, rule_b
-        assert "never a standalone" in rule_b, rule_b
-        assert "right after a\n  sentence stating a strength" in rule_b, rule_b
+        assert "never a standalone negative" in rule_b, rule_b
+        assert "right after a sentence stating a strength" in rule_b, rule_b
+        # RULING C-3: the ladder is stated ONCE, in the #270 rule; (b) points at it
+        assert "ranked ladder of the next rule" in rule_b, rule_b
+        assert "DISCHARGES the limit" in rule_b, rule_b
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
