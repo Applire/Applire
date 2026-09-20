@@ -167,8 +167,33 @@ def _fake_review(script, captured):
     return fake
 
 
+def _fake_review_settling(captured, *, settled_draft, blocking, path="exhausted"):
+    """F-4 seam fake: unlike `_fake_review` this one drives the reviewer_prompt_fn AND
+    the `on_settle` hook, with a `settled` draft that DIFFERS from the reviewed one —
+    the shape `reviewer.py`'s `exhausted` return always has. It exists to exercise
+    `cv.py`'s own wiring (`reviewed_cell` + `_record_settle`), not the loop's."""
+    from applire.services.review_issues import ReviewSettle
+
+    async def fake(**kwargs):
+        if kwargs.get("chain_id") != "cv_terminal_review":
+            return kwargs["draft"]
+        reviewed = kwargs["draft"]
+        kwargs["reviewer_prompt_fn"](kwargs["source"], reviewed)
+        settled = settled_draft(reviewed)
+        on_settle = kwargs.get("on_settle")
+        if on_settle is not None:
+            on_settle(ReviewSettle(
+                path=path, approved=False, blocking_issues=tuple(blocking),
+                minor_issues=(), rounds=1, settled=settled,
+            ))
+        captured.append({"reviewed": reviewed, "settled": settled})
+        return settled
+
+    return fake
+
+
 async def _run_pipeline(db, ids, *, script=None, captured=None, extra_patches=(),
-                        review_retries=2, payload=None):
+                        review_retries=2, payload=None, review_fake=None):
     from applire.services.cv import _render_cv_background
 
     job_id, profile_id, cv_id = ids
@@ -183,7 +208,7 @@ async def _run_pipeline(db, ids, *, script=None, captured=None, extra_patches=()
     patches = [
         patch("applire.services.cv.get_provider", return_value=provider),
         patch("applire.services.cv.review_and_refine",
-              side_effect=_fake_review(script or [], captured)),
+              side_effect=review_fake or _fake_review(script or [], captured)),
         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", review_retries),
         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")),
         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")),
@@ -467,3 +492,58 @@ async def test_review_layer_disabled_skips_terminal_round_but_logs_identity(db, 
     assert len(lines) == 1
     assert "terminal_rounds=0" in lines[0].getMessage()
     assert "match=True" in lines[0].getMessage()
+
+
+# --- F-4: the CV chain supplies the draft the last verdict was rendered over -
+
+
+@pytest.mark.asyncio
+async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
+    """F-4 (#672 line 123) — the SEAM test for `cv.py`'s wiring.
+
+    `review_and_refine` hands `reviewer_prompt_fn` the draft it is about to judge and
+    keeps no record of it, so only this chain can tell the report "the corrector revised
+    the document after this verdict". Revert `reviewed_draft=reviewed_cell["draft"]` in
+    `_record_settle` (or the `reviewed_cell["draft"] = draft` line in `_reviewer_prompt`)
+    and this test goes red by name while every other test in this file stays green.
+    """
+    from applire.models.cv import GeneratedCV
+
+    ids = await _seed(db)
+    captured = []
+    payload = _writer_payload()
+
+    # A DISTINCT correction per round: an idempotent one would make round 2's settled
+    # draft equal the draft round 2 reviewed, which is the genuine `fail` shape and
+    # would make this test pass for the wrong reason.
+    rounds = {"n": 0}
+
+    def _corrected(draft):
+        rounds["n"] += 1
+        out = dict(draft)
+        out["summary"] = f"Correction {rounds['n']} the reviewer never read."
+        return out
+
+    await _run_pipeline(
+        db, ids, captured=captured, payload=payload,
+        review_fake=_fake_review_settling(
+            captured, settled_draft=_corrected,
+            blocking=('The summary claims "Erfahrene Entwicklerin" without support.',),
+        ),
+    )
+    assert captured and captured[0]["reviewed"] != captured[0]["settled"]
+
+    record = await db.get(GeneratedCV, ids[2])
+    check = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
+    assert check["status"] == "not_applicable", check
+    assert "UNVERIFIED" in check["details"]
+    assert "Erfahrene Entwicklerin" in check["details"]
+    assert "Open findings" not in check["details"]
+    # The MEASURED half. `exhausted` reports as unverified from the settle-path table
+    # alone, so only a sentence that requires `CorrectionFacts` can prove this chain
+    # actually supplied the reviewed draft — mutation M2 (dropping
+    # `reviewed_draft=reviewed_cell["draft"]`) survives without this assertion.
+    assert (
+        "could decide" in check["details"]
+        or "cannot be decided deterministically" in check["details"]
+    ), check["details"]

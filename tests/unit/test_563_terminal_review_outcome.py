@@ -223,6 +223,15 @@ def _settle(path, *, approved=False, blocking=(), minor=(), rounds=1):
     )
 
 
+#: Settle paths on which the loop ships a draft whose last verdict carried BLOCKING
+#: findings. Whatever the status, none of them may ever read as a clean pass.
+_BLOCKING_PATHS = ("generator_call_failed", "cycle_detected", "exhausted", "review_malformed")
+
+
+def _details_of(outcome):
+    return build_terminal_review_check(outcome, previous=None, document="cv").details
+
+
 @pytest.mark.parametrize(
     "path,expected",
     [
@@ -232,28 +241,60 @@ def _settle(path, *, approved=False, blocking=(), minor=(), rounds=1):
         ("minor_only", "pass"),
         ("generator_call_failed", "fail"),
         ("cycle_detected", "fail"),
-        ("exhausted", "fail"),
+        # F-4: `exhausted` is the ONE blocking path on which the corrector provably ran
+        # AFTER the reported verdict, so the findings are UNVERIFIED against the
+        # delivered document rather than open against it (46 of 46 captured runs).
+        ("exhausted", "not_applicable"),
         ("review_malformed", "fail"),  # #688 — malformed JSON, treated like exhaustion
     ],
 )
 def test_every_settle_path_maps_to_one_of_the_three_adr_039_statuses(path, expected):
     outcome = settle_to_outcome(
-        _settle(path, approved=(path == "approved"), blocking=("open finding",) if expected == "fail" else ()),
+        _settle(
+            path,
+            approved=(path == "approved"),
+            blocking=("open finding",) if path in _BLOCKING_PATHS else (),
+        ),
         chain_id="cv_terminal_review",
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert check.status == expected
     assert check.id == TERMINAL_REVIEW_CHECK_ID
+    # The property every row of this table guards: a settle that shipped an
+    # unresolved-or-unverified verdict may never read as a clean pass.
+    if path in _BLOCKING_PATHS:
+        assert check.status != "pass"
 
 
 def test_a_fail_names_the_open_findings_in_details():
     outcome = settle_to_outcome(
-        _settle("exhausted", blocking=("the LucaNet project bullet omits the ownership limitation",)),
+        _settle(
+            "generator_call_failed",
+            blocking=("the LucaNet project bullet omits the ownership limitation",),
+        ),
         chain_id="cv_terminal_review",
     )
     check = build_terminal_review_check(outcome, previous=None, document="cv")
     assert check.status == "fail"
     assert "LucaNet" in (check.details or "")
+    assert "Open findings" in (check.details or "")
+
+
+def test_an_exhausted_settle_names_the_findings_as_unverified_not_open():
+    """F-4 (#672 line 123): the corrector revised the document after this verdict and
+    the revision was never re-reviewed. Naming the findings stays mandatory (the check
+    is not silenced); calling them OPEN against the delivered document is the false
+    alarm that made the founder distrust a document in which all four were fixed."""
+    outcome = settle_to_outcome(
+        _settle("exhausted", blocking=("the LucaNet project bullet omits the ownership limitation",)),
+        chain_id="cv_terminal_review",
+    )
+    check = build_terminal_review_check(outcome, previous=None, document="cv")
+    assert check.status == "not_applicable"
+    assert "LucaNet" in (check.details or "")
+    assert "UNVERIFIED" in (check.details or "")
+    assert "Open findings" not in (check.details or "")
+    assert "delivered unreviewed" not in (check.details or "")
 
 
 def test_a_malformed_settle_names_the_reason_not_a_generic_open_finding():
@@ -298,7 +339,8 @@ def test_a_re_audit_without_a_fresh_outcome_carries_the_previous_check_forward()
         document="cv",
     )
     carried = build_terminal_review_check(None, previous=first.model_dump(), document="cv")
-    assert carried.status == "fail"
+    assert carried.status == "not_applicable"
+    assert "UNVERIFIED" in (carried.details or "")
     assert carried.details == first.details
 
 
@@ -373,7 +415,7 @@ def test_the_cv_report_always_carries_both_new_checks():
     assert "narrative-evidence" in ids
 
 
-def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_a_fail():
+def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_unverified():
     from applire.services.ats_audit import _audit_cv_text
 
     outcome = settle_to_outcome(
@@ -384,8 +426,26 @@ def test_an_exhausted_terminal_review_reaches_the_persisted_cv_report_as_a_fail(
         "Anna Bauer", _cv_fixture(), keywords=[], terminal_review=outcome
     )
     check = next(c for c in report.checks if c.id == "terminal-review")
-    assert check.status == "fail" and "LucaNet" in (check.details or "")
+    # F-4: the finding is named, the status is not a fail — and it is not a pass either.
+    assert check.status == "not_applicable" and "LucaNet" in (check.details or "")
     assert report.failed == sum(1 for c in report.checks if c.status == "fail")
+    assert report.not_applicable == sum(
+        1 for c in report.checks if c.status == "not_applicable"
+    )
+
+
+def test_a_corrector_call_failure_still_reaches_the_report_as_a_fail():
+    """The half of #563 that stays a fail: the corrector never ran, so the delivered
+    draft IS the draft the verdict was rendered over and the finding genuinely stands."""
+    from applire.services.ats_audit import _audit_cv_text
+
+    outcome = settle_to_outcome(
+        _settle("generator_call_failed", blocking=("the LucaNet bullet omits the limit",)),
+        chain_id="cv_terminal_review",
+    )
+    report = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], terminal_review=outcome)
+    check = next(c for c in report.checks if c.id == "terminal-review")
+    assert check.status == "fail" and "LucaNet" in (check.details or "")
 
 
 def test_a_re_audit_carries_the_fail_forward_into_the_new_report():
@@ -401,7 +461,9 @@ def test_a_re_audit_carries_the_fail_forward_into_the_new_report():
     ).model_dump()
     second = _audit_cv_text("Anna Bauer", _cv_fixture(), keywords=[], previous_report=first)
     check = next(c for c in second.checks if c.id == "terminal-review")
-    assert check.status == "fail"
+    assert check.status == "not_applicable"
+    assert "UNVERIFIED" in (check.details or "")
+    assert "open finding" in (check.details or "")
 
 
 def test_the_letter_report_carries_the_check_too_and_no_narrative_twin():
@@ -476,9 +538,13 @@ def test_the_worse_outcome_of_a_delivery_survives_a_clean_later_round():
     round erase an earlier exhaustion that already shipped content."""
     bad = settle_to_outcome(_settle("exhausted", blocking=("open",)), chain_id="cv_terminal_review")
     good = settle_to_outcome(_settle("approved", approved=True), chain_id="cv_terminal_review")
-    assert good.worse_of(bad).status == "fail"
-    assert bad.worse_of(good).status == "fail"
+    # F-4: WITHOUT the measured draft-identity fact nothing is superseded — the fold is
+    # byte-identical to its pre-F-4 shape, and the earlier settle still outranks the
+    # clean one. `exhausted` itself now reports as unverified rather than as a fail.
+    assert good.worse_of(bad).status == "not_applicable"
+    assert bad.worse_of(good).status == "not_applicable"
     assert good.worse_of(bad).rounds == bad.rounds + good.rounds
+    assert "UNVERIFIED" in (_details_of(good.worse_of(bad)) or "")
 
 
 def test_the_narrative_evidence_details_are_bounded_by_rank_and_count_the_rest():
