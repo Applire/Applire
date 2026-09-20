@@ -271,8 +271,10 @@ def test_the_letter_reviewer_ratchets_are_not_raised_by_the_rescope():
     """The prose door had 25 characters of headroom (12,475 / 12,500) when this
     change started. The rescope is paid for inside `_CHECKS`, not by moving the
     ceiling — 'map the new content to a row and REPLACE, do not append'."""
-    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 12_900, len(reviewer.REVIEW_SYSTEM_PROMPT)
-    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_300, len(
+    # ratchet moved 2026-09-20 — see the entry in
+    # test_532_affirmative_limit_obligation.py::test_the_letter_reviewer_ratchets_still_hold
+    assert len(reviewer.REVIEW_SYSTEM_PROMPT) < 13_450, len(reviewer.REVIEW_SYSTEM_PROMPT)
+    assert len(reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT) < 16_850, len(
         reviewer.TERMINAL_REVIEW_SYSTEM_PROMPT
     )
 
@@ -293,5 +295,16 @@ def test_the_writer_prompt_does_not_grow_for_the_rescope():
 
     A change that raises this number again owes the same two things: a row, and a
     merge attempt first.
+
+    **Moved ONCE again, 15,050 -> 15,550, on 2026-09-20 (#732, #731).** Both things
+    are paid. The row: SF-WRITE, new row, id assigned at integration — "a named gap
+    is delivered as a bare negation and the panel rejects on it". The merge attempt:
+    the form rule was first written as its OWN rule (764 chars) and then folded into
+    the STATED LIMITS (b) rule that already owned gap ordering, and the #270 menu was
+    REPLACED by its ranked form rather than a fourth rule being added beside it; the
+    net +491 buys the PO's 2026-09-18 ranking, the fused-sentence form, and the one
+    sentence that says a ledger `claimable` verdict does not answer a stated limit.
+    Measured at the delivery point, luna, n=2 before / n=3 after: delivered gap
+    sentences carrying their own transfer clause 0 of 3 -> 5 of 5, disclosures 3 -> 5.
     """
-    assert len(writer.SYSTEM_PROMPT) < 15_050, len(writer.SYSTEM_PROMPT)
+    assert len(writer.SYSTEM_PROMPT) < 15_550, len(writer.SYSTEM_PROMPT)

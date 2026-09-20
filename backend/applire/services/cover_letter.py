@@ -820,6 +820,11 @@ def build_stated_limits_entry(
             "explicit positioning decision in the body: name the gap in the "
             "candidate's own terms, then the adjacent strength that transfers — all "
             "folded into ONE honest paragraph, never a litany, never an apology. "
+            "The gap and that strength belong in ONE sentence, the way the "
+            "candidate's own statement says it (#732): a standalone negative "
+            "sentence, with the strength relegated to a later sentence or a generic "
+            "list, is this content HALF-delivered, and worst of all directly after a "
+            "sentence stating a strength. "
             "Silence on a limit listed here is not one of the options. The inverse "
             "is equally binding: never state a limit that is NOT listed here. "
             "Everything the Keyword Ledger marks claimable stays fully claimable, "
@@ -1705,6 +1710,7 @@ async def _render_cover_letter_background(
                 # approve any draft). The cross-document rule is now stated once in the
                 # reviewer prompt, which already holds both documents and the ledger.
                 from applire.services.cross_document import (
+                    stated_limit_adjudication_reviewer_prompt_fn,
                     unaddressed_requirements_reviewer_prompt_fn,
                 )
                 # ADR-076 clause 6 (#543): rank-gate the demand under the SAME
@@ -1787,7 +1793,29 @@ async def _render_cover_letter_background(
                     # substitute for supplying the answer. Positive direction only —
                     # the fold is English-only, so a term the scan misses stays
                     # raisable, at the price of a quote.
-                    return forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
+                    fn = forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
+                    # #731 (2026-09-20 founder UAT): a SIXTH deterministic wrapper —
+                    # the CLAIMABLE-side twin of the wrapper above. A denial of
+                    # "vector databases" cannot floor a ledger row labelled "RAG
+                    # methods" (no shared token), and must not: pairing a limit with
+                    # a concept is a JUDGEMENT, and the matcher that tried it answered
+                    # backwards on real data and was deleted (collect_stated_limits).
+                    # So the row stays claimable, nothing deterministic names it, and
+                    # the delivered letter claimed retrieval work the candidate had
+                    # attributed to a colleague. Measured with the reviewer isolated
+                    # on that draft, luna, n=5: the claim was demanded removed 0/5 —
+                    # and still 0/5 after a check-1 bullet naming the case verbatim,
+                    # because the DO-NOT-CLAIM PRESENCE block's "presence is not yours
+                    # to determine" reads as settling the whole question. This block
+                    # supplies the presence half so the judgement half can be asked at
+                    # all — #531's own lesson, applied to the claimable side. Same
+                    # composition as the five above: no new LLM call, no new pass, no
+                    # new loop.
+                    return stated_limit_adjudication_reviewer_prompt_fn(
+                        fn,
+                        keyword_ledger=keyword_ledger,
+                        denied_concepts=denied_concepts,
+                    )
 
                 reviewer_prompt_fn = _wrap_reviewer(build_review_prompt)
                 # Wave-6 follow-up (charter run #6, Task 2): prefer_if is a SECONDARY,

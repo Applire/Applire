@@ -201,31 +201,37 @@ Rules:
     testimony means the candidate's CURRENT/former employer — in a letter addressed to the
     TARGET company those words read as the target. Name the employer instead. And never
     re-state content another paragraph of the letter already covers — one fact, one paragraph.
-- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075): when a STATED LIMITS block appears in
-  the user message, it holds the candidate's own words about what they cannot claim, and
-  they are the ONLY limits that exist.
-  (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit
-  they do not state. A concept named inside one of those statements as something the
-  candidate DOES have is a STRENGTH — an honest denial names the adjacent strengths that
-  transfer — so claim it plainly and without qualification. Everything the Keyword Ledger
-  marks claimable stays fully claimable unless a stated limit denies it, and never belongs
-  in the honest-gap/transfer-argument paragraph. Disclaiming something the vault evidences
-  costs the candidate their best material and is as untrue as an inflated claim.
-  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears in
-  the user message, its entries are the concepts THIS posting asks about that the
-  candidate has DENIED in their own words — at ANY requirement tier, required or nice-to-have alike. Each listed limit owes
-  ONE explicit positioning decision: name the gap in the candidate's own terms, then the
-  adjacent strength that transfers, inside the SAME single honest-gap paragraph, never a
-  litany. Silence on a listed limit is not one of the options. This reaches ONLY what the
-  candidate said themselves — a requirement nobody ever asked them about is not a gap you
-  may assert on their behalf.
-- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
-  job-description concept the candidate's own material does not evidence (an honest gap),
-  choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
-  transfer argument (the HONEST GAP / TRANSFER ARGUMENT paragraph above), or a brief, honest
-  de-emphasis that names the gap without dwelling on it. Silence is never one of the options
-  for a hard requirement. Fold whichever response applies into the SAME single honest-gap
-  paragraph — never a litany of separate gap admissions.
+- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075 amended 2026-09-20): when a STATED LIMITS
+  block appears in the user message, it holds the candidate's own words about what they
+  cannot claim, and they are the ONLY limits that exist.
+  (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit they
+  do not state. A claim contradicts a statement when it asserts the CAPABILITY denied, not
+  only when it repeats the words — including where the Ledger marks that capability claimable
+  under another label, and including inside a system the candidate merely owns or manages,
+  because a reader credits the owner with the technology named (#731). Reform such a sentence
+  into a SCOPED CLAIM: the scope they DO own, the limited part attributed to whoever did it,
+  neither claimed nor flatly denied. A concept named inside one of those statements as
+  something the candidate DOES have is a STRENGTH — an honest denial names the adjacent
+  strengths that transfer — so claim it plainly and without qualification. Everything the
+  Keyword Ledger marks claimable stays fully claimable unless a stated limit denies it, and
+  never belongs in the honest-gap/transfer-argument paragraph.
+  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears, its
+  entries are the concepts THIS posting asks about that the candidate has DENIED in their own
+  words, at ANY requirement tier. Each owes ONE positioning decision on the ranked ladder of
+  the next rule; either of its two higher rungs DISCHARGES the limit and needs no negation
+  beside it. Where the gap IS named: gap first, transferring strength second, in the SAME
+  SENTENCE, as their own statement says it ("no IFS/BRC experience, but ten years of ISO-9001
+  audit practice") — never a standalone negative, least of all right after a sentence stating
+  a strength (#732). ONE honest-gap paragraph, never a litany. This reaches ONLY what the
+  candidate said themselves — a requirement nobody asked them about is not a gap you may
+  assert on their behalf.
+- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE ARE RANKED
+  (#270, #732): take the HIGHEST rung TRUE of the candidate, never a lower one — (1) a scoped
+  claim at exactly the rung their material reaches; (2) a transfer argument where an adjacent
+  capability carries over (the paragraph above); (3) only where NEITHER holds, the gap named
+  plainly in (b)'s fused form. Rungs (1) and (2) DISCHARGE the requirement: a letter
+  delivering one owes no negation about it. Silence is still never an option; fold the
+  decision into the SAME paragraph.
 """
 
 

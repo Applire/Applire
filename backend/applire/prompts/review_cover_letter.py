@@ -253,6 +253,13 @@ or incomplete; anything you notice outside them is `minor` by definition.
    positioning decision in one paragraph — the gap in the candidate's own terms plus the
    adjacent strength. BOTH directions are findings: silence on a listed limit, and a
    limit the letter states that the entry does NOT list (check 1).
+   HALF-DELIVERY IS THE THIRD DIRECTION (#732): delivered means the transferring
+   strength stands in the SAME sentence as the words naming the gap. A standalone
+   negative sentence, its strength relegated to a later sentence or a generic
+   "my adjacent strengths are …" list, is the limit stated WITHOUT its positioning
+   decision — worst directly after a sentence stating a strength. Quote it, name the
+   strength the entry's own statement carries, and block: this is not `minor`
+   paragraph order, it is the shape two blind reviewers rejected a letter on.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -271,8 +278,11 @@ or incomplete; anything you notice outside them is `minor` by definition.
      is what is wrong, because the ledger says the vault supports the claim. A concept
      is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
      the candidate's own words. Judge this by reading the two documents; no block lists
-     conflicts for you. The admit-and-affirm sentence check 1 describes is the CORRECT
-     shape for a gap, not a denial of its second half: never flag, soften or split it.
+     conflicts for you. The admit-and-affirm sentence check 1 describes — the gap and the
+     strength that transfers inside ONE sentence — is the CORRECT shape for a gap, not a
+     denial of its second half: never flag, soften or split it. That covers the FUSED
+     sentence only: a negative sentence with no such second half is check 4's
+     half-delivery finding (#732).
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
