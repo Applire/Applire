@@ -25,6 +25,7 @@ Entry points:
 Both call the same internal _run_analysis() function.
 """
 
+import copy
 import hashlib
 import json
 import logging
@@ -226,9 +227,16 @@ async def analyze_gaps(
     profile or JD change recomputes.
 
     ``clamp_to_previous`` (the /gaps/refresh, post-interview-answer path): when a
-    recompute does happen, the headline ``match_score`` is clamped to
-    ``max(old, new)`` — added evidence is monotonic-up since fit weights are fixed,
-    so answering a gap can never lower the displayed score.
+    recompute does happen and lands LOWER than the previous row, the previous
+    row's WHOLE scored slice is republished — score together with
+    ``requirement_breakdown``/``category_a``/``b``/``c``/``critical_gaps``/
+    ``minor_gaps`` — and only on the evidence-added population. A recompute that
+    carries a new ``denied`` status, or any requirement that moved from
+    ``direct``/``partial`` down to ``gap``/``denied``, is never clamped: an
+    honest denial MUST be able to lower the displayed score (#675 line 77 / F-3,
+    ruling B-1 of 2026-09-20). The clamp's original premise — "answering a gap
+    can never lower the displayed score" (E037 PQ #3) — holds only for added
+    evidence and stochastic B/C refinement, never for a recorded denial.
 
     Stores the result in gap_analyses and returns a GapAnalysisResponse.
     """
@@ -592,6 +600,126 @@ def ledger_input_from_classification(c: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# The published score slice (#675 line 77 / UAT F-3, ruling B-1 2026-09-20)
+# ---------------------------------------------------------------------------
+#
+# The headline `match_score` and the table that explains it
+# (`requirement_breakdown`, `category_a/b/c`, `critical_gaps`, `minor_gaps`)
+# are ONE slice of the gap-analysis row, published together or not at all.
+# Before this seam existed the clamp rewrote `match_score` alone while the
+# table was always written fresh, so the founder-UAT of 2026-09-20 shipped a
+# headline of 0.6404 above a table whose own arithmetic said 28.0/44.5 =
+# 0.6292 — and the drift compounded over every further denial.
+#
+# ADR-062 clause 1/6 declaration: both functions below are FACTS — they read
+# enum values off two persisted data structures and compare them. Neither
+# interprets prose and neither calls a model.
+
+#: The keys of the score slice. Every one of them is published from the SAME
+#: dict, so the headline can never disagree with its own table.
+_SCORE_SLICE_KEYS = (
+    "match_score",
+    "category_a",
+    "category_b",
+    "category_c",
+    "critical_gaps",
+    "minor_gaps",
+    "requirement_breakdown",
+)
+
+#: Statuses that mean "the candidate holds this, at least adjacently".
+_HELD_STATUSES = frozenset({"direct", "partial"})
+#: Statuses that mean "this is not claimable" — `gap` is UNKNOWN, `denied` is
+#: "asked, and the candidate said no" (ADR-059 amended 2026-07-26/27).
+_UNCLAIMABLE_STATUSES = frozenset({"gap", "denied"})
+
+
+def _statuses_by_requirement(breakdown: Any) -> dict[str, str]:
+    """Normalised ``requirement -> status`` map over a stored breakdown.
+
+    Accepts the raw JSONB list of dicts (what the ORM row carries) and tolerates
+    pydantic ``RequirementBreakdownItem`` objects, so a caller holding a
+    validated response can use the same fact.
+    """
+    out: dict[str, str] = {}
+    for item in breakdown or []:
+        if isinstance(item, dict):
+            req = item.get("requirement", "")
+            status = item.get("status", "")
+        else:  # pydantic item
+            req = getattr(item, "requirement", "") or ""
+            status = getattr(item, "status", "") or ""
+        key = (req or "").strip().casefold()
+        if key and key not in out:
+            out[key] = status or ""
+    return out
+
+
+def carries_a_new_denial_or_regression(
+    previous_breakdown: Any,
+    new_breakdown: Any,
+) -> bool:
+    """Did this recompute record a denial, or lose a requirement the candidate held?
+
+    Ruling B-1 (2026-09-20) — the two shapes that must NEVER be clamped:
+
+    * a requirement now ``denied`` that was not ``denied`` in the previous row
+      (including one that appears for the first time): the candidate has just
+      told us they do not have it, and the displayed score must say so;
+    * a requirement that moved from ``direct``/``partial`` down to
+      ``gap``/``denied``: the evidence the previous score was built on is gone.
+
+    Everything else that lowers a score — a ``direct`` refined to ``partial``, a
+    concept regrouped under a different surface form, a widened JD denominator —
+    is the stochastic wobble the E037 PQ #3 clamp was actually earned against.
+    """
+    previous_statuses = _statuses_by_requirement(previous_breakdown)
+    for key, status in _statuses_by_requirement(new_breakdown).items():
+        was = previous_statuses.get(key)
+        if status == "denied" and was != "denied":
+            return True
+        if was in _HELD_STATUSES and status in _UNCLAIMABLE_STATUSES:
+            return True
+    return False
+
+
+def published_score_slice(
+    scored: dict[str, Any],
+    previous: GapAnalysis | None,
+    *,
+    clamp_to_previous: bool,
+) -> dict[str, Any]:
+    """The score slice this recompute publishes — fresh, or the previous row's.
+
+    Returns a dict carrying exactly :data:`_SCORE_SLICE_KEYS`. When the clamp
+    applies, the previous row's slice is republished as a UNIT (deep-copied, so
+    the new row never shares a mutable JSONB list with the old one); the clamp
+    can therefore no longer produce a headline that contradicts its own table.
+    """
+    if not clamp_to_previous or previous is None or previous.match_score is None:
+        return scored
+
+    new_score = scored.get("match_score")
+    if new_score is not None and new_score >= previous.match_score:
+        return scored
+
+    if carries_a_new_denial_or_regression(
+        previous.requirement_breakdown, scored.get("requirement_breakdown")
+    ):
+        return scored
+
+    # Every slice key is also a GapAnalysis column name, so the republished
+    # slice is assembled from the constant: a key added to _SCORE_SLICE_KEYS
+    # that the clamp forgot is impossible.
+    clamped: dict[str, Any] = {"match_score": previous.match_score}
+    for key in _SCORE_SLICE_KEYS:
+        if key == "match_score":
+            continue
+        clamped[key] = copy.deepcopy(getattr(previous, key) or [])
+    return clamped
+
+
 async def _run_analysis(
     job: JobAnalysis,
     profile: MasterProfile,
@@ -710,38 +838,42 @@ async def _run_analysis(
         profile.embedding,
     )
 
-    # E037 PQ #3 — monotonic-up clamp on the post-interview-answer (/gaps/refresh)
-    # path: fit weights are fixed, so adding evidence can only raise the score.
-    # Never let a re-evaluation lower the headline number ("adding evidence
-    # lowered my score"). max(old, new) is the required floor.
-    match_score = scored["match_score"]
-    if (
-        clamp_to_previous
-        and previous is not None
-        and previous.match_score is not None
-        and (match_score is None or match_score < previous.match_score)
-    ):
-        match_score = previous.match_score
+    # E037 PQ #3 + ruling B-1 (2026-09-20) — the monotonic-up clamp on the
+    # post-interview-answer (/gaps/refresh) path, applied to the WHOLE score
+    # slice and only to the evidence-added population. `published` is the single
+    # dict every score-derived field below is written from: the headline and the
+    # table it explains can no longer disagree (UAT F-3), and a recorded denial
+    # is never clamped — it is allowed to lower the displayed score, because
+    # that is the mechanism the product stands for.
+    published = published_score_slice(
+        scored, previous, clamp_to_previous=clamp_to_previous
+    )
 
     record = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
-        match_score=match_score,
+        match_score=published["match_score"],
         input_fingerprint=fingerprint,
         embedding_similarity_score=embedding_similarity_score,
-        critical_gaps=scored["critical_gaps"],
-        minor_gaps=scored["minor_gaps"],
+        critical_gaps=published["critical_gaps"],
+        minor_gaps=published["minor_gaps"],
         # E-4 / SF-GAP.10 — the ledger has the last word on every published
         # list, `strengths` included (see `_strengths_the_ledger_supports`).
         strengths=_strengths_the_ledger_supports(
             data.get("strengths", []), keyword_ledger
         ),
         keyword_gaps=data.get("keyword_gaps", []),
-        category_a=scored["category_a"],
-        category_b=scored["category_b"],
-        category_c=scored["category_c"],
+        category_a=published["category_a"],
+        category_b=published["category_b"],
+        category_c=published["category_c"],
+        # The ledger is ALWAYS this run's own: it carries the evidence sentences,
+        # surface forms and denial levels the writers read, and #318's
+        # `assert_claimable_backed` invariant was asserted against THIS profile.
+        # Republishing a previous ledger could reinstate a claimable row whose
+        # vault evidence has since been removed. The clamp therefore governs the
+        # published score slice only — see `published_score_slice`.
         keyword_ledger=keyword_ledger,
-        requirement_breakdown=scored["requirement_breakdown"],
+        requirement_breakdown=published["requirement_breakdown"],
     )
 
     # Phase 2: semantic clustering — BEFORE the record is published. Committing
