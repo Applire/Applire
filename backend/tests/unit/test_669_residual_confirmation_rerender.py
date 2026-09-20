@@ -181,12 +181,15 @@ async def test_second_confirmation_of_a_turn_rerenders_german_after_the_first_is
     assert r2.choices == [
         "„SAP MM“ als eigene Fähigkeit hinzufügen",
         "In die vorhandene Fähigkeit zusammenführen",
+        # #730 (founder UAT 2026-09-20, F-11) — the refusal option, localised
+        # like its two siblings.
+        "Weder noch — „SAP MM“ nicht aufnehmen",
     ]
 
     # ... and the nested pending_confirmations entry the agent/UI door reads
     # option_keys off (ADR-058 parity) — this is the field #669 exists for.
     sap_mm_prompt = r2.pending_confirmations[0]
-    assert sap_mm_prompt.option_keys == ["distinct", "merge"], (
+    assert sap_mm_prompt.option_keys == ["distinct", "merge", "keep"], (
         f"empty/missing option_keys resolves a German answer through the "
         f"back-compat ENGLISH substring matcher (#669's exact harm); got "
         f"{sap_mm_prompt.option_keys!r}"
@@ -257,7 +260,7 @@ async def test_hard_ceiling_completion_carries_the_pending_confirmation_in_germa
         assert "teilt ein Wort" in prompt.question, (
             f"ceiling-hit completion must render German, got {prompt.question!r}"
         )
-        assert prompt.option_keys == ["distinct", "merge"], (
+        assert prompt.option_keys == ["distinct", "merge", "keep"], (
             f"ceiling-hit completion dropped option_keys: {prompt.option_keys!r}"
         )
 
@@ -289,6 +292,6 @@ async def test_profile_enrich_mode_c_door_renders_confirmation_in_german(async_d
     )
     for prompt in response.pending_confirmations:
         assert "teilt ein Wort" in prompt.question
-        assert prompt.option_keys == ["distinct", "merge"], (
+        assert prompt.option_keys == ["distinct", "merge", "keep"], (
             f"Mode C dropped option_keys: {prompt.option_keys!r}"
         )

@@ -297,9 +297,16 @@ def test_a_german_rendering_of_the_same_options_mis_resolves():
     """The blocker, executable. `keep` is the dangerous one: the candidate asked
     to DISCARD the incoming skill and the matcher answers `distinct`, which adds
     it. Localising the options is therefore a vault-write change, not a string
-    change — see `D-ledger/adr-delta.md`."""
+    change — see `D-ledger/adr-delta.md`.
+
+    **#730 (founder UAT 2026-09-20) amends the assertion, not the matcher.** The
+    English matcher still READS none of these three German renderings — that is
+    the defect #669's option keys close. What changed is the answer it gives when
+    it reads nothing: `None`, so the door re-asks, instead of `"distinct"`, which
+    wrote the skill. Pinned per line, so a future widening of the matcher has to
+    say which line it changed."""
     from applire.services.session import _skill_confirmation_decision
 
-    assert _skill_confirmation_decision("Bestehende Skills behalten") == "distinct"
-    assert _skill_confirmation_decision("In 'SAP MM' zusammenführen") == "distinct"
-    assert _skill_confirmation_decision("Als eigenständigen Skill hinzufügen") == "distinct"
+    assert _skill_confirmation_decision("Bestehende Skills behalten") is None
+    assert _skill_confirmation_decision("In 'SAP MM' zusammenführen") is None
+    assert _skill_confirmation_decision("Als eigenständigen Skill hinzufügen") is None

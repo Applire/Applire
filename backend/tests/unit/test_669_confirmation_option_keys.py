@@ -159,7 +159,15 @@ def test_confirmations_module_exposes_exactly_five_builder_functions():
         "attribution_confirmation",
         "attribution_entry_confirmation",
         "entity_dupe_confirmation",
+        # #730 (2026-09-20) — the skill-decision resolution moved here whole, so
+        # the module that WRITES the option keys is the only one that reads them:
+        # `resolve_skill_decision` is THE resolver, `match_skill_decision_text`
+        # is its pre-#669 back-compat half, and `render_unmatched_answer_hint`
+        # is what the candidate is told when their answer names no option.
+        "match_skill_decision_text",
+        "render_unmatched_answer_hint",
         "resolve_option_key",
+        "resolve_skill_decision",
         "skill_containment_confirmation",
         "skill_overlap_confirmation",
     ]
@@ -248,7 +256,9 @@ def test_skill_containment_family_de_and_en_resolve_to_same_key():
     op = skill_containment_confirmation(
         incoming_skill="SAP PP", related=["SAP"], context={},
     )
-    _assert_de_and_en_resolve_to_same_keys(op, ["distinct", "merge"])
+    # `keep` since #730 (founder UAT 2026-09-20, F-11): this family's options
+    # were both writes, so "neither" was expressible only as free text.
+    _assert_de_and_en_resolve_to_same_keys(op, ["distinct", "merge", "keep"])
 
 
 def test_attribution_family_de_and_en_resolve_to_same_key():
@@ -294,8 +304,13 @@ def test_skill_confirmation_decision_resolves_the_german_keep_text_via_the_key()
 
     # Back-compat / pre-#669 path: no key survives (persisted-before-#669 record,
     # or a model-emitted confirmation) — the English substring matcher is all
-    # that is left, and it still gets this one wrong. That IS the defect.
-    assert _skill_confirmation_decision(keep_text_de, None) == "distinct"
+    # that is left, and it still cannot READ this one. That IS the defect.
+    #
+    # #730 (2026-09-20) changed what happens next, and only that: it no longer
+    # answers "distinct". An unmatched answer resolves to `None` and the door
+    # re-asks, so the vault can no longer GAIN a skill from an answer nobody
+    # understood. The matcher itself is untouched.
+    assert _skill_confirmation_decision(keep_text_de, None) is None
 
 
 # ── 4. back-compat: a pre-#669 PendingConfirmation ─────────────────────────────
