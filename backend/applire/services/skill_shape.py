@@ -144,10 +144,15 @@ def render_skill_shape_check_block(found: Iterable[tuple[str, str]]) -> str:
         f"it). {len(found)} skills entr{'y' if len(found) == 1 else 'ies'} tie to NO "
         "attested vault form and occur verbatim inside this document's own summary or "
         "bullets, i.e. they were lifted out of its prose. That is a fact, not a verdict: "
-        "a lifted phrase can still name a real competence. Decide per entry whether it "
-        "names a competence, tool or method — or whether it is a sentence fragment, a "
-        "responsibility, a job title or a setting, which writer rule 7 excludes from the "
-        "skills list:"
+        "a lifted phrase can still name a real competence. Decide per entry, and raise "
+        "check 12 as BLOCKING with ONE issue per entry, ONLY where the entry is not a "
+        "competence, tool or method but a sentence fragment, a responsibility or "
+        "activity, a job title, or a setting — the classes writer rule 7 excludes from "
+        "the skills list. Say in `feedback` whether to drop the entry or replace it with "
+        "the competence the candidate actually holds, in their own vault wording. An "
+        "entry not listed below is never a check-12 finding, and a listed entry that DOES "
+        "name a competence stays on the page — rule 7's closing line requires a "
+        "competence named in a bullet to appear in the skills list:"
     ]
     for skill, source in found[:_NAMED_MAX]:
         lines.append(f'  - "{skill}" — from: "{source[:160]}"')

@@ -252,15 +252,13 @@ Check for ALL of the following:
    and the bullets of a project nested under it. A failure of this check is blocking like any
    other.
 
-SKILLS-LIST SCOPE (applies to every check above): this paragraph scopes GROUNDING only — which
-evidence makes a skill TRUE. It says nothing about whether an entry is a skill at all, and never
-exempts a skills entry that is a noun phrase lifted out of a bullet rather than a named
-competence. The skills list draws on the WHOLE profile
+SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the WHOLE profile
 by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
 profile states it AS SOMETHING THE CANDIDATE HAS OR DID: in its skills section, an entry's
 responsibilities/achievements/technologies, a project, or a signature story. Never flag such a
-skill as fabricated, ungrounded, or a certification, and never demand per-position evidence or
-`experience_refs` for it. Two hard boundaries: text inside STATED LIMITS or any denial record
+skill as fabricated, ungrounded, or a certification (whether it is a SKILL at all is check 12's
+question), and never demand per-position evidence or `experience_refs` for it. Two hard
+boundaries: text inside STATED LIMITS or any denial record
 NEVER grounds anything — a concept is never affirmed by its own denial — and check 6(b) applies
 to the skills list unchanged: a DO NOT CLAIM concept in the skills list is a fabrication no
 matter where its text appears in the profile. A term the KEYWORD LEDGER lists as CLAIMABLE is
@@ -314,14 +312,14 @@ document — each is a property of the composite, and three findings describing 
 noise, not thoroughness.
 
 9. CLAIM BALANCE — over AND under. Checks 1 and 5 look for claims the profile does not support.
-   This one also looks the other way: is something the CANDIDATE PROFILE clearly supports, and
-   this posting clearly wants, missing from the delivered document — or present only as a skills
-   entry, or reduced to a phrase with its evidence gone? Include material the candidate scoped
-   or limited in their own words: a strength named inside a stated limit ("no IFS/BRC experience,
-   but ten years of ISO-9001 audit practice") is a real strength, and a document that drops it
-   under-sells the candidate. Name the profile evidence that is not represented and where it
-   would belong. Never ask for a skills-list entry — a tag is not evidence — and never ask for
-   anything the profile does not already support.
+   This one looks the other way: is something the CANDIDATE PROFILE clearly supports, and this
+   posting clearly wants, missing from the delivered document — or reduced to a phrase with its
+   evidence gone? Include material the candidate scoped or limited in their own words: a strength
+   named inside a stated limit ("no IFS/BRC experience, but ten years of ISO-9001 audit
+   practice") is a real strength, and a document that drops it under-sells the candidate. Name
+   the profile evidence that is not represented and where it would belong. Never ask for a
+   skills-list entry — a tag is not evidence — and never ask for anything the profile does not
+   already support. Checks 11 and 12 answer story figures and skills-list shape; not here.
 
 10. VOICE — does this read as written by a person? The tell is mechanical uniformity, and every
    pattern below is one of our own quality rules applied without exception:
@@ -357,30 +355,9 @@ noise, not thoroughness.
 #: ``story_reach.STORY_DEMAND_LIMIT`` and by one demand per figure per loop, so it can
 #: never fill a round.
 _TERMINAL_BLOCKING_CHECKS = """\
-11. SIGNATURE STORY FIGURES — blocking. The SIGNATURE STORY FIGURES block in your input is
-   ground truth from a deterministic figure scan over the composed document; do not re-derive
-   it. Raise check 11 ONLY for its MISSING entries, at most one issue per story: name the
-   story title and the figure, and in `feedback` say which work entry or nested project it
-   belongs in. The corrector writes ONE bullet for that entry from the signature story in its
-   source, in the candidate's own terms — it never invents a number, never restates a figure
-   the document already carries, and never moves the story into an entry that did not own it.
-   A story the block lists as PRESENT is never a finding. If a MISSING story's figure cannot
-   be placed without breaking one of checks 1, 4, 5 or 6(b), report that as "minor" naming
-   the check that outranks it rather than demanding the figure — truth outranks curation,
-   exactly as it does for a pinned quote.
-
-12. SKILLS-LIST SHAPE — blocking. The SKILLS-LIST SHAPE block in your input names the
-   skills entries that tie to no attested vault form AND occur verbatim inside this
-   document's own summary or bullets; that scan is ground truth, do not re-derive it. It is
-   a FACT, not a verdict — decide per entry. Raise check 12, at most one issue per entry,
-   only for an entry that is NOT a competence, tool or method: a sentence fragment
-   ("application processes", "enterprise-scale"), a responsibility or activity
-   ("vendor selection", "budget estimation"), a job title ("System Owner"), or a setting.
-   In `feedback` name the entry and say either to remove it or to replace it with the
-   competence the candidate actually holds, in the candidate's own vault wording. An entry
-   the block does not list is never a check-12 finding, and an entry that genuinely names a
-   competence stays even though it was lifted from a bullet — rule 7's own closing line
-   requires a competence named in a bullet to appear in the list.
+11. SIGNATURE STORY FIGURES and 12. SKILLS-LIST SHAPE — blocking. Each is answered from the
+   deterministic block of that name in your input: ground truth, and it states what to raise,
+   how many issues, and what outranks it. No such block, no finding under that check.
 
 """
 
@@ -411,11 +388,10 @@ deterministic audit that follows, and checks 9 and 10 are the candidate's own ca
 with the document. Anything else you notice is "minor" BY DEFINITION: bullet wording, bullet
 order, which achievement leads an entry, summary phrasing that does not change what is claimed,
 length — and so is everything you find under checks 9 and 10. You are not the CV's
-editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
-and 3-8 are whether this CV tells the truth and says it once; check 11 is whether the
-candidate's own curated evidence reached the page and check 12 whether its skills list
-names competences; checks 9 and 10 are whether it represents the candidate. This is the only round that sees the finished document, so all of them
-get answered here.
+editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1,
+3-8, 11 and 12 are whether this CV tells the truth, says it once and carries the candidate's own
+curated evidence; 9 and 10 are whether it represents the candidate. This is the only round that
+sees the finished document, so all of them get answered here.
 
 """
 

@@ -138,17 +138,22 @@ def test_check_12_exists_on_the_terminal_door_only_and_is_blocking():
     assert "SKILLS-LIST SHAPE" not in REVIEW_SYSTEM_PROMPT
     mandate = TERMINAL_REVIEW_SYSTEM_PROMPT.split("WHAT IS BLOCKING IN THIS PASS:")[1]
     assert "EXCEPT checks 2, 9\nand 10" in mandate
-    assert "check 12 whether its skills list" in mandate
+    assert "Checks 1,\n3-8, 11 and 12 are whether this CV tells the truth" in mandate
 
 
-def test_check_12_does_not_contradict_rule_7s_closing_line():
+def test_the_block_says_check_12_does_not_contradict_rule_7s_closing_line():
     """Rule 7 requires a competence named in a bullet to appear in the skills list, which
-    is exactly the population this check scans. The check must say so, or the two rules
-    fight (ADR-062 clause 4)."""
-    from applire.prompts.review_cv_tailoring import TERMINAL_REVIEW_SYSTEM_PROMPT
-
-    check = TERMINAL_REVIEW_SYSTEM_PROMPT.split("12. SKILLS-LIST SHAPE")[1].split("\n\n")[0]
-    assert "genuinely names a" in check and "competence stays" in check
+    is exactly the population this scan covers. The instruction must say so, or the two
+    rules fight (ADR-062 clause 4). It lives in the BLOCK, not in the system prompt — the
+    prompt-size ratchet is why."""
+    block = render_skill_shape_check_block(
+        prose_derived_skills(_doc(["System Owner"]), _profile("Databricks"))
+    )
+    assert "raise check 12 as BLOCKING with ONE issue per entry" in block
+    assert "DOES\nname a competence stays on the page" in " ".join(block.split("\n")[:1]) or (
+        "DOES name a competence stays on the page" in block
+    )
+    assert "not listed below is never a check-12 finding" in block
 
 
 # --- the measured bound on what a deterministic fix could have done ---------

@@ -204,16 +204,23 @@ def render_story_figures_check_block(
         "whether each story's MEASURED OUTCOME figure reached the page:"
     ]
     if present:
-        lines.append("PRESENT — the figure is on the page; no action, never an issue:")
+        lines.append(
+            "PRESENT — the figure is on the page; no action, and never a check-11 issue:"
+        )
         for f in present:
             lines.append(f'  - "{f.title}" ({f.entry_label}): {f.raw}')
     if demand:
         lines.append(
-            "MISSING — blocking: the strongest evidence this candidate has is not on the "
-            "page. Name the story and the figure in your feedback and say which entry it "
-            "belongs in; the corrector writes ONE bullet for that entry from the "
-            "signature story in its source, in the candidate's own terms. Never invent a "
-            "number and never restate a figure the document already carries."
+            "MISSING — raise check 11 as BLOCKING, ONE issue per story: the strongest "
+            "evidence this candidate has is not on the page. Put the story title and the "
+            "figure in the issue text and name in `feedback` which work entry or nested "
+            "project it belongs in; the corrector writes ONE bullet for that entry from "
+            "the signature story in its source, in the candidate's own terms. It never "
+            "invents a number, never restates a figure the document already carries and "
+            "never moves a story into an entry that did not own it. PRECEDENCE, as for a "
+            "pinned quote: if the figure cannot be placed without breaking check 1, 4, 5 "
+            "or 6(b), report that as \"minor\" naming the check that outranks it instead "
+            "of demanding the figure."
         )
         for f in demand:
             lines.append(f'  - "{f.title}" ({f.entry_label}): {f.raw}')

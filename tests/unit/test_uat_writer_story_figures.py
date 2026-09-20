@@ -145,8 +145,9 @@ def test_the_wrapper_demands_each_figure_at_most_once_per_invocation():
     )
     first = fn("src", _doc("Nothing quantified."))
     second = fn("src", _doc("Still nothing quantified."))
-    assert "MISSING — blocking" in first
-    assert "ALREADY DEMANDED" in second and "MISSING — blocking" not in second
+    assert "MISSING — raise check 11 as BLOCKING" in first
+    assert "ALREADY DEMANDED" in second
+    assert "MISSING — raise check 11 as BLOCKING" not in second
     assert len(seen) == 1, "on_demand fires once per figure per invocation"
 
 
@@ -157,7 +158,7 @@ def test_the_demand_count_per_round_is_bounded():
     ]
     fn = story_figures_reviewer_prompt_fn(lambda s, d: "BASE", _profile(*stories))
     block = fn("src", _doc("Nothing quantified."))
-    demand_section = block.split("MISSING — blocking")[1].split("ALREADY DEMANDED")[0]
+    demand_section = block.split("MISSING — raise check 11")[1].split("ALREADY DEMANDED")[0]
     assert demand_section.count("  - ") == STORY_DEMAND_LIMIT
 
 
@@ -194,17 +195,24 @@ def test_check_11_exists_on_the_terminal_door_only_and_is_blocking():
     # The mandate excludes 2, 9 and 10 from blocking — never 11.
     mandate = TERMINAL_REVIEW_SYSTEM_PROMPT.split("WHAT IS BLOCKING IN THIS PASS:")[1]
     assert "EXCEPT checks 2, 9\nand 10" in mandate
-    assert "check 11 is whether the" in mandate
+    assert "Checks 1,\n3-8, 11 and 12 are whether this CV tells the truth" in mandate
+    # The check itself is a NAME plus a pointer; the instruction lives in the per-round
+    # block, which is input and costs nothing against the prompt-size ratchet.
+    assert "answered from the" in TERMINAL_REVIEW_SYSTEM_PROMPT.split(
+        "11. SIGNATURE STORY FIGURES")[1][:200]
 
 
 def test_the_skills_list_scope_paragraph_no_longer_exempts_rule_7s_shape_rule():
-    """F-9's contradiction sweep: the paragraph scoped grounding but read as a blanket
-    'never flag a grounded skill', which covered a noun phrase lifted from a bullet."""
+    """F-9's contradiction sweep: the paragraph read as a blanket 'never flag a grounded
+    skill', which covered a noun phrase lifted from a bullet and so contradicted writer
+    rule 7 across the seam (ADR-062 clause 4). Narrowed IN PLACE, not prefixed — the
+    prompt-size ratchet asks for replacement, not appending."""
     from applire.prompts.review_cv_tailoring import TERMINAL_REVIEW_SYSTEM_PROMPT
 
     scope = TERMINAL_REVIEW_SYSTEM_PROMPT.split("SKILLS-LIST SCOPE")[1]
-    assert "scopes GROUNDING only" in scope
-    assert "never\nexempts a skills entry that is a noun phrase lifted out of a bullet" in scope
+    flat = " ".join(scope.split())
+    assert "Never flag such a skill as fabricated, ungrounded, or a certification" in flat
+    assert "whether it is a SKILL at all is check 12's question" in flat
 
 
 def test_the_prose_reviewer_prompt_stays_under_its_size_gate():
