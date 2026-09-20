@@ -847,13 +847,8 @@ async def run_interview(job_id: str) -> dict:
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when finished. "
         "Reply 'done' to end. If 'pending_confirmations' is present, reply "
-        "with one of the listed 'options' VERBATIM as the next message; never "
-        "assume the answer, and never paraphrase it (guide). An answer that is "
-        "not one of the options changes nothing and the same question comes "
-        "back — a skill-dedupe ask always offers a 'neither' option, so relay "
-        "that one when your user declines instead of describing the refusal in "
-        "your own words. 'option_keys' gives each option's stable meaning "
-        "(distinct / merge / keep)."
+        "with one of the listed 'options' VERBATIM; never paraphrase, and an "
+        "answer that is none of them changes nothing (guide)."
     )
 )
 async def send_message(session_id: str, message: str) -> dict:
