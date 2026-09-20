@@ -65,6 +65,18 @@ class ATSKeywordCoverage(BaseModel):
     # via the section editor). Surfaced as a truthfulness warning, never silently
     # counted as ordinary coverage. Empty when no ledger is available (cannot judge).
     present_unsupported: list[str] = []
+    # F-8 (founder UAT 2026-09-20, #672 line 125): a keyword PRESENT in the document
+    # whose owning Keyword Ledger row the candidate DENIED (`status == "denied"` —
+    # they were asked and said they do not have it). A FACT about the row, never a
+    # verdict on the sentence: ADR-048/059 amended 2026-07-27 deliberately keeps this
+    # layer out of judging negation ("a denied concept named in an honest negation is
+    # not an unsupported claim… the direction-aware check lives with the Oracle"), so
+    # folding these into `present_unsupported` would be exactly the judgement this
+    # layer may not make. Its own bucket instead, so the coverage list cannot read as
+    # an ATS win for something the candidate told us they lack. `present` and both
+    # counters are unchanged by construction. Empty when no ledger is available
+    # (cannot judge); absent on a report that predates the field (never measured).
+    present_denied: list[str] = []
     # E048/US266 (#249 option b): EVERY claimable ledger entry's surface forms
     # (concept name included), regardless of whether the term is present or
     # missing in the document — unlike `missing_claimable`, which only covers

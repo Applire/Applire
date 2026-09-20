@@ -1106,6 +1106,19 @@ def _keyword_coverage(
         and _norm(k) not in claimable_norm
         and k not in literally_grounded
     ]
+    # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
+    # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
+    # the two can never disagree about which row a keyword belongs to; the fact read
+    # off that row is its `status`, which the ledger already carries
+    # (`keyword_ledger._VALID_STATUS`) and already reports separately in the
+    # DO-NOT-CLAIM block. Read-only on the ledger — no ledger semantics change here.
+    present_denied = [
+        k for k in present
+        if any(
+            e.get("status") == "denied" and _norm(k) in _entry_norms(e)
+            for e in (ledger or [])
+        )
+    ]
     # E048/US266 (#249 option b): the FULL claimable list, independent of
     # presence — the same list already computed above for the missing_claimable
     # split, exposed on the report itself.
@@ -1119,6 +1132,7 @@ def _keyword_coverage(
         missing_claimable=missing_claimable,
         missing_honest_gap=missing_honest_gap,
         present_unsupported=present_unsupported,
+        present_denied=present_denied,
         claimable_concepts=claimable_concepts,
         keyword_liability_concepts=keyword_liability_concepts,
     )

@@ -371,6 +371,7 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "ats_report": [
         "keywords.present", "keywords.missing", "keywords.missing_claimable",
         "keywords.missing_honest_gap", "keywords.present_unsupported",
+        "keywords.present_denied",
         "keywords.claimable_concepts", "keywords.keyword_liability_concepts",
     ],
     "session": ["current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question"],
@@ -381,7 +382,7 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "render_document": [
         "ats_report.keywords.present", "ats_report.keywords.missing",
         "ats_report.keywords.missing_claimable", "ats_report.keywords.missing_honest_gap",
-        "ats_report.keywords.present_unsupported",
+        "ats_report.keywords.present_unsupported", "ats_report.keywords.present_denied",
     ],
 }
 

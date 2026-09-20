@@ -80,6 +80,12 @@ export type ATSReport = {
     // #117 (ADR-048 fourth quadrant): present in the document WITHOUT profile backing —
     // an unsupported claim (truthfulness warning). Optional for back-compat.
     present_unsupported?: string[];
+    // F-8 (founder UAT 2026-09-20): present in the document AND denied by the candidate
+    // on its Keyword Ledger row. Deliberately NOT part of review group 1 — a denial is
+    // something the vault DOES cover, so folding it into "what is in the document my
+    // vault does not cover?" would change that group's meaning and its verdict count.
+    // Optional for back-compat: absent on a report that predates the field.
+    present_denied?: string[];
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];
