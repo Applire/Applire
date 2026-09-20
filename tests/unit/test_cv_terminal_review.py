@@ -120,7 +120,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db):
+async def _seed(db, *, profile_json=None):
     from applire.models.job import JobAnalysis
     from applire.models.cv import GeneratedCV
 
@@ -133,7 +133,7 @@ async def _seed(db):
             language_requirement="de",
         ),
         make_master_profile(
-            id=profile_id, profile_json=_profile_json(),
+            id=profile_id, profile_json=profile_json or _profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ),
@@ -167,8 +167,33 @@ def _fake_review(script, captured):
     return fake
 
 
+def _fake_review_settling(captured, *, settled_draft, blocking, path="exhausted"):
+    """F-4 seam fake: unlike `_fake_review` this one drives the reviewer_prompt_fn AND
+    the `on_settle` hook, with a `settled` draft that DIFFERS from the reviewed one —
+    the shape `reviewer.py`'s `exhausted` return always has. It exists to exercise
+    `cv.py`'s own wiring (`reviewed_cell` + `_record_settle`), not the loop's."""
+    from applire.services.review_issues import ReviewSettle
+
+    async def fake(**kwargs):
+        if kwargs.get("chain_id") != "cv_terminal_review":
+            return kwargs["draft"]
+        reviewed = kwargs["draft"]
+        kwargs["reviewer_prompt_fn"](kwargs["source"], reviewed)
+        settled = settled_draft(reviewed)
+        on_settle = kwargs.get("on_settle")
+        if on_settle is not None:
+            on_settle(ReviewSettle(
+                path=path, approved=False, blocking_issues=tuple(blocking),
+                minor_issues=(), rounds=1, settled=settled,
+            ))
+        captured.append({"reviewed": reviewed, "settled": settled})
+        return settled
+
+    return fake
+
+
 async def _run_pipeline(db, ids, *, script=None, captured=None, extra_patches=(),
-                        review_retries=2, payload=None):
+                        review_retries=2, payload=None, review_fake=None):
     from applire.services.cv import _render_cv_background
 
     job_id, profile_id, cv_id = ids
@@ -183,7 +208,7 @@ async def _run_pipeline(db, ids, *, script=None, captured=None, extra_patches=()
     patches = [
         patch("applire.services.cv.get_provider", return_value=provider),
         patch("applire.services.cv.review_and_refine",
-              side_effect=_fake_review(script or [], captured)),
+              side_effect=review_fake or _fake_review(script or [], captured)),
         patch("applire.services.cv.LLM_REVIEW_MAX_RETRIES", review_retries),
         patch("applire.services.cv.get_cv_html", new=AsyncMock(return_value="<html></html>")),
         patch("applire.services.cv._html_to_pdf", new=AsyncMock(return_value=b"pdf")),
@@ -467,3 +492,226 @@ async def test_review_layer_disabled_skips_terminal_round_but_logs_identity(db, 
     assert len(lines) == 1
     assert "terminal_rounds=0" in lines[0].getMessage()
     assert "match=True" in lines[0].getMessage()
+
+
+# --- F-4: the CV chain supplies the draft the last verdict was rendered over -
+
+
+@pytest.mark.asyncio
+async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
+    """F-4 (#672 line 123) — the SEAM test for `cv.py`'s wiring.
+
+    `review_and_refine` hands `reviewer_prompt_fn` the draft it is about to judge and
+    keeps no record of it, so only this chain can tell the report "the corrector revised
+    the document after this verdict". Revert `reviewed_draft=reviewed_cell["draft"]` in
+    `_record_settle` (or the `reviewed_cell["draft"] = draft` line in `_reviewer_prompt`)
+    and this test goes red by name while every other test in this file stays green.
+    """
+    from applire.models.cv import GeneratedCV
+
+    ids = await _seed(db)
+    captured = []
+    payload = _writer_payload()
+
+    # A DISTINCT correction per round: an idempotent one would make round 2's settled
+    # draft equal the draft round 2 reviewed, which is the genuine `fail` shape and
+    # would make this test pass for the wrong reason.
+    rounds = {"n": 0}
+
+    def _corrected(draft):
+        rounds["n"] += 1
+        out = dict(draft)
+        out["summary"] = f"Correction {rounds['n']} the reviewer never read."
+        return out
+
+    await _run_pipeline(
+        db, ids, captured=captured, payload=payload,
+        review_fake=_fake_review_settling(
+            captured, settled_draft=_corrected,
+            blocking=('The summary claims "Erfahrene Entwicklerin" without support.',),
+        ),
+    )
+    assert captured and captured[0]["reviewed"] != captured[0]["settled"]
+
+    record = await db.get(GeneratedCV, ids[2])
+    check = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
+    assert check["status"] == "not_applicable", check
+    assert "UNVERIFIED" in check["details"]
+    assert "Erfahrene Entwicklerin" in check["details"]
+    assert "Open findings" not in check["details"]
+    # The MEASURED half. `exhausted` reports as unverified from the settle-path table
+    # alone, so only a sentence that requires `CorrectionFacts` can prove this chain
+    # actually supplied the reviewed draft — mutation M2 (dropping
+    # `reviewed_draft=reviewed_cell["draft"]`) survives without this assertion.
+    assert (
+        "could decide" in check["details"]
+        or "cannot be decided deterministically" in check["details"]
+    ), check["details"]
+
+
+# --- F-5: the SIGNATURE STORY FIGURES block reaches the terminal reviewer ----
+
+
+def _profile_json_with_story() -> dict:
+    """The founder-UAT SHAPE, synthetic throughout: one curated story on the first work
+    entry whose measured outcome carries a percent figure."""
+    profile = _profile_json()
+    profile["signature_stories"] = [
+        {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "title": "LIMS rollout across three sites",
+            "challenge": "Three sites planned three parallel validation strategies.",
+            "mechanism": "One shared validation strategy, reviewed once per site.",
+            "outcome": "Validation effort fell by roughly 80 % and the first site went live.",
+            "experience_refs": [_WORK_ID],
+        }
+    ]
+    return profile
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_reviewer_is_told_a_story_figure_is_missing(db):
+    """F-5 (#672 line 124) — the SEAM test for `cv.py`'s wrapper stack.
+
+    Revert the `story_figures_reviewer_prompt_fn` wrapper in `_terminal_review` and this
+    test goes red by name; every other test in this file stays green.
+    """
+    ids = await _seed(db, profile_json=_profile_json_with_story())
+    captured = await _run_pipeline(db, ids, captured=[])
+    assert captured, "the terminal reviewer must have been asked at least once"
+    prompt = captured[0]["prompt"]
+    assert "SIGNATURE STORY FIGURES" in prompt
+    assert "LIMS rollout across three sites" in prompt
+    assert "MISSING" in prompt
+    # The block names the entry the story belongs to, so the corrector knows where.
+    assert "Acme GmbH" in prompt
+    # And the check that reads it is on the terminal door.
+    assert "11. SIGNATURE STORY FIGURES" in captured[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_a_story_whose_figure_is_on_the_page_is_reported_present_not_demanded(db):
+    """The asserted baseline: the block is a COMPLETE statement, so a story already
+    carried is listed under PRESENT and never demanded
+    (`feedback_prohibition_is_not_an_answer`)."""
+    ids = await _seed(db, profile_json=_profile_json_with_story())
+    payload = _writer_payload()
+    payload["summary"] = "Validation effort fell by 80% after one shared strategy."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    prompt = captured[0]["prompt"]
+    assert "SIGNATURE STORY FIGURES" in prompt
+    assert "PRESENT" in prompt
+    assert "MISSING — blocking" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_profile_without_stories_leaves_the_reviewer_prompt_untouched(db):
+    ids = await _seed(db)
+    captured = await _run_pipeline(db, ids, captured=[])
+    assert "SIGNATURE STORY FIGURES" not in captured[0]["prompt"]
+
+
+# --- F-9: the SKILLS-LIST SHAPE block reaches the terminal reviewer ----------
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_reviewer_is_told_which_skills_were_lifted_from_prose(db):
+    """F-9 (#672 line 126) — the SEAM test for `cv.py`'s wrapper stack.
+
+    Revert the `skill_shape_reviewer_prompt_fn` wrapper in `_terminal_review` and this
+    test goes red by name; every other test in this file stays green.
+    """
+    ids = await _seed(db)
+    payload = _writer_payload()
+    payload["skills"] = ["System Owner", "vendor selection"]
+    payload["summary"] = "Acted as System Owner and ran vendor selection for three sites."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    prompt = captured[0]["prompt"]
+    assert "SKILLS-LIST SHAPE" in prompt
+    assert '"System Owner"' in prompt
+    assert "a fact, not a verdict" in prompt
+    assert "12. SKILLS-LIST SHAPE" in captured[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_a_skills_list_of_attested_vault_forms_adds_no_shape_block(db):
+    """The asserted baseline for the block above."""
+    profile = _profile_json()
+    profile["skills"] = [{"name": "Python", "status": "confirmed"}]
+    ids = await _seed(db, profile_json=profile)
+    payload = _writer_payload()
+    payload["skills"] = ["Python"]
+    payload["summary"] = "Built services in Python."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    assert "SKILLS-LIST SHAPE" not in captured[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_the_chain_threads_the_keyword_ledger_into_the_skills_shape_scan(db):
+    """F-9 seam, the ledger half. The SKILLS-LIST SHAPE fact can only see a chip that
+    `_restore_narrative_named_skills` placed via a SIBLING surface form of its ledger row
+    if the chain hands it that ledger. Drop the `keyword_ledger` argument in
+    `_terminal_review` and this test goes red by name."""
+    import applire.services.skill_shape as skill_shape_mod
+
+    seen: list = []
+    real = skill_shape_mod.skill_shape_reviewer_prompt_fn
+
+    # No default on `keyword_ledger`: a chain that passes only two positionals raises
+    # TypeError here, which is what makes this a kill rather than a green no-op — the
+    # chain's own ledger is `[]` on this fixture (no GapAnalysis row), so asserting its
+    # VALUE could never distinguish "threaded" from "not threaded".
+    def spy(base_fn, profile_json, keyword_ledger, **kw):
+        seen.append(keyword_ledger)
+        return real(base_fn, profile_json, keyword_ledger, **kw)
+
+    ids = await _seed(db)
+    await _run_pipeline(
+        db, ids, captured=[],
+        extra_patches=[patch.object(skill_shape_mod, "skill_shape_reviewer_prompt_fn", spy)],
+    )
+    assert seen, (
+        "the skills-shape wrapper must be built by the terminal chain WITH the ledger as "
+        "its third positional argument"
+    )
+    assert seen[0] == [], seen  # this fixture has no GapAnalysis row
+
+
+@pytest.mark.asyncio
+async def test_the_shape_and_story_wrappers_are_handed_the_composed_document(db):
+    """The contract `_reviewer_prompt` has with this whole wrapper chain: it passes the
+    COMPOSED document, exactly as it does to `coverage_reviewer_prompt_fn` and to
+    `pinned_facts_reviewer_prompt_fn` (`composed=True`). A wrapper that re-composes its
+    argument composes a `TailoredCVData` dump as if it were a prose draft — measured
+    2026-09-20: with a `structured_document_fn` in place the SKILLS-LIST SHAPE block
+    reported nothing on 6 of 6 real-provider runs whose delivered document the same scan
+    flags three entries on, and no seam assertion about the block's PRESENCE could see it.
+    """
+    import applire.services.skill_shape as skill_shape_mod
+
+    seen: list = []
+    real = skill_shape_mod.skill_shape_reviewer_prompt_fn
+
+    def spy(base_fn, profile_json, keyword_ledger, **kw):
+        assert "structured_document_fn" not in kw or kw["structured_document_fn"] is None, (
+            "the argument is already composed — re-composing it is the 2026-09-20 defect"
+        )
+        inner = real(base_fn, profile_json, keyword_ledger, **kw)
+
+        def wrapped(source, draft):
+            seen.append(draft)
+            return inner(source, draft)
+
+        return wrapped
+
+    ids = await _seed(db)
+    await _run_pipeline(
+        db, ids, captured=[],
+        extra_patches=[patch.object(skill_shape_mod, "skill_shape_reviewer_prompt_fn", spy)],
+    )
+    assert seen, "the wrapper must be called at least once"
+    doc = seen[0]
+    # Composed shape, not the writer's prose shape …
+    assert "work_history" in doc and "work" not in doc, doc.keys()
+    # … and carrying a vault-joined field only `_compose_document` adds.
+    assert any(c.get("name") == _CERT_NAME for c in (doc.get("certifications") or [])), doc

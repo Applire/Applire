@@ -2797,22 +2797,53 @@ def _restore_narrative_named_skills(
     def _oracle_backed(name: str) -> bool:
         return ground_skill_claim(name, vault_index) is not None
 
+    # #672 F-9 (founder UAT 2026-09-20): the SAME `ledger_forms` argument the
+    # Oracle's own page audit passes (`services/oracle/audit.py:1240`, built at
+    # :1683 from `claimable_surface_form_groups(..., exclude_keyword_only=True)` —
+    # the identical groups assembled above). Omitting it here was an ADR-066
+    # clause 2 asymmetry in the direction #219 was written to close: the auditor
+    # grounded a competence through its own ledger row's sibling form and the
+    # generator did not, so this pass could only ever put the SURFACE FORM that
+    # happened to be narrated on the page, never the row's own concept name.
+    _ledger_form_groups = claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True)
+
+    def _oracle_backed(name: str) -> bool:
+        return ground_skill_claim(name, vault_index, _ledger_form_groups) is not None
+
     to_add: list[str] = []
     for group in groups:
         if any(_covered(f) for f in group):
             continue  # the competence is already on the page in some form
+        # #672 F-9: narration is a fact about the GROUP — one competence, one page
+        # entry (#386) — and which STRING renders is a separate question. The group
+        # is ordered ``[concept, *surface_forms]``, so the row's own concept name
+        # wins whenever it grounds, and a JD surface form is only the fallback.
+        #
+        # Ground truth (11 real-provider runs, `Documents/Runs/Nougat/
+        # founder-uat-fixes/d/f5-f9-replay-per-round.md`): the founder's delivered
+        # CV carried the chips "roadmap" and "AI automation use case" — an activity
+        # and a sentence fragment, neither a competence. Both are in the delivered
+        # skills list of 11 of 11 runs and in the WRITER's own drafted list of
+        # 0 of 11: this pass minted them, from the rows ``Roadmap & Budget Ownership
+        # [forms: roadmap, budget estimation]`` and ``AI Automation Delivery [forms:
+        # AI automation use case, LLMOps]``, because the old rule required the chosen
+        # string to be narrated ITSELF and only the JD's bare noun was. Nothing here
+        # asks whether a string LOOKS like a fragment — that judgement stays with the
+        # reviewer (check 12 of `prompts/review_cv_tailoring.py`); this is a choice
+        # between two strings the vault already backs.
         narrated = [f for f in group if surface_present(f, narrative_norm)]
-        hit = next((f for f in narrated if _oracle_backed(f)), None)
+        if not narrated:
+            continue
+        hit = next((f for f in group if _oracle_backed(f)), None)
         if hit is None:
-            if narrated:
-                # Never a silent hold-back: this is the #219 case, and the
-                # ledger row that authorised the name is what to look at.
-                logger.info(
-                    "skills-list gap guard (#376): %r is narrated but no form of "
-                    "it grounds against the vault (#219, ground_skill_claim) — "
-                    "not added; the Oracle would audit the chip unbacked",
-                    narrated[0],
-                )
+            # Never a silent hold-back: this is the #219 case, and the
+            # ledger row that authorised the name is what to look at.
+            logger.info(
+                "skills-list gap guard (#376): %r is narrated but no form of "
+                "it grounds against the vault (#219, ground_skill_claim) — "
+                "not added; the Oracle would audit the chip unbacked",
+                narrated[0],
+            )
             continue
         to_add.append(hit)
         existing = existing + [hit]  # later groups see this one as covered
@@ -4917,7 +4948,7 @@ async def _terminal_review(
         pinned_facts_reviewer_prompt_fn,
     )
 
-    _subject_fn = (
+    _pinned_fn = (
         pinned_facts_reviewer_prompt_fn(
             _coverage_fn, list(condense_ctx.pins), profile_json, keyword_ledger, composed=True
         )
@@ -4925,6 +4956,37 @@ async def _terminal_review(
         else _coverage_fn
     )
     ensure_pinned_fact_signal_registered()
+
+    # F-5 (#672 line 124): the SIGNATURE STORY FIGURES block — check 11's ground truth.
+    # Outermost wrapper, so its block is the last thing the reviewer reads and its scan
+    # runs over the same COMPOSED subject the coverage and pin wrappers use (a cache hit
+    # on `_subject_for`). One wrapper per `review_and_refine` invocation = one demand
+    # bound per figure, exactly like the pin wrapper above.
+    #
+    # NOT wired into `BudgetResult.demanded_concepts` / `coverage_demanded_concepts`: a
+    # bullet carrying a percent or currency figure is already the second-most-protected
+    # tier in `cv_budget.rank_cuts` (figure-less bullets are cut first, ADR-072 clause 1
+    # leaves only the sole-carrier tier above it), so the #666/#415 "the loop deletes its
+    # own repair" shape does not apply to a figure-bearing bullet. Stated rather than
+    # silently skipped.
+    from applire.services.skill_shape import skill_shape_reviewer_prompt_fn
+    from applire.services.story_reach import story_figures_reviewer_prompt_fn
+
+    _story_fn = story_figures_reviewer_prompt_fn(_pinned_fn, profile_json)
+    # F-9 (#672 line 126): the SKILLS-LIST SHAPE block — check 12's ground truth.
+    #
+    # NEITHER wrapper takes a `structured_document_fn`, and that is load-bearing:
+    # `_reviewer_prompt` below calls this chain as `_subject_fn(source, COMPOSED.model_dump())`,
+    # exactly as it calls `coverage_reviewer_prompt_fn` and `pinned_facts_reviewer_prompt_fn`
+    # (whose `composed=True` says the same thing). The argument these wrappers receive IS the
+    # composed document — which is what both facts need, since the skills list a reader sees is
+    # the post-pipeline one — so re-composing it would compose a TailoredCVData dump as if it
+    # were a prose draft. Measured 2026-09-20: with the re-compose in place the SKILLS-LIST
+    # SHAPE block reported nothing on 6 of 6 real-provider runs whose delivered document the
+    # same scan flags three entries on. The per-round SIGNAL functions are the other shape —
+    # they receive the PROSE draft and do take a `structured_document_fn` (see
+    # `_underclaim_fn` / `_redundancy_fn` above).
+    _subject_fn = skill_shape_reviewer_prompt_fn(_story_fn, profile_json, keyword_ledger)
 
     def _subject_for(draft: dict) -> TailoredCVData:
         """The COMPOSED document for ``draft`` — computed once, cached by draft."""
@@ -4935,7 +4997,17 @@ async def _terminal_review(
             subject_by_draft[key] = subject
         return subject
 
+    # F-4 (#672 line 123): the draft the LAST verdict of the current
+    # `review_and_refine` invocation was rendered over. `review_and_refine` hands this
+    # function the draft and keeps no record of it, so the settle report cannot
+    # otherwise tell "these findings are open against the delivered document" from
+    # "the corrector revised the document after this verdict and nobody re-read it" —
+    # which is 46 of 46 documents on the `exhausted` path. A cell, because
+    # `_reviewer_prompt` is defined before the loop that consumes it.
+    reviewed_cell: dict[str, dict | None] = {"draft": None}
+
     def _reviewer_prompt(source: str, draft: dict) -> str:
+        reviewed_cell["draft"] = draft
         return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
 
     def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
@@ -4970,7 +5042,12 @@ async def _terminal_review(
 
     def _record_settle(settle) -> None:
         outcome_cell["outcome"] = settle_to_outcome(
-            settle, chain_id="cv_terminal_review"
+            settle,
+            chain_id="cv_terminal_review",
+            # F-4: the measured fact, not a settle-path inference. `None` on the
+            # `max_retries <= 0` short-circuit (no reviewer prompt was ever built), and
+            # `settle_to_outcome` then reports exactly as it did before.
+            reviewed_draft=reviewed_cell["draft"],
         ).worse_of(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:

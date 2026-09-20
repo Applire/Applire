@@ -256,8 +256,9 @@ SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the W
 by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
 profile states it AS SOMETHING THE CANDIDATE HAS OR DID: in its skills section, an entry's
 responsibilities/achievements/technologies, a project, or a signature story. Never flag such a
-skill as fabricated, ungrounded, or a certification, and never demand per-position evidence or
-`experience_refs` for it. Two hard boundaries: text inside STATED LIMITS or any denial record
+skill as fabricated, ungrounded, or a certification (whether it is a SKILL at all is check 12's
+question), and never demand per-position evidence or `experience_refs` for it. Two hard
+boundaries: text inside STATED LIMITS or any denial record
 NEVER grounds anything — a concept is never affirmed by its own denial — and check 6(b) applies
 to the skills list unchanged: a DO NOT CLAIM concept in the skills list is a fabrication no
 matter where its text appears in the profile. A term the KEYWORD LEDGER lists as CLAIMABLE is
@@ -311,14 +312,14 @@ document — each is a property of the composite, and three findings describing 
 noise, not thoroughness.
 
 9. CLAIM BALANCE — over AND under. Checks 1 and 5 look for claims the profile does not support.
-   This one also looks the other way: is something the CANDIDATE PROFILE clearly supports, and
-   this posting clearly wants, missing from the delivered document — or present only as a skills
-   entry, or reduced to a phrase with its evidence gone? Include material the candidate scoped
-   or limited in their own words: a strength named inside a stated limit ("no IFS/BRC experience,
-   but ten years of ISO-9001 audit practice") is a real strength, and a document that drops it
-   under-sells the candidate. Name the profile evidence that is not represented and where it
-   would belong. Never ask for a skills-list entry — a tag is not evidence — and never ask for
-   anything the profile does not already support.
+   This one looks the other way: is something the CANDIDATE PROFILE clearly supports, and this
+   posting clearly wants, missing from the delivered document — or reduced to a phrase with its
+   evidence gone? Include material the candidate scoped or limited in their own words: a strength
+   named inside a stated limit ("no IFS/BRC experience, but ten years of ISO-9001 audit
+   practice") is a real strength, and a document that drops it under-sells the candidate. Name
+   the profile evidence that is not represented and where it would belong. Never ask for a
+   skills-list entry — a tag is not evidence — and never ask for anything the profile does not
+   already support. Checks 11 and 12 answer story figures and skills-list shape; not here.
 
 10. VOICE — does this read as written by a person? The tell is mechanical uniformity, and every
    pattern below is one of our own quality rules applied without exception:
@@ -331,6 +332,32 @@ noise, not thoroughness.
    removing a figure or a fact to break a pattern — a line vaguer than the truth is the worse
    defect — and never touch an unprompted admission of a gap or a limit. Blind readers name that
    admission as the strongest single reason to trust a document; it must survive any voice work.
+
+"""
+
+#: F-5 (#672 line 124, founder UAT 2026-09-20) — the ONE terminal-door check that is
+#: BLOCKING, and the reason it exists rather than a louder writer rule.
+#:
+#: ``prompts/cv_tailoring.py`` rule 3 already demands it, verbatim: *"EVERY story's
+#: measured outcome figure must appear in the document"*. The story reached the writer's
+#: input in full (profile ROOT, no filter — see ``services/story_reach.py``'s triage) and
+#: the rule was violated anyway, so this is `applire-prompt-first` category **C** and
+#: widening rule 3 is the move that was measured to fail in 2026-08-31's replay. What was
+#: missing was a READER: checks 1-10 never demanded a story's figure, check 9 comes
+#: closest and is visibility-only, ``condense_to_budget`` can only protect a bullet that
+#: already exists, and ``_prefer_measured_outcomes`` only upgrades one the writer already
+#: drafted. A story the generative pass skipped had no net anywhere.
+#:
+#: BLOCKING, unlike checks 9 and 10, for the reason check 7 is: the demand is a
+#: deterministic FACT about a CURATED vault item, not a style judgement — the same
+#: "this fact must be on the page" class as a pinned quote. The judgement (is the bullet
+#: honest, is it in the right entry) stays the model's. Bounded by
+#: ``story_reach.STORY_DEMAND_LIMIT`` and by one demand per figure per loop, so it can
+#: never fill a round.
+_TERMINAL_BLOCKING_CHECKS = """\
+11. SIGNATURE STORY FIGURES and 12. SKILLS-LIST SHAPE — blocking. Each is answered from the
+   deterministic block of that name in your input: ground truth, and it states what to raise,
+   how many issues, and what outranks it. No such block, no finding under that check.
 
 """
 
@@ -361,10 +388,10 @@ deterministic audit that follows, and checks 9 and 10 are the candidate's own ca
 with the document. Anything else you notice is "minor" BY DEFINITION: bullet wording, bullet
 order, which achievement leads an entry, summary phrasing that does not change what is claimed,
 length — and so is everything you find under checks 9 and 10. You are not the CV's
-editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
-and 3-8 are whether this CV tells the truth and says it once; checks 9 and 10 are whether it
-represents the candidate. This is the only round that sees the finished document, so both get
-answered here.
+editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1,
+3-8, 11 and 12 are whether this CV tells the truth, says it once and carries the candidate's own
+curated evidence; 9 and 10 are whether it represents the candidate. This is the only round that
+sees the finished document, so all of them get answered here.
 
 """
 
@@ -413,6 +440,7 @@ TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + _CHECKS
     + "\n"
     + _TERMINAL_CHECKS
+    + _TERMINAL_BLOCKING_CHECKS
     + _MANDATE_TERMINAL
     + _schema_and_closer(structural_fields=True)
 )
