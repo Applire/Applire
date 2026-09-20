@@ -333,6 +333,18 @@ def resolve_option_key(pending_conf: dict, chosen: str) -> str | None:
         for idx, text in enumerate(rendering):
             if idx < len(keys) and text and text.strip().casefold() == answer:
                 return keys[idx]
+    # The KEY itself is an acceptable answer (#730, 2026-09-20). This clause is
+    # the most literal reading of the 2026-09-05 amendment — the identity is the
+    # key, not a rendered string — and it exists because the keys now decide
+    # outright: an agent door that relays an option's text with a trailing full
+    # stop or a pair of quotes would otherwise be re-asked forever, and the short
+    # unambiguous token is the thing we want it to send. Exact, case-folded
+    # equality against the key, so it can never collide with a rendered option
+    # (no rendering is one of `distinct`/`merge`/`keep`/`move`/`keep_here`/
+    # `discard`), and never with a sentence.
+    for key in keys:
+        if isinstance(key, str) and key.strip().casefold() == answer:
+            return key
     return None
 
 

@@ -567,3 +567,28 @@ def test_the_cluster_shape_the_review_route_actually_answers_resolves_both_ways(
     assert resolve_skill_decision(entry, f"Add '{INCOMING}' as a separate skill") == "distinct"
     # Only a free-text answer names nothing.
     assert resolve_skill_decision(entry, REFUSAL) is None
+
+
+def test_the_stable_key_itself_is_an_acceptable_answer():
+    """ADR-063 amended 2026-09-05 says the identity is the KEY, not a rendered
+    string — so the key is the one answer that needs no rendering at all.
+
+    It exists for the agent door: with the keys deciding outright, an assistant
+    that relays an option's text with a trailing full stop or a pair of quotes
+    would be re-asked forever, and this gives it a short unambiguous token
+    instead. It cannot collide with a rendering (no option text is the single
+    word "distinct"/"merge"/"keep") and it cannot collide with a sentence."""
+    entry = _containment_entry()
+    assert resolve_skill_decision(entry, "distinct") == "distinct"
+    assert resolve_skill_decision(entry, "merge") == "merge"
+    assert resolve_skill_decision(entry, "  KEEP  ") == "keep"
+    # No rendering IS a key, in either language — otherwise this clause would be
+    # ambiguous rather than a shortcut.
+    renderings = [entry["options"]] + [
+        [p[lang] for p in entry["options_i18n"]] for lang in ("de", "en")
+    ]
+    for rendering in renderings:
+        for text in rendering:
+            assert text.strip().casefold() not in SKILL_OPTION_KEYS, text
+    # And a sentence that merely CONTAINS a key is still not an answer.
+    assert resolve_skill_decision(entry, "please keep it out of my profile") is None
