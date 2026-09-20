@@ -17,43 +17,37 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 """Adversarial finding (Nougat UAT-fixes batch, adv pass, 2026-09-20) on #730's
-fix in `backend/tests/unit/test_uat_vault_confirmation_refusal.py`.
+fix in `backend/tests/unit/test_uat_vault_confirmation_refusal.py` — CLOSED by
+the same-branch fix below (M-2, `wt-fix-adv`).
 
-WP-A's fix closes F-1/F-11 for every confirmation carrying `option_keys`
+WP-A's fix closed F-1/F-11 for every confirmation carrying `option_keys`
 (ADR-063 amended 2026-09-20): a keyed record's answer either names an option
-or resolves to no decision at all. WP-A's own test file documents, without
-reproducing through the real door, that a THIRD branch survives on purpose:
+or resolves to no decision at all. WP-A's own test file documented, without
+reproducing through the real door, that a THIRD branch survived on purpose:
 `confirmations.match_skill_decision_text`, "the pre-#669 English substring
-matcher — back-compat only" (confirmations.py:429-446), reachable whenever a
-pending confirmation carries no `option_keys` at all.
+matcher — back-compat only", reachable whenever a pending confirmation carries
+no `option_keys` at all — fed the RAW free-text answer, so a refusal that
+merely quoted the option it rejected ("do not add it as a **separate**
+skill") still resolved to `"distinct"` and the vault gained the denied skill.
 
-`test_the_refusal_really_contains_the_word_of_the_option_it_rejects` already
-asserts, on the bare function, that this matcher is "negation-blind by
-construction and stays that way" and that ``match_skill_decision_text(REFUSAL)
-== "distinct"`` — i.e. the SAME verbatim F-1/F-11 refusal the whole batch was
-built to stop still resolves to a WRITE decision on this branch. But no test
-in that file (or anywhere else grepped in this tree) drives a KEYLESS pending
-confirmation through the real interview door with that refusal to see whether
-the vault actually gains the skill. This file does, and it does.
+This file drove that KEYLESS shape through the real interview door
+(`session._handle_interview_confirmation_answer`) and proved the vault
+actually gained the skill — the same F-1 harm, on a population WP-A's own
+author had reasoned (correctly, about the CURRENT population) would be
+narrow, but had not closed.
 
-This is not a hypothetical: `_confirmation_state`/`PendingConfirmation`
-default `option_keys` to `[]` when nothing sets it, and nothing in
-`session.py`, `mcp/server.py` or the standalone profile-review route rejects
-an incoming state dict for lacking that field — a pending confirmation that
-was parked in an `InterviewSession.state` JSON blob before #669 shipped (or
-built by any future caller that forgets to attach `option_keys`, since
-nothing enforces their presence at the door) resolves through exactly this
-path. The population is legacy/narrow, not the common case — but it is the
-SAME defect (F-1: a denial containing the rejected option's own word writes
-the skill at `status="confirmed"`), reachable through the SAME real code
-(`session._handle_interview_confirmation_answer`), zero provider calls, zero
-mocking of the resolution itself.
-
-Severity judgement left to the report: same defect class as #730, on a
-population the fix's own author already named and reasoned should be narrow
-— but "narrow and reasoned about" is not "closed", and nothing pins that the
-population is actually empty in production (no assertion anywhere that a
-session row can never carry a keyless pending confirmation post-deploy).
+**The fix** (adversarial pass, same-branch): ADR-063's identity rule now
+applies to a keyless record too. `confirmations.resolve_skill_decision`
+matches the answer EXACTLY (case- and whitespace-folded) against every
+rendering the record itself carries (`options` / `options_i18n`), and only
+the MATCHED option's own text — never the raw free-text answer — is handed to
+`match_skill_decision_text`. An answer equal to no option resolves to `None`,
+same as the keyed path, and the door re-asks instead of writing.
+`session._skill_confirmation_decision` now delegates outright to
+`resolve_skill_decision` whenever the real door hands it the record
+(ADR-066 — one implementation). This file is now the GUARD: it asserts the
+vault is untouched and the interview re-asks, and it is mutation-killed by
+restoring the old raw-answer fallback on a scratchpad copy.
 """
 from __future__ import annotations
 
@@ -182,25 +176,34 @@ def _skill_names(record: MasterProfile) -> list[str]:
     return [s.name for s in MasterProfileData.model_validate(record.profile_json).skills]
 
 
-def test_ground_truth_the_keyless_matcher_still_resolves_the_refusal_to_a_write():
+def test_ground_truth_the_matcher_itself_still_reads_the_refusal_as_a_write():
+    """The fixture's own property, unchanged: `match_skill_decision_text` is
+    still "negation-blind by construction" on this string. What changed is
+    that the real door no longer feeds it the raw free-text answer — only a
+    record's own matched option text ever reaches it (see the guard below)."""
     assert "separate" in REFUSAL.lower()
     assert match_skill_decision_text(REFUSAL) == "distinct"
 
 
 @pytest.mark.asyncio
-async def test_a_keyless_legacy_confirmation_still_writes_the_denied_skill(
+async def test_a_keyless_legacy_confirmation_writes_nothing_and_reopens_the_ask(
     db_session, monkeypatch
 ):
-    """The reproduction #730's own test file stopped one step short of: drive
-    the verbatim F-1/F-11 refusal through the REAL interview door
+    """GUARD (was the adversarial reproduction; flipped after the same-branch
+    fix). Drives the verbatim F-1/F-11 refusal through the REAL interview door
     (`session._handle_interview_confirmation_answer`) against a KEYLESS
-    pending confirmation, and read the vault afterward.
+    pending confirmation and reads the vault afterward.
 
     Contrast with `test_uat_vault_confirmation_refusal.py::
     test_the_refusal_writes_nothing_and_re_asks_on_the_interview_door`, whose
     KEYED entry (built by the same real builder, same refusal text) writes
-    nothing. Here the only fixture difference is `option_keys: []`, and the
-    outcome flips back to the pre-fix F-1 harm.
+    nothing. Here the only fixture difference is `option_keys: []` — and now
+    the outcome is the SAME: nothing written, the ask reopened.
+
+    Mutation: restore the old `return match_skill_decision_text(chosen)`
+    fallback (the raw answer, not the matched option) in
+    `confirmations.resolve_skill_decision`'s keyless branch on a scratchpad
+    copy of the file — this test goes red by name.
     """
     import applire.services.session as session_mod
 
@@ -219,21 +222,23 @@ async def test_a_keyless_legacy_confirmation_still_writes_the_denied_skill(
         interview, state, db_session, MagicMock(), 0, entry, REFUSAL, "en"
     )
 
+    # The vault is untouched: no `Agile Collaboration` at any status, on the
+    # KEYLESS path — the same guarantee #730 already gave the keyed path.
     await db_session.refresh(record)
     names = _skill_names(record)
-    assert INCOMING in names, (
-        "expected the keyless legacy path to be equally guarded — instead the "
-        f"vault after the refusal is {names!r}, reproducing #730/F-1: a "
-        "denial containing the rejected option's own word ('separate') wrote "
-        "the skill it named, at status=confirmed, on a KEYLESS pending "
+    assert INCOMING not in names, (
+        "the keyless legacy path must be equally guarded — instead the vault "
+        f"after the refusal is {names!r}, reproducing #730/F-1: a denial "
+        "containing the rejected option's own word ('separate') wrote the "
+        "skill it named, at status=confirmed, on a KEYLESS pending "
         "confirmation"
     )
-    skill = next(s for s in MasterProfileData.model_validate(
-        record.profile_json
-    ).skills if s.name == INCOMING)
-    assert skill.status == "confirmed"
 
-    # And the interview believes the turn is settled and resolved — not
-    # re-asked, unlike the keyed door's behaviour for the identical text.
-    session_mod._ask_or_complete_at.assert_awaited()
-    assert state.get("pending_interview_confirmation") is None
+    # And the interview does NOT believe the turn is settled — it re-asks,
+    # exactly like the keyed door's behaviour for the identical text.
+    session_mod._ask_or_complete_at.assert_not_awaited()
+    assert resp.complete is False
+    assert entry["question"] in (resp.question or "")
+    assert resp.choices == entry["options"]
+    assert state.get("pending_interview_confirmation") == entry
+    assert state["questions_asked"] == 3

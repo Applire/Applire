@@ -410,20 +410,66 @@ def resolve_skill_decision(pending_conf: dict, chosen: str) -> str | None:
        can reach the vault write carries keys — ``context["incoming_skill"]`` is
        emitted only by ``apply.py``'s two deterministic builders, both of which
        go through :func:`_build` — so this branch is the real one.
-    3. No keys at all (a record parked before #669) ⇒ the back-compat English
-       substring matcher, unchanged in what it MATCHES and changed in what it
-       does when nothing matches: ``None``, never ``"distinct"``.
+    3. No keys at all (a record parked before #669) ⇒ **the same identity rule,
+       applied without keys** (adversarial finding, Nougat UAT-fixes batch,
+       2026-09-20): the answer is matched EXACTLY (case- and whitespace-folded)
+       against every rendering the record itself carries (``options`` and each
+       language of ``options_i18n``), and only the MATCHED OPTION's own text is
+       ever handed to the back-compat English substring matcher
+       (:func:`match_skill_decision_text`). An answer equal to no option ⇒
+       ``None`` — the free-text answer itself is never substring-matched again.
+       Before this, a keyless record fed the raw answer straight to the
+       substring matcher, so a refusal that merely QUOTED the option it
+       rejected ("do not add it as a **separate** skill") still resolved to
+       ``"distinct"`` — the exact F-1 harm, on a population #669 did not key.
 
     ADR-066: this is the one implementation. ``session`` re-exports it and its
-    own ``_skill_confirmation_decision`` is now a thin wrapper kept for the
-    tests that pin the back-compat matcher's behaviour directly.
+    own ``_skill_confirmation_decision`` delegates to it outright whenever the
+    caller can hand it the record (kept accepting bare ``option_key``/``keyed``
+    only for the tests that pin the back-compat matcher's behaviour directly,
+    with no record to match against).
     """
     key = resolve_option_key(pending_conf, chosen)
     if key in SKILL_OPTION_KEYS:
         return key
     if pending_conf.get("option_keys"):
         return None
-    return match_skill_decision_text(chosen)
+    matched_option = _match_answer_to_rendered_option(pending_conf, chosen)
+    if matched_option is None:
+        return None
+    return match_skill_decision_text(matched_option)
+
+
+def _match_answer_to_rendered_option(pending_conf: dict, chosen: str) -> str | None:
+    """Exact (case- and whitespace-folded) match of ``chosen`` against every
+    rendering a KEYLESS record carries, returning the matched option's own
+    text — never the raw answer.
+
+    Mirrors :func:`resolve_option_key`'s renderings loop (the plain ``options``
+    plus each language of ``options_i18n``): a keyless record still carries the
+    SAME identity (its own option wording) even though it carries no stable
+    keys to return instead. ``None`` means the answer named no option at all,
+    which is what lets :func:`resolve_skill_decision` refuse to fall back to
+    free-text substring matching (adversarial finding, Nougat UAT-fixes batch,
+    2026-09-20).
+    """
+    answer = (chosen or "").strip().casefold()
+    if not answer:
+        return None
+    options = list(pending_conf.get("options") or [])
+    renderings: list[list[str]] = [options]
+    i18n = pending_conf.get("options_i18n") or []
+    langs = {lang for payload in i18n if isinstance(payload, dict) for lang in payload}
+    for lang in sorted(langs):
+        renderings.append([
+            (payload.get(lang) or "") if isinstance(payload, dict) else ""
+            for payload in i18n
+        ])
+    for rendering in renderings:
+        for idx, text in enumerate(rendering):
+            if text and text.strip().casefold() == answer:
+                return options[idx] if idx < len(options) else text
+    return None
 
 
 def match_skill_decision_text(chosen: str) -> str | None:
@@ -435,6 +481,15 @@ def match_skill_decision_text(chosen: str) -> str | None:
     ``session._skill_confirmation_decision`` has always had; only the final
     ``return "distinct"`` is gone. It was the second half of #730: *any*
     unmatched free-text answer minted the skill.
+
+    **The option-text classifier only** (adversarial finding, Nougat
+    UAT-fixes batch, 2026-09-20): ``resolve_skill_decision`` now calls this
+    with the record's own MATCHED option text, never the candidate's raw
+    free-text answer — a free-text refusal that merely quotes an option's
+    word (e.g. "do not add it as a **separate** skill") is no longer fed to
+    this matcher at all, because it is not, itself, one of the record's
+    options. This function's substring logic is unchanged; only what reaches
+    it changed.
     """
     c = (chosen or "").strip().lower()
     if "separate" in c:

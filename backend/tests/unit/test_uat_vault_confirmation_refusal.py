@@ -243,17 +243,36 @@ def test_a_keyed_record_never_falls_through_to_the_substring_matcher():
 
 def test_a_keyless_record_still_resolves_its_english_options_and_no_longer_defaults():
     """Back-compat: a confirmation parked before #669 carries no keys, so the
-    substring matcher is still the only resolver — but an unmatched answer now
-    resolves to ``None`` instead of minting the skill."""
+    substring matcher is still the ultimate classifier — but (adversarial fix,
+    2026-09-20) it only ever sees an answer that EXACTLY matches one of the
+    record's OWN option texts, never the candidate's raw free-text answer. An
+    answer that echoes an option still resolves; an answer that merely shares
+    a word with one (the F-1 shape) no longer does."""
     legacy = {
         "question": "'Agile Collaboration' shares a word with …",
-        "options": [f"Add '{INCOMING}' as a separate skill", "Merge into the existing skill"],
+        "options": [
+            f"Add '{INCOMING}' as a separate skill",
+            "Merge into the existing skill",
+            "Keep the existing skills",
+        ],
         "context": {"incoming_skill": INCOMING},
     }
+    # A legacy answer that IS an option text still resolves — the legitimate
+    # half of the old behaviour.
     assert resolve_skill_decision(legacy, f"Add '{INCOMING}' as a separate skill") == "distinct"
     assert resolve_skill_decision(legacy, "Merge into the existing skill") == "merge"
     assert resolve_skill_decision(legacy, "Keep the existing skills") == "keep"
+    # Case/whitespace-folded, not byte-exact.
+    assert resolve_skill_decision(legacy, "  keep the existing skills  ") == "keep"
+    # An answer naming none of the record's own options is no longer an
+    # answer, even when it shares a word with one of them (the F-1 shape:
+    # quoting the rejected option's own word).
     assert resolve_skill_decision(legacy, "no idea, you decide") is None
+    assert resolve_skill_decision(
+        legacy,
+        "Please do not add it as a separate skill and do not merge it into my "
+        "existing Collaboration skill either.",
+    ) is None
 
 
 # ── 2. The refusal OPTION (F-11) ────────────────────────────────────────────

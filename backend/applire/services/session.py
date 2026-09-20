@@ -509,7 +509,11 @@ class ConfirmationAnswerUnmatched(Exception):
 
 
 def _skill_confirmation_decision(
-    chosen: str, option_key: str | None = None, *, keyed: bool = False
+    chosen: str,
+    option_key: str | None = None,
+    *,
+    keyed: bool = False,
+    pending_conf: dict | None = None,
 ) -> str | None:
     """Map the user's answer to a skill-dedupe resolution (#187, #669, #730).
 
@@ -535,9 +539,18 @@ def _skill_confirmation_decision(
     rejecting, and the fallback wrote the skill for every answer the three
     branches missed. The caller re-asks; nothing reaches the vault.
 
-    Delegates to ``confirmations.resolve_skill_decision``'s two halves so there
-    is one matcher, not two (ADR-066).
+    ``pending_conf`` (adversarial finding, Nougat UAT-fixes batch, 2026-09-20):
+    when the caller can hand over the full record, this is a PURE delegation to
+    ``confirmations.resolve_skill_decision`` — ADR-066's one implementation,
+    computed fresh from the record instead of from the caller's already-derived
+    ``option_key``/``keyed``, so a keyless record's answer is matched against
+    its own rendered options (never substring-matched as raw free text) exactly
+    as a keyed record's is matched against its keys. The bare
+    ``option_key``/``keyed`` shape survives only for the tests that pin the
+    back-compat matcher's behaviour directly, with no record to match against.
     """
+    if pending_conf is not None:
+        return resolve_skill_decision(pending_conf, chosen)
     if option_key in _SKILL_OPTION_KEYS:
         return option_key
     if keyed:
@@ -671,6 +684,7 @@ async def _apply_interview_confirmation(
     session_id: str,
     option_key: str | None = None,
     keyed: bool = False,
+    pending_conf: dict | None = None,
 ) -> bool:
     """Apply a resolved interview-turn skill confirmation to the profile (#187).
 
@@ -684,6 +698,13 @@ async def _apply_interview_confirmation(
     2026-09-20). ``keyed`` is whether the record carries ``option_keys`` and is
     what distinguishes "this answer is not one of the options" from "this record
     predates #669 and only the substring matcher can read it".
+
+    ``pending_conf`` (adversarial finding, Nougat UAT-fixes batch, 2026-09-20):
+    the full parked record, handed through so a KEYLESS record's decision is
+    resolved against its own rendered options (ADR-063's identity rule, applied
+    without keys) instead of substring-matching the candidate's raw free-text
+    answer — the gap that let a refusal quoting a rejected option's own word
+    ("do not add it as a **separate** skill") still write the skill.
 
     ADR-063 (#480 PR 7) — **the family-list correction.** The design listed this
     function among the metadata writers; code contact says otherwise. Its
@@ -731,7 +752,9 @@ async def _apply_interview_confirmation(
         # applier's WARNING is what makes it diagnosable.
         return False
 
-    decision = _skill_confirmation_decision(chosen, option_key, keyed=keyed)
+    decision = _skill_confirmation_decision(
+        chosen, option_key, keyed=keyed, pending_conf=pending_conf
+    )
     if decision is None:
         # #730 — the answer named no option. Refuse the write and let the door
         # re-ask. This is the guard the founder UAT of 2026-09-20 needed: the
@@ -1015,6 +1038,7 @@ async def _handle_interview_confirmation_answer(
             db, profile_record, context, chosen, session_id=str(record.id),
             option_key=resolve_option_key(pending_conf, chosen),
             keyed=bool(pending_conf.get("option_keys")),
+            pending_conf=pending_conf,
         )
     except ConfirmationAnswerUnmatched:
         # #730 — nothing was written and the ask is NOT spent: the park stays
