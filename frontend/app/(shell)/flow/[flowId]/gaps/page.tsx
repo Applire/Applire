@@ -37,22 +37,16 @@ import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/Liability
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
-import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/lib/match-utils";
+import {
+  canonicalRequirementChips,
+  gapCounts,
+  scoreToPercent,
+  type LedgerChipEntry,
+} from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// #675 / ruling B-1 (2026-09-20): a match score of 0 is a real score.
-// A recorded denial is no longer clamped, so an analysis in which the candidate
-// denied every weighted requirement genuinely publishes 0.0 — and `score ? … :
-// fallback` read that as "no score" and displayed the previous, higher number.
-// Null (no weighted requirement at all) is the only case that falls back.
-// ---------------------------------------------------------------------------
-export function scoreToPercent(score: number | null | undefined, fallback: number): number {
-  return score == null ? fallback : Math.round(score * 100);
-}
-
 // Types
 // ---------------------------------------------------------------------------
 
