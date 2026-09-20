@@ -2797,22 +2797,53 @@ def _restore_narrative_named_skills(
     def _oracle_backed(name: str) -> bool:
         return ground_skill_claim(name, vault_index) is not None
 
+    # #672 F-9 (founder UAT 2026-09-20): the SAME `ledger_forms` argument the
+    # Oracle's own page audit passes (`services/oracle/audit.py:1240`, built at
+    # :1683 from `claimable_surface_form_groups(..., exclude_keyword_only=True)` —
+    # the identical groups assembled above). Omitting it here was an ADR-066
+    # clause 2 asymmetry in the direction #219 was written to close: the auditor
+    # grounded a competence through its own ledger row's sibling form and the
+    # generator did not, so this pass could only ever put the SURFACE FORM that
+    # happened to be narrated on the page, never the row's own concept name.
+    _ledger_form_groups = claimable_surface_form_groups(keyword_ledger, exclude_keyword_only=True)
+
+    def _oracle_backed(name: str) -> bool:
+        return ground_skill_claim(name, vault_index, _ledger_form_groups) is not None
+
     to_add: list[str] = []
     for group in groups:
         if any(_covered(f) for f in group):
             continue  # the competence is already on the page in some form
+        # #672 F-9: narration is a fact about the GROUP — one competence, one page
+        # entry (#386) — and which STRING renders is a separate question. The group
+        # is ordered ``[concept, *surface_forms]``, so the row's own concept name
+        # wins whenever it grounds, and a JD surface form is only the fallback.
+        #
+        # Ground truth (11 real-provider runs, `Documents/Runs/Nougat/
+        # founder-uat-fixes/d/f5-f9-replay-per-round.md`): the founder's delivered
+        # CV carried the chips "roadmap" and "AI automation use case" — an activity
+        # and a sentence fragment, neither a competence. Both are in the delivered
+        # skills list of 11 of 11 runs and in the WRITER's own drafted list of
+        # 0 of 11: this pass minted them, from the rows ``Roadmap & Budget Ownership
+        # [forms: roadmap, budget estimation]`` and ``AI Automation Delivery [forms:
+        # AI automation use case, LLMOps]``, because the old rule required the chosen
+        # string to be narrated ITSELF and only the JD's bare noun was. Nothing here
+        # asks whether a string LOOKS like a fragment — that judgement stays with the
+        # reviewer (check 12 of `prompts/review_cv_tailoring.py`); this is a choice
+        # between two strings the vault already backs.
         narrated = [f for f in group if surface_present(f, narrative_norm)]
-        hit = next((f for f in narrated if _oracle_backed(f)), None)
+        if not narrated:
+            continue
+        hit = next((f for f in group if _oracle_backed(f)), None)
         if hit is None:
-            if narrated:
-                # Never a silent hold-back: this is the #219 case, and the
-                # ledger row that authorised the name is what to look at.
-                logger.info(
-                    "skills-list gap guard (#376): %r is narrated but no form of "
-                    "it grounds against the vault (#219, ground_skill_claim) — "
-                    "not added; the Oracle would audit the chip unbacked",
-                    narrated[0],
-                )
+            # Never a silent hold-back: this is the #219 case, and the
+            # ledger row that authorised the name is what to look at.
+            logger.info(
+                "skills-list gap guard (#376): %r is narrated but no form of "
+                "it grounds against the vault (#219, ground_skill_claim) — "
+                "not added; the Oracle would audit the chip unbacked",
+                narrated[0],
+            )
             continue
         to_add.append(hit)
         existing = existing + [hit]  # later groups see this one as covered
