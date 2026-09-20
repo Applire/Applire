@@ -591,6 +591,11 @@ def render_required_limits_block(limits: list[str]) -> str:
         "adjacent strength that transfers — all folded into the SAME single honest-gap "
         "paragraph, never a litany and never an apology. Silence on one of these is "
         "not one of the options.",
+        "The gap and the strength that transfers belong in ONE sentence, the way the "
+        "statement below already says it (#732). Never split it into a negative "
+        "sentence plus a separate list of adjacent strengths, and never let a "
+        "standalone negative sentence follow directly on a sentence stating a "
+        "strength — that pair is what a reader quotes back as the reason to decline.",
         "Never state a limit that is NOT listed here: an invented limit is as untrue "
         "as an inflated claim and throws away the candidate's own best evidence.",
     ]

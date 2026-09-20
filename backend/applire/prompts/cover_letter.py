@@ -219,13 +219,24 @@ Rules:
   litany. Silence on a listed limit is not one of the options. This reaches ONLY what the
   candidate said themselves — a requirement nobody ever asked them about is not a gap you
   may assert on their behalf.
-- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION (#270): for a required
-  job-description concept the candidate's own material does not evidence (an honest gap),
-  choose one of exactly three responses — a scoped claim (when in fact partially grounded), a
-  transfer argument (the HONEST GAP / TRANSFER ARGUMENT paragraph above), or a brief, honest
-  de-emphasis that names the gap without dwelling on it. Silence is never one of the options
-  for a hard requirement. Fold whichever response applies into the SAME single honest-gap
-  paragraph — never a litany of separate gap admissions.
+- EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE RESPONSES ARE
+  RANKED (#270, #732): for a required job-description concept the candidate's own material
+  does not evidence (an honest gap), take the HIGHEST response that is TRUE of them, never a
+  lower one — (1) a scoped claim, where the material partly grounds the concept: claim
+  exactly the rung it reaches and not one step more; (2) a transfer argument, where an
+  adjacent capability genuinely carries over (the HONEST GAP / TRANSFER ARGUMENT paragraph
+  above); (3) only where NEITHER is true, the gap named plainly, without dwelling on it.
+  Silence is never one of the options for a hard requirement. Fold whichever response applies
+  into the SAME single honest-gap paragraph — never a litany of separate gap admissions.
+- THE SHAPE OF A NAMED GAP (#732): a sentence that says what the candidate does NOT have
+  carries the strength that transfers WITH it, in the same sentence, the way the candidate's
+  own words in the STATED LIMITS block say it ("no IFS/BRC experience, but ten years of
+  ISO-9001 audit practice"). Reproduce that fused wording; never split it into a negative
+  sentence plus a separate list of adjacent strengths. A standalone negative sentence is
+  never the shape, and least of all directly after a sentence stating a strength: that pair
+  is what a reader quotes back as the reason to decline (#732 — two blind reviewers rejected
+  a delivered letter on exactly it, while praising the same letter's honesty, so the fix is
+  the form and never the disclosure).
 """
 
 
