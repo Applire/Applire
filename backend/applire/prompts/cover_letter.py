@@ -205,7 +205,17 @@ Rules:
   the user message, it holds the candidate's own words about what they cannot claim, and
   they are the ONLY limits that exist.
   (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit
-  they do not state. A concept named inside one of those statements as something the
+  they do not state. A claim contradicts a statement when it asserts the CAPABILITY the
+  statement denies, not only when it repeats the statement's words — the usual case is a
+  concept the Keyword Ledger marks claimable under a DIFFERENT label, because a ledger
+  status is computed from the vault's surface forms and never from these statements. And
+  naming that capability inside a system, platform, project or use case the CANDIDATE owns,
+  manages or runs asserts it as plainly as "I do X" does: a reader credits the owner with
+  the technology they name (#731 — a delivered letter said "I manage an AI automation use
+  case using Databricks, large language models and RAG methods" for a candidate who had
+  said the retrieval work was their system engineer's). Describe the system without the
+  denied capability, or attribute that part where the candidate attributed it. A concept
+  named inside one of those statements as something the
   candidate DOES have is a STRENGTH — an honest denial names the adjacent strengths that
   transfer — so claim it plainly and without qualification. Everything the Keyword Ledger
   marks claimable stays fully claimable unless a stated limit denies it, and never belongs
