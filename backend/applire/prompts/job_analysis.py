@@ -94,7 +94,7 @@ Schema:
 {
   "company_name": "string or null — company name if identifiable from the JD; null if anonymised or unclear",
   "role_title": "string — exact job title from the JD",
-  "required_skills": ["must-have capabilities — concept terms only, see FIELD SHAPE"],
+  "required_skills": ["must-have capabilities — concept terms only, see the shape rules below"],
   "nice_to_have_skills": ["optional / preferred capabilities — same shape"],
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
