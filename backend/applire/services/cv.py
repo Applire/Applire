@@ -4953,6 +4953,7 @@ async def _terminal_review(
     _subject_fn = skill_shape_reviewer_prompt_fn(
         _story_fn,
         profile_json,
+        keyword_ledger,
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
     )
 

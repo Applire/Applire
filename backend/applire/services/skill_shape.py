@@ -54,7 +54,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Iterable
 
-from applire.services.ats_audit import _norm, skills_page_dupe
+from applire.services.ats_audit import _norm, join_corpus_fragments, skills_page_dupe, surface_present
 
 logger = logging.getLogger(__name__)
 
@@ -105,16 +105,56 @@ def _prose_texts(document: dict[str, Any]) -> list[str]:
     return texts
 
 
+def _ledger_siblings(
+    skill: str, keyword_ledger: list[dict[str, Any]] | None
+) -> list[str]:
+    """The other surface forms of the Keyword Ledger row this skills entry IS a form of.
+
+    Measured need (2026-09-20, real-provider replay n=3):
+    ``_restore_narrative_named_skills`` appends a ledger row's surface form as a chip
+    when ANY form of that row is present in the narrative — so the delivered chip can be
+    ``roadmap`` while the bullet the presence test matched says ``budget estimation``.
+    Without this the scan below reported nothing on 3 of 3 runs whose delivered list
+    carried exactly those two chips. This is not a widening of the flagged population by
+    judgement: the chip must still tie to no attested vault form, and the presence test
+    is the producer's OWN predicate over the producer's OWN corpus, so the fact answers
+    "did the pass that appended this chip have its reason in this document's prose".
+    """
+    if not keyword_ledger:
+        return []
+    needle = _norm(skill)
+    out: list[str] = []
+    for entry in keyword_ledger:
+        if not isinstance(entry, dict):
+            continue
+        forms = [entry.get("concept"), *(entry.get("surface_forms") or [])]
+        forms = [f for f in forms if isinstance(f, str) and f.strip()]
+        if any(_norm(f) == needle for f in forms):
+            out.extend(f for f in forms if _norm(f) != needle)
+    return out
+
+
 def prose_derived_skills(
-    document: dict[str, Any], profile_json: dict[str, Any]
+    document: dict[str, Any],
+    profile_json: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, str]]:
-    """Skills entries with no vault tie whose text occurs verbatim in the document's own
-    prose — the entry and the prose fragment it was lifted from. Pure; a FACT."""
+    """Skills entries with no vault tie whose text — or the text of a sibling surface form
+    of their own ledger row — occurs in the document's own prose. Pure; a FACT.
+
+    ``keyword_ledger`` is optional and back-compat: without it the scan is the verbatim
+    one, which is a strict subset.
+    """
     skills = [s for s in (document.get("skills") or []) if isinstance(s, str) and s.strip()]
     if not skills:
         return []
     vault = _vault_forms(profile_json)
-    prose = [(text, _norm(text)) for text in _prose_texts(document)]
+    prose_raw = _prose_texts(document)
+    prose = [(text, _norm(text)) for text in prose_raw]
+    # The producer's own corpus and predicate (`ats_audit.surface_present` over
+    # `join_corpus_fragments`, ADR-066) for the sibling-form arm — #415's boundary marker
+    # so two unrelated bullets cannot spell a form across their join.
+    corpus_norm = _norm(join_corpus_fragments(prose_raw))
     out: list[tuple[str, str]] = []
     for skill in skills:
         if any(skills_page_dupe(skill, form) for form in vault):
@@ -122,10 +162,23 @@ def prose_derived_skills(
         needle = _norm(skill)
         if not needle:
             continue
+        hit: str | None = None
         for raw, norm in prose:
             if needle in norm:
-                out.append((skill, raw))
+                hit = raw
                 break
+        if hit is None:
+            for sibling in _ledger_siblings(skill, keyword_ledger):
+                if not surface_present(sibling, corpus_norm):
+                    continue
+                sib_norm = _norm(sibling)
+                hit = next(
+                    (raw for raw, norm in prose if sib_norm in norm),
+                    f"(via the same ledger row's form \"{sibling}\")",
+                )
+                break
+        if hit is not None:
+            out.append((skill, hit))
     return out
 
 
@@ -142,8 +195,9 @@ def render_skill_shape_check_block(found: Iterable[tuple[str, str]]) -> str:
     lines = [
         "SKILLS-LIST SHAPE (deterministic scan — this is ground truth, do not re-derive "
         f"it). {len(found)} skills entr{'y' if len(found) == 1 else 'ies'} tie to NO "
-        "attested vault form and occur verbatim inside this document's own summary or "
-        "bullets, i.e. they were lifted out of its prose. That is a fact, not a verdict: "
+        "attested vault form, and each was placed on the page by this document's own "
+        "prose — the phrase itself, or another form of the same Keyword Ledger row, is "
+        "in the summary or a bullet quoted below. That is a fact, not a verdict: "
         "a lifted phrase can still name a real competence. Decide per entry, and raise "
         "check 12 as BLOCKING with ONE issue per entry, ONLY where the entry is not a "
         "competence, tool or method but a sentence fragment, a responsibility or "
@@ -164,6 +218,7 @@ def render_skill_shape_check_block(found: Iterable[tuple[str, str]]) -> str:
 def skill_shape_reviewer_prompt_fn(
     base_fn: Callable[[str, dict], str],
     profile_json: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None = None,
     *,
     structured_document_fn: Callable[[dict], dict[str, Any]] | None = None,
 ):
@@ -180,7 +235,7 @@ def skill_shape_reviewer_prompt_fn(
         prompt = base_fn(source, draft)
         try:
             document = structured_document_fn(draft) if structured_document_fn else draft
-            found = prose_derived_skills(document, profile_json)
+            found = prose_derived_skills(document, profile_json, keyword_ledger)
             block = render_skill_shape_check_block(found)
             if not block:
                 return prompt

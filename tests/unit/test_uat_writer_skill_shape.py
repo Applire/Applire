@@ -91,6 +91,60 @@ def test_presence_is_the_shared_normalisation_not_a_raw_substring():
 # --- the block --------------------------------------------------------------
 
 
+#: The founder-UAT ledger shape: a row whose surface forms are JD noun phrases, of which
+#: `_restore_narrative_named_skills` appends ONE while the presence test matched ANOTHER.
+_LEDGER = [
+    {"concept": "Roadmap & Budget Ownership", "surface_forms": ["roadmap", "budget estimation"],
+     "claimable": True, "status": "direct", "sources": ["required"]},
+    {"concept": "AI Automation Delivery", "surface_forms": ["AI automation use case", "LLMOps"],
+     "claimable": True, "status": "partial", "sources": ["required"]},
+]
+
+
+def test_a_chip_placed_by_a_sibling_form_of_its_own_ledger_row_is_reported():
+    """Measured on the real-provider replay of 2026-09-20, n=3: the delivered list carried
+    `roadmap` and `AI automation use case` in 3 of 3 runs, neither was in the writer's own
+    draft, and the verbatim-only scan reported NOTHING — because
+    `_restore_narrative_named_skills` appends one surface form of a ledger row when ANY
+    form of that row is present in the narrative. The fact has to ask the producer's own
+    question or it cannot see the producer's own output."""
+    doc = {
+        "summary": "Quality systems lead.",
+        "skills": ["roadmap", "AI automation use case", "Databricks"],
+        "work_history": [{"bullets": [
+            "Owned budget estimation for the validation programme.",
+            "Delivered LLMOps tooling for the group.",
+            "Used Databricks daily.",
+        ]}],
+    }
+    found = prose_derived_skills(doc, _profile("Databricks"), _LEDGER)
+    assert [s for s, _ in found] == ["roadmap", "AI automation use case"]
+    # The quoted fragment is the bullet the producer's presence test actually matched.
+    assert "budget estimation" in found[0][1]
+    assert "LLMOps" in found[1][1]
+
+
+def test_without_a_ledger_the_scan_is_the_verbatim_subset():
+    """The asserted baseline for the arm above, and the back-compat contract: no ledger,
+    no sibling arm, and a strict subset of the population."""
+    doc = {
+        "summary": "Quality systems lead.",
+        "skills": ["roadmap", "AI automation use case", "Databricks"],
+        "work_history": [{"bullets": ["Owned budget estimation for the validation programme."]}],
+    }
+    assert prose_derived_skills(doc, _profile("Databricks")) == []
+
+
+def test_a_sibling_form_never_overrides_a_vault_tie():
+    """A chip the vault attests is out of this check's business whatever the ledger says."""
+    doc = {
+        "summary": "",
+        "skills": ["roadmap"],
+        "work_history": [{"bullets": ["Owned budget estimation for the programme."]}],
+    }
+    assert prose_derived_skills(doc, _profile("Platform Roadmap"), _LEDGER) == []
+
+
 def test_the_block_states_the_fact_and_hands_the_judgement_over():
     block = render_skill_shape_check_block(
         prose_derived_skills(_doc(["System Owner"]), _profile("Databricks"))
@@ -98,6 +152,9 @@ def test_the_block_states_the_fact_and_hands_the_judgement_over():
     assert "SKILLS-LIST SHAPE" in block
     assert "a fact, not a verdict" in block
     assert '"System Owner"' in block
+    # The wording must not overstate the scan: with the sibling arm the chip itself need
+    # not be verbatim in the prose, and the block says which of the two it is.
+    assert "the phrase itself, or another form of the same Keyword Ledger row" in block
 
 
 def test_no_finding_means_no_block():

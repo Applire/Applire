@@ -644,3 +644,34 @@ async def test_a_skills_list_of_attested_vault_forms_adds_no_shape_block(db):
     payload["summary"] = "Built services in Python."
     captured = await _run_pipeline(db, ids, captured=[], payload=payload)
     assert "SKILLS-LIST SHAPE" not in captured[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_the_chain_threads_the_keyword_ledger_into_the_skills_shape_scan(db):
+    """F-9 seam, the ledger half. The SKILLS-LIST SHAPE fact can only see a chip that
+    `_restore_narrative_named_skills` placed via a SIBLING surface form of its ledger row
+    if the chain hands it that ledger. Drop the `keyword_ledger` argument in
+    `_terminal_review` and this test goes red by name."""
+    import applire.services.skill_shape as skill_shape_mod
+
+    seen: list = []
+    real = skill_shape_mod.skill_shape_reviewer_prompt_fn
+
+    # No default on `keyword_ledger`: a chain that passes only two positionals raises
+    # TypeError here, which is what makes this a kill rather than a green no-op — the
+    # chain's own ledger is `[]` on this fixture (no GapAnalysis row), so asserting its
+    # VALUE could never distinguish "threaded" from "not threaded".
+    def spy(base_fn, profile_json, keyword_ledger, **kw):
+        seen.append(keyword_ledger)
+        return real(base_fn, profile_json, keyword_ledger, **kw)
+
+    ids = await _seed(db)
+    await _run_pipeline(
+        db, ids, captured=[],
+        extra_patches=[patch.object(skill_shape_mod, "skill_shape_reviewer_prompt_fn", spy)],
+    )
+    assert seen, (
+        "the skills-shape wrapper must be built by the terminal chain WITH the ledger as "
+        "its third positional argument"
+    )
+    assert seen[0] == [], seen  # this fixture has no GapAnalysis row
