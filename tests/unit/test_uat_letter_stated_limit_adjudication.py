@@ -267,15 +267,24 @@ class TestThe732PositioningRules:
         from applire.prompts.cover_letter import SYSTEM_PROMPT
 
         assert "RANKED" in SYSTEM_PROMPT
-        assert "take the HIGHEST response that is TRUE of them" in SYSTEM_PROMPT
+        assert "take the HIGHEST response TRUE of the candidate" in SYSTEM_PROMPT
         assert "choose one of exactly three responses" not in SYSTEM_PROMPT
 
-    def test_the_writer_states_the_fused_form(self):
+    def test_the_writer_states_the_fused_form_inside_the_rule_that_owns_ordering(self):
+        """The form rule was first written as its own rule and then FOLDED into
+        STATED LIMITS (b), which already owned gap ordering — the merge the
+        prompt-size ratchet asks for before a ceiling may move. So the assertion
+        is that the form is stated inside that rule, not that a second rule about
+        the same subject exists."""
         from applire.prompts.cover_letter import SYSTEM_PROMPT
 
-        assert "THE SHAPE OF A NAMED GAP" in SYSTEM_PROMPT
-        assert "in the same sentence" in SYSTEM_PROMPT
-        assert "standalone negative sentence is\n  never the shape" in SYSTEM_PROMPT
+        assert "THE SHAPE OF A NAMED GAP" not in SYSTEM_PROMPT, (
+            "the form rule regrew into a second rule about gap shape")
+        i = SYSTEM_PROMPT.index("(b) OBLIGATION:")
+        rule_b = SYSTEM_PROMPT[i:SYSTEM_PROMPT.index("- EVERY UNMET JD HARD REQUIREMENT", i)]
+        assert "in the SAME SENTENCE" in rule_b, rule_b
+        assert "never a standalone" in rule_b, rule_b
+        assert "right after a\n  sentence stating a strength" in rule_b, rule_b
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
@@ -284,7 +293,8 @@ class TestThe732PositioningRules:
 
         p = getattr(rc, door)
         assert "HALF-DELIVERY IS THE THIRD DIRECTION" in p
-        assert "NOT a `minor` matter of paragraph order" in p
+        assert "this is not `minor`" in p
+        assert "paragraph order" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
@@ -294,19 +304,25 @@ class TestThe732PositioningRules:
         import applire.prompts.review_cover_letter as rc
 
         p = getattr(rc, door)
-        assert "protection covers the\n     FUSED sentence and only it" in p
+        assert "That covers the FUSED" in p
+        assert "check 4's\n     half-delivery finding" in p
 
     @pytest.mark.parametrize("door", ["REVIEW_SYSTEM_PROMPT",
                                       "TERMINAL_REVIEW_SYSTEM_PROMPT"])
-    def test_check_one_carries_the_claiming_direction(self, door):
-        """#731: check 1 covered only the over-DISCLOSURE direction. Measured
-        effect of this bullet alone: still 0/5, which is why the deterministic
-        block above exists — the bullet stays because it states the precedence the
-        writer already has, and the block is what makes it actionable."""
+    def test_no_check_one_mirror_bullet_was_kept(self, door):
+        """#731: a check-1 mirror bullet for the CLAIMING direction was written,
+        measured at 0/5 on the real provider across three arms, and DELETED again
+        rather than kept — ADR-062 "deletion over repair", and the 2026-08-31
+        lesson that a rule the model demonstrably ignores is not worth its prompt
+        budget. Its 1,245 characters are what paid for the ratchet move that
+        #732's measured check-4 finding needed. The content survives where it is
+        actionable: the STATED-LIMIT ADJUDICATION block, which supplies the fact
+        the judgement presupposes. This test is the receipt, so the bullet is not
+        re-added out of good intentions."""
         import applire.prompts.review_cover_letter as rc
 
         p = getattr(rc, door)
-        assert "A CLAIM A STATED LIMIT CONTRADICTS IS UNGROUNDED TOO" in p
+        assert "A CLAIM A STATED LIMIT CONTRADICTS IS UNGROUNDED TOO" not in p
 
     def test_the_writer_block_states_the_fused_form(self):
         from applire.services.cross_document import render_required_limits_block

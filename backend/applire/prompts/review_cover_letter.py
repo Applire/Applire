@@ -210,20 +210,6 @@ or incomplete; anything you notice outside them is `minor` by definition.
      flag it here and say which evidence it throws away. Note that a stated limit names
      the candidate's adjacent STRENGTHS ("no IFS/BRC experience, but ten years of ISO-9001
      audit practice"); those named strengths are grounded, not limited.
-   - AND THE MIRROR: A CLAIM A STATED LIMIT CONTRADICTS IS UNGROUNDED TOO (#731). A stated
-     limit is the candidate's own, later, more specific testimony about their own work, and
-     for a CLAIM it outranks a surface form the vault happens to carry. If the letter
-     asserts as the candidate's own a capability one of their statements denies them — the
-     same capability, not merely the same words — flag it here and QUOTE the statement. The
-     Keyword Ledger cannot settle this and a CLAIMABLE verdict is not a defence: a ledger
-     status is computed from vault surface forms, never from the statements, so the very
-     concept a statement denies is routinely marked claimable. #731 is this case: a
-     delivered letter said "I manage an AI automation use case using Databricks, large
-     language models and RAG methods" while the candidate had stated the retrieval work was
-     a colleague's and that they had not personally built a retrieval pipeline — the ledger
-     marked RAG claimable, so no deterministic block named it, and the only reader who could
-     catch it was you. Asking the writer to ADD the missing limit (check 4) does not
-     discharge this: a letter can owe both, and the claim is the one that harms.
 2. WRONG OR MISSING OWNER. An achievement, responsibility, or figure belonging to one
    specific employer must be attributable to it, and the unit is the EMPLOYER RUN inside
    one PARAGRAPH, not the sentence (#565). The run's first sentence names the employer;
@@ -267,15 +253,13 @@ or incomplete; anything you notice outside them is `minor` by definition.
    positioning decision in one paragraph — the gap in the candidate's own terms plus the
    adjacent strength. BOTH directions are findings: silence on a listed limit, and a
    limit the letter states that the entry does NOT list (check 1).
-   AND HALF-DELIVERY IS THE THIRD DIRECTION (#732): the positioning decision is delivered
-   only when the strength that transfers stands in the SAME sentence as the words naming
-   the gap. A standalone negative sentence — with the strength relegated to a later
-   sentence or to a generic "my adjacent strengths are …" list — is the limit stated
-   WITHOUT its positioning decision, and it is worst where such a sentence follows
-   directly on a sentence stating a strength. Report it under this key, quote the
-   sentence, and name the adjacent strength the entry's own statement already carries.
-   This is NOT a `minor` matter of paragraph order: it is blocking like the rest of
-   check 4, because it is the shape two blind reviewers rejected a delivered letter on.
+   HALF-DELIVERY IS THE THIRD DIRECTION (#732): delivered means the transferring
+   strength stands in the SAME sentence as the words naming the gap. A standalone
+   negative sentence, its strength relegated to a later sentence or a generic
+   "my adjacent strengths are …" list, is the limit stated WITHOUT its positioning
+   decision — worst directly after a sentence stating a strength. Quote it, name the
+   strength the entry's own statement carries, and block: this is not `minor`
+   paragraph order, it is the shape two blind reviewers rejected a letter on.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -296,9 +280,9 @@ or incomplete; anything you notice outside them is `minor` by definition.
      the candidate's own words. Judge this by reading the two documents; no block lists
      conflicts for you. The admit-and-affirm sentence check 1 describes — the gap and the
      strength that transfers inside ONE sentence — is the CORRECT shape for a gap, not a
-     denial of its second half: never flag, soften or split it. That protection covers the
-     FUSED sentence and only it; a negative sentence carrying no such second half is not
-     this shape, and it is check 4's half-delivery finding (#732).
+     denial of its second half: never flag, soften or split it. That covers the FUSED
+     sentence only: a negative sentence with no such second half is check 4's
+     half-delivery finding (#732).
    - KEYWORD LEDGER — DO NOT CLAIM. A ledger honest-gap concept may never stand as
      something the candidate HAS, has done, or knows. The SUBJECT TEST decides whose fact
      the sentence states; inside a sentence about the CANDIDATE the line is grammatical
