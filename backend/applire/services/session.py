@@ -3109,8 +3109,11 @@ async def _complete_session(
     # but never touched the gap-analysis FK). Runs for every completion reason
     # (gaps_resolved, user_ended, max_questions_reached — the targeted
     # micro-session resolve_gap rides) so every way an interview ends refreshes
-    # the score. clamp_to_previous=True: added evidence is monotonic-up, so
-    # completing an interview can never LOWER the displayed score. Idempotent
+    # the score. clamp_to_previous=True: the WHOLE score slice (headline +
+    # requirement_breakdown + category_*/gaps) is clamped, and only for the
+    # evidence-added population — a recompute carrying a new denial is never
+    # clamped and the displayed score drops with it (ruling B-1 2026-09-20,
+    # gap.published_score_slice). Idempotent
     # per (job, profile-fingerprint) — if the profile didn't change this turn,
     # analyze_gaps cheaply reuses the existing row instead of re-running the LLM.
     # Best-effort: the interview is already committed complete above; a failure

@@ -194,9 +194,14 @@ def skill_containment_confirmation(
                 "merge",
             ),
             (
+                # Ruling A-1 (Tobias, 2026-09-20) settled this wording verbatim.
+                # It deliberately does NOT interpolate the skill name: the
+                # question above already names it twice, and the option has to
+                # read as "none of the above" rather than as a third thing that
+                # might be done with the skill.
                 {
-                    "en": f"Neither — don't add '{incoming_skill}'",
-                    "de": f"Weder noch — „{incoming_skill}“ nicht aufnehmen",
+                    "en": "Neither — don't add it",
+                    "de": "Weder noch — nicht hinzufügen",
                 },
                 "keep",
             ),

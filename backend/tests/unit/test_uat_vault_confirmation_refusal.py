@@ -266,8 +266,10 @@ def test_family_3_offers_a_refusal_option_in_both_languages_on_the_keep_key():
     assert op.option_keys == ["distinct", "merge", "keep"]
     assert len(op.options) == len(op.option_keys) == len(op.options_i18n or [])
     refusal_option = (op.options_i18n or [])[2]
-    assert "Neither" in refusal_option["en"]
-    assert "Weder noch" in refusal_option["de"]
+    # Ruling A-1 (Tobias, 2026-09-20) settled these two strings verbatim — pinned
+    # exactly, so a later wording change has to be a decision rather than a drift.
+    assert refusal_option["en"] == "Neither — don't add it"
+    assert refusal_option["de"] == "Weder noch — nicht hinzufügen"
     # Both renderings resolve to the SAME key — #669's whole point.
     parked = {"options": list(op.options), "option_keys": list(op.option_keys),
               "options_i18n": [dict(p) for p in (op.options_i18n or [])]}
@@ -650,3 +652,92 @@ async def test_the_mcp_send_message_tool_relays_the_re_ask_with_its_option_keys(
     # The agent is told, in the message it relays to its user, that nothing changed.
     assert "doesn't match any of the options" in out["question"]
     assert out["choices"] == entry["options"]
+
+
+# ── 8. The denial matcher's SHAPE sensitivity, measured and pinned ───────────
+#
+# NOTE C-2 finding 3 (WP-C, 2026-09-20) asked whether `declared_denial_matches`
+# returns `[]` when the denial list holds a FULL STATEMENT rather than a short
+# label — `_declares` tests bounded presence of the DENIAL inside the TOKEN, so a
+# sentence can never be inside a skill name.
+#
+# Answered by enumerating the call sites rather than by widening the matcher:
+#   * `commit.py::_refloor_persisted_denials` passes `[d.concept for d in
+#     metadata.denied_concepts]` — concepts, never `DeniedConcept.statement`;
+#   * `keyword_ledger._denied_concept_entries` reads `d["concept"]` likewise;
+#   * the ONE place a free-form shape can enter is the MODEL's own `denials`
+#     array, fed straight into `demote_ops_for_denials` at `engine.py:153`.
+#
+# And the reconcile prompt already demands the narrow shape: *"'denials' lists
+# the NAME of every skill / technology / certification / language the new
+# information explicitly DENIES"* (`prompts/reconcile.py:190`, rule 9 repeats it).
+# So a statement there is a prompt-compliance deviation, not a specification gap
+# — measure compliance, never widen the matcher (ADR-059 am. 2026-08-08 / #486).
+#
+# Measured on `openai/gpt-5.6-luna` (1 provider call, synthetic profile,
+# `Runs/Nougat/founder-uat-fixes/a/probe-denial-shape.py`): for the answer
+# *"I have not led formal Scrum or SAFe delivery, so please do not claim agile
+# methodology experience for me, and I have never personally operated Kubernetes
+# in production"* the model emitted four short labels, no statements —
+# `["formal Scrum delivery", "SAFe delivery", "agile methodology experience",
+# "Kubernetes in production"]` — so finding 3's premise did not occur. What the
+# labels ARE is QUALIFIED compounds, and the two halves then behave exactly as
+# the 2026-08-08 split prescribes. That is what these tests pin.
+
+
+_MODEL_DENIALS = [
+    "formal Scrum delivery",
+    "SAFe delivery",
+    "agile methodology experience",
+    "Kubernetes in production",
+]
+_STATEMENT_DENIALS = ["I have never personally operated Kubernetes in production"]
+
+
+def test_a_qualified_denial_never_asserts_denied_on_the_bare_skill():
+    """The ASSERT half stays narrow: a denial of "Kubernetes in production" is not
+    the candidate saying they lack "Kubernetes", so nothing may write `denied` on
+    that vault row (ADR-059 am. 2026-08-08 — asserting is testimony). Same for the
+    #730 pair."""
+    from applire.services.profile.reconcile.stance import declared_denial_matches
+
+    assert declared_denial_matches("Kubernetes", _MODEL_DENIALS) == []
+    assert declared_denial_matches(INCOMING, _MODEL_DENIALS) == []
+    # A statement-shaped list is the same answer, for the same reason — which is
+    # why no caller passes one (see the note above).
+    assert declared_denial_matches("Kubernetes", _STATEMENT_DENIALS) == []
+
+
+def test_a_qualified_denial_DOES_refuse_the_claim_unless_the_vault_affirms_it():
+    """The REFUSE half stays broad, and is the half that protects the document: a
+    ledger concept strictly inside a denied compound is refused when nothing
+    attests it independently, and released when something does (#207 /
+    ADR-059 am. 2026-09-11). The asymmetry is the design, not a gap."""
+    from applire.services.profile.reconcile.stance import is_denied_concept
+
+    assert is_denied_concept("Kubernetes", _MODEL_DENIALS, None) is True
+    assert is_denied_concept("Scrum", _MODEL_DENIALS, None) is True
+    # An attested vault entity outside the denied compound releases it.
+    assert is_denied_concept("Kubernetes", _MODEL_DENIALS, "kubernetes") is False
+
+
+def test_a_qualified_denial_label_does_NOT_reach_the_jd_s_own_concept_label():
+    """The residue, recorded so it is not mistaken for coverage: the model denied
+    *"agile methodology experience"* and the JD's ledger concept is
+    *"agile methodologies"* — neither half matches, so that ledger row is not
+    floored by this denial at all. Same class as #731's "RAG methods" vs
+    "vector databases": a label-shape gap between what the candidate is recorded
+    as denying and what the JD analysis called the requirement. Collector line on
+    #675 (surface-form coverage at the JD-analysis seam), never a matcher
+    widening."""
+    from applire.services.profile.reconcile.stance import (
+        declared_denial_matches,
+        is_denied_concept,
+    )
+
+    assert declared_denial_matches("agile methodologies", _MODEL_DENIALS) == []
+    assert is_denied_concept("agile methodologies", _MODEL_DENIALS, None) is False
+    # And the control: a denial that names the concept does reach it.
+    assert declared_denial_matches("agile methodologies", ["agile methodologies"]) == [
+        "agile methodologies"
+    ]

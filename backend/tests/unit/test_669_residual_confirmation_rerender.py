@@ -182,8 +182,9 @@ async def test_second_confirmation_of_a_turn_rerenders_german_after_the_first_is
         "„SAP MM“ als eigene Fähigkeit hinzufügen",
         "In die vorhandene Fähigkeit zusammenführen",
         # #730 (founder UAT 2026-09-20, F-11) — the refusal option, localised
-        # like its two siblings.
-        "Weder noch — „SAP MM“ nicht aufnehmen",
+        # like its two siblings. Wording settled by ruling A-1; it names no skill
+        # because it means "none of the above".
+        "Weder noch — nicht hinzufügen",
     ]
 
     # ... and the nested pending_confirmations entry the agent/UI door reads
