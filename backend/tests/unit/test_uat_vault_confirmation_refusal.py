@@ -519,3 +519,51 @@ async def test_the_confirmation_write_is_refloored_by_a_persisted_denial(
     by_name = {s.name: s for s in stored.skills}
     assert INCOMING in by_name, "the write happened — the floor is a demotion, not a refusal"
     assert by_name[INCOMING].status == "denied"
+
+
+# ── 6. The standalone route's REAL entry shape ──────────────────────────────
+
+
+def test_the_cluster_shape_the_review_route_actually_answers_resolves_both_ways():
+    """`_handle_confirmation_answer` does not get the session-state dict — it gets
+    a cluster dict from `interview_graph.build_confirmation_clusters`, whose
+    `options` are already RENDERED in the reader's language and which also carries
+    `choices`, `option_keys` and both i18n payloads.
+
+    Built on that real shape, in German, because the guard added to that route
+    would otherwise re-ask forever for a perfectly good answer: `resolve_option_key`
+    reads `options`, and a shape that carried only `choices` would resolve nothing.
+    """
+    from applire.services.interview_graph import build_confirmation_clusters
+
+    op = skill_containment_confirmation(
+        incoming_skill=INCOMING,
+        related=[EXISTING],
+        context={"incoming_skill": INCOMING, "related_skills": [EXISTING]},
+    )
+    parked = PendingConfirmation(
+        question=op.question,
+        options=list(op.options),
+        context=dict(op.context),
+        source="interview",
+        question_i18n=dict(op.question_i18n or {}),
+        options_i18n=[dict(p) for p in (op.options_i18n or [])],
+        option_keys=list(op.option_keys or []),
+    )
+    ids, _cats, by_id = build_confirmation_clusters(
+        [parked.model_dump(mode="json")], "de"
+    )
+    entry = by_id[ids[0]]
+    assert entry["options"] == entry["choices"]
+    assert entry["option_keys"] == ["distinct", "merge", "keep"]
+    assert "teilt ein Wort" in entry["question"], entry["question"]
+
+    # Every German rendering resolves — the route can still be answered.
+    assert resolve_skill_decision(entry, entry["options"][0]) == "distinct"
+    assert resolve_skill_decision(entry, entry["options"][1]) == "merge"
+    assert resolve_skill_decision(entry, entry["options"][2]) == "keep"
+    # And the English rendering of the same record resolves too (answered after a
+    # language switch between ask and answer).
+    assert resolve_skill_decision(entry, f"Add '{INCOMING}' as a separate skill") == "distinct"
+    # Only a free-text answer names nothing.
+    assert resolve_skill_decision(entry, REFUSAL) is None
