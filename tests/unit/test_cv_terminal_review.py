@@ -609,3 +609,38 @@ async def test_a_profile_without_stories_leaves_the_reviewer_prompt_untouched(db
     ids = await _seed(db)
     captured = await _run_pipeline(db, ids, captured=[])
     assert "SIGNATURE STORY FIGURES" not in captured[0]["prompt"]
+
+
+# --- F-9: the SKILLS-LIST SHAPE block reaches the terminal reviewer ----------
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_reviewer_is_told_which_skills_were_lifted_from_prose(db):
+    """F-9 (#672 line 126) — the SEAM test for `cv.py`'s wrapper stack.
+
+    Revert the `skill_shape_reviewer_prompt_fn` wrapper in `_terminal_review` and this
+    test goes red by name; every other test in this file stays green.
+    """
+    ids = await _seed(db)
+    payload = _writer_payload()
+    payload["skills"] = ["System Owner", "vendor selection"]
+    payload["summary"] = "Acted as System Owner and ran vendor selection for three sites."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    prompt = captured[0]["prompt"]
+    assert "SKILLS-LIST SHAPE" in prompt
+    assert '"System Owner"' in prompt
+    assert "a fact, not a verdict" in prompt
+    assert "12. SKILLS-LIST SHAPE" in captured[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_a_skills_list_of_attested_vault_forms_adds_no_shape_block(db):
+    """The asserted baseline for the block above."""
+    profile = _profile_json()
+    profile["skills"] = [{"name": "Python", "status": "confirmed"}]
+    ids = await _seed(db, profile_json=profile)
+    payload = _writer_payload()
+    payload["skills"] = ["Python"]
+    payload["summary"] = "Built services in Python."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    assert "SKILLS-LIST SHAPE" not in captured[0]["prompt"]

@@ -369,6 +369,19 @@ _TERMINAL_BLOCKING_CHECKS = """\
    the check that outranks it rather than demanding the figure — truth outranks curation,
    exactly as it does for a pinned quote.
 
+12. SKILLS-LIST SHAPE — blocking. The SKILLS-LIST SHAPE block in your input names the
+   skills entries that tie to no attested vault form AND occur verbatim inside this
+   document's own summary or bullets; that scan is ground truth, do not re-derive it. It is
+   a FACT, not a verdict — decide per entry. Raise check 12, at most one issue per entry,
+   only for an entry that is NOT a competence, tool or method: a sentence fragment
+   ("application processes", "enterprise-scale"), a responsibility or activity
+   ("vendor selection", "budget estimation"), a job title ("System Owner"), or a setting.
+   In `feedback` name the entry and say either to remove it or to replace it with the
+   competence the candidate actually holds, in the candidate's own vault wording. An entry
+   the block does not list is never a check-12 finding, and an entry that genuinely names a
+   competence stays even though it was lifted from a bullet — rule 7's own closing line
+   requires a competence named in a bullet to appear in the list.
+
 """
 
 #: The TERMINAL door's mandate. The prose door's paragraph is byte-identical to what
@@ -400,8 +413,8 @@ order, which achievement leads an entry, summary phrasing that does not change w
 length — and so is everything you find under checks 9 and 10. You are not the CV's
 editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
 and 3-8 are whether this CV tells the truth and says it once; check 11 is whether the
-candidate's own curated evidence reached the page; checks 9 and 10 are whether it
-represents the candidate. This is the only round that sees the finished document, so all of them
+candidate's own curated evidence reached the page and check 12 whether its skills list
+names competences; checks 9 and 10 are whether it represents the candidate. This is the only round that sees the finished document, so all of them
 get answered here.
 
 """

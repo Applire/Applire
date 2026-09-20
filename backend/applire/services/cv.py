@@ -4938,10 +4938,20 @@ async def _terminal_review(
     # leaves only the sole-carrier tier above it), so the #666/#415 "the loop deletes its
     # own repair" shape does not apply to a figure-bearing bullet. Stated rather than
     # silently skipped.
+    from applire.services.skill_shape import skill_shape_reviewer_prompt_fn
     from applire.services.story_reach import story_figures_reviewer_prompt_fn
 
-    _subject_fn = story_figures_reviewer_prompt_fn(
+    _story_fn = story_figures_reviewer_prompt_fn(
         _pinned_fn,
+        profile_json,
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
+    # F-9 (#672 line 126): the SKILLS-LIST SHAPE block — check 12's ground truth. The
+    # COMPOSED subject, because the skills list the reader sees is the POST-pipeline one
+    # (`_tailor_skills_to_jd`, `_restore_narrative_named_skills` run in `_compose_document`)
+    # and a prose-only scan would report a different list from the one that ships.
+    _subject_fn = skill_shape_reviewer_prompt_fn(
+        _story_fn,
         profile_json,
         structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
     )
