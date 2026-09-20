@@ -252,7 +252,10 @@ Check for ALL of the following:
    and the bullets of a project nested under it. A failure of this check is blocking like any
    other.
 
-SKILLS-LIST SCOPE (applies to every check above): the skills list draws on the WHOLE profile
+SKILLS-LIST SCOPE (applies to every check above): this paragraph scopes GROUNDING only — which
+evidence makes a skill TRUE. It says nothing about whether an entry is a skill at all, and never
+exempts a skills entry that is a noun phrase lifted out of a bullet rather than a named
+competence. The skills list draws on the WHOLE profile
 by design — per-position ownership governs work-entry bullets only. A skill is grounded when the
 profile states it AS SOMETHING THE CANDIDATE HAS OR DID: in its skills section, an entry's
 responsibilities/achievements/technologies, a project, or a signature story. Never flag such a
@@ -334,6 +337,40 @@ noise, not thoroughness.
 
 """
 
+#: F-5 (#672 line 124, founder UAT 2026-09-20) — the ONE terminal-door check that is
+#: BLOCKING, and the reason it exists rather than a louder writer rule.
+#:
+#: ``prompts/cv_tailoring.py`` rule 3 already demands it, verbatim: *"EVERY story's
+#: measured outcome figure must appear in the document"*. The story reached the writer's
+#: input in full (profile ROOT, no filter — see ``services/story_reach.py``'s triage) and
+#: the rule was violated anyway, so this is `applire-prompt-first` category **C** and
+#: widening rule 3 is the move that was measured to fail in 2026-08-31's replay. What was
+#: missing was a READER: checks 1-10 never demanded a story's figure, check 9 comes
+#: closest and is visibility-only, ``condense_to_budget`` can only protect a bullet that
+#: already exists, and ``_prefer_measured_outcomes`` only upgrades one the writer already
+#: drafted. A story the generative pass skipped had no net anywhere.
+#:
+#: BLOCKING, unlike checks 9 and 10, for the reason check 7 is: the demand is a
+#: deterministic FACT about a CURATED vault item, not a style judgement — the same
+#: "this fact must be on the page" class as a pinned quote. The judgement (is the bullet
+#: honest, is it in the right entry) stays the model's. Bounded by
+#: ``story_reach.STORY_DEMAND_LIMIT`` and by one demand per figure per loop, so it can
+#: never fill a round.
+_TERMINAL_BLOCKING_CHECKS = """\
+11. SIGNATURE STORY FIGURES — blocking. The SIGNATURE STORY FIGURES block in your input is
+   ground truth from a deterministic figure scan over the composed document; do not re-derive
+   it. Raise check 11 ONLY for its MISSING entries, at most one issue per story: name the
+   story title and the figure, and in `feedback` say which work entry or nested project it
+   belongs in. The corrector writes ONE bullet for that entry from the signature story in its
+   source, in the candidate's own terms — it never invents a number, never restates a figure
+   the document already carries, and never moves the story into an entry that did not own it.
+   A story the block lists as PRESENT is never a finding. If a MISSING story's figure cannot
+   be placed without breaking one of checks 1, 4, 5 or 6(b), report that as "minor" naming
+   the check that outranks it rather than demanding the figure — truth outranks curation,
+   exactly as it does for a pinned quote.
+
+"""
+
 #: The TERMINAL door's mandate. The prose door's paragraph is byte-identical to what
 #: shipped; this one differs in exactly two ways, both forced.
 #:
@@ -362,9 +399,10 @@ with the document. Anything else you notice is "minor" BY DEFINITION: bullet wor
 order, which achievement leads an entry, summary phrasing that does not change what is claimed,
 length — and so is everything you find under checks 9 and 10. You are not the CV's
 editor: you never rewrite it, and a style observation never makes the writer run again. Checks 1
-and 3-8 are whether this CV tells the truth and says it once; checks 9 and 10 are whether it
-represents the candidate. This is the only round that sees the finished document, so both get
-answered here.
+and 3-8 are whether this CV tells the truth and says it once; check 11 is whether the
+candidate's own curated evidence reached the page; checks 9 and 10 are whether it
+represents the candidate. This is the only round that sees the finished document, so all of them
+get answered here.
 
 """
 
@@ -413,6 +451,7 @@ TERMINAL_REVIEW_SYSTEM_PROMPT = (
     + _CHECKS
     + "\n"
     + _TERMINAL_CHECKS
+    + _TERMINAL_BLOCKING_CHECKS
     + _MANDATE_TERMINAL
     + _schema_and_closer(structural_fields=True)
 )

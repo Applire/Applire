@@ -120,7 +120,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db):
+async def _seed(db, *, profile_json=None):
     from applire.models.job import JobAnalysis
     from applire.models.cv import GeneratedCV
 
@@ -133,7 +133,7 @@ async def _seed(db):
             language_requirement="de",
         ),
         make_master_profile(
-            id=profile_id, profile_json=_profile_json(),
+            id=profile_id, profile_json=profile_json or _profile_json(),
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ),
@@ -547,3 +547,65 @@ async def test_the_cv_chain_reports_a_post_verdict_correction_as_unverified(db):
         "could decide" in check["details"]
         or "cannot be decided deterministically" in check["details"]
     ), check["details"]
+
+
+# --- F-5: the SIGNATURE STORY FIGURES block reaches the terminal reviewer ----
+
+
+def _profile_json_with_story() -> dict:
+    """The founder-UAT SHAPE, synthetic throughout: one curated story on the first work
+    entry whose measured outcome carries a percent figure."""
+    profile = _profile_json()
+    profile["signature_stories"] = [
+        {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "title": "LIMS rollout across three sites",
+            "challenge": "Three sites planned three parallel validation strategies.",
+            "mechanism": "One shared validation strategy, reviewed once per site.",
+            "outcome": "Validation effort fell by roughly 80 % and the first site went live.",
+            "experience_refs": [_WORK_ID],
+        }
+    ]
+    return profile
+
+
+@pytest.mark.asyncio
+async def test_the_terminal_reviewer_is_told_a_story_figure_is_missing(db):
+    """F-5 (#672 line 124) — the SEAM test for `cv.py`'s wrapper stack.
+
+    Revert the `story_figures_reviewer_prompt_fn` wrapper in `_terminal_review` and this
+    test goes red by name; every other test in this file stays green.
+    """
+    ids = await _seed(db, profile_json=_profile_json_with_story())
+    captured = await _run_pipeline(db, ids, captured=[])
+    assert captured, "the terminal reviewer must have been asked at least once"
+    prompt = captured[0]["prompt"]
+    assert "SIGNATURE STORY FIGURES" in prompt
+    assert "LIMS rollout across three sites" in prompt
+    assert "MISSING" in prompt
+    # The block names the entry the story belongs to, so the corrector knows where.
+    assert "Acme GmbH" in prompt
+    # And the check that reads it is on the terminal door.
+    assert "11. SIGNATURE STORY FIGURES" in captured[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_a_story_whose_figure_is_on_the_page_is_reported_present_not_demanded(db):
+    """The asserted baseline: the block is a COMPLETE statement, so a story already
+    carried is listed under PRESENT and never demanded
+    (`feedback_prohibition_is_not_an_answer`)."""
+    ids = await _seed(db, profile_json=_profile_json_with_story())
+    payload = _writer_payload()
+    payload["summary"] = "Validation effort fell by 80% after one shared strategy."
+    captured = await _run_pipeline(db, ids, captured=[], payload=payload)
+    prompt = captured[0]["prompt"]
+    assert "SIGNATURE STORY FIGURES" in prompt
+    assert "PRESENT" in prompt
+    assert "MISSING — blocking" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_profile_without_stories_leaves_the_reviewer_prompt_untouched(db):
+    ids = await _seed(db)
+    captured = await _run_pipeline(db, ids, captured=[])
+    assert "SIGNATURE STORY FIGURES" not in captured[0]["prompt"]

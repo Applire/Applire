@@ -4917,7 +4917,7 @@ async def _terminal_review(
         pinned_facts_reviewer_prompt_fn,
     )
 
-    _subject_fn = (
+    _pinned_fn = (
         pinned_facts_reviewer_prompt_fn(
             _coverage_fn, list(condense_ctx.pins), profile_json, keyword_ledger, composed=True
         )
@@ -4925,6 +4925,26 @@ async def _terminal_review(
         else _coverage_fn
     )
     ensure_pinned_fact_signal_registered()
+
+    # F-5 (#672 line 124): the SIGNATURE STORY FIGURES block — check 11's ground truth.
+    # Outermost wrapper, so its block is the last thing the reviewer reads and its scan
+    # runs over the same COMPOSED subject the coverage and pin wrappers use (a cache hit
+    # on `_subject_for`). One wrapper per `review_and_refine` invocation = one demand
+    # bound per figure, exactly like the pin wrapper above.
+    #
+    # NOT wired into `BudgetResult.demanded_concepts` / `coverage_demanded_concepts`: a
+    # bullet carrying a percent or currency figure is already the second-most-protected
+    # tier in `cv_budget.rank_cuts` (figure-less bullets are cut first, ADR-072 clause 1
+    # leaves only the sole-carrier tier above it), so the #666/#415 "the loop deletes its
+    # own repair" shape does not apply to a figure-bearing bullet. Stated rather than
+    # silently skipped.
+    from applire.services.story_reach import story_figures_reviewer_prompt_fn
+
+    _subject_fn = story_figures_reviewer_prompt_fn(
+        _pinned_fn,
+        profile_json,
+        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
+    )
 
     def _subject_for(draft: dict) -> TailoredCVData:
         """The COMPOSED document for ``draft`` — computed once, cached by draft."""
