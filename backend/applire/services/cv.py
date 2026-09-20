@@ -4935,7 +4935,17 @@ async def _terminal_review(
             subject_by_draft[key] = subject
         return subject
 
+    # F-4 (#672 line 123): the draft the LAST verdict of the current
+    # `review_and_refine` invocation was rendered over. `review_and_refine` hands this
+    # function the draft and keeps no record of it, so the settle report cannot
+    # otherwise tell "these findings are open against the delivered document" from
+    # "the corrector revised the document after this verdict and nobody re-read it" —
+    # which is 46 of 46 documents on the `exhausted` path. A cell, because
+    # `_reviewer_prompt` is defined before the loop that consumes it.
+    reviewed_cell: dict[str, dict | None] = {"draft": None}
+
     def _reviewer_prompt(source: str, draft: dict) -> str:
+        reviewed_cell["draft"] = draft
         return _subject_fn(source, _subject_for(draft).model_dump(mode="json"))
 
     def _corrector_prompt(previous_draft: dict, feedback: str, source: str) -> str:
@@ -4970,7 +4980,12 @@ async def _terminal_review(
 
     def _record_settle(settle) -> None:
         outcome_cell["outcome"] = settle_to_outcome(
-            settle, chain_id="cv_terminal_review"
+            settle,
+            chain_id="cv_terminal_review",
+            # F-4: the measured fact, not a settle-path inference. `None` on the
+            # `max_retries <= 0` short-circuit (no reviewer prompt was ever built), and
+            # `settle_to_outcome` then reports exactly as it did before.
+            reviewed_draft=reviewed_cell["draft"],
         ).worse_of(outcome_cell["outcome"])
 
     def _record_demand(concepts) -> None:
