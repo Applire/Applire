@@ -18,7 +18,9 @@
 
 """Adversarial finding (Nougat UAT-fixes batch, adv pass, 2026-09-20) on the
 NOTE D-1 mount landed at `9eaff795` (F-4, `services/terminal_review_outcome.py`,
-`services/cover_letter.py::_terminal_review_letter`).
+`services/cover_letter.py::_terminal_review_letter`) — CLOSED by the same-branch
+fix below (M-2, `wt-fix-adv`). Both tests were the adversarial reproduction; both
+are now GUARDS pinning the fixed behaviour.
 
 F-4's fix makes the `terminal-review` ADR-039 check ask "was the delivered draft
 the draft the last verdict was rendered over" via `reviewed_cell["draft"]`, wired
@@ -59,6 +61,19 @@ Both tests below are deterministic (no provider call): `review_and_refine` is
 faked exactly as `test_547_letter_final_floor_recondense_coverage_check.py`
 fakes it, except the fake also calls `reviewer_prompt_fn` and `on_settle` the
 way the real function does, so the F-4 wiring actually runs.
+
+**The fix** (adversarial pass, same-branch): `_terminal_review_letter` no
+longer folds each settle's outcome EAGERLY (which froze `delivered_is_reviewed`
+at settle time, before the recondense could falsify it) — it retains every raw
+settle and folds them, via `terminal_review_outcome.settle_to_outcome`'s new
+`delivered_draft=` override, against the draft that ACTUALLY ships (after the
+recondense, after the settle-time grounding cut). `TerminalReviewOutcome.status`
+now applies the F-4 draft-identity gate to EVERY settle path, not only the fail
+ones, so a `pass`-path settle over a draft that is not what shipped correctly
+reports `not_applicable` with the "UNVERIFIED" wording. `worse_of`'s tie-break
+now also prefers whichever folded candidate still names a real finding, so a
+genuine earlier exhaustion survives being buried by an unreviewed later
+recondense.
 """
 import sys
 import uuid
@@ -270,23 +285,22 @@ async def _delivered_body(db, cl):
 
 
 @pytest.mark.asyncio
-async def test_a_never_reviewed_recondense_still_reports_pass(db):
-    """The plain case: round 1 approves the seed unchanged (over-norm, so the
-    floor fires); the floor's own condense+review round approves a regrown,
-    still-over-norm draft (also reviewed, also approved); `_limits_ok` holds on
-    every composition in play, so the floor falls into the RECONDENSE branch
-    rather than `kept_corrector_limit_grounding`. The recondense is a bare
-    `_condense_call` with no reviewer attached, and it ships a sentence no
+async def test_a_never_reviewed_recondense_no_longer_reports_pass(db):
+    """GUARD (was the adversarial reproduction; flipped after the same-branch
+    fix). The plain case: round 1 approves the seed unchanged (over-norm, so
+    the floor fires); the floor's own condense+review round approves a
+    regrown, still-over-norm draft (also reviewed, also approved); `_limits_ok`
+    holds on every composition in play, so the floor falls into the RECONDENSE
+    branch rather than `kept_corrector_limit_grounding`. The recondense is a
+    bare `_condense_call` with no reviewer attached, and it ships a sentence no
     round ever reviewed.
 
-    Expected if F-4 covered every post-verdict rewrite site: the check should
-    read `not_applicable` ("unverified") for a document whose final text was
-    never reviewed, or `fail`/some honest signal — never a clean `pass`.
+    Fixed behaviour: the check reads `not_applicable` ("UNVERIFIED") for a
+    document whose final text was never reviewed — never a clean `pass`.
 
-    Observed: `pass`, because `outcome_cell["outcome"]` is frozen at the
-    floor round's own settle (approved, and at THAT MOMENT delivered_is_
-    reviewed was true) and nothing re-derives it after the recondense
-    reassigns `current`.
+    Mutation: drop `delivered_draft=` from the `settle_to_outcome` call in
+    `_fold_terminal_outcome` (`cover_letter.py`) on a scratchpad copy — this
+    test goes red by name (back to `pass`).
     """
     cl = await _seed(db, unique_prefix="recond-pass")
     seed = _letter("Ich verantworte die Fertigungssteuerung bei Vektorwerk.")
@@ -324,28 +338,37 @@ async def test_a_never_reviewed_recondense_still_reports_pass(db):
     # And what got reviewed is NOT what shipped.
     assert "ERP-Rollout-Programm" not in delivered
 
-    # The bug: the check reports a clean pass over content nobody reviewed.
+    # The fix: the check reports UNVERIFIED, never a clean pass, over content
+    # nobody reviewed.
     assert result.outcome is not None
-    assert result.outcome.status == "pass", (
+    assert result.outcome.status == "not_applicable", (
         "expected the `terminal-review` check to report something other than "
         "a clean pass for a delivered letter whose final text (the bare "
-        "final-length-floor recondense) was never handed to any reviewer — "
-        "got 'pass', reproducing the adversarial finding"
+        "final-length-floor recondense) was never handed to any reviewer"
     )
+    from applire.services.terminal_review_outcome import build_terminal_review_check
+
+    check = build_terminal_review_check(result.outcome, document="letter")
+    assert "UNVERIFIED" in (check.details or "")
 
 
 @pytest.mark.asyncio
-async def test_the_supersede_rule_plus_a_recondense_buries_a_real_exhaustion(db):
-    """The sharper form: round 1 genuinely EXHAUSTS with a real blocking
+async def test_the_supersede_rule_no_longer_lets_a_recondense_bury_a_real_exhaustion(db):
+    """GUARD (was the adversarial reproduction; flipped after the same-branch
+    fix). The sharper form: round 1 genuinely EXHAUSTS with a real blocking
     finding (`generator_call_failed`-shaped: `approved=False`). Per the F-4/
     D-4 `worse_of` rule, a later APPROVED round whose `correction.delivered_
-    is_reviewed` reads True at settle time supersedes that exhaustion — by
-    design, so a legitimate re-review is not held hostage by a stale finding.
-    But here the floor's later round is immediately followed by the same
-    unreviewed recondense as the first test, so the "supersede" fact
-    (delivered_is_reviewed=True) is falsified by code that runs AFTER the
-    measurement it was based on, and the report ends up `pass` with the
-    original round's real finding gone from `details` entirely.
+    is_reviewed` reads True supersedes that exhaustion — by design, so a
+    legitimate re-review is not held hostage by a stale finding. But here the
+    floor's later round is immediately followed by the same unreviewed
+    recondense as the first test.
+
+    Fixed behaviour: the fold now measures `delivered_is_reviewed` against the
+    draft that ACTUALLY ships (after the recondense), so the "supersede"
+    special case correctly does not fire — the floor round is ALSO now
+    unverified (not approved-over-delivered), and `worse_of`'s tie-break keeps
+    the round-1 exhaustion's real finding in `details` rather than folding it
+    away.
     """
     cl = await _seed(db, unique_prefix="recond-mask")
     seed = _letter("Ich habe die Umstellung auf SAP S/4HANA verantwortet.")
@@ -384,13 +407,15 @@ async def test_the_supersede_rule_plus_a_recondense_buries_a_real_exhaustion(db)
     from applire.services.terminal_review_outcome import build_terminal_review_check
 
     assert result.outcome is not None
-    assert result.outcome.status == "pass", (
+    assert result.outcome.status == "not_applicable", (
         "the round-1 exhaustion (`generator_call_failed`, a real blocking "
-        "finding) is being reported as a clean pass"
+        "finding) must not be reported as a clean pass once the floor's own "
+        "'approving' round is itself unverified against what shipped"
     )
     check = build_terminal_review_check(result.outcome, document="letter")
-    assert "a real finding" not in (check.details or ""), (
-        "the earlier round's real finding text has been folded away by the "
-        "approved-supersedes rule, and the round that superseded it is not "
-        "itself the round whose output shipped (the recondense ran after it)"
+    assert "a real finding" in (check.details or ""), (
+        "the earlier round's real finding text must survive the fold — it may "
+        "not be silently buried by an approved-supersedes rule whose own "
+        "'approved' round did not survive to the delivered document either "
+        "(the recondense ran after it)"
     )

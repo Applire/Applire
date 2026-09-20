@@ -200,16 +200,33 @@ class TerminalReviewOutcome:
 
     @property
     def status(self) -> str:
-        """The ADR-039 check status this outcome maps to."""
+        """The ADR-039 check status this outcome maps to.
+
+        Adversarial finding (Nougat UAT-fixes batch, 2026-09-20) generalised the
+        F-4 draft-identity gate from `fail` paths to EVERY path: a `pass` is only
+        honest when the delivered draft is the one the approving verdict actually
+        read. Before this, a `_PASS_PATHS` settle reported `pass` unconditionally,
+        so a post-verdict rewrite nobody reviewed (the letter's final-length-floor
+        recondense, `cover_letter.py`) still shipped as a clean `terminal-review`
+        check — the exact false-positive-control failure mode F-4 was built to
+        catch, just on the approved side rather than the exhausted one. For every
+        producer that has not wired ``correction`` (unchanged: `cv.py`, and any
+        letter invocation before this fix), ``findings_stand_against_delivered``
+        already defaults to ``True`` outside :data:`_CORRECTED_AFTER_VERDICT_PATHS`,
+        so this generalisation is byte-identical there.
+        """
         if self.path is None:
             return "not_applicable"
         if self.path in _UNKNOWN_PATHS:
             return "not_applicable"
+        if not self.findings_stand_against_delivered:
+            # The delivered draft is provably NOT the draft this outcome's last
+            # verdict was rendered over — a correction (or, on the letter, a bare
+            # post-verdict recondense) landed afterward and nobody re-reviewed
+            # it. Neither "open" nor "clean" is honest; report unknown/unverified,
+            # whichever path this was.
+            return "not_applicable"
         if self.path in _FAIL_PATHS:
-            # F-4: `fail` states that the delivered document carries an open finding.
-            # It may only be said when the finding was raised against THAT document.
-            if not self.findings_stand_against_delivered:
-                return "not_applicable"
             # Fail-safe in the reporting direction: an unrecognised blocking-path
             # settle with no issues recorded is still not evidence of a clean review.
             return "fail"
@@ -254,7 +271,19 @@ class TerminalReviewOutcome:
                     correction=winner.correction,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
-        keep, drop = (self, other) if order[self.status] >= order[other.status] else (other, self)
+
+        def _rank(o: "TerminalReviewOutcome") -> tuple[int, int]:
+            # Adversarial finding, 2026-09-20: once `status` (above) can demote
+            # a `pass`-path outcome to `not_applicable` on the draft-identity
+            # fact, two outcomes can tie on status while one still carries a
+            # real earlier finding the other does not (e.g. a genuine
+            # exhaustion vs. an approved-but-now-unverified later round). A
+            # bare status tie must not silently drop that finding's text, so
+            # the tie-break's second key prefers the outcome that still names
+            # one.
+            return (order[o.status], 1 if o.blocking_issues else 0)
+
+        keep, drop = (self, other) if _rank(self) >= _rank(other) else (other, self)
         return TerminalReviewOutcome(
             chain_id=keep.chain_id,
             path=keep.path,
@@ -275,6 +304,7 @@ def measure_correction(
     reviewed_draft: dict[str, Any],
     *,
     structured_output: bool = False,
+    delivered_draft: dict[str, Any] | None = None,
 ) -> CorrectionFacts:
     """The F-4 facts about this settle: was the delivered draft the reviewed one, and
     what did the existing corrector-compliance instrument make of each finding?
@@ -283,6 +313,16 @@ def measure_correction(
     rendered over — the caller inside the chain is the only code that knows it, because
     ``review_and_refine`` hands the reviewer prompt function that draft and keeps no
     record of it afterwards.
+
+    ``delivered_draft`` (adversarial finding, Nougat UAT-fixes batch, 2026-09-20):
+    the ACTUAL final delivered draft, when the caller can supply one that is not
+    ``settle.settled`` — the letter's final-length-floor recondense
+    (``cover_letter.py``) is a bare rewrite that reassigns the delivered content
+    AFTER this settle already happened, so ``settle.settled`` alone is stale by
+    the time the report is built. ``None`` (the default) keeps the pre-existing
+    behaviour of comparing against ``settle.settled`` exactly, so every producer
+    that has not wired this (``cv.py``, and the letter before this fix) is
+    byte-identical.
 
     Two shared instruments, no new ones (ADR-066):
     ``services.subject_identity.subject_hash`` — the SAME canonicalisation the #538/#539
@@ -302,7 +342,10 @@ def measure_correction(
     from applire.services.review_issues import ReviewIssue
     from applire.services.subject_identity import subject_hash
 
-    delivered = settle.settled if isinstance(settle.settled, dict) else {}
+    if delivered_draft is not None:
+        delivered = delivered_draft if isinstance(delivered_draft, dict) else {}
+    else:
+        delivered = settle.settled if isinstance(settle.settled, dict) else {}
     same = subject_hash(delivered) == subject_hash(reviewed_draft)
     counts: dict[ComplianceOutcome, int] = {o: 0 for o in ComplianceOutcome}
     if not same and settle.blocking_issues:
@@ -329,6 +372,7 @@ def settle_to_outcome(
     chain_id: str,
     reviewed_draft: dict[str, Any] | None = None,
     structured_output: bool = False,
+    delivered_draft: dict[str, Any] | None = None,
 ) -> TerminalReviewOutcome:
     """Project a loop settle onto the reportable outcome. Pure.
 
@@ -339,12 +383,19 @@ def settle_to_outcome(
     a chain can wire it independently of every other chain. A measurement that raises is
     never allowed to cost the report: this is a reporting layer, and it may not become a
     new way for generation to fail (ADR-039).
+
+    ``delivered_draft`` (adversarial finding, 2026-09-20) overrides ``settle.settled``
+    as the "delivered" side of :func:`measure_correction`'s identity check — see that
+    function's docstring. ``None`` keeps this call byte-identical to before.
     """
     correction: CorrectionFacts | None = None
     if reviewed_draft is not None:
         try:
             correction = measure_correction(
-                settle, reviewed_draft, structured_output=structured_output
+                settle,
+                reviewed_draft,
+                structured_output=structured_output,
+                delivered_draft=delivered_draft,
             )
         except Exception:  # pragma: no cover - fail-safe, logged by the caller's chain
             logger.exception(
@@ -414,8 +465,23 @@ def _compliance_sentence(outcome: TerminalReviewOutcome) -> str:
 
 
 def _unverified_body(outcome: TerminalReviewOutcome) -> str:
-    """F-4: the corrector revised the document after the verdict and the revision was
-    never re-reviewed. The findings are UNVERIFIED, which is neither open nor clean."""
+    """F-4: the document changed after the last verdict and the revision was never
+    re-reviewed. Neither open nor clean is honest, so this is UNVERIFIED.
+
+    Two shapes (adversarial finding, 2026-09-20 generalised :meth:`TerminalReviewOutcome.
+    status` from fail paths to every path): a blocking verdict whose corrector-revised
+    draft was never re-reviewed (the original F-4 shape, findings named) — or an
+    APPROVED verdict whose delivered draft is a LATER, unreviewed rewrite (the letter's
+    final-length-floor recondense: no findings to name, but the "clean" verdict itself
+    no longer describes what shipped)."""
+    if not outcome.blocking_issues:
+        return (
+            f"The terminal review settled after {outcome.rounds} round(s) with no "
+            "blocking finding, but the document changed again after that verdict — a "
+            "later rewrite (e.g. the letter's final-length-floor re-condense) revised "
+            "it and that revision was never reviewed. This document's review status is "
+            "UNVERIFIED against what was actually delivered — not confirmed clean."
+        )
     head = (
         f"The terminal review settled after {outcome.rounds} round(s) with "
         f"{len(outcome.blocking_issues)} finding(s) raised against the draft it last "
@@ -440,7 +506,12 @@ def _body(outcome: TerminalReviewOutcome) -> str:
                 "The terminal review did not run for this document, so its verdict is "
                 "unknown — not clean."
             )
-        if outcome.path in _FAIL_PATHS and not outcome.findings_stand_against_delivered:
+        if not outcome.findings_stand_against_delivered:
+            # Adversarial finding, 2026-09-20: was scoped to `_FAIL_PATHS` only —
+            # widened so a `_PASS_PATHS` settle demoted by the generalised
+            # `status` property (a clean verdict over a draft that is not the
+            # delivered one) gets the same honest UNVERIFIED wording, not the
+            # generic "result is unknown" fallback below.
             return _unverified_body(outcome)
         return (
             "The terminal review ran but no verdict could be obtained "

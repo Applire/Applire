@@ -2588,7 +2588,13 @@ async def _terminal_review_letter(
         would empty the body keeps the letter and still reports."""
         delivered = cl.letter_data
         cut, findings = cut_ungrounded_limits(delivered, keyword_ledger, denied_concepts)
-        outcome = outcome_cell["outcome"]
+        # Adversarial finding, 2026-09-20: fold NOW, against whichever draft is
+        # ACTUALLY about to ship — this settle-time cut's own output when it
+        # fires, `delivered` otherwise — never against a round's own settled
+        # draft, which the final-length-floor recondense (or this very cut) may
+        # have already superseded.
+        final_identity_draft = cut if (findings and cut is not delivered) else delivered
+        outcome = _fold_terminal_outcome(final_identity_draft)
         limit_cuts: tuple = ()
         if findings:
             limit_cuts = tuple(dict.fromkeys(f.sentence for f in findings))
@@ -2698,18 +2704,40 @@ async def _terminal_review_letter(
     # settled; `worse_of` folds them into ONE outcome for the delivery, so the ADR-039
     # `terminal-review` check cannot be talked out of an earlier exhaustion by a clean
     # later round. Never raises into the loop (the hook is wrapped there).
-    from applire.services.terminal_review_outcome import settle_to_outcome
-
-    outcome_cell: dict = {"outcome": None}
+    #
+    # Adversarial finding (Nougat UAT-fixes batch, 2026-09-20): this used to fold
+    # EAGERLY, one `settle_to_outcome(...).worse_of(...)` call per settle, the
+    # instant it happened. That freezes `delivered_is_reviewed` at settle time —
+    # but the final-length-floor's bare recondense (below, ADR-076 clause 3-L2)
+    # can still reassign `cl.letter_data` to a rewrite NO round ever reviewed
+    # AFTER the last settle already reported "clean". `outcome_cell["raw"]`
+    # retains every settle instead; `_finish` (this function's one exit, reached
+    # only once the recondense — if any — has already run) folds them against
+    # the ACTUALLY delivered draft, so a recondense correctly demotes a stale
+    # `pass`/`delivered_is_reviewed=True` fact rather than shipping it unchecked.
+    outcome_cell: dict = {"raw": []}
 
     def _record_settle(settle) -> None:
-        outcome_cell["outcome"] = settle_to_outcome(
-            settle,
-            chain_id="letter_terminal_review",
-            # F-4: the measured fact (see `reviewed_cell` above); `None` when no
-            # reviewer prompt was ever built, and the report is then unchanged.
-            reviewed_draft=reviewed_cell["draft"],
-        ).worse_of(outcome_cell["outcome"])
+        outcome_cell["raw"].append((settle, reviewed_cell["draft"]))
+
+    def _fold_terminal_outcome(delivered_draft: dict) -> "TerminalReviewOutcome | None":
+        from applire.services.terminal_review_outcome import settle_to_outcome
+
+        outcome = None
+        for settle, reviewed_draft in outcome_cell["raw"]:
+            this = settle_to_outcome(
+                settle,
+                chain_id="letter_terminal_review",
+                # F-4: the measured fact (see `reviewed_cell` above); `None` when no
+                # reviewer prompt was ever built, and the report is then unchanged.
+                reviewed_draft=reviewed_draft,
+                # Adversarial finding, 2026-09-20: the identity check runs against
+                # what ACTUALLY shipped, not this round's own settled draft — see
+                # `measure_correction`'s `delivered_draft` docstring.
+                delivered_draft=delivered_draft,
+            )
+            outcome = this.worse_of(outcome)
+        return outcome
 
     current = draft
     rounds = 0
