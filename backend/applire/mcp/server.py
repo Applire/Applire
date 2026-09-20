@@ -358,6 +358,11 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
     "analyze_jd": [
         "role_title", "company_name", "required_skills", "nice_to_have_skills",
         "keywords", "company_culture_signals", "language_requirement",
+        # Founder ruling B-2 / migration 0068: the posting's own wording of an
+        # education bar is posting text like every other entry here — a hostile
+        # advertisement can put an instruction in its "Master's degree in …"
+        # sentence exactly as easily as in a requirement.
+        "education_requirement",
         "scope_requirements[].quote", "leadership_emphasis.quote",
     ],
     "analyze_gaps": [

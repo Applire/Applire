@@ -492,6 +492,7 @@ export default function GapsPage({
   const [jobEcho, setJobEcho] = useState<{
     role_title: string;
     company_name: string | null;
+    education_requirement: string | null;
     required_skills: string[];
     nice_to_have_skills: string[];
     jd_language: "de" | "en" | null;
@@ -572,6 +573,7 @@ export default function GapsPage({
               setJobEcho({
                 role_title: j.role_title ?? "",
                 company_name: j.company_name ?? null,
+                education_requirement: j.education_requirement ?? null,
                 required_skills: j.required_skills ?? [],
                 nice_to_have_skills: j.nice_to_have_skills ?? [],
                 jd_language: j.jd_language ?? null,
@@ -960,6 +962,7 @@ export default function GapsPage({
               <JobEchoCard
                 companyName={jobEcho.company_name}
                 roleTitle={jobEcho.role_title}
+                educationRequirement={jobEcho.education_requirement}
                 requiredSkills={echoChips.required}
                 niceToHaveSkills={echoChips.niceToHave}
               />

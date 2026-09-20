@@ -15,6 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10 (founder ruling B-2, 2026-09-20): the degree/field-of-study class v9
+#   removed from the three concept lists gets a home instead of being lost —
+#   "education_requirement", ONE string in the posting's own words, migration 0068. v9 was
+#   shipped with the cost stated ("the bar is not lost from the record, only from the derived
+#   surfaces"); the founder ruled the column rather than the collector line, so the extractor
+#   now routes the bar to a field where it is neither scored nor matched literally against a
+#   candidate's documents. The reviewer grounds it verbatim, the way it already grounds
+#   leadership_emphasis.quote.
+#
 # Prompt version: v9 (#675 line 78 / founder-UAT F-6, 2026-09-20): FIELD SHAPE gains a
 #   closed NOT-A-CONCEPT-TERM list, and the schema line stops inviting "soft skills".
 #   Category B, not C — a narrower rule was looked for and does not exist: v4's FIELD
@@ -100,6 +109,7 @@ Schema:
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
   "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
   "language_requirement": "primary language required, e.g. 'German (C1)', 'English (B2)', 'Bilingual DE/EN'",
+  "education_requirement": "string or null — the posting's own wording of a formal education bar (see EDUCATION REQUIREMENT below); null when it states none",
   "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null",
   "scope_requirements": [
@@ -153,6 +163,18 @@ the interview agenda:
 Emit each concept ONCE across the whole list, even when the posting names it in two
 sections and even when the capitalisation differs — "Data science" and "Data Science"
 are one entry, not two.
+
+EDUCATION REQUIREMENT (where a degree goes instead):
+"education_requirement" is the posting's own wording of a formal education bar, as ONE
+string, copied from the posting and lightly trimmed to the requirement itself — "Master's
+degree in computer science, data science, engineering", "Abgeschlossenes Studium der
+Wirtschaftsinformatik oder vergleichbar", "Bachelor or equivalent practical experience".
+It is NOT a list, NOT a skill, and NOT split into the fields of study it names: one
+posting sentence about education is ONE education requirement. Emit null when the posting
+states no formal education bar at all — null is the correct, expected answer and you will
+not be penalised for it. Never infer a degree from the seniority, the title, or what such
+a role "usually" asks for, and never restate the bar in the three concept lists as well:
+this field is its only home.
 
 QUALIFIED REQUIREMENT DISPOSITION (decomposition, never demotion): when a requirement
 carries an explicitly-optional qualifier — "Sicherer Umgang mit SAP (idealerweise PP/MM)",
