@@ -2660,7 +2660,17 @@ async def _terminal_review_letter(
 
     _wrapped = wrap_reviewer(_terminal_base)
 
+    # F-4 (#672 line 123, NOTE D-1): the draft the LAST verdict of the current
+    # `review_and_refine` invocation was rendered over — the same cell `cv.py`'s
+    # terminal mount keeps, so `settle_to_outcome` reports the MEASURED identity
+    # fact ("these findings are open against the delivered document" vs "the
+    # corrector revised it after this verdict and nobody re-read it") instead of
+    # the settle-path inference. Both `review_and_refine` call sites below (the
+    # terminal loop and the length-floor round) hand this function the draft.
+    reviewed_cell: dict[str, dict | None] = {"draft": None}
+
     def _reviewer_prompt(source: str, d: dict) -> str:
+        reviewed_cell["draft"] = d
         return _wrapped(source, _subject_of(d))
 
     # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
@@ -2694,7 +2704,11 @@ async def _terminal_review_letter(
 
     def _record_settle(settle) -> None:
         outcome_cell["outcome"] = settle_to_outcome(
-            settle, chain_id="letter_terminal_review"
+            settle,
+            chain_id="letter_terminal_review",
+            # F-4: the measured fact (see `reviewed_cell` above); `None` when no
+            # reviewer prompt was ever built, and the report is then unchanged.
+            reviewed_draft=reviewed_cell["draft"],
         ).worse_of(outcome_cell["outcome"])
 
     current = draft

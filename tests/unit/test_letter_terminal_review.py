@@ -804,3 +804,67 @@ def test_exactly_one_composition_site():
             f"{guard} must not be called outside the composition site"
         assert f"{guard}(" not in terminal_src, \
             f"{guard} must not be called outside the composition site"
+
+
+# --- F-4 (#672 line 123, NOTE D-1): the letter chain supplies the reviewed draft ---
+
+
+@pytest.mark.asyncio
+async def test_the_letter_chain_hands_settle_to_outcome_the_reviewed_draft(db):
+    """F-4 — the SEAM test for `cover_letter.py`'s wiring, the letter twin of
+    `test_cv_terminal_review.py::test_the_cv_chain_reports_a_post_verdict_correction_as_unverified`.
+
+    `review_and_refine` hands `reviewer_prompt_fn` the draft it is about to judge and
+    keeps no record of it; only the chain can tell `settle_to_outcome` which draft the
+    last verdict was rendered over (`reviewed_draft=`). Revert that keyword in
+    `_record_settle` (or the `reviewed_cell["draft"] = d` line in `_reviewer_prompt`)
+    and this test goes red by name while the rest of this file stays green.
+    """
+    from applire.services.review_issues import ReviewSettle
+    from applire.services import terminal_review_outcome as tro
+
+    ids = await _seed(db)
+    seen: list[dict] = []
+    handed: list[dict] = []
+
+    async def settling_fake(**kwargs):
+        if kwargs.get("chain_id") != "letter_terminal_review":
+            return kwargs["draft"]
+        reviewed = kwargs["draft"]
+        kwargs["reviewer_prompt_fn"](kwargs["source"], reviewed)
+        body = dict(reviewed["body"])
+        body["paragraphs"] = list(body["paragraphs"]) + ["A correction the reviewer never read."]
+        settled = {**reviewed, "body": body}
+        on_settle = kwargs.get("on_settle")
+        if on_settle is not None:
+            on_settle(ReviewSettle(
+                path="exhausted", approved=False,
+                blocking_issues=("The opening claims a figure without support.",),
+                minor_issues=(), rounds=1, settled=settled,
+            ))
+        seen.append({"reviewed": reviewed, "settled": settled})
+        return settled
+
+    real = tro.settle_to_outcome
+
+    def spy(settle, **kwargs):
+        handed.append(dict(kwargs))
+        return real(settle, **kwargs)
+
+    await _run_pipeline(
+        db, ids,
+        extra_patches=(
+            patch("applire.services.cover_letter.review_and_refine", side_effect=settling_fake),
+            patch("applire.services.terminal_review_outcome.settle_to_outcome", side_effect=spy),
+        ),
+    )
+
+    assert seen, "the terminal chain ran"
+    letter_calls = [h for h in handed if h.get("chain_id") == "letter_terminal_review"]
+    assert letter_calls, "the letter's settle reached settle_to_outcome"
+    for call in letter_calls:
+        assert call.get("reviewed_draft") is not None, call
+    # The MEASURED half: the draft handed over IS the one the reviewer prompt was built
+    # over, and it differs from the settled (corrected-after-verdict) draft.
+    assert letter_calls[-1]["reviewed_draft"] == seen[-1]["reviewed"]
+    assert letter_calls[-1]["reviewed_draft"] != seen[-1]["settled"]
