@@ -116,3 +116,42 @@ async def test_analyze_jd_leaves_genuine_short_concepts_untouched(db):
 
     assert result.required_skills == ["Python", "RAG pipelines", "AI evaluation"]
     assert result.keywords == ["Retrieval systems"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_jd_persists_one_entry_per_case_folded_concept(db):
+    """#675 line 78 / founder-UAT F-6 — the duplicate must not reach the DB.
+
+    This is the seam that matters: `required_skills` is persisted here and every
+    downstream instrument (the keyword ledger's slot set, hence the match-score
+    denominator, the gap chips and the interview agenda) counts what is stored.
+    The founder's KION run shipped `Data science` AND `Data Science` into a
+    45-entry list, so one concept paid for two requirement slots.
+    """
+    from applire.services.job import analyze_jd
+
+    response = {
+        "company_name": "Acme GmbH",
+        "role_title": "Team Lead GenAI Platform",
+        "required_skills": ["Data science", "Machine Learning", "Data Science"],
+        "nice_to_have_skills": ["Vector databases", "vector databases"],
+        "keywords": ["LLMOps", "LLMOps"],
+        "seniority_level": "Lead",
+        "company_culture_signals": [],
+        "language_requirement": "English (C1)",
+        "berufsbild_code": None,
+        "berufsbild_label": None,
+    }
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(return_value=response)
+
+    result = await analyze_jd(
+        "Team Lead GenAI Platform at Acme GmbH. Data science, machine learning, "
+        "vector databases, LLMOps.",
+        db,
+        provider,
+    )
+
+    assert result.required_skills == ["Data science", "Machine Learning"]
+    assert result.nice_to_have_skills == ["Vector databases"]
+    assert result.keywords == ["LLMOps"]

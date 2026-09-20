@@ -52,6 +52,19 @@ is deliberately conservative for two reasons documented in the wave-6 task:
 So: repair only the provably-redundant case; flag-and-log everything else.
 Nothing is ever invented — the guard can only ever remove list entries, never
 add or rewrite one.
+
+#675 line 78 / founder-UAT F-6 (2026-09-20) — the CASE-FOLDED DUPLICATE:
+a second entry whose text equals an earlier one once case and surrounding
+whitespace are normalised ("Data science" / "Data Science") is provably the same
+concept, by string identity — an ADR-062 clause 1 FACT, not a judgement about
+whether two different terms mean the same thing (that judgement stays with the
+model and is explicitly out of this guard's reach). It earns a deterministic
+floor without a triage round for one reason the prompt cannot argue with: the
+extractor reads the posting section by section, and the SAME concept named in
+two sections comes back twice in one list. The v9 rule asks for one entry per
+concept and is measured per round; this makes the exact-identity half of it a
+guarantee. The FIRST occurrence is kept, so the posting's own leading
+capitalisation survives.
 """
 
 import logging
@@ -81,6 +94,17 @@ _STOPWORDS = {
 
 def _word_count(text: str) -> int:
     return len(text.split())
+
+
+def fold_identity(text: str) -> str:
+    """The identity two entries share when they are the SAME string (#675 F-6).
+
+    Case-folded, with runs of whitespace collapsed — nothing else. Deliberately
+    NOT a similarity measure: no stemming, no stopword removal, no acronym
+    expansion. "Data science" and "Data Science" fold together; "Data science"
+    and "Data Science Platform" never do.
+    """
+    return " ".join((text or "").split()).casefold()
 
 
 def _is_concept_shaped(text: str) -> bool:
@@ -136,11 +160,22 @@ def normalize_skill_shape(entries: list | None) -> tuple[list | None, list[str]]
     ]
 
     kept: list = []
+    seen_identities: set[str] = set()
     for entry in entries:
         if not isinstance(entry, str) or not entry.strip():
             # Not this guard's job — malformed/empty entries pass through.
             kept.append(entry)
             continue
+
+        # #675 F-6: the same string twice, modulo case and whitespace. Checked
+        # BEFORE the shape branch so it covers concept- and sentence-shaped
+        # entries alike, and the FIRST occurrence is the one kept.
+        identity = fold_identity(entry)
+        if identity in seen_identities:
+            notes.append(f"dropped case-folded duplicate entry: {entry!r}")
+            continue
+        seen_identities.add(identity)
+
         if _is_concept_shaped(entry):
             kept.append(entry)
             continue

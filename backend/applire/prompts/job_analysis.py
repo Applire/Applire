@@ -15,6 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v9 (#675 line 78 / founder-UAT F-6, 2026-09-20): FIELD SHAPE gains a
+#   closed NOT-A-CONCEPT-TERM list, and the schema line stops inviting "soft skills".
+#   Category B, not C — a narrower rule was looked for and does not exist: v4's FIELD
+#   SHAPE rule governs LENGTH ("never a full sentence") and says nothing about KIND, so
+#   "Master's degree" passes it; the schema line "must-have technical and soft skills"
+#   actively asked for the traits, while the rule's own justification is that every entry
+#   is matched LITERALLY against the candidate's documents — which a trait never can be.
+#   Baseline on the KION posting, n=6 full `analyze_jd` chains on openai/gpt-5.6-luna:
+#   45/52/47/35/50/37 required_skills with 3-10 non-skills each (degrees, fields of
+#   study, "Communication/Presentation/Interpersonal/Problem-solving skills", "English")
+#   and a case-folded duplicate in 5 of 6 runs. The duplicate is a FACT the prompt cannot
+#   see across sources, so it is also floored deterministically at the persistence seam
+#   (services/jd_shape_guard.py) — the prompt rule is measured, the fact is guaranteed.
+#
 # Prompt version: v8 (#617, 2026-09-11 — Nougat build 2, axis (c)): COMPANY CULTURE
 #   SIGNALS gets the grounding sentence every other field already has, and the
 #   schema line stops offering 'Mittelstand' as an example. Measured on 13 full
@@ -80,8 +94,8 @@ Schema:
 {
   "company_name": "string or null — company name if identifiable from the JD; null if anonymised or unclear",
   "role_title": "string — exact job title from the JD",
-  "required_skills": ["list of must-have technical and soft skills"],
-  "nice_to_have_skills": ["list of optional / preferred skills"],
+  "required_skills": ["must-have capabilities — concept terms only, see FIELD SHAPE"],
+  "nice_to_have_skills": ["optional / preferred capabilities — same shape"],
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
   "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
@@ -118,6 +132,27 @@ embeddings, ranking and retrieval pipelines", "Hands-on experience with agentic
 systems and tool-using LLM applications", "Building and deploying AI-powered products
 in production". If the posting only states a requirement as a long phrase, extract the
 concept(s) it names as separate short terms — do not quote the phrase whole.
+NOT A CONCEPT TERM — never emit these in any of the three lists, however plainly the
+posting states them. A concept term names a capability a candidate's CV can EVIDENCE;
+each entry below cannot be, so it only inflates the requirement count, the gap list and
+the interview agenda:
+  - a formal qualification or a field of study — "Master's degree", "Bachelor",
+    "Computer science", "Engineering", "Abschluss in Informatik". One posting sentence
+    ("Master's degree in Computer science, Data science or Engineering") is a single
+    education bar, not four requirements.
+  - a language or a language level — "English", "German", "Fluent English". The
+    posting's language demand belongs in "language_requirement" and nowhere else.
+  - a personality trait, an attitude, or a generic soft phrase — "Proactive approach",
+    "Communication skills", "Presentation skills", "Interpersonal skills",
+    "Problem-solving skills", "Willingness to learn", "Structured way of working",
+    "Team player", "Analytical working". Every posting asks for these and no document
+    can prove them.
+  - the employer's own product, platform, team or brand name — "KION GenAI Platform",
+    "the XY Group". The role works ON it; the candidate brings the technologies it is
+    BUILT from, and those are the concept terms to emit.
+Emit each concept ONCE across the whole list, even when the posting names it in two
+sections and even when the capitalisation differs — "Data science" and "Data Science"
+are one entry, not two.
 
 QUALIFIED REQUIREMENT DISPOSITION (decomposition, never demotion): when a requirement
 carries an explicitly-optional qualifier — "Sicherer Umgang mit SAP (idealerweise PP/MM)",

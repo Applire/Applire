@@ -182,3 +182,67 @@ class TestApplyJdShapeGuardOnFullDraft:
         with caplog.at_level(logging.WARNING):
             apply_jd_shape_guard(data)
         assert any("jd_shape_guard" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #675 line 78 / founder-UAT F-6 — the case-folded duplicate
+# ---------------------------------------------------------------------------
+
+
+class TestCaseFoldedDuplicates:
+    """`Data science` and `Data Science` from one 2.6k posting, in the same list.
+
+    The extractor reads the posting section by section, so the same concept
+    named twice comes back twice. String identity under case folding is a FACT
+    (ADR-062 clause 1) — the guard may floor it; "are these two DIFFERENT terms
+    the same concept" stays the model's judgement and is out of reach here.
+    """
+
+    def test_drops_the_later_case_variant_and_keeps_the_first(self):
+        entries = ["Data science", "Machine Learning", "Data Science"]
+        normalized, notes = normalize_skill_shape(entries)
+        assert normalized == ["Data science", "Machine Learning"]
+        assert any("case-folded duplicate" in n for n in notes)
+
+    def test_exact_repeat_is_dropped_too(self):
+        normalized, _ = normalize_skill_shape(["LLMOps", "AgentOps", "LLMOps"])
+        assert normalized == ["LLMOps", "AgentOps"]
+
+    def test_surrounding_and_inner_whitespace_is_normalised(self):
+        normalized, _ = normalize_skill_shape(["Vector databases", " Vector  databases "])
+        assert normalized == ["Vector databases"]
+
+    def test_a_longer_term_containing_the_other_is_never_a_duplicate(self):
+        """Identity, never similarity: no stemming, no containment, no acronyms."""
+        entries = ["Data science", "Data Science Platform", "RAG", "RAG pipelines"]
+        normalized, _ = normalize_skill_shape(entries)
+        assert normalized == entries
+
+    def test_a_sentence_shaped_repeat_is_also_deduped(self):
+        entries = [
+            "Production experience with RAG, embeddings and retrieval pipelines",
+            "production experience with RAG, embeddings and retrieval pipelines",
+        ]
+        normalized, notes = normalize_skill_shape(entries)
+        assert len(normalized) == 1
+        assert any("case-folded duplicate" in n for n in notes)
+
+    def test_dedup_runs_on_all_three_guarded_fields(self):
+        data = {
+            "required_skills": ["Python", "python"],
+            "nice_to_have_skills": ["Kubernetes", "KUBERNETES"],
+            "keywords": ["agile", "Agile"],
+            # Not a guarded field — the guard must not touch it.
+            "company_culture_signals": ["Du-Kultur", "du-kultur"],
+        }
+        apply_jd_shape_guard(data)
+        assert data["required_skills"] == ["Python"]
+        assert data["nice_to_have_skills"] == ["Kubernetes"]
+        assert data["keywords"] == ["agile"]
+        assert data["company_culture_signals"] == ["Du-Kultur", "du-kultur"]
+
+    def test_malformed_entries_are_not_deduped_against_each_other(self):
+        """None/blank pass through untouched — two of them are not one."""
+        entries = [None, "", "Python", None, "  "]
+        normalized, _ = normalize_skill_shape(entries)
+        assert normalized == entries
