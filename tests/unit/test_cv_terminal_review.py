@@ -675,3 +675,43 @@ async def test_the_chain_threads_the_keyword_ledger_into_the_skills_shape_scan(d
         "its third positional argument"
     )
     assert seen[0] == [], seen  # this fixture has no GapAnalysis row
+
+
+@pytest.mark.asyncio
+async def test_the_shape_and_story_wrappers_are_handed_the_composed_document(db):
+    """The contract `_reviewer_prompt` has with this whole wrapper chain: it passes the
+    COMPOSED document, exactly as it does to `coverage_reviewer_prompt_fn` and to
+    `pinned_facts_reviewer_prompt_fn` (`composed=True`). A wrapper that re-composes its
+    argument composes a `TailoredCVData` dump as if it were a prose draft — measured
+    2026-09-20: with a `structured_document_fn` in place the SKILLS-LIST SHAPE block
+    reported nothing on 6 of 6 real-provider runs whose delivered document the same scan
+    flags three entries on, and no seam assertion about the block's PRESENCE could see it.
+    """
+    import applire.services.skill_shape as skill_shape_mod
+
+    seen: list = []
+    real = skill_shape_mod.skill_shape_reviewer_prompt_fn
+
+    def spy(base_fn, profile_json, keyword_ledger, **kw):
+        assert "structured_document_fn" not in kw or kw["structured_document_fn"] is None, (
+            "the argument is already composed — re-composing it is the 2026-09-20 defect"
+        )
+        inner = real(base_fn, profile_json, keyword_ledger, **kw)
+
+        def wrapped(source, draft):
+            seen.append(draft)
+            return inner(source, draft)
+
+        return wrapped
+
+    ids = await _seed(db)
+    await _run_pipeline(
+        db, ids, captured=[],
+        extra_patches=[patch.object(skill_shape_mod, "skill_shape_reviewer_prompt_fn", spy)],
+    )
+    assert seen, "the wrapper must be called at least once"
+    doc = seen[0]
+    # Composed shape, not the writer's prose shape …
+    assert "work_history" in doc and "work" not in doc, doc.keys()
+    # … and carrying a vault-joined field only `_compose_document` adds.
+    assert any(c.get("name") == _CERT_NAME for c in (doc.get("certifications") or [])), doc

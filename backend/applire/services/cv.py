@@ -4941,21 +4941,21 @@ async def _terminal_review(
     from applire.services.skill_shape import skill_shape_reviewer_prompt_fn
     from applire.services.story_reach import story_figures_reviewer_prompt_fn
 
-    _story_fn = story_figures_reviewer_prompt_fn(
-        _pinned_fn,
-        profile_json,
-        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
-    )
-    # F-9 (#672 line 126): the SKILLS-LIST SHAPE block — check 12's ground truth. The
-    # COMPOSED subject, because the skills list the reader sees is the POST-pipeline one
-    # (`_tailor_skills_to_jd`, `_restore_narrative_named_skills` run in `_compose_document`)
-    # and a prose-only scan would report a different list from the one that ships.
-    _subject_fn = skill_shape_reviewer_prompt_fn(
-        _story_fn,
-        profile_json,
-        keyword_ledger,
-        structured_document_fn=lambda d: _subject_for(d).model_dump(mode="json"),
-    )
+    _story_fn = story_figures_reviewer_prompt_fn(_pinned_fn, profile_json)
+    # F-9 (#672 line 126): the SKILLS-LIST SHAPE block — check 12's ground truth.
+    #
+    # NEITHER wrapper takes a `structured_document_fn`, and that is load-bearing:
+    # `_reviewer_prompt` below calls this chain as `_subject_fn(source, COMPOSED.model_dump())`,
+    # exactly as it calls `coverage_reviewer_prompt_fn` and `pinned_facts_reviewer_prompt_fn`
+    # (whose `composed=True` says the same thing). The argument these wrappers receive IS the
+    # composed document — which is what both facts need, since the skills list a reader sees is
+    # the post-pipeline one — so re-composing it would compose a TailoredCVData dump as if it
+    # were a prose draft. Measured 2026-09-20: with the re-compose in place the SKILLS-LIST
+    # SHAPE block reported nothing on 6 of 6 real-provider runs whose delivered document the
+    # same scan flags three entries on. The per-round SIGNAL functions are the other shape —
+    # they receive the PROSE draft and do take a `structured_document_fn` (see
+    # `_underclaim_fn` / `_redundancy_fn` above).
+    _subject_fn = skill_shape_reviewer_prompt_fn(_story_fn, profile_json, keyword_ledger)
 
     def _subject_for(draft: dict) -> TailoredCVData:
         """The COMPOSED document for ``draft`` — computed once, cached by draft."""
