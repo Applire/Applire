@@ -58,6 +58,7 @@ an ``on_demand`` callback so the caller can see what was asked for.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
@@ -65,6 +66,34 @@ from applire.services.ats_audit import join_corpus_fragments
 from applire.services.load_bearing import _figure_key, figures_present
 
 logger = logging.getLogger(__name__)
+
+#: Adversarial finding (Nougat UAT-fixes batch, adv pass, 2026-09-20): the shared
+#: ``oracle.matchers.figures.extract_figures``'s ``_PERCENT_RE`` requires a literal
+#: ``%`` character, so the idiomatic spelled-out form ("80 Prozent", "80 percent")
+#: falls through to ``_NUMBER_RE`` and extracts as a DIFFERENT figure kind
+#: (``number`` instead of ``percent``) — falsifying this module's own documented
+#: claim that ``80 %`` / ``80%`` / ``80 Prozent`` are the same figure. Normalising
+#: the spelled-out form to the symbol form BEFORE ``extract_figures`` runs, scoped
+#: to this module only, closes the gap for the story-figure scan without widening
+#: the shared extractor (``services/oracle/**`` is nobody's file to touch here —
+#: the Oracle keeps its own contract). Word-boundary-guarded so "80 percentage
+#: points" or "80 Prozentsatz" is never mistaken for a bare percent figure.
+_PERCENT_WORD_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:Prozent|percent|per cent)\b", re.IGNORECASE
+)
+
+
+def _normalize_percent_words(text: str) -> str:
+    """Rewrite every spelled-out percent in ``text`` to its symbol form.
+
+    ``"um 80 Prozent"`` -> ``"um 80 %"``; ``"80%"``/``"80 %"`` pass through
+    unchanged (there is nothing for the pattern to match). Applied to BOTH texts
+    this module scans — a signature story's own ``outcome`` (:func:`story_figures`)
+    and the composed document (:func:`figures_missing_from`) — so the identity
+    check is symmetric: a story recorded from a "Prozent"-phrased outcome and a
+    document that restates it with the sign (or vice versa) still match.
+    """
+    return _PERCENT_WORD_RE.sub(lambda m: f"{m.group(1)} %", text)
 
 #: Figure kinds a signature story's measured outcome may be demanded on. The same
 #: narrow set ``load_bearing`` calls load-bearing: a percent or a currency amount is
@@ -139,7 +168,7 @@ def story_figures(profile_json: dict[str, Any]) -> list[StoryFigure]:
         label = _entry_label(profile_json, story.get("experience_refs") or [])
         from applire.services.oracle.matchers.figures import extract_figures
 
-        for figure in extract_figures(outcome):
+        for figure in extract_figures(_normalize_percent_words(outcome)):
             if figure.kind not in DEMANDABLE_FIGURE_KINDS:
                 continue
             dedupe = (str(story.get("id") or ""), _figure_key(figure.kind, figure.value))
@@ -180,11 +209,16 @@ def figures_missing_from(
 ) -> list[StoryFigure]:
     """Which of these story figures the composed document does NOT carry.
 
-    Presence is figure identity, not string matching: ``80 %`` and ``80%`` and
-    ``80 Prozent`` are the same figure to ``extract_figures``, and a demand keyed on the
-    literal would be raised against a document that already carries the number.
+    Presence is figure identity, not string matching: ``80 %`` and ``80%`` are the same
+    figure to ``extract_figures`` directly, and a demand keyed on the literal would be
+    raised against a document that already carries the number. ``80 Prozent`` /
+    ``80 percent`` reach the SAME identity too, but only because THIS module normalises
+    the spelled-out unit to the symbol form before the figure scan runs
+    (:func:`_normalize_percent_words`, adversarial finding, 2026-09-20) —
+    ``extract_figures`` itself still does not unify them; see its own module for that
+    contract.
     """
-    present = figures_present(_document_text(document))
+    present = figures_present(_normalize_percent_words(_document_text(document)))
     return [f for f in figures if f.key not in present]
 
 

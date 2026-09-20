@@ -49,6 +49,16 @@ STILL-MISSING figure): here the check spends a blocking round, and the
 STORY_DEMAND_LIMIT budget, demanding something that is already on the page.
 
 Deterministic, zero provider calls.
+
+**The fix** (adversarial pass, same-branch, CLOSED): `story_reach.py` now
+normalises spelled-out percent forms ("80 Prozent", "80 percent", "80 per
+cent") to the symbol form ("80 %") before `extract_figures` runs — on BOTH the
+story's own `outcome` text (:func:`story_figures`) and the composed document
+text (:func:`figures_missing_from`) — via the module-local
+`_normalize_percent_words`. `oracle.matchers.figures.extract_figures` itself
+is UNTOUCHED (nobody's file; the Oracle keeps its own contract): test 1 below
+still pins that the raw, shared extractor does not unify these forms on its
+own. Test 2 is now the GUARD: it pins the FIXED, module-level behaviour.
 """
 from applire.services.load_bearing import figures_present
 from applire.services.oracle.matchers.figures import extract_figures
@@ -71,12 +81,17 @@ def test_the_docstrings_own_claim_about_80_prozent_is_false():
     )
 
 
-def test_a_story_figure_stated_as_prozent_is_reported_missing_though_present():
-    """The reviewer-facing consequence: a curated story figure of 80% is
+def test_a_story_figure_stated_as_prozent_is_now_recognised_as_present():
+    """GUARD (was the adversarial reproduction; flipped after the same-branch
+    fix). The reviewer-facing consequence: a curated story figure of 80% is
     genuinely on the delivered page, phrased as '80 Prozent' (idiomatic German,
-    not a paraphrase failure) — and `figures_missing_from` still raises it as a
-    BLOCKING demand, because figure IDENTITY (kind:value) does not match across
-    the '%'-sign / spelled-unit boundary the docstring says it does."""
+    not a paraphrase failure) — `figures_missing_from` must NOT raise it as a
+    BLOCKING demand.
+
+    Mutation: comment out the `_normalize_percent_words(...)` call in
+    `figures_missing_from` (`story_reach.py`) on a scratchpad copy — this test
+    goes red by name.
+    """
     figure = StoryFigure(
         story_id="story-1",
         title="Shared validation strategy",
@@ -111,8 +126,16 @@ def test_a_story_figure_stated_as_prozent_is_reported_missing_though_present():
         "STORY_DEMAND_LIMIT budget on a false demand."
     )
 
-    # And the raw figures_present() set used underneath tells the same story:
-    # "percent:80" (the key figures_missing_from looks for) is simply absent.
+    # The RAW, shared figures_present()/extract_figures() still do not unify
+    # the spelled-out form on their own (the Oracle's own contract, untouched)
+    # — "percent:80" is absent from the UN-normalised text.
     present_keys = figures_present(document_text)
     assert "percent:80" not in present_keys
     assert "number:80" in present_keys
+
+    # It is `figures_missing_from`'s OWN pre-normalisation that closes the gap
+    # for this module's callers — confirmed directly against the normalised text.
+    from applire.services.story_reach import _normalize_percent_words
+
+    normalized_keys = figures_present(_normalize_percent_words(document_text))
+    assert "percent:80" in normalized_keys

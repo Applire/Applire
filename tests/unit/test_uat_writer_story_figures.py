@@ -99,16 +99,19 @@ def test_a_story_with_an_unresolvable_experience_ref_still_yields_its_figure():
 
 def test_presence_is_figure_identity_not_string_matching():
     """`80 %` and `80%` are the same figure to the canonical extractor, so a demand keyed
-    on the literal would be raised against a document that already carries the number."""
+    on the literal would be raised against a document that already carries the number.
+
+    `80 Prozent` / `80 percent` (adversarial fix, 2026-09-20): the canonical
+    `extract_figures` still does NOT unify the spelled-out unit with the symbol form on
+    its own (`_PERCENT_RE` requires a literal `%`) — but `story_reach.figures_missing_
+    from` now normalises the spelled-out form to the symbol form before the scan, so the
+    demand is correctly NOT raised against a document that already carries the fact in
+    words, the idiomatic German cover-letter/CV phrasing."""
     figures = story_figures(_profile(_story()))
     assert figures_missing_from(figures, _doc("Nothing quantified here.")) == figures
     assert figures_missing_from(figures, _doc("Cut validation effort by 80%.")) == []
-    # The stated limit of the canonical extractor: a spelled-out unit ("80 Prozent") is
-    # NOT a percent figure to it, so the demand can be raised against a document that
-    # does carry the number in words. Pinned as the known false-positive direction rather
-    # than hidden — the remedy is one more bullet, never a deleted fact, and the block
-    # tells the corrector never to restate a figure the document already carries.
-    assert figures_missing_from(figures, _doc("Cut effort by 80 Prozent.")) == figures
+    assert figures_missing_from(figures, _doc("Cut effort by 80 Prozent.")) == []
+    assert figures_missing_from(figures, _doc("Cut effort by 80 percent.")) == []
 
 
 def test_a_figure_only_in_a_vault_joined_section_still_counts_as_present():
