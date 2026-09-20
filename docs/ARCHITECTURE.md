@@ -449,6 +449,8 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Amended (2026-06-30, ADR-048):** the classification feeding the score is now the fit-weighted slice of the **Keyword Ledger** (ADR-048 below) rather than a separate list — formula and weights unchanged (parity-tested), only the input source unified.
 
+**Amended (2026-09-20, ruling B-1):** the headline and the table that explains it are ONE published slice. A recompute after interview answers used to clamp `match_score` to its previous value while `requirement_breakdown`/`category_a|b|c`/`critical_gaps`/`minor_gaps` were written fresh, so the sentence above ("can now never disagree") was false in practice — 0.6404 shipped above a table whose arithmetic is 0.6292. `services/gap.py::published_score_slice()` now publishes all seven fields from one dict, and the clamp applies only to the evidence-added population: a recompute in which any requirement became `denied`, or fell from `direct`/`partial` to `gap`/`denied`, is never clamped, because an honest denial must be able to lower the displayed score (`denied` and `gap` share earning factor 0.0). The keyword ledger is always the current run's own — republishing an older one could reinstate a `claimable` entry whose vault evidence has since gone (ADR-061/#318).
+
 ---
 
 ### ADR-037 — Authentication Gate Placement (Up-Front)

@@ -42,6 +42,17 @@ import { canonicalRequirementChips, gapCounts, type LedgerChipEntry } from "@/li
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// #675 / ruling B-1 (2026-09-20): a match score of 0 is a real score.
+// A recorded denial is no longer clamped, so an analysis in which the candidate
+// denied every weighted requirement genuinely publishes 0.0 — and `score ? … :
+// fallback` read that as "no score" and displayed the previous, higher number.
+// Null (no weighted requirement at all) is the only case that falls back.
+// ---------------------------------------------------------------------------
+export function scoreToPercent(score: number | null | undefined, fallback: number): number {
+  return score == null ? fallback : Math.round(score * 100);
+}
+
 // Types
 // ---------------------------------------------------------------------------
 
@@ -617,7 +628,7 @@ export default function GapsPage({
           throw new Error(await apiErrorMessage(gRes));
         }
         setGaps(gapData);
-        setMatchScore(gapData.match_score ? Math.round(gapData.match_score * 100) : 0);
+        setMatchScore(scoreToPercent(gapData.match_score, 0));
 
         try {
           const profileRes = await fetch(`${API_BASE}/api/profile`);
@@ -701,7 +712,7 @@ export default function GapsPage({
       if (res.ok) {
         const refreshed: GapAnalysis = await res.json();
         setGaps(refreshed);
-        setMatchScore(refreshed.match_score ? Math.round(refreshed.match_score * 100) : matchScore);
+        setMatchScore(scoreToPercent(refreshed.match_score, matchScore));
       }
     } catch {
       // Non-critical — the panel already reflects the action locally.
@@ -727,7 +738,7 @@ export default function GapsPage({
         });
         if (refreshRes.ok) {
           const refreshed: GapAnalysis = await refreshRes.json();
-          const newScore = refreshed.match_score ? Math.round(refreshed.match_score * 100) : matchScore;
+          const newScore = scoreToPercent(refreshed.match_score, matchScore);
           setMatchScore(newScore);
         }
       } catch {
@@ -827,7 +838,7 @@ export default function GapsPage({
         apiBase: API_BASE,
       })) as unknown as GapAnalysis;
       setGaps(data);
-      setMatchScore(data.match_score ? Math.round(data.match_score * 100) : 0);
+      setMatchScore(scoreToPercent(data.match_score, 0));
     } catch (e: unknown) {
       setError(
         e instanceof GapAnalysisError
