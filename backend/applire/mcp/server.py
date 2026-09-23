@@ -379,8 +379,12 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "keywords.present_denied",
         "keywords.claimable_concepts", "keywords.keyword_liability_concepts",
     ],
-    "session": ["current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question"],
-    "resolve_gap": ["gap_id", "question_asked"],
+    "session": [
+        "current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question",
+        # ADR-089 — the cluster's open members are the posting's own terms.
+        "cluster_coverage.open_concepts",
+    ],
+    "resolve_gap": ["gap_id", "question_asked", "open_concepts", "follow_up_question"],
     "submit_claims": ["ledger_upgraded", "results[].detail"],
     "flow": ["job_summary.role_title"],
     "application": ["company_name", "role_title"],
@@ -883,7 +887,8 @@ async def send_message(session_id: str, message: str) -> dict:
         "Resolve ONE gap cluster in a single call — the agent-channel form of "
         "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
         "gap_clusters, and the candidate's own testimony. Returns {gap_id, "
-        "question_asked, status, profile_completeness}. Stateless (see guide)."
+        "question_asked, status, profile_completeness, coverage, open_concepts, "
+        "budget_remaining, follow_up_question?}. Stateless (see guide)."
     )
 )
 async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
@@ -934,6 +939,16 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
                 "A full interview is in progress for this job — finish it "
                 "(reply 'done') before resolving gaps one at a time."
             )
+        # ADR-089 clause 7 — a retried call is not a new answer. When the
+        # testimony is identical (after normalisation) to the answer this gap
+        # last recorded, the earlier call's turn already committed: refuse it
+        # BEFORE a session is opened, so the retry charges no budget.
+        last_answer = await session_svc.last_recorded_answer(jid, gap_id, db)
+        if session_svc.same_testimony(last_answer, answer):
+            lang = await session_svc.get_conversation_language(db, job_id=jid)
+            raise invalid_input(
+                session_svc.gap_record_copy("identical_retry", lang, gap_id=repr(gap_id))
+            )
         from applire.schemas.session import SessionCreateRequest as _SCR
 
         try:
@@ -943,6 +958,9 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             result = await session_svc.send_message(
                 created.session_id, answer, db, provider
             )
+        except session_svc.GapNotAskableError as exc:
+            # ADR-089 clause 7 — budget spent, or already covered/declined.
+            raise invalid_input(exc.message)
         except LookupError as exc:
             raise not_found(str(exc))
         except ValueError as exc:
@@ -954,11 +972,29 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             )
         except Exception as exc:
             raise internal(str(exc))
-    # A targeted micro-session always completes on the one answer; surface a
-    # clean, honest status rather than the internal "max_questions_reached".
+
+        # The turn's own record decides the status; a turn that wrote none
+        # (a legacy analysis row) keeps the pre-ADR-089 status and reports the
+        # cluster as the latest row carries it.
+        turn_coverage = result.cluster_coverage
+        coverage = turn_coverage or await session_svc.cluster_coverage_for(jid, gap_id, db)
+        completeness = result.completeness_score
+        if completeness is None:
+            # A follow-up turn is not a completion, so it carries no score of
+            # its own; the profile's current completeness is the same fact.
+            try:
+                completeness = (
+                    await session_svc.get_session_state(created.session_id, db)
+                ).completeness_score
+            except Exception:
+                completeness = None
+    # A clean, honest status rather than the internal completion reason:
     #   needs_confirmation — the reconciler flagged an ambiguity it won't guess
     #     (the answer WAS applied, but a refinement is parked for the human);
-    #   addressed — the testimony wrote a change into the vault;
+    #   addressed — the testimony wrote a change into the vault and the gap is
+    #     now covered (ADR-089: every requirement in it is backed);
+    #   partly_covered (ADR-089) — the testimony wrote a change, but some of
+    #     the gap's requirements are still open (`open_concepts`);
     #   denial_recorded (#231) — the testimony explicitly denied a skill and
     #     nothing else changed; the denial IS recorded (metadata.denied_concepts
     #     + a receipt) so a later analyze_gaps run cannot re-infer it via
@@ -966,10 +1002,17 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     #   no_change — a valid answer that added nothing AND denied nothing.
     pending = [c.model_dump(mode="json") for c in (result.pending_confirmations or [])]
     conflicts = [c.model_dump(mode="json") for c in (result.pending_conflicts or [])]
+    coverage_status = coverage.coverage if coverage is not None else None
+    turn_status = turn_coverage.coverage if turn_coverage is not None else None
     if pending or conflicts:
         status = "needs_confirmation"
     elif result.changes_applied:
-        status = "addressed"
+        if turn_status in (None, "covered"):
+            status = "addressed"
+        elif turn_status == "declined":
+            status = "denial_recorded"
+        else:
+            status = "partly_covered"
     elif result.denial_recorded:
         status = "denial_recorded"
     else:
@@ -978,8 +1021,17 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         "gap_id": gap_id,
         "question_asked": created.first_question,
         "status": status,
-        "profile_completeness": result.completeness_score,
+        "profile_completeness": completeness,
+        "coverage": coverage_status or "open",
+        "open_concepts": list(coverage.open_concepts) if coverage is not None else [],
+        "budget_remaining": coverage.budget_remaining if coverage is not None else 0,
     }
+    # ADR-089 clause 7 — calling resolve_gap again on the same gap_id IS the
+    # follow-up turn: the question below is waiting in the gap's session, and
+    # the next call's testimony answers it (and counts against the same
+    # per-gap budget).
+    if not result.complete and result.question:
+        out["follow_up_question"] = result.question
     if pending:
         out["pending_confirmations"] = pending
     if conflicts:

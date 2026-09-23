@@ -170,7 +170,8 @@ async def test_real_composition_end_to_end(db):
         )
     assert result["gap_id"] == "cluster-k8s"
     assert result["question_asked"]  # a real scoped question was generated
-    assert result["status"] in ("addressed", "no_change", "needs_confirmation")
+    # ADR-089 adds `partly_covered` (a change landed, requirements still open).
+    assert result["status"] in ("addressed", "partly_covered", "no_change", "needs_confirmation")
     assert isinstance(result["profile_completeness"], float)  # NOT a bogus None
 
     # the micro-session actually completed — no active session left dangling
@@ -529,7 +530,8 @@ async def test_resolve_gap_inherits_completion_recompute(db):
             job_id=str(job_id), gap_id="cluster-k8s",
             answer="I ran production Kubernetes clusters for three years at Acme.",
         )
-    assert result["status"] in ("addressed", "no_change", "needs_confirmation")
+    # ADR-089 adds `partly_covered` (a change landed, requirements still open).
+    assert result["status"] in ("addressed", "partly_covered", "no_change", "needs_confirmation")
 
     all_rows = (await db.execute(
         select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)

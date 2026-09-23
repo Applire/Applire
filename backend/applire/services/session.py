@@ -62,6 +62,7 @@ from applire.providers.llm.base import LLMProvider
 # through `commit_ops` now, and the trail is invariant 3's, not this module's.
 from applire.schemas.profile import MasterProfileData, render_localized_confirmation
 from applire.schemas.session import (
+    ClusterCoverage,
     ConfirmationPrompt,
     ConflictSummary,
     InterviewState,
@@ -70,9 +71,11 @@ from applire.schemas.session import (
     SessionMessageResponse,
     SessionStateResponse,
 )
+from applire.services import gap_coverage
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.gap import analyze_gaps, has_clustering_input
+from applire.services.gap_coverage import AnswerScope
 from applire.services.interview.budget import derive_hard_ceiling
 from applire.services.interview.signals import is_termination_signal
 from applire.services.profile.reconcile.stance import (
@@ -277,8 +280,9 @@ async def _ask_or_complete_at(
             if state.get("mode") == "guided"
             else None
         )
-        q_data = await question_generator_with_profile(
-            state, profile_record.profile_json, provider,
+        q_data = await _cluster_question(
+            state, profile_record.profile_json, provider, db,
+            session_id=str(record.id),
             gap_category=next_category, job_context=job_context, lang=lang,
         )
         next_question = q_data["question"]
@@ -1246,6 +1250,7 @@ async def _ask_confirmation(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
 
@@ -1548,6 +1553,512 @@ async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession) -> b
     return active is not None and not is_micro_session(active)
 
 
+# ---------------------------------------------------------------------------
+# ADR-089 — the per-gap record at the interview doors: one budget for every
+# door, the refusal of a cluster that cannot be asked, the prior exchanges a
+# later question may read, and the outcome every answered turn writes. The
+# facts themselves (classification, coverage, budget) are `gap_coverage`'s —
+# this module only calls them (ADR-066).
+# ---------------------------------------------------------------------------
+
+
+class GapNotAskableError(Exception):
+    """ADR-089 clause 1/7 — a session was requested on a gap cluster that can
+    no longer be asked: its per-gap budget is spent, or its coverage is already
+    ``covered``/``declined``. The REST door answers HTTP 409 with the
+    machine-readable ``error_code`` (``gap_budget_spent`` |
+    ``gap_already_covered``); the agent door (``resolve_gap``) answers
+    ``invalid_input`` with the same ``message``, which names the cluster."""
+
+    def __init__(self, error_code: str, message: str, cluster_id: str):
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.cluster_id = cluster_id
+
+
+# ADR-038 — every candidate-facing string the per-gap record adds follows the
+# session's conversation language (``get_conversation_language``), exactly like
+# the deterministic gate and dispute copy in ``interview_graph`` (``_GATE_COPY``):
+# a German UI renders these verbatim (the 409 ``message``, the empty-plan first
+# question), and an agent relays them. Unknown languages fall back to English.
+_GAP_RECORD_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "declined": (
+            '"{label}" is already settled — every requirement in it was '
+            "declined, so there is nothing left to ask."
+        ),
+        "covered": (
+            '"{label}" is already covered — every requirement in it is backed '
+            "by the profile, so there is nothing left to ask."
+        ),
+        "spent": (
+            '"{label}" has already been asked {asked} time(s) — its question '
+            "budget ({per_gap} per gap, across every interview) is spent."
+        ),
+        "all_worked": (
+            "Every gap in this analysis has already been worked through — "
+            "you can proceed to CV generation."
+        ),
+        "identical_retry": (
+            "This testimony is identical to the answer gap {gap_id} last "
+            "recorded — that call already went through, so nothing was "
+            "charged again. Call analyze_gaps to see the gap's coverage, or "
+            "pass NEW testimony (e.g. the answer to its follow_up_question)."
+        ),
+    },
+    "de": {
+        "declined": (
+            "„{label}“ ist bereits geklärt — jede Anforderung darin wurde "
+            "verneint, hier gibt es nichts mehr zu fragen."
+        ),
+        "covered": (
+            "„{label}“ ist bereits abgedeckt — jede Anforderung darin ist durch "
+            "das Profil belegt, hier gibt es nichts mehr zu fragen."
+        ),
+        "spent": (
+            "„{label}“ wurde bereits {asked}-mal gefragt — das Fragenbudget "
+            "({per_gap} pro Lücke, über alle Interviews hinweg) ist aufgebraucht."
+        ),
+        "all_worked": (
+            "Jede Lücke dieser Analyse wurde bereits bearbeitet — "
+            "du kannst mit der CV-Generierung weitermachen."
+        ),
+        "identical_retry": (
+            "Diese Aussage ist identisch mit der Antwort, die Lücke {gap_id} "
+            "zuletzt gespeichert hat — dieser Aufruf ist bereits durchgelaufen, "
+            "es wurde nichts erneut angerechnet. Rufe analyze_gaps auf, um die "
+            "Abdeckung der Lücke zu sehen, oder übergib NEUE Aussagen (z. B. die "
+            "Antwort auf ihre follow_up_question)."
+        ),
+    },
+}
+
+
+def gap_record_copy(key: str, lang: str = "en", **fields: object) -> str:
+    """One per-gap-record string in the conversation language (ADR-038)."""
+    strings = _GAP_RECORD_COPY.get(lang, _GAP_RECORD_COPY["en"])
+    return strings[key].format(**fields)
+
+
+def _prior_asked(cluster: dict | None) -> int:
+    """``outcome.asked`` off a persisted cluster entry — 0 for a legacy row."""
+    outcome = (cluster or {}).get("outcome") or {}
+    try:
+        return max(int(outcome.get("asked") or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | None:
+    """The refusal for a cluster ``gap_coverage.is_askable`` rejects, else None.
+
+    ADR-089 clause 1: "a session opened on a cluster with no budget left is
+    refused with a message naming it". The error code says which of the two
+    facts refused it; a cluster that is both covered and spent reports
+    ``gap_already_covered`` — nothing is left to ask either way, and "covered"
+    is the fact the candidate can act on.
+    """
+    per_gap = INTERVIEW_MAX_QUESTIONS_PER_GAP
+    if gap_coverage.is_askable(cluster, per_gap):
+        return None
+    cluster_id = str(cluster.get("id") or "")
+    label = str(cluster.get("label") or cluster_id)
+    coverage = gap_coverage.stored_or_derived_coverage(cluster)
+    if coverage == "declined":
+        return GapNotAskableError(
+            "gap_already_covered", gap_record_copy("declined", lang, label=label), cluster_id,
+        )
+    if coverage == "covered" or gap_coverage.remaining_budget(cluster, per_gap) > 0:
+        return GapNotAskableError(
+            "gap_already_covered", gap_record_copy("covered", lang, label=label), cluster_id,
+        )
+    return GapNotAskableError(
+        "gap_budget_spent",
+        gap_record_copy("spent", lang, label=label, asked=_prior_asked(cluster), per_gap=per_gap),
+        cluster_id,
+    )
+
+
+_PRIOR_EXCHANGES_MAX = 6
+
+
+def _cluster_turn_pairs(state: dict, cluster_id: str) -> list[dict]:
+    """The (question, answer) pairs a session's transcript holds for one
+    cluster, read through its ``cluster_turns`` index (ADR-089 clause 6).
+
+    Indexes that do not point at an assistant question followed by a user
+    answer are skipped, never guessed — a malformed row contributes nothing.
+    """
+    messages = state.get("messages") or []
+    pairs: list[dict] = []
+    for turn in state.get("cluster_turns") or []:
+        if not isinstance(turn, dict) or turn.get("cluster_id") != cluster_id:
+            continue
+        q_idx, a_idx = turn.get("q"), turn.get("a")
+        if not isinstance(q_idx, int) or not isinstance(a_idx, int):
+            continue
+        if not (0 <= q_idx < a_idx < len(messages)):
+            continue
+        q_msg, a_msg = messages[q_idx], messages[a_idx]
+        if (q_msg or {}).get("role") != "assistant" or (a_msg or {}).get("role") != "user":
+            continue
+        question = str(q_msg.get("content") or "").strip()
+        answer = str(a_msg.get("content") or "").strip()
+        if question and answer:
+            pairs.append({"question": question, "answer": answer})
+    return pairs
+
+
+async def _prior_exchanges(
+    db: AsyncSession,
+    cluster: dict | None,
+    *,
+    exclude_session_id: str | None = None,
+) -> list[dict]:
+    """Earlier (question, answer) pairs on ``cluster``, oldest first (ADR-089
+    clause 6).
+
+    Read from the sessions its ``outcome.session_ids`` references — NEVER
+    copied into the analysis row or into the asking session's state, so an
+    answer lives exactly as long as the transcript it belongs to (VVT §4.1): a
+    session past its retention period is gone and simply contributes nothing.
+    ``exclude_session_id`` is the asking session itself, whose own exchanges
+    already reach the prompt as its "Recent conversation".
+    """
+    if not cluster:
+        return []
+    cluster_id = str(cluster.get("id") or "")
+    session_ids = (cluster.get("outcome") or {}).get("session_ids") or []
+    pairs: list[dict] = []
+    for sid in session_ids:
+        if not sid or str(sid) == str(exclude_session_id or ""):
+            continue
+        try:
+            uid = uuid.UUID(str(sid))
+        except ValueError:
+            continue
+        row = (
+            await db.execute(
+                select(InterviewSession).where(
+                    InterviewSession.id == uid,
+                    InterviewSession.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            continue
+        pairs.extend(_cluster_turn_pairs(dict(row.state or {}), cluster_id))
+    return pairs[-_PRIOR_EXCHANGES_MAX:]
+
+
+async def _latest_cluster_with_ledger(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> tuple[dict | None, list | None]:
+    """The cluster entry as the job's latest analysis row carries it, and that
+    row's keyword ledger (a legacy cluster's coverage is derived against it,
+    exactly as ``GapAnalysisResponse`` derives it) — ``(None, None)`` when the
+    latest row does not carry the cluster."""
+    result = await db.execute(
+        select(GapAnalysis)
+        .where(
+            GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.deleted_at.is_(None),
+        )
+        .order_by(GapAnalysis.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None, None
+    return gap_coverage.cluster_by_id(row.gap_clusters, cluster_id), row.keyword_ledger
+
+
+async def _latest_cluster(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> dict | None:
+    """The cluster entry as the job's latest analysis row carries it, or None."""
+    cluster, _ledger = await _latest_cluster_with_ledger(job_id, cluster_id, db)
+    return cluster
+
+
+async def last_recorded_answer(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> str | None:
+    """The answer the cluster's record last recorded, or None (ADR-089 clause 7).
+
+    The agent door refuses a call whose testimony is identical (after
+    normalisation) to this one: an agent retrying a call whose turn already
+    committed would otherwise be charged a second question for the same words.
+    """
+    cluster = await _latest_cluster(job_id, cluster_id, db)
+    if cluster is None:
+        return None
+    pairs = await _prior_exchanges(db, cluster)
+    return pairs[-1]["answer"] if pairs else None
+
+
+def same_testimony(a: str | None, b: str | None) -> bool:
+    """Whether two answers are the same testimony after normalisation (ADR-089
+    clause 7's retry test): the ATS normaliser (NFKC, dash folding, whitespace,
+    case) plus trailing sentence punctuation — a resent answer that lost its
+    final full stop is still the same answer."""
+    def _n(text: str | None) -> str:
+        return ats_norm(text or "").rstrip(" .!?;:…")
+
+    na, nb = _n(a), _n(b)
+    return bool(na) and na == nb
+
+
+async def cluster_coverage_for(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> ClusterCoverage | None:
+    """The cluster's coverage as the job's latest analysis row records it — the
+    agent door's fallback when a turn wrote no record of its own."""
+    return _coverage_of(*await _latest_cluster_with_ledger(job_id, cluster_id, db))
+
+
+def _is_pending_micro_on(record: InterviewSession, cluster_id: str) -> bool:
+    """An active Gap-Click micro-session on exactly ``cluster_id`` that already
+    holds an answered turn — i.e. a follow-up (or a confirmation) it asked is
+    waiting for its answer. Re-opening the same gap resumes it instead of
+    retiring it, so the pending question is the one that gets answered and no
+    second question is generated for the same slot (ADR-089 clauses 7 and 8)."""
+    if not is_micro_session(record):
+        return False
+    state = record.state or {}
+    return (
+        list(state.get("critical_gaps") or []) == [cluster_id]
+        and int(state.get("questions_asked") or 0) > 1
+    )
+
+
+def _seed_questions_per_gap(clusters_by_id: dict[str, dict]) -> dict[str, int]:
+    """The in-session per-gap counter, seeded from the cross-session record.
+
+    ``questions_per_gap[cid]`` is "questions asked on this gap, the current one
+    included" (default 1 via ``.get(cid, 1)``). ADR-089 clause 1 makes the
+    budget cross-session, so a cluster already asked ``k`` times elsewhere
+    starts at ``k + 1``: the counter and ``outcome.asked`` agree at every
+    answer, and every existing ``questions_for_gap < per_gap`` gate (the
+    ADR-064 probe, the no-change follow-up) reads the shared budget unchanged.
+    """
+    seeded: dict[str, int] = {}
+    for cid, cluster in clusters_by_id.items():
+        asked = _prior_asked(cluster)
+        if asked > 0:
+            seeded[cid] = asked + 1
+    return seeded
+
+
+def _coverage_of(
+    cluster: dict | None, keyword_ledger: list | None = None
+) -> ClusterCoverage | None:
+    """The API projection of a persisted cluster entry (facts only). A legacy
+    cluster with no stored ``coverage`` is derived against ``keyword_ledger`` —
+    the same derivation the analysis response applies, so both readers agree."""
+    if not cluster or not cluster.get("id"):
+        return None
+    coverage = gap_coverage.stored_or_derived_coverage(cluster, keyword_ledger)
+    return ClusterCoverage(
+        cluster_id=str(cluster["id"]),
+        coverage=coverage,
+        open_concepts=[str(m) for m in (cluster.get("gaps") or []) if m],
+        budget_remaining=gap_coverage.remaining_budget(
+            cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP
+        ),
+    )
+
+
+async def _cluster_question(
+    state: InterviewState,
+    profile: dict,
+    provider: LLMProvider,
+    db: AsyncSession,
+    *,
+    session_id: str | None = None,
+    **kwargs,
+) -> dict:
+    """``question_generator_with_profile`` for the session's current gap, with
+    the ADR-089 clause 6 input view: a MODE A cluster that earlier sessions
+    already asked carries those exchanges (read from the referenced
+    transcripts, :func:`_prior_exchanges`). ``prior_exchanges`` is passed only
+    when there is one, so a first-time cluster's call is unchanged."""
+    if state.get("mode") == "targeted":
+        cluster_id = _current_gap_id(state)
+        cluster = (state.get("gap_clusters_by_id") or {}).get(cluster_id) if cluster_id else None
+        prior = await _prior_exchanges(db, cluster, exclude_session_id=session_id)
+        if prior:
+            kwargs["prior_exchanges"] = prior
+    return await question_generator_with_profile(state, profile, provider, **kwargs)
+
+
+def _members_named_by(
+    answer: str, members: list[str], keyword_ledger: list[dict] | None
+) -> set[str]:
+    """The members ``answer`` literally names — ``surface_present`` (THE shared
+    presence predicate, #122) over each matching ledger row's surface forms, or
+    the member string itself. The same fact the #188 seam's eligibility check
+    (``_upgrade_ledger_for_addressed_gap._evidenced``) computes."""
+    from applire.services.keyword_ledger import _matches, _norm
+
+    answer_norm = ats_norm(answer or "")
+    if not answer_norm:
+        return set()
+    named: set[str] = set()
+    for member in members:
+        key = _norm(member)
+        forms: list[str] = [member]
+        for row in keyword_ledger or []:
+            if not isinstance(row, dict):
+                continue
+            row_names = [row.get("concept") or "", *(row.get("surface_forms") or [])]
+            if any(_norm(n) and key and _matches(key, _norm(n)) for n in row_names):
+                forms.extend(str(n) for n in row_names if n)
+        if any(surface_present(f, answer_norm) for f in forms if f):
+            named.add(member)
+    return named
+
+
+def _with_coverage(
+    response: SessionMessageResponse, coverage: ClusterCoverage | None
+) -> SessionMessageResponse:
+    if coverage is not None:
+        response.cluster_coverage = coverage
+    return response
+
+
+async def _record_cluster_turn(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    *,
+    current_gap: str,
+    answer: str,
+    updated_profile: dict,
+) -> tuple[dict | None, list[str]]:
+    """ADR-089 clauses 2 and 3 — after this turn's #188 seam: classify the
+    cluster's open members against the session row's ledger and write the
+    outcome onto the per-gap record, in the turn's own transaction
+    (``record_turn_outcome`` flushes, never commits; ``send_message``'s one
+    commit per turn persists it with the vault write and the transcript).
+
+    Returns ``(recorded_cluster, follow_up_focus)``: the persisted cluster
+    entry as written (``None`` when no analysis row carries the cluster — a
+    legacy or MODE B session, which keeps its pre-ADR-089 behaviour), and the
+    members a partial-coverage follow-up may ask about, in cluster order — the
+    OPEN members this turn's answer does not name (ruling B-4, below). Also
+    indexes the turn in
+    ``state["cluster_turns"]`` so a later session can read the exchange
+    (clause 6) — indexes only, never a copy of the text.
+    """
+    gap_analysis_id = state.get("gap_analysis_id")
+    if not gap_analysis_id or state.get("mode") != "targeted":
+        return None, []
+    clusters_by_id = dict(state.get("gap_clusters_by_id") or {})
+    cluster = clusters_by_id.get(current_gap)
+    if not isinstance(cluster, dict) or not cluster:
+        return None, []
+
+    row = (
+        await db.execute(
+            select(GapAnalysis).where(GapAnalysis.id == uuid.UUID(str(gap_analysis_id)))
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None, []
+
+    # The members to classify: the cluster's open members as the session's own
+    # analysis row carries them, plus the session's copy (which
+    # `filter_answered_concepts` may have narrowed at session start). Reading
+    # the row too means a member the filter dropped because it was already
+    # `direct` is classified — and so moved to `covered` — instead of staying
+    # listed as open on the record.
+    persisted = gap_coverage.cluster_by_id(row.gap_clusters, current_gap)
+    members: list[str] = []
+    seen: set[str] = set()
+    for m in [*((persisted or {}).get("gaps") or []), *(cluster.get("gaps") or [])]:
+        key = ats_norm(str(m or ""))
+        if m and key and key not in seen:
+            seen.add(key)
+            members.append(str(m))
+    if not members:
+        return None, []
+
+    denied_records = [
+        d
+        for d in ((updated_profile or {}).get("metadata") or {}).get("denied_concepts") or []
+        if isinstance(d, dict) and d.get("concept")
+    ]
+    facts = gap_coverage.classify_members(members, row.keyword_ledger, denied_records)
+
+    # The transcript index of this answered turn: the user message this turn
+    # appended is the last one; the question it answers is the last assistant
+    # message before it.
+    messages = state.get("messages") or []
+    a_idx = len(messages) - 1
+    q_idx = next(
+        (i for i in range(a_idx - 1, -1, -1) if (messages[i] or {}).get("role") == "assistant"),
+        None,
+    )
+    if q_idx is not None and a_idx >= 0:
+        state["cluster_turns"] = list(state.get("cluster_turns") or []) + [
+            {"cluster_id": current_gap, "q": q_idx, "a": a_idx}
+        ]
+
+    recorded = await gap_coverage.record_turn_outcome(
+        db,
+        job_id=record.job_analysis_id,
+        fallback_gap_analysis_id=uuid.UUID(str(gap_analysis_id)),
+        cluster_id=current_gap,
+        member_facts=facts,
+        session_id=str(record.id),
+        charge=True,
+    )
+    # The follow-up's focus (ruling B-4, ADR-089 clause 2 amended 2026-09-23):
+    # the OPEN members this answer does NOT name. The #188 seam never moves an
+    # already-claimable row — a Category B `partial`, a #260 liability — to
+    # `direct`, so a member the candidate has JUST described can stay open on
+    # the record until the completion recompute re-classifies it. Asking about
+    # it again is the re-ask of what they just said (founder UAT 2026-09-23).
+    # "Names it" is the seam's own eligibility fact — `surface_present` over
+    # the member's ledger surface forms — and decides only what is ASKED next,
+    # never coverage: the record stays strict (clause 2's own line).
+    #
+    # With no ledger on the row there is no evidence to classify against:
+    # every member reads `open` by absence, which is no reason to ask again —
+    # such a turn is charged and indexed, but never earns a partial-coverage
+    # follow-up (the pre-ledger behaviour: advance).
+    if row.keyword_ledger:
+        named = _members_named_by(answer, members, row.keyword_ledger)
+        open_members = [m for m in members if facts.get(m) == "open" and m not in named]
+    else:
+        open_members = []
+    if recorded is None:
+        return None, open_members
+
+    # Keep the session's own copy in step with the record's `outcome` and
+    # `coverage` (the all-members readers, and the "asked before" fact the
+    # question generator reads to keep the US265 nudge on the opening question
+    # only). Its `gaps` are NOT narrowed here: the ADR-064 probe selection later
+    # in this same turn matches the denied concept against the members the
+    # question was ABOUT — narrowing first would hide a just-declined member
+    # from it. The partial-coverage follow-up narrows them when it asks
+    # (`_ask_partial_coverage_follow_up`).
+    clusters_by_id[current_gap] = {
+        **cluster,
+        "outcome": recorded.get("outcome") or gap_coverage.empty_outcome(),
+        "coverage": recorded.get("coverage") or "open",
+    }
+    state["gap_clusters_by_id"] = clusters_by_id
+    # The in-session counter agrees with the record (clause 1): after this
+    # turn, `outcome.asked` answered turns exist on the cluster.
+    qpg = dict(state.get("questions_per_gap") or {})
+    qpg[current_gap] = max(int(qpg.get(current_gap, 1)), _prior_asked(recorded))
+    state["questions_per_gap"] = qpg
+    return recorded, open_members
+
+
 async def create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
@@ -1745,6 +2256,29 @@ async def _create_targeted_session(
         cluster_ids, cluster_categories, clusters_by_id, gap_analysis.keyword_ledger
     )
 
+    # ADR-089 clause 6 — the full interview honours the per-gap record: a
+    # cluster whose coverage is `covered`/`declined`, or whose budget an
+    # earlier door (Gap-Click, resolve_gap, an earlier interview) already
+    # spent, is not asked again. `is_askable` is the one predicate; the
+    # budget the rest get is what the record leaves them (seeded below).
+    askable_ids = [
+        cid
+        for cid in cluster_ids
+        if gap_coverage.is_askable(clusters_by_id[cid], INTERVIEW_MAX_QUESTIONS_PER_GAP)
+    ]
+    if len(askable_ids) != len(cluster_ids):
+        logger.info(
+            "targeted session plan for job %s: skipped %d cluster(s) the per-gap "
+            "record marks covered/declined or budget-spent (ADR-089 clause 6): %s",
+            job_id,
+            len(cluster_ids) - len(askable_ids),
+            [cid for cid in cluster_ids if cid not in askable_ids],
+        )
+    skipped_by_record = len(cluster_ids) - len(askable_ids)
+    cluster_ids = askable_ids
+    cluster_categories = {cid: cluster_categories[cid] for cid in cluster_ids}
+    clusters_by_id = {cid: clusters_by_id[cid] for cid in cluster_ids}
+
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
     # mandatory and job-irrelevant.
     gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
@@ -1798,7 +2332,13 @@ async def _create_targeted_session(
         # silently failed (JSON-object-mode parse loss, or the keyword-only path)
         # — telling the candidate they're a strong match is a dangerous lie.
         # Emit an honest fallback instead.
-        if has_clustering_input(gap_analysis):
+        if skipped_by_record:
+            # ADR-089 — nothing failed: every cluster the analysis holds has
+            # already been worked (covered, declined, or its per-gap budget
+            # spent in an earlier door). Saying "strong match" or "clustering
+            # failed" would both be false.
+            no_gaps_msg = gap_record_copy("all_worked", lang)
+        elif has_clustering_input(gap_analysis):
             logger.warning(
                 "targeted session %s: clustering had input (category_c=%d) but no "
                 "askable clusters/gates — clustering likely failed; emitting honest "
@@ -1835,6 +2375,9 @@ async def _create_targeted_session(
         hard_ceiling=hard_ceiling,
     )
     state["gate_clusters"] = gate_by_id
+    # ADR-089 clause 1 — each planned cluster starts from the budget the
+    # cross-session record leaves it.
+    state["questions_per_gap"] = _seed_questions_per_gap(clusters_by_id)
 
     first_cluster_id = critical_gaps[0]
     gate_entry = gate_by_id.get(first_cluster_id)
@@ -1850,8 +2393,8 @@ async def _create_targeted_session(
         include_availability = should_ask_availability(
             job.raw_text, profile_record.profile_json
         )
-        q_data = await question_generator_with_profile(
-            state, profile_record.profile_json, provider,
+        q_data = await _cluster_question(
+            state, profile_record.profile_json, provider, db,
             gap_category=first_category, lang=lang,
             include_availability=include_availability,
         )
@@ -2025,7 +2568,20 @@ async def _create_micro_session(
     provider: LLMProvider,
     lang: str = "en",
 ) -> SessionCreateResponse:
-    """Create a 1-question micro-session scoped to a single cluster (Gap-Click mode)."""
+    """Create a micro-session scoped to a single cluster (Gap-Click mode).
+
+    ADR-089 clause 1 — no longer one question: the ceiling is
+    ``derive_hard_ceiling(1)`` (ADR-080 clause 3's ``n = 1`` case) and the
+    cluster's cross-session budget (``INTERVIEW_MAX_QUESTIONS_PER_GAP`` minus
+    ``outcome.asked``) decides how many answers it takes; the ``micro_session``
+    marker stays the authoritative predicate (#627).
+
+    Refuses (``GapNotAskableError`` → HTTP 409 / ``invalid_input``) a cluster
+    whose budget is spent or whose coverage is ``covered``/``declined``.
+    Re-opening a cluster whose micro-session is still waiting for the answer to
+    a follow-up RESUMES that session (clauses 7/8): the pending question is the
+    one answered, and nothing is generated or charged twice.
+    """
     if profile_record is None:
         raise LookupError(
             "No profile found — upload a CV first before using Gap-Click mode"
@@ -2051,15 +2607,25 @@ async def _create_micro_session(
         "jd_context": "",
     }
     gap_category: str | None = None
+    found = False
     if gap_analysis is not None:
-        clusters_raw: list[dict] = list(gap_analysis.gap_clusters or [])
-        for c in clusters_raw:
-            if c.get("id") == target_cluster_id:
-                cluster = c
-                gap_category = c.get("category")
-                break
+        persisted = gap_coverage.cluster_by_id(gap_analysis.gap_clusters, target_cluster_id)
+        if persisted is not None:
+            cluster = persisted
+            gap_category = persisted.get("category")
+            found = True
 
-    _MICRO_CEILING = 1
+    existing_active = await _get_active_session(job_id, db)
+    if existing_active is not None and _is_pending_micro_on(existing_active, target_cluster_id):
+        return _resumed_response(existing_active)
+
+    if found:
+        refusal = gap_not_askable(cluster, lang)
+        if refusal is not None:
+            raise refusal
+
+    prior_asked = _prior_asked(cluster)
+    micro_ceiling = derive_hard_ceiling(1)
     state: InterviewState = _build_state(
         mode="targeted",
         job_id=job_id,
@@ -2069,14 +2635,20 @@ async def _create_micro_session(
         gap_categories={target_cluster_id: gap_category or "C"},
         gap_clusters_by_id={target_cluster_id: cluster},
         current_question="",
-        hard_ceiling=_MICRO_CEILING,
+        hard_ceiling=micro_ceiling,
         micro_session=True,
     )
-    # US265 — a Gap-Click micro-session asks exactly ONE cluster question ever
-    # (hard_ceiling=1), so the one-shot check is trivially safe here too.
-    include_availability = should_ask_availability(job.raw_text, profile_record.profile_json)
-    q_data = await question_generator_with_profile(
-        state, profile_record.profile_json, provider, gap_category=gap_category, lang=lang,
+    state["questions_per_gap"] = _seed_questions_per_gap({target_cluster_id: cluster})
+    # US265 — the availability ask rides the cluster's OPENING question only:
+    # this session's first question, and only when no earlier door has asked
+    # this cluster before (its opening question then already carried it).
+    # Follow-ups never pass the flag.
+    include_availability = prior_asked == 0 and should_ask_availability(
+        job.raw_text, profile_record.profile_json
+    )
+    q_data = await _cluster_question(
+        state, profile_record.profile_json, provider, db,
+        gap_category=gap_category, lang=lang,
         include_availability=include_availability,
     )
     first_question = q_data["question"]
@@ -2086,7 +2658,6 @@ async def _create_micro_session(
     state["messages"].append({"role": "assistant", "content": first_question})
     state["questions_asked"] = 1
 
-    existing_active = await _get_active_session(job_id, db)
     if existing_active is not None:
         existing_active.status = "complete"
         existing_active.updated_at = datetime.now(timezone.utc)
@@ -2099,7 +2670,7 @@ async def _create_micro_session(
         mode="targeted",
         status="active",
         state=state,
-        hard_ceiling=_MICRO_CEILING,
+        hard_ceiling=micro_ceiling,
         questions_asked=1,
     )
     db.add(record)
@@ -2111,8 +2682,12 @@ async def _create_micro_session(
         mode="targeted",
         first_question=first_question,
         question=first_question,
-        estimated_questions=1,
-        hard_ceiling=_MICRO_CEILING,
+        # The answers this cluster can still take (its remaining per-gap
+        # budget), not the ceiling's headroom.
+        estimated_questions=gap_coverage.remaining_budget(
+            cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP
+        ),
+        hard_ceiling=micro_ceiling,
         gaps_total=1,
         gaps_remaining=1,
         choices=first_choices,
@@ -2441,6 +3016,7 @@ async def _ask_denial_probe(
         # #380: the probe is issued ON the denial turn — the caller must see
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
+        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
 
@@ -2758,43 +3334,6 @@ async def send_message(
     state["questions_asked"] = questions_asked
     record.questions_asked = questions_asked
 
-    # --- Hard ceiling check ---
-    if questions_asked >= state["hard_ceiling"]:
-        state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
-        # A targeted micro-session (ceiling=1) completes here, BEFORE the US185
-        # confirmation-surfacing branch below — so carry any reconciler ambiguity
-        # into the completion response instead of silently dropping it.
-        #
-        # #669 residual (2026-09-17 close-out) — `lang` (resolved once above,
-        # for this whole turn) was omitted here, so `_to_confirmation_prompts`
-        # silently fell back to its `"en"` default regardless of the session's
-        # actual language. Pass it through, same as `_ask_confirmation`'s call.
-        return await _complete_session(
-            record, state, db, "max_questions_reached", provider, profile_record,
-            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations, lang)
-            if turn.pending_confirmations
-            else None,
-            conflict_summaries=conflict_summaries or None,
-            changes_applied=turn.addressed,
-            denial_recorded=turn.denial_recorded,
-        )
-
-    # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
-    # The primary resolution path is the deterministic handler above; this flag is
-    # the ordering backstop that guarantees a re-emitted identical confirmation can
-    # never re-loop (the flag was previously popped AFTER the re-ask, so the
-    # advance logic was unreachable whenever the reconciler re-emitted a
-    # confirmation — the loop).
-    resolving_confirmation = state.pop("resolving_confirmation", False)
-
-    # --- US185: an unresolved ambiguity becomes a targeted confirmation question.
-    # The reconciler never guesses entity identity (synonym role, project-vs-
-    # position, DE<->EN employer); it asks. Surface that before advancing —
-    # unless this turn is itself resolving a prior confirmation (#187). ---
-    if turn.pending_confirmations and not resolving_confirmation:
-        return await _ask_confirmation(record, state, db, turn, current_gap, current_idx)
-
-    # --- Advance decision ---
     # Deterministic gap-progress (US182a): a profile mutation means the answer
     # addressed the gap. "declined" is already handled upstream by
     # is_termination_signal, so an answer that changes nothing -> follow up once.
@@ -2809,7 +3348,6 @@ async def send_message(
     # exactly: the seam below runs on `addressed or denial_recorded`, and
     # `addressed` alone is what it passes as `upgrade=`.
     denial_recorded = turn.denial_recorded
-    questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
     # --- #188 / #352: the ledger polarity seam. A turn that ADDRESSED the
     # current gap deterministically upgrades the matching keyword_ledger entry
@@ -2826,15 +3364,80 @@ async def send_message(
     # reverse one, and a stale `claimable` row outlived the candidate taking
     # the claim back. ADR-059 clause 3: polarity at EVERY ledger write seam.
     #
+    # ADR-089 clause 2: the seam runs BEFORE the hard-ceiling check now. Before
+    # it, the ceiling returned first — so a Gap-Click turn (hard_ceiling=1)
+    # never reached the seam at all, and neither did the turn that tripped a
+    # full interview's budget. The per-gap record below classifies the
+    # cluster's members against the ledger as this seam leaves it, so every
+    # answered turn must pass through it first.
+    #
     # Placed BEFORE the ADR-064 transfer probe, which `return`s: a denial that
     # triggers a probe must still reverse on its own turn, not a turn later.
     # A no-op for guided/Mode-B (no ledger) and for clusters whose concepts
-    # don't normalize-match any ledger entry. Runs before the advance/complete
-    # branch so the same turn's single commit persists it. ---
+    # don't normalize-match any ledger entry. The same turn's single commit
+    # persists it. ---
     if addressed or denial_recorded:
         await _upgrade_ledger_for_addressed_gap(
             state, current_gap, message, db, upgrade=addressed
         )
+
+    # --- ADR-089 clauses 2/3: the per-gap record. Classify the cluster's open
+    # members as facts against the ledger the seam just wrote, and charge the
+    # answered turn to the cluster's cross-session budget — flushed, persisted
+    # by this turn's one commit. `None` for a turn that answered no recorded
+    # cluster (MODE B, a legacy session): those keep the pre-ADR-089 path. ---
+    recorded_cluster, open_members = await _record_cluster_turn(
+        record, state, db, current_gap=current_gap, answer=message,
+        updated_profile=updated_profile,
+    )
+    cluster_coverage = _coverage_of(recorded_cluster)
+
+    # --- Hard ceiling check ---
+    if questions_asked >= state["hard_ceiling"]:
+        state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
+        # A session that hits its ceiling completes here, BEFORE the US185
+        # confirmation-surfacing branch below — so carry any reconciler ambiguity
+        # into the completion response instead of silently dropping it.
+        #
+        # #669 residual (2026-09-17 close-out) — `lang` (resolved once above,
+        # for this whole turn) was omitted here, so `_to_confirmation_prompts`
+        # silently fell back to its `"en"` default regardless of the session's
+        # actual language. Pass it through, same as `_ask_confirmation`'s call.
+        return await _complete_session(
+            record, state, db, "max_questions_reached", provider, profile_record,
+            pending_confirmations=_to_confirmation_prompts(turn.pending_confirmations, lang)
+            if turn.pending_confirmations
+            else None,
+            conflict_summaries=conflict_summaries or None,
+            changes_applied=turn.addressed,
+            denial_recorded=turn.denial_recorded,
+            cluster_coverage=cluster_coverage,
+        )
+
+    # #187 — consume the one-shot resolving flag BEFORE the re-ask check below.
+    # The primary resolution path is the deterministic handler above; this flag is
+    # the ordering backstop that guarantees a re-emitted identical confirmation can
+    # never re-loop (the flag was previously popped AFTER the re-ask, so the
+    # advance logic was unreachable whenever the reconciler re-emitted a
+    # confirmation — the loop).
+    resolving_confirmation = state.pop("resolving_confirmation", False)
+
+    # --- US185: an unresolved ambiguity becomes a targeted confirmation question.
+    # The reconciler never guesses entity identity (synonym role, project-vs-
+    # position, DE<->EN employer); it asks. Surface that before advancing —
+    # unless this turn is itself resolving a prior confirmation (#187). ---
+    if turn.pending_confirmations and not resolving_confirmation:
+        return _with_coverage(
+            await _ask_confirmation(record, state, db, turn, current_gap, current_idx),
+            cluster_coverage,
+        )
+
+    # --- Advance decision ---
+    # The per-gap counter, read AFTER the record: `_record_cluster_turn` keeps
+    # it equal to the cluster's cross-session `outcome.asked` (ADR-089 clause
+    # 1), so every `questions_for_gap < per_gap` gate below spends the shared
+    # budget, not a per-session one.
+    questions_for_gap = state.get("questions_per_gap", {}).get(current_gap, 1)
 
     # --- ADR-064: the denial transfer probe. A DIRECT-level denial of a
     # JD-critical concept gets exactly ONE follow-up aimed at the broader
@@ -2845,7 +3448,8 @@ async def send_message(
     # already resolved above, before the hard-ceiling check), never past the
     # per-gap retry budget, and never when a US185 confirmation is already
     # owed. `_select_denial_probe_concept` is the ONE deterministic (pure
-    # Python) trigger; only the follow-up's WORDING is the model's (Task 3). ---
+    # Python) trigger; only the follow-up's WORDING is the model's (Task 3).
+    # ADR-089 clause 2 precedence: probe > partial coverage > no change. ---
     if (
         not addressed
         and denial_recorded
@@ -2857,11 +3461,33 @@ async def send_message(
             state, turn, updated_profile, db, current_gap
         )
         if probe_concept is not None:
-            return await _ask_denial_probe(
-                record, state, db, provider, current_gap, current_idx,
-                probe_concept, updated_profile, turn, questions_for_gap, lang,
-                profile_record,
+            return _with_coverage(
+                await _ask_denial_probe(
+                    record, state, db, provider, current_gap, current_idx,
+                    probe_concept, updated_profile, turn, questions_for_gap, lang,
+                    profile_record,
+                ),
+                cluster_coverage,
             )
+
+    # --- ADR-089 clause 2 (an exception under ADR-058 clause 4, bounded): the
+    # partial-coverage follow-up. The answer changed the vault (`addressed`),
+    # yet members of the cluster are still OPEN on the record and this answer
+    # did not name them (ruling B-4) — a requirement the answer left out — and
+    # the cluster has budget left: ask ONE follow-up aimed at exactly those
+    # members. Whether to ask is these facts; how to phrase it is the model's.
+    # A turn with no record (MODE B, legacy) never gets here. ---
+    if (
+        recorded_cluster is not None
+        and addressed
+        and open_members
+        and not resolving_confirmation
+        and gap_coverage.remaining_budget(recorded_cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP) > 0
+    ):
+        return await _ask_partial_coverage_follow_up(
+            record, state, db, provider, current_gap, current_idx, open_members,
+            updated_profile, turn, questions_for_gap, lang, cluster_coverage,
+        )
 
     if (
         addressed
@@ -2890,9 +3516,17 @@ async def send_message(
             # response (ADR-059 — the flag is the honest status, and the
             # captured 2026-08-15 instance completed exactly here). The
             # hard-ceiling twin above already threads it.
+            #
+            # ADR-089 — a micro-session now completes HERE (its ceiling no
+            # longer ends it on the first answer), so the single-turn caller's
+            # `changes_applied` (resolve_gap's addressed/no_change split) and
+            # the reconciler's pending conflicts travel on this completion too.
             return await _complete_session(
                 record, state, db, "gaps_resolved", provider, profile_record,
+                conflict_summaries=conflict_summaries or None,
+                changes_applied=turn.addressed,
                 denial_recorded=turn.denial_recorded,
+                cluster_coverage=cluster_coverage,
             )
 
         # Generate next question
@@ -2902,10 +3536,12 @@ async def send_message(
         if state.get("mode") == "guided":
             job_context = await _load_job_context(state["job_id"], db)
 
-        next_q_data = await question_generator_with_profile(
+        next_q_data = await _cluster_question(
             state,
             updated_profile,
             provider,
+            db,
+            session_id=str(record.id),
             gap_category=next_category,
             job_context=job_context,
             lang=lang,
@@ -2935,6 +3571,11 @@ async def send_message(
             # turn's fact — False is "no denial this turn", None is reserved
             # for responses with no reconciled turn behind them.
             denial_recorded=turn.denial_recorded,
+            # ADR-089 — the same holds for `changes_applied` now that a turn
+            # may be followed by a follow-up rather than a completion: the
+            # agent door's addressed/partly_covered/no_change split reads it.
+            changes_applied=turn.addressed,
+            cluster_coverage=cluster_coverage,
         )
 
     else:
@@ -2984,7 +3625,82 @@ async def send_message(
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
+            changes_applied=turn.addressed,  # ADR-089
+            cluster_coverage=cluster_coverage,
         )
+
+
+async def _ask_partial_coverage_follow_up(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    open_members: list[str],
+    updated_profile: dict,
+    turn,
+    questions_for_gap: int,
+    lang: str,
+    cluster_coverage: ClusterCoverage | None,
+) -> SessionMessageResponse:
+    """ADR-089 clause 2 — the ONE follow-up a partially covering answer earns.
+
+    Spends the cluster's next budget slot exactly like the no-change retry
+    (``questions_per_gap`` + 1; the answer to it is charged on the record by
+    its own turn). The question is drafted by the MODE A generator with the
+    cluster narrowed to its open members and a follow-up focus naming them
+    (``follow_up_focus``) — so the choices keep the #110/ADR-062 grounding
+    guard and the ADR-064 coverage rules, and the US265 nudge stays off (the
+    cluster's opening question already had it).
+    """
+    qpg = dict(state.get("questions_per_gap", {}))
+    qpg[current_gap] = questions_for_gap + 1
+    state["questions_per_gap"] = qpg
+    gap_category = (state.get("gap_categories") or {}).get(current_gap)
+    # The follow-up is ABOUT the open members: the session's copy of the
+    # cluster narrows to them, so the question's "Constituent gaps", the #188
+    # seam and the probe selection of the follow-up's own answer all read the
+    # same set the record lists as open.
+    clusters_by_id = dict(state.get("gap_clusters_by_id") or {})
+    if isinstance(clusters_by_id.get(current_gap), dict):
+        clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
+        state["gap_clusters_by_id"] = clusters_by_id
+
+    q_data = await _cluster_question(
+        state,
+        updated_profile,
+        provider,
+        db,
+        session_id=str(record.id),
+        gap_category=gap_category,
+        lang=lang,
+        follow_up_focus=list(open_members),
+    )
+    question = q_data["question"]
+    choices = q_data.get("choices")
+    state["current_question"] = question
+    state["current_choices"] = choices
+    state["messages"].append({"role": "assistant", "content": question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()  # ONE commit per turn (#179)
+
+    gaps_remaining = _count_remaining(
+        state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+    )
+    return SessionMessageResponse(
+        complete=False,
+        question=question,
+        gaps_remaining=gaps_remaining,
+        pending_conflicts=turn.conflict_summaries if turn.conflict_summaries else None,
+        choices=choices,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        denial_recorded=turn.denial_recorded,
+        changes_applied=turn.addressed,
+        cluster_coverage=cluster_coverage,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3069,6 +3785,7 @@ async def _complete_session(
     conflict_summaries: list | None = None,
     changes_applied: bool | None = None,
     denial_recorded: bool | None = None,
+    cluster_coverage: ClusterCoverage | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -3133,19 +3850,25 @@ async def _complete_session(
     # but never touched the gap-analysis FK). Runs for every completion reason
     # (gaps_resolved, user_ended, max_questions_reached — the targeted
     # micro-session resolve_gap rides) so every way an interview ends refreshes
-    # the score. clamp_to_previous=True: the WHOLE score slice (headline +
-    # requirement_breakdown + category_*/gaps) is clamped, and only for the
-    # evidence-added population — a recompute carrying a new denial is never
-    # clamped and the displayed score drops with it (ruling B-1 2026-09-20,
-    # gap.published_score_slice). Idempotent
+    # the score.
+    #
+    # ADR-089 clause 5 — the recompute is ANSWER-DRIVEN: `answer_scope` names
+    # what this session touched (the clusters it worked, and every answer it
+    # received — a self-correction outside the answered cluster must still be
+    # able to lower that requirement). Outside the touched set a downward move
+    # is replaced by the previous row unless it is a denial; the denial floor
+    # and the vault floor then run on the merged ledger, so a new denial always
+    # lowers the score (ruling B-1's purpose, kept). Replaces the whole-slice
+    # `clamp_to_previous` (retired with `published_score_slice`). Idempotent
     # per (job, profile-fingerprint) — if the profile didn't change this turn,
     # analyze_gaps cheaply reuses the existing row instead of re-running the LLM.
     # Best-effort: the interview is already committed complete above; a failure
     # here must not break the completion response — the next /gaps/refresh or
     # gap-click recomputes it.
+    answer_scope = _answer_scope(state)
     if job_analysis_id is not None:
         try:
-            await analyze_gaps(job_analysis_id, db, provider, clamp_to_previous=True)
+            await analyze_gaps(job_analysis_id, db, provider, answer_scope=answer_scope)
         except Exception:
             logger.warning(
                 "Post-interview gap recompute failed for session %s (job %s); "
@@ -3153,6 +3876,27 @@ async def _complete_session(
                 "via gaps/refresh)",
                 session_id,
                 job_analysis_id,
+                exc_info=True,
+            )
+
+    # ADR-089 — the coverage this turn wrote, re-read after the recompute: the
+    # carried cluster (same id, clause 4) is re-split against the NEW ledger,
+    # and that row is what the gaps page and `analyze_gaps` show next. Kept as
+    # the turn wrote it when the recompute did not carry the cluster.
+    if cluster_coverage is not None and job_analysis_id is not None:
+        try:
+            refreshed = _coverage_of(
+                *await _latest_cluster_with_ledger(
+                    job_analysis_id, cluster_coverage.cluster_id, db
+                )
+            )
+            if refreshed is not None:
+                cluster_coverage = refreshed
+        except Exception:
+            logger.warning(
+                "Reading the recomputed cluster record failed for session %s; "
+                "reporting the turn's own record",
+                session_id,
                 exc_info=True,
             )
 
@@ -3182,7 +3926,30 @@ async def _complete_session(
         pending_conflicts=conflict_summaries or None,
         changes_applied=changes_applied,
         denial_recorded=denial_recorded,
+        cluster_coverage=cluster_coverage,
     )
+
+
+def _answer_scope(state: InterviewState) -> AnswerScope:
+    """ADR-089 clause 5 — what this session may treat as touched.
+
+    ``cluster_ids`` — the clusters the session WORKED (an answered turn is on
+    the record: ``cluster_turns``), in order. ``answers`` — every candidate
+    answer of the session; a control word that ended it ("done") is not
+    testimony and is left out.
+    """
+    worked: list[str] = []
+    for turn in state.get("cluster_turns") or []:
+        cid = (turn or {}).get("cluster_id") if isinstance(turn, dict) else None
+        if cid and cid not in worked:
+            worked.append(str(cid))
+    answers = [
+        str(m.get("content") or "").strip()
+        for m in state.get("messages") or []
+        if isinstance(m, dict) and m.get("role") == "user"
+    ]
+    answers = [a for a in answers if a and not is_termination_signal(a)]
+    return AnswerScope(cluster_ids=tuple(worked), answers=tuple(answers))
 
 
 # ---------------------------------------------------------------------------

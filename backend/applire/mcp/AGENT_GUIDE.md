@@ -125,7 +125,14 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   **Story selection and angling per job description is YOUR strategy job**;
   Applire supplies the stories, receipts, and the Oracle to check the result.
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
-  raw material for your positioning. Check `keyword_liabilities` on the
+  raw material for your positioning. Each `gap_clusters` entry is a gap with a
+  memory: its `gaps` are its **open** requirements only — what is covered or
+  declined moved to `outcome.covered` / `outcome.declined` — `coverage` is
+  `open` / `partly_covered` / `covered` / `declined`, `outcome.asked` counts
+  the questions any door (the UI, `run_interview`, `resolve_gap`) already
+  spent on it, and `budget_remaining` is what is left of its per-gap question
+  budget. Cluster ids stay stable while the job description does not change.
+  Check `keyword_liabilities` on the
   result: a hard requirement you already hold per the ledger but with no
   bullet/achievement/story behind it anywhere — a bare skills-list echo, not
   a strength (a hiring panel discounts it). Either elicit its story via
@@ -147,22 +154,39 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
 - `resolve_gap` — resolve ONE gap cluster in a single call, the guided way:
   pass a `gap_id` from `analyze_gaps`' `gap_clusters` plus the candidate's
   testimony; Applire generates the scoped question, applies your answer
-  through the reconciler, and returns a `status`. Stateless — no `session_id`,
-  no termination signal — so "continue or stop" is just "call it again for the
-  next gap, or don't". Use it for **category-B gaps** (uncaptured strengths
-  worth eliciting) when you want Applire's guided reconciliation per gap
-  instead of the full `run_interview` sweep; `submit_claims` is the
-  lower-level alternative (records testimony to the vault without the per-gap
-  question). Notes: the `answer` is **testimony**, not a control word (don't
-  pass "skip"/"done" — to skip a gap, just don't resolve it); `status` is
-  `addressed` (your testimony wrote a change), `denial_recorded` (the
-  testimony explicitly denied the skill — recorded to the vault so a later
-  `analyze_gaps` cannot re-infer it via adjacency; NOT the same as
-  `no_change`), `no_change` (a valid answer that added and denied nothing),
-  or `needs_confirmation` (the reconciler needs the human to disambiguate — the returned
-  `pending_confirmations` go to the profile Health hub). It won't run while a
-  full `run_interview` is active for the job (finish that first). Re-run
-  `analyze_gaps` afterwards to see the refreshed match score.
+  through the reconciler, and returns a `status` plus the gap's `coverage`,
+  its still-open requirements (`open_concepts`) and its `budget_remaining`.
+  Stateless — no `session_id`, no termination signal — so "continue or stop"
+  is just "call it again, or don't". Use it for **category-B gaps**
+  (uncaptured strengths worth eliciting) when you want Applire's guided
+  reconciliation per gap instead of the full `run_interview` sweep;
+  `submit_claims` is the lower-level alternative (records testimony to the
+  vault without the per-gap question). Notes: the `answer` is **testimony**,
+  not a control word (don't pass "skip"/"done" — to skip a gap, just don't
+  resolve it); `status` is `addressed` (your testimony wrote a change and the
+  gap is now covered), `partly_covered` (it wrote a change, but some of the
+  gap's requirements are still open — see `open_concepts`),
+  `denial_recorded` (the testimony explicitly denied the skill — recorded to
+  the vault so a later `analyze_gaps` cannot re-infer it via adjacency; NOT
+  the same as `no_change`), `no_change` (a valid answer that added and denied
+  nothing), or `needs_confirmation` (the reconciler needs the human to
+  disambiguate — pass one of the returned `pending_confirmations` options
+  VERBATIM as the next `resolve_gap` answer on the same `gap_id`, or leave it:
+  the ask stays parked in the profile Health hub either way).
+  **Follow-ups.** When the gap asks one more question — an answer that
+  covered only part of it, one that added nothing, or a denial whose skill
+  area is worth one probe — the result carries `follow_up_question`. Put it
+  to the human and pass their answer as a NEW `resolve_gap` call on the SAME
+  `gap_id`: that call IS the follow-up turn. Every gap has one question
+  budget shared by every door (`INTERVIEW_MAX_QUESTIONS_PER_GAP`, default 2 —
+  the UI's gap click, `run_interview` and `resolve_gap` all draw on it); a
+  call on a gap whose budget is spent, or that is already `covered` /
+  `declined`, is `invalid_input` naming why. A call whose testimony is
+  identical to the answer the gap last recorded is `invalid_input` too — it
+  is a retry of a call that already went through, and it charges nothing.
+  It won't run while a full `run_interview` is active for the job (finish
+  that first). Re-run `analyze_gaps` afterwards to see the refreshed match
+  score.
 - `render_document` — your authored content into a norms-checked, templated
   PDF. Read `schema://cv` or `schema://cover-letter` first; unknown fields
   are rejected with paths. You stay the author: Applire applies the template
