@@ -23,6 +23,7 @@ Mutation map (each rule → the tests that kill its removal):
 * vault floor on the merge   — ``test_vault_floor_heals_a_carried_claim_with_no_backing``,
   ``test_refresh_heals_a_carried_claim_whose_vault_backing_is_gone``
 * carry-forward orphan drop  — ``test_carry_forward_drops_an_orphaned_member``
+* carried category re-derived — ``test_a_carried_cluster_category_is_re_derived_from_its_members``
 """
 
 import copy
@@ -560,6 +561,23 @@ async def test_carry_forward_moves_a_now_claimable_member_to_covered(db):
     iac = next(c for c in r2.gap_clusters if c.id == "cluster-iac")
     assert iac.gaps == [] and iac.outcome.covered == ["Terraform"]
     assert iac.coverage == "covered", "a worked cluster stays listed with its coverage"
+
+
+@pytest.mark.asyncio
+async def test_a_carried_cluster_category_is_re_derived_from_its_members(db):
+    """#675 line 60 on EVERY recompute (clause 4): Terraform turns from a
+    Category C gap into a partial, so its carried cluster is now "B"."""
+    provider = _Scripted()
+    job, profile, r1 = await _first(db, provider)
+    assert next(c for c in r1.gap_clusters if c.id == "cluster-iac").category == "C"
+    await _change_profile(db, profile, skills=("Python", "Docker", "Kubernetes", "Terraform"),
+                          bullets=[*_BULLETS, "Reviewed Terraform plans"])
+    provider.classifications.append(
+        [cls("Python", "direct"), cls("Docker", "direct"), cls("Kubernetes", "partial"), cls("Terraform", "partial")]
+    )
+    r2 = await analyze_gaps(job.id, db, provider, answer_scope=AnswerScope())
+    iac = next(c for c in r2.gap_clusters if c.id == "cluster-iac")
+    assert iac.category == "B" and iac.coverage == "partly_covered"
 
 
 @pytest.mark.asyncio
