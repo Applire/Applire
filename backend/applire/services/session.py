@@ -1905,19 +1905,22 @@ async def _record_cluster_turn(
     # every member reads `open` by absence, which is no reason to ask again —
     # such a turn is charged and indexed, but never earns a partial-coverage
     # follow-up (the pre-ledger behaviour: advance).
-    facts_open = [m for m in members if facts.get(m) == "open"]
-    open_members = facts_open if row.keyword_ledger else []
+    open_members = (
+        [m for m in members if facts.get(m) == "open"] if row.keyword_ledger else []
+    )
     if recorded is None:
         return None, open_members
 
-    # Keep the session's own copy in step with the record: its `gaps` are the
-    # members this turn left open (the #188 seam and the ADR-064 probe of the
-    # NEXT turn read them), its `outcome`/`coverage` are the record's (the
-    # all-members readers, and the "asked before" fact the question generator
-    # reads to keep the US265 nudge on the opening question only).
+    # Keep the session's own copy in step with the record's `outcome` and
+    # `coverage` (the all-members readers, and the "asked before" fact the
+    # question generator reads to keep the US265 nudge on the opening question
+    # only). Its `gaps` are NOT narrowed here: the ADR-064 probe selection later
+    # in this same turn matches the denied concept against the members the
+    # question was ABOUT — narrowing first would hide a just-declined member
+    # from it. The partial-coverage follow-up narrows them when it asks
+    # (`_ask_partial_coverage_follow_up`).
     clusters_by_id[current_gap] = {
         **cluster,
-        "gaps": facts_open,
         "outcome": recorded.get("outcome") or gap_coverage.empty_outcome(),
         "coverage": recorded.get("coverage") or "open",
     }
@@ -3531,6 +3534,14 @@ async def _ask_partial_coverage_follow_up(
     qpg[current_gap] = questions_for_gap + 1
     state["questions_per_gap"] = qpg
     gap_category = (state.get("gap_categories") or {}).get(current_gap)
+    # The follow-up is ABOUT the open members: the session's copy of the
+    # cluster narrows to them, so the question's "Constituent gaps", the #188
+    # seam and the probe selection of the follow-up's own answer all read the
+    # same set the record lists as open.
+    clusters_by_id = dict(state.get("gap_clusters_by_id") or {})
+    if isinstance(clusters_by_id.get(current_gap), dict):
+        clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
+        state["gap_clusters_by_id"] = clusters_by_id
 
     q_data = await _cluster_question(
         state,
