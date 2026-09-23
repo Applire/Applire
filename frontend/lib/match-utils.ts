@@ -16,7 +16,8 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Utilities for the /match job ranking page.
+ * Utilities for the /match job ranking page, and the gaps screen's reading of
+ * a gap analysis (counts, and the ADR-089 per-cluster coverage record).
  */
 
 /** Score thresholds for colour-coding the combined-score bar. */
@@ -115,17 +116,215 @@ export function canonicalRequirementChips(
  * disagree (F1). A likely match (partial) is NOT a gap; it only contributes to
  * `itemsToAddress`, which gates whether the interview/section is offered.
  * Tolerant of null / missing categories.
+ *
+ * ADR-089 clause 8: the counts are the SERVER's. There used to be a second
+ * argument — a client-side set of "resolved" cluster ids subtracted from the
+ * category lists — which (a) held cluster ids while the lists hold concept
+ * strings, so it never subtracted anything, and (b) was lost on navigation.
+ * After an answer the page now replaces its whole analysis with the
+ * recomputed row, whose category lists already carry the answer.
  */
-export function gapCounts(
-  gaps: GapCategories | null | undefined,
-  resolved: Set<string>,
-): GapCounts {
-  const activeC = (gaps?.category_c ?? []).filter((g) => !resolved.has(g));
-  const activeB = (gaps?.category_b ?? []).filter((g) => !resolved.has(g));
+export function gapCounts(gaps: GapCategories | null | undefined): GapCounts {
+  const c = gaps?.category_c ?? [];
+  const b = gaps?.category_b ?? [];
   return {
     directMatches: gaps?.category_a?.length ?? 0,
-    likelyMatches: activeB.length,
-    gaps: activeC.length,
-    itemsToAddress: activeC.length + activeB.length,
+    likelyMatches: b.length,
+    gaps: c.length,
+    itemsToAddress: c.length + b.length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// ADR-089 — a gap cluster's persisted coverage record
+// ---------------------------------------------------------------------------
+
+/** `gap_clusters[].coverage` (ADR-089 clause 3), derived server-side from the
+ * members' ledger statuses. */
+export type ClusterCoverage = "open" | "partly_covered" | "covered" | "declined";
+
+/** `gap_clusters[].outcome` (ADR-089 clause 3) — facts only, never answer text. */
+export interface ClusterOutcome {
+  /** Answered turns on this cluster, across every session and door. */
+  asked: number;
+  /** Members whose ledger row is `direct` (and not a #260 liability, ruling C-3). */
+  covered: string[];
+  /** Members that are recorded denials. */
+  declined: string[];
+  /** The sessions that asked it (the transcripts live there, not here). */
+  session_ids: string[];
+}
+
+/** One persisted gap cluster, as `GET /api/job/{id}/gaps` returns it. */
+export interface GapCluster {
+  id: string;
+  label: string;
+  category: "B" | "C";
+  /** OPEN members only (ADR-089 clause 3). Never the full vocabulary — use
+   * {@link allClusterMembers} for that. */
+  gaps: string[];
+  jd_skills: string[];
+  jd_context: string;
+  outcome: ClusterOutcome;
+  coverage: ClusterCoverage;
+  /** Derived at response time: `per_gap - outcome.asked`, floored at 0
+   * (ruling C-2). The same number `cluster_coverage.budget_remaining` carries
+   * on a session turn. */
+  budget_remaining: number;
+}
+
+/** `SessionMessageResponse.cluster_coverage` (contract item 4) — the record a
+ * turn just wrote, returned on every turn that answered a cluster. */
+export interface TurnClusterCoverage {
+  cluster_id: string;
+  coverage: ClusterCoverage;
+  open_concepts: string[];
+  budget_remaining: number;
+}
+
+/** `POST /api/session` 409 body codes (contract item 5). */
+export type GapRefusalCode = "gap_budget_spent" | "gap_already_covered";
+
+export function isGapRefusalCode(code: unknown): code is GapRefusalCode {
+  return code === "gap_budget_spent" || code === "gap_already_covered";
+}
+
+/**
+ * The ledger normaliser (`keyword_ledger._norm`: `strip().casefold()`), as
+ * close as JS gets — `toLowerCase` plus the one casefold mapping German text
+ * actually meets (ß → ss).
+ */
+export function normMember(term: string): string {
+  return (term ?? "").trim().toLowerCase().replace(/ß/g, "ss");
+}
+
+/**
+ * Every member of a cluster — open `gaps` + `outcome.covered` +
+ * `outcome.declined`, order-preserving, deduplicated by the ledger
+ * normaliser. TS mirror of `gap_coverage.all_members` (ADR-089 clause 3):
+ * the ONE way to read a cluster's full term vocabulary. A reader that needs
+ * the vocabulary and reads `gaps` alone fails open the moment a member is
+ * covered (the #260 "tell the story" lookup is the frontend's case).
+ * Tolerant of a legacy row with no `outcome`.
+ */
+export function allClusterMembers(
+  cluster: Pick<GapCluster, "gaps"> & { outcome?: Partial<ClusterOutcome> | null },
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const lists = [cluster.gaps, cluster.outcome?.covered, cluster.outcome?.declined];
+  for (const list of lists) {
+    for (const term of list ?? []) {
+      if (typeof term !== "string") continue;
+      const key = normMember(term);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(term);
+    }
+  }
+  return out;
+}
+
+const COVERAGE_VALUES: ReadonlySet<string> = new Set([
+  "open",
+  "partly_covered",
+  "covered",
+  "declined",
+]);
+
+/** The server's coverage, with `turn` (a follow-up turn's own report) taking
+ * precedence. A legacy row that carries none reads `open`. */
+export function clusterCoverage(
+  cluster: Pick<GapCluster, "coverage">,
+  turn?: Pick<TurnClusterCoverage, "coverage"> | null,
+): ClusterCoverage {
+  const value = turn?.coverage ?? cluster.coverage;
+  return typeof value === "string" && COVERAGE_VALUES.has(value)
+    ? (value as ClusterCoverage)
+    : "open";
+}
+
+/** Remaining question budget, or `null` when the payload carries none. */
+export function clusterBudgetRemaining(
+  cluster: Pick<GapCluster, "budget_remaining">,
+  turn?: Pick<TurnClusterCoverage, "budget_remaining"> | null,
+): number | null {
+  const value = turn?.budget_remaining ?? cluster.budget_remaining;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** One member chip on a card. `closed` = left the open list on a turn whose
+ * covered/declined split the page has not re-read yet — shown neutrally,
+ * never as covered (no false green). */
+export type MemberState = "open" | "covered" | "declined" | "closed";
+
+export interface ClusterView {
+  coverage: ClusterCoverage;
+  members: { term: string; state: MemberState }[];
+  /** Budget left AND coverage not covered/declined (`gap_coverage.is_askable`). */
+  askable: boolean;
+  /** Not askable ONLY because the budget is gone — a spent budget is shown,
+   * not hidden (ADR-089 clause 3). */
+  budgetSpent: boolean;
+  /** Answered turns on this cluster across every door. */
+  asked: number;
+}
+
+/**
+ * What a gap card renders — every field from the server: the persisted
+ * cluster, overlaid by the turn that just answered it (`turn`, until the page
+ * re-reads the analysis). No client-only state decides coverage.
+ */
+export function clusterView(
+  cluster: GapCluster,
+  turn?: TurnClusterCoverage | null,
+): ClusterView {
+  const coverage = clusterCoverage(cluster, turn);
+  const budget = clusterBudgetRemaining(cluster, turn);
+  const covered = new Set((cluster.outcome?.covered ?? []).map(normMember));
+  const declined = new Set((cluster.outcome?.declined ?? []).map(normMember));
+  const open = new Set((turn ? turn.open_concepts : cluster.gaps ?? []).map(normMember));
+  const members = allClusterMembers(cluster).map((term) => {
+    const key = normMember(term);
+    const state: MemberState = open.has(key)
+      ? "open"
+      : declined.has(key)
+        ? "declined"
+        : covered.has(key)
+          ? "covered"
+          : "closed";
+    return { term, state };
+  });
+  // A turn can name an open member the cluster did not carry yet (never
+  // expected, but never dropped silently either).
+  if (turn) {
+    const known = new Set(members.map((m) => normMember(m.term)));
+    for (const term of turn.open_concepts) {
+      if (!known.has(normMember(term))) members.push({ term, state: "open" });
+    }
+  }
+  const finished = coverage === "covered" || coverage === "declined";
+  const hasBudget = budget === null ? true : budget > 0;
+  return {
+    coverage,
+    members,
+    askable: !finished && hasBudget,
+    budgetSpent: !finished && !hasBudget,
+    asked: cluster.outcome?.asked ?? 0,
+  };
+}
+
+/** Cluster tallies for the page's badges and headings — server data only. */
+export function clusterCoverageCounts(clusters: GapCluster[] | null | undefined): {
+  covered: number;
+  askable: number;
+} {
+  let covered = 0;
+  let askable = 0;
+  for (const c of clusters ?? []) {
+    const v = clusterView(c);
+    if (v.coverage === "covered") covered += 1;
+    if (v.askable) askable += 1;
+  }
+  return { covered, askable };
 }

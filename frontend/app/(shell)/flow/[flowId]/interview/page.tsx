@@ -29,6 +29,12 @@ import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
+import { Lock } from "lucide-react";
+import {
+  clusterView,
+  type GapCluster,
+  type TurnClusterCoverage,
+} from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -41,15 +47,6 @@ interface FlowState {
   current_step: string;
   job_summary?: { role_title: string; required_skills?: string[] } | null;
   interview_summary?: { session_id: string; mode: string } | null;
-}
-
-interface GapCluster {
-  id: string;
-  label: string;
-  category: "B" | "C";
-  gaps: string[];
-  jd_skills: string[];
-  jd_context: string;
 }
 
 interface GapAnalysisData {
@@ -121,6 +118,46 @@ interface MessageResponse {
   // issue #241 item 1 — see SessionCreateResponse; same honest anchor, per-turn.
   current_gap_id?: string | null;
   addressed_gap_ids?: string[] | null;
+  // ADR-089 contract item 4 — the record this turn wrote on the cluster it
+  // answered (coverage, open members, remaining budget).
+  cluster_coverage?: TurnClusterCoverage | null;
+}
+
+/** One cluster-tracker row's state. `resolved` keeps its pre-ADR-089 meaning
+ * for a legacy analysis (no coverage record); with a record it means COVERED —
+ * a cluster the session merely moved past no longer shows a check mark. */
+type TrackerStatus =
+  | "current"
+  | "resolved"
+  | "partly_covered"
+  | "declined"
+  | "spent"
+  | "pending";
+
+/** Decorative, aria-hidden — the status is also spoken via an sr-only label. */
+const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent">, string> = {
+  resolved: "✓",
+  current: "►",
+  partly_covered: "◐",
+  declined: "–",
+  pending: "○",
+};
+
+function trackerStatus(
+  cluster: GapCluster,
+  opts: { current: boolean; addressed: boolean; turn: TurnClusterCoverage | null },
+): TrackerStatus {
+  if (opts.current) return "current";
+  const hasRecord = opts.turn !== null || typeof cluster.coverage === "string";
+  if (!hasRecord) return opts.addressed ? "resolved" : "pending";
+  const view = clusterView(cluster, opts.turn);
+  if (view.coverage === "covered") return "resolved";
+  if (view.coverage === "declined") return "declined";
+  if (view.budgetSpent) return "spent";
+  if (view.coverage === "partly_covered" && (opts.addressed || view.asked > 0 || opts.turn)) {
+    return "partly_covered";
+  }
+  return "pending";
 }
 
 interface Message {
@@ -364,6 +401,7 @@ export default function InterviewPage({
   const { flowId } = use(params);
   const router = useRouter();
   const t = useTranslations("interview");
+  const tGaps = useTranslations("gaps");
   const tErrors = useTranslations("errors");
   const tCommon = useTranslations("common");
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -400,6 +438,9 @@ export default function InterviewPage({
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisData | null>(null);
   const [resolvedClusterIds, setResolvedClusterIds] = useState<Set<string>>(new Set());
   const [currentClusterId, setCurrentClusterId] = useState<string | null>(null);
+  // ADR-089 — the record each turn wrote, per cluster, over the analysis the
+  // page loaded (so the tracker shows "partly covered", not a check mark).
+  const [turnCoverage, setTurnCoverage] = useState<Record<string, TurnClusterCoverage>>({});
   const [choices, setChoices] = useState<string[] | null>(null);
   const [matchScore, setMatchScore] = useState<number | null>(null);
 
@@ -542,6 +583,11 @@ export default function InterviewPage({
         throw new Error(translateError(info, tErrors));
       }
       const data: MessageResponse = await res.json();
+
+      const cc = data.cluster_coverage;
+      if (cc?.cluster_id) {
+        setTurnCoverage((prev) => ({ ...prev, [cc.cluster_id]: cc }));
+      }
 
       if (data.complete) {
         setCompletion({
@@ -1001,26 +1047,45 @@ export default function InterviewPage({
                 {t("roleRequirements")}
               </p>
               {gapAnalysis.gap_clusters.map((cluster) => {
-                const isResolved = resolvedClusterIds.has(cluster.id);
-                const isCurrent = cluster.id === currentClusterId;
+                const status = trackerStatus(cluster, {
+                  current: cluster.id === currentClusterId,
+                  addressed: resolvedClusterIds.has(cluster.id),
+                  turn: turnCoverage[cluster.id] ?? null,
+                });
+                const srLabel =
+                  status === "resolved" && typeof cluster.coverage === "string"
+                    ? tGaps("coverageCovered")
+                    : status === "partly_covered"
+                      ? tGaps("coveragePartly")
+                      : status === "declined"
+                        ? tGaps("coverageDeclined")
+                        : status === "spent"
+                          ? tGaps("trackerNoMoreQuestions")
+                          : null;
                 return (
                   <div
                     key={cluster.id}
                     data-testid={`gap-cluster-${cluster.id}`}
-                    data-status={isResolved ? "resolved" : isCurrent ? "current" : "pending"}
+                    data-status={status}
                     className={cn(
                       "rounded-md px-3 py-2 text-xs border-l-2 transition-colors",
-                      isResolved
-                        ? "border-l-green-500 bg-green-50 text-gray-500"
-                        : isCurrent
-                          ? "border-l-teal bg-teal/5 text-neutral-dark font-medium"
-                          : "border-l-gray-200 text-gray-400",
+                      status === "resolved" && "border-l-success bg-success-container/40 text-on-surface-variant",
+                      status === "current" && "border-l-teal bg-teal/5 text-neutral-dark font-medium",
+                      status === "partly_covered" && "border-l-warning bg-warning-container/40 text-on-surface",
+                      (status === "declined" || status === "spent") && "border-l-outline-variant text-on-surface-variant",
+                      status === "pending" && "border-l-gray-200 text-gray-400",
                     )}
                   >
                     <div className="flex items-center gap-2">
-                      {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-                      <span aria-hidden="true">{isResolved ? "✓" : isCurrent ? "►" : "○"}</span>
+                      {status === "spent" ? (
+                        <Lock aria-hidden="true" className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <span aria-hidden="true">
+                          {TRACKER_GLYPH[status]}
+                        </span>
+                      )}
                       <span className="truncate">{cluster.label}</span>
+                      {srLabel && <span className="sr-only">{srLabel}</span>}
                     </div>
                     {cluster.jd_skills.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1 ml-5">
