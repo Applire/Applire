@@ -78,9 +78,9 @@ def row(concept, status, *, forms=None, sources=("required",), evidence=None):
 JD = ["python", "docker", "kubernetes"]
 
 
-def _merge(fresh, previous, *, members=(), answers=(), jd=JD):
+def _merge(fresh, previous, *, members=(), jd=JD):
     return merge_ledger_per_requirement(
-        fresh, previous, jd_terms=list(jd), touched_members=list(members), answers=answers
+        fresh, previous, jd_terms=list(jd), touched_members=list(members)
     )
 
 
@@ -159,14 +159,18 @@ def test_a_worked_cluster_member_is_touched():
     assert carried == [] and merged[0]["status"] == "gap"
 
 
-def test_a_requirement_named_in_an_answer_is_touched():
-    """A self-correction outside the answered cluster, not recorded as a denial."""
+def test_a_mention_outside_the_worked_clusters_does_not_touch():
+    """Ruling M-2 (adversarial pass E2, 2026-09-23): an observability answer
+    that mentioned "the weekly design review" unlocked the unrelated, fully
+    backed "Technical communication" (surface form "Design reviews") to
+    classifier noise. Only a worked cluster's members are touched now; the
+    requirement keeps its previous claim."""
     merged, carried = _merge(
-        [row("Docker", "partial")],
-        [row("Docker", "direct")],
-        answers=("To be fair, I only ever used Docker on my own laptop.",),
+        [row("Technical communication", "partial", forms=["Design reviews"])],
+        [row("Technical communication", "direct", forms=["Design reviews"])],
+        members=("Prometheus", "Grafana"),
     )
-    assert carried == [] and merged[0]["status"] == "partial"
+    assert carried == [0] and merged[0]["status"] == "direct"
 
 
 def test_the_refresh_scope_touches_nothing():
@@ -507,7 +511,7 @@ async def test_a_worked_cluster_may_move_down(db):
     )
     r2 = await analyze_gaps(
         job.id, db, provider,
-        answer_scope=AnswerScope(cluster_ids=("cluster-k8s",), answers=("Only minikube.",)),
+        answer_scope=AnswerScope(cluster_ids=("cluster-k8s",)),
     )
     assert _statuses(r2)["Kubernetes"] == "gap"
     assert r2.match_score == pytest.approx(0.5)
@@ -541,17 +545,18 @@ async def test_carry_forward_keeps_the_record_and_clusters_only_new_concepts(db)
     row1.gap_clusters = clusters
     await db.commit()
 
-    # Docker drops to gap INSIDE the touched set (an answer named it) → it is
-    # askable now and belongs to no carried cluster → the only concept sent.
-    await _change_profile(db, profile, extra_skill="Jira")
+    # Docker's vault evidence is gone → the vault floor heals its carried
+    # claim to gap → it is askable now and belongs to no carried cluster →
+    # the only concept sent to the clustering model.
+    await _change_profile(
+        db, profile, skills=("Python", "Kubernetes"),
+        bullets=["Built Python services", "Operated Kubernetes clusters for staging"],
+    )
     provider.classifications.append(
         [cls("Python", "direct"), cls("Docker", "gap"), cls("Kubernetes", "partial"), cls("Terraform", "gap")]
     )
     provider.clusters.append([clu("cluster-iac", ["Docker"], "Containers")])  # id collides
-    r2 = await analyze_gaps(
-        job.id, db, provider,
-        answer_scope=AnswerScope(answers=("I only used Docker once.",)),
-    )
+    r2 = await analyze_gaps(job.id, db, provider, answer_scope=AnswerScope())
     ids = [c.id for c in r2.gap_clusters]
     assert ids == ["cluster-iac", "cluster-k8s", "cluster-iac-2"]
     iac = r2.gap_clusters[0]

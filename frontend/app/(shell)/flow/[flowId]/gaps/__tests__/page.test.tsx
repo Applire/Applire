@@ -286,6 +286,8 @@ interface Server {
   session?: (body: Json) => { status: number; body: Json };
   /** POST /api/session/{id}/message — one response per turn, in order. */
   turns?: Json[];
+  /** HTTP status per message turn (default 200). */
+  turnStatus?: number[];
   /** POST /gaps/refresh — the recomputed row. */
   refreshed?: Json;
   /** Mutation the message turn applies to the row (the turn's own record). */
@@ -326,9 +328,10 @@ function serve(server: Server) {
     }
     if (/\/api\/session\/[^/]+\/message$/.test(url)) {
       const body = server.turns?.[turn] ?? { complete: true };
+      const status = server.turnStatus?.[turn] ?? 200;
       if (server.onTurn) server.row = server.onTurn(server.row, turn);
       turn += 1;
-      return ok(body);
+      return ok(body, status);
     }
     if (url.includes("/api/profile/changes")) return ok({ enrichment_history: [], pending_conflicts: [] });
     if (url.includes("/api/profile/health")) return ok({ issues: [] });
@@ -569,6 +572,25 @@ describe("ADR-089 contract item 5 — a 409 refusal is said inline", () => {
       expect(calls(fetchMock, (u) => u.endsWith("/gaps/refresh"))).toHaveLength(0);
     });
   }
+});
+
+describe("ADR-089 E2 — a micro-session closed elsewhere", () => {
+  it("a 409 on the answer says so in the UI language and keeps the draft", async () => {
+    serve({
+      row: analysis([cl("a")]),
+      turns: [{ detail: "Session is already complete" }],
+      turnStatus: [409],
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("a")));
+    await waitFor(() => expect(within(card("a")).getByTestId("gap-question")).toBeInTheDocument());
+    await answer("a", "My typed answer.");
+    await waitFor(() =>
+      expect(within(card("a")).getByText("gaps.sessionClosedElsewhere")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Session is already complete")).not.toBeInTheDocument();
+    expect(within(card("a")).getByTestId("gap-answer-textarea")).toHaveValue("My typed answer.");
+  });
 });
 
 describe("ruling B-3 — a click on a cluster waiting on a follow-up resumes it", () => {

@@ -364,7 +364,7 @@ async def test_completion_reaches_analyze_gaps_with_an_answer_scope(db):
     assert scoped, (
         f"_complete_session never called analyze_gaps with an AnswerScope (calls: {calls!r})"
     )
-    assert any(_ANSWER in k["answer_scope"].answers for k in scoped), (
-        "the completion scope must carry this session's answers (a self-correction "
-        "outside the answered cluster must be able to lower that requirement)"
-    )
+    # Ruling M-2: the scope carries the worked clusters only (no answer text);
+    # its exact cluster list is pinned on a real Gap-Click session by
+    # test_gap_followups_session.py::test_answer_scope_names_only_the_worked_clusters.
+    assert all(not hasattr(k["answer_scope"], "answers") for k in scoped)

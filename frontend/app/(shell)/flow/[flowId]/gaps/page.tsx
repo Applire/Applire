@@ -869,6 +869,11 @@ export default function GapsPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: st.answer.trim() }),
       });
+      // ADR-089 E2: opening another gap elsewhere (a second window, the agent
+      // channel) closes this micro-session; the server then answers 409. Say
+      // so in the UI language and keep the draft — never the raw English
+      // backend detail.
+      if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
       if (!res.ok) throw new Error(await apiErrorMessage(res));
       data = (await res.json()) as SessionTurnResponse;
     } catch (e: unknown) {

@@ -3948,22 +3948,15 @@ def _answer_scope(state: InterviewState) -> AnswerScope:
     """ADR-089 clause 5 — what this session may treat as touched.
 
     ``cluster_ids`` — the clusters the session WORKED (an answered turn is on
-    the record: ``cluster_turns``), in order. ``answers`` — every candidate
-    answer of the session; a control word that ended it ("done") is not
-    testimony and is left out.
+    the record: ``cluster_turns``), in order. Only those are touched (ruling
+    M-2): an answer's mere mention of another requirement is not.
     """
     worked: list[str] = []
     for turn in state.get("cluster_turns") or []:
         cid = (turn or {}).get("cluster_id") if isinstance(turn, dict) else None
         if cid and cid not in worked:
             worked.append(str(cid))
-    answers = [
-        str(m.get("content") or "").strip()
-        for m in state.get("messages") or []
-        if isinstance(m, dict) and m.get("role") == "user"
-    ]
-    answers = [a for a in answers if a and not is_termination_signal(a)]
-    return AnswerScope(cluster_ids=tuple(worked), answers=tuple(answers))
+    return AnswerScope(cluster_ids=tuple(worked))
 
 
 # ---------------------------------------------------------------------------
