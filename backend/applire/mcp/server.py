@@ -892,7 +892,6 @@ async def send_message(session_id: str, message: str) -> dict:
     )
 )
 async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
-    from applire.services.ats_audit import _norm as _answer_norm
     from applire.services.interview.signals import is_termination_signal
 
     jid = _parse_uuid(job_id, "job_id")
@@ -945,7 +944,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         # last recorded, the earlier call's turn already committed: refuse it
         # BEFORE a session is opened, so the retry charges no budget.
         last_answer = await session_svc.last_recorded_answer(jid, gap_id, db)
-        if last_answer is not None and _answer_norm(last_answer) == _answer_norm(answer):
+        if session_svc.same_testimony(last_answer, answer):
             raise invalid_input(
                 f"This testimony is identical to the answer gap {gap_id!r} last "
                 "recorded — that call already went through, so nothing was "

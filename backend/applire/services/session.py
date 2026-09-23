@@ -1730,6 +1730,18 @@ async def last_recorded_answer(
     return pairs[-1]["answer"] if pairs else None
 
 
+def same_testimony(a: str | None, b: str | None) -> bool:
+    """Whether two answers are the same testimony after normalisation (ADR-089
+    clause 7's retry test): the ATS normaliser (NFKC, dash folding, whitespace,
+    case) plus trailing sentence punctuation — a resent answer that lost its
+    final full stop is still the same answer."""
+    def _n(text: str | None) -> str:
+        return ats_norm(text or "").rstrip(" .!?;:…")
+
+    na, nb = _n(a), _n(b)
+    return bool(na) and na == nb
+
+
 async def cluster_coverage_for(
     job_id: uuid.UUID, cluster_id: str, db: AsyncSession
 ) -> ClusterCoverage | None:
