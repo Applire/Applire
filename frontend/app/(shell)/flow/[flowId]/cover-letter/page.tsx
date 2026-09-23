@@ -44,7 +44,13 @@ import UnaskedRequirementsPanel, {
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { buildReviewGroups } from "@/lib/review-groups";
-import { markEdited, type ReviewRefresh, type ReviewState } from "@/lib/api/document-review";
+import {
+  markEdited,
+  refreshedReport,
+  refreshedState,
+  type ReviewRefresh,
+  type ReviewState,
+} from "@/lib/api/document-review";
 import { iframeDocument, makePreviewLocator } from "@/lib/locate-in-preview";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 
@@ -259,7 +265,7 @@ export default function CoverLetterPage({
         if (!res.ok) return;
         const data: { report: ATSReport; review_state?: ReviewState | null } = await res.json();
         setAtsReport(data.report ?? null);
-        setReviewState(data.review_state ?? null);
+        setReviewState(refreshedState({ review_state: data.review_state ?? null }));
       } catch {
         // Non-fatal — panel shows unavailable state
       }
@@ -470,9 +476,10 @@ export default function CoverLetterPage({
   }
 
   function applyReviewRefresh(refresh: ReviewRefresh, opts: { documentChanged: boolean }) {
-    if (refresh.report !== undefined) setAtsReport(refresh.report ?? null);
+    const report = refreshedReport(refresh);
+      if (report !== undefined) setAtsReport(report);
     if (refresh.truthfulness) setTruthReport(refresh.truthfulness);
-    setReviewState(refresh.review_state ?? null);
+    setReviewState(refreshedState(refresh));
     if (opts.documentChanged && clState?.coverLetterId) {
       setPreviewKey((k) => k + 1);
       void reloadLetterData(clState.coverLetterId);

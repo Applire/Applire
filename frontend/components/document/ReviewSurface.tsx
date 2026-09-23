@@ -51,6 +51,7 @@ import {
 import {
   addEvidence,
   markWalked,
+  refreshedReport,
   ReviewActionError,
   takeOut,
   undoDecision,
@@ -372,7 +373,7 @@ export function ReviewSurface({
       setCurrentKey(row.findingKey);
       applyRefresh(res, false);
       const stillListed = buildReviewGroups({
-        atsReport: res.report ?? atsReport,
+        atsReport: refreshedReport(res) ?? atsReport,
         truthReport: res.truthfulness === undefined || res.truthfulness === null ? truthReport : res.truthfulness,
         criticReport,
         gapClusters,

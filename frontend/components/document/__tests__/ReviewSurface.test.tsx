@@ -24,7 +24,7 @@ import { ReviewSurface, type ReviewSurfaceProps } from "../ReviewSurface";
 import type { ATSReport } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
-import type { ReviewState } from "@/lib/api/document-review";
+import { refreshedReport, type ReviewState } from "@/lib/api/document-review";
 import { makePreviewLocator } from "@/lib/locate-in-preview";
 
 vi.mock("next/navigation", () => ({
@@ -479,7 +479,7 @@ describe("ADR-090 cl. 3 — Take it out for me", () => {
         locator={makePreviewLocator(previewDoc)}
         sectionLabel={(id) => (id === "summary" ? "Profile" : id)}
         onRefresh={(r) => {
-          if (r.report !== undefined) setReport(r.report);
+          if (refreshedReport(r) !== undefined) setReport(refreshedReport(r)!);
           setState(r.review_state);
         }}
         {...props}
@@ -502,7 +502,8 @@ describe("ADR-090 cl. 3 — Take it out for me", () => {
         },
       ],
       still_listed: false,
-      report: AFTER,
+      // Contract 2 as WP-A built it: the kind's ATS-report RESPONSE, not the bare report.
+      report: { document_id: "generated-cv-1", status: "ready", report: AFTER, review_state: TAKEN_STATE },
       truthfulness: null,
       review_state: TAKEN_STATE,
     });
@@ -610,7 +611,7 @@ describe("ADR-090 cl. 4 — It's true, add it to my profile", () => {
           atsReport={report}
           reviewState={state}
           onRefresh={(r) => {
-            if (r.report !== undefined) setReport(r.report);
+            if (refreshedReport(r) !== undefined) setReport(refreshedReport(r)!);
             setState(r.review_state);
           }}
         />

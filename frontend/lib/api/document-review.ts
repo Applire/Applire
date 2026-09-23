@@ -71,9 +71,18 @@ export interface SectionChange {
   after: string;
 }
 
+/** The kind's ATS-report RESPONSE (as `GET …/ats-report` returns it). */
+export interface ATSReportEnvelope {
+  document_id?: string;
+  status?: string;
+  report: ATSReport;
+  review_state?: ReviewState | null;
+}
+
 /** What every action returns: the refreshed reports and the state. */
 export interface ReviewRefresh {
-  report?: ATSReport;
+  /** Contract 2: the kind's ATS report RESPONSE — read it through `refreshedReport`. */
+  report?: ATSReportEnvelope | ATSReport;
   /** `null` = no truthfulness report for this document; absent = unchanged. */
   truthfulness?: TruthfulnessReport | null;
   review_state: ReviewState | null;
@@ -129,4 +138,23 @@ export function markEdited(kind: ReviewDocumentKind, id: string, findingKey: str
 
 export function markWalked(kind: ReviewDocumentKind, id: string) {
   return post<{ review_state: ReviewState | null }>(kind, id, "walked");
+}
+
+/**
+ * The refreshed ATS report inside an action response. Contract 2 returns the
+ * report RESPONSE (`{document_id, status, report, review_state}`); a bare report
+ * is accepted too. `undefined` = the response carried no report.
+ */
+export function refreshedReport(refresh: ReviewRefresh): ATSReport | undefined {
+  const r = refresh.report;
+  if (r === undefined) return undefined;
+  if (r && typeof r === "object" && "keywords" in r) return r as ATSReport;
+  return (r as ATSReportEnvelope | null)?.report ?? null;
+}
+
+/** `review_state` of a response; `{}` (the backend's "none yet") reads as no decisions. */
+export function refreshedState(refresh: ReviewRefresh): ReviewState | null {
+  const s = refresh.review_state;
+  if (!s) return null;
+  return { walked_at: s.walked_at ?? null, decisions: s.decisions ?? [] };
 }
