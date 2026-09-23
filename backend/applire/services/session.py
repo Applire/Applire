@@ -1250,6 +1250,7 @@ async def _ask_confirmation(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
 
@@ -1729,6 +1730,14 @@ async def last_recorded_answer(
     return pairs[-1]["answer"] if pairs else None
 
 
+async def cluster_coverage_for(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> ClusterCoverage | None:
+    """The cluster's coverage as the job's latest analysis row records it — the
+    agent door's fallback when a turn wrote no record of its own."""
+    return _coverage_of(await _latest_cluster(job_id, cluster_id, db))
+
+
 def _is_pending_micro_on(record: InterviewSession, cluster_id: str) -> bool:
     """An active Gap-Click micro-session on exactly ``cluster_id`` that already
     holds an answered turn — i.e. a follow-up (or a confirmation) it asked is
@@ -1766,9 +1775,7 @@ def _coverage_of(cluster: dict | None) -> ClusterCoverage | None:
     """The API projection of a persisted cluster entry (facts only)."""
     if not cluster or not cluster.get("id"):
         return None
-    coverage = cluster.get("coverage") or "open"
-    if coverage not in ("open", "partly_covered", "covered", "declined"):
-        coverage = "open"
+    coverage = gap_coverage.stored_or_derived_coverage(cluster)
     return ClusterCoverage(
         cluster_id=str(cluster["id"]),
         coverage=coverage,
@@ -1894,7 +1901,12 @@ async def _record_cluster_turn(
         session_id=str(record.id),
         charge=True,
     )
-    open_members = [m for m in members if facts.get(m) == "open"]
+    # With no ledger on the row there is no evidence to classify against:
+    # every member reads `open` by absence, which is no reason to ask again —
+    # such a turn is charged and indexed, but never earns a partial-coverage
+    # follow-up (the pre-ledger behaviour: advance).
+    facts_open = [m for m in members if facts.get(m) == "open"]
+    open_members = facts_open if row.keyword_ledger else []
     if recorded is None:
         return None, open_members
 
@@ -1905,7 +1917,7 @@ async def _record_cluster_turn(
     # reads to keep the US265 nudge on the opening question only).
     clusters_by_id[current_gap] = {
         **cluster,
-        "gaps": open_members,
+        "gaps": facts_open,
         "outcome": recorded.get("outcome") or gap_coverage.empty_outcome(),
         "coverage": recorded.get("coverage") or "open",
     }
@@ -2878,6 +2890,7 @@ async def _ask_denial_probe(
         # #380: the probe is issued ON the denial turn — the caller must see
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
+        changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
 
@@ -3431,6 +3444,10 @@ async def send_message(
             # turn's fact — False is "no denial this turn", None is reserved
             # for responses with no reconciled turn behind them.
             denial_recorded=turn.denial_recorded,
+            # ADR-089 — the same holds for `changes_applied` now that a turn
+            # may be followed by a follow-up rather than a completion: the
+            # agent door's addressed/partly_covered/no_change split reads it.
+            changes_applied=turn.addressed,
             cluster_coverage=cluster_coverage,
         )
 
@@ -3481,6 +3498,7 @@ async def send_message(
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
+            changes_applied=turn.addressed,  # ADR-089
             cluster_coverage=cluster_coverage,
         )
 
@@ -3545,6 +3563,7 @@ async def _ask_partial_coverage_follow_up(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,
+        changes_applied=turn.addressed,
         cluster_coverage=cluster_coverage,
     )
 
