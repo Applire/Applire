@@ -6,7 +6,11 @@ import { test, expect } from "@playwright/test";
  *
  * Covers:
  *  - Gap categories render with correct severity dot colors
- *    (Cat B = yellow/warning, Cat C = red/critical)
+ *    (Cat B = warning, Cat C = critical — Material-3 theme tokens)
+ *  - ADR-089 clause 8: card state from the persisted coverage record (four
+ *    states + a spent budget) and across a reload; the answer turn's follow-up
+ *    shown inline in the same card; completion replaces the WHOLE analysis;
+ *    one open micro-session per page; a 409 refusal said inline
  *  - "Generate CV Now" button calls advance API and navigates to CV page
  *  - "Quick Interview" button visible for new users with gaps, navigates to interview page
  *  - Error state renders when advance API fails
@@ -44,6 +48,9 @@ const MOCK_GAP_ANALYSIS = {
       gaps: ["Kubernetes", "Terraform"],
       jd_skills: ["Kubernetes"],
       jd_context: "Required for production deployments",
+      outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
+      coverage: "open",
+      budget_remaining: 2,
     },
     {
       id: CLUSTER_ID_B,
@@ -52,6 +59,9 @@ const MOCK_GAP_ANALYSIS = {
       gaps: ["Docker", "PostgreSQL"],
       jd_skills: ["Docker"],
       jd_context: "Nice to have for containerised deployments",
+      outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
+      coverage: "open",
+      budget_remaining: 2,
     },
   ],
 };
@@ -100,21 +110,26 @@ test.describe("Gaps page", () => {
     const cards = page.getByTestId("gap-cluster-card");
     await expect(cards.first()).toBeVisible();
 
-    // Category C cluster card — dot must use bg-red-500 (not yellow)
+    // Category C cluster card — dot must use the critical token (not warning)
     const catCCard = page.getByTestId("gap-cluster-card").filter({ hasText: "Container Orchestration" });
     await expect(catCCard).toBeVisible();
     const catCDot = catCCard.locator("span.rounded-full").first();
     const catCClass = await catCDot.getAttribute("class");
-    expect(catCClass).toContain("bg-red-500");
-    expect(catCClass).not.toContain("bg-yellow");
+    expect(catCClass).toContain("bg-critical");
+    expect(catCClass).not.toContain("bg-warning");
 
-    // Category B cluster card — dot must use bg-yellow-400 (not red)
+    // Category B cluster card — dot must use the warning token (not critical)
     const catBCard = page.getByTestId("gap-cluster-card").filter({ hasText: "Database Operations" });
     await expect(catBCard).toBeVisible();
     const catBDot = catBCard.locator("span.rounded-full").first();
     const catBClass = await catBDot.getAttribute("class");
-    expect(catBClass).toContain("bg-yellow-400");
-    expect(catBClass).not.toContain("bg-red");
+    expect(catBClass).toContain("bg-warning");
+    expect(catBClass).not.toContain("bg-critical");
+
+    // The tokens actually paint (an undefined utility no-ops silently): the
+    // computed colours are the theme's critical #D94F4F / warning #E5A832.
+    expect(await catCDot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(217, 79, 79)");
+    expect(await catBDot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(229, 168, 50)");
   });
 
   test("shows correct gap counts in badges", async ({ page }) => {
@@ -256,5 +271,297 @@ test.describe("Gaps page", () => {
 
     await expect(page.getByTestId("error-message")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("error-message")).toContainText("Invalid step transition");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-089 clause 8 — the gaps page renders server truth
+// ---------------------------------------------------------------------------
+
+type Json = Record<string, unknown>;
+const outcome = (asked = 0, covered: string[] = [], declined: string[] = []) => ({
+  asked,
+  covered,
+  declined,
+  session_ids: asked ? ["session-old"] : [],
+});
+
+function recordCluster(id: string, label: string, over: Json = {}): Json {
+  return {
+    id,
+    label,
+    category: "C",
+    gaps: [],
+    jd_skills: [],
+    jd_context: "",
+    outcome: outcome(),
+    coverage: "open",
+    budget_remaining: 2,
+    ...over,
+  };
+}
+
+const RECORD_CLUSTERS = [
+  recordCluster("cl-open", "Container Orchestration", { gaps: ["Kubernetes", "Helm"] }),
+  recordCluster("cl-partly", "Infrastructure as Code", {
+    gaps: ["Terraform"],
+    outcome: outcome(1, ["Ansible"]),
+    coverage: "partly_covered",
+    budget_remaining: 1,
+  }),
+  recordCluster("cl-spent", "Observability", {
+    gaps: ["Prometheus"],
+    outcome: outcome(2, ["Grafana"]),
+    coverage: "partly_covered",
+    budget_remaining: 0,
+  }),
+  recordCluster("cl-covered", "CI/CD Pipelines", {
+    outcome: outcome(1, ["GitHub Actions", "Jenkins"]),
+    coverage: "covered",
+    budget_remaining: 1,
+  }),
+  recordCluster("cl-declined", "Go Development", {
+    outcome: outcome(1, [], ["Go"]),
+    coverage: "declined",
+    budget_remaining: 1,
+  }),
+];
+
+function recordAnalysis(clusters: Json[], over: Json = {}): Json {
+  return {
+    ...MOCK_GAP_ANALYSIS,
+    category_a: ["Python", "Ansible", "Grafana", "GitHub Actions", "Jenkins"],
+    category_b: [],
+    category_c: ["Kubernetes", "Helm", "Terraform", "Prometheus", "Go"],
+    gap_clusters: clusters,
+    ...over,
+  };
+}
+
+/** Mocks a stateful backend: the GET returns whatever `state.row` is now. */
+async function setupRecordMocks(page: import("@playwright/test").Page, state: { row: Json }) {
+  await setupGapsPageMocks(page);
+  await page.route(`**/api/job/${JOB_ID}/gaps`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state.row) })
+  );
+  await page.route("**/api/profile/health", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ issues: [] }) })
+  );
+}
+
+const cardById = (page: import("@playwright/test").Page, id: string) =>
+  page.locator(`[data-testid="gap-cluster-card"][data-cluster-id="${id}"]`);
+
+test.describe("Gaps page — ADR-089 coverage record", () => {
+  test("four card states and a spent budget render from the record, and survive a reload", async ({ page }) => {
+    const state = { row: recordAnalysis(RECORD_CLUSTERS) };
+    await setupRecordMocks(page, state);
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(page.getByTestId("gap-analysis-page")).toBeVisible({ timeout: 10000 });
+
+    for (let pass = 0; pass < 2; pass++) {
+      await expect(cardById(page, "cl-open")).toHaveAttribute("data-coverage", "open");
+      await expect(cardById(page, "cl-partly").getByTestId("gap-partly-covered")).toHaveText("Partly covered");
+      await expect(cardById(page, "cl-covered").getByTestId("gap-resolved")).toContainText("Covered");
+      await expect(cardById(page, "cl-declined").getByTestId("gap-declined")).toHaveText("You said you don't have this");
+      await expect(cardById(page, "cl-spent").getByTestId("gap-budget-spent")).toContainText(
+        "No more questions on this gap — you answered 2 questions on it."
+      );
+      // Clickable exactly when askable.
+      await expect(cardById(page, "cl-open")).toHaveClass(/cursor-pointer/);
+      await expect(cardById(page, "cl-partly")).toHaveClass(/cursor-pointer/);
+      for (const id of ["cl-spent", "cl-covered", "cl-declined"]) {
+        await expect(cardById(page, id)).not.toHaveClass(/cursor-pointer/);
+      }
+      // Covered badge from the record.
+      await expect(page.getByText("1 gap covered ✓")).toBeVisible();
+      if (pass === 0) await page.reload();
+    }
+  });
+
+  test("an answer that only partly covers the gap gets its follow-up inline, in the same card; other cards are locked", async ({ page }) => {
+    const state = { row: recordAnalysis(RECORD_CLUSTERS) };
+    await setupRecordMocks(page, state);
+    await page.route("**/api/session", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: "micro-fu-1", question: "How did you run containers?", choices: null }),
+      })
+    );
+    let refreshed = 0;
+    await page.route(`**/api/job/${JOB_ID}/gaps/refresh`, (route) => {
+      refreshed += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state.row) });
+    });
+    await page.route("**/api/session/micro-fu-1/message", (route) => {
+      // The turn writes its record onto the row (same transaction, server-side).
+      state.row = recordAnalysis(
+        RECORD_CLUSTERS.map((c) =>
+          c.id === "cl-open"
+            ? { ...c, gaps: ["Helm"], outcome: outcome(1, ["Kubernetes"]), coverage: "partly_covered", budget_remaining: 1 }
+            : c
+        )
+      );
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          complete: false,
+          question: "And Helm — did you write your own charts?",
+          choices: ["Wrote our own charts", "Adapted existing charts"],
+          changes_applied: true,
+          cluster_coverage: { cluster_id: "cl-open", coverage: "partly_covered", open_concepts: ["Helm"], budget_remaining: 1 },
+        }),
+      });
+    });
+
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    const open = cardById(page, "cl-open");
+    await open.click();
+    await expect(open.getByTestId("gap-question")).toHaveText("How did you run containers?");
+    // Clause 8 lock: every other card is not clickable while this one is open.
+    await expect(page.getByTestId("gaps-locked-hint")).toBeVisible();
+    await expect(cardById(page, "cl-partly")).not.toHaveClass(/cursor-pointer/);
+
+    await open.getByTestId("gap-answer-textarea").fill("I ran a 40-service Kubernetes cluster for three years.");
+    await open.getByTestId("gap-submit-button").click();
+
+    await expect(open.getByTestId("gap-question")).toHaveText("And Helm — did you write your own charts?");
+    await expect(open.getByTestId("gap-follow-up-label")).toHaveText("Follow-up — still open: Helm");
+    await expect(open.getByTestId("gap-choice")).toHaveCount(2);
+    await expect(open.getByTestId("gap-answer-textarea")).toHaveValue("");
+    // Not green: partly covered, Kubernetes covered, Helm open.
+    await expect(open).toHaveAttribute("data-coverage", "partly_covered");
+    await expect(open.locator('[data-testid="gap-member"][data-state="covered"]')).toContainText("Kubernetes");
+    await expect(open.locator('[data-testid="gap-member"][data-state="open"]')).toContainText("Helm");
+    await expect(open.getByTestId("gap-resolved")).toHaveCount(0);
+    expect(refreshed).toBe(0);
+  });
+
+  test("the turn that completes the micro-session replaces the WHOLE analysis (new list, new score)", async ({ page }) => {
+    const state = { row: recordAnalysis(RECORD_CLUSTERS, { match_score: 0.5 }) };
+    await setupRecordMocks(page, state);
+    await page.route("**/api/session", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: "micro-done-1", question: "How did you run containers?", choices: null }),
+      })
+    );
+    await page.route("**/api/session/micro-done-1/message", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          complete: true,
+          reason: "max_questions_reached",
+          cluster_coverage: { cluster_id: "cl-open", coverage: "covered", open_concepts: [], budget_remaining: 1 },
+        }),
+      })
+    );
+    const refreshedRow = recordAnalysis(
+      [
+        ...RECORD_CLUSTERS.map((c) =>
+          c.id === "cl-open"
+            ? { ...c, gaps: [], outcome: outcome(1, ["Kubernetes", "Helm"]), coverage: "covered", budget_remaining: 1 }
+            : c
+        ),
+        recordCluster("cl-appended", "Service Mesh", { gaps: ["Istio"] }),
+      ],
+      { match_score: 0.66 }
+    );
+    let refreshed = 0;
+    await page.route(`**/api/job/${JOB_ID}/gaps/refresh`, (route) => {
+      refreshed += 1;
+      state.row = refreshedRow;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(refreshedRow) });
+    });
+
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(page.getByTestId("match-score-display")).toContainText("50%");
+    const open = cardById(page, "cl-open");
+    await open.click();
+    await open.getByTestId("gap-answer-textarea").fill("Three years of Kubernetes and Helm charts.");
+    await open.getByTestId("gap-submit-button").click();
+
+    await expect(open.getByTestId("gap-resolved")).toBeVisible();
+    await expect(cardById(page, "cl-appended")).toBeVisible(); // the list was replaced, not only the score
+    await expect(page.getByTestId("match-score-display")).toContainText("66%");
+    await expect(page.getByText("2 gaps covered ✓")).toBeVisible();
+    expect(refreshed).toBe(1);
+
+    // Reload: the same record comes back from the server.
+    await page.reload();
+    await expect(cardById(page, "cl-open").getByTestId("gap-resolved")).toBeVisible();
+    await expect(cardById(page, "cl-appended")).toBeVisible();
+  });
+
+  for (const [code, text] of [
+    ["gap_budget_spent", "All questions on this gap have been asked already — pick another one."],
+    ["gap_already_covered", "This gap is already covered — there is nothing left to ask here."],
+  ] as const) {
+    test(`a 409 ${code} from POST /api/session is said inline on the card`, async ({ page }) => {
+      const state = { row: recordAnalysis(RECORD_CLUSTERS) };
+      await setupRecordMocks(page, state);
+      await page.route("**/api/session", (route) =>
+        route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: { error_code: code, message: "raw server message" } }),
+        })
+      );
+      await page.goto(`/flow/${FLOW_ID}/gaps`);
+      const open = cardById(page, "cl-open");
+      await open.click();
+      await expect(open.getByTestId("gap-refusal")).toHaveText(text);
+      await expect(open.getByTestId("gap-question")).toHaveCount(0);
+      await expect(page.getByText("raw server message")).toHaveCount(0);
+      await expect(open).not.toHaveClass(/cursor-pointer/);
+    });
+  }
+
+  test.describe("at 390 px", () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+    test("the inline follow-up fits the card without horizontal overflow", async ({ page }) => {
+      const state = { row: recordAnalysis(RECORD_CLUSTERS) };
+      await setupRecordMocks(page, state);
+      await page.route("**/api/session", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ session_id: "micro-390", question: "How did you run containers?", choices: null }),
+        })
+      );
+      await page.route("**/api/session/micro-390/message", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            complete: false,
+            question: "And Helm — did you write your own charts?",
+            choices: ["Wrote our own charts for every internal service we ran", "Adapted existing charts"],
+            cluster_coverage: { cluster_id: "cl-open", coverage: "partly_covered", open_concepts: ["Helm"], budget_remaining: 1 },
+          }),
+        })
+      );
+      await page.goto(`/flow/${FLOW_ID}/gaps`);
+      const open = cardById(page, "cl-open");
+      await open.tap();
+      await open.getByTestId("gap-answer-textarea").fill("Three years of Kubernetes.");
+      await open.getByTestId("gap-submit-button").tap();
+      await expect(open.getByTestId("gap-follow-up-label")).toBeVisible();
+
+      const box = await open.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.body.scrollWidth,
+        innerWidth: window.innerWidth,
+      }));
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth);
+    });
   });
 });
