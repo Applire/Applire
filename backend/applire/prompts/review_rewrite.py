@@ -25,6 +25,25 @@ US089), decided under ``applire-prompt-first`` (2026-09-23):
 The prompt names its task as a deletion, not an edit: every rule below exists to
 keep a section-scoped rewrite from rephrasing sentences the finding did not name
 (`SF-REVIEW.8`).
+
+**Replay history (2026-09-23, openai/gpt-5.6-luna, 13 synthetic cases, one call
+each per round — ``tests/files/review_rewrite/cases.json``):**
+
+* round 1 — rules 1/4/5/6/7 only: forms left 0/13, but 5/13 left the sentence broken
+  ("I brought into our design reviews", "mit bin ich … vertraut") — the model read
+  "keep the original words" as "cut the word and nothing else".
+* round 2 — + "a clause whose point is the wording goes with it", + "never leave a
+  gap": grammar fixed, but whole true bullets deleted (3 facts) and one purpose
+  clause re-attached to a different claim (a new claim).
+* round 3 (THIS TEXT) — rule 2 split into "the wording is the claim" vs "the wording
+  is the tool/setting of another claim", + "never re-attach a deleted clause's
+  purpose": forms left 0/13, facts dropped 1/106, tokens added 0, misattribution 0,
+  broken 1/13 (a stem-only verb hit, "coached"), sentences without the wording
+  altered 0/28.
+* round 4 — + "when in doubt keep" + a verb-clause sentence: the dropped bullet came
+  back, the misattribution returned, the verb case stayed broken. Reverted to round 3
+  (the narrower-rule check: a rule violated in its only measured instance buys
+  nothing).
 """
 
 from __future__ import annotations
@@ -49,14 +68,11 @@ deleted whole.
 done ("built pipelines in Terraform", "cut defects with Six Sigma tools"): keep what was \
 done and drop only the wording and the words that attach it ("built pipelines", "cut \
 defects").
-   - When in doubt, keep the statement without the wording rather than delete it.
 3. What remains must read as correct, natural sentences in the passage's language. \
 Never leave a gap where the wording was: no dangling preposition, no missing object, \
 no orphaned fragment ("I introduced into our process", "Kenntnisse in und SAP", a \
 stray "-Zertifizierung"). Repair the sentence with the words it needs to be grammatical \
-(an article, a verb, a conjunction), never with new content. If the wording is the \
-verb of a clause, rebuild the clause around what stays true or delete it — never leave \
-its object standing alone. A purpose, result or \
+(an article, a verb, a conjunction), never with new content. A purpose, result or \
 detail that belonged to a deleted clause goes with it — never attach it to a different \
 statement.
 4. Change nothing else. Every other statement stays with its facts intact: employers, \
