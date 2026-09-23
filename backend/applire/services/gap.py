@@ -702,6 +702,11 @@ def ledger_input_from_classification(c: dict[str, Any]) -> dict[str, Any]:
 _STATUS_RANK = {"direct": 2, "partial": 1, "gap": 0, "denied": 0}
 
 
+def _rank(status: Any) -> int:
+    """A status's claim rank; anything unknown (or not a string) ranks 0."""
+    return _STATUS_RANK.get(status, 0) if isinstance(status, str) else 0
+
+
 def _row_names(row: dict[str, Any]) -> list[str]:
     """A ledger row's concept + surface forms (raw strings, blanks dropped)."""
     names = [row.get("concept", ""), *(row.get("surface_forms") or [])]
@@ -865,7 +870,7 @@ def merge_ledger_per_requirement(
         f_status = f.get("status")
         if f_status == "denied":
             continue  # a denial always stands (ruling B-1's purpose)
-        if _STATUS_RANK.get(p.get("status"), 0) <= _STATUS_RANK.get(f_status, 0):
+        if _rank(p.get("status")) <= _rank(f_status):
             continue  # not a downward move
         if _is_touched(_row_names(f) + _row_names(p), touched_members, answers_norm):
             continue  # this session's answers may move it freely

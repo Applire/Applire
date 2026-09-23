@@ -177,6 +177,11 @@ def test_the_refresh_scope_touches_nothing():
     assert [r["status"] for r in merged] == ["direct", "direct", "partial"]
 
 
+def test_a_malformed_previous_status_never_raises():
+    merged, carried = _merge([row("Docker", "gap")], [{**row("Docker", "direct"), "status": ["direct"]}])
+    assert carried == [] and merged[0]["status"] == "gap"
+
+
 def test_no_previous_ledger_publishes_the_fresh_one():
     fresh = [row("Docker", "gap")]
     merged, carried = _merge(fresh, None)

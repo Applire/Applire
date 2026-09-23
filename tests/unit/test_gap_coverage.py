@@ -450,6 +450,17 @@ def test_a_cluster_without_open_members_is_not_askable():
     assert not is_askable(cluster(gaps=[], coverage="open"), 2)
 
 
+@pytest.mark.parametrize("bad", [["covered"], {"x": 1}, 7, None, "bogus"])
+def test_a_malformed_stored_coverage_never_raises_and_is_re_derived(bad):
+    """A persisted-read path: a hand-edited or future row never takes a GET
+    down (an unhashable value used to reach a frozenset membership test)."""
+    from applire.schemas.gap_cluster import GapClusterSchema
+
+    c = cluster(gaps=[], outcome=outcome(covered=["Docker"]), coverage=bad)
+    assert not is_askable(c, 2)
+    assert GapClusterSchema.model_validate(c).coverage is None
+
+
 def test_non_dict_is_not_askable():
     assert not is_askable(None, 2)  # type: ignore[arg-type]
 

@@ -403,7 +403,7 @@ def stored_or_derived_coverage(
     """The cluster's persisted ``coverage`` when it is a known value, else
     :func:`derive_coverage` over ``keyword_ledger`` (a legacy row carries none)."""
     stored = cluster.get("coverage") if isinstance(cluster, dict) else None
-    if stored in COVERAGE_VALUES:
+    if isinstance(stored, str) and stored in COVERAGE_VALUES:
         return stored  # type: ignore[return-value]
     return derive_coverage(cluster, keyword_ledger)
 

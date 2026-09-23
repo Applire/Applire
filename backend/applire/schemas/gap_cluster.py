@@ -98,7 +98,7 @@ class GapClusterSchema(BaseModel):
     def _known_coverage_or_none(cls, v: Any) -> Any:
         from applire.services.gap_coverage import COVERAGE_VALUES
 
-        return v if v in COVERAGE_VALUES else None
+        return v if isinstance(v, str) and v in COVERAGE_VALUES else None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
