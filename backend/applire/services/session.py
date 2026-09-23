@@ -1695,10 +1695,13 @@ async def _prior_exchanges(
     return pairs[-_PRIOR_EXCHANGES_MAX:]
 
 
-async def _latest_cluster(
+async def _latest_cluster_with_ledger(
     job_id: uuid.UUID, cluster_id: str, db: AsyncSession
-) -> dict | None:
-    """The cluster entry as the job's latest analysis row carries it, or None."""
+) -> tuple[dict | None, list | None]:
+    """The cluster entry as the job's latest analysis row carries it, and that
+    row's keyword ledger (a legacy cluster's coverage is derived against it,
+    exactly as ``GapAnalysisResponse`` derives it) — ``(None, None)`` when the
+    latest row does not carry the cluster."""
     result = await db.execute(
         select(GapAnalysis)
         .where(
@@ -1710,8 +1713,16 @@ async def _latest_cluster(
     )
     row = result.scalar_one_or_none()
     if row is None:
-        return None
-    return gap_coverage.cluster_by_id(row.gap_clusters, cluster_id)
+        return None, None
+    return gap_coverage.cluster_by_id(row.gap_clusters, cluster_id), row.keyword_ledger
+
+
+async def _latest_cluster(
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+) -> dict | None:
+    """The cluster entry as the job's latest analysis row carries it, or None."""
+    cluster, _ledger = await _latest_cluster_with_ledger(job_id, cluster_id, db)
+    return cluster
 
 
 async def last_recorded_answer(
@@ -1747,7 +1758,7 @@ async def cluster_coverage_for(
 ) -> ClusterCoverage | None:
     """The cluster's coverage as the job's latest analysis row records it — the
     agent door's fallback when a turn wrote no record of its own."""
-    return _coverage_of(await _latest_cluster(job_id, cluster_id, db))
+    return _coverage_of(*await _latest_cluster_with_ledger(job_id, cluster_id, db))
 
 
 def _is_pending_micro_on(record: InterviewSession, cluster_id: str) -> bool:
@@ -1783,11 +1794,15 @@ def _seed_questions_per_gap(clusters_by_id: dict[str, dict]) -> dict[str, int]:
     return seeded
 
 
-def _coverage_of(cluster: dict | None) -> ClusterCoverage | None:
-    """The API projection of a persisted cluster entry (facts only)."""
+def _coverage_of(
+    cluster: dict | None, keyword_ledger: list | None = None
+) -> ClusterCoverage | None:
+    """The API projection of a persisted cluster entry (facts only). A legacy
+    cluster with no stored ``coverage`` is derived against ``keyword_ledger`` —
+    the same derivation the analysis response applies, so both readers agree."""
     if not cluster or not cluster.get("id"):
         return None
-    coverage = gap_coverage.stored_or_derived_coverage(cluster)
+    coverage = gap_coverage.stored_or_derived_coverage(cluster, keyword_ledger)
     return ClusterCoverage(
         cluster_id=str(cluster["id"]),
         coverage=coverage,
@@ -3817,7 +3832,9 @@ async def _complete_session(
     if cluster_coverage is not None and job_analysis_id is not None:
         try:
             refreshed = _coverage_of(
-                await _latest_cluster(job_analysis_id, cluster_coverage.cluster_id, db)
+                *await _latest_cluster_with_ledger(
+                    job_analysis_id, cluster_coverage.cluster_id, db
+                )
             )
             if refreshed is not None:
                 cluster_coverage = refreshed
