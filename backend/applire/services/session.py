@@ -1577,6 +1577,70 @@ class GapNotAskableError(Exception):
         self.cluster_id = cluster_id
 
 
+# ADR-038 — every candidate-facing string the per-gap record adds follows the
+# session's conversation language (``get_conversation_language``), exactly like
+# the deterministic gate and dispute copy in ``interview_graph`` (``_GATE_COPY``):
+# a German UI renders these verbatim (the 409 ``message``, the empty-plan first
+# question), and an agent relays them. Unknown languages fall back to English.
+_GAP_RECORD_COPY: dict[str, dict[str, str]] = {
+    "en": {
+        "declined": (
+            '"{label}" is already settled — every requirement in it was '
+            "declined, so there is nothing left to ask."
+        ),
+        "covered": (
+            '"{label}" is already covered — every requirement in it is backed '
+            "by the profile, so there is nothing left to ask."
+        ),
+        "spent": (
+            '"{label}" has already been asked {asked} time(s) — its question '
+            "budget ({per_gap} per gap, across every interview) is spent."
+        ),
+        "all_worked": (
+            "Every gap in this analysis has already been worked through — "
+            "you can proceed to CV generation."
+        ),
+        "identical_retry": (
+            "This testimony is identical to the answer gap {gap_id} last "
+            "recorded — that call already went through, so nothing was "
+            "charged again. Call analyze_gaps to see the gap's coverage, or "
+            "pass NEW testimony (e.g. the answer to its follow_up_question)."
+        ),
+    },
+    "de": {
+        "declined": (
+            "„{label}“ ist bereits geklärt — jede Anforderung darin wurde "
+            "verneint, hier gibt es nichts mehr zu fragen."
+        ),
+        "covered": (
+            "„{label}“ ist bereits abgedeckt — jede Anforderung darin ist durch "
+            "das Profil belegt, hier gibt es nichts mehr zu fragen."
+        ),
+        "spent": (
+            "„{label}“ wurde bereits {asked}-mal gefragt — das Fragenbudget "
+            "({per_gap} pro Lücke, über alle Interviews hinweg) ist aufgebraucht."
+        ),
+        "all_worked": (
+            "Jede Lücke dieser Analyse wurde bereits bearbeitet — "
+            "du kannst mit der CV-Generierung weitermachen."
+        ),
+        "identical_retry": (
+            "Diese Aussage ist identisch mit der Antwort, die Lücke {gap_id} "
+            "zuletzt gespeichert hat — dieser Aufruf ist bereits durchgelaufen, "
+            "es wurde nichts erneut angerechnet. Rufe analyze_gaps auf, um die "
+            "Abdeckung der Lücke zu sehen, oder übergib NEUE Aussagen (z. B. die "
+            "Antwort auf ihre follow_up_question)."
+        ),
+    },
+}
+
+
+def gap_record_copy(key: str, lang: str = "en", **fields: object) -> str:
+    """One per-gap-record string in the conversation language (ADR-038)."""
+    strings = _GAP_RECORD_COPY.get(lang, _GAP_RECORD_COPY["en"])
+    return strings[key].format(**fields)
+
+
 def _prior_asked(cluster: dict | None) -> int:
     """``outcome.asked`` off a persisted cluster entry — 0 for a legacy row."""
     outcome = (cluster or {}).get("outcome") or {}
@@ -1586,7 +1650,7 @@ def _prior_asked(cluster: dict | None) -> int:
         return 0
 
 
-def gap_not_askable(cluster: dict) -> GapNotAskableError | None:
+def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | None:
     """The refusal for a cluster ``gap_coverage.is_askable`` rejects, else None.
 
     ADR-089 clause 1: "a session opened on a cluster with no budget left is
@@ -1603,22 +1667,15 @@ def gap_not_askable(cluster: dict) -> GapNotAskableError | None:
     coverage = gap_coverage.stored_or_derived_coverage(cluster)
     if coverage == "declined":
         return GapNotAskableError(
-            "gap_already_covered",
-            f'"{label}" is already settled — the candidate declined every '
-            "requirement in it, so there is nothing left to ask.",
-            cluster_id,
+            "gap_already_covered", gap_record_copy("declined", lang, label=label), cluster_id,
         )
     if coverage == "covered" or gap_coverage.remaining_budget(cluster, per_gap) > 0:
         return GapNotAskableError(
-            "gap_already_covered",
-            f'"{label}" is already covered — every requirement in it is backed '
-            "by the profile, so there is nothing left to ask.",
-            cluster_id,
+            "gap_already_covered", gap_record_copy("covered", lang, label=label), cluster_id,
         )
     return GapNotAskableError(
         "gap_budget_spent",
-        f'"{label}" has already been asked {_prior_asked(cluster)} time(s) — its '
-        f"question budget ({per_gap} per gap, across every interview) is spent.",
+        gap_record_copy("spent", lang, label=label, asked=_prior_asked(cluster), per_gap=per_gap),
         cluster_id,
     )
 
@@ -2280,10 +2337,7 @@ async def _create_targeted_session(
             # already been worked (covered, declined, or its per-gap budget
             # spent in an earlier door). Saying "strong match" or "clustering
             # failed" would both be false.
-            no_gaps_msg = (
-                "Every gap in this analysis has already been worked through — "
-                "you can proceed to CV generation."
-            )
+            no_gaps_msg = gap_record_copy("all_worked", lang)
         elif has_clustering_input(gap_analysis):
             logger.warning(
                 "targeted session %s: clustering had input (category_c=%d) but no "
@@ -2566,7 +2620,7 @@ async def _create_micro_session(
         return _resumed_response(existing_active)
 
     if found:
-        refusal = gap_not_askable(cluster)
+        refusal = gap_not_askable(cluster, lang)
         if refusal is not None:
             raise refusal
 

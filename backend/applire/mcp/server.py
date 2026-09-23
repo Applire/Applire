@@ -945,11 +945,9 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         # BEFORE a session is opened, so the retry charges no budget.
         last_answer = await session_svc.last_recorded_answer(jid, gap_id, db)
         if session_svc.same_testimony(last_answer, answer):
+            lang = await session_svc.get_conversation_language(db, job_id=jid)
             raise invalid_input(
-                f"This testimony is identical to the answer gap {gap_id!r} last "
-                "recorded — that call already went through, so nothing was "
-                "charged again. Call analyze_gaps to see the gap's coverage, or "
-                "pass NEW testimony (e.g. the answer to its follow_up_question)."
+                session_svc.gap_record_copy("identical_retry", lang, gap_id=repr(gap_id))
             )
         from applire.schemas.session import SessionCreateRequest as _SCR
 

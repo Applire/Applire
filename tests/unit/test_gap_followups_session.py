@@ -93,7 +93,7 @@ def _cluster(cid: str, label: str, members: list[str], *, category: str = "C", o
     }
 
 
-async def _seed(db, *, clusters=None, ledger=None):
+async def _seed(db, *, clusters=None, ledger=None, jd_language="en"):
     """Job + profile + ONE analysis row carrying a keyword ledger and clusters."""
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
@@ -104,7 +104,7 @@ async def _seed(db, *, clusters=None, ledger=None):
         role_title="Platform Engineer",
         required_skills=["Kubernetes", "Terraform", "FastAPI"],
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
-        company_culture_signals=[], language_requirement="English", jd_language="en",
+        company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test", "email": "mara@example.de"},
@@ -745,3 +745,50 @@ def test_members_named_by_reads_the_ledger_surface_forms():
               {"concept": "Terraform", "surface_forms": ["Terraform"]}]
     assert _members_named_by("We ran K8s on EKS.", ["Kubernetes", "Terraform"], ledger) == {"Kubernetes"}
     assert _members_named_by("", ["Kubernetes"], ledger) == set()
+
+
+# ---------------------------------------------------------------------------
+# ADR-038 — the strings the per-gap record adds follow the conversation language
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "lang,worked,spent,covered,foreign",
+    [
+        ("en", "already been worked through", "question budget", "already covered",
+         ["bereits", "Lücke"]),
+        ("de", "bereits bearbeitet", "Fragenbudget", "bereits abgedeckt",
+         ["already", "worked through", "per gap", "is spent"]),
+    ],
+    ids=["en", "de"],
+)
+@pytest.mark.asyncio
+async def test_the_record_strings_follow_the_conversation_language(
+    db, lang, worked, spent, covered, foreign
+):
+    """The empty-plan first question and both 409 refusals are rendered in the
+    session's conversation language (no ``ui_language`` set → the JD's), the
+    way the gate/dispute copy is — a German UI shows them verbatim."""
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import GapNotAskableError, create_session
+
+    job, _profile, _ = await _seed(db, clusters=[
+        _cluster(_INFRA, "Cloud infrastructure", ["Terraform"],
+                 outcome={"asked": 2, "covered": [], "declined": [], "session_ids": []}),
+        _cluster(_API, "API development", [], coverage="covered",
+                 outcome={"asked": 1, "covered": ["FastAPI"], "declined": [], "session_ids": []}),
+    ], jd_language=lang)
+    writer = _writer("never asked")
+    with patch("applire.services.session.question_generator_with_profile", new=writer):
+        full = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, _provider())
+    assert worked in full.first_question
+
+    with pytest.raises(GapNotAskableError) as spent_exc:
+        await _gap_click(db, job, _INFRA, writer)
+    with pytest.raises(GapNotAskableError) as covered_exc:
+        await _gap_click(db, job, _API, writer)
+    assert spent in spent_exc.value.message and "Cloud infrastructure" in spent_exc.value.message
+    assert covered in covered_exc.value.message and "API development" in covered_exc.value.message
+    for text in (full.first_question, spent_exc.value.message, covered_exc.value.message):
+        assert not any(word in text for word in foreign), text
+    assert writer.calls == []

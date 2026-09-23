@@ -62,7 +62,8 @@ def _row(concept, status="gap", claimable=False):
             "fit_weight": 1.0, "status": status, "evidence": "", "claimable": claimable}
 
 
-async def _seed(db, *, outcome=None, coverage="open", members=("Kubernetes", "Terraform")):
+async def _seed(db, *, outcome=None, coverage="open", members=("Kubernetes", "Terraform"),
+                jd_language="en"):
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
 
@@ -70,7 +71,7 @@ async def _seed(db, *, outcome=None, coverage="open", members=("Kubernetes", "Te
         raw_text_hash=uuid.uuid4().hex, raw_text="Platform Engineer: Kubernetes, Terraform.",
         role_title="Platform Engineer", required_skills=["Kubernetes", "Terraform"],
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
-        company_culture_signals=[], language_requirement="English", jd_language="en",
+        company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test"},
@@ -305,3 +306,35 @@ async def test_status_reads_the_turns_own_record(db, coverage, expected):
                                          new=AsyncMock(return_value=result)))
         out = await server.resolve_gap(job_id=str(job_id), gap_id=_INFRA, answer="Testimony.")
     assert out["status"] == expected
+
+
+@pytest.mark.parametrize(
+    "lang,identical,spent,foreign",
+    [
+        ("en", "identical", "question budget", ["identisch", "Fragenbudget"]),
+        ("de", "identisch", "Fragenbudget", ["identical", "question budget"]),
+    ],
+    ids=["en", "de"],
+)
+@pytest.mark.asyncio
+async def test_the_refusals_follow_the_conversation_language(db, lang, identical, spent, foreign):
+    """ADR-038 — the identical-retry and the budget-spent ``invalid_input``
+    messages an agent relays are in the conversation language."""
+    job_id = await _seed(db, jd_language=lang)
+    writer = _writer("Kubernetes and Terraform — where?", "And Terraform?")
+    answer = "Kubernetes in production at Acme."
+    await _call(db, job_id, answer, bridge=_bridge(add_skills=["Kubernetes"]), writer=writer)
+    with pytest.raises(McpError) as retry:
+        await _call(db, job_id, answer, bridge=_bridge(), writer=writer)
+    assert identical in retry.value.error.message
+    assert _INFRA in retry.value.error.message
+
+    spent_job = await _seed(
+        db, jd_language=lang,
+        outcome={"asked": 2, "covered": [], "declined": [], "session_ids": []},
+    )
+    with pytest.raises(McpError) as refused:
+        await _call(db, spent_job, "Some new testimony.", bridge=_bridge(), writer=_writer("never"))
+    assert spent in refused.value.error.message
+    for text in (retry.value.error.message, refused.value.error.message):
+        assert not any(word in text for word in foreign), text
