@@ -1343,7 +1343,9 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 **Why it happened.** Founder UAT walked the real gap-resolution flow end to end and hit all three shapes above in one session: a partly-answered gap read as fully resolved, the score fell on the next visit with previously-green gaps back to red, and the full interview then asked the very question the single-click flow had just asked, offering the candidate's own prior answer back as a suggested response — as if the system had not been listening.
 
-**Status.** Built and exercised by real-provider runs at the seam level — not yet by an end-to-end delivery run through the live product. The persisted coverage record, the shared budget, the per-cluster identity, the partial-coverage follow-up and the per-requirement score merge are all in code and covered by unit, mutation and real-provider tests; a full run through the live UI with a real model, start to finish, has not happened yet.
+**Two rules the end-to-end runs sharpened.** A requirement reads as covered when the evidence about that requirement itself is a full match; a broader requirement's partial evidence — "SAP" in general, say — no longer holds a specific one like "SAP PP" open. And the score safeguard is scoped to the gap the candidate actually worked: a passing mention of an unrelated requirement in an answer does not reopen that requirement to re-classification. An explicit denial still lowers the score everywhere, and evidence that has left the profile still stops counting.
+
+**Status.** Built, and exercised end to end before release: a run through the live UI with a real model and a blind two-reviewer read of the resulting documents, an adversarial pass against the same build, and an agent that knew only the agent guide working the gaps through `resolve_gap`. The findings of those runs are fixed. One known limit remains: a follow-up can still name a requirement the candidate covered in other words, because the check for what an answer named is literal.
 
 ---
 ---

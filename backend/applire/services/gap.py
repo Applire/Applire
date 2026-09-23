@@ -241,11 +241,11 @@ async def analyze_gaps(
     profile or JD change recomputes.
 
     ``answer_scope`` (ADR-089 clause 5) marks the ANSWER-DRIVEN path —
-    ``AnswerScope()`` from ``POST /gaps/refresh``, ``AnswerScope(cluster_ids=…,
-    answers=…)`` from an interview's completion. When a recompute happens on
-    that path, every fresh ledger row is merged with the previous row for the
-    SAME requirement (:func:`merge_ledger_per_requirement`): outside the touched
-    set a downward move is replaced by the previous row unless the fresh row is
+    ``AnswerScope()`` from ``POST /gaps/refresh``, ``AnswerScope(cluster_ids=…)``
+    from an interview's completion. When a recompute happens on that path,
+    every fresh ledger row is merged with the previous row for the SAME
+    requirement (:func:`merge_ledger_per_requirement`): outside the touched set
+    (the worked clusters' members, ruling M-2) a downward move is replaced by the previous row unless the fresh row is
     a denial, and the ADR-059 denial floor plus ``assert_claimable_backed`` then
     run on the merged ledger. Headline, breakdown, categories and the persisted
     ledger are all computed ONCE from that merged ledger (the whole-slice clamp
