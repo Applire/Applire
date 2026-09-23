@@ -17,7 +17,8 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from "vitest";
-import { buildReviewGroups, verdictState, type ReviewInputs } from "../review-groups";
+import { buildGroup1Rows, buildReviewGroups, verdictState, type ReviewInputs } from "../review-groups";
+import type { ReviewState } from "../api/document-review";
 import type { ATSReport } from "../ats-report";
 import type { TruthfulnessReport } from "../truthfulness-display";
 import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
@@ -188,17 +189,17 @@ describe("SF-REVIEW.3 — the group-1 carve-out, pinned in BOTH directions", () 
     expect(g1.items.every((i) => i.producers.length === 1)).toBe(true);
   });
 
-  it("collapses each ATS term against at most ONE claim (two identical terms do not eat two claims twice)", () => {
+  it("two terms that fold to one finding key are ONE finding (ADR-090 cl. 6), merged with at most one claim", () => {
     const groups = buildReviewGroups(
       inputs({
-        atsReport: ats({ present_unsupported: ["Scrum", "Scrum"] }),
+        atsReport: ats({ present_unsupported: ["Scrum", "scrum"] }),
         truthReport: truth([claim("Scrum", "unbacked")]),
       }),
     );
     const g1 = byId(groups, 1);
-    expect(g1.items).toHaveLength(2);
+    expect(g1.items).toHaveLength(1);
     expect(g1.items[0].producers).toEqual(["ats", "oracle"]);
-    expect(g1.items[1].producers).toEqual(["ats"]);
+    expect(g1.items[0].findingKey).toBe("ats:scrum");
   });
 
   it("excludes the #249 'related' third state from group 1, exactly as the panel excludes it", () => {
@@ -304,5 +305,115 @@ describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
       }),
     );
     expect(verdictState(groups, byId(groups, 1).items.length)).toEqual({ kind: "findings", count: 1 });
+  });
+});
+
+describe("ADR-090 cl. 6 — finding_key without a list index", () => {
+  it("keys a term row as ats:<normQuote> and a claim row as oracle:<normQuote>", () => {
+    const g1 = byId(
+      buildReviewGroups(
+        inputs({
+          atsReport: ats({ present_unsupported: ["IT Data & AI Governance"] }),
+          truthReport: truth([claim("Led the AI\u2011governance board", "unbacked", "achievement")]),
+        }),
+      ),
+      1,
+    );
+    expect(g1.items.map((i) => i.findingKey)).toEqual([
+      "ats:it data & ai governance",
+      "oracle:led the ai governance board",
+    ]);
+  });
+
+  it("keeps a finding's key when an EARLIER finding clears (the index-bearing key did not)", () => {
+    const before = byId(buildReviewGroups(inputs({ atsReport: ats({ present_unsupported: ["Snowflake", "Collibra"] }) })), 1);
+    const after = byId(buildReviewGroups(inputs({ atsReport: ats({ present_unsupported: ["Collibra"] }) })), 1);
+    expect(after.items[0].findingKey).toBe(before.items[1].findingKey);
+    expect(after.items[0].key).toBe(before.items[1].key);
+  });
+});
+
+describe("ADR-090 cl. 2 / Contract 3 — locate targets", () => {
+  it("carries the matched forms (with the stem flag) as the targets", () => {
+    const g1 = byId(
+      buildReviewGroups(
+        inputs({
+          atsReport: ats({
+            present_unsupported: ["IT Data & AI Governance"],
+            present_unsupported_matches: {
+              "IT Data & AI Governance": [
+                { form: "AI governance", stem: false },
+                { form: "Governing", stem: true },
+              ],
+            },
+          }),
+        }),
+      ),
+      1,
+    );
+    expect(g1.items[0].targets).toEqual([
+      { form: "AI governance", stem: false },
+      { form: "Governing", stem: true },
+    ]);
+  });
+
+  it("an absent key means NO DATA (null targets → could not be marked), never a literal search", () => {
+    const g1 = byId(buildReviewGroups(inputs({ atsReport: ats({ present_unsupported: ["Snowflake"] }) })), 1);
+    expect(g1.items[0].targets).toBeNull();
+  });
+
+  it("locates an Oracle claim by its text", () => {
+    const g1 = byId(buildReviewGroups(inputs({ truthReport: truth([claim("Kafka", "unbacked")]) })), 1);
+    expect(g1.items[0].targets).toEqual([{ form: "Kafka" }]);
+  });
+});
+
+describe("buildGroup1Rows — counts from the live report, decisions only label (ADR-090 cl. 6, SF-REVIEW.9)", () => {
+  const items = byId(
+    buildReviewGroups(inputs({ atsReport: ats({ present_unsupported: ["Snowflake", "Collibra"] }) })),
+    1,
+  ).items;
+
+  function state(...decisions: Array<[string, "added" | "taken_out" | "edited", string]>): ReviewState {
+    return {
+      walked_at: null,
+      decisions: decisions.map(([finding_key, action, at]) => ({
+        finding_key,
+        label: finding_key.split(":")[1],
+        action,
+        at,
+        undo: null,
+      })),
+    };
+  }
+
+  it("a finding the report still lists is OPEN, whatever the state says", () => {
+    const rows = buildGroup1Rows(items, state(["ats:snowflake", "taken_out", "2026-09-23T10:00:00Z"]));
+    const snow = rows.find((r) => r.findingKey === "ats:snowflake")!;
+    expect(snow.status).toBe("open");
+    expect(snow.decision?.action).toBe("taken_out");
+    expect(rows.filter((r) => r.status === "open")).toHaveLength(2);
+  });
+
+  it("a decision whose finding is gone is a decided row, before the open ones", () => {
+    const rows = buildGroup1Rows(items, state(["ats:data mesh", "taken_out", "2026-09-23T10:00:00Z"]));
+    expect(rows.map((r) => [r.label, r.status])).toEqual([
+      ["data mesh", "taken_out"],
+      ["Snowflake", "open"],
+      ["Collibra", "open"],
+    ]);
+  });
+
+  it("the latest decision per finding wins, and a merged row matches under either producer", () => {
+    const rows = buildGroup1Rows(
+      [],
+      state(["oracle:kafka", "added", "2026-09-23T10:00:00Z"], ["ats:kafka", "edited", "2026-09-23T11:00:00Z"]),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("edited");
+  });
+
+  it("null state = every listed finding open, nothing decided", () => {
+    expect(buildGroup1Rows(items, null).map((r) => r.status)).toEqual(["open", "open"]);
   });
 });

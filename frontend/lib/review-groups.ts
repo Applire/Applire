@@ -48,6 +48,8 @@
 import type { GapHintItem } from "@/components/cv/ContentTab";
 import type { CriticAdvisory, OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import type { ATSCheck, ATSReport } from "./ats-report";
+import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
+import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
 import {
   claimableConceptSet,
@@ -93,6 +95,17 @@ export interface ReviewItem {
   advisory?: CriticAdvisory;
   /** For a claim row: where in the document the Oracle found it. */
   location?: string | null;
+  /**
+   * Group 1 only — ADR-090 cl. 6's `finding_key`: `"<producer>:<normQuote(text)>"`,
+   * no list index. The key the review endpoints take (Contract 2).
+   */
+  findingKey?: string;
+  /**
+   * Group 1 only — what *Show me where* looks for in the preview (ADR-090
+   * cl. 2). `null` = the report carries no matched forms for this finding: the
+   * card says the place could not be marked.
+   */
+  targets?: LocateTarget[] | null;
 }
 
 export interface ReviewGroup {
@@ -164,6 +177,7 @@ function dedupeClusters(items: GapHintItem[]): GapHintItem[] {
 function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, truthReport } = inputs;
   const terms = atsReport?.keywords.present_unsupported ?? [];
+  const matches = atsReport?.keywords.present_unsupported_matches;
   const claimable = claimableConceptSet(atsReport?.keywords.claimable_concepts);
   const claims = truthReport ? flaggedClaims(truthReport.claims ?? [], claimable) : [];
 
@@ -174,35 +188,58 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
   });
 
   const consumedClaims = new Set<number>();
+  const seenKeys = new Set<string>();
   const items: ReviewItem[] = [];
 
-  terms.forEach((term, i) => {
+  terms.forEach((term) => {
     const n = normQuote(term);
+    // ADR-090 cl. 6: the key is producer + fold, WITHOUT the list index — an
+    // index shifts when an earlier finding clears. Two terms that fold equal
+    // are one finding (ADR-081 cl. 2's own reading).
+    const findingKey = `ats:${n || term}`;
+    if (seenKeys.has(findingKey)) return;
+    seenKeys.add(findingKey);
     const claimIndex = claimsByNorm.get(n);
     const overlap = claimIndex !== undefined && !consumedClaims.has(claimIndex);
     if (overlap) consumedClaims.add(claimIndex);
     const claim = overlap ? claims[claimIndex] : null;
+    // Contract 3: an absent key means "no data" → the card says the place
+    // could not be marked. A merged row can still be located by the claim text
+    // (ADR-090 cl. 2: an Oracle claim is located by its `text`).
+    const termMatches = matches && Object.prototype.hasOwnProperty.call(matches, term) ? matches[term] : null;
+    const targets: LocateTarget[] | null = termMatches
+      ? termMatches.map((m) => ({ form: m.form, stem: Boolean(m.stem) }))
+      : claim
+        ? [{ form: claim.claim.text }]
+        : null;
     items.push({
-      key: `term-${i}-${n || term}`,
+      key: findingKey,
+      findingKey,
       label: term,
       kind: "term",
       producers: overlap ? ["ats", "oracle"] : ["ats"],
       severity: "critical",
       detail: claim?.verdict.detail ?? null,
       location: claim?.claim.location ?? null,
+      targets,
     });
   });
 
   claims.forEach((c, i) => {
     if (consumedClaims.has(i)) return;
+    const findingKey = `oracle:${normQuote(c.claim.text) || c.claim.text}`;
+    if (seenKeys.has(findingKey)) return;
+    seenKeys.add(findingKey);
     items.push({
-      key: `claim-${i}-${normQuote(c.claim.text) || c.claim.text}`,
+      key: findingKey,
+      findingKey,
       label: c.claim.text,
       kind: "claim",
       producers: ["oracle"],
       severity: "critical",
       detail: c.verdict.detail ?? null,
       location: c.claim.location,
+      targets: [{ form: c.claim.text }],
     });
   });
 
@@ -413,4 +450,50 @@ export function verdictState(groups: ReviewGroup[], renderedGroup1Count: number)
   const anyUnknownProducer = groups.some((g) => g.unknownProducers.length > 0);
   if (others > 0 || anyUnknownProducer) return { kind: "clear_with_others", others };
   return { kind: "clear" };
+}
+
+/* ---------------------------------------------------------- ADR-090 cl. 6 */
+
+/** A group-1 row: an open finding, or a decision whose finding the report no longer lists. */
+export interface Group1Row {
+  findingKey: string;
+  label: string;
+  /** `open` whenever the CURRENT report lists the finding — whatever the state says. */
+  status: "open" | ReviewAction;
+  /** The report's row; `null` for a decided row (its finding is gone). */
+  item: ReviewItem | null;
+  /** The latest decision on this finding, if any. */
+  decision: ReviewDecision | null;
+}
+
+/** The fold part of a finding key — a merged row may be recorded under either producer. */
+function keyFold(findingKey: string): string {
+  const i = findingKey.indexOf(":");
+  return i >= 0 ? findingKey.slice(i + 1) : findingKey;
+}
+
+/**
+ * ADR-090 cl. 6 — every count is derived from the LIVE report. A finding the
+ * report lists is open, whatever `review_state` says; a decision only LABELS a
+ * finding the report no longer lists. A decision whose finding reappears is
+ * open again. Decided rows come first (in decision order), then the open ones
+ * in the report's order.
+ */
+export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null | undefined): Group1Row[] {
+  const latest = new Map<string, ReviewDecision>();
+  for (const d of state?.decisions ?? []) latest.set(keyFold(d.finding_key), d);
+
+  const listedFolds = new Set(items.map((it) => keyFold(it.findingKey ?? it.key)));
+  const decided: Group1Row[] = [];
+  latest.forEach((d, fold) => {
+    if (listedFolds.has(fold)) return;
+    decided.push({ findingKey: d.finding_key, label: d.label, status: d.action, item: null, decision: d });
+  });
+  decided.sort((a, b) => (a.decision!.at < b.decision!.at ? -1 : a.decision!.at > b.decision!.at ? 1 : 0));
+
+  const open: Group1Row[] = items.map((it) => {
+    const key = it.findingKey ?? it.key;
+    return { findingKey: key, label: it.label, status: "open", item: it, decision: latest.get(keyFold(key)) ?? null };
+  });
+  return [...decided, ...open];
 }
