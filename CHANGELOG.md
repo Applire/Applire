@@ -6,6 +6,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **A gap you answered stays answered, and a partial answer gets one follow-up (ADR-089).** Answering a gap on the gaps page used to turn its card green whether or not the answer covered it, and the green lived only in the browser: re-entering the view showed a re-rolled gap list and a lower score. Now every gap carries a saved record — how often it was asked, which of its requirements are covered or declined — and the page renders that record. Each requirement is coloured (green covered, yellow partial, red open, grey declined) and a card takes the colour of its weakest requirement. When an answer covers only part of a gap, Applire asks **one** follow-up about exactly the requirements the answer did not name, inside the same card. The number of questions per gap is the existing `INTERVIEW_MAX_QUESTIONS_PER_GAP` setting (default 2), now shared by the gaps page, the full interview and the agent channel's `resolve_gap`: a gap worked on the gaps page is not asked again in the full interview, and the full interview's questions see the earlier exchange instead of offering your previous answer back as a choice.
+- **The match score no longer drops because of an unrelated re-classification (ADR-089).** After an answer, requirements outside the gap you answered keep their previous status unless you denied one or its evidence left your profile; the gap list keeps its identity (same ids, same labels) instead of being re-clustered on every answer. This replaces the earlier whole-score clamp, which could publish a headline that disagreed with its own table.
+- **Agent channel:** `resolve_gap` returns the gap's `coverage`, its `open_concepts`, the `budget_remaining` and, when part is still open, a `follow_up_question`; calling it again on the same gap answers that follow-up. `analyze_gaps` carries each gap's saved record. An identical retry is refused without spending a question.
+
 ## [0.42.0-beta] – 2026-09-14
 
 ### Added
