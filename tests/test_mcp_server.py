@@ -362,6 +362,26 @@ def test_mcp_import_cv_advertises_the_hold_contract():
     )
 
 
+def test_mcp_resolve_gap_advertises_the_follow_up_contract():
+    """ADR-089 clause 7 — `resolve_gap` stays stateless, and its result now
+    carries the gap's coverage, open requirements, remaining budget and an
+    optional follow-up question (answered by calling it again). The tool
+    description is what a naive agent reads at call time, so the new keys must
+    reach the live stdio surface, not only the guide."""
+    _, responses = _run_mcp(_INIT + _INITIALIZED + _TOOLS_LIST)
+    resp = _find(responses, 2)
+    assert resp and "result" in resp
+    by_name = {t["name"]: t for t in resp["result"].get("tools", [])}
+    assert "resolve_gap" in by_name, "resolve_gap not advertised on the live stdio surface"
+    tool = by_name["resolve_gap"]
+    assert set(tool["inputSchema"].get("required", [])) == {"job_id", "gap_id", "answer"}, (
+        "resolve_gap keeps its signature (ADR-089 clause 7)"
+    )
+    desc = tool["description"]
+    for key in ("coverage", "open_concepts", "budget_remaining", "follow_up_question"):
+        assert key in desc, f"resolve_gap's description must name the result key {key!r}"
+
+
 def test_mcp_tools_all_have_description():
     _, responses = _run_mcp(_INIT + _INITIALIZED + _TOOLS_LIST)
     resp = _find(responses, 2)
