@@ -37,7 +37,7 @@ import {
 // the point: a copy would drift silently.
 const VECTORS_PATH =
   process.env.ATS_NORM_VECTORS ?? path.resolve(__dirname, "../../../tests/files/ats_norm_vectors.json");
-type Vector = { in: string; out: string };
+type Vector = { input: string; expected: string };
 
 const vectorDoc: { vectors: Vector[] } | null = fs.existsSync(VECTORS_PATH)
   ? JSON.parse(fs.readFileSync(VECTORS_PATH, "utf-8"))
@@ -50,13 +50,13 @@ describe("normAudit — parity with the backend ats_audit._norm (shared vector f
   });
 
   for (const v of vectorDoc?.vectors ?? []) {
-    it(`folds ${JSON.stringify(v.in)} to ${JSON.stringify(v.out)}`, () => {
-      expect(normAudit(v.in)).toBe(v.out);
+    it(`folds ${JSON.stringify(v.input)} to ${JSON.stringify(v.expected)}`, () => {
+      expect(normAudit(v.input)).toBe(v.expected);
     });
-    it(`maps ${JSON.stringify(v.in)} through the DOM index to the same string`, () => {
+    it(`maps ${JSON.stringify(v.input)} through the DOM index to the same string`, () => {
       const div = document.createElement("div");
-      div.textContent = v.in;
-      expect(buildTextIndex(div).text).toBe(v.out);
+      div.textContent = v.input;
+      expect(buildTextIndex(div).text).toBe(v.expected);
     });
   }
 });
