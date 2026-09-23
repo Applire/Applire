@@ -5505,7 +5505,9 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
 
     The section-editor's post-edit re-audit path: passes NO CondenseContext, so it is
     strictly audit-only and never condenses (ADR-051 amendment §1)."""
-    async with AsyncSessionLocal() as db:
+    from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
+
+    async with document_lock("cv", cv_id), AsyncSessionLocal() as db:
         record = await db.get(GeneratedCV, cv_id)
         if record is not None:
             await _update_ats_report(record, db)
@@ -5530,7 +5532,10 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
                 "Stored ATS report for CV %s is malformed — returning report=null", record.id
             )
             report = None
-    return ATSReportResponse(document_id=record.id, status=record.status, report=report)
+    from applire.services.review_state import load_state
+
+    return ATSReportResponse(document_id=record.id, status=record.status, report=report,
+                             review_state=load_state(record.review_state))
 
 
 async def get_cv_truthfulness_report(

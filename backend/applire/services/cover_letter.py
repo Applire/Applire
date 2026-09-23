@@ -3638,7 +3638,9 @@ async def _update_ats_report_letter(
 
 async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
     """BackgroundTasks entrypoint — own session (request session gone by run time)."""
-    async with AsyncSessionLocal() as db:
+    from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
+
+    async with document_lock("cover_letter", cl_id), AsyncSessionLocal() as db:
         cl = await db.get(GeneratedCoverLetter, cl_id)
         if cl is not None:
             await _update_ats_report_letter(cl, db)
@@ -3672,7 +3674,10 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
                 cl.id,
             )
             report = None
-    return ATSReportResponse(document_id=cl.id, status=cl.status, report=report)
+    from applire.services.review_state import load_state
+
+    return ATSReportResponse(document_id=cl.id, status=cl.status, report=report,
+                             review_state=load_state(cl.review_state))
 
 
 async def get_cover_letter_truthfulness_report(

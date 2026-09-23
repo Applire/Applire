@@ -179,3 +179,7 @@ class ATSReportResponse(BaseModel):
     document_id: uuid.UUID
     status: str                  # generation status of the underlying document
     report: Optional[ATSReport] = None   # null while pending/failed or when the audit engine errored
+    # ADR-090 clause 6 (additive): the user's review decisions on this document —
+    # {"walked_at", "decisions": [...]}. Labels only: every count derives from
+    # `report` (a decision never hides a finding the report lists).
+    review_state: Optional[dict] = None
