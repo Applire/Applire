@@ -49,11 +49,14 @@ deleted whole.
 done ("built pipelines in Terraform", "cut defects with Six Sigma tools"): keep what was \
 done and drop only the wording and the words that attach it ("built pipelines", "cut \
 defects").
+   - When in doubt, keep the statement without the wording rather than delete it.
 3. What remains must read as correct, natural sentences in the passage's language. \
 Never leave a gap where the wording was: no dangling preposition, no missing object, \
 no orphaned fragment ("I introduced into our process", "Kenntnisse in und SAP", a \
 stray "-Zertifizierung"). Repair the sentence with the words it needs to be grammatical \
-(an article, a verb, a conjunction), never with new content. A purpose, result or \
+(an article, a verb, a conjunction), never with new content. If the wording is the \
+verb of a clause, rebuild the clause around what stays true or delete it — never leave \
+its object standing alone. A purpose, result or \
 detail that belonged to a deleted clause goes with it — never attach it to a different \
 statement.
 4. Change nothing else. Every other statement stays with its facts intact: employers, \
