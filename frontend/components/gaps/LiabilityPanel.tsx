@@ -215,6 +215,9 @@ export function LiabilityPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: item.answer.trim() }),
       });
+      // ADR-089 E2: a micro-session closed elsewhere answers 409 — say so in
+      // the UI language, keep the draft.
+      if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
       if (!res.ok) throw new Error(await apiErrorMessage(res));
       const data = (await res.json()) as TurnResponse;
       if (!data.complete) {

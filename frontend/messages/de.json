@@ -185,6 +185,7 @@
     "followUpLabel": "Nachfrage – noch offen: {items}",
     "refusalBudgetSpent": "Zu dieser Lücke wurden schon alle Fragen gestellt – wähle eine andere.",
     "refusalAlreadyCovered": "Diese Lücke ist bereits abgedeckt – hier gibt es nichts mehr zu fragen.",
+    "sessionClosedElsewhere": "Diese Frage wurde inzwischen geschlossen, zum Beispiel in einem anderen Fenster. Deine Antwort steht noch im Feld – kopiere sie, brich ab und öffne die Lücke erneut.",
     "gapsLockedHint": "Beantworte zuerst die offene Frage – dann kannst du die nächste Lücke wählen.",
     "refreshingAnalysis": "Analyse wird aktualisiert…",
     "trackerNoMoreQuestions": "Keine weiteren Fragen",

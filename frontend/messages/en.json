@@ -185,6 +185,7 @@
     "followUpLabel": "Follow-up — still open: {items}",
     "refusalBudgetSpent": "All questions on this gap have been asked already — pick another one.",
     "refusalAlreadyCovered": "This gap is already covered — there is nothing left to ask here.",
+    "sessionClosedElsewhere": "This question was closed in the meantime, for example in another window. Your answer is still in the field — copy it, cancel, and open the gap again.",
     "gapsLockedHint": "Finish the open question first — then pick the next gap.",
     "refreshingAnalysis": "Updating the analysis…",
     "trackerNoMoreQuestions": "No more questions",
