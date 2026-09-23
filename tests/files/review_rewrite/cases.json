@@ -1,96 +1,612 @@
 {
-  "_about": "Synthetic sections for the ADR-090 cl. 3 removal rewrite (WP-B). Built to the shapes of tests/files/panel_review_case/ (same personas, invented wording the vault does not back inserted as the flagged forms). Each case: the section as PATCH /api/cv/{id}/sections/{section_id} or the letter body override holds it, the matched forms to remove, and the facts that must survive (each fact = list of acceptable spellings, any one counts). Synthetic personas only; contact data never appears.",
+  "_about": "Synthetic sections for the ADR-090 cl. 3 removal rewrite (WP-B). Built to the shapes of tests/files/panel_review_case/ (same personas, invented wording the vault does not back inserted as the flagged forms). Each case: the section as PATCH /api/cv/{id}/sections/{section_id} or the letter body override holds it, the matched forms to remove, and the facts that must survive (each fact = list of acceptable spellings, any one counts). Synthetic personas only; contact data never appears. Facts are the statements rule 2 of the prompt keeps: a fact that only lives inside a clause whose point IS the flagged wording is not listed (it legitimately goes with the clause).",
   "cases": [
     {
       "id": "cv-en-bullets-kafka",
-      "kind": "cv", "language": "en", "section_id": "position::p-cargonaut",
+      "kind": "cv",
+      "language": "en",
+      "section_id": "position::p-cargonaut",
       "section_text": "Design and operate the shipment-tracking backend (Python, Django, PostgreSQL) serving ~40k daily active logistics customers.\nBuilt event-driven settlement services on Apache Kafka with exactly-once delivery.\nRedesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing.\nOwn the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services.\nMentor two mid-level engineers; run the team's weekly design-review session.",
-      "forms": ["Apache Kafka", "Kafka"],
-      "facts": [["shipment-tracking"], ["Django"], ["~40k", "40k", "40,000"], ["event-driven"], ["exactly-once"], ["pricing data model"], ["1.8s", "1.8 s"], ["240ms", "240 ms"], ["PostgreSQL indexing"], ["ECS"], ["RDS"], ["S3"], ["GitLab"], ["four services"], ["two mid-level engineers"], ["design-review"]]
+      "forms": [
+        "Apache Kafka",
+        "Kafka"
+      ],
+      "facts": [
+        [
+          "shipment-tracking"
+        ],
+        [
+          "Django"
+        ],
+        [
+          "~40k",
+          "40k",
+          "40,000"
+        ],
+        [
+          "event-driven"
+        ],
+        [
+          "exactly-once"
+        ],
+        [
+          "pricing data model"
+        ],
+        [
+          "1.8s",
+          "1.8 s"
+        ],
+        [
+          "240ms",
+          "240 ms"
+        ],
+        [
+          "PostgreSQL indexing"
+        ],
+        [
+          "ECS"
+        ],
+        [
+          "RDS"
+        ],
+        [
+          "S3"
+        ],
+        [
+          "GitLab"
+        ],
+        [
+          "four services"
+        ],
+        [
+          "two mid-level engineers"
+        ],
+        [
+          "design-review"
+        ]
+      ]
     },
     {
       "id": "cv-en-summary-ai-governance",
-      "kind": "cv", "language": "en", "section_id": "introduction",
+      "kind": "cv",
+      "language": "en",
+      "section_id": "introduction",
       "section_text": "Backend engineer with 8 years of experience designing and operating Python services for data-heavy products, with a focus on AI governance and relational data modelling. Strong in API design and reliable delivery; introduced AI-governance checks into the team's design-review process. Enjoys mentoring and pragmatic engineering culture.",
-      "forms": ["AI governance"],
-      "facts": [["8 years"], ["Python services"], ["data-heavy products"], ["relational data modelling"], ["API design"], ["reliable delivery"], ["design-review", "design review"], ["mentoring"], ["pragmatic engineering culture"]]
+      "forms": [
+        "AI governance"
+      ],
+      "facts": [
+        [
+          "8 years"
+        ],
+        [
+          "Python services"
+        ],
+        [
+          "data-heavy products"
+        ],
+        [
+          "relational data modelling"
+        ],
+        [
+          "API design"
+        ],
+        [
+          "reliable delivery"
+        ],
+        [
+          "mentoring"
+        ],
+        [
+          "pragmatic engineering culture"
+        ]
+      ]
     },
     {
       "id": "cv-en-skills-kubernetes",
-      "kind": "cv", "language": "en", "section_id": "skills",
+      "kind": "cv",
+      "language": "en",
+      "section_id": "skills",
       "section_text": "Python (Django, Flask)\nPostgreSQL\nKubernetes\nAWS (ECS, RDS, S3)\nGitLab CI/CD\nREST API design\nPrometheus, Grafana, Kubernetes monitoring\nSQL performance tuning\nContract testing",
-      "forms": ["Kubernetes"],
-      "facts": [["Django"], ["Flask"], ["PostgreSQL"], ["ECS"], ["GitLab CI/CD"], ["REST API design"], ["Prometheus"], ["Grafana"], ["SQL performance tuning"], ["Contract testing"]]
+      "forms": [
+        "Kubernetes"
+      ],
+      "facts": [
+        [
+          "Django"
+        ],
+        [
+          "Flask"
+        ],
+        [
+          "PostgreSQL"
+        ],
+        [
+          "ECS"
+        ],
+        [
+          "GitLab CI/CD"
+        ],
+        [
+          "REST API design"
+        ],
+        [
+          "Prometheus"
+        ],
+        [
+          "Grafana"
+        ],
+        [
+          "SQL performance tuning"
+        ],
+        [
+          "Contract testing"
+        ]
+      ]
     },
     {
       "id": "cv-en-bullets-stem-coaching",
-      "kind": "cv", "language": "en", "section_id": "position::p-stalda",
+      "kind": "cv",
+      "language": "en",
+      "section_id": "position::p-stalda",
       "section_text": "Level 3 ICU (18 beds): care of ventilated patients, invasive monitoring (arterial/CVC), vasoactive infusions, CRRT.\nNamed nurse for 1–2 level-3 patients per shift; coached newly qualified nurses as preceptor since 2023.\nDeteriorating-patient response team member (NEWS2 escalation).\nElectronic patient record documentation (Cerner).",
-      "forms": ["Coaching"],
-      "facts": [["18 beds"], ["ventilated patients"], ["arterial/CVC"], ["vasoactive infusions"], ["CRRT"], ["1–2", "1-2"], ["preceptor"], ["2023"], ["NEWS2"], ["Cerner"]]
+      "forms": [
+        "Coaching"
+      ],
+      "facts": [
+        [
+          "18 beds"
+        ],
+        [
+          "ventilated patients"
+        ],
+        [
+          "arterial/CVC"
+        ],
+        [
+          "vasoactive infusions"
+        ],
+        [
+          "CRRT"
+        ],
+        [
+          "1–2",
+          "1-2"
+        ],
+        [
+          "preceptor"
+        ],
+        [
+          "2023"
+        ],
+        [
+          "NEWS2"
+        ],
+        [
+          "Cerner"
+        ]
+      ]
     },
     {
       "id": "cv-de-bullets-powerbi",
-      "kind": "cv", "language": "de", "section_id": "position::p-schwarzwald",
+      "kind": "cv",
+      "language": "de",
+      "section_id": "position::p-schwarzwald",
       "section_text": "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.\nJahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie, visualisiert in Power-BI-Dashboards.\nWerkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.\nAufbau von Self-Service-Dashboards in Power BI für Vertrieb und Produktion.\nWeiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
-      "forms": ["Power BI"],
-      "facts": [["Monatsabschluss"], ["HGB"], ["480 Mitarbeitenden"], ["Beirat"], ["rollierender Forecast"], ["78 Mio"], ["Abweichungsanalysen"], ["Produktlinie"], ["zwei Produktionsstandorte"], ["Herstellkosten"], ["Deckungsbeiträge"], ["Bestandsbewertung"], ["Kostenstellenrechnung"], ["SAP CO"], ["CO/FI"]]
+      "forms": [
+        "Power BI"
+      ],
+      "facts": [
+        [
+          "Monatsabschluss"
+        ],
+        [
+          "HGB"
+        ],
+        [
+          "480 Mitarbeitenden"
+        ],
+        [
+          "Beirat"
+        ],
+        [
+          "rollierender Forecast"
+        ],
+        [
+          "78 Mio"
+        ],
+        [
+          "Abweichungsanalysen"
+        ],
+        [
+          "Produktlinie"
+        ],
+        [
+          "zwei Produktionsstandorte"
+        ],
+        [
+          "Herstellkosten"
+        ],
+        [
+          "Deckungsbeiträge"
+        ],
+        [
+          "Bestandsbewertung"
+        ],
+        [
+          "Kostenstellenrechnung"
+        ],
+        [
+          "SAP CO"
+        ],
+        [
+          "CO/FI"
+        ]
+      ]
     },
     {
       "id": "cv-de-summary-konsolidierung",
-      "kind": "cv", "language": "de", "section_id": "introduction",
+      "kind": "cv",
+      "language": "de",
+      "section_id": "introduction",
       "section_text": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss (HGB), Konzernkonsolidierung und Werkscontrolling; Erfahrung in der Konzernkonsolidierung mit LucaNet. Überzeugt davon, dass gutes Controlling erklärt statt nur berichtet.",
-      "forms": ["Konzernkonsolidierung", "LucaNet"],
-      "facts": [["9 Jahren"], ["industriellen Mittelstand"], ["Jahresabschluss"], ["HGB"], ["Werkscontrolling"], ["erklärt statt nur berichtet"]]
+      "forms": [
+        "Konzernkonsolidierung",
+        "LucaNet"
+      ],
+      "facts": [
+        [
+          "9 Jahren"
+        ],
+        [
+          "industriellen Mittelstand"
+        ],
+        [
+          "Jahresabschluss"
+        ],
+        [
+          "HGB"
+        ],
+        [
+          "Werkscontrolling"
+        ],
+        [
+          "erklärt statt nur berichtet"
+        ]
+      ]
     },
     {
       "id": "cv-de-skills-ifs",
-      "kind": "cv", "language": "de", "section_id": "skills",
+      "kind": "cv",
+      "language": "de",
+      "section_id": "skills",
       "section_text": "Lean Management (5S, SMED, KVP/Kaizen, Shopfloor-Management)\nSAP (Anwender)\nFeinplanung/Fertigungssteuerung\nISO 9001, IFS Food\nIFS/BRC-Auditvorbereitung\nBudgetplanung\nMS Excel",
-      "forms": ["IFS", "BRC"],
-      "facts": [["Lean Management"], ["5S"], ["SMED"], ["Kaizen"], ["Shopfloor-Management"], ["SAP (Anwender)"], ["Feinplanung"], ["ISO 9001"], ["Budgetplanung"], ["MS Excel"]]
+      "forms": [
+        "IFS",
+        "BRC"
+      ],
+      "facts": [
+        [
+          "Lean Management"
+        ],
+        [
+          "5S"
+        ],
+        [
+          "SMED"
+        ],
+        [
+          "Kaizen"
+        ],
+        [
+          "Shopfloor-Management"
+        ],
+        [
+          "SAP (Anwender)"
+        ],
+        [
+          "Feinplanung"
+        ],
+        [
+          "ISO 9001"
+        ],
+        [
+          "Budgetplanung"
+        ],
+        [
+          "MS Excel"
+        ]
+      ]
     },
     {
       "id": "cl-en-kafka",
-      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "en",
+      "section_id": "body",
       "section_text": "For eight years I have built and run Python backends where correctness matters: at Cargonaut Logistics I own the shipment-tracking platform that serves around 40,000 daily active customers, and I cut the p95 latency of our quote calculation from 1.8 seconds to 240 milliseconds through a redesigned data model and targeted PostgreSQL indexing.\n\nYour settlement pipeline on Apache Kafka is the part of the role that excites me most. I have built event-driven services on Kafka with exactly-once semantics, and I care about the auditability and idempotency that financial data demands.\n\nI own the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services, and I mentor two mid-level engineers through a weekly design-review session.\n\nI would welcome the chance to discuss how I can contribute to NovaPay's payments platform.",
-      "forms": ["Apache Kafka", "Kafka"],
-      "facts": [["eight years"], ["Cargonaut"], ["40,000", "40k"], ["1.8 seconds", "1.8s"], ["240 milliseconds", "240ms"], ["PostgreSQL indexing"], ["auditability"], ["idempotency"], ["ECS"], ["GitLab"], ["four services"], ["two mid-level engineers"], ["design-review", "design review"], ["NovaPay"]]
+      "forms": [
+        "Apache Kafka",
+        "Kafka"
+      ],
+      "facts": [
+        [
+          "eight years"
+        ],
+        [
+          "Cargonaut"
+        ],
+        [
+          "40,000",
+          "40k"
+        ],
+        [
+          "1.8 seconds",
+          "1.8s"
+        ],
+        [
+          "240 milliseconds",
+          "240ms"
+        ],
+        [
+          "PostgreSQL indexing"
+        ],
+        [
+          "auditability"
+        ],
+        [
+          "idempotency"
+        ],
+        [
+          "ECS"
+        ],
+        [
+          "GitLab"
+        ],
+        [
+          "four services"
+        ],
+        [
+          "two mid-level engineers"
+        ],
+        [
+          "design-review",
+          "design review"
+        ],
+        [
+          "NovaPay"
+        ],
+        [
+          "event-driven"
+        ],
+        [
+          "exactly-once"
+        ]
+      ]
     },
     {
       "id": "cl-en-ai-governance",
-      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "en",
+      "section_id": "body",
       "section_text": "I am applying for the Senior Backend Engineer role because NovaPay combines high-volume engineering with regulated, correctness-critical data.\n\nAt Cargonaut I introduced contract tests between our tracking API and three consumer teams, and I brought AI governance into our design reviews so that every model-backed feature has a named owner. AI governance, for me, is simply good engineering discipline applied to new tools.\n\nBefore that, at Finleap Build, I built the invoice-dunning workflow engine that processes around 200,000 invoices a month and integrated a Stripe-based checkout.\n\nI look forward to hearing from you.",
-      "forms": ["AI governance"],
-      "facts": [["Senior Backend Engineer"], ["NovaPay"], ["contract tests"], ["three consumer teams"], ["design reviews", "design-review"], ["Finleap"], ["invoice-dunning"], ["200,000"], ["Stripe"]]
+      "forms": [
+        "AI governance"
+      ],
+      "facts": [
+        [
+          "Senior Backend Engineer"
+        ],
+        [
+          "NovaPay"
+        ],
+        [
+          "contract tests"
+        ],
+        [
+          "three consumer teams"
+        ],
+        [
+          "Finleap"
+        ],
+        [
+          "invoice-dunning"
+        ],
+        [
+          "200,000"
+        ],
+        [
+          "Stripe"
+        ]
+      ]
     },
     {
       "id": "cl-en-ecmo",
-      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "en",
+      "section_id": "body",
       "section_text": "I am a registered nurse with seven years of acute-care experience, four of them in adult intensive care, and I am relocating to Germany with my family this autumn.\n\nOn our 18-bed level 3 unit in Leeds I care for ventilated patients with invasive monitoring, vasoactive infusions and CRRT, and I have independently managed ECMO patients on night shifts. I have been a preceptor for newly qualified nurses since 2023.\n\nMy recognition process (Anerkennung) is under way and I am learning German with the aim of reaching B2 before I start.\n\nI would be glad to introduce myself in an interview.",
-      "forms": ["ECMO"],
-      "facts": [["seven years"], ["four"], ["relocating to Germany"], ["18-bed"], ["level 3"], ["Leeds"], ["ventilated patients"], ["invasive monitoring"], ["vasoactive infusions"], ["CRRT"], ["preceptor"], ["2023"], ["Anerkennung"], ["B2"]]
+      "forms": [
+        "ECMO"
+      ],
+      "facts": [
+        [
+          "seven years"
+        ],
+        [
+          "four"
+        ],
+        [
+          "relocating to Germany"
+        ],
+        [
+          "18-bed"
+        ],
+        [
+          "level 3"
+        ],
+        [
+          "Leeds"
+        ],
+        [
+          "ventilated patients"
+        ],
+        [
+          "invasive monitoring"
+        ],
+        [
+          "vasoactive infusions"
+        ],
+        [
+          "CRRT"
+        ],
+        [
+          "preceptor"
+        ],
+        [
+          "2023"
+        ],
+        [
+          "Anerkennung"
+        ],
+        [
+          "B2"
+        ]
+      ]
     },
     {
       "id": "cl-de-powerbi",
-      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "de",
+      "section_id": "body",
       "section_text": "seit neun Jahren arbeite ich im Controlling des industriellen Mittelstands, derzeit als Financial Controller bei der Schwarzwald Präzision GmbH mit 480 Mitarbeitenden und 78 Mio. € Umsatz.\n\nIch verantworte dort Monatsabschluss und Reporting nach HGB und habe die Abweichungsanalysen je Werk und Produktlinie in Power BI aufgebaut. Self-Service-Dashboards in Power BI für Vertrieb und Produktion gehören zu meinem Alltag.\n\nIm Werkscontrolling für zwei Produktionsstandorte kümmere ich mich um Herstellkosten, Deckungsbeiträge und Bestandsbewertung; in SAP CO bin ich Key-Userin.\n\nÜber die Gelegenheit zu einem persönlichen Gespräch freue ich mich.",
-      "forms": ["Power BI"],
-      "facts": [["neun Jahren"], ["Schwarzwald Präzision"], ["480 Mitarbeitenden"], ["78 Mio"], ["Monatsabschluss"], ["HGB"], ["Abweichungsanalysen"], ["Produktlinie"], ["zwei Produktionsstandorte"], ["Herstellkosten"], ["Deckungsbeiträge"], ["Bestandsbewertung"], ["SAP CO"], ["Key-Userin"]]
+      "forms": [
+        "Power BI"
+      ],
+      "facts": [
+        [
+          "neun Jahren"
+        ],
+        [
+          "Schwarzwald Präzision"
+        ],
+        [
+          "480 Mitarbeitenden"
+        ],
+        [
+          "78 Mio"
+        ],
+        [
+          "Monatsabschluss"
+        ],
+        [
+          "HGB"
+        ],
+        [
+          "Abweichungsanalysen"
+        ],
+        [
+          "Produktlinie"
+        ],
+        [
+          "zwei Produktionsstandorte"
+        ],
+        [
+          "Herstellkosten"
+        ],
+        [
+          "Deckungsbeiträge"
+        ],
+        [
+          "Bestandsbewertung"
+        ],
+        [
+          "SAP CO"
+        ],
+        [
+          "Key-Userin"
+        ]
+      ]
     },
     {
       "id": "cl-de-konsolidierung",
-      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "de",
+      "section_id": "body",
       "section_text": "mit großem Interesse habe ich Ihre Ausschreibung als Senior Controller gelesen.\n\nIn meiner aktuellen Position verantworte ich Monatsabschluss, Jahresplanung und den rollierenden Forecast. Die Konzernkonsolidierung für drei Gesellschaften habe ich mit LucaNet aufgebaut und betreue sie seitdem eigenständig.\n\nDie fachliche Anleitung von zwei Werkstudierenden hat mir gezeigt, wie gern ich Wissen weitergebe.\n\nIch freue mich auf Ihre Rückmeldung.",
-      "forms": ["Konzernkonsolidierung", "LucaNet"],
-      "facts": [["Senior Controller"], ["Monatsabschluss"], ["Jahresplanung"], ["rollierenden Forecast"], ["zwei Werkstudierenden"], ["Wissen weitergebe"]]
+      "forms": [
+        "Konzernkonsolidierung",
+        "LucaNet"
+      ],
+      "facts": [
+        [
+          "Senior Controller"
+        ],
+        [
+          "Monatsabschluss"
+        ],
+        [
+          "Jahresplanung"
+        ],
+        [
+          "rollierenden Forecast"
+        ],
+        [
+          "zwei Werkstudierenden"
+        ],
+        [
+          "Wissen weitergebe"
+        ]
+      ]
     },
     {
       "id": "cl-de-ifs",
-      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "kind": "cover_letter",
+      "language": "de",
+      "section_id": "body",
       "section_text": "als Produktionsleiter der Weberit Kunststofftechnik GmbH verantworte ich zwei Fertigungsbereiche mit 38 Mitarbeitenden im Dreischichtbetrieb.\n\nDurch Shopfloor-Management und KVP-Routinen habe ich die Ausschussquote von 4,1 % auf 2,3 % gesenkt und die Termintreue von 87 % auf 96 % verbessert. Die jährlichen ISO-9001-Audits und IFS-Food-Audits begleite ich als Bereichsverantwortlicher; mit IFS und BRC bin ich aus der Lebensmittelverpackung vertraut.\n\nIch freue mich darauf, Sie in einem persönlichen Gespräch kennenzulernen.",
-      "forms": ["IFS", "BRC"],
-      "facts": [["Weberit"], ["zwei Fertigungsbereiche"], ["38 Mitarbeitenden"], ["Dreischichtbetrieb"], ["Shopfloor-Management"], ["KVP"], ["4,1 %"], ["2,3 %"], ["87 %"], ["96 %"], ["ISO-9001", "ISO 9001"], ["Bereichsverantwortlicher"]]
+      "forms": [
+        "IFS",
+        "BRC"
+      ],
+      "facts": [
+        [
+          "Weberit"
+        ],
+        [
+          "zwei Fertigungsbereiche"
+        ],
+        [
+          "38 Mitarbeitenden"
+        ],
+        [
+          "Dreischichtbetrieb"
+        ],
+        [
+          "Shopfloor-Management"
+        ],
+        [
+          "KVP"
+        ],
+        [
+          "4,1 %"
+        ],
+        [
+          "2,3 %"
+        ],
+        [
+          "87 %"
+        ],
+        [
+          "96 %"
+        ],
+        [
+          "ISO-9001",
+          "ISO 9001"
+        ],
+        [
+          "Bereichsverantwortlicher"
+        ]
+      ]
     }
   ]
 }

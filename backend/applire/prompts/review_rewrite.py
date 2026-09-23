@@ -40,26 +40,37 @@ Rules:
 capitalisation, with or without hyphens, singular or plural, as another inflected form \
 of the same word, and where it stands inside a longer name or compound word (then drop \
 or shorten that name so the wording is gone).
-2. Change nothing else. Every other statement stays with its facts intact: employers, \
+2. Decide per clause what the wording does in it:
+   - The clause states the wording itself as experience, knowledge or an activity \
+("experience with Terraform", "familiar with Six Sigma", "introduced Scrum to the \
+team"): delete the clause. A skill entry, bullet or sentence with nothing else in it is \
+deleted whole.
+   - The wording names the tool, method or setting through which something else was \
+done ("built pipelines in Terraform", "cut defects with Six Sigma tools"): keep what was \
+done and drop only the wording and the words that attach it ("built pipelines", "cut \
+defects").
+3. What remains must read as correct, natural sentences in the passage's language. \
+Never leave a gap where the wording was: no dangling preposition, no missing object, \
+no orphaned fragment ("I introduced into our process", "Kenntnisse in und SAP", a \
+stray "-Zertifizierung"). Repair the sentence with the words it needs to be grammatical \
+(an article, a verb, a conjunction), never with new content. A purpose, result or \
+detail that belonged to a deleted clause goes with it — never attach it to a different \
+statement.
+4. Change nothing else. Every other statement stays with its facts intact: employers, \
 job titles, dates, numbers, percentages, tools, methods, results, team sizes and scope. \
-Keep the original words and word order wherever the removal does not force a change; \
-where it does, repair the grammar with the fewest words possible.
-3. Add nothing: no new claim, skill, tool, figure, employer, date or qualification, and \
+Keep the original words and word order wherever the removal does not force a change.
+5. Add nothing: no new claim, skill, tool, figure, employer, date or qualification, and \
 no synonym, paraphrase or umbrella term that says what the removed wording said. \
 Replacing the wording with a near-equivalent is not taking it out.
-4. If a statement exists only to claim the removed wording — a skill entry, a bullet or \
-a sentence with nothing true left in it once the wording is gone — delete the whole \
-statement. Otherwise keep the statement without the wording.
-5. Keep the layout of the passage as described under PASSAGE KIND. Lines are only ever \
-deleted under rule 4 — never merged, split, reordered, numbered or given bullet markers. \
-Add no heading and no blank line.
-6. Write in the OUTPUT LANGUAGE — the language the passage is already in. Never \
-translate.
+6. Keep the layout of the passage as described under PASSAGE KIND. Lines are only ever \
+deleted under rule 2 — never merged, split, reordered, numbered or given bullet \
+markers. Add no heading and no blank line. Write in the OUTPUT LANGUAGE, the language \
+the passage is already in; never translate.
 7. Output only the edited passage exactly as it should now read: no commentary, no \
 quotation marks around it, no markdown."""
 
 
-#: Layout description per passage kind — rule 5 points at it. Keyed by the
+#: Layout description per passage kind — rule 6 points at it. Keyed by the
 #: shape the section text has in the section-override write, not by label.
 PASSAGE_KINDS: dict[str, str] = {
     "summary": "the profile summary of a CV — prose.",
