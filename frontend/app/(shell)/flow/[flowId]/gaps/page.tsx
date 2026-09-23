@@ -814,10 +814,9 @@ export default function GapsPage({
   }
 
   async function startMicroSession(clusterId: string, jobId: string) {
-    // Clause 8: one open micro-session per page. `_create_micro_session`
-    // completes any active session, which would silently end a pending
-    // follow-up on another card.
-    if (sessionOpen) return;
+    // Clause 8: one open micro-session per page — enforced by the render (a
+    // locked card has no click handler): `_create_micro_session` completes
+    // any active session, which would silently end a pending follow-up.
     updateGapState(clusterId, { ...EMPTY_GAP_STATE, status: "loading" });
     try {
       const res = await fetch(`${API_BASE}/api/session`, {
