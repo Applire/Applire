@@ -219,11 +219,37 @@ def _is_declined(member: str, rows: list[dict[str, Any]], denials: list[str]) ->
     return bool(own) and all(row.get("status") == "denied" for row in own)
 
 
-def _is_covered(rows: list[dict[str, Any]]) -> bool:
-    """Every matching row ``direct`` (the #207 rule — a narrower non-direct row
-    vetoes) and none of them an unstoried liability (RULING A-1)."""
-    return bool(rows) and all(
-        row.get("status") == "direct" and not _is_unstoried_liability(row) for row in rows
+def _is_strictly_broader(row: dict[str, Any], member: str) -> bool:
+    """The row's own concept is a proper part of the member's name — a BROADER
+    requirement (``SAP`` for the member ``SAP PP``), not the member's own row
+    and not a narrower one that contains it."""
+    concept = _norm(row.get("concept", ""))
+    key = _norm(member)
+    return bool(concept) and concept != key and concept in key
+
+
+def _deciding_rows(member: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows whose status decides whether ``member`` is covered.
+
+    The #207 veto is DIRECTIONAL: a narrower non-direct row (``5+ years Python
+    experience`` for the member ``Python``) vetoes, a BROADER one does not —
+    the broad ``SAP`` row's ``partial`` says nothing against the member
+    ``SAP PP`` whose own row is ``direct`` (delivery run E1, 2026-09-23: the
+    broad row listed ``SAP PP`` among its surface forms, so ``SAP PP`` and
+    ``SAP MM`` never read covered although their own rows were ``direct``).
+    When only broader rows match, they are all the ledger has to say, so they
+    decide."""
+    specific = [row for row in rows if not _is_strictly_broader(row, member)]
+    return specific or rows
+
+
+def _is_covered(member: str, rows: list[dict[str, Any]]) -> bool:
+    """Every deciding row ``direct`` (the #207 rule — a narrower non-direct row
+    vetoes, a broader one does not, :func:`_deciding_rows`) and none of them an
+    unstoried liability (RULING A-1)."""
+    deciding = _deciding_rows(member, rows)
+    return bool(deciding) and all(
+        row.get("status") == "direct" and not _is_unstoried_liability(row) for row in deciding
     )
 
 
@@ -242,7 +268,7 @@ def _member_status(
     rows = _rows_for(member, keyword_ledger)
     if _is_declined(member, rows, denials):
         return "declined"
-    if _is_covered(rows):
+    if _is_covered(member, rows):
         return "covered"
     if _has_claimable_signal(member, rows):
         return "partial"
@@ -295,9 +321,11 @@ def classify_members(
        row (floored ``gap`` or released) decides, like every other member.
     2. ``covered`` — a ledger row matching the member (``keyword_ledger._matches``
        over ``concept`` + ``surface_forms``) has ``status == "direct"``.
-       When several rows match, ALL must be ``direct`` (the #207 rule
-       ``filter_answered_concepts`` already applies) — and none may be an
-       unstoried #260 liability (RULING A-1).
+       When several rows match, ALL deciding rows must be ``direct`` (the #207
+       rule ``filter_answered_concepts`` already applies — directional: a
+       narrower non-direct row vetoes, a strictly broader one does not, see
+       :func:`_deciding_rows`) — and none may be an unstoried #260 liability
+       (RULING A-1).
     3. ``open`` — otherwise (``gap``, ``partial``, a liability, or no matching row).
 
     A member that matches NO ledger row is reported ``open`` here; dropping
