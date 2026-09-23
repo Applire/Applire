@@ -30,6 +30,7 @@ import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
 import { Lock } from "lucide-react";
+import { TONE } from "@/components/gaps/GapClusterCard";
 import {
   clusterView,
   type GapCluster,
@@ -1047,11 +1048,17 @@ export default function InterviewPage({
                 {t("roleRequirements")}
               </p>
               {gapAnalysis.gap_clusters.map((cluster) => {
+                const turn = turnCoverage[cluster.id] ?? null;
                 const status = trackerStatus(cluster, {
                   current: cluster.id === currentClusterId,
                   addressed: resolvedClusterIds.has(cluster.id),
-                  turn: turnCoverage[cluster.id] ?? null,
+                  turn,
                 });
+                // Ruling C-4 — the glyph and edge carry the SAME worst-
+                // requirement tone as the cluster's card on the gaps page (one
+                // helper, `clusterView`); the glyph SHAPE carries the state.
+                const view = clusterView(cluster, turn);
+                const tone = TONE[view.tone];
                 const srLabel =
                   status === "resolved" && typeof cluster.coverage === "string"
                     ? tGaps("coverageCovered")
@@ -1067,20 +1074,22 @@ export default function InterviewPage({
                     key={cluster.id}
                     data-testid={`gap-cluster-${cluster.id}`}
                     data-status={status}
+                    data-tone={view.tone}
                     className={cn(
                       "rounded-md px-3 py-2 text-xs border-l-2 transition-colors",
-                      status === "resolved" && "border-l-success bg-success-container/40 text-on-surface-variant",
-                      status === "current" && "border-l-teal bg-teal/5 text-neutral-dark font-medium",
-                      status === "partly_covered" && "border-l-warning bg-warning-container/40 text-on-surface",
-                      (status === "declined" || status === "spent") && "border-l-outline-variant text-on-surface-variant",
-                      status === "pending" && "border-l-gray-200 text-gray-400",
+                      tone.border,
+                      status === "resolved" && "bg-success-container/40 text-on-surface-variant",
+                      status === "current" && "bg-teal/5 text-neutral-dark font-medium",
+                      status === "partly_covered" && "text-on-surface",
+                      (status === "declined" || status === "spent") && "text-on-surface-variant",
+                      status === "pending" && "text-gray-400",
                     )}
                   >
                     <div className="flex items-center gap-2">
                       {status === "spent" ? (
-                        <Lock aria-hidden="true" className="h-3 w-3 shrink-0" />
+                        <Lock aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
                       ) : (
-                        <span aria-hidden="true">
+                        <span aria-hidden="true" className={tone.icon}>
                           {TRACKER_GLYPH[status]}
                         </span>
                       )}

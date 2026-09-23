@@ -19,6 +19,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InterviewPage from "../page";
+import { GapClusterCard, TONE } from "@/components/gaps/GapClusterCard";
+import { clusterView, type GapCluster } from "@/lib/match-utils";
 
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
@@ -826,5 +828,134 @@ describe("InterviewPage tracker: a turn's cluster_coverage is not painted over a
     await waitFor(() =>
       expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "resolved"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ruling C-4 — one gap, one colour: the interview tracker paints the SAME
+// worst-requirement tone as the gap card, through the same helper.
+// ---------------------------------------------------------------------------
+
+const ms = (pairs: [string, "covered" | "partial" | "gap" | "declined"][]) =>
+  pairs.map(([member, status]) => ({ member, status }));
+
+function toneCluster(id: string, category: "B" | "C", over: Partial<GapCluster>): GapCluster {
+  return {
+    id,
+    label: `Cluster ${id}`,
+    category,
+    gaps: [],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 1, covered: [], declined: [], session_ids: ["s0"] },
+    coverage: "partly_covered",
+    budget_remaining: 1,
+    member_statuses: [],
+    ...over,
+  };
+}
+
+const TONE_CLUSTERS: GapCluster[] = [
+  toneCluster("t-red", "C", {
+    gaps: ["Azure", "GCP"],
+    outcome: { asked: 1, covered: ["AWS"], declined: [], session_ids: ["s0"] },
+    member_statuses: ms([["Azure", "partial"], ["GCP", "gap"], ["AWS", "covered"]]),
+  }),
+  toneCluster("t-yellow", "C", {
+    gaps: ["Terraform"],
+    outcome: { asked: 1, covered: ["Ansible", "Pulumi", "Chef"], declined: [], session_ids: ["s0"] },
+    member_statuses: ms([["Terraform", "partial"], ["Ansible", "covered"], ["Pulumi", "covered"], ["Chef", "covered"]]),
+  }),
+  toneCluster("t-green", "C", {
+    outcome: { asked: 1, covered: ["Jenkins"], declined: ["Bamboo"], session_ids: ["s0"] },
+    coverage: "covered",
+    member_statuses: ms([["Jenkins", "covered"], ["Bamboo", "declined"]]),
+  }),
+  toneCluster("t-grey", "C", {
+    outcome: { asked: 1, covered: [], declined: ["Go"], session_ids: ["s0"] },
+    coverage: "declined",
+    member_statuses: ms([["Go", "declined"]]),
+  }),
+  toneCluster("t-spent", "C", {
+    gaps: ["Prometheus"],
+    outcome: { asked: 2, covered: ["Grafana"], declined: [], session_ids: ["s0", "s1"] },
+    budget_remaining: 0,
+    member_statuses: ms([["Prometheus", "gap"], ["Grafana", "covered"]]),
+  }),
+  // Legacy rows (no member facts): the same fallback on both screens.
+  { id: "t-legacy-b", label: "Legacy B", category: "B", gaps: ["Docker"], jd_skills: [], jd_context: "" } as unknown as GapCluster,
+  { id: "t-legacy-c", label: "Legacy C", category: "C", gaps: ["Rust"], jd_skills: [], jd_context: "" } as unknown as GapCluster,
+];
+
+describe("Ruling C-4 — the tracker and the gap card derive the same tone for the same cluster", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("every tracker row carries its card's tone, edge class and glyph colour", async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f1/state")) {
+        return { ok: true, json: async () => ({ job_id: "j1", current_step: "interview", job_summary: { role_title: "Engineer" } }) };
+      }
+      if (url.includes("/api/job/j1/gaps")) {
+        return { ok: true, json: async () => ({ id: "ga1", match_score: 0.4, gap_clusters: TONE_CLUSTERS }) };
+      }
+      if (url.includes("/api/session")) {
+        return {
+          ok: true,
+          json: async () => ({
+            session_id: "s1",
+            mode: "targeted",
+            first_question: "Q?",
+            question: "Q?",
+            estimated_questions: 5,
+            gaps_total: 1,
+            gaps_remaining: 1,
+            choices: null,
+            resumed: false,
+            current_gap_id: "t-red",
+            addressed_gap_ids: [],
+          }),
+        };
+      }
+      if (url.includes("/api/flow/f1/advance")) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() => expect(screen.getByTestId("gap-cluster-t-red")).toBeInTheDocument());
+
+    const expected: Record<string, string> = {
+      "t-red": "red",
+      "t-yellow": "yellow",
+      "t-green": "green",
+      "t-grey": "grey",
+      "t-spent": "red",
+      "t-legacy-b": "yellow",
+      "t-legacy-c": "red",
+    };
+    for (const cluster of TONE_CLUSTERS) {
+      const { container, unmount } = render(<GapClusterCard cluster={cluster} view={clusterView(cluster)} />);
+      const card = container.querySelector('[data-testid="gap-cluster-card"]') as HTMLElement;
+      const row = screen.getByTestId(`gap-cluster-${cluster.id}`);
+      const tone = card.getAttribute("data-tone") as keyof typeof TONE;
+      expect(tone).toBe(expected[cluster.id]);
+      expect(row).toHaveAttribute("data-tone", tone);
+      expect(row.className).toContain(TONE[tone].border);
+      expect(card.className).toContain(TONE[tone].border);
+      const glyph = row.querySelector("[aria-hidden='true']") as Element;
+      expect(glyph.getAttribute("class") ?? "").toContain(TONE[tone].icon);
+      unmount();
+    }
+    // The glyph SHAPE still carries the state.
+    expect(screen.getByTestId("gap-cluster-t-green")).toHaveAttribute("data-status", "resolved");
+    expect(screen.getByTestId("gap-cluster-t-grey")).toHaveAttribute("data-status", "declined");
+    expect(screen.getByTestId("gap-cluster-t-spent")).toHaveAttribute("data-status", "spent");
+    expect(screen.getByTestId("gap-cluster-t-yellow")).toHaveAttribute("data-status", "partly_covered");
   });
 });

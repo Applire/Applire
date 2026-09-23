@@ -48,8 +48,10 @@ interface GapClusterCardProps {
 }
 
 /** Edge, dot, hover ring and pill colour — the card's tone is its WORST
- * member (ruling C-1). Material-3 theme tokens only. */
-const TONE: Record<CardTone, { border: string; dot: string; ring: string; pill: string; icon: string }> = {
+ * member (ruling C-1). Material-3 theme tokens only. Exported so every screen
+ * that shows a gap (the interview tracker, ruling C-4) paints the same tone
+ * with the same classes — one gap, one colour. */
+export const TONE: Record<CardTone, { border: string; dot: string; ring: string; pill: string; icon: string }> = {
   red: {
     border: "border-l-critical",
     dot: "bg-critical",
