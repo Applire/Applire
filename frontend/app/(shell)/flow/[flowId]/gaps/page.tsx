@@ -826,11 +826,19 @@ export default function GapsPage({
       }
       if (!res.ok) throw new Error(await apiErrorMessage(res));
       const data = await res.json();
+      // Ruling B-3: a click on a cluster whose micro-session is waiting on a
+      // follow-up RESUMES it (same session, the waiting follow-up as
+      // `question`). Its open members are the row's `gaps` — the same record
+      // the answer turn reported — so the follow-up header is honest here too.
+      const cluster = gaps?.gap_clusters?.find((c) => c.id === clusterId);
+      const resumedFollowUp =
+        data.resumed === true && (cluster?.outcome?.asked ?? 0) > 0 && (cluster?.gaps?.length ?? 0) > 0;
       updateGapState(clusterId, {
         status: "question",
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
+        followUpOpen: resumedFollowUp && cluster ? cluster.gaps : null,
       });
     } catch (e: unknown) {
       updateGapState(clusterId, {

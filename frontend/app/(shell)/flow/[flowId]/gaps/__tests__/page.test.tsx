@@ -413,7 +413,17 @@ describe("ADR-089 cl. 8 — the answer turn's response is read", () => {
         ...row,
         gap_clusters: (row.gap_clusters as Json[]).map((c) =>
           c.id === "k8s"
-            ? { ...c, gaps: ["Helm"], outcome: outcome(1, ["Kubernetes"]), coverage: "partly_covered", budget_remaining: 1 }
+            ? {
+                ...c,
+                gaps: ["Helm"],
+                outcome: outcome(1, ["Kubernetes"]),
+                coverage: "partly_covered",
+                budget_remaining: 1,
+                member_statuses: [
+                  { member: "Helm", status: "partial" },
+                  { member: "Kubernetes", status: "covered" },
+                ],
+              }
             : c,
         ),
       }),
@@ -439,9 +449,11 @@ describe("ADR-089 cl. 8 — the answer turn's response is read", () => {
     // (the sr-only state label is stripped — it is asserted by the card's own tests)
     const term = (c: HTMLElement) => (c.textContent ?? "").replace(/gaps\.\w+/g, "");
     expect(chips.map((c) => [term(c), c.getAttribute("data-state")])).toEqual([
-      ["Helm", "open"],
+      ["Helm", "partial"],
       ["Kubernetes", "covered"],
     ]);
+    // Ruling C-1: the worst requirement (Helm, partial) colours the card.
+    expect(card("k8s")).toHaveAttribute("data-tone", "yellow");
     expect(within(card("k8s")).queryByTestId("gap-resolved")).not.toBeInTheDocument();
     // No refresh while the micro-session is still open.
     expect(calls(fetchMock, (u, m) => u.endsWith("/gaps/refresh") && m === "POST")).toHaveLength(0);
@@ -557,4 +569,45 @@ describe("ADR-089 contract item 5 — a 409 refusal is said inline", () => {
       expect(calls(fetchMock, (u) => u.endsWith("/gaps/refresh"))).toHaveLength(0);
     });
   }
+});
+
+describe("ruling B-3 — a click on a cluster waiting on a follow-up resumes it", () => {
+  it("shows the waiting follow-up with its header, from the row's open members", async () => {
+    const fetchMock = serve({
+      row: analysis([
+        cl("k8s", {
+          gaps: ["Helm"],
+          outcome: outcome(1, ["Kubernetes"]),
+          coverage: "partly_covered",
+          budget_remaining: 1,
+        }),
+      ]),
+      session: () => ({
+        status: 200,
+        body: { session_id: "s-waiting", question: "And Helm — own charts?", choices: ["Own", "Adapted"], resumed: true },
+      }),
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() =>
+      expect(within(card("k8s")).getByTestId("gap-question")).toHaveTextContent("And Helm — own charts?"),
+    );
+    expect(within(card("k8s")).getByTestId("gap-follow-up-label")).toBeInTheDocument();
+    expect(within(card("k8s")).getAllByTestId("gap-choice")).toHaveLength(2);
+    // The resumed session is the one the next answer goes to.
+    fireEvent.change(within(card("k8s")).getByTestId("gap-answer-textarea"), { target: { value: "Own charts." } });
+    fireEvent.click(within(card("k8s")).getByTestId("gap-submit-button"));
+    await waitFor(() => expect(calls(fetchMock, (u) => u.endsWith("/api/session/s-waiting/message"))).toHaveLength(1));
+  });
+
+  it("a fresh (not resumed) opening question has no follow-up header", async () => {
+    serve({
+      row: analysis([cl("k8s", { outcome: outcome(1, ["x"]), coverage: "partly_covered", budget_remaining: 1 })]),
+      session: () => ({ status: 200, body: { session_id: "s-new", question: "Opening?", choices: null, resumed: false } }),
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() => within(card("k8s")).getByTestId("gap-question"));
+    expect(within(card("k8s")).queryByTestId("gap-follow-up-label")).not.toBeInTheDocument();
+  });
 });

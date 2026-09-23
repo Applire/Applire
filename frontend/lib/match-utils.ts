@@ -155,6 +155,12 @@ export interface ClusterOutcome {
   session_ids: string[];
 }
 
+/** One member's ledger fact (ruling C-1 contract addition): `covered` =
+ * `direct` and not an unstoried #260 liability; `partial` = `partial` or an
+ * unstoried liability (ruling A-1); `gap` = `gap` or no matching ledger row;
+ * `declined` = a recorded denial (checked first). */
+export type MemberStatus = "covered" | "partial" | "gap" | "declined";
+
 /** One persisted gap cluster, as `GET /api/job/{id}/gaps` returns it. */
 export interface GapCluster {
   id: string;
@@ -171,6 +177,10 @@ export interface GapCluster {
    * (ruling C-2). The same number `cluster_coverage.budget_remaining` carries
    * on a session turn. */
   budget_remaining: number;
+  /** Derived at response time over ALL members (ruling C-1): each member's
+   * ledger fact — drives the chip colours and, through the worst member, the
+   * card's colour. */
+  member_statuses: { member: string; status: MemberStatus }[];
 }
 
 /** `SessionMessageResponse.cluster_coverage` (contract item 4) — the record a
@@ -253,14 +263,24 @@ export function clusterBudgetRemaining(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** One member chip on a card. `closed` = left the open list on a turn whose
- * covered/declined split the page has not re-read yet — shown neutrally,
- * never as covered (no false green). */
-export type MemberState = "open" | "covered" | "declined" | "closed";
+/** One member chip on a card: its ledger fact, or `closed` — it left the
+ * open list on a turn whose record the page has not re-read yet (shown
+ * neutrally, never green). */
+export type MemberState = MemberStatus | "closed";
+
+/** A card's colour (ruling C-1): the WORST non-declined member — any `gap` →
+ * red; else any `partial` → yellow; else green. All members declined → grey. */
+export type CardTone = "red" | "yellow" | "green" | "grey";
+
+/** The status pill: coverage wording, with the C-1b "likely match" for a
+ * cluster nobody has asked yet. `null` = no pill (an open cluster). */
+export type CoveragePill = "covered" | "partly" | "likely" | "declined";
 
 export interface ClusterView {
   coverage: ClusterCoverage;
   members: { term: string; state: MemberState }[];
+  tone: CardTone;
+  pill: CoveragePill | null;
   /** Budget left AND coverage not covered/declined (`gap_coverage.is_askable`). */
   askable: boolean;
   /** Not askable ONLY because the budget is gone — a spent budget is shown,
@@ -270,10 +290,29 @@ export interface ClusterView {
   asked: number;
 }
 
+/** The worst-member rule (ruling C-1, founder's words: "3 green and one
+ * yellow → card yellow; one green, one yellow, one red → card red; 5 green →
+ * green"). Declined members never colour a card that has other members;
+ * `closed` members (not re-read yet) do not colour it either. */
+export function cardTone(states: MemberState[], coverage: ClusterCoverage): CardTone {
+  const live = states.filter((st) => st !== "declined" && st !== "closed");
+  if (live.includes("gap")) return "red";
+  if (live.includes("partial")) return "yellow";
+  if (live.length > 0) return "green";
+  // Nothing live to judge by: all declined, or all closed by the last turn.
+  if (states.length > 0 && states.every((st) => st === "declined")) return "grey";
+  return coverage === "declined" ? "grey" : coverage === "open" ? "red" : coverage === "covered" ? "green" : "yellow";
+}
+
 /**
  * What a gap card renders — every field from the server: the persisted
  * cluster, overlaid by the turn that just answered it (`turn`, until the page
  * re-reads the analysis). No client-only state decides coverage.
+ *
+ * Member facts come from `member_statuses` (ruling C-1). A row that carries
+ * none (legacy) falls back to the lists: covered/declined from `outcome`, an
+ * open member reads `gap` in a Category C cluster and `partial` in a B one —
+ * the colours the page showed before.
  */
 export function clusterView(
   cluster: GapCluster,
@@ -281,36 +320,68 @@ export function clusterView(
 ): ClusterView {
   const coverage = clusterCoverage(cluster, turn);
   const budget = clusterBudgetRemaining(cluster, turn);
+  const facts = new Map<string, MemberStatus>();
+  for (const entry of cluster.member_statuses ?? []) {
+    if (entry && typeof entry.member === "string") facts.set(normMember(entry.member), entry.status);
+  }
   const covered = new Set((cluster.outcome?.covered ?? []).map(normMember));
   const declined = new Set((cluster.outcome?.declined ?? []).map(normMember));
-  const open = new Set((turn ? turn.open_concepts : cluster.gaps ?? []).map(normMember));
-  const members = allClusterMembers(cluster).map((term) => {
-    const key = normMember(term);
-    const state: MemberState = open.has(key)
-      ? "open"
-      : declined.has(key)
-        ? "declined"
-        : covered.has(key)
-          ? "covered"
-          : "closed";
-    return { term, state };
-  });
-  // A turn can name an open member the cluster did not carry yet (never
-  // expected, but never dropped silently either).
+  const rowOpen = new Set((cluster.gaps ?? []).map(normMember));
+  const turnOpen = turn ? new Set(turn.open_concepts.map(normMember)) : null;
+  const openFallback: MemberStatus = cluster.category === "B" ? "partial" : "gap";
+
+  const rowFact = (key: string): MemberStatus =>
+    facts.get(key) ??
+    (declined.has(key) ? "declined" : covered.has(key) ? "covered" : rowOpen.has(key) ? openFallback : "gap");
+
+  const stateOf = (key: string): MemberState => {
+    if (!turnOpen) return rowFact(key);
+    if (turnOpen.has(key)) {
+      // Still open after the turn: its row fact, unless the row called it
+      // finished (then the turn is newer — it is open, i.e. not covered).
+      const fact = rowFact(key);
+      return fact === "gap" || fact === "partial" ? fact : openFallback;
+    }
+    // Left the open list on this turn: covered or declined, the page does not
+    // know which until it re-reads the row — never guess green.
+    const fact = rowFact(key);
+    return fact === "covered" || fact === "declined" ? fact : "closed";
+  };
+
+  const members: { term: string; state: MemberState }[] = allClusterMembers(cluster).map((term) => ({
+    term,
+    state: stateOf(normMember(term)),
+  }));
   if (turn) {
     const known = new Set(members.map((m) => normMember(m.term)));
     for (const term of turn.open_concepts) {
-      if (!known.has(normMember(term))) members.push({ term, state: "open" });
+      if (!known.has(normMember(term))) members.push({ term, state: openFallback });
     }
   }
+
+  const tone = cardTone(members.map((m) => m.state), coverage);
+  const asked = cluster.outcome?.asked ?? 0;
+  const pill: CoveragePill | null =
+    coverage === "covered"
+      ? "covered"
+      : coverage === "declined"
+        ? "declined"
+        : coverage === "partly_covered"
+          ? asked === 0 && tone === "yellow"
+            ? "likely" // C-1b: nobody asked yet, no red member, at least one yellow
+            : "partly"
+          : null;
+
   const finished = coverage === "covered" || coverage === "declined";
   const hasBudget = budget === null ? true : budget > 0;
   return {
     coverage,
     members,
+    tone,
+    pill,
     askable: !finished && hasBudget,
     budgetSpent: !finished && !hasBudget,
-    asked: cluster.outcome?.asked ?? 0,
+    asked,
   };
 }
 

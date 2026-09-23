@@ -19,6 +19,7 @@ import { describe, it, expect } from "vitest";
 import {
   allClusterMembers,
   canonicalRequirementChips,
+  cardTone,
   clusterCoverageCounts,
   clusterView,
   gapCounts,
@@ -137,9 +138,16 @@ function cluster(over: Partial<GapCluster> = {}): GapCluster {
     outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
     coverage: "open",
     budget_remaining: 2,
+    member_statuses: [
+      { member: "Kubernetes", status: "gap" },
+      { member: "Terraform", status: "gap" },
+    ],
     ...over,
   };
 }
+
+type S = "covered" | "partial" | "gap" | "declined";
+const statuses = (pairs: [string, S][]) => pairs.map(([member, status]) => ({ member, status }));
 
 describe("allClusterMembers (TS mirror of gap_coverage.all_members)", () => {
   it("reads open + covered + declined, in that order", () => {
@@ -166,28 +174,33 @@ describe("allClusterMembers (TS mirror of gap_coverage.all_members)", () => {
 });
 
 describe("clusterView — a card's state comes from the server record only", () => {
-  it("open: every member open, askable while budget is left", () => {
+  it("open: every member a red gap, askable while budget is left, no pill", () => {
     const v = clusterView(cluster());
     expect(v.coverage).toBe("open");
     expect(v.askable).toBe(true);
     expect(v.budgetSpent).toBe(false);
-    expect(v.members.map((m) => m.state)).toEqual(["open", "open"]);
+    expect(v.members.map((m) => m.state)).toEqual(["gap", "gap"]);
+    expect(v.tone).toBe("red");
+    expect(v.pill).toBeNull();
   });
 
-  it("partly covered: covered members are marked, the open ones stay open, still askable", () => {
+  it("partly covered: each member carries its own ledger fact, still askable", () => {
     const v = clusterView(
       cluster({
         gaps: ["Terraform"],
         outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
         coverage: "partly_covered",
         budget_remaining: 1,
+        member_statuses: statuses([["Terraform", "partial"], ["Kubernetes", "covered"]]),
       }),
     );
     expect(v.coverage).toBe("partly_covered");
     expect(v.members).toEqual([
-      { term: "Terraform", state: "open" },
+      { term: "Terraform", state: "partial" },
       { term: "Kubernetes", state: "covered" },
     ]);
+    expect(v.tone).toBe("yellow");
+    expect(v.pill).toBe("partly");
     expect(v.askable).toBe(true);
     expect(v.asked).toBe(1);
   });
@@ -219,6 +232,7 @@ describe("clusterView — a card's state comes from the server record only", () 
         gaps: [],
         outcome: { asked: 1, covered: ["Kubernetes"], declined: ["Terraform"], session_ids: ["s1"] },
         coverage: "covered",
+        member_statuses: statuses([["Kubernetes", "covered"], ["Terraform", "declined"]]),
       }),
     );
     expect(v.members).toEqual([
@@ -237,8 +251,9 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.coverage).toBe("partly_covered");
     expect(v.members).toEqual([
       { term: "Kubernetes", state: "closed" },
-      { term: "Terraform", state: "open" },
+      { term: "Terraform", state: "gap" },
     ]);
+    expect(v.tone).toBe("red"); // the closed member never colours the card
     expect(v.askable).toBe(true);
   });
 
@@ -252,7 +267,7 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.budgetSpent).toBe(true);
   });
 
-  it("legacy row (no coverage, no budget): open and askable — the 409 is the fallback", () => {
+  it("legacy row (no coverage, no budget, no member facts): open and askable — the 409 is the fallback; B reads yellow, C red", () => {
     const legacy = {
       id: "cl-x",
       label: "x",
@@ -265,6 +280,79 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.coverage).toBe("open");
     expect(v.askable).toBe(true);
     expect(v.asked).toBe(0);
+    expect(v.members).toEqual([{ term: "Docker", state: "partial" }]);
+    expect(v.tone).toBe("yellow");
+    expect(clusterView({ ...legacy, category: "C" } as GapCluster).tone).toBe("red");
+  });
+});
+
+describe("ruling C-1 — the card's colour is its WORST requirement", () => {
+  // The founder's own three examples, verbatim in intent.
+  it("3 green + 1 yellow → yellow", () => {
+    expect(cardTone(["covered", "covered", "covered", "partial"], "partly_covered")).toBe("yellow");
+  });
+  it("1 green + 1 yellow + 1 red → red", () => {
+    expect(cardTone(["covered", "partial", "gap"], "partly_covered")).toBe("red");
+  });
+  it("5 green → green", () => {
+    expect(cardTone(["covered", "covered", "covered", "covered", "covered"], "covered")).toBe("green");
+  });
+  it("all declined → grey", () => {
+    expect(cardTone(["declined", "declined"], "declined")).toBe("grey");
+  });
+  it("declined members never colour a card that has others", () => {
+    expect(cardTone(["covered", "declined"], "covered")).toBe("green");
+    expect(cardTone(["partial", "declined"], "partly_covered")).toBe("yellow");
+  });
+
+  it("the card view carries the worst member's tone through member_statuses", () => {
+    const v = clusterView(
+      cluster({
+        gaps: ["Helm", "Istio"],
+        outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"] },
+        coverage: "partly_covered",
+        member_statuses: statuses([
+          ["Kubernetes", "covered"],
+          ["Helm", "partial"],
+          ["Istio", "gap"],
+        ]),
+      }),
+    );
+    expect(v.tone).toBe("red");
+    expect(v.pill).toBe("partly"); // pill TEXT follows coverage, its colour the card
+    expect(v.members.map((m) => [m.term, m.state])).toEqual([
+      ["Helm", "partial"],
+      ["Istio", "gap"],
+      ["Kubernetes", "covered"],
+    ]);
+  });
+});
+
+describe("ruling C-1b — a likely match nobody has asked yet", () => {
+  const likely = (over: Partial<GapCluster> = {}) =>
+    cluster({
+      category: "B",
+      gaps: ["PostgreSQL", "Redis"],
+      coverage: "partly_covered",
+      member_statuses: statuses([["PostgreSQL", "partial"], ["Redis", "partial"]]),
+      ...over,
+    });
+
+  it("asked 0, no red member, at least one yellow → 'likely match'", () => {
+    const v = clusterView(likely());
+    expect(v.pill).toBe("likely");
+    expect(v.tone).toBe("yellow");
+  });
+
+  it("after the first answer it follows the normal states", () => {
+    const v = clusterView(likely({ outcome: { asked: 1, covered: [], declined: [], session_ids: ["s1"] } }));
+    expect(v.pill).toBe("partly");
+  });
+
+  it("a red member keeps the normal wording even when nobody asked yet", () => {
+    const v = clusterView(likely({ member_statuses: statuses([["PostgreSQL", "partial"], ["Redis", "gap"]]) }));
+    expect(v.tone).toBe("red");
+    expect(v.pill).toBe("partly");
   });
 });
 

@@ -301,29 +301,39 @@ function recordCluster(id: string, label: string, over: Json = {}): Json {
   };
 }
 
+type MemberStatus = "covered" | "partial" | "gap" | "declined";
+const facts = (pairs: [string, MemberStatus][]) => pairs.map(([member, status]) => ({ member, status }));
+
 const RECORD_CLUSTERS = [
-  recordCluster("cl-open", "Container Orchestration", { gaps: ["Kubernetes", "Helm"] }),
+  recordCluster("cl-open", "Container Orchestration", {
+    gaps: ["Kubernetes", "Helm"],
+    member_statuses: facts([["Kubernetes", "gap"], ["Helm", "gap"]]),
+  }),
   recordCluster("cl-partly", "Infrastructure as Code", {
     gaps: ["Terraform"],
     outcome: outcome(1, ["Ansible"]),
     coverage: "partly_covered",
     budget_remaining: 1,
+    member_statuses: facts([["Terraform", "partial"], ["Ansible", "covered"]]),
   }),
   recordCluster("cl-spent", "Observability", {
     gaps: ["Prometheus"],
     outcome: outcome(2, ["Grafana"]),
     coverage: "partly_covered",
     budget_remaining: 0,
+    member_statuses: facts([["Prometheus", "gap"], ["Grafana", "covered"]]),
   }),
   recordCluster("cl-covered", "CI/CD Pipelines", {
     outcome: outcome(1, ["GitHub Actions", "Jenkins"]),
     coverage: "covered",
     budget_remaining: 1,
+    member_statuses: facts([["GitHub Actions", "covered"], ["Jenkins", "covered"]]),
   }),
   recordCluster("cl-declined", "Go Development", {
     outcome: outcome(1, [], ["Go"]),
     coverage: "declined",
     budget_remaining: 1,
+    member_statuses: facts([["Go", "declined"]]),
   }),
 ];
 
@@ -361,6 +371,12 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
 
     for (let pass = 0; pass < 2; pass++) {
       await expect(cardById(page, "cl-open")).toHaveAttribute("data-coverage", "open");
+      // Ruling C-1: the card's colour is its worst requirement.
+      await expect(cardById(page, "cl-open")).toHaveAttribute("data-tone", "red");
+      await expect(cardById(page, "cl-partly")).toHaveAttribute("data-tone", "yellow");
+      await expect(cardById(page, "cl-spent")).toHaveAttribute("data-tone", "red");
+      await expect(cardById(page, "cl-covered")).toHaveAttribute("data-tone", "green");
+      await expect(cardById(page, "cl-declined")).toHaveAttribute("data-tone", "grey");
       await expect(cardById(page, "cl-partly").getByTestId("gap-partly-covered")).toHaveText("Partly covered");
       await expect(cardById(page, "cl-covered").getByTestId("gap-resolved")).toContainText("Covered");
       await expect(cardById(page, "cl-declined").getByTestId("gap-declined")).toHaveText("You said you don't have this");
@@ -399,7 +415,14 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
       state.row = recordAnalysis(
         RECORD_CLUSTERS.map((c) =>
           c.id === "cl-open"
-            ? { ...c, gaps: ["Helm"], outcome: outcome(1, ["Kubernetes"]), coverage: "partly_covered", budget_remaining: 1 }
+            ? {
+                ...c,
+                gaps: ["Helm"],
+                outcome: outcome(1, ["Kubernetes"]),
+                coverage: "partly_covered",
+                budget_remaining: 1,
+                member_statuses: facts([["Helm", "gap"], ["Kubernetes", "covered"]]),
+              }
             : c
         )
       );
@@ -434,7 +457,8 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     // Not green: partly covered, Kubernetes covered, Helm open.
     await expect(open).toHaveAttribute("data-coverage", "partly_covered");
     await expect(open.locator('[data-testid="gap-member"][data-state="covered"]')).toContainText("Kubernetes");
-    await expect(open.locator('[data-testid="gap-member"][data-state="open"]')).toContainText("Helm");
+    await expect(open.locator('[data-testid="gap-member"][data-state="gap"]')).toContainText("Helm");
+    await expect(open).toHaveAttribute("data-tone", "red"); // Helm is still a red gap
     await expect(open.getByTestId("gap-resolved")).toHaveCount(0);
     expect(refreshed).toBe(0);
   });
@@ -464,10 +488,20 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
       [
         ...RECORD_CLUSTERS.map((c) =>
           c.id === "cl-open"
-            ? { ...c, gaps: [], outcome: outcome(1, ["Kubernetes", "Helm"]), coverage: "covered", budget_remaining: 1 }
+            ? {
+                ...c,
+                gaps: [],
+                outcome: outcome(1, ["Kubernetes", "Helm"]),
+                coverage: "covered",
+                budget_remaining: 1,
+                member_statuses: facts([["Kubernetes", "covered"], ["Helm", "covered"]]),
+              }
             : c
         ),
-        recordCluster("cl-appended", "Service Mesh", { gaps: ["Istio"] }),
+        recordCluster("cl-appended", "Service Mesh", {
+          gaps: ["Istio"],
+          member_statuses: facts([["Istio", "gap"]]),
+        }),
       ],
       { match_score: 0.66 }
     );
@@ -520,6 +554,117 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
       await expect(open).not.toHaveClass(/cursor-pointer/);
     });
   }
+
+  test("ruling C-1: each requirement chip has its own colour and the worst one colours the card", async ({ page }) => {
+    const state = {
+      row: recordAnalysis([
+        recordCluster("cl-yellow", "Three green, one yellow", {
+          gaps: ["Airflow"],
+          outcome: outcome(1, ["Kafka", "Spark", "Flink"]),
+          coverage: "partly_covered",
+          member_statuses: facts([["Airflow", "partial"], ["Kafka", "covered"], ["Spark", "covered"], ["Flink", "covered"]]),
+        }),
+        recordCluster("cl-red", "Green, yellow, red", {
+          gaps: ["Podman", "Nomad"],
+          outcome: outcome(1, ["Docker"]),
+          coverage: "partly_covered",
+          member_statuses: facts([["Podman", "partial"], ["Nomad", "gap"], ["Docker", "covered"]]),
+        }),
+        recordCluster("cl-green", "Five green", {
+          outcome: outcome(1, ["Git", "Make", "Bash", "Vim", "Jira"]),
+          coverage: "covered",
+          member_statuses: facts([["Git", "covered"], ["Make", "covered"], ["Bash", "covered"], ["Vim", "covered"], ["Jira", "covered"]]),
+        }),
+        recordCluster("cl-green-declined", "Green with a declined one", {
+          outcome: outcome(1, ["Linux"], ["Windows"]),
+          coverage: "covered",
+          member_statuses: facts([["Linux", "covered"], ["Windows", "declined"]]),
+        }),
+      ]),
+    };
+    await setupRecordMocks(page, state);
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+
+    const edge = (id: string) => cardById(page, id).evaluate((el) => getComputedStyle(el).borderLeftColor);
+    await expect(cardById(page, "cl-yellow")).toHaveAttribute("data-tone", "yellow");
+    expect(await edge("cl-yellow")).toBe("rgb(229, 168, 50)"); // warning token
+    await expect(cardById(page, "cl-red")).toHaveAttribute("data-tone", "red");
+    expect(await edge("cl-red")).toBe("rgb(217, 79, 79)"); // critical token
+    await expect(cardById(page, "cl-green")).toHaveAttribute("data-tone", "green");
+    expect(await edge("cl-green")).toBe("rgb(45, 159, 111)"); // success token
+    // Declined members never colour a card that has others.
+    await expect(cardById(page, "cl-green-declined")).toHaveAttribute("data-tone", "green");
+
+    // Chips: green = covered, yellow = partial, red = open gap, grey = declined.
+    const chip = (id: string, term: string) =>
+      cardById(page, id).locator('[data-testid="gap-member"]', { hasText: new RegExp(`^${term}\\(`) });
+    await expect(chip("cl-red", "Docker")).toHaveAttribute("data-state", "covered");
+    await expect(chip("cl-red", "Podman")).toHaveAttribute("data-state", "partial");
+    await expect(chip("cl-red", "Nomad")).toHaveAttribute("data-state", "gap");
+    await expect(chip("cl-green-declined", "Windows")).toHaveAttribute("data-state", "declined");
+    const bg = (id: string, term: string) => chip(id, term).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg("cl-red", "Docker")).toBe("rgb(200, 247, 224)"); // success-container
+    expect(await bg("cl-red", "Podman")).toBe("rgb(254, 243, 199)"); // warning-container
+    expect(await bg("cl-red", "Nomad")).toBe("rgb(253, 232, 232)"); // critical-container
+
+    // The pill colour follows the card: a partly covered card with a red member has a red pill.
+    await expect(cardById(page, "cl-red").getByTestId("gap-partly-covered")).toHaveAttribute("data-tone", "red");
+  });
+
+  test("ruling C-1b: a likely match nobody has asked yet reads 'Likely match'; after an answer, the normal state", async ({ page }) => {
+    const likely = recordCluster("cl-likely", "Databases", {
+      category: "B",
+      gaps: ["PostgreSQL"],
+      coverage: "partly_covered",
+      member_statuses: facts([["PostgreSQL", "partial"]]),
+    });
+    const state = { row: recordAnalysis([likely]) };
+    await setupRecordMocks(page, state);
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(cardById(page, "cl-likely").getByTestId("gap-likely-match")).toHaveText("Likely match");
+    await expect(cardById(page, "cl-likely").getByTestId("gap-partly-covered")).toHaveCount(0);
+
+    state.row = recordAnalysis([{ ...likely, outcome: outcome(1) }]);
+    await page.reload();
+    await expect(cardById(page, "cl-likely").getByTestId("gap-partly-covered")).toHaveText("Partly covered");
+    await expect(cardById(page, "cl-likely").getByTestId("gap-likely-match")).toHaveCount(0);
+  });
+
+  test("ruling B-3: after a reload, clicking a cluster that waits on a follow-up resumes it", async ({ page }) => {
+    const waiting = recordCluster("cl-waiting", "Container Orchestration", {
+      gaps: ["Helm"],
+      outcome: outcome(1, ["Kubernetes"]),
+      coverage: "partly_covered",
+      budget_remaining: 1,
+      member_statuses: facts([["Helm", "gap"], ["Kubernetes", "covered"]]),
+    });
+    await setupRecordMocks(page, { row: recordAnalysis([waiting]) });
+    await page.route("**/api/session", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: "micro-waiting",
+          question: "And Helm — did you write your own charts?",
+          choices: ["Wrote our own charts", "Adapted existing charts"],
+          resumed: true,
+        }),
+      })
+    );
+    let answeredTo = "";
+    await page.route("**/api/session/*/message", (route) => {
+      answeredTo = new URL(route.request().url()).pathname;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ complete: true }) });
+    });
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    const card = cardById(page, "cl-waiting");
+    await card.click();
+    await expect(card.getByTestId("gap-question")).toHaveText("And Helm — did you write your own charts?");
+    await expect(card.getByTestId("gap-follow-up-label")).toHaveText("Follow-up — still open: Helm");
+    await card.getByTestId("gap-choice").first().click();
+    await card.getByTestId("gap-submit-button").click();
+    await expect.poll(() => answeredTo).toBe("/api/session/micro-waiting/message");
+  });
 
   test.describe("at 390 px", () => {
     test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
