@@ -333,3 +333,18 @@ def test_replay_fixtures_are_well_formed():
         assert find_occurrences(c["forms"], c["section_text"]), c["id"]
         for alts in c["facts"]:
             assert any(a.lower() in c["section_text"].lower() for a in alts), (c["id"], alts)
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_performs_the_removal_so_a_mock_stack_take_out_changes():
+    """The mock-stack IQ/OQ/PQ path: the mock answers the removal prompt with the
+    passage minus its forms, so ``changed`` is True end to end without a model."""
+    from applire.providers.llm.mock import MockLLMProvider
+
+    res = await rewrite_for_removal(
+        "cv", RECORD, "position::abc", BULLETS, ["Apache Kafka", "Kafka"], MockLLMProvider(),
+        language="en",
+    )
+    assert res.changed is True
+    assert not form_present("Kafka", res.after)
+    assert res.after.count("\n") == BULLETS.count("\n")
