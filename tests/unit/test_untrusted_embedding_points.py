@@ -315,6 +315,18 @@ def _p28_cv_assist_role_title() -> str:
     return _rewrite_prompt("Zusammenfassung", "Inhalt", "", [], CANARY)
 
 
+def _p29_review_take_out_forms() -> str:
+    # ADR-090 cl. 3 (WP-B): the forms to remove are Keyword-Ledger surface forms —
+    # the posting's text — embedded as a Form A block. The passage is the
+    # candidate's own document and carries no canary here.
+    from applire.prompts.review_rewrite import build_review_rewrite_prompt
+
+    return build_review_rewrite_prompt(
+        "Built settlement services.", [CANARY, "Kafka"],
+        passage_kind="bullets", language="en",
+    )
+
+
 #: The registry. Keys are stable ids used in failure messages; ADR-084 clause 8
 #: and arc42 §5.3.30's matrix carry the same list in prose.
 #:
@@ -361,6 +373,7 @@ EMBEDDING_POINTS: dict[str, Callable[[], str]] = {
     "26c_outcome_critic_anchors": _p26c_outcome_critic_pass_b_anchors,
     "27_color_detection_company_name": _p27_color_detection_company_name,
     "28_cv_assist_role_title": _p28_cv_assist_role_title,
+    "29_review_take_out_forms": _p29_review_take_out_forms,
 }
 
 
@@ -520,6 +533,10 @@ def test_point_28_cv_assist_embeds_the_target_role_title():
     _assert_covered("28_cv_assist_role_title")
 
 
+def test_point_29_review_take_out_embeds_the_forms_to_remove():
+    _assert_covered("29_review_take_out_forms")
+
+
 # ---------------------------------------------------------------------------
 # 2. The registry-driven structural test (ADR-084 clause 5)
 # ---------------------------------------------------------------------------
@@ -556,8 +573,9 @@ def test_the_registry_covers_every_point_the_adr_lists():
     its own wiring in ``test_review_prompts.py``) + point 23 (asserted above by
     its own property) = the ADR's enumeration. Point 21 (JD-aware CV extraction)
     was retired M5.1.3 (2026-09-11) — 32 builder points before that, 31 since;
-    this assertion must move with the registry or it stops proving anything."""
-    assert len(EMBEDDING_POINTS) == 31
+    this assertion must move with the registry or it stops proving anything.
+    Point 29 (ADR-090 cl. 3, the take-out removal rewrite) added 2026-09-23 → 32."""
+    assert len(EMBEDDING_POINTS) == 32
     named = {
         name.split("test_point_")[1].split("_")[0]
         for name in globals()

@@ -23,7 +23,7 @@ and keeps ``before`` for Undo.
 presence predicate, ``ats_audit.surface_present`` — the same test the awaited
 re-audit applies), an empty result, or a truncated completion returns
 ``changed=False`` with ``after == before``: never a partial save. A paragraph the
-model deleted outright (rule 4 of the prompt: it existed only to claim the wording)
+model deleted outright (rule 2 of the prompt: it existed only to claim the wording)
 is a legitimate result and is dropped with its separator.
 
 **Not a repair pass.** Nothing here edits model output: the checks only decide
@@ -238,15 +238,14 @@ async def rewrite_for_removal(
 
 
 def _reassemble(pieces: list[str], out_paras: list[str | None]) -> str:
-    """Join paragraphs back with their original separators; a deleted paragraph
-    (``None``) takes one adjacent separator with it."""
-    kept: list[tuple[str, str]] = []  # (separator_before, paragraph)
-    pending_sep = ""
+    """Join paragraphs back with their original separators. A deleted paragraph
+    (``None``) takes the separator before it with it; when the FIRST kept paragraph
+    follows deleted ones it gets no separator at all."""
+    out: list[str] = []
     for idx, para in enumerate(out_paras):
-        sep_before = pieces[2 * idx - 1] if idx > 0 else ""
         if para is None:
-            if not kept:
-                pending_sep = ""
             continue
-        kept.append((sep_before if kept else pending_sep, para))
-    return "".join(sep + para for sep, para in kept)
+        if out:
+            out.append(pieces[2 * idx - 1])
+        out.append(para)
+    return "".join(out)
