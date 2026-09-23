@@ -191,12 +191,19 @@ def _evidence_norm(profile: dict[str, Any]) -> str:
 
 
 def _cluster_terms(cluster: dict[str, Any]) -> list[str]:
-    """The JD-side terms a chip could wrongly attribute to the candidate."""
+    """The JD-side terms a chip could wrongly attribute to the candidate.
+
+    ADR-089 clause 3: EVERY member (``gap_coverage.all_members`` — open
+    ``gaps`` plus ``outcome.covered`` / ``outcome.declined``), never ``gaps``
+    alone: a chip naming a covered or declined sibling must still clear the
+    #110 evidence check, or it escapes it (fail-open)."""
+    from applire.services.gap_coverage import all_members
+
     terms: list[str] = []
     seen: set[str] = set()
     for term in [
         cluster.get("label") or "",
-        *(cluster.get("gaps") or []),
+        *all_members(cluster),
         *(cluster.get("jd_skills") or []),
     ]:
         term = str(term).strip()
@@ -217,10 +224,17 @@ def constituent_evidence(cluster: dict[str, Any], profile: dict[str, Any]) -> di
     already updated) and this module's mirror guard: both read the same
     corpus with the same predicate, so the hint the model sees and the
     guard that polices its output cannot disagree.
+
+    ADR-089 clause 3: flags EVERY member (``gap_coverage.all_members``), so a
+    member an earlier session covered is reported evidenced (and the prompt's
+    "never deny or re-question the evidenced ones" reaches it) instead of
+    vanishing from the hint.
     """
+    from applire.services.gap_coverage import all_members
+
     evidence = _evidence_norm(profile)
     flags: dict[str, bool] = {}
-    for gap in cluster.get("gaps") or []:
+    for gap in all_members(cluster):
         term = str(gap).strip()
         if term:
             flags[term] = surface_present(term, evidence)

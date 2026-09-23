@@ -197,6 +197,35 @@ class GapAnalysisResponse(BaseModel):
         ]
         return self
 
+    @model_validator(mode="after")
+    def _derive_cluster_record_views(self) -> "GapAnalysisResponse":
+        """ADR-089 — the derived, never-persisted views of each cluster's
+        record, computed from THIS row's own ledger by the one implementation
+        in ``gap_coverage``:
+
+        * ``coverage`` for a cluster persisted before the per-gap record
+          existed (``derive_coverage``). A cluster that carries a coverage
+          keeps it: the record is written by the session turn and the
+          recompute, never re-judged on read;
+        * ``member_statuses`` for every cluster (ruling C-1,
+          ``member_statuses``) — the chip colours of the gaps page.
+        """
+        if not self.gap_clusters:
+            return self
+        from applire.services.gap_coverage import derive_coverage, member_statuses
+
+        from applire.schemas.gap_cluster import GapClusterMemberStatus
+
+        ledger = [e.model_dump() for e in self.keyword_ledger]
+        for cluster in self.gap_clusters:
+            raw = cluster.model_dump(exclude={"budget_remaining", "member_statuses"})
+            if cluster.coverage is None:
+                cluster.coverage = derive_coverage(raw, ledger)
+            cluster.member_statuses = [
+                GapClusterMemberStatus(**item) for item in member_statuses(raw, ledger)
+            ]
+        return self
+
 
 class KeywordLiabilityDowngradeRequest(BaseModel):
     """Body for POST /api/job/{job_id}/gaps/liabilities/downgrade (#260
