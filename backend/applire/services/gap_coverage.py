@@ -542,6 +542,19 @@ def refresh_cluster_from_ledger(
     return _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=True)
 
 
+def resplit_cluster(
+    cluster: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """PURE. Re-split a cluster against an IN-PLACE ledger change on its own
+    row (e.g. the #260 exit-b liability downgrade): members kept (no orphan
+    drop — the ledger's rows did not change identity), ``outcome.asked`` /
+    ``session_ids`` kept, the split and ``coverage`` re-derived."""
+    split = _split_against_ledger(cluster, keyword_ledger, denied_concepts, drop_orphans=False)
+    return split if split is not None else copy.deepcopy(cluster)
+
+
 def initialise_cluster_record(
     cluster: dict[str, Any],
     keyword_ledger: list[dict[str, Any]] | None,

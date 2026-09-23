@@ -126,7 +126,19 @@ def test_the_carried_row_keeps_the_fresh_score_slot_and_unions_forms():
     previous = [row("Docker", "direct", forms=["Docker", "Containers"])]
     merged, _ = _merge(fresh, previous)
     assert merged[0]["sources"] == ["nice_to_have"] and merged[0]["fit_weight"] == 0.5
-    assert merged[0]["surface_forms"] == ["Docker", "Containers", "Docker Compose"]
+    assert merged[0]["surface_forms"] == ["Docker", "Docker Compose", "Containers"]
+
+
+def test_a_carried_row_keeps_the_fresh_concept_so_no_name_is_published_twice():
+    """The classifier split one previous requirement into two fresh rows; both
+    carry the previous claim, and each keeps its own name in this ledger."""
+    jd = ["docker", "docker compose"]
+    fresh = [row("Docker", "gap"), row("Docker Compose", "gap")]
+    previous = [row("Docker", "direct", forms=["Docker", "Docker Compose"])]
+    merged, carried = _merge(fresh, previous, jd=jd)
+    assert carried == [0, 1]
+    assert [r["concept"] for r in merged] == ["Docker", "Docker Compose"]
+    assert [r["status"] for r in merged] == ["direct", "direct"]
 
 
 def test_an_upward_move_stands():

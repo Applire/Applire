@@ -55,6 +55,7 @@ from applire.services.gap_coverage import (
     all_members,
     initialise_cluster_record,
     refresh_cluster_from_ledger,
+    resplit_cluster,
 )
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import (
@@ -335,6 +336,20 @@ async def downgrade_keyword_liability(
         # JSONB tracking gotcha (mirrors session.py's upgrade path): keyword_ledger
         # is a plain _JSON column, not a MutableList — reassign the WHOLE list.
         gap_analysis.keyword_ledger = new_ledger
+        # ADR-089 clause 3 — the per-gap record is derived from this ledger, so a
+        # ledger write on this row re-splits every cluster against it (members
+        # kept, `outcome.asked`/`session_ids` kept, `coverage` re-derived). Else
+        # the dropped liability's cluster keeps the coverage of a claim the
+        # candidate just withdrew until the next recompute (SF-GAP.17).
+        denied = [
+            d
+            for d in (((profile.profile_json or {}).get("metadata") or {}).get("denied_concepts") or [])
+            if isinstance(d, dict) and d.get("concept")
+        ] if profile else []
+        gap_analysis.gap_clusters = [
+            resplit_cluster(c, new_ledger, denied) if isinstance(c, dict) else c
+            for c in (gap_analysis.gap_clusters or [])
+        ]
         scored = compute_match_score_from_ledger(new_ledger)
         gap_analysis.match_score = scored["match_score"]
         gap_analysis.category_a = scored["category_a"]
@@ -793,17 +808,21 @@ def _is_touched(
 
 def _carried_row(previous_row: dict[str, Any], fresh_row: dict[str, Any]) -> dict[str, Any]:
     """The previous row standing in for a fresh one that moved down outside the
-    touched set. Its claim (status, evidence, adjacency, JD phrase) is the
-    previous row's; its SCORE SLOT is the fresh row's (``sources`` /
-    ``fit_weight`` — a JD term is credited to exactly one row of THIS ledger,
-    #675 line 46), and its surface forms are the union of both (the SF-GAP.12
-    precedent), so the denial floor that runs next sees every name."""
+    touched set. Its CLAIM (status, claimable, evidence, adjacency, JD phrase,
+    denial level) is the previous row's; its IDENTITY in this ledger is the
+    fresh row's — ``concept`` and the SCORE SLOT (``sources`` / ``fit_weight``:
+    a JD term is credited to exactly one row of THIS ledger, #675 line 46) — so
+    two fresh rows paired with one broader previous row never publish the same
+    requirement name twice. Surface forms are the union of both, fresh first
+    (the SF-GAP.12 precedent), so the denial floor that runs next sees every
+    name."""
     out = copy.deepcopy(previous_row)
+    out["concept"] = fresh_row.get("concept", out.get("concept", ""))
     out["sources"] = list(fresh_row.get("sources") or [])
     out["fit_weight"] = fresh_row.get("fit_weight", 0.0)
     forms = [
         f
-        for f in [*(previous_row.get("surface_forms") or []), *(fresh_row.get("surface_forms") or [])]
+        for f in [*(fresh_row.get("surface_forms") or []), *(previous_row.get("surface_forms") or [])]
         if isinstance(f, str) and f.strip()
     ]
     out["surface_forms"] = list(dict.fromkeys(forms)) or [out.get("concept", "")]
