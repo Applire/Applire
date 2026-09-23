@@ -745,7 +745,19 @@ export default function GapsPage({
   // it (never only the score, which is how the old page kept rendering the
   // pre-answer cluster list until the user navigated away and back). The
   // per-turn overlays are dropped with it: the row now carries those turns.
-  function replaceAnalysis(next: GapAnalysis) {
+  // Reads can overlap (a follow-up turn's re-read, then the completion's
+  // refresh): only a response to a read STARTED after the last applied one may
+  // replace the page — an older row landing late must never undo a newer one.
+  const analysisReadSeq = useRef(0);
+  const analysisAppliedSeq = useRef(0);
+  function beginAnalysisRead(): number {
+    analysisReadSeq.current += 1;
+    return analysisReadSeq.current;
+  }
+
+  function replaceAnalysis(next: GapAnalysis, seq: number) {
+    if (seq < analysisAppliedSeq.current) return;
+    analysisAppliedSeq.current = seq;
     setGaps(next);
     setMatchScore((prev) => scoreToPercent(next.match_score, prev));
     setGapStates((prev) => {
@@ -759,9 +771,10 @@ export default function GapsPage({
    * outcome is written onto that row in the turn's own transaction. */
   async function reReadAnalysis() {
     if (!flowState?.job_id) return;
+    const seq = beginAnalysisRead();
     try {
       const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps`);
-      if (res.ok) replaceAnalysis((await res.json()) as GapAnalysis);
+      if (res.ok) replaceAnalysis((await res.json()) as GapAnalysis, seq);
     } catch {
       // Non-critical — the card keeps the turn's own record meanwhile.
     }
@@ -772,12 +785,13 @@ export default function GapsPage({
    * (the session's completion already recomputed it). */
   async function refreshAnalysis() {
     if (!flowState?.job_id) return;
+    const seq = beginAnalysisRead();
     try {
       const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
         method: "POST",
       });
       if (res.ok) {
-        replaceAnalysis((await res.json()) as GapAnalysis);
+        replaceAnalysis((await res.json()) as GapAnalysis, seq);
         return;
       }
     } catch {

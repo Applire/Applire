@@ -611,3 +611,53 @@ describe("ruling B-3 — a click on a cluster waiting on a follow-up resumes it"
     expect(within(card("k8s")).queryByTestId("gap-follow-up-label")).not.toBeInTheDocument();
   });
 });
+
+describe("ADR-089 cl. 8 — an older analysis read never undoes a newer one", () => {
+  it("a follow-up's slow re-read landing after the completion refresh is ignored", async () => {
+    let releaseSlowRead: () => void = () => {};
+    let getCount = 0;
+    const stale = analysis([cl("k8s", { gaps: ["Helm"], outcome: outcome(1, ["Kubernetes"]), coverage: "partly_covered", budget_remaining: 1 })]);
+    const server: Server = {
+      row: analysis([cl("k8s", { gaps: ["Kubernetes", "Helm"] })]),
+      turns: [
+        {
+          complete: false,
+          question: "And Helm?",
+          cluster_coverage: { cluster_id: "k8s", coverage: "partly_covered", open_concepts: ["Helm"], budget_remaining: 1 },
+        },
+        { complete: true },
+      ],
+      refreshed: analysis([
+        cl("k8s", { gaps: [], outcome: outcome(2, ["Kubernetes", "Helm"]), coverage: "covered", budget_remaining: 0 }),
+      ]),
+    };
+    const fetchMock = serve(server);
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/job/j1/gaps") && (init?.method ?? "GET") === "GET") {
+        getCount += 1;
+        if (getCount === 2) {
+          // The follow-up turn's re-read: held until after the refresh landed.
+          await new Promise<void>((resolve) => (releaseSlowRead = resolve));
+          return { ok: true, status: 200, json: async () => stale } as Response;
+        }
+      }
+      return base(input, init);
+    });
+
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() => within(card("k8s")).getByTestId("gap-answer-textarea"));
+    await answer("k8s", "Ran Kubernetes for three years.");
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-question")).toHaveTextContent("And Helm?"));
+    await answer("k8s", "Wrote our own charts.");
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-resolved")).toBeInTheDocument());
+
+    releaseSlowRead();
+    await new Promise((r) => setTimeout(r, 20));
+    // Still the refreshed (newer) row, not the stale partial one.
+    expect(card("k8s")).toHaveAttribute("data-coverage", "covered");
+    expect(getCount).toBe(2);
+  });
+});

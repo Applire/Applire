@@ -634,3 +634,197 @@ describe("InterviewPage failed-turn recovery (#256)", () => {
     expect(sessionCallCount).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ADR-089 clause 8 — the cluster tracker reflects the SERVER's persisted
+// coverage record on a cluster, not just addressed_gap_ids/current tracking:
+// a cluster the server already marked covered/declined/spent shows that
+// status at load, even though this page's own session never touched it. And
+// a turn's own cluster_coverage report (partly_covered) must NOT be painted
+// over as "resolved" just because the cluster also appears in
+// addressed_gap_ids — the false-green bug clause 8 fixes.
+// ---------------------------------------------------------------------------
+
+const COVERAGE_CLUSTERS = [
+  {
+    id: "c-current",
+    label: "Docker",
+    category: "C",
+    gaps: ["Docker"],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 0, covered: [], declined: [], session_ids: [] },
+    coverage: "open",
+    budget_remaining: 2,
+    member_statuses: [{ member: "Docker", status: "gap" }],
+  },
+  {
+    id: "c-covered",
+    label: "Kubernetes",
+    category: "C",
+    gaps: [],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s0"] },
+    coverage: "covered",
+    budget_remaining: 1,
+    member_statuses: [{ member: "Kubernetes", status: "covered" }],
+  },
+  {
+    id: "c-declined",
+    label: "Scala",
+    category: "C",
+    gaps: [],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 1, covered: [], declined: ["Scala"], session_ids: ["s0"] },
+    coverage: "declined",
+    budget_remaining: 1,
+    member_statuses: [{ member: "Scala", status: "declined" }],
+  },
+  {
+    id: "c-spent",
+    label: "Helm",
+    category: "C",
+    gaps: ["Helm"],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 2, covered: [], declined: [], session_ids: ["s0", "s1"] },
+    coverage: "partly_covered",
+    budget_remaining: 0,
+    member_statuses: [{ member: "Helm", status: "gap" }],
+  },
+];
+
+describe("InterviewPage tracker reflects the server's own coverage record at load (ADR-089 clause 8)", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("renders resolved/declined/spent purely from each cluster's persisted coverage, independent of addressed_gap_ids", async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            job_id: "j1",
+            current_step: "interview",
+            job_summary: { role_title: "Engineer" },
+          }),
+        };
+      }
+      if (url.includes("/api/job/j1/gaps")) {
+        return {
+          ok: true,
+          json: async () => ({ id: "ga1", match_score: 0.4, gap_clusters: COVERAGE_CLUSTERS }),
+        };
+      }
+      if (url.includes("/api/session")) {
+        return {
+          ok: true,
+          json: async () => ({
+            session_id: "s1",
+            mode: "targeted",
+            first_question: "Tell me about your Docker experience.",
+            question: "Tell me about your Docker experience.",
+            estimated_questions: 5,
+            gaps_total: 4,
+            gaps_remaining: 4,
+            choices: null,
+            resumed: false,
+            current_gap_id: "c-current",
+            addressed_gap_ids: [],
+          }),
+        };
+      }
+      if (url.includes("/api/flow/f1/advance")) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gap-cluster-c-current")).toHaveAttribute("data-status", "current"),
+    );
+    // Not "current" (not the session's current gap) and not addressed by
+    // this session's addressed_gap_ids — the server's own coverage record
+    // alone is what drives these.
+    expect(screen.getByTestId("gap-cluster-c-covered")).toHaveAttribute("data-status", "resolved");
+    expect(screen.getByTestId("gap-cluster-c-declined")).toHaveAttribute("data-status", "declined");
+    expect(screen.getByTestId("gap-cluster-c-spent")).toHaveAttribute("data-status", "spent");
+  });
+});
+
+describe("InterviewPage tracker: a turn's cluster_coverage is not painted over as resolved (ADR-089 false-green fix)", () => {
+  beforeEach(() => {
+    mockPush.mockReset();
+    mockReplace.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("shows partly_covered, NOT resolved, when the turn reports partly_covered even though the cluster is in addressed_gap_ids", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      {
+        complete: false,
+        question: "Tell me more.",
+        gaps_remaining: 2,
+        current_gap_id: "c2",
+        addressed_gap_ids: ["c1"],
+        cluster_coverage: {
+          cluster_id: "c1",
+          coverage: "partly_covered",
+          open_concepts: ["Terraform"],
+          budget_remaining: 1,
+        },
+      },
+    ]) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
+    );
+
+    await sendAnswer(user, "We use Terraform for some of it.");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "partly_covered"),
+    );
+    expect(screen.getByTestId("gap-cluster-c1")).not.toHaveAttribute("data-status", "resolved");
+  });
+
+  it("shows resolved when the turn reports coverage covered", async () => {
+    const user = userEvent.setup();
+    global.fetch = mockClusterApi([
+      {
+        complete: false,
+        question: "Tell me more.",
+        gaps_remaining: 2,
+        current_gap_id: "c2",
+        addressed_gap_ids: ["c1"],
+        cluster_coverage: {
+          cluster_id: "c1",
+          coverage: "covered",
+          open_concepts: [],
+          budget_remaining: 1,
+        },
+      },
+    ]) as unknown as typeof fetch;
+
+    render(<InterviewPage params={fulfilledParams("f1")} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "current"),
+    );
+
+    await sendAnswer(user, "We use GCP.");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gap-cluster-c1")).toHaveAttribute("data-status", "resolved"),
+    );
+  });
+});
