@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 interface LetterData {
@@ -32,6 +32,12 @@ interface CoverLetterContentTabProps {
   coverLetterId: string;
   letterData: LetterData | null;
   onSectionSaved: () => void;
+  /**
+   * ADR-090 cl. 5 — *Let me edit it* on a review finding opens the body editor
+   * (the letter's only editable section), nothing pre-filled. A counter, so the
+   * same finding can be opened twice.
+   */
+  openBodyNonce?: number;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -40,6 +46,7 @@ export function CoverLetterContentTab({
   coverLetterId,
   letterData,
   onSectionSaved,
+  openBodyNonce,
 }: CoverLetterContentTabProps) {
   const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
@@ -49,6 +56,13 @@ export function CoverLetterContentTab({
   const [bodyEditing, setBodyEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const seenBodyNonce = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (openBodyNonce === undefined || seenBodyNonce.current === openBodyNonce) return;
+    seenBodyNonce.current = openBodyNonce;
+    setBodyEditing(true);
+  }, [openBodyNonce]);
 
   async function handleSaveBody() {
     setSaving(true);

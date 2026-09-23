@@ -46,6 +46,19 @@ interface MobileCommandBarProps {
    * boolean that is already `true` is an unchanged value.
    */
   openFineTuneNonce?: number;
+  /**
+   * ADR-090 cl. 1 (phone): *Show me where* switches to the preview with the
+   * review surface's own locate sheet. The review sheet stays MOUNTED but
+   * hidden meanwhile, so the surface keeps its state and *Back to review*
+   * returns to the same card.
+   */
+  suspended?: boolean;
+  /**
+   * ADR-081 cl. 6 / ADR-090 cl. 6: the open group-1 count — the one
+   * send-blocking number, shown on the review button when non-zero. `null`
+   * while unknown; the pass-count badge shows otherwise.
+   */
+  openCount?: number | null;
 }
 
 type ActiveSheet = "ats" | "fineTune" | null;
@@ -73,9 +86,12 @@ export function MobileCommandBar({
   fineTuneSurface,
   onDownloadPdf,
   openFineTuneNonce,
+  suspended = false,
+  openCount = null,
 }: MobileCommandBarProps) {
   const t = useTranslations("commandBar");
   const tCommon = useTranslations("common");
+  const tReview = useTranslations("documentReview");
   const [sheet, setSheet] = useState<ActiveSheet>(null);
 
   // #667: honour the page's request to move into the section editor. Skips the
@@ -91,13 +107,13 @@ export function MobileCommandBar({
 
   // Close the open sheet on Escape (parity with the other overlays).
   useEffect(() => {
-    if (!sheet) return;
+    if (!sheet || suspended) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSheet(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sheet]);
+  }, [sheet, suspended]);
 
   const passCount =
     atsReport != null
@@ -121,7 +137,15 @@ export function MobileCommandBar({
         >
           <ClipboardCheck className="w-5 h-5" aria-hidden="true" />
           <span className="text-xs font-heading font-semibold">{t("atsChecks")}</span>
-          {passCount !== null && (
+          {openCount !== null && openCount > 0 ? (
+            <span
+              data-testid="command-ats-open-badge"
+              aria-label={tReview("verdictFindings", { count: openCount })}
+              className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 flex items-center justify-center rounded-full bg-critical-container text-critical text-[11px] font-bold border border-surface-bright"
+            >
+              {openCount}
+            </span>
+          ) : passCount !== null && (
             <span
               data-testid="command-ats-badge"
               aria-label={t("passBadgeLabel", { count: passCount })}
@@ -159,7 +183,9 @@ export function MobileCommandBar({
           aria-modal="true"
           aria-label={sheetTitle}
           data-testid="command-sheet"
-          className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0"
+          className={`md:hidden fixed inset-0 z-50 items-end justify-center bg-black/40 p-0 ${
+            suspended ? "hidden" : "flex"
+          }`}
           onClick={() => setSheet(null)}
         >
           <div

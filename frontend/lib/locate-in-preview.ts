@@ -411,3 +411,14 @@ export function makePreviewLocator(getDoc: () => Document | null | undefined): P
     },
   };
 }
+
+/**
+ * The preview iframe's document, found by its test id. The previews render a
+ * same-origin `srcDoc` iframe (`sandbox="allow-same-origin"`), so its document
+ * is readable. Looked up at call time — never during render.
+ */
+export function iframeDocument(testId: string): Document | null {
+  if (typeof document === "undefined") return null;
+  const frame = document.querySelector<HTMLIFrameElement>(`iframe[data-testid="${testId}"]`);
+  return frame?.contentDocument ?? null;
+}

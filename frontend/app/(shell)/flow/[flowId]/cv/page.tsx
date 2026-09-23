@@ -18,7 +18,7 @@
 // frontend/app/flow/[flowId]/cv/page.tsx
 "use client";
 
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { use, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
@@ -30,7 +30,7 @@ import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
-import { ReviewSurface } from "@/components/document/ReviewSurface";
+import { ReviewSurface, type EditFindingRequest } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
 import { ContentTab, type GapHintItem } from "@/components/cv/ContentTab";
 import { DesignTab } from "@/components/cv/DesignTab";
@@ -42,8 +42,9 @@ import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCove
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { MarkAppliedPrompt } from "@/components/applications/MarkAppliedPrompt";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
-import type { ReviewModePreference } from "@/lib/review-walked";
 import { buildReviewGroups } from "@/lib/review-groups";
+import { markEdited, type ReviewRefresh, type ReviewState } from "@/lib/api/document-review";
+import { iframeDocument, makePreviewLocator, type LocateTarget } from "@/lib/locate-in-preview";
 import { getApplication } from "@/lib/api/applications";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
 import ATSChecksPanel, { type ATSReport } from "@/components/cv/ATSChecksPanel";
@@ -52,6 +53,9 @@ import { type TruthfulnessReport } from "@/components/cv/TruthfulnessPanel";
 import { type OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { decodeGained, formatGained, type StaleCVGained } from "@/lib/stale-cv";
+
+// ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
+const CV_LOCATOR = makePreviewLocator(() => iframeDocument("cv-iframe"));
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -140,10 +144,27 @@ export default function CVPage({
   // E054/US289: the previewed CV's PINNED language (ADR-038 clause 3b) — badge
   // + language-switch state. null = legacy row without a pin (no badge).
   const [docLanguage, setDocLanguage] = useState<"de" | "en" | null>(null);
-  // E058/US301 (ADR-081 cl. 5): the stored review-mode preference. `auto` is
-  // the default and also the degraded value — a settings failure must never
-  // decide the mode for the user.
-  const [reviewMode, setReviewMode] = useState<ReviewModePreference>("auto");
+  // ADR-090 cl. 6: the per-document review decisions, riding on the ATS-report
+  // response. `null` = none recorded (or a backend that predates the field).
+  const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
+  const [previewVersion, setPreviewVersion] = useState(0);
+  // ADR-090 cl. 1 (phone): the review sheet is suspended while the locate view shows.
+  const [mobileLocating, setMobileLocating] = useState(false);
+  // ADR-090 cl. 3: bumps when a review action rewrote the document, so the
+  // section editor re-reads the sections instead of saving stale text over the rewrite.
+  const [docVersion, setDocVersion] = useState(0);
+  // ADR-090 cl. 5: *Let me edit it* — the section editor opens on the place.
+  const [findingEditRequest, setFindingEditRequest] = useState<
+    { targets: LocateTarget[] | null; placeIndex: number; nonce: number } | null
+  >(null);
+  // The finding the editor was opened from; a save then reports `review/edited`.
+  const editFindingKey = useRef<string | null>(null);
+  // Monotonic: each ContentTab instance (desktop tab, phone sheet) consumes a
+  // request once by its nonce, so the request itself is never cleared by a consumer.
+  const findingNonce = useRef(0);
+  // The phone's Fine-tune sheet opens on either fourth-handle request.
+  const [fineTuneNonce, setFineTuneNonce] = useState<number | undefined>(undefined);
   // E058/US300 (ADR-081 cl. 2, group 3): the gap-analysis clusters.
   // `null` means NOT LOADED, and the surface renders that as *unknown* rather
   // than as zero (clause 9) — an empty array is the different statement
@@ -163,6 +184,21 @@ export default function CVPage({
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
+  // ADR-090: a review action answered with the refreshed reports and state.
+  const applyReviewRefresh = useCallback(
+    (refresh: ReviewRefresh, opts: { documentChanged: boolean }) => {
+      if (refresh.report !== undefined) setAtsReport(refresh.report ?? null);
+      if (refresh.truthfulness) setTruthReport(refresh.truthfulness);
+      setReviewState(refresh.review_state ?? null);
+      if (opts.documentChanged) {
+        cvDocRef.current?.refresh();
+        setDocVersion((v) => v + 1);
+        setFindingEditRequest(null);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("retailored");
     if (param) setRetailoredGained(decodeGained(param));
@@ -176,7 +212,6 @@ export default function CVPage({
       .then((s) => {
         if (cancelled) return;
         setTargetPages(s.target_cv_pages ?? 2);
-        setReviewMode(s.review_mode ?? "auto");
         // F-4b: the CV kind default (F-0: off) — a settings failure keeps the
         // founder default rather than claiming "on".
         setSignatureKindDefaultOn(s.signature_in_cv ?? false);
@@ -279,8 +314,9 @@ export default function CVPage({
       try {
         const res = await fetch(`${API_BASE}/api/cv/${cvId}/ats-report`);
         if (!res.ok) return;
-        const data: { report: ATSReport } = await res.json();
+        const data: { report: ATSReport; review_state?: ReviewState | null } = await res.json();
         setAtsReport(data.report ?? null);
+        setReviewState(data.review_state ?? null);
       } catch {
         // Non-fatal — panel shows unavailable state
       }
@@ -530,8 +566,32 @@ export default function CVPage({
 
     const refreshPreviewAndAts = () => {
       cvDocRef.current?.refresh();
+      // ADR-090 cl. 5: a save made from a finding asks the server to re-audit
+      // (awaited) and record `edited` if the finding cleared.
+      const findingKey = editFindingKey.current;
+      if (findingKey && cvId) {
+        editFindingKey.current = null;
+        markEdited("cv", cvId, findingKey)
+          .then((r) => applyReviewRefresh(r, { documentChanged: false }))
+          .catch(() => setTimeout(() => setAtsRefresh((n) => n + 1), 2500));
+        return;
+      }
       // Re-fetch ATS report after a short delay so the backend re-audit (BackgroundTask ~1s) has landed
       setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
+    };
+
+    const sectionLabel = (sectionId: string): string => {
+      if (sectionId === "introduction") return t("sectionIntroduction");
+      if (sectionId === "skills") return t("sectionSkills");
+      return flowState?.cv_summary?.sections?.find((s) => s.section_id === sectionId)?.label ?? sectionId;
+    };
+
+    const handleEditFinding = (req: EditFindingRequest) => {
+      editFindingKey.current = req.findingKey;
+      setActiveSidebarTab("edit");
+      findingNonce.current += 1;
+      setFindingEditRequest({ targets: req.targets, placeIndex: req.placeIndex, nonce: findingNonce.current });
+      setFineTuneNonce((n) => (n ?? 0) + 1);
     };
 
     const flowSummary = {
@@ -546,7 +606,7 @@ export default function CVPage({
     // ADR-081 cl. 2 (E058/US300): the findings, grouped by the user's question.
     // Built once and reused by the desktop panel and the mobile sheet — ADR-050's
     // "mount the live component, never a forked panel" rule (cl. 7).
-    const reviewSurface = (
+    const renderReviewSurface = (layout: "panel" | "sheet") => (
       <ReviewSurface
         documentKind="cv"
         documentId={cvId}
@@ -554,7 +614,15 @@ export default function CVPage({
         truthReport={truthReport}
         criticReport={criticReport}
         gapClusters={gapClusters}
-        modePreference={reviewMode}
+        reviewState={reviewState}
+        onRefresh={applyReviewRefresh}
+        locator={CV_LOCATOR}
+        previewVersion={previewVersion}
+        layout={layout}
+        onLocateModeChange={layout === "sheet" ? setMobileLocating : undefined}
+        onEditFinding={handleEditFinding}
+        sectionLabel={sectionLabel}
+        gapAnalysisHref={`/flow/${flowId}/gaps`}
         onResolveCluster={(gapId) => {
           // The EXISTING path for a gap cluster, unchanged: an honest gap can
           // only close through profile enrichment (#117 / ADR-019), so the
@@ -570,6 +638,7 @@ export default function CVPage({
           // #117), so this page never second-guesses the gap's kind.
           setActiveSidebarTab("edit");
           setEditorGapRequest((prev) => ({ gapId, nonce: (prev?.nonce ?? 0) + 1 }));
+          setFineTuneNonce((n) => (n ?? 0) + 1);
         }}
       />
     );
@@ -597,7 +666,7 @@ export default function CVPage({
               {group1Count}
             </span>
           ) : undefined,
-        body: reviewSurface,
+        body: renderReviewSurface("panel"),
       },
       {
         id: "edit",
@@ -610,6 +679,7 @@ export default function CVPage({
                 is what dissolves the "Inhalt" / "Prüfung" duplication (SF-DOOR.7's
                 sibling) without either subsystem losing ownership of its data. */}
             <ContentTab
+              key={`content-${docVersion}`}
               cvId={cvId}
               flowSummary={flowSummary}
               onSectionSave={refreshPreviewAndAts}
@@ -617,6 +687,7 @@ export default function CVPage({
               variant="sections"
               pendingGap={editorGapRequest}
               onPendingGapConsumed={() => setEditorGapRequest(null)}
+              pendingFinding={findingEditRequest}
             />
             {/* ADR-081 cl. 3: fact pins live HERE, outside the finding groups,
                 application-scoped. No finding row links one as its remedy and
@@ -707,7 +778,14 @@ export default function CVPage({
           </div>
         )}
         <DocumentWorkspace
-          preview={<CVDocument cvId={cvId} ref={cvDocRef} className="flex-1" />}
+          preview={
+            <CVDocument
+              cvId={cvId}
+              ref={cvDocRef}
+              className="flex-1"
+              onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
+            />
+          }
           sidebar={
             <RefinementSidebar
               matchScore={
@@ -750,9 +828,10 @@ export default function CVPage({
                the SAME live ReviewSurface instance, never a forked panel. */
             <MobileCommandBar
               atsReport={atsReport}
-              atsPanel={reviewSurface}
+              atsPanel={renderReviewSurface("sheet")}
               fineTuneSurface={
                 <ContentTab
+                  key={`content-m-${docVersion}`}
                   cvId={cvId}
                   flowSummary={flowSummary}
                   onSectionSave={refreshPreviewAndAts}
@@ -760,10 +839,13 @@ export default function CVPage({
                   variant="sections"
                   pendingGap={editorGapRequest}
                   onPendingGapConsumed={() => setEditorGapRequest(null)}
-                />
+                  pendingFinding={findingEditRequest}
+                    />
               }
               onDownloadPdf={() => void requestDownload("pdf")}
-              openFineTuneNonce={editorGapRequest?.nonce}
+              openFineTuneNonce={fineTuneNonce}
+              suspended={mobileLocating}
+              openCount={atsReport || truthReport ? group1Count : null}
             />
           }
         />

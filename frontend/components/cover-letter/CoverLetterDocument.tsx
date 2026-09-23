@@ -23,12 +23,14 @@ import { useTranslations } from "next-intl";
 
 interface CoverLetterDocumentProps {
   coverLetterId: string;
+  /** Fires each time the preview document (re)loads — ADR-090 cl. 2 marks do not survive a reload. */
+  onPreviewLoad?: () => void;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const CV_WIDTH = 794; // A4 at 96 dpi
 
-export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps) {
+export function CoverLetterDocument({ coverLetterId, onPreviewLoad }: CoverLetterDocumentProps) {
   const t = useTranslations("coverLetter");
   const containerRef = useRef<HTMLDivElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
@@ -89,6 +91,7 @@ export function CoverLetterDocument({ coverLetterId }: CoverLetterDocumentProps)
           srcDoc={srcDoc}
           title={t("previewTitle")}
           data-testid="cover-letter-iframe"
+          onLoad={onPreviewLoad}
           sandbox="allow-same-origin"
           style={{
             width: CV_WIDTH,
