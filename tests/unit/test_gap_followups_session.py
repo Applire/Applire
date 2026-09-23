@@ -666,3 +666,82 @@ async def test_prior_exchanges_come_only_from_live_referenced_transcripts(db):
     })
     assert await _prior_exchanges(db, cluster) == [{"question": "Q-infra", "answer": "A-infra"}]
     assert await _prior_exchanges(db, cluster, exclude_session_id=str(live.id)) == []
+
+
+# ---------------------------------------------------------------------------
+# Ruling B-4 — the follow-up never re-asks what the answer just named
+# ---------------------------------------------------------------------------
+
+
+def _b_cluster_seed():
+    members = ["Prometheus", "Grafana", "SLOs"]
+    clusters = [_cluster(_INFRA, "Observability practice", members, category="B",
+                         coverage="partly_covered")]
+    ledger = [_row(m, "partial", claimable=True) for m in members]
+    return clusters, ledger
+
+
+@pytest.mark.asyncio
+async def test_b_cluster_follow_up_asks_only_what_the_answer_did_not_name(db):
+    """A Category B member stays `partial` on the ledger after the candidate
+    describes it (the #188 seam never re-upgrades a claimable row), so the
+    record keeps it open — but the follow-up must not ask about it again."""
+    clusters, ledger = _b_cluster_seed()
+    job, _profile, _ = await _seed(db, clusters=clusters, ledger=ledger)
+    writer = _writer("Observability — Prometheus, Grafana, SLOs?", "And Grafana and SLOs?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id,
+                         "I built the Prometheus setup myself: RED metrics for all four services.",
+                         _writing_bridge(add_skills=["Prometheus"]), writer)
+
+    assert resp.complete is False
+    assert writer.calls[-1]["follow_up_focus"] == ["Grafana", "SLOs"]
+    # The record stays strict until the completion recompute re-classifies.
+    assert resp.cluster_coverage.open_concepts == ["Prometheus", "Grafana", "SLOs"]
+    assert resp.cluster_coverage.coverage == "partly_covered"
+
+
+@pytest.mark.asyncio
+async def test_b_cluster_answer_naming_every_member_earns_no_follow_up(db):
+    clusters, ledger = _b_cluster_seed()
+    job, _profile, _ = await _seed(db, clusters=clusters, ledger=ledger)
+    writer = _writer("Observability — Prometheus, Grafana, SLOs?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(
+        db, created.session_id,
+        "Prometheus metrics, Grafana dashboards, and SLOs with error budgets — all mine at Acme.",
+        _writing_bridge(add_skills=["Prometheus", "Grafana", "SLOs"]), writer,
+    )
+
+    assert resp.complete is True, "every open member was named — nothing left to follow up on"
+    assert len(writer.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_liability_story_answer_earns_no_second_story_question(db):
+    """Ruling A-1 + B-4 — a #260 liability stays OPEN until a recompute sees
+    its story; the "tell the story" answer that names it must not be asked for
+    the story a second time in the same session."""
+    job, _profile, _ = await _seed(db, clusters=[
+        _cluster(_INFRA, "Cloud infrastructure", ["Kubernetes"], coverage="partly_covered"),
+    ], ledger=[{**_row("Kubernetes", "direct", claimable=True), "narrative_backed": False}])
+    writer = _writer("Tell the Kubernetes story?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(
+        db, created.session_id,
+        "I led the Kubernetes migration at Acme: 12 services in 9 months, deploys 45 → 8 minutes.",
+        _writing_bridge(add_skills=["Kubernetes migration"]), writer,
+    )
+
+    assert resp.complete is True
+    assert len(writer.calls) == 1, "no second story question"
+    assert resp.cluster_coverage.open_concepts == ["Kubernetes"], "the record stays strict"
+
+
+def test_members_named_by_reads_the_ledger_surface_forms():
+    from applire.services.session import _members_named_by
+
+    ledger = [{"concept": "Kubernetes", "surface_forms": ["Kubernetes", "K8s"]},
+              {"concept": "Terraform", "surface_forms": ["Terraform"]}]
+    assert _members_named_by("We ran K8s on EKS.", ["Kubernetes", "Terraform"], ledger) == {"Kubernetes"}
+    assert _members_named_by("", ["Kubernetes"], ledger) == set()

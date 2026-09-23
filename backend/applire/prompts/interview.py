@@ -471,8 +471,33 @@ def build_question_prompt(
     # confirmed skill (charter run 2026-07-29, record 30). Same predicate as
     # the choice_grounding mirror guard, so hint and guard cannot disagree.
     signal = constituent_evidence(cluster, profile)
-    evidenced = [t for t, ok in signal.items() if ok]
-    unevidenced = [t for t, ok in signal.items() if not ok]
+    # ADR-089 clause 3 — `constituent_evidence` flags EVERY member (open +
+    # covered + declined, `gap_coverage.all_members`), but only the OPEN ones
+    # (`gaps`) may be asked about: a covered member is not a gap, and a
+    # declined one was answered with "no" and is never asked again. So the
+    # evidenced list may name covered members (they must not be re-questioned)
+    # but never a declined one, and the unevidenced list — the ask scope AND
+    # the only valid denial-choice scope — holds open members only. A legacy
+    # cluster (no outcome) has open == all members: byte-identical to before.
+    from applire.services.keyword_ledger import _norm as _member_norm
+
+    open_keys = {_member_norm(str(g)) for g in constituent_gaps}
+    declined_members = [
+        str(d) for d in ((cluster.get("outcome") or {}).get("declined") or []) if d
+    ]
+    declined_keys = {_member_norm(d) for d in declined_members}
+    # A follow-up's focus members are asked about BY NAME (the FOLLOW-UP line
+    # below): they are never listed as "evidenced — never re-question", which
+    # would contradict that line when the profile happens to mention one.
+    focus_keys = {_member_norm(str(f)) for f in (follow_up_focus or []) if f}
+    evidenced = [
+        t
+        for t, ok in signal.items()
+        if ok and _member_norm(t) not in declined_keys and _member_norm(t) not in focus_keys
+    ]
+    unevidenced = [
+        t for t, ok in signal.items() if not ok and _member_norm(t) in open_keys
+    ]
 
     if gap_category == "B":
         gap_type_hint = (
@@ -520,7 +545,7 @@ def build_question_prompt(
     # survives two hops arrives here shaping the question the CANDIDATE is
     # asked. That is the one place in the system where injected text reaches a
     # human directly.
-    from applire.services.untrusted_text import fence
+    from applire.services.untrusted_text import fence, fence_inline
 
     cluster_body = f"Cluster: {cluster_label}"
     if constituent_gaps:
@@ -533,9 +558,17 @@ def build_question_prompt(
 
     earlier = _earlier_exchanges_block(prior_exchanges)
     already_asked = _already_asked_instruction(bool(earlier), follow_up_focus)
+    declined_line = ""
+    if declined_members:
+        # ADR-084 (Form A, inline): member names are the posting's own terms.
+        declined_line = (
+            "Already declined by the candidate — never ask about these again and "
+            f"never offer a choice about them: {fence_inline(', '.join(declined_members))}\n"
+        )
     prompt = (
         f"{cluster_context}\n"
         f"{gap_type_hint}\n"
+        f"{declined_line}"
         f"{choices_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
         f"{earlier}"

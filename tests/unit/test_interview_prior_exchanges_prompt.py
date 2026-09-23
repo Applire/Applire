@@ -283,3 +283,47 @@ async def test_prior_exchanges_reach_the_mode_a_prompt():
     first_prompt = provider.aparse_json.call_args_list[0].args[0]
     assert "Q-old" in first_prompt
     assert "A-old" in first_prompt
+
+
+def test_a_declined_member_is_never_in_the_ask_or_denial_scope():
+    """ADR-089 clause 3 + Lead A's note: `constituent_evidence` flags EVERY
+    member, so a DECLINED member would land in "Still unevidenced … ask openly"
+    and in the denial-choice scope. Only OPEN members (`gaps`) may be asked; a
+    declined one is named once, as declined, and never asked again."""
+    from applire.prompts.interview import build_question_prompt
+
+    cluster = {
+        "id": "cluster-infra", "label": "Cloud infrastructure", "category": "C",
+        "gaps": ["Helm", "Pulumi"], "jd_skills": [], "jd_context": "",
+        "outcome": {"asked": 1, "covered": ["Kubernetes"], "declined": ["Terraform"],
+                    "session_ids": []},
+    }
+    profile = {"skills": [{"name": "Kubernetes"}], "work_experience": []}
+    out = build_question_prompt(cluster, profile, [], gap_category="C")
+
+    ask_line = next(line for line in out.splitlines() if line.startswith("Gap type:"))
+    assert "Still unevidenced: Helm, Pulumi." in ask_line
+    assert "Terraform" not in ask_line
+    assert "evidences: Kubernetes." in ask_line, "a covered member stays 'never re-question'"
+    denial_line = next(line for line in out.splitlines() if "only valid scope for a denial" in line)
+    assert "Terraform" not in denial_line
+    assert "Helm, Pulumi" in denial_line
+    declined_line = next(line for line in out.splitlines() if line.startswith("Already declined"))
+    assert "Terraform" in declined_line and "never ask about these again" in declined_line
+
+
+def test_a_follow_up_focus_member_is_never_listed_as_do_not_requestion():
+    """A focus member the profile happens to mention must not be told
+    "never re-question the evidenced ones" in the same prompt that asks about
+    it by name (step-3 contradiction)."""
+    from applire.prompts.interview import build_question_prompt
+
+    cluster = {"id": "c", "label": "Obs", "category": "C", "gaps": ["Grafana", "SLOs"],
+               "jd_skills": [], "jd_context": "",
+               "outcome": {"asked": 1, "covered": ["Prometheus"], "declined": [], "session_ids": []}}
+    profile = {"skills": [{"name": "Prometheus"}, {"name": "Grafana"}], "work_experience": []}
+    out = build_question_prompt(cluster, profile, [], gap_category="C",
+                                follow_up_focus=["Grafana", "SLOs"])
+    ask_line = next(line for line in out.splitlines() if line.startswith("Gap type:"))
+    assert "evidences: Prometheus." in ask_line
+    assert "Grafana" not in ask_line.split("Still unevidenced")[0]

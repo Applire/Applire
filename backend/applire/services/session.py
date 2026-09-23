@@ -1821,6 +1821,33 @@ async def _cluster_question(
     return await question_generator_with_profile(state, profile, provider, **kwargs)
 
 
+def _members_named_by(
+    answer: str, members: list[str], keyword_ledger: list[dict] | None
+) -> set[str]:
+    """The members ``answer`` literally names — ``surface_present`` (THE shared
+    presence predicate, #122) over each matching ledger row's surface forms, or
+    the member string itself. The same fact the #188 seam's eligibility check
+    (``_upgrade_ledger_for_addressed_gap._evidenced``) computes."""
+    from applire.services.keyword_ledger import _matches, _norm
+
+    answer_norm = ats_norm(answer or "")
+    if not answer_norm:
+        return set()
+    named: set[str] = set()
+    for member in members:
+        key = _norm(member)
+        forms: list[str] = [member]
+        for row in keyword_ledger or []:
+            if not isinstance(row, dict):
+                continue
+            row_names = [row.get("concept") or "", *(row.get("surface_forms") or [])]
+            if any(_norm(n) and key and _matches(key, _norm(n)) for n in row_names):
+                forms.extend(str(n) for n in row_names if n)
+        if any(surface_present(f, answer_norm) for f in forms if f):
+            named.add(member)
+    return named
+
+
 def _with_coverage(
     response: SessionMessageResponse, coverage: ClusterCoverage | None
 ) -> SessionMessageResponse:
@@ -1835,6 +1862,7 @@ async def _record_cluster_turn(
     db: AsyncSession,
     *,
     current_gap: str,
+    answer: str,
     updated_profile: dict,
 ) -> tuple[dict | None, list[str]]:
     """ADR-089 clauses 2 and 3 — after this turn's #188 seam: classify the
@@ -1843,10 +1871,12 @@ async def _record_cluster_turn(
     (``record_turn_outcome`` flushes, never commits; ``send_message``'s one
     commit per turn persists it with the vault write and the transcript).
 
-    Returns ``(recorded_cluster, open_members)``: the persisted cluster entry
-    as written (``None`` when no analysis row carries the cluster — a legacy or
-    MODE B session, which keeps its pre-ADR-089 behaviour), and the members this
-    turn left open, in cluster order. Also indexes the turn in
+    Returns ``(recorded_cluster, follow_up_focus)``: the persisted cluster
+    entry as written (``None`` when no analysis row carries the cluster — a
+    legacy or MODE B session, which keeps its pre-ADR-089 behaviour), and the
+    members a partial-coverage follow-up may ask about, in cluster order — the
+    OPEN members this turn's answer does not name (ruling B-4, below). Also
+    indexes the turn in
     ``state["cluster_turns"]`` so a later session can read the exchange
     (clause 6) — indexes only, never a copy of the text.
     """
@@ -1913,13 +1943,25 @@ async def _record_cluster_turn(
         session_id=str(record.id),
         charge=True,
     )
+    # The follow-up's focus (ruling B-4, ADR-089 clause 2 amended 2026-09-23):
+    # the OPEN members this answer does NOT name. The #188 seam never moves an
+    # already-claimable row — a Category B `partial`, a #260 liability — to
+    # `direct`, so a member the candidate has JUST described can stay open on
+    # the record until the completion recompute re-classifies it. Asking about
+    # it again is the re-ask of what they just said (founder UAT 2026-09-23).
+    # "Names it" is the seam's own eligibility fact — `surface_present` over
+    # the member's ledger surface forms — and decides only what is ASKED next,
+    # never coverage: the record stays strict (clause 2's own line).
+    #
     # With no ledger on the row there is no evidence to classify against:
     # every member reads `open` by absence, which is no reason to ask again —
     # such a turn is charged and indexed, but never earns a partial-coverage
     # follow-up (the pre-ledger behaviour: advance).
-    open_members = (
-        [m for m in members if facts.get(m) == "open"] if row.keyword_ledger else []
-    )
+    if row.keyword_ledger:
+        named = _members_named_by(answer, members, row.keyword_ledger)
+        open_members = [m for m in members if facts.get(m) == "open" and m not in named]
+    else:
+        open_members = []
     if recorded is None:
         return None, open_members
 
@@ -3276,7 +3318,8 @@ async def send_message(
     # by this turn's one commit. `None` for a turn that answered no recorded
     # cluster (MODE B, a legacy session): those keep the pre-ADR-089 path. ---
     recorded_cluster, open_members = await _record_cluster_turn(
-        record, state, db, current_gap=current_gap, updated_profile=updated_profile
+        record, state, db, current_gap=current_gap, answer=message,
+        updated_profile=updated_profile,
     )
     cluster_coverage = _coverage_of(recorded_cluster)
 
@@ -3360,11 +3403,11 @@ async def send_message(
 
     # --- ADR-089 clause 2 (an exception under ADR-058 clause 4, bounded): the
     # partial-coverage follow-up. The answer changed the vault (`addressed`),
-    # yet members of the cluster are still OPEN on the record — a `partial`
-    # row, a #260 liability without its story, a requirement the answer never
-    # named — and the cluster has budget left: ask ONE follow-up aimed at
-    # exactly those members. Whether to ask is these facts; how to phrase it
-    # is the model's. A turn with no record (MODE B, legacy) never gets here. ---
+    # yet members of the cluster are still OPEN on the record and this answer
+    # did not name them (ruling B-4) — a requirement the answer left out — and
+    # the cluster has budget left: ask ONE follow-up aimed at exactly those
+    # members. Whether to ask is these facts; how to phrase it is the model's.
+    # A turn with no record (MODE B, legacy) never gets here. ---
     if (
         recorded_cluster is not None
         and addressed
