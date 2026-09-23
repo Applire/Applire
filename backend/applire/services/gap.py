@@ -48,8 +48,6 @@ from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT, build_clust
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
 from applire.schemas.gap_cluster import LLM_CLUSTER_KEYS, GapClusterSchema
-from applire.services.ats_audit import _norm as _ats_norm
-from applire.services.ats_audit import surface_present
 from applire.services.gap_coverage import (
     AnswerScope,
     all_members,
@@ -794,21 +792,18 @@ def pair_rows_by_requirement(
     return pairs
 
 
-def _is_touched(
-    names: list[str], touched_members: list[str], answers_norm: list[str]
-) -> bool:
+def _is_touched(names: list[str], touched_members: list[str]) -> bool:
     """ADR-089 clause 5's TOUCHED test for one requirement (its fresh and its
     previous row's names together): it speaks for a member of a cluster this
-    session worked (the ledger builder's ``_matches``), or one of its names is
-    present in any answer of the session (THE presence predicate,
-    ``ats_audit.surface_present`` — a self-correction outside the answered
-    cluster)."""
+    session worked (the ledger builder's ``_matches``). A mere mention in an
+    answer does not touch (ruling M-2): a self-correction outside the worked
+    clusters lowers its requirement through the denial and vault floors."""
     norm_names = [_norm_gap(n) for n in names]
     for member in touched_members:
         m = _norm_gap(member)
         if m and any(_matches(m, n) for n in norm_names if n):
             return True
-    return any(surface_present(n, a) for a in answers_norm for n in names)
+    return False
 
 
 def _carried_row(previous_row: dict[str, Any], fresh_row: dict[str, Any]) -> dict[str, Any]:
@@ -840,7 +835,6 @@ def merge_ledger_per_requirement(
     *,
     jd_terms: list[str],
     touched_members: list[str],
-    answers: tuple[str, ...] | list[str],
 ) -> tuple[list[dict[str, Any]], list[int]]:
     """PURE. ADR-089 clause 5's per-requirement merge, BEFORE the floors.
 
@@ -859,7 +853,6 @@ def merge_ledger_per_requirement(
     merged = [dict(r) if isinstance(r, dict) else r for r in fresh]
     if not prev:
         return merged, []
-    answers_norm = [_ats_norm(a) for a in answers or () if isinstance(a, str) and a.strip()]
     pairs = pair_rows_by_requirement(fresh, prev, jd_terms)
     carried: list[int] = []
     for i, j in enumerate(pairs):
@@ -872,8 +865,8 @@ def merge_ledger_per_requirement(
             continue  # a denial always stands (ruling B-1's purpose)
         if _rank(p.get("status")) <= _rank(f_status):
             continue  # not a downward move
-        if _is_touched(_row_names(f) + _row_names(p), touched_members, answers_norm):
-            continue  # this session's answers may move it freely
+        if _is_touched(_row_names(f) + _row_names(p), touched_members):
+            continue  # a cluster this session worked may move freely
         merged[i] = _carried_row(p, f)
         carried.append(i)
         logger.info(
@@ -1155,7 +1148,6 @@ async def _run_analysis(
             previous.keyword_ledger,
             jd_terms=_jd_terms(job),
             touched_members=touched_members,
-            answers=answer_scope.answers,
         )
         keyword_ledger = _apply_floors_to_merged(
             merged,

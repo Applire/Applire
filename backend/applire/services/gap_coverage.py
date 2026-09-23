@@ -112,10 +112,14 @@ COVERAGE_VALUES: frozenset[str] = frozenset({"open", "partly_covered", "covered"
 class AnswerScope:
     """What an answer-driven recompute may treat as TOUCHED (ADR-089 clause 5).
 
-    ``cluster_ids`` — the clusters this session worked (their members, as
-    carried on the previous row, are touched). ``answers`` — every candidate
-    answer of this session; any requirement whose surface forms appear in one
-    of them is touched too (a self-correction outside the answered cluster).
+    ``cluster_ids`` — the clusters this session worked; their members, as
+    carried on the previous row, are the touched set. Nothing else is: an
+    answer that merely MENTIONS a requirement outside those clusters does not
+    touch it (ruling M-2, 2026-09-23 — the adversarial pass showed an
+    incidental "weekly design review" in an observability answer unlocking an
+    unrelated, fully backed requirement to classifier noise). A self-correction
+    outside the worked clusters still lowers its requirement through the two
+    floors: the recorded denial and the vault-evidence floor.
 
     ``AnswerScope()`` (both empty) is the `/gaps/refresh` case: answer-driven,
     nothing touched — only a denial or the vault floor may lower a row.
@@ -124,7 +128,6 @@ class AnswerScope:
     """
 
     cluster_ids: tuple[str, ...] = ()
-    answers: tuple[str, ...] = ()
 
 
 def empty_outcome() -> dict[str, Any]:
@@ -219,28 +222,32 @@ def _is_declined(member: str, rows: list[dict[str, Any]], denials: list[str]) ->
     return bool(own) and all(row.get("status") == "denied" for row in own)
 
 
-def _is_strictly_broader(row: dict[str, Any], member: str) -> bool:
-    """The row's own concept is a proper part of the member's name — a BROADER
-    requirement (``SAP`` for the member ``SAP PP``), not the member's own row
-    and not a narrower one that contains it."""
+def _is_anchored(row: dict[str, Any], member: str) -> bool:
+    """The row's own CONCEPT is the member or contains it — the member's own
+    requirement, or a narrower one (``5+ years Python experience`` for the
+    member ``Python``). A row that matches only through a surface form, or
+    whose concept is broader, is not anchored on the member."""
     concept = _norm(row.get("concept", ""))
     key = _norm(member)
-    return bool(concept) and concept != key and concept in key
+    return bool(concept) and bool(key) and key in concept
 
 
 def _deciding_rows(member: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The rows whose status decides whether ``member`` is covered.
 
-    The #207 veto is DIRECTIONAL: a narrower non-direct row (``5+ years Python
-    experience`` for the member ``Python``) vetoes, a BROADER one does not —
-    the broad ``SAP`` row's ``partial`` says nothing against the member
-    ``SAP PP`` whose own row is ``direct`` (delivery run E1, 2026-09-23: the
-    broad row listed ``SAP PP`` among its surface forms, so ``SAP PP`` and
-    ``SAP MM`` never read covered although their own rows were ``direct``).
-    When only broader rows match, they are all the ledger has to say, so they
+    When the ledger has rows anchored on the member (:func:`_is_anchored` —
+    its own row, and any narrower requirement that contains it), those decide,
+    and the #207 veto holds among them: a narrower non-direct row still vetoes.
+    A row that only lists the member among its surface forms does not decide:
+    the broad ``SAP`` row (``partial``) listing ``SAP PP`` (delivery run E1),
+    or the unrelated ``Event-driven architecture`` row (an unstoried
+    liability) listing ``Event streaming`` (adversarial pass E2) — both
+    vetoed a member whose own row was ``direct``, 2026-09-23. When nothing is
+    anchored on the member (it is matched only through surface forms or a
+    broader row), every matching row is all the ledger has to say, so they
     decide."""
-    specific = [row for row in rows if not _is_strictly_broader(row, member)]
-    return specific or rows
+    anchored = [row for row in rows if _is_anchored(row, member)]
+    return anchored or rows
 
 
 def _is_covered(member: str, rows: list[dict[str, Any]]) -> bool:

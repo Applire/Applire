@@ -314,7 +314,7 @@ async def test_follow_up_answer_completes_and_spends_the_budget(db):
     # Clause 5 — the completion recompute is answer-driven, scoped to what this
     # session touched.
     kwargs = recompute.await_args.kwargs
-    assert kwargs["answer_scope"] == AnswerScope(cluster_ids=(_INFRA,), answers=(a1, a2))
+    assert kwargs["answer_scope"] == AnswerScope(cluster_ids=(_INFRA,))
     assert "clamp_to_previous" not in kwargs
 
 
@@ -616,7 +616,7 @@ async def test_the_turn_record_rolls_back_with_a_failed_follow_up(db):
 # ---------------------------------------------------------------------------
 
 
-def test_answer_scope_names_worked_clusters_and_every_answer_but_control_words():
+def test_answer_scope_names_only_the_worked_clusters():
     from applire.services.gap_coverage import AnswerScope
     from applire.services.session import _answer_scope
 
@@ -631,7 +631,7 @@ def test_answer_scope_names_worked_clusters_and_every_answer_but_control_words()
             {"cluster_id": _INFRA, "q": 2, "a": 3},
         ],
     }
-    assert _answer_scope(state) == AnswerScope(cluster_ids=(_INFRA,), answers=("A1", "A2"))
+    assert _answer_scope(state) == AnswerScope(cluster_ids=(_INFRA,))
     assert _answer_scope({}) == AnswerScope()
 
 

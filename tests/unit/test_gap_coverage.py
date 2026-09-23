@@ -93,7 +93,8 @@ def outcome(asked=0, covered=(), declined=(), session_ids=()):
 
 def test_answer_scope_defaults_are_the_refresh_case():
     scope = AnswerScope()
-    assert scope.cluster_ids == () and scope.answers == ()
+    assert scope.cluster_ids == ()
+    assert not hasattr(scope, "answers"), "ruling M-2: a mention does not touch"
     with pytest.raises(Exception):
         scope.cluster_ids = ("x",)  # frozen
 
@@ -217,6 +218,18 @@ def test_the_chips_and_the_card_agree_on_the_broader_row_case():
     statuses = {s["member"]: s["status"] for s in gc.member_statuses(c, _sap_ledger())}
     assert statuses == {"SAP PP": "covered", "SAP MM": "covered", "SAP": "partial"}
     assert gc.derive_coverage(c, _sap_ledger()) == "partly_covered"
+
+
+def test_a_row_listing_the_member_only_as_a_surface_form_does_not_veto():
+    """Adversarial pass E2: the unrelated `Event-driven architecture` row (an
+    unstoried liability) listed `Event streaming` among its surface forms and
+    vetoed the member whose own row was direct."""
+    ledger = [
+        row("Event-driven architecture", "direct", forms=["Event-driven architecture",
+                                                         "Event streaming"], narrative=False),
+        row("Event streaming", "direct", forms=["Event streaming", "Kafka"]),
+    ]
+    assert classify_members(["Event streaming"], ledger, None) == {"Event streaming": "covered"}
 
 
 @pytest.mark.parametrize("status, expected", [("direct", "covered"), ("partial", "open")])
