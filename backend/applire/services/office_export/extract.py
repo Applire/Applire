@@ -178,6 +178,7 @@ def audit_cv_docx(
     pins: list | None = None,
     terminal_review=None,
     previous_report: dict | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     """Audit a produced CV ``.docx`` against the structured CV data and keywords —
     the ``.docx`` twin of ``ats_audit.audit_cv`` (which audits a PDF).
@@ -206,6 +207,7 @@ def audit_cv_docx(
         # — separate lineage, same carry-forward rule.
         terminal_review=terminal_review,
         previous_report=previous_report,
+        vault_index=vault_index,  # ADR-090 cl. 4 — same grounding as the PDF report
     )
 
 
@@ -219,6 +221,7 @@ def audit_cover_letter_docx(
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
     terminal_review=None,
     previous_report: dict | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     """Audit a produced cover-letter ``.docx`` against the structured letter data
     and keywords — the ``.docx`` twin of ``ats_audit.audit_cover_letter``.
@@ -238,4 +241,5 @@ def audit_cover_letter_docx(
         truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review,
         previous_report=previous_report,
+        vault_index=vault_index,  # ADR-090 cl. 4 — same grounding as the PDF report
     )

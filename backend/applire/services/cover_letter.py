@@ -3347,6 +3347,7 @@ async def _update_ats_report_letter(
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
         # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
         # literal vault tie never lands in present_unsupported (one vocabulary).
+        from applire.services.ats_audit import grounding_vault_index
         from applire.services.keyword_ledger import profile_literal_corpus
 
         profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -3385,6 +3386,7 @@ async def _update_ats_report_letter(
             truth_floor_hits=set(truth_floor_hits),
             terminal_review=terminal_review,
             previous_report=previous_report,
+            vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -3582,6 +3584,7 @@ async def _update_ats_report_letter(
         # recomputed here rather than reused from the ats_report block
         # above, deliberately (see the paragraph comment).
         docx_ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        from applire.services.ats_audit import grounding_vault_index
         from applire.services.keyword_ledger import profile_literal_corpus
 
         docx_profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -3620,6 +3623,9 @@ async def _update_ats_report_letter(
             truth_floor_hits=set(truth_floor_hits),
             terminal_review=terminal_review,
             previous_report=previous_docx_report,
+            vault_index=grounding_vault_index(
+                docx_profile_row.profile_json if docx_profile_row else None
+            ),
         ).model_dump()
     except Exception:
         logger.exception(

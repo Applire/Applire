@@ -52,6 +52,18 @@ class ATSCheck(BaseModel):
     driver: Optional[dict[str, int]] = None
 
 
+class KeywordMatch(BaseModel):
+    """ADR-090 clause 2 — one form from ``keyword_present``'s search set that
+    passed ``surface_present`` on the audited document: the keyword literal, an
+    owning Keyword Ledger entry's ``surface_forms`` entry, or its ``concept``.
+    ``stem`` is True when the form hit ONLY through the token-stem fallback
+    (``_verb_form_present``), i.e. the document carries another word form of it
+    and no substring of the form itself."""
+
+    form: str
+    stem: bool = False
+
+
 class ATSKeywordCoverage(BaseModel):
     present: list[str] = []
     missing: list[str] = []  # back-compat: the full missing list (claimable + honest-gap)
@@ -96,6 +108,16 @@ class ATSKeywordCoverage(BaseModel):
     # ledger is available, or the ledger predates #260 (no `narrative_backed`
     # key — back-compat default is "backed", so nothing is flagged).
     keyword_liability_concepts: list[str] = []
+    # ADR-090 clause 2 (WP-A, 2026-09-23): for each keyword in
+    # `present_unsupported` / `present_denied`, the forms that made it present on
+    # THIS document — recorded at the moment `keyword_present` decides, so the
+    # review surface can locate the actual wording ("AI governance") rather than
+    # the JD label ("IT Data & AI Governance"). Additive: the two list fields
+    # keep their shape and meaning (their readers gate on them). `None` = the
+    # report predates the field (never measured) — a reader treats a missing
+    # key as "could not be marked", never as "no match".
+    present_unsupported_matches: Optional[dict[str, list[KeywordMatch]]] = None
+    present_denied_matches: Optional[dict[str, list[KeywordMatch]]] = None
 
 
 class PinnedFactReportEntry(BaseModel):

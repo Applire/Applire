@@ -32,7 +32,7 @@ from typing import Any, Literal
 from pypdf import PdfReader
 
 from applire.norms import DEFAULT_REGION, REGION_NORMS
-from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport
+from applire.schemas.ats import ATSCheck, ATSKeywordCoverage, ATSReport, KeywordMatch
 from applire.schemas.cv import TailoredCVData
 
 
@@ -982,8 +982,9 @@ def _entry_norms(entry: dict[str, Any]) -> set[str]:
     return {_norm(f) for f in forms} | {_norm(entry.get("concept", ""))}
 
 
-def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None) -> bool:
-    """Presence per keyword = any of {keyword literal} ∪ owning entry surface_forms ∪ concept.
+def _keyword_search_forms(keyword: str, ledger: list[dict[str, Any]] | None) -> list[str]:
+    """The search set of :func:`keyword_present`: {keyword literal} ∪ owning entry
+    surface_forms ∪ concept, in that order, de-duplicated on ``_norm``.
 
     Ownership honours the F4 gap stance: if any NON-claimable entry owns the keyword,
     only non-claimable owners widen the search — a foreign claimable entry's forms must
@@ -998,7 +999,56 @@ def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] |
         forms.extend(e.get("surface_forms") or [])
         if e.get("concept"):
             forms.append(e["concept"])
-    return any(surface_present(f, text_norm) for f in forms)
+    out: list[str] = []
+    seen: set[str] = set()
+    for f in forms:
+        if not isinstance(f, str):
+            continue
+        n = _norm(f)
+        if n and n not in seen:
+            seen.add(n)
+            out.append(f)
+    return out
+
+
+def keyword_matches(
+    keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None
+) -> list[KeywordMatch]:
+    """ADR-090 clause 2 — every form of :func:`keyword_present`'s search set that
+    passes :func:`surface_present` on ``text_norm``, with ``stem=True`` when the hit
+    came ONLY through the token-stem fallback (``_verb_form_present``).
+
+    THE decision point: :func:`keyword_present` is ``bool(keyword_matches(...))``,
+    so the recorded forms are, by construction, exactly the forms that decided
+    presence — never a second, drifting search.
+    """
+    out: list[KeywordMatch] = []
+    for f in _keyword_search_forms(keyword, ledger):
+        n = _norm(f)
+        if any(text_norm.find(v) >= 0 for v in _fold_variants(n)):
+            out.append(KeywordMatch(form=f, stem=False))
+        elif _verb_form_present(n, text_norm):
+            out.append(KeywordMatch(form=f, stem=True))
+    return out
+
+
+def keyword_present(keyword: str, text_norm: str, ledger: list[dict[str, Any]] | None = None) -> bool:
+    """Presence per keyword = any of {keyword literal} ∪ owning entry surface_forms ∪ concept
+    passes :func:`surface_present` (see :func:`_keyword_search_forms` for ownership)."""
+    return bool(keyword_matches(keyword, text_norm, ledger))
+
+
+def _grounded_through_matched_forms(matches: list[KeywordMatch], vault_index: Any) -> bool:
+    """ADR-090 clause 4 — a flagged keyword is grounded when EVERY form that made it
+    present on the document is backed in the vault by the Oracle's own skill
+    instrument (``ground_skill_claim``, whole-token / near-dupe, vault-only: no
+    ledger sibling arm, or the ledger row that flagged the keyword could back
+    itself). No matches, or no index → not grounded (the finding stays open)."""
+    if not matches or vault_index is None:
+        return False
+    from applire.services.oracle.matchers.grounding import ground_skill_claim
+
+    return all(ground_skill_claim(m.form, vault_index) is not None for m in matches)
 
 
 def _years(date_str: str | None) -> list[str]:
@@ -1049,6 +1099,7 @@ def _keyword_coverage(
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     vault_text_norm: str | None = None,
+    vault_index: Any = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -1058,7 +1109,9 @@ def _keyword_coverage(
             unique.append(k)
     # US212 (#122): presence via the shared predicate — surface-form union over the
     # keyword's owning ledger entry plus the morphological fold, not the literal alone.
-    present = [k for k in unique if keyword_present(k, text_norm, ledger)]
+    # ADR-090 clause 2: the forms that decide presence are recorded at the decision.
+    matches_by_kw = {k: keyword_matches(k, text_norm, ledger) for k in unique}
+    present = [k for k in unique if matches_by_kw[k]]
     missing = [k for k in unique if k not in set(present)]
 
     # US203 (ADR-048): split missing into "claimable" (the candidate supports it per the
@@ -1106,6 +1159,18 @@ def _keyword_coverage(
         and _norm(k) not in claimable_norm
         and k not in literally_grounded
     ]
+    # ADR-090 clause 4: the re-audit must see new evidence written in the
+    # CANDIDATE's wording. The literal-only rule above never grounds "IT Data & AI
+    # Governance" against a vault that now says "AI governance", although that is
+    # exactly the wording the document carries. So a flagged keyword is also
+    # grounded when every matched form is backed by the Oracle's skill-grounding
+    # instrument over the (claimable-only) vault index. `vault_index=None` (every
+    # caller that does not pass it) reproduces the literal-only behaviour exactly.
+    if vault_index is not None:
+        present_unsupported = [
+            k for k in present_unsupported
+            if not _grounded_through_matched_forms(matches_by_kw[k], vault_index)
+        ]
     # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
     # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
     # the two can never disagree about which row a keyword belongs to; the fact read
@@ -1135,6 +1200,8 @@ def _keyword_coverage(
         present_denied=present_denied,
         claimable_concepts=claimable_concepts,
         keyword_liability_concepts=keyword_liability_concepts,
+        present_unsupported_matches={k: matches_by_kw[k] for k in present_unsupported},
+        present_denied_matches={k: matches_by_kw[k] for k in present_denied},
     )
 
 
@@ -1207,6 +1274,7 @@ def _audit_cv_text(
     terminal_review=None,
     previous_report: dict | None = None,
     document_language: str | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1529,7 +1597,7 @@ def _audit_cv_text(
     checks.append(_terminal_review_check(terminal_review, previous_report))
     checks.append(_narrative_evidence_check(tailored, ledger))
 
-    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index))
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -1641,6 +1709,7 @@ def audit_cv(
     vault_skill_forms: list[str] | None = None,
     pins: list | None = None,
     document_language: str | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
@@ -1673,7 +1742,7 @@ def audit_cv(
         text, tailored, keywords, ledger, page_count=page_count,
         target=target, region=region, condensation_exhausted=condensation_exhausted,
         vault_text_norm=vault_text_norm, vault_skill_forms=vault_skill_forms,
-        document_language=document_language,
+        document_language=document_language, vault_index=vault_index,
     )
 
 
@@ -1689,6 +1758,7 @@ def _audit_letter_text(
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
     terminal_review=None,
     previous_report: dict | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1787,7 +1857,7 @@ def _audit_letter_text(
         )
     )
 
-    report = _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm))
+    report = _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index))
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -1803,6 +1873,7 @@ def audit_cover_letter(
     truth_floor_hits: set[str] | frozenset[str] = frozenset(),
     terminal_review=None,
     previous_report: dict | None = None,
+    vault_index: Any = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -1822,4 +1893,22 @@ def audit_cover_letter(
         vault_text_norm=vault_text_norm,
         pins=pins, truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review, previous_report=previous_report,
+        vault_index=vault_index,
     )
+
+
+def grounding_vault_index(profile_json: dict[str, Any] | None) -> Any:
+    """ADR-090 clause 4 — the vault index the matched-form grounding reads: the
+    Oracle's own ``build_vault_index`` over the CLAIMABLE part of the vault
+    (``exclude_unconfirmed`` — an unconfirmed or denied entry cannot back a claim,
+    ADR-061 clause 3). ``None`` when there is no profile, which keeps the
+    literal-only behaviour. Never raises: an index failure grounds nothing."""
+    if not profile_json:
+        return None
+    try:
+        from applire.services.oracle.matchers.vault import build_vault_index
+        from applire.services.profile.reconcile.stance import exclude_unconfirmed
+
+        return build_vault_index(exclude_unconfirmed(profile_json))
+    except Exception:  # pragma: no cover — defensive: grounding widens nothing on error
+        return None
