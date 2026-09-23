@@ -372,6 +372,74 @@ _AVAILABILITY_INSTRUCTION = (
 )
 
 
+# ADR-089 clause 6 (an exception under ADR-058 clause 4) — a cluster the
+# candidate has ALREADY answered on, in an earlier session (the full interview
+# after a Gap-Click, a re-opened Gap-Click, a repeated resolve_gap) or in this
+# one (the partial-coverage follow-up). Prompt-first triage (2026-09-23): no
+# rule asked the writer to know what was already said — the earlier exchange
+# was simply not in its input view (category B) — and the coverage rule below
+# ACTIVELY asked for a DIRECT choice wherever the profile evidences a concept,
+# which, once the earlier answer is in the vault, is the earlier answer offered
+# back as a chip (founder UAT 2026-09-23). The rule and its input ride together
+# and only when there is an earlier exchange, so every first-time question is
+# byte-identical to before.
+_EARLIER_ANSWERS_ARE_NOT_CHOICES = (
+    "Earlier answers are not answer choices: never offer something the "
+    "candidate already said — in the earlier exchanges or the Recent "
+    "conversation — as a choice, not even reworded or shortened. Every choice "
+    "must be a new starting point for what is still open; if nothing new and "
+    "truthful is left to offer, set choices to null."
+)
+
+
+def _earlier_exchanges_block(prior_exchanges: list[dict] | None) -> str:
+    """The earlier Q/A pairs on this cluster, oldest first — the same
+    transcript shape as "Recent conversation" (the candidate's own words and
+    our own earlier questions)."""
+    lines: list[str] = []
+    for pair in prior_exchanges or []:
+        q = str((pair or {}).get("question") or "").strip()
+        a = str((pair or {}).get("answer") or "").strip()
+        if q and a:
+            lines.append(f"Question: {q}\nAnswer: {a}")
+    if not lines:
+        return ""
+    return (
+        "\n\nEarlier exchanges on this cluster (earlier interview sessions — the "
+        "candidate's answers are evidence exactly like the profile summary):\n"
+        + "\n".join(lines)
+    )
+
+
+def _already_asked_instruction(
+    has_earlier: bool, follow_up_focus: list[str] | None
+) -> str:
+    """The rule that rides with an earlier exchange (ADR-089 clauses 2/6)."""
+    if follow_up_focus:
+        # ADR-084 (Form A, inline): the open members are ledger/cluster concept
+        # names — the posting's own terms — interpolated into our instruction.
+        from applire.services.untrusted_text import fence_inline
+
+        focus = fence_inline(", ".join(str(f) for f in follow_up_focus if f))
+        lead = (
+            "\n\nFOLLOW-UP on this cluster: the candidate's last answer (see the "
+            "Recent conversation) covered part of it. Still open: "
+            f"{focus}. Ask ONE follow-up question aimed at exactly these open "
+            "requirements, naming them — never ask again about what an earlier "
+            "answer already covered."
+        )
+    elif has_earlier:
+        lead = (
+            "\n\nThis cluster was already asked about (see the earlier exchanges "
+            "above). Ask ONLY about what those answers left open — the "
+            "constituent gaps in the GAP CLUSTER block — and never ask again for "
+            "something an earlier answer already told us."
+        )
+    else:
+        return ""
+    return f"{lead} {_EARLIER_ANSWERS_ARE_NOT_CHOICES}"
+
+
 def build_question_prompt(
     cluster: dict,
     profile: dict,
@@ -379,6 +447,8 @@ def build_question_prompt(
     gap_category: str | None = None,
     quant_concepts: list[str] | None = None,
     include_availability: bool = False,
+    prior_exchanges: list[dict] | None = None,
+    follow_up_focus: list[str] | None = None,
 ) -> str:
     history = ""
     if recent_messages:
@@ -461,12 +531,16 @@ def build_question_prompt(
         cluster_body += f"\nJD context: {jd_context}"
     cluster_context = fence(cluster_body, header="GAP CLUSTER")
 
+    earlier = _earlier_exchanges_block(prior_exchanges)
+    already_asked = _already_asked_instruction(bool(earlier), follow_up_focus)
     prompt = (
         f"{cluster_context}\n"
         f"{gap_type_hint}\n"
         f"{choices_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
-        f"{history}\n\n"
+        f"{earlier}"
+        f"{history}"
+        f"{already_asked}\n\n"
         "Generate the JSON response."
     )
     if quant_concepts:

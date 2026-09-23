@@ -134,6 +134,26 @@ class ConfirmationPrompt(BaseModel):
     option_keys: list[str] = []
 
 
+class ClusterCoverage(BaseModel):
+    """ADR-089 clause 3/7 — what THIS turn left on the per-gap record.
+
+    Present on every turn that answered a gap cluster (a MODE A cluster whose
+    record the turn wrote), ``None`` otherwise (gates, conflicts, confirmations
+    being answered, MODE B sections). Every value is a FACT read off the
+    persisted cluster entry (``services/gap_coverage.py``): ``coverage`` is the
+    derived status, ``open_concepts`` is the cluster's ``gaps`` (its open
+    members only), ``budget_remaining`` is ``gap_coverage.remaining_budget`` —
+    the same helper and the same meaning as the per-cluster
+    ``budget_remaining`` on the analysis response (ruling C-2), so the two
+    readers can never disagree.
+    """
+
+    cluster_id: str
+    coverage: Literal["open", "partly_covered", "covered", "declined"]
+    open_concepts: list[str] = []
+    budget_remaining: int = 0
+
+
 class SessionMessageResponse(BaseModel):
     complete: bool
     question: str | None = None
@@ -164,6 +184,10 @@ class SessionMessageResponse(BaseModel):
     # when there is no current gap (should not occur on a non-complete turn).
     current_gap_id: str | None = None
     addressed_gap_ids: list[str] | None = None
+    # ADR-089 — the per-gap record this turn wrote (see ClusterCoverage). On a
+    # follow-up turn `complete` is False and `question`/`choices` carry the
+    # follow-up exactly like any other next question.
+    cluster_coverage: ClusterCoverage | None = None
 
 
 class SessionStateResponse(BaseModel):
@@ -222,3 +246,11 @@ class InterviewState(TypedDict):
     # session); missing only on a row persisted before this field existed, in
     # which case is_micro_session() falls back to hard_ceiling == 1.
     micro_session: bool
+    # ADR-089 clause 6 — one entry per ANSWERED cluster turn:
+    # {"cluster_id": str, "q": int, "a": int}, the indexes of the question and
+    # its answer in `messages`. Indexes, never text: the transcript already
+    # lives in `messages` (this row's retention), and a later session reads a
+    # prior exchange from HERE through `outcome.session_ids`, so no answer text
+    # is ever copied onto a row with a longer lifetime. Missing on a row
+    # persisted before ADR-089 (it then contributes no prior exchange).
+    cluster_turns: list[dict]
