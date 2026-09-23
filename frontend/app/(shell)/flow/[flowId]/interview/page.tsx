@@ -29,7 +29,7 @@ import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
-import { Lock } from "lucide-react";
+import { Contrast, Lock } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import {
   clusterView,
@@ -135,11 +135,12 @@ type TrackerStatus =
   | "spent"
   | "pending";
 
-/** Decorative, aria-hidden — the status is also spoken via an sr-only label. */
-const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent">, string> = {
+/** Decorative, aria-hidden — the status is also spoken via an sr-only label.
+ * `spent` and `partly_covered` draw a lucide icon instead (a text ◐ rendered
+ * as a barely visible sliver in the UI font). */
+const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent" | "partly_covered">, string> = {
   resolved: "✓",
   current: "►",
-  partly_covered: "◐",
   declined: "–",
   pending: "○",
 };
@@ -1088,6 +1089,8 @@ export default function InterviewPage({
                     <div className="flex items-center gap-2">
                       {status === "spent" ? (
                         <Lock aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
+                      ) : status === "partly_covered" ? (
+                        <Contrast aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
                       ) : (
                         <span aria-hidden="true" className={tone.icon}>
                           {TRACKER_GLYPH[status]}
