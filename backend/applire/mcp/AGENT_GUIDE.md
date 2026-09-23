@@ -185,8 +185,12 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   identical to the answer the gap last recorded is `invalid_input` too — it
   is a retry of a call that already went through, and it charges nothing.
   It won't run while a full `run_interview` is active for the job (finish
-  that first). Re-run `analyze_gaps` afterwards to see the refreshed match
-  score.
+  that first). `question_asked` is the question THIS call's testimony
+  answered (on a follow-up turn, the follow-up itself) — only
+  `follow_up_question` means the gap is asking again. Re-run `analyze_gaps`
+  afterwards to see the refreshed match score, and before you pick the next
+  gap: one answer can cover requirements of OTHER gaps too, so a gap you
+  planned to work may already be `covered`.
 - `render_document` — your authored content into a norms-checked, templated
   PDF. Read `schema://cv` or `schema://cover-letter` first; unknown fields
   are rejected with paths. You stay the author: Applire applies the template
