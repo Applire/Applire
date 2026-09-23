@@ -1209,7 +1209,7 @@ export default function GapsPage({
                           : undefined
                       }
                     >
-                      <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                      <div onClick={(e) => e.stopPropagation()}>
                         <GapClickPanel
                           state={clusterState}
                           onUpdate={(patch) => updateGapState(cluster.id, patch)}
