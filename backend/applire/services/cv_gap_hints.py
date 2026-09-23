@@ -124,9 +124,13 @@ def _merge_cluster_duplicates(
     if not gap_clusters:
         return open_candidates
 
+    # ADR-089 clause 3: every member (open + covered + declined) — a covered
+    # sibling is still the same semantic group.
+    from applire.services.gap_coverage import all_members
+
     member_to_cluster: dict[str, dict[str, Any]] = {}
     for cluster in gap_clusters:
-        for member in cluster.get("gaps") or []:
+        for member in all_members(cluster):
             member_to_cluster.setdefault(_norm(str(member)), cluster)
 
     grouped: dict[str, list[_Candidate]] = {}

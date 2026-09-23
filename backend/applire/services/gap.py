@@ -31,6 +31,7 @@ import json
 import logging
 import math
 import uuid
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -46,15 +47,29 @@ from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt
 from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT, build_clustering_prompt
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.gap import GapAnalysisResponse
-from applire.schemas.gap_cluster import GapClusterSchema
+from applire.schemas.gap_cluster import LLM_CLUSTER_KEYS, GapClusterSchema
+from applire.services.ats_audit import _norm as _ats_norm
+from applire.services.ats_audit import surface_present
+from applire.services.gap_coverage import (
+    AnswerScope,
+    all_members,
+    initialise_cluster_record,
+    refresh_cluster_from_ledger,
+)
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import (
+    _annotate_narrative_backed,
+    _enforce_denial_stance,
+    _matches,
+    annotate_evidence_owners,
     assert_claimable_backed,
     build_keyword_ledger,
     downgrade_ledger_for_concepts,
+    is_scope_entry,
     keyword_liabilities,
     keyword_only_honest_gaps,
 )
+from applire.services.profile.reconcile.stance import denial_release_corpus
 from applire.services.match_score import compute_match_score_from_ledger
 from applire.services.scope_requirements import (
     build_scope_ledger_entries,
@@ -212,7 +227,7 @@ async def analyze_gaps(
     db: AsyncSession,
     provider: LLMProvider,
     *,
-    clamp_to_previous: bool = False,
+    answer_scope: AnswerScope | None = None,
 ) -> GapAnalysisResponse:
     """
     Canonical gap analysis entry point.
@@ -226,25 +241,29 @@ async def analyze_gaps(
     inserting a duplicate (E037 PQ #3 — match-score stability). Only a genuine
     profile or JD change recomputes.
 
-    ``clamp_to_previous`` (the /gaps/refresh, post-interview-answer path): when a
-    recompute does happen and lands LOWER than the previous row, the previous
-    row's WHOLE scored slice is republished — score together with
-    ``requirement_breakdown``/``category_a``/``b``/``c``/``critical_gaps``/
-    ``minor_gaps`` — and only on the evidence-added population. A recompute that
-    carries a new ``denied`` status, or any requirement that moved from
-    ``direct``/``partial`` down to ``gap``/``denied``, is never clamped: an
-    honest denial MUST be able to lower the displayed score (#675 line 77 / F-3,
-    ruling B-1 of 2026-09-20). The clamp's original premise — "answering a gap
-    can never lower the displayed score" (E037 PQ #3) — holds only for added
-    evidence and stochastic B/C refinement, never for a recorded denial.
+    ``answer_scope`` (ADR-089 clause 5) marks the ANSWER-DRIVEN path —
+    ``AnswerScope()`` from ``POST /gaps/refresh``, ``AnswerScope(cluster_ids=…,
+    answers=…)`` from an interview's completion. When a recompute happens on
+    that path, every fresh ledger row is merged with the previous row for the
+    SAME requirement (:func:`merge_ledger_per_requirement`): outside the touched
+    set a downward move is replaced by the previous row unless the fresh row is
+    a denial, and the ADR-059 denial floor plus ``assert_claimable_backed`` then
+    run on the merged ledger. Headline, breakdown, categories and the persisted
+    ledger are all computed ONCE from that merged ledger (the whole-slice clamp
+    of ruling B-1 is retired). ``None`` is the non-answer path (first analysis,
+    a JD change, a profile edit): fresh, no merge.
+
+    Clusters (ADR-089 clause 4) are CARRIED FORWARD — ids, labels, members,
+    ``outcome`` — whenever a previous row exists for the same job and the JD's
+    requirement lists are unchanged, on either path; only askable concepts in
+    no carried cluster go to the clustering LLM. A first analysis or a JD
+    change clusters from scratch.
 
     Stores the result in gap_analyses and returns a GapAnalysisResponse.
     """
     job = await _resolve_job(job_id, db)
     profile = await _resolve_profile(db)
-    return await _run_analysis(
-        job, profile, db, provider, clamp_to_previous=clamp_to_previous
-    )
+    return await _run_analysis(job, profile, db, provider, answer_scope=answer_scope)
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +400,21 @@ def has_clustering_input(gap_analysis: GapAnalysis) -> bool:
     return bool(askable_gap_inputs(gap_analysis) or list(gap_analysis.category_b or []))
 
 
+def _category_c_members(category_c: list[str], liabilities: list[str] | None) -> set[str]:
+    """The normalised Category C input MINUS the #260 keyword liabilities
+    :func:`askable_gap_inputs` folds in — a liability is a strength to narrate,
+    not an absence (see :func:`_reconcile_cluster_categories`)."""
+    return {_norm_gap(g) for g in category_c} - {_norm_gap(g) for g in liabilities or []}
+
+
+def _derived_category(members: list[str], c_members: set[str]) -> str:
+    """THE #675 line-60 fact: "C" when any member came from the Category C
+    input, else "B". One implementation for freshly clustered AND carried
+    clusters (ADR-089 clause 4 re-derives a carried cluster's category on
+    every recompute)."""
+    return "C" if any(_norm_gap(g) in c_members for g in members) else "B"
+
+
 def _reconcile_cluster_categories(
     clusters: list[dict],
     *,
@@ -431,7 +465,7 @@ def _reconcile_cluster_categories(
     asks for verbatim copies instead.
     """
     submitted = {_norm_gap(g) for g in category_c} | {_norm_gap(g) for g in category_b}
-    c_members = {_norm_gap(g) for g in category_c} - {_norm_gap(g) for g in liabilities or []}
+    c_members = _category_c_members(category_c, liabilities)
     strengths = {_norm_gap(g) for g in category_a or []} - submitted
 
     kept: list[dict] = []
@@ -452,7 +486,7 @@ def _reconcile_cluster_categories(
                 cluster.get("id"),
             )
             continue
-        derived = "C" if any(_norm_gap(g) in c_members for g in surviving) else "B"
+        derived = _derived_category(surviving, c_members)
         if cluster.get("category") != derived:
             logger.info(
                 "cluster_gaps: cluster %r category %r → %r (derived from its "
@@ -465,28 +499,33 @@ def _reconcile_cluster_categories(
     return kept
 
 
-async def cluster_gaps(
+async def _cluster_concepts(
     gap_analysis: GapAnalysis,
     job: JobAnalysis,
     provider: LLMProvider,
     db: AsyncSession,
-) -> None:
-    """Run clustering LLM call and persist result to gap_analysis.gap_clusters."""
+    *,
+    category_b: list[str],
+    category_c: list[str],
+) -> list[dict]:
+    """The clustering LLM call over the given askable concepts, validated and
+    reconciled (#675 line 60). Returns the clusters; persists nothing.
+
+    ``category_c`` is the AUGMENTED Category C input (:func:`askable_gap_inputs`
+    or a subset of it). The call is the same whether it clusters a whole
+    analysis (:func:`cluster_gaps`) or only the concepts no carried cluster
+    holds yet (:func:`_carry_forward_clusters`, ADR-089 clause 4).
+    """
     # #3 (ADR-038): cluster descriptions (jd_context) render on the conversational gaps
     # page, so they follow the candidate's conversation language — explicit UI choice,
     # else the JD's language (amendment 2026-08-01, #400: job-scoped surface). Local
     # import avoids the session<->gap circular dependency.
     from applire.services.session import get_conversation_language
     lang = await get_conversation_language(db, job_id=job.id)
-    # US204 (ADR-048 §10): keyword-only honest gaps carry no fit weight, so they
-    # never reach category_c — route them into the interview here, deduped against
-    # the category_c gaps already present. The clustering LLM merges by domain and
-    # writes an estimate-honest jd_context, so they surface as askable clusters.
-    category_c = askable_gap_inputs(gap_analysis)
     raw = await provider.aparse_json(
         build_clustering_prompt(
-            category_b=list(gap_analysis.category_b or []),
-            category_c=category_c,
+            category_b=list(category_b),
+            category_c=list(category_c),
             required_skills=list(job.required_skills or []),
             nice_to_have_skills=list(job.nice_to_have_skills or []),
             lang=lang,
@@ -499,35 +538,60 @@ async def cluster_gaps(
     validated = []
     for item in raw_clusters:
         try:
-            validated.append(GapClusterSchema.model_validate(item).model_dump())
+            # Only the clustering contract's own keys: the per-gap record
+            # (`outcome`, `coverage`) is Applire's to write, never the model's,
+            # and the derived `budget_remaining` is never persisted (ruling C-2).
+            validated.append(
+                GapClusterSchema.model_validate(item).model_dump(include=LLM_CLUSTER_KEYS)
+            )
         except Exception:
             logger.debug("cluster_gaps: dropped malformed cluster %r", item)
     # Empty clusters out of non-empty gaps in is almost always a parse failure
     # (JSON-mode envelope not unwrapped, truncation, …) — NOT a genuine "no gaps"
     # outcome. Downstream a false-empty here made the interview tell candidates with
     # critical gaps that they were a "strong match" (#166). Surface it loudly.
-    if not validated and has_clustering_input(gap_analysis):
+    if not validated and (category_c or category_b):
         logger.warning(
             "cluster_gaps: produced 0 clusters from non-empty gaps "
             "(category_c=%d, category_b=%d) — likely a clustering parse failure; "
             "raw payload type=%s",
             len(category_c),
-            len(list(gap_analysis.category_b or [])),
+            len(category_b),
             type(raw).__name__,
         )
     # #675 line 60: the B/C category is a fact about the members, not the
     # model's to write, and a member the analysis calls a strength is not a gap.
-    validated = _reconcile_cluster_categories(
+    return _reconcile_cluster_categories(
         validated,
-        category_c=category_c,
-        category_b=list(gap_analysis.category_b or []),
+        category_c=list(category_c),
+        category_b=list(category_b),
         category_a=list(getattr(gap_analysis, "category_a", None) or []),
         liabilities=[
             e.get("concept", "")
             for e in keyword_liabilities(getattr(gap_analysis, "keyword_ledger", None))
         ],
     )
-    gap_analysis.gap_clusters = validated
+
+
+async def cluster_gaps(
+    gap_analysis: GapAnalysis,
+    job: JobAnalysis,
+    provider: LLMProvider,
+    db: AsyncSession,
+) -> None:
+    """Run clustering LLM call and persist result to gap_analysis.gap_clusters."""
+    # US204 (ADR-048 §10): keyword-only honest gaps carry no fit weight, so they
+    # never reach category_c — route them into the interview here, deduped against
+    # the category_c gaps already present. The clustering LLM merges by domain and
+    # writes an estimate-honest jd_context, so they surface as askable clusters.
+    gap_analysis.gap_clusters = await _cluster_concepts(
+        gap_analysis,
+        job,
+        provider,
+        db,
+        category_b=list(gap_analysis.category_b or []),
+        category_c=askable_gap_inputs(gap_analysis),
+    )
     # Persist only when the record is already in the session (the standalone
     # re-cluster path). _run_analysis now clusters BEFORE adding the record so
     # classification + clusters publish in ONE commit — a committed row must
@@ -601,123 +665,340 @@ def ledger_input_from_classification(c: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# The published score slice (#675 line 77 / UAT F-3, ruling B-1 2026-09-20)
+# The answer-driven score merge (ADR-089 clause 5)
 # ---------------------------------------------------------------------------
 #
-# The headline `match_score` and the table that explains it
-# (`requirement_breakdown`, `category_a/b/c`, `critical_gaps`, `minor_gaps`)
-# are ONE slice of the gap-analysis row, published together or not at all.
-# Before this seam existed the clamp rewrote `match_score` alone while the
-# table was always written fresh, so the founder-UAT of 2026-09-20 shipped a
-# headline of 0.6404 above a table whose own arithmetic said 28.0/44.5 =
-# 0.6292 — and the drift compounded over every further denial.
+# A recompute after an interview answer used to publish a full LLM
+# re-classification of EVERY requirement, and the whole-slice clamp of ruling
+# B-1 (2026-09-20) was disabled whenever any requirement anywhere regressed —
+# one stochastic flip in an unrelated requirement dragged the score down
+# (founder UAT 2026-09-23, 50 → 42). The merge below is per requirement: only
+# what this session's answers touched may move freely; everything else may go
+# UP but not down, unless the fresh row is a denial — and the two deterministic
+# floors then run on the merged ledger, so a denial and a vanished vault
+# backing still lower the score (ruling B-1's purpose, kept).
 #
-# ADR-062 clause 1/6 declaration: both functions below are FACTS — they read
-# enum values off two persisted data structures and compare them. Neither
-# interprets prose and neither calls a model.
+# ADR-062 clause 1/6 declaration: every function here computes FACTS — status
+# enum ranks, list membership, the ledger builder's own string matcher and the
+# shared presence predicate. None interprets prose; none calls a model.
 
-#: The keys of the score slice. Every one of them is published from the SAME
-#: dict, so the headline can never disagree with its own table.
-_SCORE_SLICE_KEYS = (
-    "match_score",
-    "category_a",
-    "category_b",
-    "category_c",
-    "critical_gaps",
-    "minor_gaps",
-    "requirement_breakdown",
-)
-
-#: Statuses that mean "the candidate holds this, at least adjacently".
-_HELD_STATUSES = frozenset({"direct", "partial"})
-#: Statuses that mean "this is not claimable" — `gap` is UNKNOWN, `denied` is
-#: "asked, and the candidate said no" (ADR-059 amended 2026-07-26/27).
-_UNCLAIMABLE_STATUSES = frozenset({"gap", "denied"})
+#: Claim rank of a ledger status. ``denied`` ranks with ``gap`` (both earn 0.0,
+#: neither is claimable); a FRESH ``denied`` is never replaced (clause 5).
+_STATUS_RANK = {"direct": 2, "partial": 1, "gap": 0, "denied": 0}
 
 
-def _statuses_by_requirement(breakdown: Any) -> dict[str, str]:
-    """Normalised ``requirement -> status`` map over a stored breakdown.
+def _row_names(row: dict[str, Any]) -> list[str]:
+    """A ledger row's concept + surface forms (raw strings, blanks dropped)."""
+    names = [row.get("concept", ""), *(row.get("surface_forms") or [])]
+    return [n for n in names if isinstance(n, str) and _norm_gap(n)]
 
-    Accepts the raw JSONB list of dicts (what the ORM row carries) and tolerates
-    pydantic ``RequirementBreakdownItem`` objects, so a caller holding a
-    validated response can use the same fact.
-    """
-    out: dict[str, str] = {}
-    for item in breakdown or []:
-        if isinstance(item, dict):
-            req = item.get("requirement", "")
-            status = item.get("status", "")
-        else:  # pydantic item
-            req = getattr(item, "requirement", "") or ""
-            status = getattr(item, "status", "") or ""
-        key = (req or "").strip().casefold()
-        if key and key not in out:
-            out[key] = status or ""
+
+def _jd_terms(job: JobAnalysis) -> list[str]:
+    """The job's static requirement vocabulary, normalised, in JD order — the
+    ledger builder's union keys (``required_skills`` / ``nice_to_have_skills`` /
+    ``keywords``). Stable across runs, unlike a ledger ``concept``."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for items in (job.required_skills, job.nice_to_have_skills, job.keywords):
+        for raw in items or []:
+            key = _norm_gap(raw) if isinstance(raw, str) else ""
+            if key and key not in seen:
+                seen.add(key)
+                out.append(key)
     return out
 
 
-def carries_a_new_denial_or_regression(
-    previous_breakdown: Any,
-    new_breakdown: Any,
-) -> bool:
-    """Did this recompute record a denial, or lose a requirement the candidate held?
+def _term_owners(ledger: list[Any], terms: list[str]) -> dict[str, int]:
+    """JD term → index of the ledger row that OWNS it, by the ledger builder's
+    own rule (``build_keyword_ledger``'s exact owner, #675 line 46): the first
+    row whose concept or a surface form norm-EQUALS the term; else the first row
+    whose names ``_matches`` it."""
+    names = [
+        {_norm_gap(n) for n in _row_names(r)} if isinstance(r, dict) else set()
+        for r in ledger
+    ]
+    owners: dict[str, int] = {}
+    for term in terms:
+        idx = next((i for i, ns in enumerate(names) if term in ns), None)
+        if idx is None:
+            idx = next(
+                (i for i, ns in enumerate(names) if any(_matches(term, n) for n in ns)),
+                None,
+            )
+        if idx is not None:
+            owners[term] = idx
+    return owners
 
-    Ruling B-1 (2026-09-20) — the two shapes that must NEVER be clamped:
 
-    * a requirement now ``denied`` that was not ``denied`` in the previous row
-      (including one that appears for the first time): the candidate has just
-      told us they do not have it, and the displayed score must say so;
-    * a requirement that moved from ``direct``/``partial`` down to
-      ``gap``/``denied``: the evidence the previous score was built on is gone.
+def pair_rows_by_requirement(
+    fresh: list[Any], previous: list[Any], jd_terms: list[str]
+) -> list[int | None]:
+    """For each fresh ledger row, the index of the previous row that is the
+    SAME requirement — or ``None`` (ADR-089 clause 5).
 
-    Everything else that lowers a score — a ``direct`` refined to ``partial``, a
-    concept regrouped under a different surface form, a widened JD denominator —
-    is the stochastic wobble the E037 PQ #3 clamp was actually earned against.
+    Rows do not persist which JD term they were credited with, so it is
+    re-derived here: both ledgers' rows are matched against the job's static
+    lists (:func:`_term_owners`), and two rows owning the same JD term are the
+    same requirement. When the terms a fresh row owns were owned by more than
+    one previous row, the one with the same normalised concept wins, else the
+    one owning the most of those terms (JD order breaks a tie). A fresh row
+    that owns no JD term (a scope entry, a row whose keys an exact owner took)
+    falls back to the normalised concept.
     """
-    previous_statuses = _statuses_by_requirement(previous_breakdown)
-    for key, status in _statuses_by_requirement(new_breakdown).items():
-        was = previous_statuses.get(key)
-        if status == "denied" and was != "denied":
-            return True
-        if was in _HELD_STATUSES and status in _UNCLAIMABLE_STATUSES:
-            return True
-    return False
-
-
-def published_score_slice(
-    scored: dict[str, Any],
-    previous: GapAnalysis | None,
-    *,
-    clamp_to_previous: bool,
-) -> dict[str, Any]:
-    """The score slice this recompute publishes — fresh, or the previous row's.
-
-    Returns a dict carrying exactly :data:`_SCORE_SLICE_KEYS`. When the clamp
-    applies, the previous row's slice is republished as a UNIT (deep-copied, so
-    the new row never shares a mutable JSONB list with the old one); the clamp
-    can therefore no longer produce a headline that contradicts its own table.
-    """
-    if not clamp_to_previous or previous is None or previous.match_score is None:
-        return scored
-
-    new_score = scored.get("match_score")
-    if new_score is not None and new_score >= previous.match_score:
-        return scored
-
-    if carries_a_new_denial_or_regression(
-        previous.requirement_breakdown, scored.get("requirement_breakdown")
-    ):
-        return scored
-
-    # Every slice key is also a GapAnalysis column name, so the republished
-    # slice is assembled from the constant: a key added to _SCORE_SLICE_KEYS
-    # that the clamp forgot is impossible.
-    clamped: dict[str, Any] = {"match_score": previous.match_score}
-    for key in _SCORE_SLICE_KEYS:
-        if key == "match_score":
+    f_owners = _term_owners(fresh, jd_terms)
+    p_owners = _term_owners(previous, jd_terms)
+    prev_by_concept: dict[str, int] = {}
+    for j, row in enumerate(previous):
+        if isinstance(row, dict):
+            key = _norm_gap(row.get("concept", ""))
+            if key:
+                prev_by_concept.setdefault(key, j)
+    pairs: list[int | None] = []
+    for i, row in enumerate(fresh):
+        if not isinstance(row, dict):
+            pairs.append(None)
             continue
-        clamped[key] = copy.deepcopy(getattr(previous, key) or [])
-    return clamped
+        concept = _norm_gap(row.get("concept", ""))
+        candidates = [p_owners[t] for t in jd_terms if f_owners.get(t) == i and t in p_owners]
+        if not candidates:
+            pairs.append(prev_by_concept.get(concept) if concept else None)
+            continue
+        same_concept = [
+            j for j in candidates if _norm_gap(previous[j].get("concept", "")) == concept
+        ]
+        if same_concept:
+            pairs.append(same_concept[0])
+            continue
+        counts = Counter(candidates)
+        pairs.append(max(dict.fromkeys(candidates), key=lambda j: counts[j]))
+    return pairs
+
+
+def _is_touched(
+    names: list[str], touched_members: list[str], answers_norm: list[str]
+) -> bool:
+    """ADR-089 clause 5's TOUCHED test for one requirement (its fresh and its
+    previous row's names together): it speaks for a member of a cluster this
+    session worked (the ledger builder's ``_matches``), or one of its names is
+    present in any answer of the session (THE presence predicate,
+    ``ats_audit.surface_present`` — a self-correction outside the answered
+    cluster)."""
+    norm_names = [_norm_gap(n) for n in names]
+    for member in touched_members:
+        m = _norm_gap(member)
+        if m and any(_matches(m, n) for n in norm_names if n):
+            return True
+    return any(surface_present(n, a) for a in answers_norm for n in names)
+
+
+def _carried_row(previous_row: dict[str, Any], fresh_row: dict[str, Any]) -> dict[str, Any]:
+    """The previous row standing in for a fresh one that moved down outside the
+    touched set. Its claim (status, evidence, adjacency, JD phrase) is the
+    previous row's; its SCORE SLOT is the fresh row's (``sources`` /
+    ``fit_weight`` — a JD term is credited to exactly one row of THIS ledger,
+    #675 line 46), and its surface forms are the union of both (the SF-GAP.12
+    precedent), so the denial floor that runs next sees every name."""
+    out = copy.deepcopy(previous_row)
+    out["sources"] = list(fresh_row.get("sources") or [])
+    out["fit_weight"] = fresh_row.get("fit_weight", 0.0)
+    forms = [
+        f
+        for f in [*(previous_row.get("surface_forms") or []), *(fresh_row.get("surface_forms") or [])]
+        if isinstance(f, str) and f.strip()
+    ]
+    out["surface_forms"] = list(dict.fromkeys(forms)) or [out.get("concept", "")]
+    return out
+
+
+def merge_ledger_per_requirement(
+    fresh: list[dict[str, Any]],
+    previous: list[dict[str, Any]] | None,
+    *,
+    jd_terms: list[str],
+    touched_members: list[str],
+    answers: tuple[str, ...] | list[str],
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """PURE. ADR-089 clause 5's per-requirement merge, BEFORE the floors.
+
+    For every fresh row paired with a previous row of the same requirement
+    (:func:`pair_rows_by_requirement`): outside the touched set
+    (:func:`_is_touched`), a downward move (``direct → partial → gap``) is
+    replaced by the previous row (:func:`_carried_row`) — unless the fresh row
+    is ``denied``. Inside the touched set the fresh row stands, and so does
+    every fresh row with no previous counterpart.
+
+    Returns ``(merged, carried_indices)`` — the indices of the rows that now
+    carry a previous row, which the caller runs the denial floor on and
+    re-annotates against the current vault. The floors are NOT applied here.
+    """
+    prev = list(previous or [])
+    merged = [dict(r) if isinstance(r, dict) else r for r in fresh]
+    if not prev:
+        return merged, []
+    answers_norm = [_ats_norm(a) for a in answers or () if isinstance(a, str) and a.strip()]
+    pairs = pair_rows_by_requirement(fresh, prev, jd_terms)
+    carried: list[int] = []
+    for i, j in enumerate(pairs):
+        f = fresh[i]
+        if j is None or not isinstance(f, dict):
+            continue
+        p = prev[j]
+        f_status = f.get("status")
+        if f_status == "denied":
+            continue  # a denial always stands (ruling B-1's purpose)
+        if _STATUS_RANK.get(p.get("status"), 0) <= _STATUS_RANK.get(f_status, 0):
+            continue  # not a downward move
+        if _is_touched(_row_names(f) + _row_names(p), touched_members, answers_norm):
+            continue  # this session's answers may move it freely
+        merged[i] = _carried_row(p, f)
+        carried.append(i)
+        logger.info(
+            "gap analysis merge: kept %r at %r (fresh run said %r) — outside the "
+            "requirements this session touched (ADR-089 clause 5)",
+            p.get("concept"),
+            p.get("status"),
+            f_status,
+        )
+    return merged, carried
+
+
+def _apply_floors_to_merged(
+    merged: list[dict[str, Any]],
+    carried: list[int],
+    *,
+    denied_concepts: list[dict[str, Any]],
+    profile_json: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """The two deterministic floors on the MERGED ledger (ADR-089 clause 5).
+
+    The fresh rows already passed both inside :func:`build_keyword_ledger` /
+    :func:`_run_analysis`; a carried row was floored against an older vault
+    and older denials. So each carried non-scope row gets the ADR-059 denial
+    floor against TODAY's denials, and the builder's final annotation pass
+    (``narrative_backed``, ``evidence_owners``) against today's vault; then
+    ``assert_claimable_backed`` runs over the whole merged ledger (idempotent on
+    the fresh rows), which heals a carried claim whose vault evidence is gone.
+    Scope entries keep their own floor (``scope_requirements``), exactly as on
+    the fresh path.
+    """
+    out = list(merged)
+    idx = [i for i in carried if isinstance(out[i], dict) and not is_scope_entry(out[i])]
+    if idx:
+        rows = [out[i] for i in idx]
+        rows = _enforce_denial_stance(
+            rows, denied_concepts, denial_release_corpus(profile_json) or None
+        )
+        rows = annotate_evidence_owners(_annotate_narrative_backed(rows, profile_json), profile_json)
+        for i, row in zip(idx, rows):
+            out[i] = row
+    healed, _violations = assert_claimable_backed(out, profile_json, seam="gap-analysis merge")
+    return healed
+
+
+def _jd_lists_unchanged(job: JobAnalysis, previous: GapAnalysis | None) -> bool:
+    """Were the previous row's requirements built from the SAME JD lists?
+    (ADR-089 clause 4: carry clusters forward only then.)
+
+    Read off the previous ledger, which carries a row for every JD term of the
+    run that built it (a classified row matching it, or the builder's default
+    gap row): every current term must match some previous row (no term was
+    added), and every previous row that was credited with a JD term (non-empty
+    ``sources``) must match some current term (none was removed). A previous row
+    without a ledger (pre-E037) cannot answer, and reads as changed. A JD is
+    immutable per job id in this codebase (a new posting is a new job), so this
+    is a guard, not a hot path.
+    """
+    if previous is None or not previous.keyword_ledger:
+        return False
+    terms = _jd_terms(job)
+    rows = [r for r in previous.keyword_ledger if isinstance(r, dict) and not is_scope_entry(r)]
+    names = [[_norm_gap(n) for n in _row_names(r)] for r in rows]
+    for term in terms:
+        if not any(_matches(term, n) for ns in names for n in ns):
+            return False
+    for row, ns in zip(rows, names):
+        if row.get("sources") and not any(_matches(t, n) for t in terms for n in ns):
+            return False
+    return True
+
+
+def _unique_cluster_ids(clusters: list[dict], taken: set[str]) -> list[dict]:
+    """Appended clusters never reuse a carried cluster's id (the id is the
+    record's identity, ADR-089 clause 4)."""
+    out: list[dict] = []
+    used = set(taken)
+    for c in clusters:
+        cid = str(c.get("id") or "cluster")
+        if cid in used:
+            n = 2
+            while f"{cid}-{n}" in used:
+                n += 1
+            logger.info("cluster_gaps: appended cluster id %r renamed to %r (taken)", cid, f"{cid}-{n}")
+            cid = f"{cid}-{n}"
+            c = {**c, "id": cid}
+        used.add(cid)
+        out.append(c)
+    return out
+
+
+async def _carry_forward_clusters(
+    record: GapAnalysis,
+    previous: GapAnalysis,
+    job: JobAnalysis,
+    provider: LLMProvider,
+    db: AsyncSession,
+    *,
+    denied_concepts: list[dict[str, Any]],
+) -> list[dict]:
+    """ADR-089 clause 4 — the previous row's clusters, re-split against THIS
+    row's ledger, plus freshly clustered concepts no carried cluster holds.
+
+    Every carried cluster keeps its id, label, ``jd_context``, members and
+    ``outcome``; :func:`gap_coverage.refresh_cluster_from_ledger` drops members
+    that match no row of the new ledger (and a cluster left with none) and
+    re-derives the open/covered/declined split and ``coverage``; the B/C
+    ``category`` is re-derived with the #675 line-60 fact. A carried member that
+    became claimable moves to ``covered`` — it is not dropped, and a cluster
+    with no open member stays listed with its coverage.
+
+    Only askable concepts (the same augmented input :func:`cluster_gaps` uses)
+    that match no carried member go to the clustering LLM — none at all means
+    no call. Their clusters are appended with fresh records.
+    """
+    ledger = record.keyword_ledger or []
+    carried: list[dict] = []
+    for cluster in previous.gap_clusters or []:
+        if not isinstance(cluster, dict) or not cluster.get("id"):
+            continue
+        refreshed = refresh_cluster_from_ledger(cluster, ledger, denied_concepts)
+        if refreshed is not None:
+            carried.append(refreshed)
+
+    askable_c = askable_gap_inputs(record)
+    c_members = _category_c_members(
+        askable_c, [e.get("concept", "") for e in keyword_liabilities(ledger)]
+    )
+    for cluster in carried:
+        cluster["category"] = _derived_category(all_members(cluster), c_members)
+
+    carried_members = [_norm_gap(m) for c in carried for m in all_members(c)]
+
+    def _held(concept: str) -> bool:
+        key = _norm_gap(concept)
+        return bool(key) and any(_matches(key, m) for m in carried_members if m)
+
+    leftover_c = [g for g in askable_c if not _held(g)]
+    leftover_b = [g for g in (record.category_b or []) if not _held(g)]
+    appended: list[dict] = []
+    if leftover_c or leftover_b:
+        fresh = await _cluster_concepts(
+            record, job, provider, db, category_b=leftover_b, category_c=leftover_c
+        )
+        appended = [
+            initialise_cluster_record(c, ledger, denied_concepts)
+            for c in _unique_cluster_ids(fresh, {c["id"] for c in carried})
+        ]
+    return carried + appended
 
 
 async def _run_analysis(
@@ -726,7 +1007,7 @@ async def _run_analysis(
     db: AsyncSession,
     provider: LLMProvider,
     *,
-    clamp_to_previous: bool = False,
+    answer_scope: AnswerScope | None = None,
 ) -> GapAnalysisResponse:
     job_dict = _job_inputs(job)
 
@@ -827,9 +1108,43 @@ async def _run_analysis(
         keyword_ledger, profile.profile_json, seam="gap-analysis build"
     )
 
+    # ADR-089 clause 4/5 — is THIS recompute one of the same job's requirement
+    # set (a previous row, the same JD lists)? Only then may the answer-driven
+    # merge compare rows and the clusters carry forward.
+    same_jd = _jd_lists_unchanged(job, previous)
+
+    # ADR-089 clause 5 — the answer-driven path merges per requirement: outside
+    # what this session's answers touched, a downward move is replaced by the
+    # previous row (unless the fresh row is a denial); the denial floor and
+    # #318's claimable-backing invariant then run on the MERGED ledger. The
+    # non-answer path (first analysis, JD change, a profile edit) publishes the
+    # fresh ledger unchanged.
+    if answer_scope is not None and same_jd:
+        touched_members = [
+            member
+            for cluster in (previous.gap_clusters or [])
+            if isinstance(cluster, dict) and cluster.get("id") in set(answer_scope.cluster_ids)
+            for member in all_members(cluster)
+        ]
+        merged, carried_idx = merge_ledger_per_requirement(
+            keyword_ledger,
+            previous.keyword_ledger,
+            jd_terms=_jd_terms(job),
+            touched_members=touched_members,
+            answers=answer_scope.answers,
+        )
+        keyword_ledger = _apply_floors_to_merged(
+            merged,
+            carried_idx,
+            denied_concepts=denied_concepts,
+            profile_json=profile.profile_json,
+        )
+
     # ADR-048 §5 (amends ADR-035): re-source the match score from the ledger's
     # fit-weighted slice — the single source of truth — not a parallel
-    # classification list. The formula and weights are unchanged.
+    # classification list. The formula and weights are unchanged. ADR-089
+    # clause 5: headline, breakdown, categories, critical/minor gaps AND the
+    # persisted ledger all come from this ONE ledger, so they cannot disagree.
     scored = compute_match_score_from_ledger(keyword_ledger)
 
     # Compute embedding similarity score (None when noop provider or embeddings absent)
@@ -838,42 +1153,25 @@ async def _run_analysis(
         profile.embedding,
     )
 
-    # E037 PQ #3 + ruling B-1 (2026-09-20) — the monotonic-up clamp on the
-    # post-interview-answer (/gaps/refresh) path, applied to the WHOLE score
-    # slice and only to the evidence-added population. `published` is the single
-    # dict every score-derived field below is written from: the headline and the
-    # table it explains can no longer disagree (UAT F-3), and a recorded denial
-    # is never clamped — it is allowed to lower the displayed score, because
-    # that is the mechanism the product stands for.
-    published = published_score_slice(
-        scored, previous, clamp_to_previous=clamp_to_previous
-    )
-
     record = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
-        match_score=published["match_score"],
+        match_score=scored["match_score"],
         input_fingerprint=fingerprint,
         embedding_similarity_score=embedding_similarity_score,
-        critical_gaps=published["critical_gaps"],
-        minor_gaps=published["minor_gaps"],
+        critical_gaps=scored["critical_gaps"],
+        minor_gaps=scored["minor_gaps"],
         # E-4 / SF-GAP.10 — the ledger has the last word on every published
         # list, `strengths` included (see `_strengths_the_ledger_supports`).
         strengths=_strengths_the_ledger_supports(
             data.get("strengths", []), keyword_ledger
         ),
         keyword_gaps=data.get("keyword_gaps", []),
-        category_a=published["category_a"],
-        category_b=published["category_b"],
-        category_c=published["category_c"],
-        # The ledger is ALWAYS this run's own: it carries the evidence sentences,
-        # surface forms and denial levels the writers read, and #318's
-        # `assert_claimable_backed` invariant was asserted against THIS profile.
-        # Republishing a previous ledger could reinstate a claimable row whose
-        # vault evidence has since been removed. The clamp therefore governs the
-        # published score slice only — see `published_score_slice`.
+        category_a=scored["category_a"],
+        category_b=scored["category_b"],
+        category_c=scored["category_c"],
         keyword_ledger=keyword_ledger,
-        requirement_breakdown=published["requirement_breakdown"],
+        requirement_breakdown=scored["requirement_breakdown"],
     )
 
     # Phase 2: semantic clustering — BEFORE the record is published. Committing
@@ -882,7 +1180,22 @@ async def _run_analysis(
     # forever (Spaghettieis UAT 2026-07-13). A committed analysis now always
     # carries its clusters; if clustering dies, nothing is published and the
     # async gap job fails cleanly (retry recomputes from scratch).
-    await cluster_gaps(record, job, provider, db)
+    #
+    # ADR-089 clause 4 — stable gap identity: with a previous row of the same
+    # JD, its clusters (ids, labels, members, outcome) are carried forward and
+    # only concepts no carried cluster holds are clustered; a first analysis or
+    # a JD change clusters from scratch. Either way every cluster leaves here
+    # with its per-gap record (clause 3).
+    if same_jd:
+        record.gap_clusters = await _carry_forward_clusters(
+            record, previous, job, provider, db, denied_concepts=denied_concepts
+        )
+    else:
+        await cluster_gaps(record, job, provider, db)
+        record.gap_clusters = [
+            initialise_cluster_record(c, keyword_ledger, denied_concepts)
+            for c in record.gap_clusters or []
+        ]
 
     db.add(record)
     # Captured before the commit: rollback expires ORM objects, so the recovery

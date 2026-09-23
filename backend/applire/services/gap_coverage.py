@@ -98,6 +98,10 @@ logger = logging.getLogger(__name__)
 
 MemberFact = Literal["covered", "declined", "open"]
 CoverageStatus = Literal["open", "partly_covered", "covered", "declined"]
+#: RULING C-1 — the four-way per-member status the gaps page colours each
+#: requirement chip by. ``partial`` + ``gap`` together are exactly
+#: :data:`MemberFact`'s ``open``.
+MemberStatus = Literal["covered", "partial", "gap", "declined"]
 
 #: Every value ``coverage`` may take — a stored value outside this set is
 #: ignored and re-derived (a hand-edited or future row never crashes a reader).
@@ -223,6 +227,28 @@ def _is_covered(rows: list[dict[str, Any]]) -> bool:
     )
 
 
+def _member_status(
+    member: str, keyword_ledger: list[dict[str, Any]] | None, denials: list[str]
+) -> MemberStatus:
+    """THE per-member classification, in ADR-089 clause 2 precedence — the one
+    implementation behind :func:`classify_members` (three-way fact) and
+    :func:`member_statuses` (four-way chip status, RULING C-1):
+
+    ``declined`` (a recorded denial of this member) > ``covered`` (every
+    matching row ``direct``, none an unstoried liability) > ``partial`` (the
+    member's rows hold a claimable status — a ``partial``, an unstoried #260
+    liability, a ``direct`` a narrower row vetoes) > ``gap`` (``gap``, or no
+    matching row)."""
+    rows = _rows_for(member, keyword_ledger)
+    if _is_declined(member, rows, denials):
+        return "declined"
+    if _is_covered(rows):
+        return "covered"
+    if _has_claimable_signal(member, rows):
+        return "partial"
+    return "gap"
+
+
 def _has_claimable_signal(member: str, rows: list[dict[str, Any]]) -> bool:
     """Does the ledger hold ANY claimable status for this member — its own rows
     when it has some, else every row that speaks for it? This is what separates
@@ -282,14 +308,36 @@ def classify_members(
     for member in members or []:
         if not isinstance(member, str) or not _norm(member):
             continue
-        rows = _rows_for(member, keyword_ledger)
-        if _is_declined(member, rows, denials):
-            facts[member] = "declined"
-        elif _is_covered(rows):
-            facts[member] = "covered"
-        else:
-            facts[member] = "open"
+        status = _member_status(member, keyword_ledger, denials)
+        facts[member] = status if status in ("declined", "covered") else "open"
     return facts
+
+
+def member_statuses(
+    cluster: dict[str, Any],
+    keyword_ledger: list[dict[str, Any]] | None,
+    denied_concepts: list[dict[str, Any]] | list[str] | None = None,
+) -> list[dict[str, str]]:
+    """RULING C-1 — ``[{"member", "status"}]`` over EVERY member
+    (:func:`all_members` order), ``status`` ∈ covered | partial | gap |
+    declined, by the same precedence as :func:`classify_members`
+    (:func:`_member_status`). A member the record already holds as declined
+    (``outcome.declined``) is ``declined`` whatever the ledger row is worded
+    as — the record is the fact of a denial. Derived at response time from the
+    row's own ledger; never persisted."""
+    if not isinstance(cluster, dict):
+        return []
+    recorded_declined = {_norm(m) for m in _outcome_of(cluster)["declined"]}
+    denials = _denial_terms(denied_concepts)
+    return [
+        {
+            "member": member,
+            "status": "declined"
+            if _norm(member) in recorded_declined
+            else _member_status(member, keyword_ledger, denials),
+        }
+        for member in all_members(cluster)
+    ]
 
 
 def member_matches_ledger(member: str, keyword_ledger: list[dict[str, Any]] | None) -> bool:

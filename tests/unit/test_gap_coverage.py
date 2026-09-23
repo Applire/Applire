@@ -35,6 +35,7 @@ from applire.services.gap_coverage import (
     initialise_cluster_record,
     is_askable,
     member_matches_ledger,
+    member_statuses,
     record_turn_outcome,
     refresh_cluster_from_ledger,
     remaining_budget,
@@ -237,6 +238,77 @@ def test_an_unstoried_nice_to_have_is_not_a_liability():
     """`keyword_liabilities` scopes to required sources only — mirrored."""
     ledger = [row("Jira", "direct", sources=("nice_to_have",), narrative=False)]
     assert classify_members(["Jira"], ledger, None) == {"Jira": "covered"}
+
+
+# ---------------------------------------------------------------------------
+# member_statuses — RULING C-1 (the chip colour per requirement)
+# ---------------------------------------------------------------------------
+
+_C1_LEDGER = [
+    row("Docker", "direct"),
+    row("Helm", "partial"),
+    row("Terraform", "gap"),
+    row("SAP PP", "direct", narrative=False),  # unstoried liability → partial
+    row("Ansible", "denied"),
+    row("Python", "direct"),
+    row("5+ years Python experience", "gap"),  # #207 veto on "Python"
+]
+_C1_MEMBERS = [
+    "Docker", "Helm", "Terraform", "SAP PP", "Ansible", "Python", "Pulumi", "Kubernetes",
+]
+_C1_DENIED = [{"concept": "Kubernetes"}]
+
+
+def test_member_statuses_four_way_precedence():
+    c = cluster(gaps=_C1_MEMBERS)
+    got = {m["member"]: m["status"] for m in member_statuses(c, _C1_LEDGER, _C1_DENIED)}
+    assert got == {
+        "Docker": "covered",
+        "Helm": "partial",
+        "Terraform": "gap",
+        "SAP PP": "partial",
+        "Ansible": "declined",
+        "Python": "partial",
+        "Pulumi": "gap",
+        "Kubernetes": "declined",
+    }
+
+
+def test_member_statuses_agree_with_classify_members():
+    """covered/declined agree; partial + gap is exactly `open`."""
+    facts = classify_members(_C1_MEMBERS, _C1_LEDGER, _C1_DENIED)
+    statuses = member_statuses(cluster(gaps=_C1_MEMBERS), _C1_LEDGER, _C1_DENIED)
+    for item in statuses:
+        expected = item["status"] if item["status"] in ("covered", "declined") else "open"
+        assert facts[item["member"]] == expected, item
+
+
+def test_member_statuses_cover_every_member_in_all_members_order():
+    c = cluster(gaps=["Helm"], outcome=outcome(covered=["Docker"], declined=["Ansible"]))
+    got = member_statuses(c, _C1_LEDGER)
+    assert [m["member"] for m in got] == ["Helm", "Docker", "Ansible"]
+    assert [m["status"] for m in got] == ["partial", "covered", "declined"]
+
+
+def test_a_recorded_decline_stays_declined_whatever_the_row_says():
+    c = cluster(gaps=[], outcome=outcome(declined=["Docker"]))
+    assert member_statuses(c, [row("Docker", "direct")]) == [
+        {"member": "Docker", "status": "declined"}
+    ]
+
+
+def test_member_statuses_of_a_non_dict_is_empty():
+    assert member_statuses(None, _C1_LEDGER) == []  # type: ignore[arg-type]
+
+
+def test_response_carries_member_statuses_and_budget_but_never_persists_them():
+    from applire.schemas.gap_cluster import LLM_CLUSTER_KEYS, GapClusterSchema
+
+    c = GapClusterSchema.model_validate(
+        {**cluster(gaps=["Docker"]), "budget_remaining": 99, "member_statuses": [{"member": "X", "status": "gap"}]}
+    )
+    assert c.budget_remaining == 2, "derived, an input value is ignored"
+    assert set(c.model_dump(include=LLM_CLUSTER_KEYS)) == LLM_CLUSTER_KEYS
 
 
 # ---------------------------------------------------------------------------
