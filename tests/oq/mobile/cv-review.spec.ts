@@ -229,9 +229,10 @@ test.describe("Mobile CV review command bar (390x844)", () => {
     // E058/ADR-081 cl. 2/9: the sheet now hosts ReviewSurface, not the compact
     // ATSChecksPanel — a not_applicable check renders as its own group-4 review
     // row (lib/review-groups.ts `buildGroup4`, severity "neutral"), never folded
-    // into a pass or a failure. It is the only group with items in this fixture
-    // (no ATS/Oracle/critic/cluster findings elsewhere), so overview mode opens
-    // it by default — no extra click needed.
+    // into a pass or a failure. ADR-090 cl. 1 retired the old overview mode's
+    // auto-open-when-sole-group behaviour — every group starts collapsed now,
+    // so group 4 needs its own toggle click before the row is visible.
+    await sheet.getByTestId("review-group-toggle-4").tap();
     await expect(sheet.getByTestId("review-item-g4-check-na-page-length")).toBeVisible();
 
     await page.screenshot({
@@ -245,6 +246,70 @@ test.describe("Mobile CV review command bar (390x844)", () => {
 
     await page.getByTestId("command-sheet-close").tap();
     await expect(sheet).toBeHidden({ timeout: 5000 });
+  });
+
+  // ADR-090 cl. 1 (phone): *Show me where* switches the review sheet to the
+  // locate view — a portal (`review-phone-locate`) with its own back button,
+  // stepper and handle grid — while the command sheet stays mounted but
+  // hidden (CVPage's `mobileLocating` state feeds MobileCommandBar's
+  // `suspended` prop). *Back to review* returns to the same card.
+  test("Show me where opens the phone locate view and hides the command sheet", async ({ page }) => {
+    await page.route(`**/api/cv/${CV_ID}/ats-report`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          report: {
+            checks: [
+              { id: "contact-name", status: "pass" },
+              { id: "skills", status: "pass" },
+            ],
+            keywords: {
+              present: ["TypeScript", "React"],
+              missing: [],
+              missing_claimable: [],
+              missing_honest_gap: [],
+              present_unsupported: ["Kubernetes"],
+              present_unsupported_matches: { Kubernetes: [{ form: "Kubernetes", stem: false }] },
+              claimable_concepts: [],
+            },
+          },
+        }),
+      })
+    );
+    await page.route(`**/api/cv/${CV_ID}/html`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<html><body><h1>Max Mustermann</h1><p>Senior Software Engineer</p><p>Kubernetes migration lead.</p></body></html>`,
+      })
+    );
+
+    await page.goto(`/flow/${FLOW_ID}/cv`);
+    await expect(page.getByTestId("mobile-command-bar")).toBeVisible({ timeout: 10000 });
+
+    await page.getByTestId("command-ats").tap();
+    const sheet = page.getByTestId("command-sheet");
+    await expect(sheet).toBeVisible({ timeout: 5000 });
+    await expect(sheet.getByTestId("review-card")).toBeVisible();
+
+    await sheet.getByTestId("review-action-locate").tap();
+    // The portal's own wrapper (`review-phone-locate`, `class="md:hidden"`)
+    // collapses to zero height once its two children go `fixed` — it exists
+    // but reads as not-visible to a bounding-box check. Assert on the
+    // portal's actual content instead.
+    const phoneLocate = page.getByTestId("review-phone-locate");
+    await expect(phoneLocate).toHaveCount(1, { timeout: 5000 });
+    await expect(page.getByTestId("review-locate-back")).toBeVisible({ timeout: 5000 });
+    await expect(sheet).toBeHidden();
+
+    const frame = page.frameLocator('iframe[data-testid="cv-iframe"]');
+    await expect(frame.locator("mark[data-applire-hit]")).toHaveCount(1);
+
+    await page.getByTestId("review-locate-back").tap();
+    await expect(phoneLocate).toHaveCount(0);
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByTestId("review-card")).toBeVisible();
   });
 
   // US228 (E040): the Fine-tune sheet used to lead with "editing is optimised
