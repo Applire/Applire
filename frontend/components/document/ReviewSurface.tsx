@@ -577,6 +577,20 @@ export function ReviewSurface({
             {t("cardPosition", { index: currentIndex + 1, total: rows.length })}
           </span>
           <span className="font-heading text-[17px] font-bold text-on-surface">{row.label}</span>
+          {/* ADR-081 cl. 2: a merged row CITES both producers. */}
+          {row.item && (
+            <span className="flex flex-wrap items-center gap-1" data-testid="review-card-producers">
+              {row.item.producers.map((p) => (
+                <span
+                  key={p}
+                  data-testid={`review-item-producer-${p}`}
+                  className="rounded-full bg-surface-container px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
+                >
+                  {t(PRODUCER_LABEL_KEY[p])}
+                </span>
+              ))}
+            </span>
+          )}
 
           {decided && !currentTakeOut && (
             <span data-testid="review-card-status" className="text-[13px] font-semibold text-success">
