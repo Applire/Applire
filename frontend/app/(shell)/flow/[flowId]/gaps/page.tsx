@@ -528,15 +528,13 @@ export default function GapsPage({
   // while it holds one, no card may open another (and vice versa).
   const [liabilityActive, setLiabilityActive] = useState(false);
   // ADR-089 clause 8 — the page holds at most ONE open micro-session: a card
-  // whose state is anything but idle, or the liability panel's story. The ref
-  // closes the double-click window before the lock re-renders.
+  // whose state is anything but idle, or the liability panel's story. The lock
+  // is the render itself: a locked card has no click handler, and a click is a
+  // discrete event React commits before the next one, so a double click cannot
+  // reach a second handler (pinned by the "double click" test).
   const openClusterId =
     Object.keys(gapStates).find((id) => gapStates[id].status !== "idle") ?? null;
   const sessionOpen = openClusterId !== null || liabilityActive;
-  const sessionOpenRef = useRef(false);
-  useEffect(() => {
-    sessionOpenRef.current = sessionOpen;
-  }, [sessionOpen]);
   // Animated match score (refreshed after gap resolution)
   const [matchScore, setMatchScore] = useState(0);
   // Parsed-JD echo for the pre-interview review surface (US158, FMEA 4.3/4.4)
@@ -819,8 +817,7 @@ export default function GapsPage({
     // Clause 8: one open micro-session per page. `_create_micro_session`
     // completes any active session, which would silently end a pending
     // follow-up on another card.
-    if (sessionOpenRef.current) return;
-    sessionOpenRef.current = true;
+    if (sessionOpen) return;
     updateGapState(clusterId, { ...EMPTY_GAP_STATE, status: "loading" });
     try {
       const res = await fetch(`${API_BASE}/api/session`, {
