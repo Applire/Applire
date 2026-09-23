@@ -250,6 +250,7 @@ export function ReviewSurface({
   const [phoneLocating, setPhoneLocating] = useState(false);
   const [scan, setScan] = useState<{ findingKey: string; total: number; texts: string[] } | null>(null);
   const highlighted = useRef(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const targets = current?.item?.targets ?? null;
   const targetsSig = targets ? JSON.stringify(targets) : "";
@@ -564,6 +565,7 @@ export function ReviewSurface({
     const border = decided ? "border-success" : "border-primary";
     return (
       <div
+        ref={cardRef}
         data-testid="review-card"
         data-finding-key={row.findingKey}
         data-status={row.status}
@@ -729,7 +731,7 @@ export function ReviewSurface({
                 type="button"
                 data-testid="review-action-next"
                 onClick={nextFinding}
-                className="min-h-11 flex-1 rounded-full bg-primary px-4 text-sm font-semibold text-white"
+                className="min-h-11 flex-1 whitespace-nowrap rounded-full bg-primary px-4 text-sm font-semibold text-white"
               >
                 {t("actionNextFinding")}
               </button>
@@ -740,7 +742,7 @@ export function ReviewSurface({
                 data-testid="review-action-undo"
                 disabled={busy !== null}
                 onClick={() => void runUndo(row)}
-                className="flex min-h-11 items-center gap-2 rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface disabled:opacity-50"
+                className="flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface disabled:opacity-50"
               >
                 {busy === "undo" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 {t("actionUndo")}
@@ -751,7 +753,7 @@ export function ReviewSurface({
                 type="button"
                 data-testid="review-action-edit-after"
                 onClick={() => editRow(row)}
-                className="min-h-11 rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface"
+                className="min-h-11 whitespace-nowrap rounded-full border border-outline-variant bg-surface-bright px-4 text-sm font-semibold text-on-surface"
               >
                 {t("actionEdit")}
               </button>
@@ -887,6 +889,8 @@ export function ReviewSurface({
                       setTakeOutResult(null);
                       setTestimony(null);
                     }
+                    // The card sits above the list: bring it back into view.
+                    cardRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
                   }}
                   className={`flex min-h-11 w-full items-center gap-2.5 border-b border-surface-container px-1 text-left ${
                     isCurrent ? "rounded-lg bg-surface-container" : ""
