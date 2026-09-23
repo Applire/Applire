@@ -570,6 +570,9 @@ async def test_reopening_a_gap_with_a_waiting_follow_up_resumes_it(db):
     assert reopened.question == "And Terraform?"
     assert reopened.choices == ["choice for And Terraform?"]
     assert reopened.resumed is True
+    # A resumed micro-session reports its cluster's remaining budget, like a
+    # fresh one — not the full-interview ceiling-midpoint estimate.
+    assert reopened.estimated_questions == 1
     assert again.calls == [], "nothing is generated twice for one budget slot"
 
 

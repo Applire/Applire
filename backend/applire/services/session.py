@@ -2150,11 +2150,20 @@ async def create_session(
         return _resumed_response(winner)
 
 
-def _resumed_response(existing: InterviewSession) -> SessionCreateResponse:
+def _resumed_response(
+    existing: InterviewSession, *, estimated_questions: int | None = None
+) -> SessionCreateResponse:
     state: InterviewState = dict(existing.state)
     gaps_total = len(state.get("critical_gaps", []))
     gaps_remaining = gaps_total - state.get("current_gap_index", 0)
-    estimated = _estimated_questions(existing.mode, existing.hard_ceiling)
+    # A resumed Gap-Click micro-session reports its cluster's remaining budget,
+    # the same figure a fresh one reports (ADR-089 clause 1) — not the
+    # ceiling-midpoint estimate a full interview uses.
+    estimated = (
+        estimated_questions
+        if estimated_questions is not None
+        else _estimated_questions(existing.mode, existing.hard_ceiling)
+    )
     current_q = state.get("current_question", "")
     current_choices = state.get("current_choices")
     # `resumed` must reflect genuine in-progress work, not mere session
@@ -2617,7 +2626,12 @@ async def _create_micro_session(
 
     existing_active = await _get_active_session(job_id, db)
     if existing_active is not None and _is_pending_micro_on(existing_active, target_cluster_id):
-        return _resumed_response(existing_active)
+        return _resumed_response(
+            existing_active,
+            estimated_questions=gap_coverage.remaining_budget(
+                cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP
+            ),
+        )
 
     if found:
         refusal = gap_not_askable(cluster, lang)
