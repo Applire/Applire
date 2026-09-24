@@ -1093,7 +1093,12 @@ def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
     data = copy.deepcopy(letter_data)
     for section, content in overrides.items():
         if section == "body" and isinstance(content, str):
-            data.setdefault("body", {})["paragraphs"] = [content]
+            # RULING B-2 (ADR-090 run): the body override is the Edit tab's /
+            # take-out's text with paragraphs separated by blank lines; every
+            # letter template renders one <p> per paragraph, so a single-element
+            # list collapsed the delivered letter into one paragraph.
+            paras = [p.strip() for p in re.split(r"\n[ \t]*\n", content) if p.strip()]
+            data.setdefault("body", {})["paragraphs"] = paras or [content]
         elif section in data:
             if isinstance(data[section], dict) and isinstance(content, str):
                 data[section]["_override"] = content
