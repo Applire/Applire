@@ -709,3 +709,39 @@ describe("ADR-090 cl. 6 — walked_at replaces the browser-local walked bit", ()
   });
 });
 
+
+/* ------------------------------------------------ ruling B-1 — stem-only */
+
+describe("ruling B-1 — a stem-only finding offers no Take it out", () => {
+  function atsWith(matches: Array<{ form: string; stem: boolean }>): ATSReport {
+    return ats({ present_unsupported: ["Mentoring"], present_unsupported_matches: { Mentoring: matches } });
+  }
+
+  it("every matched form stem-only → no Take it out; the other three handles stay", () => {
+    renderSurface({ atsReport: atsWith([{ form: "Mentoring", stem: true }]), locator: makePreviewLocator(previewDoc) });
+    const card = screen.getByTestId("review-card");
+    expect(within(card).queryByTestId("review-action-takeout")).toBeNull();
+    expect(within(card).getByTestId("review-action-add")).toBeTruthy();
+    expect(within(card).getByTestId("review-action-edit")).toBeTruthy();
+  });
+
+  it("mixed stem and non-stem forms → Take it out stays", () => {
+    renderSurface({
+      atsReport: atsWith([
+        { form: "Mentoring", stem: true },
+        { form: "Mentor", stem: false },
+      ]),
+    });
+    expect(screen.getByTestId("review-action-takeout")).toBeTruthy();
+  });
+
+  it("a 409 refusal lands on the existing still-listed path", async () => {
+    const { ReviewActionError } = await import("@/lib/api/document-review");
+    api.takeOut.mockRejectedValue(new ReviewActionError(409));
+    renderSurface({ atsReport: atsWith([{ form: "Mentor", stem: false }]) });
+    fireEvent.click(screen.getByTestId("review-action-takeout"));
+    await waitFor(() => expect(screen.getByTestId("review-takeout-still")).toBeTruthy());
+    expect(screen.queryByTestId("review-action-error")).toBeNull();
+    expect(screen.getByTestId("review-action-edit")).toBeTruthy();
+  });
+});

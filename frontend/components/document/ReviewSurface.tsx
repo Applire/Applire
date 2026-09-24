@@ -116,6 +116,16 @@ const SEVERITY_DOT: Record<ReviewItem["severity"], string> = {
   neutral: "bg-outline-variant",
 };
 
+/**
+ * Ruling B-1 (founder, 2026-09-23): a finding whose EVERY matched form hit only
+ * through the token-stem fallback cannot be taken out by the removal rewrite
+ * (the document holds no literal form to remove), so the card does not offer
+ * it. The backend refuses it too (409 `take_out_unavailable_stem_only`).
+ */
+export function isStemOnly(targets: LocateTarget[] | null | undefined): boolean {
+  return Boolean(targets && targets.length > 0 && targets.every((t) => t.stem === true));
+}
+
 const STATUS_KEY: Record<"added" | "taken_out" | "edited", string> = {
   added: "statusAdded",
   taken_out: "statusTakenOut",
@@ -356,7 +366,14 @@ export function ReviewSurface({
       applyRefresh(res, res.changes.length > 0);
       if (!res.still_listed) maybeWalked(res.review_state, openRows.length - 1);
     } catch (e) {
-      fail(e);
+      if (e instanceof ReviewActionError && e.status === 409) {
+        // Ruling B-1: the server refused the removal (stem-only finding) —
+        // the existing still-listed path, which points to *Let me edit it*.
+        setTakeOutResult({ findingKey: row.findingKey, changes: [], stillListed: true, places: 0 });
+        setCurrentKey(row.findingKey);
+      } else {
+        fail(e);
+      }
     } finally {
       setBusy(null);
     }
@@ -481,7 +498,9 @@ export function ReviewSurface({
       variant === "stack"
         ? "flex w-full items-center gap-2.5 min-h-11 rounded-xl border border-outline-variant bg-surface-bright px-3 py-2 text-left text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
         : "flex flex-col items-center justify-center gap-1 min-h-[60px] rounded-xl border border-outline-variant bg-surface-bright px-1 py-1.5 text-center text-xs font-semibold leading-tight text-on-surface hover:bg-surface-container disabled:opacity-50";
-    const wrap = variant === "stack" ? "flex flex-col gap-2" : "grid grid-cols-3 gap-1.5";
+    const canTakeOut = !isStemOnly(row.item?.targets);
+    const wrap =
+      variant === "stack" ? "flex flex-col gap-2" : `grid ${canTakeOut ? "grid-cols-3" : "grid-cols-2"} gap-1.5`;
     return (
       <div className={wrap} data-testid={`review-handles-${variant}`}>
         <button
@@ -497,6 +516,7 @@ export function ReviewSurface({
           <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
           {t("actionAddToProfile")}
         </button>
+        {canTakeOut && (
         <button
           type="button"
           data-testid="review-action-takeout"
@@ -512,6 +532,7 @@ export function ReviewSurface({
           )}
           {t("actionTakeOut")}
         </button>
+        )}
         <button
           type="button"
           data-testid="review-action-edit"
