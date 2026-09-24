@@ -1345,6 +1345,8 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 **Two rules the end-to-end runs sharpened.** A requirement reads as covered when the evidence about that requirement itself is a full match; a broader requirement's partial evidence — "SAP" in general, say — no longer holds a specific one like "SAP PP" open. And the score safeguard is scoped to the gap the candidate actually worked: a passing mention of an unrelated requirement in an answer does not reopen that requirement to re-classification. An explicit denial still lowers the score everywhere, and evidence that has left the profile still stops counting.
 
+**Built with it — ADR-090's gap half.** The gap analysis is a model judgement, so it does not re-run by itself when the profile changes somewhere else. Instead the gap view says the stored analysis is older than the profile and offers a re-check, which merges per requirement like any answer-driven recompute. The comparison looks only at what the analysis reads: editing a phone number, the photo or other contact details does not raise the hint. Over the agent channel `analyze_gaps` is itself the check, so its `inputs_changed` field is always false there.
+
 **Status.** Built, and exercised end to end before release: a run through the live UI with a real model and a blind two-reviewer read of the resulting documents, an adversarial pass against the same build, and an agent that knew only the agent guide working the gaps through `resolve_gap`. The findings of those runs are fixed. One known limit remains: a follow-up can still name a requirement the candidate covered in other words, because the check for what an answer named is literal.
 
 ---
