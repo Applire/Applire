@@ -228,8 +228,13 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
             )
             if not result.changed or result.after == section_text:
                 continue
-            await write_section(kind, record, section_id, result.after, db)
             changes.append({"section_id": section_id, "before": section_text, "after": result.after})
+        # Adversarial finding 2 (2026-09-24): all-or-nothing ACROSS sections.
+        # Every rewrite runs first; nothing is written unless all of them
+        # returned, so a failing second section can no longer leave the first
+        # one silently saved with no decision and no re-audit.
+        for change in changes:
+            await write_section(kind, record, change["section_id"], change["after"], db)
         if changes:
             await reaudit(kind, record, db)
             state = rs.with_decision(
@@ -276,15 +281,37 @@ async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> A
         before = rs.find_listed(findings_of(record), key)
         if before is not None:
             label = before.label
+        prior = rs.get_decision(rs.load_state(record.review_state), key)
+        # Adversarial finding 1 (2026-09-24): only a finding this document
+        # actually had may become a decision. The section save may already have
+        # re-audited in the background, so "listed right now" is too strict;
+        # "listed now, decided before, or a term the report still knows" is not.
+        known = before is not None or prior is not None or _term_known_to_report(record, key)
         await reaudit(kind, record, db)
         still = rs.find_listed(findings_of(record), key) is not None
-        if not still:
-            prior = rs.get_decision(rs.load_state(record.review_state), key)
+        if not still and known:
             if prior is not None and before is None:
                 label = prior.get("label") or label
             state = rs.with_decision(rs.load_state(record.review_state), key, label, "edited")
             await _save_state(record, state, db)
         return ActionOutcome(record=record, still_listed=still)
+
+
+def _term_known_to_report(record, key: str) -> bool:
+    """An ``ats:`` key whose term the document's report still carries in any
+    keyword list: a flagged keyword that cleared moves between lists, it does
+    not vanish. An ``oracle:`` claim that cleared leaves no trace, so it counts
+    only when it was listed before the re-audit or already decided."""
+    producer, norm = rs.split_key(key)
+    if producer != "ats":
+        return False
+    keywords = (getattr(record, "ats_report", None) or {}).get("keywords") or {}
+    for value in keywords.values():
+        if isinstance(value, list) and any(
+            isinstance(term, str) and rs.norm_quote(term) == norm for term in value
+        ):
+            return True
+    return False
 
 
 async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession) -> ActionOutcome:

@@ -1097,7 +1097,10 @@ def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
             # take-out's text with paragraphs separated by blank lines; every
             # letter template renders one <p> per paragraph, so a single-element
             # list collapsed the delivered letter into one paragraph.
-            paras = [p.strip() for p in re.split(r"\n[ \t]*\n", content) if p.strip()]
+            # Windows / old-Mac line endings normalised first (adversarial finding 3):
+            # "\r\n\r\n" never matched the blank-line split and flattened the letter.
+            normalised = content.replace("\r\n", "\n").replace("\r", "\n")
+            paras = [p.strip() for p in re.split(r"\n[ \t]*\n", normalised) if p.strip()]
             data.setdefault("body", {})["paragraphs"] = paras or [content]
         elif section in data:
             if isinstance(data[section], dict) and isinstance(content, str):

@@ -976,3 +976,27 @@ async def test_cv_take_out_mixed_stem_and_literal_matches_still_rewrites(db):
         response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _MENTORING_KEY})
     assert response.status_code == 200, response.text
     assert fake_rewrite.calls == ["introduction"]
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_records_a_finding_the_background_reaudit_already_cleared(db):
+    """Counterpart to the fabricated-decision test: the section PATCH queues its
+    own background re-audit, so by the time ``edited`` arrives a REAL finding may
+    already have left ``present_unsupported``. Its term still sits in another
+    keyword list (here ``missing_honest_gap``, after the edit removed it), so the
+    decision is still recorded — the fix for the phantom row must not drop it."""
+    cleared = _ats_report("cv", [])
+    cleared["keywords"]["missing_honest_gap"] = [_KUBERNETES]
+    cv_id = await seed_cv(db, introduction="Kenntnisse in Docker.", ats_report=cleared)
+    client = _client(db)
+    fake_reaudit = FakeReaudit([(cleared, None)])
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(
+            f"/api/cv/{cv_id}/review/edited",
+            json={"finding_key": _KEY},
+        )
+
+    assert response.status_code == 200, response.text
+    decisions = response.json()["review_state"]["decisions"]
+    assert [d["action"] for d in decisions] == ["edited"]
