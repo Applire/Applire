@@ -97,6 +97,14 @@ quotation marks around it, no markdown."""
 #: than a mode inside the rules above: the two tasks give opposite instructions about
 #: the surrounding clause (delete it vs keep every word of it), and one prompt holding
 #: both would be the self-contradiction ``applire-prompt-first`` step 3 warns about.
+#:
+#: Replay (2026-09-24, openai/gpt-5.6-luna, 12 figure cases — 6 CV / 6 letter, EN+DE,
+#: ``tests/files/review_rewrite/figure_cases.json``): round 1 (rules without the
+#: from/to sentence) removed every figure and deleted no statement, but left "von 4,1 %
+#: auf gesenkt" and "von 87 % auf verbessert" (2/12) broken; round 2 (THIS TEXT) fixed
+#: both. Both rounds: figures left 0/12, new quantity 0, amount words added 0, lines
+#: deleted 0; one letter dropped "mit 480 Mitarbeitenden" whole, the noun existing only
+#: to carry the count.
 REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT = """\
 You remove numbers from one passage of a job-application document — a CV section or \
 one paragraph of a cover letter. The candidate's profile does not back the figures \
