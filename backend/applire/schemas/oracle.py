@@ -181,6 +181,12 @@ class ClaimVerdict(BaseModel):
     # Short English audit note (the UI localizes verdict labels; the detail is
     # shown verbatim as supporting context, like ATS check details).
     detail: str | None = None
+    # RULING E-1 / NOTE A-3 (2026-09-24): the verbatim figure strings a
+    # ``numbers``-checker ``unbacked`` verdict names — the structured twin of
+    # the detail prose, so *take it out for me* can remove exactly those
+    # figures instead of the whole claim. Empty for every other verdict and on
+    # reports that predate the field.
+    figures: list[str] = Field(default_factory=list)
 
 
 class ClaimResult(BaseModel):

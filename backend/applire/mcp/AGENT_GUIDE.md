@@ -43,6 +43,8 @@ This is the product's core guarantee. It has two halves.
   honestly framed beats an invented qualification every time.
 - Treat `inflated`, `unbacked`, and `misattributed` verdicts in a
   truthfulness report as stop-and-fix, not noise.
+  A figure verdict lists the exact figures it could not back in
+  `verdict.figures` (e.g. `["40,000"]`); fix those numbers, not the sentence.
 - When an answer cannot be grounded in the candidate's data, **ask the
   human** — you are their helper, not their ghostwriter.
 
