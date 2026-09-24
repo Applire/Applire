@@ -62,6 +62,7 @@ import {
   type TestimonyOutcome,
 } from "@/lib/api/document-review";
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
+import { changedPassages } from "@/lib/passage-diff";
 
 /**
  * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
@@ -657,8 +658,31 @@ export function ReviewSurface({
                 <span className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
                   {sectionLabel ? sectionLabel(c.section_id) : c.section_id}
                 </span>
-                <span className="text-xs leading-snug text-on-surface-variant line-through">{c.before}</span>
-                <span className="text-xs leading-snug text-on-surface">{c.after}</span>
+                {/* D-3 / ADR-090 cl. 3: the CHANGED passages only — each
+                    changed sentence or line struck through, then what
+                    replaced it; unchanged text elided. */}
+                {changedPassages(c.before, c.after).map((h, k) => (
+                  <div key={k} data-testid="review-takeout-hunk" className="flex flex-col gap-1">
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                    {h.elidedBefore && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
+                    {h.before.map((u, x) => (
+                      <span
+                        key={`b${x}`}
+                        data-testid="review-takeout-before"
+                        className="text-xs leading-snug text-on-surface-variant line-through"
+                      >
+                        {u}
+                      </span>
+                    ))}
+                    {h.after.map((u, x) => (
+                      <span key={`a${x}`} data-testid="review-takeout-after" className="text-xs leading-snug text-on-surface">
+                        {u}
+                      </span>
+                    ))}
+                    {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+                    {h.elidedAfter && <span aria-hidden="true" className="text-xs text-on-surface-variant">…</span>}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
