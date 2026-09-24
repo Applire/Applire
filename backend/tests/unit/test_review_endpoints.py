@@ -257,7 +257,8 @@ class FakeRewrite:
         self.calls: list[str] = []
         self._outcomes = outcomes
 
-    async def __call__(self, kind, record, section_id, section_text, forms, provider, *, language):
+    async def __call__(self, kind, record, section_id, section_text, forms, provider, *, language,
+                       figures_only=False):
         self.calls.append(section_id)
         changed, after = self._outcomes.get(section_id, (False, section_text))
         return SimpleNamespace(
@@ -510,7 +511,7 @@ async def test_cv_take_out_partial_failure_across_sections_leaves_a_silent_uncom
         ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
     )
 
-    async def flaky_rewrite(kind, record, section_id, section_text, forms, provider, *, language):
+    async def flaky_rewrite(kind, record, section_id, section_text, forms, provider, *, language, figures_only=False):
         if section_id == "skills":
             raise RuntimeError("simulated provider crash on the second matching section")
         return SimpleNamespace(
@@ -1139,47 +1140,105 @@ def _truth(figures):
 
 
 class FiguresRewrite:
-    def __init__(self, accept_kw=True):
+    def __init__(self):
         self.seen = []
-        self.accept_kw = accept_kw
-
-    async def _impl(self, section_id, section_text, forms, figures_only):
-        self.seen.append((section_id, list(forms), figures_only))
-        return SimpleNamespace(section_id=section_id, before=section_text,
-                               after="Betrieb eine Plattform mit Kubernetes.", changed=True, llm_calls=1)
 
     def fn(self):
-        if self.accept_kw:
-            async def rewrite(kind, record, section_id, section_text, forms, provider, *, language, figures_only=False):
-                return await self._impl(section_id, section_text, forms, figures_only)
-        else:
-            async def rewrite(kind, record, section_id, section_text, forms, provider, *, language):
-                return await self._impl(section_id, section_text, forms, None)
+        async def rewrite(kind, record, section_id, section_text, forms, provider, *, language,
+                          figures_only=False):
+            self.seen.append((section_id, list(forms), figures_only))
+            return SimpleNamespace(section_id=section_id, before=section_text,
+                                   after=section_text.replace("40.000 ", "").replace("38 ", ""),
+                                   changed=True, llm_calls=1)
         return rewrite
 
 
-@pytest.mark.parametrize("accept_kw", [True, False])
 @pytest.mark.asyncio
-async def test_cv_take_out_oracle_figure_finding_passes_only_the_figures(db, accept_kw):
+async def test_cv_take_out_oracle_figure_finding_passes_only_the_figures(db):
     cv_id = await seed_cv(db, introduction=_CLAIM, ats_report=_ats_report("cv", []),
                           truthfulness_report=_truth(["40.000"]))
-    rw = FiguresRewrite(accept_kw)
+    rw = FiguresRewrite()
     fake = FakeReaudit([(_ats_report("cv", []), None)])
     client = _client(db)
     with patch.object(ra, "_rewriter", rw.fn), patch.object(ra, "reaudit", new=fake):
         response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _ORACLE_KEY})
     assert response.status_code == 200, response.text
-    assert rw.seen == [("introduction", ["40.000"], True if accept_kw else None)]
+    assert rw.seen == [("introduction", ["40.000"], True)]
 
 
 @pytest.mark.asyncio
 async def test_cv_take_out_oracle_finding_without_figures_takes_the_whole_claim_path(db):
     cv_id = await seed_cv(db, introduction=_CLAIM, ats_report=_ats_report("cv", []),
                           truthfulness_report=_truth([]))
-    rw = FiguresRewrite(True)
+    rw = FiguresRewrite()
     fake = FakeReaudit([(_ats_report("cv", []), None)])
     client = _client(db)
     with patch.object(ra, "_rewriter", rw.fn), patch.object(ra, "reaudit", new=fake):
         response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _ORACLE_KEY})
     assert response.status_code == 200, response.text
     assert rw.seen == [("introduction", [_CLAIM], False)]
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_figure_finding_selects_sections_by_whole_figure_not_substring(db):
+    """A "38" finding must not select the section that says "380" (E-1: WP-B's
+    figure_present, canonical value + whole token) — and "40.000" selects the
+    section that writes it "40,000"."""
+    claim = "Führte 38 Mitarbeitende."
+    truth = _truth(["38"])
+    truth["claims"][0]["claim"]["text"] = claim
+    cv_id = await seed_cv(
+        db, introduction="Betreute 380 Kunden im Jahr.", position_bullets=[claim],
+        skills=["Python"], ats_report=_ats_report("cv", []), truthfulness_report=truth,
+    )
+    rw = FiguresRewrite()
+    fake = FakeReaudit([(_ats_report("cv", []), None)])
+    client = _client(db)
+    with patch.object(ra, "_rewriter", rw.fn), patch.object(ra, "reaudit", new=fake):
+        response = client.post(f"/api/cv/{cv_id}/review/take-out",
+                               json={"finding_key": rs.finding_key("oracle", claim)})
+    assert response.status_code == 200, response.text
+    assert [sid for sid, _, _ in rw.seen] and all(sid.startswith("position::") for sid, _, _ in rw.seen), rw.seen
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_figure_finding_matches_the_canonical_value(db):
+    cv_id = await seed_cv(
+        db, introduction="Plattform für 40,000 tägliche Nutzer.",
+        ats_report=_ats_report("cv", []), truthfulness_report=_truth(["40.000"]),
+    )
+    rw = FiguresRewrite()
+    fake = FakeReaudit([(_ats_report("cv", []), None)])
+    client = _client(db)
+    with patch.object(ra, "_rewriter", rw.fn), patch.object(ra, "reaudit", new=fake):
+        response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _ORACLE_KEY})
+    # _ORACLE_KEY's claim text is not in the document here; the finding is listed
+    # (from the report) and the figure is found by value in the introduction.
+    assert response.status_code == 200, response.text
+    assert rw.seen == [("introduction", ["40.000"], True)]
+
+
+# ---------------------------------------------------------------------------
+# NOTE C-4 — the letter status response carries the saved body override
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_status_carries_the_saved_body_override_and_raw_letter_data(db):
+    cl_id = await seed_letter(db, paragraphs=["Ich betreibe Kubernetes.", "Zweiter Absatz."])
+    record = await ra.load_document("cover_letter", cl_id, db)
+    record.section_overrides = {"body": "Ich betreibe Cluster.\n\nZweiter Absatz."}
+    await db.commit()
+
+    response = _client(db).get(f"/api/cover-letter/{cl_id}/status")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["section_overrides"] == {"body": "Ich betreibe Cluster.\n\nZweiter Absatz."}
+    assert data["letter_data"]["body"]["paragraphs"] == ["Ich betreibe Kubernetes.", "Zweiter Absatz."]
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_status_section_overrides_empty_dict_when_none_saved(db):
+    cl_id = await seed_letter(db)
+    data = _client(db).get(f"/api/cover-letter/{cl_id}/status").json()
+    assert data["section_overrides"] == {}

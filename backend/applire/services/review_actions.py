@@ -182,18 +182,13 @@ def _rewriter():
     return rewrite_for_removal
 
 
-def _accepts_figures_only(fn) -> bool:
-    """Contract 1 addition (RULING E-1): WP-B's ``figures_only`` keyword. Until
-    it lands, the call omits it (the forms are already the figures only)."""
-    import inspect
+def _section_holds_figures(text: str, figures: list[str]) -> bool:
+    """RULING E-1: a figure finding selects sections by the figure's canonical
+    value as a whole token (WP-B's ``figure_present``) — a substring test would
+    pick a section saying "380" for a "38" finding."""
+    from applire.services.review_rewrite import figure_present
 
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return False
-    return "figures_only" in params or any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
-    )
+    return any(figure_present(f, text or "") for f in figures)
 
 
 def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
@@ -294,11 +289,12 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
         language = await _document_language(kind, record, db)
         changes: list[dict] = []
         for section_id, section_text in await patchable_sections(kind, record, db):
-            if not _section_holds(section_text, wording):
+            holds = _section_holds_figures if figures_only else _section_holds
+            if not holds(section_text, wording):
                 continue
-            extra = {"figures_only": True} if figures_only and _accepts_figures_only(rewrite_for_removal) else {}
             result = await rewrite_for_removal(
-                kind, record, section_id, section_text, wording, provider, language=language, **extra,
+                kind, record, section_id, section_text, wording, provider,
+                language=language, figures_only=figures_only,
             )
             if not result.changed or result.after == section_text:
                 continue

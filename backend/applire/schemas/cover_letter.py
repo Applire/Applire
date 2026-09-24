@@ -119,6 +119,11 @@ class CoverLetterStatusResponse(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     letter_data: Optional[dict] = None  # populated only when status == ready
+    # NOTE C-4 (ADR-090 run): the saved section overrides ({"body": "..."}) —
+    # `letter_data` stays RAW, so the editor needs these to start from the
+    # effective body (else "Let me edit it" after a take-out writes the removed
+    # wording back). Populated only when status == ready; `{}` = none saved.
+    section_overrides: Optional[dict] = None
     # E044/US252 (ADR-054): 'pipeline' | 'agent' — drives the origin badge.
     origin: str = "pipeline"
     # ADR-060 Pass B (#322): the outcome critic's cross-document coherence
