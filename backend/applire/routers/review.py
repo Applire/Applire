@@ -9,7 +9,8 @@ refreshed ATS report response (``review_state`` on it), the truthfulness report
 
 Status mapping: unknown document → 404; malformed ``finding_key`` → 422; a key
 the current report does not list, ``undo`` without a decision, or ``undo`` of an
-``added`` decision → 409 (``detail.error`` names which); the removal rewrite not
+``added`` decision, or *take-out* of a stem-only finding (RULING B-1) → 409
+(``detail.error`` names which); the removal rewrite not
 installed → 503.
 """
 from __future__ import annotations
@@ -106,6 +107,8 @@ async def _run(coro):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "no_decision", "message": str(exc)})
     except ra.UndoUnavailable as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "undo_unavailable_for_added", "message": str(exc)})
+    except ra.TakeOutStemOnly as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"error": "take_out_unavailable_stem_only", "message": str(exc)})
     except ra.RewriteUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     except LookupError as exc:

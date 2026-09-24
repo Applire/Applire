@@ -56,6 +56,13 @@ class UndoUnavailable(Exception):
     """``undo`` on an ``added`` decision (→ 409, NOTE A-2)."""
 
 
+class TakeOutStemOnly(Exception):
+    """RULING B-1: every matched form of the finding hit only through the
+    token-stem fallback (the document carries another word form), so a removal
+    rewrite has no literal wording to take out — Lead B's replay broke the
+    sentence in 4 of 4 rounds on this shape. Refused (→ 409); the user edits."""
+
+
 class RewriteUnavailable(Exception):
     """The removal rewrite service is not installed (pre-integration, → 503)."""
 
@@ -206,6 +213,10 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db)
         finding = _listed_or_raise(record, key)
+        if finding.matches and all(m.get("stem") for m in finding.matches):
+            raise TakeOutStemOnly(
+                f"finding {key!r} matched only through another word form; edit it yourself"
+            )
         wording = finding.wording()
         language = await _document_language(kind, record, db)
         changes: list[dict] = []

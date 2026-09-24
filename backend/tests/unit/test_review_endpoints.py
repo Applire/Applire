@@ -801,3 +801,78 @@ async def test_take_out_serialises_with_a_concurrent_background_reaudit_on_docum
 
     assert fake_reaudit.calls == 1
     assert outcome.changes
+
+
+# ---------------------------------------------------------------------------
+# RULING B-1 — take-out refuses a finding whose EVERY matched form is stem-only
+# ---------------------------------------------------------------------------
+
+_MENTORING = "Mentoring"
+_MENTORING_KEY = "ats:mentoring"
+_STEM_ONLY = {_MENTORING: [{"form": "Mentoring", "stem": True}]}
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_stem_only_finding_returns_409_and_changes_nothing(db):
+    intro = "Mentored four junior engineers."
+    cv_id = await seed_cv(
+        db, introduction=intro, ats_report=_ats_report("cv", [_MENTORING], _STEM_ONLY),
+    )
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"introduction": (True, "Worked with four junior engineers.")})
+    fake_reaudit = FakeReaudit()
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _MENTORING_KEY})
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_stem_only"
+    assert fake_rewrite.calls == [] and fake_reaudit.calls == 0
+    from applire.models.cv import GeneratedCV
+    record = await db.get(GeneratedCV, cv_id)
+    assert record.section_overrides is None
+    assert (record.review_state or {}).get("decisions", []) == []
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_take_out_stem_only_finding_returns_409_and_changes_nothing(db):
+    paragraphs = ["Ich habe vier Nachwuchskräfte mentored.", "Zweiter Absatz."]
+    cl_id = await seed_letter(
+        db, paragraphs=paragraphs,
+        ats_report=_ats_report("cover_letter", [_MENTORING], _STEM_ONLY),
+    )
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"body": (True, "Zweiter Absatz.")})
+    fake_reaudit = FakeReaudit()
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _MENTORING_KEY},
+        )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_stem_only"
+    assert fake_rewrite.calls == [] and fake_reaudit.calls == 0
+    from applire.models.cover_letter import GeneratedCoverLetter
+    record = await db.get(GeneratedCoverLetter, cl_id)
+    assert record.section_overrides is None
+    assert (record.review_state or {}).get("decisions", []) == []
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_mixed_stem_and_literal_matches_still_rewrites(db):
+    """Only an ALL-stem finding is refused: one literal form keeps take-out automatic."""
+    intro = "Mentoring and mentored juniors."
+    cv_id = await seed_cv(
+        db, introduction=intro,
+        ats_report=_ats_report("cv", [_MENTORING], {_MENTORING: [
+            {"form": "Mentoring", "stem": False}, {"form": "mentored", "stem": True}]}),
+    )
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"introduction": (True, "Worked with juniors.")})
+    fake_reaudit = FakeReaudit([(_ats_report("cv", []), None)])
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(f"/api/cv/{cv_id}/review/take-out", json={"finding_key": _MENTORING_KEY})
+    assert response.status_code == 200, response.text
+    assert fake_rewrite.calls == ["introduction"]
