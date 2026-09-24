@@ -683,6 +683,7 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         return ClaimVerdict(
             verdict="unbacked",
             checker="numbers",
+            figures=[tenure.raw.strip()],
             detail=(
                 f'Claimed duration "{tenure.raw.strip()}" exceeds the '
                 f"{ceiling:.1f} years derivable from the vault's own dated "
@@ -1299,6 +1300,7 @@ async def verify_claim(
                 verdict="unbacked",
                 checker="numbers",
                 detail=f"No vault evidence for figure(s): {missing}.",
+                figures=[f.raw for f in fig_match.unmatched],
             )
         denial_backing = absorbed
         if not fig_match.matched:

@@ -35,7 +35,7 @@ import asyncio
 import copy
 import uuid
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -87,6 +87,9 @@ class GroupOneFinding:
     #: The Oracle claim folded into this row (or the row's own claim).
     claim_text: str | None = None
     claim_location: str | None = None
+    #: RULING E-1 / NOTE A-3: the figures the folded/own Oracle claim's verdict
+    #: names (``ClaimVerdict.figures``) — empty when the verdict names none.
+    claim_figures: list[str] = field(default_factory=list)
 
     def wording(self) -> list[str]:
         """The document wording this finding stands on — what *take it out*
@@ -133,6 +136,11 @@ def _flagged_claims(truth_report: dict | None, claimable_concepts: list[str]) ->
     return out
 
 
+def _verdict_figures(claim_result: dict) -> list[str]:
+    figs = ((claim_result or {}).get("verdict") or {}).get("figures") or []
+    return [f for f in figs if isinstance(f, str) and f.strip()]
+
+
 def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> list[GroupOneFinding]:
     """Group 1 exactly as the review surface renders it (see module docstring)."""
     kw = _keywords(ats_report)
@@ -153,14 +161,17 @@ def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> li
         seen_norms.add(n)
         ci = claims_by_norm.get(n)
         claim = None
+        figs: list[str] = []
         if ci is not None and ci not in consumed:
             consumed.add(ci)
             claim = claims[ci].get("claim") or {}
+            figs = _verdict_figures(claims[ci])
         ms = matches_map.get(term) if isinstance(matches_map, dict) else None
         rows.append(GroupOneFinding(
             key=f"ats:{n}", producer="ats", norm=n, label=term,
             matches=[dict(m) for m in ms] if isinstance(ms, list) else None,
             claim_text=(claim or {}).get("text"), claim_location=(claim or {}).get("location"),
+            claim_figures=figs,
         ))
     for i, c in enumerate(claims):
         if i in consumed:
@@ -173,6 +184,7 @@ def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> li
         rows.append(GroupOneFinding(
             key=f"oracle:{n}", producer="oracle", norm=n, label=str(claim.get("text") or ""),
             claim_text=claim.get("text"), claim_location=claim.get("location"),
+            claim_figures=_verdict_figures(c),
         ))
     return rows
 

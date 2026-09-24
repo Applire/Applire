@@ -289,10 +289,12 @@ async def get_cover_letter_status(
     html_url = None
     pdf_url = None
     letter_data = None
+    section_overrides = None
     if cl.status == CoverLetterStatus.ready.value:
         html_url = f"{base_url}/api/cover-letter/{cl_id}/html"
         pdf_url = f"{base_url}/api/cover-letter/{cl_id}/pdf"
         letter_data = cl.letter_data
+        section_overrides = cl.section_overrides or {}  # NOTE C-4
 
     # F-4b: the effective value accounts for this letter's own override — see
     # services.signature.resolve_signature_effective's own docstring for why
@@ -312,6 +314,7 @@ async def get_cover_letter_status(
         error_message=cl.error_message,
         expires_at=cl.expires_at,
         letter_data=letter_data,
+        section_overrides=section_overrides,
         origin=cl.origin,
         critic_report=cl.critic_report,
         # E054/US289 (clause 3b): pinned language, stored value as-is.

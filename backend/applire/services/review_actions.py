@@ -182,6 +182,15 @@ def _rewriter():
     return rewrite_for_removal
 
 
+def _section_holds_figures(text: str, figures: list[str]) -> bool:
+    """RULING E-1: a figure finding selects sections by the figure's canonical
+    value as a whole token (WP-B's ``figure_present``) — a substring test would
+    pick a section saying "380" for a "38" finding."""
+    from applire.services.review_rewrite import figure_present
+
+    return any(figure_present(f, text or "") for f in figures)
+
+
 def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
     rs.split_key(key)  # ValueError → 422
     f = rs.find_listed(findings_of(record), key)
@@ -201,11 +210,64 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
         finding = _listed_or_raise(record, key)
         testimony = await submit_testimony(text, db, provider)
         await reaudit(kind, record, db)
-        if testimony.status in ("applied", "partial"):
+        vault_changed = testimony.status in ("applied", "partial")
+        if vault_changed:
             state = rs.with_decision(rs.load_state(record.review_state), key, finding.label, "added")
             await _save_state(record, state, db)
         still = rs.find_listed(findings_of(record), key) is not None
-        return ActionOutcome(record=record, testimony=testimony, still_listed=still)
+    # RULING E-2: the vault changed, so the SIBLING document of the same
+    # application is re-audited too — AFTER the pressed document's lock is
+    # released (holding both would let a concurrent add-evidence on the sibling
+    # take them in the opposite order and deadlock). Never fails the request.
+    if vault_changed:
+        await _reaudit_sibling(kind, record, key, finding.label, db)
+    return ActionOutcome(record=record, testimony=testimony, still_listed=still)
+
+
+async def sibling_document_id(kind: Kind, record, db: AsyncSession) -> tuple[Kind, uuid.UUID] | None:
+    """The other document of the same application: the job's flow session
+    (one per user+job) records the CURRENT CV and cover letter. Only when the
+    pressed document IS that flow's current one — an older regeneration has no
+    defined sibling."""
+    from applire.models.flow import FlowSession
+
+    flows = (
+        await db.execute(
+            select(FlowSession).where(
+                FlowSession.job_id == record.job_analysis_id,
+                FlowSession.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    for flow in flows:
+        if kind == "cv" and flow.generated_cv_id == record.id and flow.generated_cover_letter_id:
+            return "cover_letter", flow.generated_cover_letter_id
+        if kind == "cover_letter" and flow.generated_cover_letter_id == record.id and flow.generated_cv_id:
+            return "cv", flow.generated_cv_id
+    return None
+
+
+async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSession) -> None:
+    try:
+        sib = await sibling_document_id(kind, record, db)
+        if sib is None:
+            return
+        sib_kind, sib_id = sib
+        async with rs.document_lock(sib_kind, sib_id):
+            sibling = await load_document(sib_kind, sib_id, db)
+            listed_before = rs.find_listed(findings_of(sibling), key)
+            await reaudit(sib_kind, sibling, db)
+            if listed_before is not None and rs.find_listed(findings_of(sibling), key) is None:
+                state = rs.with_decision(
+                    rs.load_state(sibling.review_state), key, listed_before.label or label, "added",
+                )
+                await _save_state(sibling, state, db)
+    except Exception:
+        logger.exception("sibling re-audit after add-evidence failed (document %s)", record.id)
+        try:
+            await db.rollback()  # the pressed document is already committed
+        except Exception:  # pragma: no cover
+            pass
 
 
 async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider) -> ActionOutcome:
@@ -218,13 +280,21 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
                 f"finding {key!r} matched only through another word form; edit it yourself"
             )
         wording = finding.wording()
+        # RULING E-1 part 2: an Oracle finding whose verdict names figures
+        # removes ONLY those figures (the rest of the claim is the candidate's
+        # true prose); without the field it takes the whole-claim path.
+        figures_only = finding.producer == "oracle" and bool(finding.claim_figures)
+        if figures_only:
+            wording = list(finding.claim_figures)
         language = await _document_language(kind, record, db)
         changes: list[dict] = []
         for section_id, section_text in await patchable_sections(kind, record, db):
-            if not _section_holds(section_text, wording):
+            holds = _section_holds_figures if figures_only else _section_holds
+            if not holds(section_text, wording):
                 continue
             result = await rewrite_for_removal(
-                kind, record, section_id, section_text, wording, provider, language=language,
+                kind, record, section_id, section_text, wording, provider,
+                language=language, figures_only=figures_only,
             )
             if not result.changed or result.after == section_text:
                 continue

@@ -64,6 +64,33 @@ _MULT_RE = (
 )
 
 _PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*%")
+
+# RULING E-1 (founder, 2026-09-24 delivery run): a BARE number with a magnitude
+# token — "~40k daily users", "1.2M rows", "200k invoices", "3 Mio. Datensätze"
+# — is a figure. Before, only the currency form folded a multiplier ("€40k"),
+# so "~40k" in a vault yielded nothing and a document's true "40,000" got the
+# Oracle's "no vault evidence for figure" verdict (4 of 8 group-1 findings on
+# the delivery run). Folded through the SAME ``_fold_multiplier`` as currency,
+# so "40k", "40.000" and "40,000" are one key. Kind stays ``number`` — the
+# #215 refusal of cross-kind matching is untouched.
+#
+# Token set, derived from ``_MULTIPLIERS`` and narrowed for bare numbers
+# (ADR-062: FACT — two adjacent tokens, no reading for meaning):
+# * attached single letters: ``k``/``K`` and UPPERCASE ``M`` only. A lowercase
+#   ``m`` after a number is metres or minutes ("10m sprint", "5m"); a single
+#   ``b``/``B`` is refused outright ("Level 2B", "Form 3B" — a billion is
+#   never written that way in a CV without a currency, and the word forms
+#   below cover it). The letter must END the token: "40kg", "1.2MB", "3D",
+#   "B2B" (the digit sits inside a word) never match.
+# * word forms, optional space and trailing dot, case-insensitive: tsd,
+#   tausend, mio, million, millionen, mrd, milliarden, billion — each must end
+#   at a word boundary, so "5 min", "10 Mitarbeitende" never match.
+_BARE_MULT_WORDS = ("milliarden", "millionen", "million", "billion", "tausend", "mrd", "mio", "tsd")
+_BARE_MULT_RE = re.compile(
+    r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
+    r"(?:(?P<letter>[kK]|M)(?![\w])"
+    r"|\s?(?P<word>(?i:" + "|".join(_BARE_MULT_WORDS) + r"))(?:\.|(?![\w])))"
+)
 _CURRENCY_RE = re.compile(
     rf"(?:[€$£]\s*(\d[\d.,]*)\s*({_MULT_RE})?"
     rf"|(\d[\d.,]*)\s*({_MULT_RE})?\s*(?:€|EUR|USD|CHF|GBP|\$|£))",
@@ -377,6 +404,18 @@ def extract_figures(text: str) -> list[Figure]:
         digits = m.group(1) or m.group(3)
         value = _fold_multiplier(_canonical_number(digits), m.group(2) or m.group(4))
         figures.append(Figure("currency", value, m.group(0).strip()))
+        consumed.append(m.span())
+
+    # RULING E-1: bare number + magnitude token, folded like currency.
+    for m in _BARE_MULT_RE.finditer(text):
+        if not _free(*m.span()):
+            continue
+        if _overlaps(m.span(1), identifier_spans) or _overlaps(m.span(1), exempt_spans):
+            continue
+        suffix = m.group("letter") or m.group("word")
+        figures.append(Figure(
+            "number", _fold_multiplier(_canonical_number(m.group(1)), suffix), m.group(0).strip(),
+        ))
         consumed.append(m.span())
 
     for m in _YEAR_RE.finditer(text):
