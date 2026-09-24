@@ -274,7 +274,13 @@
       "dismissAria": "Dismiss this note",
       "stillThere": "You can come back to this on your profile page any time.",
       "more": "+{count, plural, one {# more decision} other {# more decisions}}"
-    }
+    },
+    "inputsChangedTitle": "Your profile changed since this check.",
+    "inputsChangedBody": "The gap analysis does not re-run by itself. Re-check so the score and gaps reflect your current profile.",
+    "recheckGaps": "Re-check gaps",
+    "recheckingGaps": "Checking …",
+    "recheckLockedHint": "Finish the open question first, then you can re-check.",
+    "recheckFailed": "The re-check did not go through. Please try again in a moment."
   },
   "interview": {
     "loading": "Starting interview…",

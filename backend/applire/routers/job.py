@@ -224,7 +224,13 @@ async def get_latest_gap_analysis(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> GapAnalysisResponse:
-    """Return the most recent stored gap analysis for a job — no LLM call."""
+    """Return the most recent stored gap analysis for a job — no LLM call.
+
+    ADR-090 clause 8: this read never re-runs the analysis, also when the
+    profile changed since it was computed. It says so instead —
+    ``inputs_changed`` compares the row's gap-relevant fingerprint with the
+    current profile — and the gap view offers the re-check
+    (``POST /gaps/refresh``)."""
     from sqlalchemy import select, desc
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
@@ -254,7 +260,11 @@ async def get_latest_gap_analysis(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No gap analysis found for job {job_id}",
         )
-    return GapAnalysisResponse.model_validate(gap)
+    from applire.services.gap import stored_analysis_inputs_changed
+
+    response = GapAnalysisResponse.model_validate(gap)
+    response.inputs_changed = await stored_analysis_inputs_changed(gap, job, db)
+    return response
 
 
 @router.post(

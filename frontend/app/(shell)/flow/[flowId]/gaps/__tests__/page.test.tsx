@@ -683,3 +683,66 @@ describe("ADR-089 cl. 8 — an older analysis read never undoes a newer one", ()
     expect(getCount).toBe(2);
   });
 });
+
+describe("ADR-090 cl. 8 — a stale analysis says so and re-checks only on request", () => {
+  it("a fresh analysis shows no hint", async () => {
+    serve({ row: analysis([cl("k8s")], { inputs_changed: false }) });
+    await renderPage();
+    await waitFor(() => card("k8s"));
+    expect(screen.queryByTestId("gaps-stale-hint")).not.toBeInTheDocument();
+  });
+
+  it("a stale analysis is shown as stored, never re-run on load; one click re-checks and replaces it", async () => {
+    const fetchMock = serve({
+      row: analysis([cl("k8s")], { match_score: 0.5, inputs_changed: true }),
+      refreshed: analysis([cl("k8s"), cl("new-one", { label: "Appended cluster" })], {
+        match_score: 0.7,
+        inputs_changed: false,
+      }),
+    });
+    await renderPage();
+    const hint = await waitFor(() => screen.getByTestId("gaps-stale-hint"));
+    expect(hint).toHaveTextContent("gaps.inputsChangedTitle");
+    expect(screen.getByTestId("gaps-stale-detail")).toHaveTextContent("gaps.inputsChangedBody");
+    expect(calls(fetchMock, (u, m) => u.endsWith("/gaps/refresh") && m === "POST")).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("gaps-recheck"));
+    await waitFor(() => expect(card("new-one")).toBeInTheDocument());
+    expect(calls(fetchMock, (u, m) => u.endsWith("/gaps/refresh") && m === "POST")).toHaveLength(1);
+    expect(screen.queryByTestId("gaps-stale-hint")).not.toBeInTheDocument();
+  });
+
+  it("while a card holds a micro-session the re-check is disabled and says why", async () => {
+    const fetchMock = serve({ row: analysis([cl("a"), cl("b")], { inputs_changed: true }) });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("a")));
+    await waitFor(() => within(card("a")).getByTestId("gap-question"));
+
+    const button = screen.getByTestId("gaps-recheck");
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId("gaps-stale-detail")).toHaveTextContent("gaps.recheckLockedHint");
+    fireEvent.click(button);
+    expect(calls(fetchMock, (u, m) => u.endsWith("/gaps/refresh") && m === "POST")).toHaveLength(0);
+
+    fireEvent.click(within(card("a")).getByText("common.cancel"));
+    await waitFor(() => expect(screen.getByTestId("gaps-recheck")).not.toBeDisabled());
+  });
+
+  it("a failed re-check says so and keeps the hint", async () => {
+    const fetchMock = serve({ row: analysis([cl("k8s")], { inputs_changed: true }) });
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/gaps/refresh")) {
+        return { ok: false, status: 504, statusText: "", json: async () => ({}) } as Response;
+      }
+      return base(input, init);
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => screen.getByTestId("gaps-recheck")));
+    await waitFor(() =>
+      expect(screen.getByTestId("gaps-stale-detail")).toHaveTextContent("gaps.recheckFailed"),
+    );
+    expect(screen.getByTestId("gaps-stale-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("gaps-recheck")).not.toBeDisabled();
+  });
+});

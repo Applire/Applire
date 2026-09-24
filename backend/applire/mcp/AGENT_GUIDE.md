@@ -132,6 +132,9 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   the questions any door (the UI, `run_interview`, `resolve_gap`) already
   spent on it, and `budget_remaining` is what is left of its per-gap question
   budget. Cluster ids stay stable while the job description does not change.
+  Calling `analyze_gaps` is itself the check against the CURRENT profile, so
+  its `inputs_changed` is always `false`; the field exists for the UI, which
+  shows a stored analysis and offers a re-check when the profile changed.
   Check `keyword_liabilities` on the
   result: a hard requirement you already hold per the ledger but with no
   bullet/achievement/story behind it anywhere — a bare skills-list echo, not

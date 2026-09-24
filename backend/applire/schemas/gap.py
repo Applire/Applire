@@ -169,6 +169,14 @@ class GapAnalysisResponse(BaseModel):
     # one source, read on the SAME response the gaps page and the `analyze_gaps`
     # MCP tool already return, so no new endpoint and no new tool (ADR-056 §4).
     unasked_requirements: list[KeywordLedgerEntry] = Field(default_factory=list)
+    # ADR-090 clause 8 — derived at response time, never persisted: the
+    # profile's gap-relevant part changed after this analysis was computed.
+    # The gap analysis never re-runs by itself on such a change; the gap view
+    # shows "your profile changed since this check" with a re-check instead.
+    # Always False on a response that was just computed (analyze_gaps, the
+    # refresh door): the computation IS the check. Set by the read route
+    # (GET /api/job/{id}/gaps) through services.gap.stored_analysis_inputs_changed.
+    inputs_changed: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -202,6 +202,78 @@ def _input_fingerprint(job: JobAnalysis, profile: MasterProfile) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# ADR-090 clause 8 — the profile fields a gap analysis never reads. Contact
+# data and the photo live in ``personal_info``; ``location``, ``nationality``
+# and ``date_of_birth`` stay IN (a posting's scope bars can concern them).
+_GAP_IRRELEVANT_PERSONAL_INFO: frozenset[str] = frozenset(
+    {"name", "email", "phone", "address", "photo_url", "linkedin_url", "xing_url", "website_url"}
+)
+
+
+def gap_relevant_profile(profile_json: dict | None) -> dict:
+    """PURE. The part of the profile a gap analysis reads (ADR-090 clause 8).
+
+    The profile content minus contact data and the photo (``personal_info``'s
+    contact keys), minus the ``_meta`` sidecar (completeness N/A suppressions)
+    and minus ``metadata`` bookkeeping — timestamps, counters, the enrichment
+    history, parked conflicts — EXCEPT ``metadata.denied_concepts``, which the
+    analysis reads (the ADR-059 denial floor). The signature and presentation
+    settings are not in the profile at all (ADR-088). Every other key, legacy
+    ones included, stays in: an unknown key counts as relevant.
+    """
+    data = dict(profile_json or {})
+    info = data.get("personal_info")
+    if isinstance(info, dict):
+        data["personal_info"] = {
+            k: v for k, v in info.items() if k not in _GAP_IRRELEVANT_PERSONAL_INFO
+        }
+    data.pop("_meta", None)
+    meta = data.pop("metadata", None)
+    if isinstance(meta, dict):
+        data["metadata"] = {"denied_concepts": meta.get("denied_concepts") or []}
+    return data
+
+
+def _gap_inputs_fingerprint(job: JobAnalysis, profile: MasterProfile) -> str:
+    """sha256 of the JD inputs and the gap-relevant profile (ADR-090 clause 8).
+
+    Stored on every new analysis row and compared at response time to say
+    "your profile changed since this check". Never an idempotency key — that
+    stays :func:`_input_fingerprint` (ADR-089)."""
+    payload = json.dumps(
+        {"job": _job_inputs(job), "profile": gap_relevant_profile(profile.profile_json)},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, profile: MasterProfile) -> bool:
+    """PURE. Did the gap-relevant inputs change after ``row`` was computed?
+
+    Compares the row's ``gap_inputs_fingerprint``. A row from before Alembic
+    0069 has none; it falls back to the whole-profile ``input_fingerprint``,
+    which can also flag a change the analysis does not read (noisy, never
+    silent). A row with neither fingerprint (before migration 0040) cannot be
+    compared and reads unchanged."""
+    if row.gap_inputs_fingerprint:
+        return row.gap_inputs_fingerprint != _gap_inputs_fingerprint(job, profile)
+    if row.input_fingerprint:
+        return row.input_fingerprint != _input_fingerprint(job, profile)
+    return False
+
+
+async def stored_analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, db: AsyncSession) -> bool:
+    """The read route's ``inputs_changed`` (ADR-090 clause 8). No profile →
+    nothing to compare → False."""
+    try:
+        profile = await _resolve_profile(db)
+    except LookupError:
+        return False
+    return analysis_inputs_changed(row, job, profile)
+
+
 async def _latest_gap_analysis(job_id: uuid.UUID, db: AsyncSession) -> GapAnalysis | None:
     """The most recent non-deleted gap analysis for a job (the read-path row)."""
     result = await db.execute(
@@ -1041,6 +1113,13 @@ async def _run_analysis(
     fingerprint = _input_fingerprint(job, profile)
     previous = await _latest_gap_analysis(job.id, db)
     if previous is not None and previous.input_fingerprint == fingerprint:
+        # ADR-090 clause 8 — a row from before Alembic 0069 gets its
+        # gap-relevant fingerprint the first time its inputs are confirmed
+        # unchanged, so its staleness check stops falling back to the noisier
+        # whole-profile comparison.
+        if previous.gap_inputs_fingerprint is None:
+            previous.gap_inputs_fingerprint = _gap_inputs_fingerprint(job, profile)
+            await db.flush()
         await repoint_flow_gap_analysis(job.id, previous.id, db)
         return GapAnalysisResponse.model_validate(previous)
 
@@ -1174,6 +1253,7 @@ async def _run_analysis(
         profile_id=profile.id,
         match_score=scored["match_score"],
         input_fingerprint=fingerprint,
+        gap_inputs_fingerprint=_gap_inputs_fingerprint(job, profile),
         embedding_similarity_score=embedding_similarity_score,
         critical_gaps=scored["critical_gaps"],
         minor_gaps=scored["minor_gaps"],

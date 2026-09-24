@@ -68,6 +68,9 @@ interface GapAnalysis {
   keyword_ledger?: LedgerChipEntry[];
   // #260 — derived server-side: required + claimable + no narrative anywhere.
   keyword_liabilities?: LiabilityEntry[];
+  // ADR-090 clause 8 — derived server-side on the read: the profile's
+  // gap-relevant part changed after this analysis was computed.
+  inputs_changed?: boolean;
 }
 
 interface FlowState {
@@ -535,6 +538,11 @@ export default function GapsPage({
   const openClusterId =
     Object.keys(gapStates).find((id) => gapStates[id].status !== "idle") ?? null;
   const sessionOpen = openClusterId !== null || liabilityActive;
+  // ADR-090 clause 8 — the analysis never re-runs by itself when the profile
+  // changed elsewhere; the row says so (`inputs_changed`) and the user asks
+  // for the re-check.
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckError, setRecheckError] = useState("");
   // Animated match score (refreshed after gap resolution)
   const [matchScore, setMatchScore] = useState(0);
   // Parsed-JD echo for the pre-interview review surface (US158, FMEA 4.3/4.4)
@@ -796,6 +804,32 @@ export default function GapsPage({
       // fall through to the plain re-read
     }
     await reReadAnalysis();
+  }
+
+  /** ADR-090 clause 8 — the user's re-check after a profile change made
+   * elsewhere: POST /gaps/refresh (ADR-089 clause 5 semantics: merged per
+   * requirement, clusters and their record carried) and adopt the whole row.
+   * Never while a micro-session is open (clause 8's single-open-session rule):
+   * the render disables the button, and the handler refuses too. */
+  async function recheckGaps() {
+    if (!flowState?.job_id || sessionOpen || rechecking) return;
+    setRechecking(true);
+    setRecheckError("");
+    const seq = beginAnalysisRead();
+    try {
+      const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setRecheckError(t("recheckFailed"));
+        return;
+      }
+      replaceAnalysis((await res.json()) as GapAnalysis, seq);
+    } catch {
+      setRecheckError(t("recheckFailed"));
+    } finally {
+      setRechecking(false);
+    }
   }
 
   // #260: dropping/storying a liability changes the ledger's claimable/gap
@@ -1175,6 +1209,31 @@ export default function GapsPage({
           </div>
         </div>
       </Card>
+      )}
+
+      {/* ADR-090 clause 8 — a stored analysis older than the profile says so;
+          it never re-runs by itself. */}
+      {hasJob && gaps?.inputs_changed && (
+        <div
+          data-testid="gaps-stale-hint"
+          role="status"
+          className="mb-8 rounded-lg border border-warning/40 bg-warning-container p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+        >
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-on-surface">{t("inputsChangedTitle")}</p>
+            <p data-testid="gaps-stale-detail" className="text-xs text-on-surface-variant mt-1">
+              {recheckError || (sessionOpen ? t("recheckLockedHint") : t("inputsChangedBody"))}
+            </p>
+          </div>
+          <Button
+            data-testid="gaps-recheck"
+            variant="outline"
+            disabled={sessionOpen || rechecking}
+            onClick={recheckGaps}
+          >
+            {rechecking ? t("recheckingGaps") : t("recheckGaps")}
+          </Button>
+        </div>
       )}
 
       {/* Section 3: Cluster-based gap display. Also shown when every cluster

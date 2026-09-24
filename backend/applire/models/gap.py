@@ -73,6 +73,12 @@ class GapAnalysis(Base):
     # created before this fix stay NULL and never match a fresh fingerprint, so
     # they recompute once and then become stable.
     input_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    # ADR-090 clause 8 (Alembic 0069) — sha256 over the JD inputs and the
+    # GAP-RELEVANT part of the profile only (services.gap.gap_relevant_profile:
+    # no contact data, photo, bookkeeping). Compared at response time to tell
+    # the user the analysis is stale; never an idempotency key. NULL = a row
+    # from before 0069 (readers fall back to input_fingerprint).
+    gap_inputs_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
     gap_clusters: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     requirement_breakdown: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(

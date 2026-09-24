@@ -274,7 +274,13 @@
       "dismissAria": "Diesen Hinweis ausblenden",
       "stillThere": "Du kannst das jederzeit auf deiner Profilseite erledigen.",
       "more": "+{count, plural, one {# weitere Entscheidung} other {# weitere Entscheidungen}}"
-    }
+    },
+    "inputsChangedTitle": "Dein Profil hat sich seit dieser Prüfung geändert.",
+    "inputsChangedBody": "Die Lückenanalyse läuft nicht von selbst neu. Prüfe neu, damit Score und Lücken dein aktuelles Profil zeigen.",
+    "recheckGaps": "Lücken neu prüfen",
+    "recheckingGaps": "Wird geprüft …",
+    "recheckLockedHint": "Beantworte zuerst die offene Frage, dann kannst du neu prüfen.",
+    "recheckFailed": "Die neue Prüfung hat nicht geklappt. Versuche es gleich noch einmal."
   },
   "interview": {
     "loading": "Interview wird gestartet…",
