@@ -32,7 +32,7 @@ import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
 import { ReviewSurface, type EditFindingRequest } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
-import { ContentTab, type GapHintItem } from "@/components/cv/ContentTab";
+import { ContentTab, type GapHintItem, type SectionItem } from "@/components/cv/ContentTab";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
 import { ClipboardCheck, Palette, Zap } from "lucide-react";
@@ -84,7 +84,9 @@ interface FlowState {
     detected_company?: { name: string; hex: string } | null;
     current_accent_hex?: string | null;
   } | null;
-  cv_summary?: { cv_id: string; pdf_url: string; expires_at: string; sections?: Array<{ section_id: string; label: string; content: string; has_override: boolean; gaps: Array<{ id: string; label: string }> }> } | null;
+  // D-1: the backend's CVSummary is {cv_id, pdf_url, expires_at} — no sections.
+  // Section labels come from GET /api/cv/{id}/sections (`cvSections`).
+  cv_summary?: { cv_id: string; pdf_url: string; expires_at: string } | null;
   cover_letter_summary?: { cover_letter_id: string } | null;
 }
 
@@ -176,6 +178,9 @@ export default function CVPage({
   // than as zero (clause 9) — an empty array is the different statement
   // "loaded, none found".
   const [gapClusters, setGapClusters] = useState<GapHintItem[] | null>(null);
+  // D-1: the CV's sections as the section editor gets them — labels and
+  // override flags for the take-out result and the language switch.
+  const [cvSections, setCvSections] = useState<SectionItem[]>([]);
   // F-4b (founder ruling, 2026-09-11): the CV's own signature override
   // (null = use the kind default) plus the resolved effective state and
   // whether a signature is on file at all — all three seeded from the
@@ -356,8 +361,8 @@ export default function CVPage({
       try {
         const res = await fetch(`${API_BASE}/api/cv/${cvId}/sections`);
         if (!res.ok) return;
-        const data: { sections?: Array<{ gaps?: GapHintItem[] }>; general_gaps?: GapHintItem[] } =
-          await res.json();
+        const data: { sections?: SectionItem[]; general_gaps?: GapHintItem[] } = await res.json();
+        setCvSections(data.sections ?? []);
         const all = [
           ...(data.sections ?? []).flatMap((s) => s.gaps ?? []),
           ...(data.general_gaps ?? []),
@@ -372,6 +377,23 @@ export default function CVPage({
     void fetchCriticReport();
     void fetchGapClusters();
   }, [cvId, phase, atsRefresh]);
+
+  // D-1: after a review action rewrote the document, re-read the sections
+  // (labels, override flags) — NOT the reports: the action's response already
+  // carried the re-audited ones, and a second GET could only race them.
+  useEffect(() => {
+    if (!cvId || phase !== "preview" || docVersion === 0) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/cv/${cvId}/sections`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { sections?: SectionItem[] } | null) => {
+        if (!cancelled && data) setCvSections(data.sections ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [cvId, phase, docVersion]);
 
   // E054/US289: read the previewed CV's pinned document_language (badge +
   // switch) and seed the template from the status response — after a reload
@@ -590,7 +612,7 @@ export default function CVPage({
     const sectionLabel = (sectionId: string): string => {
       if (sectionId === "introduction") return t("sectionIntroduction");
       if (sectionId === "skills") return t("sectionSkills");
-      return flowState?.cv_summary?.sections?.find((s) => s.section_id === sectionId)?.label ?? sectionId;
+      return cvSections.find((s) => s.section_id === sectionId)?.label ?? sectionId;
     };
 
     const handleEditFinding = (req: EditFindingRequest) => {
@@ -607,7 +629,7 @@ export default function CVPage({
         gaps: flowState?.gap_summary?.gaps ?? [],
         sections: flowState?.gap_summary?.sections ?? [],
       },
-      cv_summary: { sections: flowState?.cv_summary?.sections ?? [] },
+      cv_summary: { sections: cvSections },
     };
 
     // ADR-081 cl. 2 (E058/US300): the findings, grouped by the user's question.
@@ -739,9 +761,7 @@ export default function CVPage({
                   applicationId={flowState.application_id}
                   documentLanguage={docLanguage}
                   overriddenSectionLabels={
-                    flowState?.cv_summary?.sections
-                      ?.filter((s) => s.has_override)
-                      .map((s) => s.label) ?? []
+                    cvSections.filter((s) => s.has_override).map((s) => s.label)
                   }
                   // ADR-038 clause 6: the switch IS the existing regeneration
                   // path — same template, new GeneratedCV, overrides fall.

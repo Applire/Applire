@@ -26,6 +26,7 @@ import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterCont
 import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
@@ -53,6 +54,7 @@ import {
 } from "@/lib/api/document-review";
 import { iframeDocument, makePreviewLocator } from "@/lib/locate-in-preview";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
+import { effectiveLetterBody } from "@/lib/letter-body";
 
 type CLTemplate =
   | "classic_german"
@@ -70,6 +72,8 @@ interface CLState {
   status: string;
   template: CLTemplate;
   letterData: Record<string, unknown> | null;
+  /** D-2: the saved section overrides (the body override is what the letter says now). */
+  sectionOverrides: Record<string, unknown> | null;
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   applicationId: string | null;
@@ -131,6 +135,10 @@ export default function CoverLetterPage({
   const [activeSidebarTab, setActiveSidebarTab] = useState("review");
   // ADR-090 cl. 5: opens the body editor; cleared when the user leaves Edit.
   const [openBodyNonce, setOpenBodyNonce] = useState<number | undefined>(undefined);
+  // D-4: the phone's Fine-tune sheet opens on *Let me edit it*; the review
+  // sheet is suspended while the phone locate view shows.
+  const [fineTuneNonce, setFineTuneNonce] = useState<number | undefined>(undefined);
+  const [mobileLocating, setMobileLocating] = useState(false);
   const editFindingKey = useRef<string | null>(null);
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
@@ -190,6 +198,7 @@ export default function CoverLetterPage({
           status: "none",
           template: "classic_german",
           letterData: null,
+          sectionOverrides: null,
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
           applicationId: flowData.application_id ?? null,
@@ -208,6 +217,7 @@ export default function CoverLetterPage({
       const statusData = await statusRes.json() as {
         status: string;
         letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
         document_language?: "de" | "en" | null;
         // F-4b (founder ruling, 2026-09-11): the per-document signature
         // override and its resolved state.
@@ -224,6 +234,7 @@ export default function CoverLetterPage({
         status: statusData.status,
         template: clSummary.template as CLTemplate,
         letterData: statusData.letter_data ?? null,
+        sectionOverrides: statusData.section_overrides ?? null,
         preGenInputs: null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
@@ -322,6 +333,7 @@ export default function CoverLetterPage({
         const data = await res.json() as {
           status: string;
           letter_data?: Record<string, unknown> | null;
+          section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
         };
         if (data.status === "ready") {
@@ -333,6 +345,7 @@ export default function CoverLetterPage({
                   ...prev,
                   status: "ready",
                   letterData: data.letter_data ?? null,
+                  sectionOverrides: data.section_overrides ?? null,
                   documentLanguage: data.document_language ?? null,
                 }
               : prev
@@ -451,6 +464,9 @@ export default function CoverLetterPage({
 
   function handleSectionSaved() {
     setPreviewKey((k) => k + 1);
+    // D-2: re-read the saved body so a later remount of the editor starts
+    // from it (the open editor already shows the saved text — no remount).
+    if (clState?.coverLetterId) void reloadLetterData(clState.coverLetterId, { remount: false });
     // ADR-090 cl. 5: a save made from a finding asks the server to re-audit
     // (awaited) and record `edited` if the finding cleared.
     const findingKey = editFindingKey.current;
@@ -463,13 +479,24 @@ export default function CoverLetterPage({
   }
 
   // The letter text after a review action rewrote it — the body editor reads it.
-  async function reloadLetterData(clId: string) {
+  async function reloadLetterData(clId: string, opts: { remount: boolean } = { remount: true }) {
     try {
       const res = await fetch(`${API_BASE}/api/cover-letter/${clId}/status`);
       if (!res.ok) return;
-      const data = (await res.json()) as { letter_data?: Record<string, unknown> | null };
-      setClState((prev) => (prev ? { ...prev, letterData: data.letter_data ?? prev.letterData } : prev));
-      setContentVersion((v) => v + 1);
+      const data = (await res.json()) as {
+        letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
+      };
+      setClState((prev) =>
+        prev
+          ? {
+              ...prev,
+              letterData: data.letter_data ?? prev.letterData,
+              sectionOverrides: data.section_overrides ?? prev.sectionOverrides,
+            }
+          : prev,
+      );
+      if (opts.remount) setContentVersion((v) => v + 1);
     } catch {
       // Non-fatal — the editor keeps its text; the preview is still reloaded.
     }
@@ -490,6 +517,7 @@ export default function CoverLetterPage({
     editFindingKey.current = req.findingKey;
     setActiveSidebarTab("edit");
     setOpenBodyNonce((n) => (n ?? 0) + 1);
+    setFineTuneNonce((n) => (n ?? 0) + 1);
   }
 
   function handleGenerated(newClId: string) {
@@ -568,7 +596,9 @@ export default function CoverLetterPage({
   // computed against the CV — so that producer is declared absent rather than
   // reported as empty (which would claim there are none) or unknown (which
   // would claim it failed).
-  const reviewSurface = (
+  // D-4 (ADR-050 amendment): built per layout so the phone's command-bar sheet
+  // mounts the SAME live surface, not a forked panel.
+  const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
       documentId={clState?.coverLetterId ?? null}
@@ -581,6 +611,8 @@ export default function CoverLetterPage({
       onRefresh={applyReviewRefresh}
       locator={CL_LOCATOR}
       previewVersion={previewVersion}
+      layout={layout}
+      onLocateModeChange={layout === "sheet" ? setMobileLocating : undefined}
       onEditFinding={handleEditFinding}
       sectionLabel={() => t("bodySection")}
       gapAnalysisHref={`/flow/${flowId}/gaps`}
@@ -589,6 +621,22 @@ export default function CoverLetterPage({
           can never be mistaken for one of them. */}
       <UnaskedRequirementsPanel requirements={unasked} />
     </ReviewSurface>
+  );
+
+  // The letter's section editor — the Edit tab on desktop, the Fine-tune
+  // sheet on the phone (D-4). Both start from the EFFECTIVE body (D-2).
+  const renderContentTab = (where: "panel" | "sheet") => (
+    <CoverLetterContentTab
+      key={`cl-content-${where}-${contentVersion}`}
+      openBodyNonce={openBodyNonce}
+      coverLetterId={clState!.coverLetterId}
+      letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+      initialBody={effectiveLetterBody(
+        clState!.letterData as Parameters<typeof effectiveLetterBody>[0],
+        clState!.sectionOverrides,
+      )}
+      onSectionSaved={handleSectionSaved}
+    />
   );
 
   const group1Count = buildReviewGroups({
@@ -613,7 +661,7 @@ export default function CoverLetterPage({
             {group1Count}
           </span>
         ) : undefined,
-      body: reviewSurface,
+      body: renderReviewSurface("panel"),
     },
     {
       id: "edit",
@@ -621,13 +669,7 @@ export default function CoverLetterPage({
       icon: <Palette className="w-4 h-4" aria-hidden="true" />,
       body: (
         <div className="flex flex-col gap-3">
-          <CoverLetterContentTab
-            key={`cl-content-${contentVersion}`}
-            openBodyNonce={openBodyNonce}
-            coverLetterId={clState!.coverLetterId}
-            letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
-            onSectionSaved={handleSectionSaved}
-          />
+          {renderContentTab("panel")}
           {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
               finding groups, application-scoped (ADR-077 cl. 1). */}
           <ATSChecksPanel report={atsReport} variant="pins" />
@@ -709,6 +751,20 @@ export default function CoverLetterPage({
                 }}
               />
             }
+          />
+        }
+        commandBar={
+          /* D-4 (ADR-050 amendment): the letter's phone review — the same
+             command bar the CV page uses, hosting the live review surface and
+             the live body editor. */
+          <MobileCommandBar
+            atsReport={atsReport}
+            atsPanel={renderReviewSurface("sheet")}
+            fineTuneSurface={renderContentTab("sheet")}
+            onDownloadPdf={() => void requestDownload("pdf")}
+            openFineTuneNonce={fineTuneNonce}
+            suspended={mobileLocating}
+            openCount={atsReport || truthReport ? group1Count : null}
           />
         }
       />

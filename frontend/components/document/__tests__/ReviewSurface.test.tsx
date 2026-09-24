@@ -745,3 +745,31 @@ describe("ruling B-1 — a stem-only finding offers no Take it out", () => {
     expect(screen.getByTestId("review-action-edit")).toBeTruthy();
   });
 });
+
+/* ----------------------------------------- D-3 — the changed passages only */
+
+describe("D-3 — This is what changed shows the changed passage, not the section", () => {
+  it("strikes only the changed sentence of a long body and elides the rest", async () => {
+    const before =
+      "Dear team,\n\nI built European e-commerce platforms for ten years. I also ran the payment stack.\n\nHappy to talk.";
+    const after = "Dear team,\n\nI built platforms for ten years. I also ran the payment stack.\n\nHappy to talk.";
+    api.takeOut.mockResolvedValue({
+      changes: [{ section_id: "body", before, after }],
+      still_listed: false,
+      report: ats({ present_unsupported: [] }),
+      truthfulness: null,
+      review_state: null,
+    });
+    renderSurface({ atsReport: MATCHED_ATS });
+    fireEvent.click(screen.getByTestId("review-action-takeout"));
+    await waitFor(() => expect(screen.getAllByTestId("review-takeout-before")).toHaveLength(1));
+    expect(screen.getByTestId("review-takeout-before").textContent).toBe(
+      "I built European e-commerce platforms for ten years.",
+    );
+    expect(screen.getByTestId("review-takeout-after").textContent).toBe("I built platforms for ten years.");
+    const change = screen.getByTestId("review-takeout-change");
+    expect(change.textContent).not.toContain("Dear team");
+    expect(change.textContent).not.toContain("payment stack");
+    expect(change.textContent).toContain("…");
+  });
+});

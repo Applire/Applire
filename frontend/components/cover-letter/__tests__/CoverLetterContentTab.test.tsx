@@ -23,10 +23,11 @@
  * the user closed it, while an unchanged value must not reopen it behind
  * their back.
  */
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { CoverLetterContentTab } from "../CoverLetterContentTab";
+import { effectiveLetterBody, overrideParagraphs } from "@/lib/letter-body";
 
 const LETTER_DATA = {
   header: { name: "Marcus Weber", email: "marcus@example.com" },
@@ -82,5 +83,55 @@ describe("CoverLetterContentTab — openBodyNonce (ADR-090 cl. 5)", () => {
     expect(screen.queryByTestId("cl-save-body-btn")).toBeNull();
     rerender({ openBodyNonce: 2 });
     expect(screen.getByTestId("cl-save-body-btn")).toBeTruthy();
+  });
+});
+
+/**
+ * D-2 (ADR-090 delivery run, HIGH): take-out → *Let me edit it* → save must
+ * never write the pre-take-out text back. The page feeds the editor the
+ * EFFECTIVE body (`effectiveLetterBody`: the saved override, split as the
+ * backend renders it); the raw `letter_data` still holds the removed wording.
+ */
+describe("CoverLetterContentTab — starts from the effective body (D-2)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const RAW = {
+    ...LETTER_DATA,
+    body: { paragraphs: ["I built European e-commerce platforms.", "I led settlement for merchants."] },
+  };
+  // What the take-out saved (CRLF, as a browser textarea may send it).
+  const OVERRIDES = { body: "I built platforms.\r\n\r\nI led settlement for merchants." };
+
+  it("take-out → edit → save writes the taken-out text, never the removed wording", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const onSectionSaved = vi.fn();
+    renderTab({
+      letterData: RAW,
+      initialBody: effectiveLetterBody(RAW, OVERRIDES),
+      openBodyNonce: 1,
+      onSectionSaved,
+    });
+    const textarea = screen.getByTestId("cl-body-textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("I built platforms.\n\nI led settlement for merchants.");
+    fireEvent.change(textarea, { target: { value: textarea.value.replace("settlement", "payouts") } });
+    fireEvent.click(screen.getByTestId("cl-save-body-btn"));
+    await waitFor(() => expect(onSectionSaved).toHaveBeenCalled());
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.section).toBe("body");
+    expect(body.content).not.toContain("European e-commerce");
+    expect(body.content).toContain("I led payouts for merchants.");
+  });
+
+  it("without an override the generated paragraphs are the body", () => {
+    expect(effectiveLetterBody(RAW, null)).toBe(
+      "I built European e-commerce platforms.\n\nI led settlement for merchants.",
+    );
+    expect(effectiveLetterBody(RAW, {})).toBe(effectiveLetterBody(RAW, null));
+  });
+
+  it("splits the override exactly like the backend (blank line with spaces, CR only, empties dropped)", () => {
+    expect(overrideParagraphs("A\n \t\nB\r\rC\n\n\n\n")).toEqual(["A", "B", "C"]);
+    expect(overrideParagraphs("single")).toEqual(["single"]);
   });
 });
