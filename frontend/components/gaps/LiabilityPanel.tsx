@@ -27,13 +27,21 @@
 // clustering has run), or (b) drop the keyword (downgrades the ledger entry
 // to an honest gap, deterministic, no LLM).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { GapCluster } from "@/components/gaps/GapClusterCard";
+import {
+  allClusterMembers,
+  clusterView,
+  isGapRefusalCode,
+  normMember,
+  type GapCluster,
+  type GapRefusalCode,
+  type TurnClusterCoverage,
+} from "@/lib/match-utils";
 
 export interface LiabilityEntry {
   concept: string;
@@ -50,6 +58,11 @@ interface ItemState {
   choices: string[] | null;
   answer: string;
   error: string;
+  /** The server refused the micro-session (HTTP 409, ADR-089 contract item 5),
+   * or the owning cluster's record already says it cannot be asked. */
+  refusal: GapRefusalCode | null;
+  /** Open members a follow-up turn is aimed at (ADR-089 clause 2). */
+  followUpOpen: string[] | null;
 }
 
 const EMPTY_ITEM: ItemState = {
@@ -59,19 +72,40 @@ const EMPTY_ITEM: ItemState = {
   choices: null,
   answer: "",
   error: "",
+  refusal: null,
+  followUpOpen: null,
 };
 
-function normConcept(s: string): string {
-  return s.trim().toLowerCase();
+/** The gap_cluster (if any) that owns this liability concept — services/gap.py's
+ * askable_gap_inputs augmentation folds every liability concept into the SAME
+ * clustering input as an ordinary category-C gap, so it always ends up owning
+ * a cluster id once clustering has finished.
+ *
+ * ADR-089 clause 3: searched over ALL members (open `gaps` + `outcome.covered`
+ * + `outcome.declined`), never `gaps` alone — `gaps` holds only the OPEN
+ * members, so a member that left it would dead-end the "tell the story" exit
+ * on "still preparing a question" forever. */
+export function findOwningCluster(concept: string, clusters: GapCluster[]): GapCluster | undefined {
+  const target = normMember(concept);
+  return clusters.find((c) => allClusterMembers(c).some((g) => normMember(g) === target));
 }
 
-/** The gap_cluster (if any) whose `gaps` list absorbed this liability concept
- * — services/gap.py's askable_gap_inputs augmentation folds every liability
- * concept into the SAME clustering input as an ordinary category-C gap, so
- * it always ends up owning a cluster id once clustering has finished. */
-function findOwningCluster(concept: string, clusters: GapCluster[]): GapCluster | undefined {
-  const target = normConcept(concept);
-  return clusters.find((c) => c.gaps.some((g) => normConcept(g) === target));
+/** The slice of `SessionMessageResponse` this panel reads. */
+interface TurnResponse {
+  complete: boolean;
+  question?: string | null;
+  choices?: string[] | null;
+  pending_confirmations?: unknown[] | null;
+  cluster_coverage?: TurnClusterCoverage | null;
+}
+
+async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
+  try {
+    const code = (await res.clone().json())?.detail?.error_code;
+    return isGapRefusalCode(code) ? code : null;
+  } catch {
+    return null;
+  }
 }
 
 async function apiErrorMessage(res: Response): Promise<string> {
@@ -90,6 +124,9 @@ export function LiabilityPanel({
   apiBase,
   onDropped,
   onStoryAdded,
+  onFollowUpTurn,
+  locked = false,
+  onActiveChange,
 }: {
   jobId: string;
   liabilities: LiabilityEntry[];
@@ -97,10 +134,23 @@ export function LiabilityPanel({
   apiBase: string;
   onDropped: (concept: string) => void;
   onStoryAdded: (concept: string) => void;
+  /** A story turn came back with a follow-up (the session stays open). */
+  onFollowUpTurn?: (concept: string) => void;
+  /** A gap card holds the page's one open micro-session (ADR-089 clause 8). */
+  locked?: boolean;
+  /** This panel opened / closed a micro-session — the page locks its cards. */
+  onActiveChange?: (active: boolean) => void;
 }) {
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
   const [items, setItems] = useState<Record<string, ItemState>>({});
+
+  const active = Object.values(items).some(
+    (i) => i.status === "loading" || i.status === "question" || i.status === "sending",
+  );
+  useEffect(() => {
+    onActiveChange?.(active);
+  }, [active, onActiveChange]);
 
   const visible = liabilities.filter(
     (l) => (items[l.concept]?.status ?? "idle") !== "dropped",
@@ -112,18 +162,36 @@ export function LiabilityPanel({
   }
 
   async function tellStory(concept: string) {
+    if (locked || active) return;
     const cluster = findOwningCluster(concept, clusters);
     if (!cluster) {
       update(concept, { error: t("liabilityUnavailable") });
       return;
     }
-    update(concept, { status: "loading", error: "" });
+    // The owning cluster's record already says it cannot be asked — say so
+    // instead of spending a request on a certain 409.
+    const view = clusterView(cluster);
+    if (!view.askable) {
+      update(concept, {
+        error: "",
+        refusal: view.budgetSpent ? "gap_budget_spent" : "gap_already_covered",
+      });
+      return;
+    }
+    update(concept, { status: "loading", error: "", refusal: null, followUpOpen: null });
     try {
       const res = await fetch(`${apiBase}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: jobId, mode: "targeted", target_gap: cluster.id }),
       });
+      if (res.status === 409) {
+        const code = await refusalCodeOf(res);
+        if (code) {
+          update(concept, { status: "idle", refusal: code });
+          return;
+        }
+      }
       if (!res.ok) throw new Error(await apiErrorMessage(res));
       const data = await res.json();
       update(concept, {
@@ -147,8 +215,27 @@ export function LiabilityPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: item.answer.trim() }),
       });
+      // ADR-089 E2: a micro-session closed elsewhere answers 409 — say so in
+      // the UI language, keep the draft.
+      if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
       if (!res.ok) throw new Error(await apiErrorMessage(res));
-      update(concept, { status: "resolved" });
+      const data = (await res.json()) as TurnResponse;
+      if (!data.complete) {
+        // A follow-up (ADR-089 clause 2) or a confirmation — asked here, in the
+        // same card; the session stays open.
+        const turn = data.cluster_coverage ?? null;
+        const isConfirmation = (data.pending_confirmations?.length ?? 0) > 0;
+        update(concept, {
+          status: "question",
+          answer: "",
+          question: data.question ?? item.question,
+          choices: data.choices ?? null,
+          followUpOpen: !isConfirmation && turn ? turn.open_concepts : null,
+        });
+        onFollowUpTurn?.(concept);
+        return;
+      }
+      update(concept, { status: "resolved", followUpOpen: null });
       onStoryAdded(concept);
     } catch (e: unknown) {
       update(concept, { status: "question", error: e instanceof Error ? e.message : "Failed to send" });
@@ -180,6 +267,11 @@ export function LiabilityPanel({
         </Badge>
       </div>
       <p className="text-xs text-gray-500 mb-3">{t("liabilitySubtitle")}</p>
+      {locked && (
+        <p data-testid="liability-locked-hint" className="text-xs text-on-surface-variant mb-3">
+          {t("gapsLockedHint")}
+        </p>
+      )}
 
       <div className="space-y-3">
         {visible.map((l) => {
@@ -217,6 +309,7 @@ export function LiabilityPanel({
                         size="sm"
                         variant="secondary"
                         data-testid={`liability-tell-story-${l.concept}`}
+                        disabled={locked || active || Boolean(item.refusal)}
                         onClick={() => void tellStory(l.concept)}
                       >
                         {t("liabilityTellStory")}
@@ -238,6 +331,17 @@ export function LiabilityPanel({
                 <p className="mt-2 text-xs text-critical">{item.error}</p>
               )}
 
+              {item.refusal && (
+                <p
+                  data-testid={`liability-refusal-${l.concept}`}
+                  className="mt-2 text-xs text-on-surface-variant"
+                >
+                  {item.refusal === "gap_budget_spent"
+                    ? t("refusalBudgetSpent")
+                    : t("refusalAlreadyCovered")}
+                </p>
+              )}
+
               {item.status === "loading" && (
                 <div className="mt-2 flex items-center gap-2">
                   <div className="animate-spin h-3 w-3 border-2 border-teal border-t-transparent rounded-full" />
@@ -247,6 +351,14 @@ export function LiabilityPanel({
 
               {(item.status === "question" || item.status === "sending") && (
                 <div className="mt-3 rounded-lg border border-teal/30 bg-teal/5 p-3 space-y-2">
+                  {item.followUpOpen && item.followUpOpen.length > 0 && (
+                    <p
+                      data-testid={`liability-follow-up-label-${l.concept}`}
+                      className="text-xs font-medium text-teal"
+                    >
+                      {t("followUpLabel", { items: item.followUpOpen.join(", ") })}
+                    </p>
+                  )}
                   <p
                     data-testid={`liability-question-${l.concept}`}
                     className="text-sm font-medium text-neutral-dark"

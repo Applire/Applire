@@ -43,6 +43,7 @@ from applire.schemas.session import (
 )
 from applire.services.gap import analyze_gaps_for_session
 from applire.services.session import (
+    GapNotAskableError,
     create_profile_review_session,
     create_session,
     get_session_state,
@@ -88,6 +89,15 @@ async def start_session(
 ) -> SessionCreateResponse:
     try:
         return await create_session(body, db, provider)
+    except GapNotAskableError as exc:
+        # ADR-089 clause 1 — a Gap-Click on a cluster whose per-gap budget is
+        # spent, or whose coverage is already covered/declined, is refused with
+        # a stable machine-readable code the gaps page renders per case; the
+        # message names the cluster.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error_code": exc.error_code, "message": exc.message},
+        )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:

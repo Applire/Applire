@@ -266,6 +266,15 @@ def _p25d_interview_quant_concept() -> str:
     )
 
 
+def _p25e_interview_follow_up_focus() -> str:
+    from applire.prompts.interview import build_question_prompt
+
+    return build_question_prompt(
+        {"label": "Lean", "constituent_gaps": [], "jd_skills": [], "jd_context": ""},
+        {"work_history": []}, [], follow_up_focus=[CANARY, "Helm"],
+    )
+
+
 def _p26a_outcome_critic_pass_a() -> str:
     from applire.prompts.outcome_critic import build_pass_a_prompt
 
@@ -368,6 +377,7 @@ EMBEDDING_POINTS: dict[str, Callable[[], str]] = {
     "25c_interview_follow_up_gap": _p25c_interview_follow_up_gap,
     "25c2_interview_denial_probe_gap": _p25c2_interview_denial_probe_gap,
     "25d_interview_quant_concept": _p25d_interview_quant_concept,
+    "25e_interview_follow_up_focus": _p25e_interview_follow_up_focus,
     "26a_outcome_critic_jd_excerpt": _p26a_outcome_critic_pass_a,
     "26b_outcome_critic_role_title": _p26b_outcome_critic_pass_a_role_title,
     "26c_outcome_critic_anchors": _p26c_outcome_critic_pass_b_anchors,
@@ -513,6 +523,10 @@ def test_point_25d_quantification_instruction_embeds_a_ledger_concept():
     _assert_covered("25d_interview_quant_concept")
 
 
+def test_point_25e_partial_coverage_follow_up_embeds_the_open_members():
+    _assert_covered("25e_interview_follow_up_focus")
+
+
 def test_point_26a_outcome_critic_embeds_the_jd_excerpt():
     _assert_covered("26a_outcome_critic_jd_excerpt")
 
@@ -569,13 +583,15 @@ def test_no_registered_builder_leaks_hostile_posting_text_outside_the_marking():
 
 def test_the_registry_covers_every_point_the_adr_lists():
     """The registry and ADR-084 clause 8 are one list, and drift between them is
-    the failure this asserts against. 31 builder points + point 14 (tested with
+    the failure this asserts against. 32 builder points + point 14 (tested with
     its own wiring in ``test_review_prompts.py``) + point 23 (asserted above by
     its own property) = the ADR's enumeration. Point 21 (JD-aware CV extraction)
-    was retired M5.1.3 (2026-09-11) — 32 builder points before that, 31 since;
-    this assertion must move with the registry or it stops proving anything.
-    Point 29 (ADR-090 cl. 3, the take-out removal rewrite) added 2026-09-23 → 32."""
-    assert len(EMBEDDING_POINTS) == 32
+    was retired M5.1.3 (2026-09-11) — 32 builder points before that, 31 after,
+    32 again from ADR-089 clause 6's point 25e (the partial-coverage follow-up
+    focus, a NEW embedding point, not a re-add of 21), and 33 from ADR-090
+    clause 3's point 29 (the take-out removal rewrite); this assertion must move
+    with the registry or it stops proving anything."""
+    assert len(EMBEDDING_POINTS) == 33
     named = {
         name.split("test_point_")[1].split("_")[0]
         for name in globals()

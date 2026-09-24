@@ -200,3 +200,28 @@ async def test_downgrade_no_match_is_a_noop(db, seeded_gap_analysis):
 async def test_downgrade_no_gap_analysis_raises_lookup_error(db):
     with pytest.raises(LookupError):
         await downgrade_keyword_liability(uuid.uuid4(), "RAG", db)
+
+
+@pytest.mark.asyncio
+async def test_downgrade_re_splits_the_owning_cluster_record(db, seeded_gap_analysis):
+    """ADR-089 clause 3 — the per-gap record is derived from this row's ledger;
+    the in-place downgrade re-derives it (members and the asked count kept),
+    so the cluster no longer reads as holding a claim the candidate dropped."""
+    from applire.services.gap_coverage import initialise_cluster_record
+
+    job, gap_analysis = seeded_gap_analysis
+    cluster = initialise_cluster_record(
+        {"id": "cluster-rag", "label": "RAG", "category": "C", "gaps": ["RAG"],
+         "jd_skills": ["RAG"], "jd_context": "RAG pipelines"},
+        gap_analysis.keyword_ledger, None,
+    )
+    cluster["outcome"]["asked"] = 1
+    assert cluster["coverage"] == "partly_covered"  # an unstoried liability (A-1)
+    gap_analysis.gap_clusters = [cluster]
+    await db.commit()
+
+    result = await downgrade_keyword_liability(job.id, "RAG", db)
+
+    (after,) = result.gap_clusters
+    assert after.coverage == "open"
+    assert after.gaps == ["RAG"] and after.outcome.asked == 1

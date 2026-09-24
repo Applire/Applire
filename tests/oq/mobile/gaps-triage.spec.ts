@@ -98,6 +98,47 @@ async function setupGapsMocks(page: import("@playwright/test").Page) {
       body: JSON.stringify({ ui_language: "en", dismissed_explainers: [] }),
     })
   );
+  // Hermetic: the page also reads the profile's import history and health.
+  // Unmocked, these reached whatever backend served the run — a dead port
+  // locally (short page), the seeded CI backend in CI (the "We combined your
+  // imports" card, a long page) — so a layout assertion passed locally and
+  // failed in CI (2026-09-23). The bodies mirror what the CI backend answered.
+  await page.route("**/api/profile/changes", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        enrichment_history: [
+          {
+            id: "enr-mobile-gaps-0001",
+            timestamp: "2026-09-23T18:42:50Z",
+            source: "linkedin_import",
+            source_session_id: null,
+            changes: [{ section: "*", field: "*", action: "added", old_value: null, new_value: "initial import" }],
+            not_applied: [],
+            matched: [],
+          },
+          {
+            id: "enr-mobile-gaps-0002",
+            timestamp: "2026-09-23T18:43:15Z",
+            source: "cv_upload",
+            source_session_id: null,
+            changes: [{ section: "skills", field: "name", action: "merged", old_value: null, new_value: "Python" }],
+            not_applied: [],
+            matched: [],
+          },
+        ],
+        pending_conflicts: [],
+      }),
+    })
+  );
+  await page.route("**/api/profile/health", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ issues: [], completeness: { score: 0.86, gaps: [], field_gaps: [] } }),
+    })
+  );
 }
 
 test.describe("Mobile gap triage (390x844)", () => {
@@ -167,6 +208,16 @@ test.describe("Mobile gap triage (390x844)", () => {
       return Boolean(bar && card && bar.contains(card));
     });
     expect(insideBar).toBe(false);
+
+    // The shell scrolls its content column, never the document. An element
+    // that escapes the column (an absolutely positioned sr-only label with no
+    // positioned ancestor) stretches the document and shifts the whole shell
+    // up when the page is scrolled — the card then starts above the viewport.
+    const docScroll = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    }));
+    expect(docScroll.scrollHeight).toBeLessThanOrEqual(docScroll.innerHeight + 1);
 
     // Scrolled to the end of the flow column, the whole card clears the bar.
     await page.evaluate(() => {
