@@ -17,6 +17,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - **A cover letter edited by hand kept its paragraphs only on screen.** A saved letter body was rendered as a single paragraph in every template, so an edit in the Edit tab flattened the delivered letter. The body is now split on blank lines.
+- **The truthfulness check now reads numbers written as "40k", "1.2M" or "200k".** A profile that said "~40k users" did not back a document's "40,000 users", so the check reported a figure as unbacked when it was not. Lowercase "m" after a number (metres, minutes) and units like "40kg" are deliberately not read as multipliers.
+- **Taking out a disputed figure keeps the rest of the sentence.** When the truthfulness check disputes only a number, *Take it out for me* removes that number and keeps every other fact in the sentence; before, the whole claim was removed. The verdict lists its figures in a new `figures` field.
+- **Adding something to your profile updates both documents.** *It's true, add it to my profile* on the CV now also re-checks the cover letter of the same application, and the other way round.
+- **Editing a letter after a take-out no longer brings the wording back.** The letter's Edit tab started from the originally generated text instead of the saved one; it now starts from what you see. The letter status response carries the saved `section_overrides`. The letter's review panel is also reachable on a phone now.
 - **A missing profile photo showed as a broken image.** When the stored photo file could not be read, the CV kept the raw file path and the preview drew a broken-image placeholder. The photo is now left out, and the log says the file is missing.
 
 ## [0.42.0-beta] – 2026-09-14
