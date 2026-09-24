@@ -44,7 +44,9 @@ def test_bare_multiplier_is_a_folded_number_figure(text, expected):
     "1.2MB bundle",
 ])
 def test_non_multiplier_suffixes_yield_no_magnitude(text):
-    assert all(float(v) < 1000 for k, v in _vals(text)), _vals(text)
+    # N-1: "5 min" and "1.2MB" are now duration / datasize figures — a KIND of
+    # their own. What E-1 guards is that no suffix becomes a COUNT multiplier.
+    assert all(float(v) < 1000 for k, v in _vals(text) if k == "number"), _vals(text)
 
 
 def test_currency_form_is_unchanged():
