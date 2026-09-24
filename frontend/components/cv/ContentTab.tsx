@@ -18,6 +18,7 @@
 // frontend/components/cv/ContentTab.tsx
 "use client";
 
+import { countInText, type LocateTarget } from "@/lib/locate-in-preview";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -94,6 +95,14 @@ interface ContentTabProps {
    */
   pendingGap?: { gapId: string; nonce: number } | null;
   onPendingGapConsumed?: () => void;
+  /**
+   * ADR-090 cl. 5 — *Let me edit it* on a review finding: open the section
+   * that holds the place the user was shown, nothing pre-filled. The section is
+   * the one whose content holds the `placeIndex`-th place of `targets` (same
+   * normalisation as *Show me where*); no match → the section list stays open.
+   */
+  pendingFinding?: { targets: LocateTarget[] | null; placeIndex: number; nonce: number } | null;
+  onPendingFindingConsumed?: () => void;
 }
 
 /**
@@ -110,6 +119,29 @@ function dedupeById(items: GapHintItem[]): GapHintItem[] {
   });
 }
 
+/**
+ * ADR-090 cl. 5 — the section holding the `placeIndex`-th place of `targets`,
+ * counted over the sections in order; falls back to the first section with any
+ * place. `null` when no section holds the wording (the list stays open).
+ */
+export function sectionHoldingPlace(
+  sections: SectionItem[],
+  targets: LocateTarget[] | null,
+  placeIndex: number,
+): string | null {
+  if (!targets || targets.length === 0) return null;
+  let seen = 0;
+  let first: string | null = null;
+  for (const s of sections) {
+    const n = countInText(s.content ?? "", targets);
+    if (n === 0) continue;
+    first ??= s.section_id;
+    if (placeIndex < seen + n) return s.section_id;
+    seen += n;
+  }
+  return first;
+}
+
 export function ContentTab({
   cvId,
   flowSummary,
@@ -118,6 +150,8 @@ export function ContentTab({
   variant = "full",
   pendingGap = null,
   onPendingGapConsumed,
+  pendingFinding = null,
+  onPendingFindingConsumed,
 }: ContentTabProps) {
   const t = useTranslations("cv");
   const tUnsaved = useTranslations("unsavedChanges");
@@ -238,6 +272,18 @@ export function ContentTab({
     handleAddressGap(pendingGap.gapId);
     onPendingGapConsumed?.();
   }, [pendingGap, sectionsLoading, handleAddressGap, onPendingGapConsumed]);
+
+  // ADR-090 cl. 5: honour *Let me edit it* once the sections have loaded.
+  const consumedFindingNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pendingFinding) return;
+    if (consumedFindingNonce.current === pendingFinding.nonce) return;
+    if (sectionsLoading) return;
+    consumedFindingNonce.current = pendingFinding.nonce;
+    const sectionId = sectionHoldingPlace(sections, pendingFinding.targets, pendingFinding.placeIndex);
+    if (sectionId) handleBrowseToEdit(sectionId, []);
+    onPendingFindingConsumed?.();
+  }, [pendingFinding, sectionsLoading, sections, handleBrowseToEdit, onPendingFindingConsumed]);
 
   const handleSectionEdit = useCallback(
     (sectionId: string) => {
