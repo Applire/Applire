@@ -5269,6 +5269,7 @@ async def _update_ats_report(
         profile_row = await db.get(MasterProfile, record.profile_id)
         profile_json = profile_row.profile_json if profile_row else None
         vault_text_norm = profile_literal_corpus(profile_json) or None
+        from applire.services.ats_audit import grounding_vault_index
         vault_skill_forms = _vault_skill_forms_for_audit(profile_json)
         # E056/ADR-077 clauses 3+5+7: load the application's fact pins so the
         # audit measures per-pin presence against the override-applied content.
@@ -5310,6 +5311,7 @@ async def _update_ats_report(
             # read/render path reads the document's stamp, never re-resolves the
             # seam, which is user-mutable while a generation is in flight).
             document_language=getattr(record, "document_language", None),
+            vault_index=grounding_vault_index(profile_json),  # ADR-090 cl. 4
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -5455,6 +5457,7 @@ async def _update_ats_report(
         docx_profile_row = await db.get(MasterProfile, record.profile_id)
         docx_profile_json = docx_profile_row.profile_json if docx_profile_row else None
         docx_vault_text_norm = profile_literal_corpus(docx_profile_json) or None
+        from applire.services.ats_audit import grounding_vault_index
         docx_vault_skill_forms = _vault_skill_forms_for_audit(docx_profile_json)
         # E056/ADR-077: the application's active CV fact pins, loaded the
         # same fail-safe way the ats_report block loads them — a pin load
@@ -5486,6 +5489,7 @@ async def _update_ats_report(
             pins=docx_audit_pins,
             terminal_review=terminal_review,
             previous_report=previous_docx_report,
+            vault_index=grounding_vault_index(docx_profile_json),  # ADR-090 cl. 4
         ).model_dump()
     except Exception:
         logger.exception(
@@ -5501,7 +5505,9 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
 
     The section-editor's post-edit re-audit path: passes NO CondenseContext, so it is
     strictly audit-only and never condenses (ADR-051 amendment §1)."""
-    async with AsyncSessionLocal() as db:
+    from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
+
+    async with document_lock("cv", cv_id), AsyncSessionLocal() as db:
         record = await db.get(GeneratedCV, cv_id)
         if record is not None:
             await _update_ats_report(record, db)
@@ -5526,7 +5532,10 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
                 "Stored ATS report for CV %s is malformed — returning report=null", record.id
             )
             report = None
-    return ATSReportResponse(document_id=record.id, status=record.status, report=report)
+    from applire.services.review_state import load_state
+
+    return ATSReportResponse(document_id=record.id, status=record.status, report=report,
+                             review_state=load_state(record.review_state))
 
 
 async def get_cv_truthfulness_report(
