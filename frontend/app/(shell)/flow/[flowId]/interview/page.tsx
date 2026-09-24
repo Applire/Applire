@@ -1086,7 +1086,7 @@ export default function InterviewPage({
                       status === "pending" && "text-gray-400",
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="relative flex items-center gap-2">
                       {status === "spent" ? (
                         <Lock aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
                       ) : status === "partly_covered" ? (

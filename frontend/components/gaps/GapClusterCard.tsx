@@ -111,11 +111,14 @@ function MemberChip({ term, state }: { term: string; state: MemberState }) {
           : state === "declined"
             ? t("memberDeclinedSr")
             : null;
+  // `relative` anchors the absolutely positioned sr-only label to the chip.
+  // Without it the label anchors outside the page's scroll column, stays put
+  // while the column scrolls and stretches the document (mobile OQ, 2026-09-23).
   return (
     <span
       data-testid="gap-member"
       data-state={state}
-      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", CHIP[state])}
+      className={cn("relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs", CHIP[state])}
     >
       {state === "covered" && <Check aria-hidden="true" className="h-3 w-3 text-success" />}
       {state === "declined" && <Minus aria-hidden="true" className="h-3 w-3" />}
