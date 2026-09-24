@@ -372,6 +372,74 @@ _AVAILABILITY_INSTRUCTION = (
 )
 
 
+# ADR-089 clause 6 (an exception under ADR-058 clause 4) — a cluster the
+# candidate has ALREADY answered on, in an earlier session (the full interview
+# after a Gap-Click, a re-opened Gap-Click, a repeated resolve_gap) or in this
+# one (the partial-coverage follow-up). Prompt-first triage (2026-09-23): no
+# rule asked the writer to know what was already said — the earlier exchange
+# was simply not in its input view (category B) — and the coverage rule below
+# ACTIVELY asked for a DIRECT choice wherever the profile evidences a concept,
+# which, once the earlier answer is in the vault, is the earlier answer offered
+# back as a chip (founder UAT 2026-09-23). The rule and its input ride together
+# and only when there is an earlier exchange, so every first-time question is
+# byte-identical to before.
+_EARLIER_ANSWERS_ARE_NOT_CHOICES = (
+    "Earlier answers are not answer choices: never offer something the "
+    "candidate already said — in the earlier exchanges or the Recent "
+    "conversation — as a choice, not even reworded or shortened. Every choice "
+    "must be a new starting point for what is still open; if nothing new and "
+    "truthful is left to offer, set choices to null."
+)
+
+
+def _earlier_exchanges_block(prior_exchanges: list[dict] | None) -> str:
+    """The earlier Q/A pairs on this cluster, oldest first — the same
+    transcript shape as "Recent conversation" (the candidate's own words and
+    our own earlier questions)."""
+    lines: list[str] = []
+    for pair in prior_exchanges or []:
+        q = str((pair or {}).get("question") or "").strip()
+        a = str((pair or {}).get("answer") or "").strip()
+        if q and a:
+            lines.append(f"Question: {q}\nAnswer: {a}")
+    if not lines:
+        return ""
+    return (
+        "\n\nEarlier exchanges on this cluster (earlier interview sessions — the "
+        "candidate's answers are evidence exactly like the profile summary):\n"
+        + "\n".join(lines)
+    )
+
+
+def _already_asked_instruction(
+    has_earlier: bool, follow_up_focus: list[str] | None
+) -> str:
+    """The rule that rides with an earlier exchange (ADR-089 clauses 2/6)."""
+    if follow_up_focus:
+        # ADR-084 (Form A, inline): the open members are ledger/cluster concept
+        # names — the posting's own terms — interpolated into our instruction.
+        from applire.services.untrusted_text import fence_inline
+
+        focus = fence_inline(", ".join(str(f) for f in follow_up_focus if f))
+        lead = (
+            "\n\nFOLLOW-UP on this cluster: the candidate's last answer (see the "
+            "Recent conversation) covered part of it. Still open: "
+            f"{focus}. Ask ONE follow-up question aimed at exactly these open "
+            "requirements, naming them — never ask again about what an earlier "
+            "answer already covered."
+        )
+    elif has_earlier:
+        lead = (
+            "\n\nThis cluster was already asked about (see the earlier exchanges "
+            "above). Ask ONLY about what those answers left open — the "
+            "constituent gaps in the GAP CLUSTER block — and never ask again for "
+            "something an earlier answer already told us."
+        )
+    else:
+        return ""
+    return f"{lead} {_EARLIER_ANSWERS_ARE_NOT_CHOICES}"
+
+
 def build_question_prompt(
     cluster: dict,
     profile: dict,
@@ -379,6 +447,8 @@ def build_question_prompt(
     gap_category: str | None = None,
     quant_concepts: list[str] | None = None,
     include_availability: bool = False,
+    prior_exchanges: list[dict] | None = None,
+    follow_up_focus: list[str] | None = None,
 ) -> str:
     history = ""
     if recent_messages:
@@ -401,8 +471,33 @@ def build_question_prompt(
     # confirmed skill (charter run 2026-07-29, record 30). Same predicate as
     # the choice_grounding mirror guard, so hint and guard cannot disagree.
     signal = constituent_evidence(cluster, profile)
-    evidenced = [t for t, ok in signal.items() if ok]
-    unevidenced = [t for t, ok in signal.items() if not ok]
+    # ADR-089 clause 3 — `constituent_evidence` flags EVERY member (open +
+    # covered + declined, `gap_coverage.all_members`), but only the OPEN ones
+    # (`gaps`) may be asked about: a covered member is not a gap, and a
+    # declined one was answered with "no" and is never asked again. So the
+    # evidenced list may name covered members (they must not be re-questioned)
+    # but never a declined one, and the unevidenced list — the ask scope AND
+    # the only valid denial-choice scope — holds open members only. A legacy
+    # cluster (no outcome) has open == all members: byte-identical to before.
+    from applire.services.keyword_ledger import _norm as _member_norm
+
+    open_keys = {_member_norm(str(g)) for g in constituent_gaps}
+    declined_members = [
+        str(d) for d in ((cluster.get("outcome") or {}).get("declined") or []) if d
+    ]
+    declined_keys = {_member_norm(d) for d in declined_members}
+    # A follow-up's focus members are asked about BY NAME (the FOLLOW-UP line
+    # below): they are never listed as "evidenced — never re-question", which
+    # would contradict that line when the profile happens to mention one.
+    focus_keys = {_member_norm(str(f)) for f in (follow_up_focus or []) if f}
+    evidenced = [
+        t
+        for t, ok in signal.items()
+        if ok and _member_norm(t) not in declined_keys and _member_norm(t) not in focus_keys
+    ]
+    unevidenced = [
+        t for t, ok in signal.items() if not ok and _member_norm(t) in open_keys
+    ]
 
     if gap_category == "B":
         gap_type_hint = (
@@ -450,7 +545,7 @@ def build_question_prompt(
     # survives two hops arrives here shaping the question the CANDIDATE is
     # asked. That is the one place in the system where injected text reaches a
     # human directly.
-    from applire.services.untrusted_text import fence
+    from applire.services.untrusted_text import fence, fence_inline
 
     cluster_body = f"Cluster: {cluster_label}"
     if constituent_gaps:
@@ -461,12 +556,24 @@ def build_question_prompt(
         cluster_body += f"\nJD context: {jd_context}"
     cluster_context = fence(cluster_body, header="GAP CLUSTER")
 
+    earlier = _earlier_exchanges_block(prior_exchanges)
+    already_asked = _already_asked_instruction(bool(earlier), follow_up_focus)
+    declined_line = ""
+    if declined_members:
+        # ADR-084 (Form A, inline): member names are the posting's own terms.
+        declined_line = (
+            "Already declined by the candidate — never ask about these again and "
+            f"never offer a choice about them: {fence_inline(', '.join(declined_members))}\n"
+        )
     prompt = (
         f"{cluster_context}\n"
         f"{gap_type_hint}\n"
+        f"{declined_line}"
         f"{choices_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
-        f"{history}\n\n"
+        f"{earlier}"
+        f"{history}"
+        f"{already_asked}\n\n"
         "Generate the JSON response."
     )
     if quant_concepts:

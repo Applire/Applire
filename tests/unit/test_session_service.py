@@ -1223,7 +1223,13 @@ class TestCreateSession:
 
         assert result.mode == "targeted"
         assert result.gaps_total == 1
-        assert result.estimated_questions == 1
+        # ADR-089 clause 1 — Gap-Click is no longer one question: the estimate
+        # is the cluster's remaining per-gap budget (a never-asked cluster has
+        # all of it), the ceiling the formula's n = 1 case.
+        from applire.constants import INTERVIEW_MAX_QUESTIONS_PER_GAP
+        from applire.services.interview.budget import derive_hard_ceiling
+        assert result.estimated_questions == INTERVIEW_MAX_QUESTIONS_PER_GAP
+        assert result.hard_ceiling == derive_hard_ceiling(1)
 
     @pytest.mark.asyncio
     async def test_creates_micro_session_replaces_existing_active(self, sqlite_session):
@@ -1320,7 +1326,10 @@ class TestCreateSession:
             }),
         ):
             micro_result = await create_session(micro_req, sqlite_session, _mock_provider())
-        assert micro_result.hard_ceiling == 1  # sanity: this really is the micro-session path
+        # sanity: this really is the micro-session path (ADR-089 clause 1 —
+        # its ceiling is derive_hard_ceiling(1), no longer the hard-coded 1)
+        from applire.services.interview.budget import derive_hard_ceiling
+        assert micro_result.hard_ceiling == derive_hard_ceiling(1)
 
         # Step 2 — panel closed (no API call at all); user asks for the
         # interview generically, no target_gap.

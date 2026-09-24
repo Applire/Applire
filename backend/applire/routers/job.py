@@ -38,6 +38,7 @@ from applire.schemas.gap import (
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
 from applire.services.application import find_duplicate_application
 from applire.services.gap import analyze_gaps, downgrade_keyword_liability
+from applire.services.gap_coverage import AnswerScope
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
 from applire.services.job import analyze_jd
 from applire.services.scraper import ScraperError, scrape_job_url
@@ -152,15 +153,16 @@ async def refresh_gap_analysis(
 
     Reflects any profile enrichment from interview answers. Idempotent: if the
     profile is unchanged it returns the existing analysis (no LLM re-run, no score
-    wobble — E037 PQ #3). When inputs DID change, a lower recompute republishes
-    the previous row's WHOLE score slice (headline together with its breakdown)
-    for the evidence-added population only — a recompute carrying a new denial is
-    never clamped and the score drops with it (ruling B-1 2026-09-20, see
-    `gap.published_score_slice`). Required for the animated score update in
-    Gap-Click mode.
+    wobble — E037 PQ #3). When inputs DID change, the recompute is ANSWER-DRIVEN
+    with nothing touched (``AnswerScope()``, ADR-089 clause 5): every requirement
+    is merged with its previous row, so no requirement moves down unless it is a
+    new denial or its vault backing is gone (the two floors run on the merged
+    ledger), and the clusters carry forward with their per-gap record (clause 4).
+    The gaps page replaces its whole analysis with this response after the turn
+    that completes a micro-session (clause 8).
     """
     try:
-        return await analyze_gaps(job_id, db, provider, clamp_to_previous=True)
+        return await analyze_gaps(job_id, db, provider, answer_scope=AnswerScope())
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -222,7 +224,13 @@ async def get_latest_gap_analysis(
     db: AsyncSession = Depends(get_db),
     _auth: AuthProvider = Depends(get_auth_provider),
 ) -> GapAnalysisResponse:
-    """Return the most recent stored gap analysis for a job — no LLM call."""
+    """Return the most recent stored gap analysis for a job — no LLM call.
+
+    ADR-090 clause 8: this read never re-runs the analysis, also when the
+    profile changed since it was computed. It says so instead —
+    ``inputs_changed`` compares the row's gap-relevant fingerprint with the
+    current profile — and the gap view offers the re-check
+    (``POST /gaps/refresh``)."""
     from sqlalchemy import select, desc
     from applire.models.gap import GapAnalysis
     from applire.models.job import JobAnalysis
@@ -252,7 +260,11 @@ async def get_latest_gap_analysis(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No gap analysis found for job {job_id}",
         )
-    return GapAnalysisResponse.model_validate(gap)
+    from applire.services.gap import stored_analysis_inputs_changed
+
+    response = GapAnalysisResponse.model_validate(gap)
+    response.inputs_changed = await stored_analysis_inputs_changed(gap, job, db)
+    return response
 
 
 @router.post(

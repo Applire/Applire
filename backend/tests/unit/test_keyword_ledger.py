@@ -514,6 +514,81 @@ def test_keyword_matching_two_already_credited_required_keys_earns_no_slot():
     assert result["match_score"] == 1.0, "two real required slots, both earned once each"
 
 
+# ---------------------------------------------------------------------------
+# Exact-owner RANK (ADR-089 E2E tier, 2026-09-24). A JD term's score slot
+# goes to the row whose own concept names it before a row that lists it only
+# as a surface form — independent of the model's list order. Measured on a
+# real re-check (operations case): a broad `partial` row listed first with
+# "Industrie 4.0" and "MES-Systeme" among its forms took three terms from the
+# `direct` rows that name them; the score fell 74% → 70% with no requirement
+# weaker. Replay of the captured classification after the fix: 0.7449.
+# ---------------------------------------------------------------------------
+
+
+def _digitalisation_shape(order):
+    items = {
+        "broad": _cls(
+            "Digitalisierung der Fertigung",
+            "partial",
+            ["Digitalisierung der Fertigung", "Industrie 4.0", "MES-Systeme", "Maschinendatenerfassung"],
+            evidence="Digitalisierungsprojekte begleitet",
+        ),
+        "i40": _cls("Industrie 4.0", "direct", ["Industrie 4.0", "Industry 4.0"], evidence="Industrie-4.0-Roadmap verantwortet"),
+        "mes": _cls("MES", "direct", ["MES", "MES-Systeme"], evidence="MES eingeführt"),
+        "mde": _cls("Maschinendatenerfassung", "direct", ["Maschinendatenerfassung", "MDE"], evidence="MDE eingeführt"),
+    }
+    return build_keyword_ledger(
+        classifications=[items[k] for k in order],
+        required_skills=["Digitalisierung der Fertigung", "Industrie 4.0", "MES-Systeme", "Maschinendatenerfassung"],
+        nice_to_have_skills=[],
+        keywords=[],
+    )
+
+
+def test_a_row_whose_concept_names_the_term_owns_it_before_a_broad_row_listing_it_as_a_form():
+    by_concept = _by_concept(_digitalisation_shape(["broad", "i40", "mes", "mde"]))
+    assert by_concept["Industrie 4.0"]["fit_weight"] == 1.0, "concept equals the term (rank 0)"
+    assert by_concept["Maschinendatenerfassung"]["fit_weight"] == 1.0, "concept equals the term (rank 0)"
+    assert by_concept["MES"]["fit_weight"] == 1.0, (
+        "'MES' names part of 'MES-Systeme' and lists it as a form (rank 1) — it beats the "
+        "broad row that only lists it as a form (rank 2), although the broad row comes first"
+    )
+    assert by_concept["Digitalisierung der Fertigung"]["fit_weight"] == 1.0, "it keeps its OWN term"
+    assert by_concept["Digitalisierung der Fertigung"]["status"] == "partial"
+
+
+def test_score_slot_ownership_does_not_depend_on_the_models_list_order():
+    import itertools
+
+    from applire.services.match_score import compute_match_score_from_ledger
+
+    seen = set()
+    for order in itertools.permutations(["broad", "i40", "mes", "mde"]):
+        ledger = _digitalisation_shape(list(order))
+        weights = tuple(sorted((e["concept"], e["fit_weight"]) for e in ledger))
+        seen.add((weights, round(compute_match_score_from_ledger(ledger)["match_score"], 6)))
+    assert len(seen) == 1, f"ownership moved with the list order: {seen}"
+
+
+def test_a_specific_direct_row_owns_its_nice_to_have_term_before_the_broad_row():
+    """The E1 SAP shape at the score level: the broad `partial` "SAP" row lists
+    "SAP PP" as a surface form and comes first; "SAP PP" (direct) names it."""
+    ledger = build_keyword_ledger(
+        classifications=[
+            _cls("SAP", "partial", ["SAP", "SAP ERP", "SAP PP"], evidence="SAP-Anwender"),
+            _cls("SAP PP", "direct", ["SAP PP", "SAP Production Planning"], evidence="Key-User PP"),
+        ],
+        required_skills=["SAP"],
+        nice_to_have_skills=["SAP PP"],
+        keywords=[],
+    )
+    by_concept = _by_concept(ledger)
+    assert by_concept["SAP PP"]["fit_weight"] == 0.5
+    assert "nice_to_have" in by_concept["SAP PP"]["sources"]
+    assert "nice_to_have" not in by_concept["SAP"]["sources"]
+    assert by_concept["SAP"]["fit_weight"] == 1.0, "the broad row keeps its own required term"
+
+
 def test_mock_classifies_keyword_terms_so_held_keyword_is_claimable():
     # "CI/CD" is a JD *keyword* the candidate demonstrably has (CI/CD pipelines).
     # The mock must classify keyword terms (mirrors the prompt change) so it lands

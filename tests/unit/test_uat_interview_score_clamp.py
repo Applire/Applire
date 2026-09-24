@@ -1,7 +1,8 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""#675 line 77 / founder-UAT F-3 — the clamp's two call sites and its predicate.
+"""#675 line 77 / founder-UAT F-3 → ADR-089 clause 5 — the answer-driven
+recompute's two call sites.
 
 `services/gap.py` is the single seam, but it is reached from TWO call sites and a
 fix that only holds on one of them is the shape this project has been burned by
@@ -11,13 +12,16 @@ before (a shared helper needs one named seam test per call site,
   1. `POST /api/job/{id}/gaps/refresh`  — `routers/job.py::refresh_gap_analysis`
   2. interview completion               — `services/session.py::_complete_session`
 
-Both pass `clamp_to_previous=True`, so both could republish a pre-denial headline.
-Each test below drives the REAL call site with a denial persisted the way the
-reconciler persists one (`profile_json.metadata.denied_concepts`) and reads the
-DELIVERED gap_analyses row.
+Both pass an `AnswerScope` (ADR-089 clause 5 replaced ruling B-1's whole-slice
+clamp with a per-requirement merge). Each seam test drives the REAL call site
+with a denial persisted the way the reconciler persists one
+(`profile_json.metadata.denied_concepts`) and reads the DELIVERED gap_analyses
+row: the denial must lower the score on both. The completion call sits inside a
+best-effort try/except, so a wrong call there fails SILENTLY (the recompute is
+skipped, nothing raises) — `test_completion_reaches_analyze_gaps_with_an_answer_scope`
+asserts the call itself happened, with the session's answers in its scope.
 
-The third block is the unit table for `carries_a_new_denial_or_regression` — the
-ADR-062 fact that decides which population the surviving clamp may touch.
+The per-rule merge tests live in `test_gap_answer_merge.py`.
 """
 
 import json
@@ -36,11 +40,8 @@ from applire.models.job import JobAnalysis
 from applire.models.session import InterviewSession
 from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
-from applire.services.gap import (
-    analyze_gaps,
-    carries_a_new_denial_or_regression,
-    published_score_slice,
-)
+from applire.services.gap import analyze_gaps
+from applire.services.gap_coverage import AnswerScope
 
 from tests.support.profile_factory import make_master_profile, set_profile_json
 
@@ -186,7 +187,8 @@ async def test_seam_gaps_refresh_router_publishes_the_denial_lowered_score(db):
     after = await refresh_gap_analysis(job.id, db=db, provider=provider, _auth=None)
 
     assert after.match_score == pytest.approx(0.5), (
-        "/gaps/refresh must publish the denial-lowered score, not the clamp"
+        "/gaps/refresh must publish the denial-lowered score (a fresh denial "
+        "always stands in the merge)"
     )
     assert after.match_score == pytest.approx(
         _headline_from_breakdown(after.requirement_breakdown)
@@ -204,21 +206,7 @@ async def test_seam_gaps_refresh_router_publishes_the_denial_lowered_score(db):
 # ===========================================================================
 
 
-@pytest.mark.asyncio
-async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
-    """The founder-UAT path: the denial is recorded IN the interview, and the
-    completion recompute is what the gaps page and the CV workspace then read."""
-    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
-    from applire.schemas.profile import FieldChange
-    from applire.services.session import send_message
-
-    user, job, profile = await _seed(db)
-    provider = MockLLMProvider()
-
-    pre = await analyze_gaps(job.id, db, provider)
-    assert pre.match_score == pytest.approx(1.0)
-    pre_row = await _latest(db, job.id)
-
+async def _seed_one_answer_session(db, job, profile, pre_row):
     flow = FlowSession(
         user_id=_STUB_USER_ID,
         job_id=job.id,
@@ -259,10 +247,16 @@ async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
     db.add_all([flow, record])
     await db.commit()
     await db.refresh(record)
+    return flow, record
+
+
+def _denial_turn():
+    from applire.schemas.profile import FieldChange
+    from applire.services.profile.reconcile.interview_bridge import InterviewTurnResult
 
     # What the reconciler returns for the candidate's denial: the same
     # `metadata.denied_concepts` write the real interview turn persists.
-    turn = InterviewTurnResult(
+    return InterviewTurnResult(
         profile_dict=_with_denial(_profile_json()),
         changes=[
             FieldChange(
@@ -276,11 +270,30 @@ async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
         conflict_summaries=[],
     )
 
+
+_ANSWER = "I have never run Docker myself — that was a colleague's work."
+
+
+@pytest.mark.asyncio
+async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
+    """The founder-UAT path: the denial is recorded IN the interview, and the
+    completion recompute is what the gaps page and the CV workspace then read."""
+    from applire.services.session import send_message
+
+    user, job, profile = await _seed(db)
+    provider = MockLLMProvider()
+
+    pre = await analyze_gaps(job.id, db, provider)
+    assert pre.match_score == pytest.approx(1.0)
+    pre_row = await _latest(db, job.id)
+    flow, record = await _seed_one_answer_session(db, job, profile, pre_row)
+    turn = _denial_turn()
+
     # A FAITHFUL double: the real `reconcile_interview_turn` PERSISTS the
     # reconciled profile itself (it is handed `db` and the profile record) and
     # then returns the turn. A double that only returns leaves the vault
     # unchanged, the fingerprint identical, and the recompute reuses its row —
-    # i.e. it would prove nothing about the clamp.
+    # i.e. it would prove nothing about the merge.
     async def _reconcile_and_persist(*_args, **_kwargs):
         set_profile_json(profile, _with_denial(_profile_json()))
         await db.commit()
@@ -290,12 +303,7 @@ async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
         "applire.services.session.reconcile_interview_turn",
         new=AsyncMock(side_effect=_reconcile_and_persist),
     ):
-        result = await send_message(
-            record.id,
-            "I have never run Docker myself — that was a colleague's work.",
-            db,
-            provider,
-        )
+        result = await send_message(record.id, _ANSWER, db, provider)
 
     assert result.complete is True
 
@@ -317,69 +325,46 @@ async def test_seam_interview_completion_publishes_the_denial_lowered_score(db):
     )
 
 
-# ===========================================================================
-# The predicate — ADR-062 fact, read off two persisted breakdowns
-# ===========================================================================
+@pytest.mark.asyncio
+async def test_completion_reaches_analyze_gaps_with_an_answer_scope(db):
+    """`_complete_session`'s recompute is best-effort (try/except): a call with
+    the wrong signature raises a swallowed TypeError and the recompute silently
+    never happens. So assert the CALL — once, answer-driven, carrying this
+    session's answer — not merely that nothing raised (ADR-089 clause 5)."""
+    import applire.services.session as session_service
+    from applire.services.session import send_message
 
+    user, job, profile = await _seed(db)
+    provider = MockLLMProvider()
+    await analyze_gaps(job.id, db, provider)
+    pre_row = await _latest(db, job.id)
+    _flow, record = await _seed_one_answer_session(db, job, profile, pre_row)
+    turn = _denial_turn()
 
-def _bd(*pairs) -> list[dict]:
-    return [{"requirement": r, "status": s} for r, s in pairs]
+    async def _reconcile_and_persist(*_args, **_kwargs):
+        set_profile_json(profile, _with_denial(_profile_json()))
+        await db.commit()
+        return turn
 
+    calls: list[dict] = []
+    real = session_service.analyze_gaps
 
-@pytest.mark.parametrize(
-    "previous,new,expected,why",
-    [
-        (_bd(("A", "direct")), _bd(("A", "denied")), True, "held → denied"),
-        (_bd(("A", "direct")), _bd(("A", "gap")), True, "held → gap"),
-        (_bd(("A", "partial")), _bd(("A", "denied")), True, "partial → denied"),
-        (_bd(("A", "partial")), _bd(("A", "gap")), True, "partial → gap"),
-        (_bd(("A", "direct")), _bd(("A", "direct"), ("B", "denied")), True,
-         "a requirement that appears for the first time already denied"),
-        (_bd(("A", "denied")), _bd(("A", "denied")), False,
-         "a denial already carried by the previous row is not a NEW denial"),
-        (_bd(("A", "direct")), _bd(("A", "partial")), False,
-         "direct → partial is the stochastic refinement the clamp was earned for"),
-        (_bd(("A", "gap")), _bd(("A", "gap"), ("B", "gap")), False,
-         "a widened denominator loses nothing the candidate held"),
-        (_bd(("A", "direct")), _bd(("a", "denied")), True,
-         "requirement matching is case-folded"),
-        ([], _bd(("A", "denied")), True, "no previous table at all"),
-        (_bd(("A", "direct")), [], False, "an empty new table regresses nothing"),
-    ],
-)
-def test_carries_a_new_denial_or_regression_facts(previous, new, expected, why):
-    assert carries_a_new_denial_or_regression(previous, new) is expected, why
+    async def _spy(job_id, db_, provider_, **kwargs):
+        calls.append(kwargs)
+        return await real(job_id, db_, provider_, **kwargs)
 
+    with patch(
+        "applire.services.session.reconcile_interview_turn",
+        new=AsyncMock(side_effect=_reconcile_and_persist),
+    ), patch.object(session_service, "analyze_gaps", new=_spy):
+        result = await send_message(record.id, _ANSWER, db, provider)
 
-def test_published_slice_is_the_fresh_one_when_the_clamp_is_off():
-    scored = {
-        "match_score": 0.2,
-        "category_a": [],
-        "category_b": [],
-        "category_c": ["A"],
-        "critical_gaps": ["A"],
-        "minor_gaps": [],
-        "requirement_breakdown": _bd(("A", "gap")),
-    }
-
-    class _Prev:
-        match_score = 0.9
-        category_a = ["A"]
-        category_b = []
-        category_c = []
-        critical_gaps = []
-        minor_gaps = []
-        requirement_breakdown = _bd(("A", "direct"))
-
-    assert published_score_slice(scored, _Prev(), clamp_to_previous=False) is scored
-    assert published_score_slice(scored, None, clamp_to_previous=True) is scored
-    # …and the clamped slice never shares a mutable JSONB list with the old row.
-    prev = _Prev()
-    clamped = published_score_slice(
-        {**scored, "requirement_breakdown": _bd(("A", "partial"))},
-        prev,
-        clamp_to_previous=True,
+    assert result.complete is True
+    scoped = [k for k in calls if isinstance(k.get("answer_scope"), AnswerScope)]
+    assert scoped, (
+        f"_complete_session never called analyze_gaps with an AnswerScope (calls: {calls!r})"
     )
-    assert clamped["match_score"] == 0.9
-    assert clamped["requirement_breakdown"] == prev.requirement_breakdown
-    assert clamped["requirement_breakdown"] is not prev.requirement_breakdown
+    # Ruling M-2: the scope carries the worked clusters only (no answer text);
+    # its exact cluster list is pinned on a real Gap-Click session by
+    # test_gap_followups_session.py::test_answer_scope_names_only_the_worked_clusters.
+    assert all(not hasattr(k["answer_scope"], "answers") for k in scoped)

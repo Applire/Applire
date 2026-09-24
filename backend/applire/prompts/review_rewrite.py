@@ -89,6 +89,51 @@ the passage is already in; never translate.
 quotation marks around it, no markdown."""
 
 
+
+#: Founder ruling E-1 (2026-09-24): an Oracle FIGURE finding. The delivery run showed
+#: the word variant above deleting a whole bullet with four true facts to remove one
+#: figure — correct under its own rule 2 ("a clause whose claim IS the wording goes"),
+#: wrong for a number, whose claim is only the quantity. A separate variant rather
+#: than a mode inside the rules above: the two tasks give opposite instructions about
+#: the surrounding clause (delete it vs keep every word of it), and one prompt holding
+#: both would be the self-contradiction ``applire-prompt-first`` step 3 warns about.
+#:
+#: Replay (2026-09-24, openai/gpt-5.6-luna, 12 figure cases — 6 CV / 6 letter, EN+DE,
+#: ``tests/files/review_rewrite/figure_cases.json``): round 1 (rules without the
+#: from/to sentence) removed every figure and deleted no statement, but left "von 4,1 %
+#: auf gesenkt" and "von 87 % auf verbessert" (2/12) broken; round 2 (THIS TEXT) fixed
+#: both. Both rounds: figures left 0/12, new quantity 0, amount words added 0, lines
+#: deleted 0; one letter dropped "mit 480 Mitarbeitenden" whole, the noun existing only
+#: to carry the count.
+REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT = """\
+You remove numbers from one passage of a job-application document — a CV section or \
+one paragraph of a cover letter. The candidate's profile does not back the figures \
+listed under FIGURES TO REMOVE, and the candidate asked for them to be taken out. \
+The statements around them are true and stay.
+
+Rules:
+1. Remove each listed figure wherever it occurs, together with the words that only \
+carry that quantity: its unit, currency sign or percent sign, and qualifiers such as \
+"~", "approx.", "around", "over", "more than", "ca.", "rund", "über".
+2. Do not replace it with another quantity. No other number, estimate, range or \
+amount word ("tens of thousands", "dozens", "several hundred", "a large", \
+"significant", "Tausende"). Drop the quantity instead: "serving ~12,000 daily users" \
+becomes "serving daily users"; "ein Budget von 3 Mio. €" becomes "ein Budget".
+3. Keep every other word of the passage as it is: every other number, name, tool, \
+employer, date, result and scope. Change only the few words the sentence needs to \
+stay grammatical once the figure is gone. If the figure is one end of a \
+"from … to …" pair, keep the other end and make the phrase whole ("reduced the error \
+rate from 12 %", "die Fehlerquote von 12 % aus gesenkt") — never leave "from 12 % to" \
+or "von 12 % auf" standing without its second figure.
+4. Never delete a bullet, sentence or clause because it held the figure.
+5. Keep the layout of the passage as described under PASSAGE KIND: the same lines, \
+no merged, split or reordered lines, no bullet markers, no heading, no blank line. \
+Write in the OUTPUT LANGUAGE, the language the passage is already in; never \
+translate.
+6. Output only the edited passage exactly as it should now read: no commentary, no \
+quotation marks around it, no markdown."""
+
+
 #: Layout description per passage kind — rule 6 points at it. Keyed by the
 #: shape the section text has in the section-override write, not by label.
 PASSAGE_KINDS: dict[str, str] = {
@@ -116,6 +161,7 @@ def build_review_rewrite_prompt(
     passage_kind: str,
     language: str,
     occurrences: list[str] | None = None,
+    figures_only: bool = False,
 ) -> str:
     """User prompt for one removal rewrite.
 
@@ -126,6 +172,10 @@ def build_review_rewrite_prompt(
     fenced. ``occurrences`` are the spellings the passage actually uses (a computed
     fact, see ``services/review_rewrite.find_occurrences``) — they matter when a form
     matched only through the audit's stem fold ("Coaching" vs "coached").
+    ``figures_only`` (E-1): the same builder for the figure variant — the block is
+    headed FIGURES TO REMOVE and pairs with :data:`REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT`.
+    Still ADR-084 point 29, still fenced (an Oracle figure is document text, but one
+    fenced shape for both variants keeps the point's single builder honest).
     """
     from applire.services.untrusted_text import fence
 
@@ -134,7 +184,7 @@ def build_review_rewrite_prompt(
         f"PASSAGE KIND: {PASSAGE_KINDS[passage_kind]}",
         f"OUTPUT LANGUAGE: {language_name(language)}",
         "",
-        fence(wording, header="WORDING TO REMOVE"),
+        fence(wording, header="FIGURES TO REMOVE" if figures_only else "WORDING TO REMOVE"),
     ]
     if occurrences:
         parts.append(

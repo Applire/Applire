@@ -23,9 +23,12 @@ ALWAYS re-ran the LLM (a fresh per-requirement classification) and inserted a ne
 gap_analyses row. Different screens then read different rows.
 
 Fix: analyze_gaps is idempotent per (job, profile-fingerprint) — it reuses the
-latest row instead of re-running the LLM when inputs are unchanged, and the
-/gaps/refresh path clamps the headline score monotonically up (added evidence
-never lowers it).
+latest row instead of re-running the LLM when inputs are unchanged. The
+/gaps/refresh path (``AnswerScope()``) merges every requirement with its
+previous row (ADR-089 clause 5): added evidence never lowers a requirement,
+a denial always can. The per-rule merge tests live in
+``test_gap_answer_merge.py``; this file keeps the idempotency contract and the
+denial/JD-change arms at the ``analyze_gaps`` level.
 """
 
 import json
@@ -44,6 +47,7 @@ from applire.models.profile import MasterProfile
 from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
+from applire.services.gap_coverage import AnswerScope
 
 from tests.support.profile_factory import make_master_profile, set_profile_json
 
@@ -225,30 +229,36 @@ async def test_flow_fk_and_latest_converge_on_reuse(db, seeded):
     assert refreshed_flow.gap_analysis_id == latest.id
 
 
+_RANK = {"direct": 2, "partial": 1, "gap": 0, "denied": 0}
+
+
 @pytest.mark.asyncio
-async def test_refresh_clamps_score_monotonically_up(db, seeded):
+async def test_refresh_never_lowers_a_requirement_it_did_not_touch(db, seeded):
+    """ADR-089 clause 5 replaces the whole-slice clamp: the refresh publishes
+    the headline its OWN merged table implies, and no requirement in it sits
+    below where the previous row had it (nothing touched, nothing denied)."""
     job, profile, flow = seeded
     spy = _SpyProvider()
 
     r1 = await analyze_gaps(job.id, db, spy)
 
-    # Simulate a previously-displayed high score, then a genuine profile change
-    # so the refresh path recomputes (fingerprint differs).
-    g1 = (
-        await db.execute(select(GapAnalysis).where(GapAnalysis.id == r1.id))
-    ).scalar_one()
-    g1.match_score = 0.99
+    # A genuine profile change so the refresh path recomputes (fingerprint differs).
     new_json = _profile_json()
     new_json["personal_info"]["headline"] = "changed"
     set_profile_json(profile, new_json)
     await db.commit()
 
-    # /gaps/refresh re-evaluates after new evidence — must never lower the score.
-    r2 = await analyze_gaps(job.id, db, spy, clamp_to_previous=True)
+    r2 = await analyze_gaps(job.id, db, spy, answer_scope=AnswerScope())
 
     assert r2.id != r1.id, "refresh with changed inputs creates a new row"
-    assert r2.match_score is not None
-    assert r2.match_score >= 0.99, "added evidence must never lower the headline score"
+    assert r2.match_score is not None and r2.match_score >= r1.match_score
+    before = {b.requirement: b.status for b in r1.requirement_breakdown}
+    for b in r2.requirement_breakdown:
+        if b.requirement in before:
+            assert _RANK[b.status] >= _RANK[before[b.requirement]], b.requirement
+    assert r2.match_score == pytest.approx(
+        _headline_from_breakdown(r2.requirement_breakdown)
+    ), "the headline is its own table's arithmetic — never a republished number"
 
 
 # ===========================================================================
@@ -343,7 +353,7 @@ async def test_refresh_after_a_denial_lowers_the_score_and_matches_its_breakdown
     set_profile_json(profile, denied_json)
     await db.commit()
 
-    r2 = await analyze_gaps(job.id, db, spy, clamp_to_previous=True)
+    r2 = await analyze_gaps(job.id, db, spy, answer_scope=AnswerScope())
 
     assert r2.id != r1.id, "a recorded denial changes the fingerprint → new row"
     assert _statuses(r2) == {"Python": "direct", "Docker": "denied"}, (
@@ -365,13 +375,12 @@ async def test_refresh_after_a_denial_lowers_the_score_and_matches_its_breakdown
 
 
 @pytest.mark.asyncio
-async def test_clamped_wobble_republishes_the_previous_whole_scored_slice(db, seeded):
-    """The surviving clamp moves the WHOLE row, never the headline alone.
+async def test_a_widened_jd_is_a_fresh_analysis_not_a_merge(db, seeded):
+    """A JD change is the non-answer path (ADR-089 clauses 4/5): the denominator
+    grows, the headline drops with it, and it still equals its own table.
 
-    Population: a lower recompute with no denial and no `direct`/`partial` →
-    `gap`/`denied` regression — here a widened JD denominator, the shape E037
-    PQ #3's score wobble takes. The published headline and the published table
-    both come from the previous row, so they still agree with each other.
+    (Before ADR-089 the whole-slice clamp republished the previous row here —
+    a score that no longer described the posting.)
     """
     job, profile, flow = seeded
     spy = _SpyProvider()
@@ -380,22 +389,15 @@ async def test_clamped_wobble_republishes_the_previous_whole_scored_slice(db, se
     r1 = await analyze_gaps(job.id, db, spy)
     assert r1.match_score == pytest.approx(1.0)
 
-    # A third requirement the candidate has no signal for: the denominator grows,
-    # nothing the candidate held was lost, nothing was denied.
+    # A third requirement the candidate has no signal for.
     job.required_skills = ["Python", "Docker", "GraphQL"]
     await db.commit()
 
-    r2 = await analyze_gaps(job.id, db, spy, clamp_to_previous=True)
+    r2 = await analyze_gaps(job.id, db, spy, answer_scope=AnswerScope())
 
     assert r2.id != r1.id
-    assert r2.match_score == pytest.approx(r1.match_score), "clamped headline"
-    # …and the table it is explained by travelled with it.
-    assert [
-        (b.requirement, b.status) for b in r2.requirement_breakdown
-    ] == [(b.requirement, b.status) for b in r1.requirement_breakdown]
-    assert list(r2.critical_gaps or []) == list(r1.critical_gaps or [])
-    assert list(r2.category_a or []) == list(r1.category_a or [])
-    assert list(r2.category_c or []) == list(r1.category_c or [])
+    assert {b.requirement: b.status for b in r2.requirement_breakdown}.get("GraphQL") == "gap"
+    assert r2.match_score == pytest.approx(2.0 / 3.0)
     assert r2.match_score == pytest.approx(
         _headline_from_breakdown(r2.requirement_breakdown)
-    ), "a clamped row's headline still equals its own table"
+    ), "the headline equals its own table"

@@ -105,6 +105,7 @@ _ACOMPLETE_CONSTANTS = {
     "ASSIST_REWRITE_SYSTEM_PROMPT",
     # ADR-090 cl. 3 (WP-B): the take-out removal rewrite is a prose completion too.
     "REVIEW_REWRITE_SYSTEM_PROMPT",
+    "REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT",  # E-1 figure variant
 }
 
 

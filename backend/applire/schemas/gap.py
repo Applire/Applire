@@ -169,6 +169,14 @@ class GapAnalysisResponse(BaseModel):
     # one source, read on the SAME response the gaps page and the `analyze_gaps`
     # MCP tool already return, so no new endpoint and no new tool (ADR-056 §4).
     unasked_requirements: list[KeywordLedgerEntry] = Field(default_factory=list)
+    # ADR-090 clause 8 — derived at response time, never persisted: the
+    # profile's gap-relevant part changed after this analysis was computed.
+    # The gap analysis never re-runs by itself on such a change; the gap view
+    # shows "your profile changed since this check" with a re-check instead.
+    # Always False on a response that was just computed (analyze_gaps, the
+    # refresh door): the computation IS the check. Set by the read route
+    # (GET /api/job/{id}/gaps) through services.gap.stored_analysis_inputs_changed.
+    inputs_changed: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -195,6 +203,35 @@ class GapAnalysisResponse(BaseModel):
         self.unasked_requirements = [
             KeywordLedgerEntry(**e) for e in unasked_hard_requirements(entries)
         ]
+        return self
+
+    @model_validator(mode="after")
+    def _derive_cluster_record_views(self) -> "GapAnalysisResponse":
+        """ADR-089 — the derived, never-persisted views of each cluster's
+        record, computed from THIS row's own ledger by the one implementation
+        in ``gap_coverage``:
+
+        * ``coverage`` for a cluster persisted before the per-gap record
+          existed (``derive_coverage``). A cluster that carries a coverage
+          keeps it: the record is written by the session turn and the
+          recompute, never re-judged on read;
+        * ``member_statuses`` for every cluster (ruling C-1,
+          ``member_statuses``) — the chip colours of the gaps page.
+        """
+        if not self.gap_clusters:
+            return self
+        from applire.services.gap_coverage import derive_coverage, member_statuses
+
+        from applire.schemas.gap_cluster import GapClusterMemberStatus
+
+        ledger = [e.model_dump() for e in self.keyword_ledger]
+        for cluster in self.gap_clusters:
+            raw = cluster.model_dump(exclude={"budget_remaining", "member_statuses"})
+            if cluster.coverage is None:
+                cluster.coverage = derive_coverage(raw, ledger)
+            cluster.member_statuses = [
+                GapClusterMemberStatus(**item) for item in member_statuses(raw, ledger)
+            ]
         return self
 
 

@@ -469,6 +469,8 @@ async def question_generator_with_profile(
     lang: str = "en",
     include_availability: bool = False,
     denial_probe: bool = False,
+    prior_exchanges: list[dict] | None = None,
+    follow_up_focus: list[str] | None = None,
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -491,6 +493,25 @@ async def question_generator_with_profile(
     exactly once, at session creation, and every later advance/follow-up call
     leaves it at the False default, so "one availability question" stays
     enforced by construction rather than a tracked flag.
+
+    prior_exchanges (ADR-089 clause 6): earlier ``{"question", "answer"}``
+    pairs on the current MODE A cluster from OTHER sessions, read by the caller
+    from the transcripts the cluster's ``outcome.session_ids`` references (never
+    stored beside the cluster). They reach the MODE A prompt as its input view
+    together with the rule that the question asks about what they left open
+    and that no choice restates them.
+
+    follow_up_focus (ADR-089 clause 2): the cluster's members the candidate's
+    last answer left OPEN — the partial-coverage follow-up. Routed through the
+    MODE A prompt (never the "be more specific" retry prompt, whose
+    adjacent-domain framing is the opposite of asking about a named
+    requirement), so the follow-up keeps the MODE A choice rules and the
+    ``filter_ungrounded_choices`` guard.
+
+    US265 — the quantification nudge rides a cluster's OPENING question only:
+    it is never computed for a follow-up focus, nor for a cluster whose record
+    shows it was asked before (``outcome.asked > 0`` — its opening question
+    already carried it, in whatever door asked it first).
     """
     mode = state.get("mode", "targeted")
 
@@ -614,14 +635,25 @@ async def question_generator_with_profile(
 
     # US265 — deterministic, pure detector; empty result is a silent no-op
     # (build_question_prompt appends nothing when quant_concepts is falsy).
-    quant_concepts = detect_unquantified_concepts(cluster, profile)
+    # ADR-089: a cluster's OPENING question only — never a follow-up focus, never
+    # a cluster its record shows was already asked (by any door).
+    asked_before = int(((cluster.get("outcome") or {}).get("asked")) or 0) > 0
+    quant_concepts = (
+        [] if (follow_up_focus or asked_before) else detect_unquantified_concepts(cluster, profile)
+    )
+    prompt_extras: dict = {}
+    if prior_exchanges:
+        prompt_extras["prior_exchanges"] = prior_exchanges
+    if follow_up_focus:
+        prompt_extras["follow_up_focus"] = follow_up_focus
     with llm_log_stage("interview_draft"):
         data: dict = await provider.aparse_json(
             build_question_prompt(
                 cluster, profile, state["messages"],
                 gap_category=gap_category,
                 quant_concepts=quant_concepts,
-                include_availability=include_availability,
+                include_availability=include_availability and not follow_up_focus,
+                **prompt_extras,
             ),
             system=with_language(QUESTION_SYSTEM_PROMPT, lang),
             temperature=0.4,

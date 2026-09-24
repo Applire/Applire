@@ -32,16 +32,22 @@ import { DocumentLanguageControl } from "@/components/gaps/DocumentLanguageContr
 import { CancelApplicationButton } from "@/components/flow/CancelApplicationButton";
 import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { cn } from "@/lib/utils";
-import { GapClusterCard, type GapCluster } from "@/components/gaps/GapClusterCard";
+import { GapClusterCard } from "@/components/gaps/GapClusterCard";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
 import { analyzeGapsAsync, GapAnalysisError } from "@/lib/gap-analysis";
 import {
   canonicalRequirementChips,
+  clusterCoverageCounts,
+  clusterView,
   gapCounts,
+  isGapRefusalCode,
   scoreToPercent,
+  type GapCluster,
+  type GapRefusalCode,
   type LedgerChipEntry,
+  type TurnClusterCoverage,
 } from "@/lib/match-utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -62,6 +68,9 @@ interface GapAnalysis {
   keyword_ledger?: LedgerChipEntry[];
   // #260 — derived server-side: required + claimable + no narrative anywhere.
   keyword_liabilities?: LiabilityEntry[];
+  // ADR-090 clause 8 — derived server-side on the read: the profile's
+  // gap-relevant part changed after this analysis was computed.
+  inputs_changed?: boolean;
 }
 
 interface FlowState {
@@ -86,8 +95,12 @@ interface ProfileStats {
   data_points: number;
 }
 
-// Gap-Click mode state per gap
-type GapStatus = "idle" | "loading" | "question" | "answering" | "resolved";
+// Gap-Click micro-session state per cluster. There is no "resolved" status:
+// whether a gap is covered is the server's record (ADR-089 clause 8), read
+// from the analysis row — this state only tracks the open conversation.
+// Anything but "idle" holds the page's one micro-session (clause 8: while one
+// card has it, no other card may open one).
+type GapStatus = "idle" | "loading" | "question" | "answering" | "refreshing";
 
 interface GapClickState {
   status: GapStatus;
@@ -97,6 +110,24 @@ interface GapClickState {
   answer: string;
   sending: boolean;
   error: string;
+  /** The open members a follow-up turn is aimed at (contract item 4); null on
+   * an opening question or a confirmation question. */
+  followUpOpen: string[] | null;
+  /** The record the last turn wrote (`cluster_coverage`), shown until the page
+   * re-reads the analysis row that carries it. */
+  overlay: TurnClusterCoverage | null;
+  /** `POST /api/session` refused this cluster (HTTP 409, contract item 5). */
+  refusal: GapRefusalCode | null;
+}
+
+/** The slice of `SessionMessageResponse` the gaps page reads. */
+interface SessionTurnResponse {
+  complete: boolean;
+  question?: string | null;
+  choices?: string[] | null;
+  pending_conflicts?: unknown[] | null;
+  pending_confirmations?: unknown[] | null;
+  cluster_coverage?: TurnClusterCoverage | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +155,21 @@ const EMPTY_GAP_STATE: GapClickState = {
   answer: "",
   sending: false,
   error: "",
+  followUpOpen: null,
+  overlay: null,
+  refusal: null,
 };
+
+/** The contract's 409 `error_code`, when the body carries one. */
+async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
+  try {
+    const body = await res.clone().json();
+    const code = body?.detail?.error_code;
+    return isGapRefusalCode(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // JD Recovery Banner — shown when jd_status query param is present (Sprint 26)
@@ -352,106 +397,104 @@ function InputWarningsBanner() {
 function GapClickPanel({
   state,
   onUpdate,
-  onResolved,
+  onSubmit,
+  onCancel,
 }: {
   state: GapClickState;
   onUpdate: (patch: Partial<GapClickState>) => void;
-  onResolved: () => void;
+  onSubmit: () => void;
+  onCancel: () => void;
 }) {
   const t = useTranslations("gaps");
   const tc = useTranslations("common");
 
-  async function sendAnswer() {
-    if (!state.sessionId || !state.answer.trim() || state.sending) return;
-    onUpdate({ sending: true, error: "" });
-    try {
-      const res = await fetch(`${API_BASE}/api/session/${state.sessionId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: state.answer.trim() }),
-      });
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
-      onUpdate({ sending: false });
-      onResolved();
-    } catch (e: unknown) {
-      onUpdate({
-        sending: false,
-        error: e instanceof Error ? e.message : "Failed to send",
-      });
-    }
-  }
-
   if (state.status === "idle") {
-    return null; // card click handles session start
+    // The card click starts the session; an idle card only speaks when the
+    // server refused it or the start failed.
+    if (state.refusal) {
+      return (
+        <p data-testid="gap-refusal" className="mt-2 text-xs text-on-surface-variant">
+          {state.refusal === "gap_budget_spent" ? t("refusalBudgetSpent") : t("refusalAlreadyCovered")}
+        </p>
+      );
+    }
+    return state.error ? (
+      <p data-testid="gap-error" className="mt-2 text-xs text-critical">{state.error}</p>
+    ) : null;
   }
 
-  if (state.status === "loading") {
+  if (state.status === "loading" || state.status === "refreshing") {
     return (
       <div className="mt-2 flex items-center gap-2">
         <div className="animate-spin h-3 w-3 border-2 border-teal border-t-transparent rounded-full" />
-        <span className="text-xs text-gray-500">{t("loadingQuestion")}</span>
+        <span className="text-xs text-on-surface-variant">
+          {state.status === "loading" ? t("loadingQuestion") : t("refreshingAnalysis")}
+        </span>
       </div>
     );
   }
 
-  if (state.status === "question" || state.status === "answering") {
-    return (
-      <div className="mt-3 rounded-lg border border-teal/30 bg-teal/5 p-3 space-y-2">
-        <p data-testid="gap-question" className="text-sm font-medium text-neutral-dark">{state.question}</p>
-        {state.error && <p className="text-xs text-critical">{state.error}</p>}
-        {state.choices && state.choices.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
-            <div className="flex flex-col gap-1">
-              {state.choices.map((choice) => (
-                <button
-                  key={choice}
-                  type="button"
-                  className={cn(
-                    "w-full text-left rounded border border-teal/30 px-3 py-2 text-xs text-neutral-dark",
-                    "hover:bg-teal/5 transition-colors",
-                    state.answer === choice ? "bg-teal/10 border-teal/60 font-medium" : "bg-white",
-                  )}
-                  onClick={() => onUpdate({ answer: choice, status: "answering" })}
-                >
-                  {choice}
-                </button>
-              ))}
-            </div>
+  return (
+    <div className="mt-3 rounded-lg border border-teal/30 bg-teal/5 p-3 space-y-2">
+      {state.followUpOpen && state.followUpOpen.length > 0 && (
+        <p data-testid="gap-follow-up-label" className="text-xs font-medium text-teal">
+          {t("followUpLabel", { items: state.followUpOpen.join(", ") })}
+        </p>
+      )}
+      <p data-testid="gap-question" className="text-sm font-medium text-neutral-dark">{state.question}</p>
+      {state.error && <p className="text-xs text-critical">{state.error}</p>}
+      {state.choices && state.choices.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-400">{t("choiceCardHint")}</p>
+          <div className="flex flex-col gap-1">
+            {state.choices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                data-testid="gap-choice"
+                className={cn(
+                  "w-full text-left rounded border border-teal/30 px-3 py-2 text-xs text-neutral-dark",
+                  "hover:bg-teal/5 transition-colors",
+                  state.answer === choice ? "bg-teal/10 border-teal/60 font-medium" : "bg-white",
+                )}
+                onClick={() => onUpdate({ answer: choice, status: "answering" })}
+              >
+                {choice}
+              </button>
+            ))}
           </div>
-        )}
-        <textarea
-          data-testid="gap-answer-textarea"
-          className={cn(
-            "w-full resize-none text-xs font-body border border-gray-200 rounded px-2 py-1.5",
-            "focus:outline-none focus:ring-1 focus:ring-teal/50 focus:border-teal",
-            "disabled:opacity-50 min-h-[72px]",
-          )}
-          placeholder={t("answerPlaceholder")}
-          value={state.answer}
-          onChange={(e) => onUpdate({ answer: e.target.value, status: "answering" })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendAnswer(); }
-          }}
-          disabled={state.sending}
-          rows={2}
-        />
-        <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" className="text-xs py-1 h-auto"
-            onClick={() => onUpdate(EMPTY_GAP_STATE)}>
-            {tc("cancel")}
-          </Button>
-          <Button data-testid="gap-submit-button" size="sm" className="text-xs py-1 h-auto"
-            disabled={!state.answer.trim() || state.sending}
-            onClick={() => void sendAnswer()}>
-            {state.sending ? t("savingAnswer") : t("submitAnswer")}
-          </Button>
         </div>
+      )}
+      <textarea
+        data-testid="gap-answer-textarea"
+        className={cn(
+          "w-full resize-none text-xs font-body border border-gray-200 rounded px-2 py-1.5",
+          "focus:outline-none focus:ring-1 focus:ring-teal/50 focus:border-teal",
+          "disabled:opacity-50 min-h-[72px]",
+        )}
+        placeholder={t("answerPlaceholder")}
+        value={state.answer}
+        onChange={(e) => onUpdate({ answer: e.target.value, status: "answering" })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+        }}
+        disabled={state.sending}
+        rows={2}
+      />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="outline" className="text-xs py-1 h-auto"
+          disabled={state.sending}
+          onClick={onCancel}>
+          {tc("cancel")}
+        </Button>
+        <Button data-testid="gap-submit-button" size="sm" className="text-xs py-1 h-auto"
+          disabled={!state.answer.trim() || state.sending}
+          onClick={onSubmit}>
+          {state.sending ? t("savingAnswer") : t("submitAnswer")}
+        </Button>
       </div>
-    );
-  }
-
-  return null; // "resolved" state — parent shows green checkmark
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +511,6 @@ export default function GapsPage({
   const [decisionsToken, setDecisionsToken] = useState(0);
   const router = useRouter();
   const t = useTranslations("gaps");
-  const tc = useTranslations("common");
 
   const [gaps, setGaps] = useState<GapAnalysis | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
@@ -482,10 +524,25 @@ export default function GapsPage({
   // derived below, scoped to THIS flow's imports (Spaghettieis UAT).
   const [profileTrail, setProfileTrail] = useState<ProfileChanges | null>(null);
 
-  // Gap-Click state keyed by cluster ID
+  // Gap-Click state keyed by cluster ID — the open conversation only; a card's
+  // coverage is the server's record (ADR-089 clause 8).
   const [gapStates, setGapStates] = useState<Record<string, GapClickState>>({});
-  // Resolved gaps — removed from active list and shown as green
-  const [resolvedGaps, setResolvedGaps] = useState<Set<string>>(new Set());
+  // The liability panel's "tell the story" opens the SAME kind of micro-session;
+  // while it holds one, no card may open another (and vice versa).
+  const [liabilityActive, setLiabilityActive] = useState(false);
+  // ADR-089 clause 8 — the page holds at most ONE open micro-session: a card
+  // whose state is anything but idle, or the liability panel's story. The lock
+  // is the render itself: a locked card has no click handler, and a click is a
+  // discrete event React commits before the next one, so a double click cannot
+  // reach a second handler (pinned by the "double click" test).
+  const openClusterId =
+    Object.keys(gapStates).find((id) => gapStates[id].status !== "idle") ?? null;
+  const sessionOpen = openClusterId !== null || liabilityActive;
+  // ADR-090 clause 8 — the analysis never re-runs by itself when the profile
+  // changed elsewhere; the row says so (`inputs_changed`) and the user asks
+  // for the re-check.
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckError, setRecheckError] = useState("");
   // Animated match score (refreshed after gap resolution)
   const [matchScore, setMatchScore] = useState(0);
   // Parsed-JD echo for the pre-interview review surface (US158, FMEA 4.3/4.4)
@@ -689,75 +746,143 @@ export default function GapsPage({
     }));
   }
 
-  // #260: dropping/storying a liability changes the ledger's claimable/gap
-  // split, so the headline match score can genuinely move (down for a drop,
-  // up for a story) — POST /gaps/refresh, same as an ordinary gap-cluster
-  // answer (handleGapResolved below). Idempotency (E037 PQ #3) makes this
-  // safe for BOTH exits: a drop mutates the ledger directly without
-  // touching profile_json, so the fingerprint is unchanged and refresh just
-  // re-reads the already-downgraded row (no LLM re-run); a story answer
-  // reconciles into the vault's narrative fields, which DOES change the
-  // fingerprint, so refresh genuinely recomputes narrative_backed from the
-  // fresh profile — the only path that can honestly clear a liability.
-  async function refreshMatchScoreAfterLiabilityAction() {
+  // ADR-089 clause 8 — the page shows the analysis ROW, whole: score, category
+  // lists, clusters with their coverage record. Every re-read replaces all of
+  // it (never only the score, which is how the old page kept rendering the
+  // pre-answer cluster list until the user navigated away and back). The
+  // per-turn overlays are dropped with it: the row now carries those turns.
+  // Reads can overlap (a follow-up turn's re-read, then the completion's
+  // refresh): only a response to a read STARTED after the last applied one may
+  // replace the page — an older row landing late must never undo a newer one.
+  const analysisReadSeq = useRef(0);
+  const analysisAppliedSeq = useRef(0);
+  function beginAnalysisRead(): number {
+    analysisReadSeq.current += 1;
+    return analysisReadSeq.current;
+  }
+
+  function replaceAnalysis(next: GapAnalysis, seq: number) {
+    if (seq < analysisAppliedSeq.current) return;
+    analysisAppliedSeq.current = seq;
+    setGaps(next);
+    setMatchScore((prev) => scoreToPercent(next.match_score, prev));
+    setGapStates((prev) => {
+      const out: Record<string, GapClickState> = {};
+      for (const [id, st] of Object.entries(prev)) out[id] = { ...st, overlay: null };
+      return out;
+    });
+  }
+
+  /** GET the latest row — a DB read, never a recompute (E037 PQ #3). A turn's
+   * outcome is written onto that row in the turn's own transaction. */
+  async function reReadAnalysis() {
     if (!flowState?.job_id) return;
+    const seq = beginAnalysisRead();
+    try {
+      const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps`);
+      if (res.ok) replaceAnalysis((await res.json()) as GapAnalysis, seq);
+    } catch {
+      // Non-critical — the card keeps the turn's own record meanwhile.
+    }
+  }
+
+  /** POST /gaps/refresh (answer-driven, ADR-089 clause 5) and adopt the whole
+   * recomputed row; a failed refresh falls back to re-reading the latest row
+   * (the session's completion already recomputed it). */
+  async function refreshAnalysis() {
+    if (!flowState?.job_id) return;
+    const seq = beginAnalysisRead();
     try {
       const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
         method: "POST",
       });
       if (res.ok) {
-        const refreshed: GapAnalysis = await res.json();
-        setGaps(refreshed);
-        setMatchScore(scoreToPercent(refreshed.match_score, matchScore));
+        replaceAnalysis((await res.json()) as GapAnalysis, seq);
+        return;
       }
     } catch {
-      // Non-critical — the panel already reflects the action locally.
+      // fall through to the plain re-read
+    }
+    await reReadAnalysis();
+  }
+
+  /** ADR-090 clause 8 — the user's re-check after a profile change made
+   * elsewhere: POST /gaps/refresh (ADR-089 clause 5 semantics: merged per
+   * requirement, clusters and their record carried) and adopt the whole row.
+   * Never while a micro-session is open (clause 8's single-open-session rule):
+   * the render disables the button, and the handler refuses too. */
+  async function recheckGaps() {
+    if (!flowState?.job_id || sessionOpen || rechecking) return;
+    setRechecking(true);
+    setRecheckError("");
+    const seq = beginAnalysisRead();
+    try {
+      const res = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setRecheckError(t("recheckFailed"));
+        return;
+      }
+      replaceAnalysis((await res.json()) as GapAnalysis, seq);
+    } catch {
+      setRecheckError(t("recheckFailed"));
+    } finally {
+      setRechecking(false);
     }
   }
 
-  async function handleGapResolved(gap: string) {
-    setResolvedGaps((prev) => new Set([...prev, gap]));
-    setGapStates((prev) => ({ ...prev, [gap]: { ...EMPTY_GAP_STATE, status: "resolved" } }));
-
-    // #686 (JF-M-3.5) — an answer can park a dispute the candidate never sees.
-    // The gaps page discards `SessionMessageResponse.pending_conflicts` (the
-    // POST handler checks `res.ok` and never reads the body), so the card
-    // re-reads `/api/profile/health` instead of trusting the per-turn response:
-    // the health surface is the durable one, so a reload still shows it.
+  // #260: dropping/storying a liability changes the ledger's claimable/gap
+  // split, so the headline match score can genuinely move (down for a drop,
+  // up for a story) — POST /gaps/refresh, same as an ordinary gap-cluster
+  // answer. Idempotency (E037 PQ #3) makes this safe for BOTH exits: a drop
+  // mutates the ledger directly without touching profile_json, so the
+  // fingerprint is unchanged and refresh just re-reads the already-downgraded
+  // row (no LLM re-run); a story answer reconciles into the vault's narrative
+  // fields, which DOES change the fingerprint, so refresh genuinely
+  // recomputes narrative_backed from the fresh profile — the only path that
+  // can honestly clear a liability.
+  async function refreshAfterLiabilityAction() {
     setDecisionsToken((n) => n + 1);
-
-    // Refresh match score (19.11)
-    if (flowState?.job_id) {
-      try {
-        const refreshRes = await fetch(`${API_BASE}/api/job/${flowState.job_id}/gaps/refresh`, {
-          method: "POST",
-        });
-        if (refreshRes.ok) {
-          const refreshed: GapAnalysis = await refreshRes.json();
-          const newScore = scoreToPercent(refreshed.match_score, matchScore);
-          setMatchScore(newScore);
-        }
-      } catch {
-        // Non-critical — keep existing score
-      }
-    }
+    await refreshAnalysis();
   }
 
   async function startMicroSession(clusterId: string, jobId: string) {
-    updateGapState(clusterId, { status: "loading", error: "" });
+    // Clause 8: one open micro-session per page — enforced by the render (a
+    // locked card has no click handler): `_create_micro_session` completes
+    // any active session, which would silently end a pending follow-up.
+    updateGapState(clusterId, { ...EMPTY_GAP_STATE, status: "loading" });
     try {
       const res = await fetch(`${API_BASE}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: jobId, mode: "targeted", target_gap: clusterId }),
       });
+      if (res.status === 409) {
+        const code = await refusalCodeOf(res);
+        if (code) {
+          // The server's word on this cluster — say it inline, then re-read
+          // the row so the card shows the record behind the refusal.
+          updateGapState(clusterId, { ...EMPTY_GAP_STATE, refusal: code });
+          void reReadAnalysis();
+          return;
+        }
+      }
       if (!res.ok) throw new Error(await apiErrorMessage(res));
       const data = await res.json();
+      // Ruling B-3: a click on a cluster whose micro-session is waiting on a
+      // follow-up RESUMES it (same session, the waiting follow-up as
+      // `question`). Its open members are the row's `gaps` — the same record
+      // the answer turn reported — so the follow-up header is honest here too.
+      const cluster = gaps?.gap_clusters?.find((c) => c.id === clusterId);
+      const resumedFollowUp =
+        data.resumed === true && (cluster?.outcome?.asked ?? 0) > 0 && (cluster?.gaps?.length ?? 0) > 0;
       updateGapState(clusterId, {
         status: "question",
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
+        followUpOpen: resumedFollowUp && cluster ? cluster.gaps : null,
       });
     } catch (e: unknown) {
       updateGapState(clusterId, {
@@ -765,6 +890,75 @@ export default function GapsPage({
         error: e instanceof Error ? e.message : "Failed to start",
       });
     }
+  }
+
+  async function sendGapAnswer(clusterId: string) {
+    const st = gapStates[clusterId];
+    if (!st?.sessionId || !st.answer.trim() || st.sending) return;
+    updateGapState(clusterId, { sending: true, error: "" });
+    let data: SessionTurnResponse;
+    try {
+      const res = await fetch(`${API_BASE}/api/session/${st.sessionId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: st.answer.trim() }),
+      });
+      // ADR-089 E2: opening another gap elsewhere (a second window, the agent
+      // channel) closes this micro-session; the server then answers 409. Say
+      // so in the UI language and keep the draft — never the raw English
+      // backend detail.
+      if (res.status === 409) throw new Error(t("sessionClosedElsewhere"));
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      data = (await res.json()) as SessionTurnResponse;
+    } catch (e: unknown) {
+      updateGapState(clusterId, {
+        sending: false,
+        error: e instanceof Error ? e.message : "Failed to send",
+      });
+      return;
+    }
+
+    // #686 (JF-M-3.5) — a turn can park a dispute (`pending_conflicts`) or owe
+    // a confirmation (`pending_confirmations`). Both reach the candidate
+    // through the decisions stack, which reads `/api/profile/health` (the
+    // durable surface, so a reload still shows them) — re-read it every turn.
+    setDecisionsToken((n) => n + 1);
+
+    const turn =
+      data.cluster_coverage && data.cluster_coverage.cluster_id === clusterId
+        ? data.cluster_coverage
+        : null;
+
+    if (!data.complete) {
+      // A follow-up (ADR-089 clause 2) or a confirmation question — asked
+      // inline, in the same card, with the same textarea flow.
+      const isConfirmation = (data.pending_confirmations?.length ?? 0) > 0;
+      updateGapState(clusterId, {
+        status: "question",
+        sending: false,
+        answer: "",
+        question: data.question ?? st.question,
+        choices: data.choices ?? null,
+        followUpOpen: !isConfirmation && turn ? turn.open_concepts : null,
+        overlay: turn ?? st.overlay,
+      });
+      void reReadAnalysis();
+      return;
+    }
+
+    // The micro-session is complete: adopt the whole recomputed analysis.
+    updateGapState(clusterId, { ...EMPTY_GAP_STATE, status: "refreshing", overlay: turn });
+    await refreshAnalysis();
+    updateGapState(clusterId, { status: "idle" });
+  }
+
+  function cancelGapSession(clusterId: string) {
+    // The turn record already written stays (it is the server's); only the
+    // open conversation is closed on this page.
+    setGapStates((prev) => ({
+      ...prev,
+      [clusterId]: { ...EMPTY_GAP_STATE, overlay: prev[clusterId]?.overlay ?? null },
+    }));
   }
 
   async function advance(target: "interview" | "cv_generation") {
@@ -866,8 +1060,10 @@ export default function GapsPage({
   const roleTitle = flowState?.job_summary?.role_title ?? "the target role";
   // One source for every gap count so the badge and the heading never disagree
   // (F1): `gaps` is the canonical gap number; `itemsToAddress` (partials + gaps)
-  // still gates the section and the interview CTA.
-  const counts = gapCounts(gaps, resolvedGaps);
+  // still gates the section and the interview CTA. All of it is the server's
+  // row (ADR-089 clause 8) — no client-side "resolved" set.
+  const counts = gapCounts(gaps);
+  const clusterCounts = clusterCoverageCounts(gaps?.gap_clusters);
 
   // Flow context cases (Spaghettieis UAT, ADR-016 amended 2026-07-13):
   //   Case 1  JD + CVs (first run, "new")  → hero + this-run merge pointer + analysis
@@ -1004,8 +1200,10 @@ export default function GapsPage({
               {counts.gaps > 0 && (
                 <Badge variant="critical">{t("gapsToAddress", { count: counts.gaps })}</Badge>
               )}
-              {resolvedGaps.size > 0 && (
-                <Badge variant="success">{t("resolvedBadge", { count: resolvedGaps.size })}</Badge>
+              {clusterCounts.covered > 0 && (
+                <Badge variant="success" data-testid="covered-badge">
+                  {t("resolvedBadge", { count: clusterCounts.covered })}
+                </Badge>
               )}
             </div>
           </div>
@@ -1013,15 +1211,48 @@ export default function GapsPage({
       </Card>
       )}
 
-      {/* Section 3: Cluster-based gap display */}
-      {hasJob && counts.itemsToAddress > 0 && (
+      {/* ADR-090 clause 8 — a stored analysis older than the profile says so;
+          it never re-runs by itself. */}
+      {hasJob && gaps?.inputs_changed && (
+        <div
+          data-testid="gaps-stale-hint"
+          role="status"
+          className="mb-8 rounded-lg border border-warning/40 bg-warning-container p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+        >
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-on-surface">{t("inputsChangedTitle")}</p>
+            <p data-testid="gaps-stale-detail" className="text-xs text-on-surface-variant mt-1">
+              {recheckError || (sessionOpen ? t("recheckLockedHint") : t("inputsChangedBody"))}
+            </p>
+          </div>
+          <Button
+            data-testid="gaps-recheck"
+            variant="outline"
+            disabled={sessionOpen || rechecking}
+            onClick={recheckGaps}
+          >
+            {rechecking ? t("recheckingGaps") : t("recheckGaps")}
+          </Button>
+        </div>
+      )}
+
+      {/* Section 3: Cluster-based gap display. Also shown when every cluster
+          is finished: a worked cluster stays in the list with its coverage so
+          the user sees what was worked (ADR-089 clause 4). */}
+      {hasJob && (counts.itemsToAddress > 0 || (gaps?.gap_clusters?.length ?? 0) > 0) && (
         <div data-testid="gaps-section" className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-heading text-lg font-bold text-neutral-dark">
               {t("gapsIdentified", { count: counts.gaps })}
             </h3>
-            {resolvedGaps.size === 0 && (
-              <p className="text-xs text-gray-400">{t("clickGapHint")}</p>
+            {sessionOpen ? (
+              <p data-testid="gaps-locked-hint" className="text-xs text-on-surface-variant">
+                {t("gapsLockedHint")}
+              </p>
+            ) : (
+              clusterCounts.askable > 0 && (
+                <p className="text-xs text-gray-400">{t("clickGapHint")}</p>
+              )
             )}
           </div>
 
@@ -1029,12 +1260,11 @@ export default function GapsPage({
           {gaps?.gap_clusters && gaps.gap_clusters.length > 0 ? (
             <div className="space-y-3">
               <p className="text-xs text-gray-500 mb-3">
-                {t("clustersToAddress", {
-                  count: gaps.gap_clusters.filter(
-                    (c) => gapStates[c.id]?.status !== "resolved"
-                  ).length,
-                })}
+                {t("clustersToAddress", { count: clusterCounts.askable })}
               </p>
+              {/* Order is by severity only (C before B), never by coverage: a
+                  card stays where it was while its state changes, so re-entry
+                  shows the same list the user left (ADR-089 clause 4). */}
               {[...gaps.gap_clusters]
                 .sort((a, b) => {
                   if (a.category === "C" && b.category !== "C") return -1;
@@ -1043,27 +1273,32 @@ export default function GapsPage({
                 })
                 .map((cluster) => {
                   const clusterState = gapStates[cluster.id] ?? EMPTY_GAP_STATE;
-                  const isResolved = clusterState.status === "resolved";
+                  const view = clusterView(cluster, clusterState.overlay);
+                  const clickable =
+                    view.askable &&
+                    !sessionOpen &&
+                    clusterState.status === "idle" &&
+                    !clusterState.refusal;
                   return (
                     <GapClusterCard
                       key={cluster.id}
                       cluster={cluster}
-                      resolved={isResolved}
+                      view={view}
+                      locked={sessionOpen && openClusterId !== cluster.id}
                       onClick={
-                        !isResolved && clusterState.status === "idle"
+                        clickable
                           ? () => void startMicroSession(cluster.id, flowState?.job_id ?? "")
                           : undefined
                       }
                     >
-                      {!isResolved && (
-                        <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                          <GapClickPanel
-                            state={clusterState}
-                            onUpdate={(patch) => updateGapState(cluster.id, patch)}
-                            onResolved={() => void handleGapResolved(cluster.id)}
-                          />
-                        </div>
-                      )}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <GapClickPanel
+                          state={clusterState}
+                          onUpdate={(patch) => updateGapState(cluster.id, patch)}
+                          onSubmit={() => void sendGapAnswer(cluster.id)}
+                          onCancel={() => cancelGapSession(cluster.id)}
+                        />
+                      </div>
                     </GapClusterCard>
                   );
                 })}
@@ -1088,8 +1323,14 @@ export default function GapsPage({
           liabilities={gaps.keyword_liabilities}
           clusters={gaps.gap_clusters ?? []}
           apiBase={API_BASE}
-          onDropped={() => void refreshMatchScoreAfterLiabilityAction()}
-          onStoryAdded={() => void refreshMatchScoreAfterLiabilityAction()}
+          onDropped={() => void refreshAfterLiabilityAction()}
+          onStoryAdded={() => void refreshAfterLiabilityAction()}
+          onFollowUpTurn={() => {
+            setDecisionsToken((n) => n + 1);
+            void reReadAnalysis();
+          }}
+          locked={openClusterId !== null}
+          onActiveChange={setLiabilityActive}
         />
       )}
 

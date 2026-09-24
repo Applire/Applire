@@ -692,7 +692,10 @@ class MockLLMProvider(LLMProvider):
         # shape its call site consumes: the PASSAGE with every listed form cut out, so a
         # mock-stack run of the review take-out saves a changed section instead of an
         # interview question (which would still contain nothing and be refused).
-        if "you remove wording from one passage" in system_lower:
+        if (
+            "you remove wording from one passage" in system_lower
+            or "you remove numbers from one passage" in system_lower  # E-1 figure variant
+        ):
             return _mock_removal(prompt)
         return _INTERVIEW_QUESTION
 
