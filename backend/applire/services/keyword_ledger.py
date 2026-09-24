@@ -3672,16 +3672,38 @@ def build_keyword_ledger(
     # keep their own dedicated key's credit while still stripping a
     # paraphrase's SUBSTRING-only claim on a key some other item owns
     # outright (Budgetplanung never exactly matches "Budgetverantwortung").
+    #
+    # ADR-089 E2E tier (2026-09-24) — among the exact owners, RANK decides
+    # before list order: 0 = the item's own concept equals the key; 1 = a
+    # surface form equals it and the item's concept is itself a substring
+    # match of the key ("MES" owning "MES-Systeme"); 2 = only a surface form
+    # equals it. A surface form is the model's matching aid, not the row's
+    # identity. Measured on a real re-check: a broad `partial` row
+    # ("Digitalisierung der Fertigung"), listed first with "Industrie 4.0" and
+    # "MES-Systeme" among its forms, took three JD terms from the `direct`
+    # rows that name them, and the score fell 74% → 70% with no requirement
+    # weaker than before (the per-requirement merge keeps the fresh score
+    # slot). Replay of the captured classification: 0.7024 → see the test.
     exact_owner: dict[str, int] = {}
+    owner_rank: dict[str, int] = {}
     for idx, item in enumerate(classifications):
         concept = item.get("concept", "")
-        if not _norm(concept):
+        concept_key = _norm(concept)
+        if not concept_key:
             continue
-        probes = {_norm(concept)} | {
+        probes = {concept_key} | {
             _norm(sf) for sf in _final_surface_forms(concept, item)
         }
         for ukey in probes & union.keys():
-            exact_owner.setdefault(ukey, idx)
+            if ukey == concept_key:
+                rank = 0
+            elif _matches(concept_key, ukey):
+                rank = 1
+            else:
+                rank = 2
+            if ukey not in owner_rank or rank < owner_rank[ukey]:
+                owner_rank[ukey] = rank
+                exact_owner[ukey] = idx
 
     covered: set[str] = set()
     # Union keys some EARLIER item in this same loop already turned into

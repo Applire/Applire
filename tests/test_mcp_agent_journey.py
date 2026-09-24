@@ -250,6 +250,43 @@ def test_kaile_agent_journey(agent):
     gap_id = gaps["id"]
     agent.call("advance_flow", flow_id=flow_id, step="gap_analysis", artifact_id=gap_id)
 
+    # ADR-089 — every cluster reaches the agent with its per-gap record: `gaps`
+    # are its OPEN members only, `outcome` counts what any door already asked,
+    # `coverage` is the derived status, `budget_remaining` what is left.
+    _coverages = {"open", "partly_covered", "covered", "declined"}
+    for cluster in gaps.get("gap_clusters") or []:
+        assert cluster.get("coverage") in _coverages, cluster
+        assert isinstance(cluster.get("outcome"), dict), cluster
+        assert isinstance(cluster.get("budget_remaining"), int), cluster
+
+    # 4b. ADR-089 clause 7 — resolve ONE gap over the stateless agent door. The
+    #     result carries the gap's coverage, open requirements and remaining
+    #     budget; a follow-up, when one is asked, arrives as
+    #     `follow_up_question` (answered by calling resolve_gap again). A
+    #     pending follow-up is retired by the full interview started below, so
+    #     the journey stays linear.
+    askable = [
+        c for c in (gaps.get("gap_clusters") or [])
+        if c.get("coverage") not in ("covered", "declined") and c.get("budget_remaining", 0) > 0
+    ]
+    if askable:
+        resolved = agent.call(
+            "resolve_gap",
+            job_id=job_id,
+            gap_id=askable[0]["id"],
+            answer="I built and ran this in production at TechVision for two years.",
+        )
+        assert resolved["gap_id"] == askable[0]["id"]
+        assert resolved["status"] in {
+            "addressed", "partly_covered", "denial_recorded", "no_change",
+            "needs_confirmation",
+        }, resolved
+        assert resolved["coverage"] in _coverages, resolved
+        assert isinstance(resolved["open_concepts"], list), resolved
+        assert isinstance(resolved["budget_remaining"], int), resolved
+        if "follow_up_question" in resolved:
+            assert resolved["follow_up_question"].strip(), resolved
+
     # 5. Interview: start, link to flow, answer one question.
     interview = agent.call("run_interview", job_id=job_id)
     session_id = interview["session_id"]

@@ -344,22 +344,27 @@ test.describe('Gap-Click Mode', () => {
       test.skip(true, 'No gaps section visible');
     }
 
-    const trigger = page.getByTestId('gap-cluster-card').first();
+    // ADR-089 cl. 8: only an askable card (budget left, not covered/declined) opens a session.
+    const trigger = page.locator('[data-testid="gap-cluster-card"][data-askable="true"]').first();
     await expect(trigger).toBeVisible();
     await trigger.click();
 
     // Loading spinner for the micro-session
     // Then the question should appear
-    await expect(page.getByTestId('gap-question')).toBeVisible({ timeout: 30000 });
-    const questionText = await page.getByTestId('gap-question').textContent();
+    await expect(trigger.getByTestId('gap-question')).toBeVisible({ timeout: 30000 });
+    const questionText = await trigger.getByTestId('gap-question').textContent();
     expect(questionText?.trim().length).toBeGreaterThan(0);
 
     // Answer textarea and submit button must be visible
-    await expect(page.getByTestId('gap-answer-textarea')).toBeVisible();
-    await expect(page.getByTestId('gap-submit-button')).toBeVisible();
+    await expect(trigger.getByTestId('gap-answer-textarea')).toBeVisible();
+    await expect(trigger.getByTestId('gap-submit-button')).toBeVisible();
   });
 
-  test('answering a gap question marks it as resolved', async ({ page }) => {
+  // ADR-089: an answer no longer turns the card green by itself. The turn is
+  // recorded server-side; the card then either asks a follow-up inline (the
+  // answer covered part of the gap), asks a confirmation, or — once the
+  // micro-session completes — shows the recomputed row's coverage.
+  test('answering a gap question records the turn: a follow-up inline or the server coverage', async ({ page }) => {
     await navigateToGapsPage(page);
 
     const gapsSection = page.getByTestId('gaps-section');
@@ -367,23 +372,34 @@ test.describe('Gap-Click Mode', () => {
       test.skip(true, 'No gaps section visible');
     }
 
-    const trigger = page.getByTestId('gap-cluster-card').first();
-    await trigger.click();
+    const trigger = page.locator('[data-testid="gap-cluster-card"][data-askable="true"]').first();
+    const clusterId = await trigger.getAttribute('data-cluster-id');
+    const card = page.locator(`[data-testid="gap-cluster-card"][data-cluster-id="${clusterId}"]`);
+    await card.click();
 
-    await expect(page.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
+    await expect(card.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
+    const firstQuestion = (await card.getByTestId('gap-question').textContent())?.trim();
 
-    // Type and submit answer
-    await page.getByTestId('gap-answer-textarea').fill(
+    await card.getByTestId('gap-answer-textarea').fill(
       'Yes, I have extensive experience with this technology in production environments.'
     );
-    await page.getByTestId('gap-submit-button').click();
+    await card.getByTestId('gap-submit-button').click();
 
-    // Gap should transition to resolved state (green checkmark)
-    await expect(page.getByTestId('gap-resolved').first()).toBeVisible({ timeout: 30000 });
+    await expect(async () => {
+      const followUp = (await card.getByTestId('gap-follow-up-label').count()) > 0;
+      const closed = (await card.getByTestId('gap-answer-textarea').count()) === 0;
+      const nextQuestion =
+        !closed &&
+        (await card.getByTestId('gap-answer-textarea').inputValue()) === '' &&
+        (await card.getByTestId('gap-question').textContent())?.trim() !== firstQuestion;
+      expect(followUp || closed || nextQuestion).toBe(true);
+    }).toPass({ timeout: 60000 });
+    // Whatever happened, the card's state is the server's record.
+    await expect(card).toHaveAttribute('data-coverage', /^(open|partly_covered|covered|declined)$/);
   });
 
   // 19.3/19.4 — match score re-animates after gap resolution
-  test('match score refresh is triggered after gap is resolved', async ({ page }) => {
+  test('match score refresh is triggered after the micro-session completes', async ({ page }) => {
     await navigateToGapsPage(page);
 
     const gapsSection = page.getByTestId('gaps-section');
@@ -420,7 +436,7 @@ test.describe('Gap-Click Mode', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           complete: true,
-          reason: 'gaps_resolved',
+          reason: 'max_questions_reached',
           questions_asked: 1,
           gaps_resolved: 1,
           gaps_unresolved: [],
@@ -439,40 +455,55 @@ test.describe('Gap-Click Mode', () => {
     );
 
     // Trigger gap resolution
-    const trigger = page.getByTestId('gap-cluster-card').first();
-    await trigger.click();
-    await expect(page.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
-    await page.getByTestId('gap-answer-textarea').fill('Yes, extensive production experience.');
-    await page.getByTestId('gap-submit-button').click();
+    const trigger = page.locator('[data-testid="gap-cluster-card"][data-askable="true"]').first();
+    const clusterId = await trigger.getAttribute('data-cluster-id');
+    const card = page.locator(`[data-testid="gap-cluster-card"][data-cluster-id="${clusterId}"]`);
+    await card.click();
+    await expect(card.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
+    await card.getByTestId('gap-answer-textarea').fill('Yes, extensive production experience.');
+    await card.getByTestId('gap-submit-button').click();
 
-    // Wait for the gap-resolved state AND verify the refresh API was called (feature 19.11)
-    await expect(page.getByTestId('gap-resolved').first()).toBeVisible({ timeout: 30000 });
+    // The refresh API was called (feature 19.11) and the card left the question state.
+    // (The card's coverage is the refreshed row's — this mocked turn wrote no
+    // record, so it is not asserted green.)
     await refreshRequestPromise;
+    await expect(card.getByTestId('gap-answer-textarea')).toHaveCount(0, { timeout: 30000 });
   });
 
-  // 19.3/19.4 — multiple gap resolution in sequence
-  test('resolving multiple gaps in sequence shows all as resolved', async ({ page }) => {
-    await navigateToGapsPage(page);
+  // 19.3/19.4 — multiple gap resolution in sequence. ADR-089 cl. 8: the card's
+  // state after completion is the refreshed ROW's record, and the page adopts the
+  // whole row — so the refresh mock returns the real analysis with each worked
+  // cluster's record set to covered.
+  test('resolving multiple gaps in sequence shows each as covered from the refreshed row', async ({ page }) => {
+    const flowId = await navigateToGapsPage(page);
 
     const gapsSection = page.getByTestId('gaps-section');
     if (!(await gapsSection.isVisible())) {
       test.skip(true, 'No gaps section visible');
     }
 
-    const triggers = page.getByTestId('gap-cluster-card');
-    const triggerCount = await triggers.count();
-    if (triggerCount < 2) {
-      test.skip(true, 'Fewer than 2 gaps present — cannot test sequential resolution');
+    const askable = page.locator('[data-testid="gap-cluster-card"][data-askable="true"]');
+    const askableCount = await askable.count();
+    if (askableCount < 2) {
+      test.skip(true, 'Fewer than 2 askable gaps present — cannot test sequential resolution');
     }
 
-    // Mock micro-session creation (handles all session POSTs)
+    // The real row this page is showing — the base the refresh mock builds on.
+    const flowState = await (await page.request.get(`${API_BASE}/api/flow/${flowId}/state`)).json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = await (await page.request.get(`${API_BASE}/api/job/${flowState.job_id}/gaps`)).json();
+    const worked = new Set<string>();
+    let target = '';
+
+    // Mock micro-session creation (handles all session POSTs) — records which cluster was asked.
     await page.route('**/api/session', async (route) => {
       if (route.request().method() === 'POST') {
+        target = route.request().postDataJSON()?.target_gap ?? '';
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
           body: JSON.stringify({
-            session_id: 'mock-gap-session-multi-001',
+            session_id: `mock-gap-session-multi-${target}`,
             mode: 'targeted',
             first_question: 'Can you describe your experience with this skill?',
             estimated_questions: 1,
@@ -489,54 +520,76 @@ test.describe('Gap-Click Mode', () => {
 
     // Mock micro-session message completion (handles all message POSTs)
     await page.route('**/api/session/*/message', async (route) => {
+      worked.add(target);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           complete: true,
-          reason: 'gaps_resolved',
+          reason: 'max_questions_reached',
           questions_asked: 1,
           gaps_resolved: 1,
           gaps_unresolved: [],
           completeness_score: 0.70,
           pending_conflicts: null,
+          cluster_coverage: { cluster_id: target, coverage: 'covered', open_concepts: [], budget_remaining: 1 },
         }),
       });
     });
 
-    // Mock gaps refresh (non-critical, just needs to not error)
+    // Mock gaps refresh: the real row, with every worked cluster's record covered.
     await page.route('**/api/job/*/gaps/refresh', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          id: 'mock-refresh-id-multi',
-          match_score: 0.80,
-          category_a: ['Python'],
-          category_b: [],
-          category_c: [],
-          strengths: ['Python'],
+          ...row,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          gap_clusters: (row.gap_clusters ?? []).map((c: any) =>
+            worked.has(c.id)
+              ? {
+                  ...c,
+                  gaps: [],
+                  outcome: {
+                    ...(c.outcome ?? { declined: [], session_ids: [] }),
+                    asked: (c.outcome?.asked ?? 0) + 1,
+                    covered: [...(c.gaps ?? []), ...(c.outcome?.covered ?? [])],
+                  },
+                  coverage: 'covered',
+                  budget_remaining: Math.max((c.budget_remaining ?? 2) - 1, 0),
+                  // Ruling C-1: the card's colour is its worst requirement — all green now
+                  // (a declined member stays declined and never colours the card).
+                  member_statuses: [
+                    ...[...(c.gaps ?? []), ...(c.outcome?.covered ?? [])].map((m: string) => ({
+                      member: m,
+                      status: 'covered',
+                    })),
+                    ...(c.outcome?.declined ?? []).map((m: string) => ({ member: m, status: 'declined' })),
+                  ],
+                }
+              : c
+          ),
         }),
       });
     });
 
     // Resolve first gap
-    await triggers.first().click();
+    await askable.first().click();
     await expect(page.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
     await page.getByTestId('gap-answer-textarea').fill('Yes, strong experience here.');
     await page.getByTestId('gap-submit-button').click();
     await expect(page.getByTestId('gap-resolved').first()).toBeVisible({ timeout: 30000 });
 
-    // Resolve second gap — filter out already-resolved cards
-    const remainingTriggers = page.getByTestId('gap-cluster-card').filter({ hasNot: page.getByTestId('gap-resolved') });
-    await expect(remainingTriggers.first()).toBeVisible({ timeout: 10000 });
-    await remainingTriggers.first().click();
+    // Resolve second gap — the covered card is no longer askable, so .first() is the next one
+    await expect(askable.first()).toBeVisible({ timeout: 10000 });
+    await askable.first().click();
     await expect(page.getByTestId('gap-answer-textarea')).toBeVisible({ timeout: 30000 });
     await page.getByTestId('gap-answer-textarea').fill('Yes, solid background in this area too.');
     await page.getByTestId('gap-submit-button').click();
 
-    // Both gaps should now be in resolved state
+    // Both gaps should now be in the covered state — green cards (ruling C-1)
     await expect(page.getByTestId('gap-resolved')).toHaveCount(2, { timeout: 30000 });
+    await expect(page.locator('[data-testid="gap-cluster-card"][data-coverage="covered"][data-tone="green"]')).toHaveCount(2);
   });
 });
 
