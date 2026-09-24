@@ -487,6 +487,67 @@ async def test_cv_take_out_still_listed_true_when_reaudit_keeps_listing_the_term
 
 
 @pytest.mark.asyncio
+async def test_cv_take_out_partial_failure_across_sections_leaves_a_silent_uncommitted_write(db):
+    """Adversarial review, attack #4 (all-or-nothing): `review_rewrite.py`'s
+    contract is all-or-nothing WITHIN one section (a still-present form or an
+    empty result returns `changed=False`, `after == before`). But `take_out`'s
+    own loop over `patchable_sections` has no such guarantee ACROSS sections:
+    `write_section` (`patch_cv_section`) commits EACH section the instant it is
+    rewritten. When the finding's wording sits in two sections and the second
+    section's rewrite call raises (a provider error, a timeout — anything
+    `review_rewrite.py` does not itself catch), `take_out` aborts with that
+    exception, but the FIRST section's rewrite is already durably committed —
+    with no decision recorded and no re-audit run. The client sees a 500 (or,
+    through the router, an unhandled exception), the document's content has
+    silently changed, and `ats_report` now describes content the document no
+    longer has.
+    """
+    position_bullets = ["Deployed services on Kubernetes."]
+    skills = ["Kubernetes", "Docker"]
+    cv_id = await seed_cv(
+        db, introduction="Erfahrener Entwickler.", skills=skills,
+        position_bullets=position_bullets,
+        ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
+    )
+
+    async def flaky_rewrite(kind, record, section_id, section_text, forms, provider, *, language):
+        if section_id == "skills":
+            raise RuntimeError("simulated provider crash on the second matching section")
+        return SimpleNamespace(
+            section_id=section_id, before=section_text,
+            after="Deployed services on a container platform.",
+            changed=True, llm_calls=1,
+        )
+
+    fake_reaudit = FakeReaudit()
+    with patch.object(ra, "_rewriter", lambda: flaky_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        with pytest.raises(RuntimeError):
+            await ra.take_out("cv", cv_id, _KEY, db, provider=object())
+
+    assert fake_reaudit.calls == 0, "the aborted action never re-audited"
+
+    from applire.models.cv import GeneratedCV
+    record = await db.get(GeneratedCV, cv_id)
+    pos_id = record.content_snapshot["positions"][0]["id"]
+    pos_key = f"position::{pos_id}"
+
+    # The expected "all-or-nothing" invariant: a take-out that ends up raising
+    # (never records a decision, never re-audits) must not have changed the
+    # document's persisted content either — otherwise a client that saw the
+    # request fail has a CV whose content silently diverged from both its own
+    # decision history and its own (now stale) ats_report. THE BUG: the
+    # position section's rewrite was committed by `write_section` the instant
+    # it ran, before the second section's exception aborted the request.
+    assert pos_key not in (record.section_overrides or {}), (
+        "a failed take-out left a section rewrite committed to the document "
+        f"(section_overrides={record.section_overrides!r}) — the all-or-nothing "
+        "rule review_rewrite.py documents per-section does not hold across the "
+        "several sections one finding's wording can span"
+    )
+
+
+@pytest.mark.asyncio
 async def test_take_out_rewriter_unavailable_returns_503(db, monkeypatch):
     """A deployment without the removal rewrite service (import fails) must
     surface as 503, never as a 500. The module is present after integration,
@@ -675,6 +736,40 @@ async def test_cv_edited_not_recorded_when_the_finding_is_still_listed(db):
 
     assert response.status_code == 200, response.text
     assert response.json()["review_state"]["decisions"] == []
+
+
+@pytest.mark.asyncio
+async def test_cv_edited_on_a_finding_the_report_never_listed_fabricates_a_decision(db):
+    """Adversarial review, attack #1/#3: unlike `add_evidence` and `take_out`
+    (both call `_listed_or_raise`), `ra.edited` never checks that `finding_key`
+    names a finding the CURRENT report lists — it only validates the key's
+    FORMAT (`split_key`). A well-formed but entirely made-up key (or the key of
+    a finding this document never had) therefore still passes: `before` reads
+    None (never listed), the re-audit runs, `still` reads False (still never
+    listed, trivially), and `with_decision` records an `edited` decision for it
+    regardless. `review_state.derive_review`'s `decided` bucket only excludes
+    keys the LIVE report still lists — it has no way to tell a genuine cleared
+    finding from one that was never real, so this phantom row inflates
+    `decided_count`/`total` and would render a false "Edited" status on the
+    review surface for a claim/term that was never flagged.
+    """
+    cv_id = await seed_cv(db, ats_report=_ats_report("cv", []))  # nothing listed, ever
+    client = _client(db)
+    fake_reaudit = FakeReaudit()  # report stays "nothing listed" throughout
+    bogus_key = "ats:this term was never a finding on this document"
+
+    with patch.object(ra, "reaudit", new=fake_reaudit):
+        response = client.post(
+            f"/api/cv/{cv_id}/review/edited",
+            json={"finding_key": bogus_key},
+        )
+
+    assert response.status_code == 200, response.text
+    decisions = response.json()["review_state"]["decisions"]
+    assert decisions == [], (
+        "a finding_key the report never listed must not become a recorded "
+        f"decision (a fabricated 'edited' row instead landed: {decisions!r})"
+    )
 
 
 # ── walked ────────────────────────────────────────────────────────────────────

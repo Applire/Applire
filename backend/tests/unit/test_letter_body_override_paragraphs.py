@@ -68,6 +68,27 @@ def test_single_paragraph_and_empty_override_keep_their_shape():
     assert _apply_section_overrides(LETTER, {"body": ""})["body"]["paragraphs"] == [""]
 
 
+def test_crlf_separated_paragraphs_still_split_ruling_b2_regression():
+    """Adversarial review, attack #7 (paragraph split, RULING B-2). The split
+    regex is ``r"\\n[ \\t]*\\n"`` — it requires the space between the two
+    newlines to hold only spaces/tabs. A Windows line ending puts a ``\\r``
+    right where that gap is checked (``...\\r\\n\\r\\n...``): between the two
+    ``\\n`` characters sits a ``\\r``, which is not in ``[ \\t]``, so the
+    pattern never matches and the whole body collapses back into ONE
+    paragraph — the exact flattening defect RULING B-2 was written to fix,
+    reproduced by CRLF input (a very ordinary shape: a textarea's value on
+    Windows, or text pasted from a Windows-authored document).
+    """
+    windows_body = "Erster Absatz.\r\n\r\nZweiter Absatz.\r\n\r\nDritter Absatz."
+    data = _apply_section_overrides(LETTER, {"body": windows_body})
+    assert data["body"]["paragraphs"] == [
+        "Erster Absatz.", "Zweiter Absatz.", "Dritter Absatz.",
+    ], (
+        "a CRLF-separated body must still split into three paragraphs "
+        f"(got {data['body']['paragraphs']!r} — it flattened to one)"
+    )
+
+
 def test_join_then_override_round_trips_the_paragraphs():
     """What the Edit tab (and take-out) send back is `paragraphs.join("\\n\\n")`."""
     original = ["Eins.", "Zwei, mit Komma.", "Drei."]
