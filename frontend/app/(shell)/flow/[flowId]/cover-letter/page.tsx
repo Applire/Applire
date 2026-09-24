@@ -53,6 +53,7 @@ import {
 } from "@/lib/api/document-review";
 import { iframeDocument, makePreviewLocator } from "@/lib/locate-in-preview";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
+import { effectiveLetterBody } from "@/lib/letter-body";
 
 type CLTemplate =
   | "classic_german"
@@ -70,6 +71,8 @@ interface CLState {
   status: string;
   template: CLTemplate;
   letterData: Record<string, unknown> | null;
+  /** D-2: the saved section overrides (the body override is what the letter says now). */
+  sectionOverrides: Record<string, unknown> | null;
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   applicationId: string | null;
@@ -190,6 +193,7 @@ export default function CoverLetterPage({
           status: "none",
           template: "classic_german",
           letterData: null,
+          sectionOverrides: null,
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
           applicationId: flowData.application_id ?? null,
@@ -208,6 +212,7 @@ export default function CoverLetterPage({
       const statusData = await statusRes.json() as {
         status: string;
         letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
         document_language?: "de" | "en" | null;
         // F-4b (founder ruling, 2026-09-11): the per-document signature
         // override and its resolved state.
@@ -224,6 +229,7 @@ export default function CoverLetterPage({
         status: statusData.status,
         template: clSummary.template as CLTemplate,
         letterData: statusData.letter_data ?? null,
+        sectionOverrides: statusData.section_overrides ?? null,
         preGenInputs: null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
@@ -322,6 +328,7 @@ export default function CoverLetterPage({
         const data = await res.json() as {
           status: string;
           letter_data?: Record<string, unknown> | null;
+          section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
         };
         if (data.status === "ready") {
@@ -333,6 +340,7 @@ export default function CoverLetterPage({
                   ...prev,
                   status: "ready",
                   letterData: data.letter_data ?? null,
+                  sectionOverrides: data.section_overrides ?? null,
                   documentLanguage: data.document_language ?? null,
                 }
               : prev
@@ -451,6 +459,9 @@ export default function CoverLetterPage({
 
   function handleSectionSaved() {
     setPreviewKey((k) => k + 1);
+    // D-2: re-read the saved body so a later remount of the editor starts
+    // from it (the open editor already shows the saved text — no remount).
+    if (clState?.coverLetterId) void reloadLetterData(clState.coverLetterId, { remount: false });
     // ADR-090 cl. 5: a save made from a finding asks the server to re-audit
     // (awaited) and record `edited` if the finding cleared.
     const findingKey = editFindingKey.current;
@@ -463,13 +474,24 @@ export default function CoverLetterPage({
   }
 
   // The letter text after a review action rewrote it — the body editor reads it.
-  async function reloadLetterData(clId: string) {
+  async function reloadLetterData(clId: string, opts: { remount: boolean } = { remount: true }) {
     try {
       const res = await fetch(`${API_BASE}/api/cover-letter/${clId}/status`);
       if (!res.ok) return;
-      const data = (await res.json()) as { letter_data?: Record<string, unknown> | null };
-      setClState((prev) => (prev ? { ...prev, letterData: data.letter_data ?? prev.letterData } : prev));
-      setContentVersion((v) => v + 1);
+      const data = (await res.json()) as {
+        letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
+      };
+      setClState((prev) =>
+        prev
+          ? {
+              ...prev,
+              letterData: data.letter_data ?? prev.letterData,
+              sectionOverrides: data.section_overrides ?? prev.sectionOverrides,
+            }
+          : prev,
+      );
+      if (opts.remount) setContentVersion((v) => v + 1);
     } catch {
       // Non-fatal — the editor keeps its text; the preview is still reloaded.
     }
@@ -626,6 +648,10 @@ export default function CoverLetterPage({
             openBodyNonce={openBodyNonce}
             coverLetterId={clState!.coverLetterId}
             letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+            initialBody={effectiveLetterBody(
+              clState!.letterData as Parameters<typeof effectiveLetterBody>[0],
+              clState!.sectionOverrides,
+            )}
             onSectionSaved={handleSectionSaved}
           />
           {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the

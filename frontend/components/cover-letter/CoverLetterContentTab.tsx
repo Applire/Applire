@@ -38,6 +38,12 @@ interface CoverLetterContentTabProps {
    * same finding can be opened twice.
    */
   openBodyNonce?: number;
+  /**
+   * D-2: the EFFECTIVE body (the saved override when there is one — see
+   * `lib/letter-body.ts`). Without it the editor falls back to the generated
+   * paragraphs, which after a take-out or a manual save are stale.
+   */
+  initialBody?: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -47,11 +53,12 @@ export function CoverLetterContentTab({
   letterData,
   onSectionSaved,
   openBodyNonce,
+  initialBody,
 }: CoverLetterContentTabProps) {
   const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
   const [bodyText, setBodyText] = useState(
-    letterData?.body?.paragraphs?.join("\n\n") ?? ""
+    initialBody ?? letterData?.body?.paragraphs?.join("\n\n") ?? ""
   );
   const [bodyEditing, setBodyEditing] = useState(false);
   const [saving, setSaving] = useState(false);
