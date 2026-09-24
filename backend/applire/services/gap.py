@@ -800,16 +800,30 @@ def _jd_terms(job: JobAnalysis) -> list[str]:
 
 def _term_owners(ledger: list[Any], terms: list[str]) -> dict[str, int]:
     """JD term → index of the ledger row that OWNS it, by the ledger builder's
-    own rule (``build_keyword_ledger``'s exact owner, #675 line 46): the first
-    row whose concept or a surface form norm-EQUALS the term; else the first row
-    whose names ``_matches`` it."""
+    own rule (``build_keyword_ledger``'s exact owner, #675 line 46, ranked
+    2026-09-24): among the rows whose concept or a surface form norm-EQUALS the
+    term, the row whose concept equals it, then a row whose concept is itself
+    a substring match of it, then a row that only lists it as a surface form —
+    list order within a rank; else the first row whose names ``_matches`` it.
+    Mirrors the builder exactly, so pairing and crediting never disagree."""
     names = [
         {_norm_gap(n) for n in _row_names(r)} if isinstance(r, dict) else set()
         for r in ledger
     ]
+    concepts = [
+        _norm_gap(r.get("concept", "")) if isinstance(r, dict) else "" for r in ledger
+    ]
     owners: dict[str, int] = {}
     for term in terms:
-        idx = next((i for i, ns in enumerate(names) if term in ns), None)
+        idx = None
+        best_rank = 3
+        for i, ns in enumerate(names):
+            if term not in ns:
+                continue
+            c = concepts[i]
+            rank = 0 if c == term else (1 if _matches(c, term) else 2)
+            if rank < best_rank:
+                best_rank, idx = rank, i
         if idx is None:
             idx = next(
                 (i for i, ns in enumerate(names) if any(_matches(term, n) for n in ns)),

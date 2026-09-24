@@ -686,3 +686,55 @@ async def test_legacy_clusters_without_a_record_are_carried_and_initialised(db):
     assert all("outcome" in c and "coverage" in c for c in persisted)
     assert all("budget_remaining" not in c for c in persisted), "ruling C-2: derived, never persisted"
     assert json.loads(json.dumps(persisted)) == persisted
+
+
+# ---------------------------------------------------------------------------
+# ADR-089 E2E tier (2026-09-24): the merge's pairing re-derives each JD term's
+# owner with the SAME ranked rule the ledger builder credits with — a row whose
+# concept names the term before a row listing it only as a surface form,
+# independent of the model's list order. If the two rules disagreed, a carried
+# row could be paired with a different requirement than the one it was
+# credited for.
+# ---------------------------------------------------------------------------
+
+
+def test_the_pairing_owner_rule_agrees_with_the_builders_credit_in_every_list_order():
+    import itertools
+
+    from applire.services.gap import _term_owners
+    from applire.services.keyword_ledger import build_keyword_ledger
+
+    def cls(concept, status, forms):
+        return {"concept": concept, "status": status, "evidence": concept, "surface_forms": forms}
+
+    items = {
+        "broad": cls(
+            "Digitalisierung der Fertigung",
+            "partial",
+            ["Digitalisierung der Fertigung", "Industrie 4.0", "MES-Systeme", "Maschinendatenerfassung"],
+        ),
+        "i40": cls("Industrie 4.0", "direct", ["Industrie 4.0"]),
+        "mes": cls("MES", "direct", ["MES", "MES-Systeme"]),
+        "mde": cls("Maschinendatenerfassung", "direct", ["Maschinendatenerfassung", "MDE"]),
+    }
+    required = ["Digitalisierung der Fertigung", "Industrie 4.0", "MES-Systeme", "Maschinendatenerfassung"]
+    expected = {
+        "digitalisierung der fertigung": "Digitalisierung der Fertigung",
+        "industrie 4.0": "Industrie 4.0",
+        "mes-systeme": "MES",
+        "maschinendatenerfassung": "Maschinendatenerfassung",
+    }
+    for order in itertools.permutations(items):
+        ledger = build_keyword_ledger(
+            classifications=[items[k] for k in order],
+            required_skills=required,
+            nice_to_have_skills=[],
+            keywords=[],
+        )
+        owners = _term_owners(ledger, list(expected))
+        paired = {term: ledger[i]["concept"] for term, i in owners.items()}
+        assert paired == expected, f"list order {order}: {paired}"
+        # …and the builder credited exactly those rows.
+        for concept in expected.values():
+            row = next(r for r in ledger if r["concept"] == concept)
+            assert row["fit_weight"] == 1.0, f"list order {order}: {concept} lost its slot"
