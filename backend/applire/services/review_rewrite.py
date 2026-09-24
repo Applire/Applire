@@ -44,6 +44,7 @@ from typing import Any, Literal
 
 from applire.exceptions import LLMTruncatedError
 from applire.prompts.review_rewrite import (
+    REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT,
     REVIEW_REWRITE_SYSTEM_PROMPT,
     build_review_rewrite_prompt,
 )
@@ -54,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 #: The letter body's paragraph separator as the editor writes it; the split keeps
 #: whatever separator the stored body actually carries.
-_PARAGRAPH_SPLIT_RE = re.compile(r"(\n[ \t]*\n\s*)")
+_PARAGRAPH_SPLIT_RE = re.compile(r"(\r?\n[ \t]*\r?\n\s*)")
 
 #: Characters that continue a word for the purpose of naming the whole token an
 #: occurrence sits in ("Power-BI-Dashboards", "AI-governance").
@@ -77,6 +78,25 @@ class RemovalRewrite:
 def form_present(form: str, text: str) -> bool:
     """The audit's presence test for one form in one passage (``surface_present``)."""
     return surface_present(form, _norm(text))
+
+
+def figure_present(figure: str, text: str) -> bool:
+    """Is the named figure still in ``text``? (E-1, ``figures_only`` mode.)
+
+    Two facts, either suffices: the Oracle's own figure extractor
+    (``oracle.matchers.figures.extract_figures``) finds a figure of the same kind and
+    canonical value — so "40,000" is also caught when rewritten as "40000" — or the
+    figure's literal spelling still stands as a whole token (a spelling the extractor
+    does not read yet, e.g. "~40k"). A substring test would be wrong here: "38" is
+    inside "380" and "2038".
+    """
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    wanted = {(f.kind, f.value) for f in extract_figures(figure)}
+    if wanted and any((f.kind, f.value) in wanted for f in extract_figures(text)):
+        return True
+    literal = re.escape(figure.strip())
+    return bool(re.search(rf"(?<![\w.,]){literal}(?![\w]|[.,]\d)", text, flags=re.IGNORECASE))
 
 
 def find_occurrences(forms: list[str], text: str) -> list[str]:
@@ -140,6 +160,7 @@ async def _rewrite_passage(
     *,
     passage_kind: str,
     language: str,
+    figures_only: bool = False,
 ) -> str | None:
     """One model call. Returns the stripped text, or ``None`` on truncation."""
     prompt = build_review_rewrite_prompt(
@@ -147,14 +168,15 @@ async def _rewrite_passage(
         forms,
         passage_kind=passage_kind,
         language=language,
-        occurrences=find_occurrences(forms, passage),
+        occurrences=None if figures_only else find_occurrences(forms, passage),
+        figures_only=figures_only,
     )
     # Output ≈ input length; a generous ceiling so a German passage is never cut.
     max_tokens = min(4096, max(400, len(passage) // 2 + 256))
     try:
         out = await provider.acomplete(
             prompt,
-            system=REVIEW_REWRITE_SYSTEM_PROMPT,
+            system=REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT if figures_only else REVIEW_REWRITE_SYSTEM_PROMPT,
             temperature=_TEMPERATURE,
             max_tokens=max_tokens,
             disable_thinking=True,  # a bounded edit, not a generation (chrome tier)
@@ -174,12 +196,19 @@ async def rewrite_for_removal(
     provider: LLMProvider,
     *,
     language: str,
+    figures_only: bool = False,
 ) -> RemovalRewrite:
     """Remove every matched form of one finding from one section (Contract 1).
 
     ``record`` is the ``GeneratedCV`` / ``GeneratedCoverLetter`` row; only its ``id``
     is read, for the provider-usage attribution (ADR-086). ``language`` is the
     document's pinned output language (``"en"``/``"de"``).
+
+    ``figures_only`` (founder ruling E-1, 2026-09-24): ``forms`` are figures an Oracle
+    verdict names ("40,000", "€2.5M", "30 %"). The figure variant of the prompt removes
+    ONLY the figure (or drops the quantity) and keeps every other word; presence is
+    :func:`figure_present`, not the keyword predicate; and no statement may be deleted,
+    so an empty passage is refused rather than dropped.
     """
     from applire.providers.llm.debug_log import llm_log_stage
     from applire.providers.llm.usage import llm_usage_context
@@ -188,8 +217,9 @@ async def rewrite_for_removal(
         raise ValueError(f"Cover-letter section {section_id!r} is not patchable (only 'body')")
     passage_kind = _passage_kind(kind, section_id)
     forms = [f for f in dict.fromkeys(f.strip() for f in forms if f and f.strip())]
+    present = figure_present if figures_only else form_present
     unchanged = RemovalRewrite(section_id, section_text, section_text, False, 0)
-    if not forms or not any(form_present(f, section_text) for f in forms):
+    if not forms or not any(present(f, section_text) for f in forms):
         return unchanged
 
     calls = 0
@@ -201,7 +231,8 @@ async def rewrite_for_removal(
         if kind == "cv":
             calls = 1
             after = await _rewrite_passage(
-                section_text, forms, provider, passage_kind=passage_kind, language=language
+                section_text, forms, provider, passage_kind=passage_kind, language=language,
+                figures_only=figures_only,
             )
             if after is None:
                 return RemovalRewrite(section_id, section_text, section_text, False, calls)
@@ -211,13 +242,14 @@ async def rewrite_for_removal(
             out_paras: list[str | None] = []
             for i in range(0, len(pieces), 2):
                 para = pieces[i]
-                if any(form_present(f, para) for f in forms):
+                if any(present(f, para) for f in forms):
                     calls += 1
                     new = await _rewrite_passage(
                         para.strip(), forms, provider,
                         passage_kind=passage_kind, language=language,
+                        figures_only=figures_only,
                     )
-                    if new is None:
+                    if new is None or (figures_only and not new):
                         return RemovalRewrite(section_id, section_text, section_text, False, calls)
                     out_paras.append(new or None)
                 else:
@@ -225,7 +257,7 @@ async def rewrite_for_removal(
             after = _reassemble(pieces, out_paras)
 
     after_check = after.strip()
-    still = [f for f in forms if form_present(f, after_check)]
+    still = [f for f in forms if present(f, after_check)]
     if not after_check or still:
         logger.info(
             "REVIEW_REWRITE_REFUSED kind=%s section=%s empty=%s forms_remaining=%r calls=%d",

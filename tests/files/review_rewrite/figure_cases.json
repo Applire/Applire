@@ -1,0 +1,89 @@
+{
+  "_about": "Synthetic figure findings for the ADR-090 cl. 3 take-out in figures_only mode (founder ruling E-1, 2026-09-24). forms = the figure spelling an Oracle verdict names (extract_figures raw). facts = every other fact in the passage (each a list of acceptable spellings); ALL must survive. other_figures = the passage's other numbers, which must survive and must not change. Synthetic personas only.",
+  "cases": [
+    {
+      "id": "fig-cv-en-bullets-40k",
+      "kind": "cv", "language": "en", "section_id": "position::p-cargonaut",
+      "section_text": "Design and operate the shipment-tracking backend (Python, Django, PostgreSQL) serving ~40,000 daily active logistics customers.\nRedesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing.\nOwn the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services.",
+      "forms": ["40,000"],
+      "facts": [["shipment-tracking backend"], ["Python"], ["Django"], ["PostgreSQL)"], ["daily active logistics customers"], ["pricing data model"], ["1.8s"], ["240ms"], ["ECS"], ["GitLab CI/CD"], ["four services"]]
+    },
+    {
+      "id": "fig-cv-en-summary-percent",
+      "kind": "cv", "language": "en", "section_id": "introduction",
+      "section_text": "Backend engineer with 8 years of experience in Python services for data-heavy products. Cut production incidents by 30 % after introducing contract tests between the tracking API and three consumer teams. Enjoys mentoring and pragmatic engineering culture.",
+      "forms": ["30 %"],
+      "facts": [["8 years"], ["Python services"], ["data-heavy products"], ["production incidents"], ["contract tests"], ["tracking API"], ["three consumer teams"], ["mentoring"]]
+    },
+    {
+      "id": "fig-cv-en-bullets-invoices",
+      "kind": "cv", "language": "en", "section_id": "position::p-finleap",
+      "section_text": "Built REST APIs (Python, Flask, PostgreSQL) for a B2B invoicing product.\nImplemented the invoice-dunning workflow engine processing over 200,000 invoices per month for 1,200 merchants.\nIntegrated a Stripe-based checkout for a subscription billing feature.",
+      "forms": ["200,000"],
+      "facts": [["REST APIs"], ["Flask"], ["B2B invoicing product"], ["invoice-dunning workflow engine"], ["invoices per month"], ["1,200 merchants"], ["Stripe-based checkout"], ["subscription billing"]]
+    },
+    {
+      "id": "fig-cv-de-bullets-umsatz",
+      "kind": "cv", "language": "de", "section_id": "position::p-schwarzwald",
+      "section_text": "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.\nJahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.\nWeiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+      "forms": ["78 Mio. €"],
+      "facts": [["Monatsabschluss"], ["HGB"], ["480 Mitarbeitenden"], ["Beirat"], ["Jahresplanung"], ["rollierender Forecast"], ["Umsatz"], ["Abweichungsanalysen"], ["Produktlinie"], ["Kostenstellenrechnung"], ["SAP CO"], ["CO/FI"]]
+    },
+    {
+      "id": "fig-cv-de-bullets-quote",
+      "kind": "cv", "language": "de", "section_id": "position::p-weberit",
+      "section_text": "Verantwortung für zwei Fertigungsbereiche (Spritzguss, Montage) mit 38 Mitarbeitenden im Dreischichtbetrieb.\nEinführung von Shopfloor-Management und KVP-Routinen; Ausschussquote von 4,1 % auf 2,3 % gesenkt.\nBudgetverantwortung ca. 6 Mio. € (Personal, Instandhaltung, Material-Gemeinkosten).",
+      "forms": ["2,3 %"],
+      "facts": [["zwei Fertigungsbereiche"], ["Spritzguss"], ["Montage"], ["38 Mitarbeitenden"], ["Dreischichtbetrieb"], ["Shopfloor-Management"], ["KVP-Routinen"], ["Ausschussquote"], ["4,1 %"], ["gesenkt"], ["6 Mio. €"], ["Instandhaltung"]]
+    },
+    {
+      "id": "fig-cv-de-summary-team",
+      "kind": "cv", "language": "de", "section_id": "introduction",
+      "section_text": "Produktions- und Betriebsleiter mit 14 Jahren Erfahrung in der diskreten Fertigung. Führung von über 120 Mitarbeitenden in drei Schichten; Schwerpunkte Lean Management und termintreue Serienfertigung. Pragmatisch, kennzahlenorientiert, nah an der Linie.",
+      "forms": ["120"],
+      "facts": [["14 Jahren"], ["diskreten Fertigung"], ["Mitarbeitenden"], ["drei Schichten"], ["Lean Management"], ["termintreue Serienfertigung"], ["kennzahlenorientiert"], ["nah an der Linie"]]
+    },
+    {
+      "id": "fig-cl-en-40k",
+      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "section_text": "For eight years I have built and run Python backends where correctness matters.\n\nAt Cargonaut Logistics I own the shipment-tracking platform that serves around 40,000 daily active customers, and I cut the p95 latency of our quote calculation from 1.8 seconds to 240 milliseconds through a redesigned data model and targeted PostgreSQL indexing.\n\nI would welcome the chance to discuss how I can contribute to NovaPay.",
+      "forms": ["40,000"],
+      "facts": [["Cargonaut Logistics"], ["shipment-tracking platform"], ["daily active customers"], ["p95 latency"], ["1.8 seconds"], ["240 milliseconds"], ["redesigned data model"], ["PostgreSQL indexing"]]
+    },
+    {
+      "id": "fig-cl-en-budget",
+      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "section_text": "I am applying for the Senior Backend Engineer role at NovaPay.\n\nAt Finleap Build I led the migration of the invoicing platform to AWS within a €2.5M budget, finished two months ahead of plan, and built the invoice-dunning engine that four product teams still rely on.\n\nI look forward to hearing from you.",
+      "forms": ["€2.5M"],
+      "facts": [["Finleap Build"], ["migration of the invoicing platform"], ["AWS"], ["budget"], ["two months ahead of plan"], ["invoice-dunning engine"], ["four product teams"]]
+    },
+    {
+      "id": "fig-cl-en-percent",
+      "kind": "cover_letter", "language": "en", "section_id": "body",
+      "section_text": "On our 18-bed level 3 unit in Leeds I care for ventilated patients with invasive monitoring and CRRT, and our nurse-led escalation protocol reduced unplanned readmissions by 25 % over two years. I have been a preceptor for newly qualified nurses since 2023.\n\nI would be glad to introduce myself in an interview.",
+      "forms": ["25 %"],
+      "facts": [["18-bed"], ["level 3"], ["Leeds"], ["ventilated patients"], ["invasive monitoring"], ["CRRT"], ["escalation protocol"], ["unplanned readmissions"], ["two years"], ["preceptor"], ["2023"]]
+    },
+    {
+      "id": "fig-cl-de-budget",
+      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "section_text": "als Produktionsleiter der Weberit Kunststofftechnik GmbH verantworte ich zwei Fertigungsbereiche mit 38 Mitarbeitenden im Dreischichtbetrieb und eine Budgetverantwortung von rund 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten.\n\nIch freue mich auf ein persönliches Gespräch.",
+      "forms": ["6 Mio. €"],
+      "facts": [["Weberit Kunststofftechnik"], ["zwei Fertigungsbereiche"], ["38 Mitarbeitenden"], ["Dreischichtbetrieb"], ["Budgetverantwortung"], ["Personal"], ["Instandhaltung"], ["Material-Gemeinkosten"]]
+    },
+    {
+      "id": "fig-cl-de-termintreue",
+      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "section_text": "mit großem Interesse habe ich Ihre Ausschreibung gelesen.\n\nDurch Shopfloor-Management und KVP-Routinen habe ich die Ausschussquote von 4,1 % auf 2,3 % gesenkt und die Termintreue von 87 % auf 96 % verbessert; die jährlichen ISO-9001-Audits begleite ich als Bereichsverantwortlicher.\n\nIch freue mich auf Ihre Rückmeldung.",
+      "forms": ["96 %"],
+      "facts": [["Shopfloor-Management"], ["KVP-Routinen"], ["Ausschussquote"], ["4,1 %"], ["2,3 %"], ["Termintreue"], ["87 %"], ["ISO-9001-Audits"], ["Bereichsverantwortlicher"]]
+    },
+    {
+      "id": "fig-cl-de-mitarbeitende",
+      "kind": "cover_letter", "language": "de", "section_id": "body",
+      "section_text": "seit neun Jahren arbeite ich im Controlling des industriellen Mittelstands, derzeit als Financial Controller bei der Schwarzwald Präzision GmbH mit 480 Mitarbeitenden, wo ich Monatsabschluss und Reporting nach HGB verantworte.\n\nÜber die Gelegenheit zu einem persönlichen Gespräch freue ich mich.",
+      "forms": ["480"],
+      "facts": [["neun Jahren"], ["Controlling"], ["industriellen Mittelstands"], ["Financial Controller"], ["Schwarzwald Präzision"], ["Mitarbeitenden"], ["Monatsabschluss"], ["HGB"]]
+    }
+  ]
+}
