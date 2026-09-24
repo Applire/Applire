@@ -448,8 +448,15 @@ test.describe('E058/ADR-090 — a stubbed end-to-end review flow', () => {
     await expect(page.getByTestId('review-takeout-done')).toHaveText(
       'Taken out in 2 places. This is what changed:',
     );
-    await expect(page.getByTestId('review-takeout-change')).toContainText(TAKEOUT_CHANGE.before);
-    await expect(page.getByTestId('review-takeout-change')).toContainText(TAKEOUT_CHANGE.after);
+    // D-3: the changed sentences, one unit each — struck, then the replacement.
+    await expect(page.getByTestId('review-takeout-before')).toHaveText([
+      'Extensive experience in AI governance across global functions.',
+      'Owned AI governance policy end to end.',
+    ]);
+    await expect(page.getByTestId('review-takeout-after')).toHaveText([
+      'Extensive experience across global functions.',
+      'Owned policy end to end.',
+    ]);
     await expect(page.getByTestId('review-action-undo')).toBeVisible();
     await expect(page.getByTestId(`review-item-g1-${AI_GOV_KEY}`)).toHaveAttribute('data-status', 'taken_out');
     await expect(

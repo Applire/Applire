@@ -376,7 +376,24 @@ export default function CVPage({
     void fetchTruthReport();
     void fetchCriticReport();
     void fetchGapClusters();
-  }, [cvId, phase, atsRefresh, docVersion]);
+  }, [cvId, phase, atsRefresh]);
+
+  // D-1: after a review action rewrote the document, re-read the sections
+  // (labels, override flags) — NOT the reports: the action's response already
+  // carried the re-audited ones, and a second GET could only race them.
+  useEffect(() => {
+    if (!cvId || phase !== "preview" || docVersion === 0) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/cv/${cvId}/sections`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { sections?: SectionItem[] } | null) => {
+        if (!cancelled && data) setCvSections(data.sections ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [cvId, phase, docVersion]);
 
   // E054/US289: read the previewed CV's pinned document_language (badge +
   // switch) and seed the template from the status response — after a reload
