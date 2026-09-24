@@ -26,6 +26,7 @@ import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterCont
 import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
@@ -134,6 +135,10 @@ export default function CoverLetterPage({
   const [activeSidebarTab, setActiveSidebarTab] = useState("review");
   // ADR-090 cl. 5: opens the body editor; cleared when the user leaves Edit.
   const [openBodyNonce, setOpenBodyNonce] = useState<number | undefined>(undefined);
+  // D-4: the phone's Fine-tune sheet opens on *Let me edit it*; the review
+  // sheet is suspended while the phone locate view shows.
+  const [fineTuneNonce, setFineTuneNonce] = useState<number | undefined>(undefined);
+  const [mobileLocating, setMobileLocating] = useState(false);
   const editFindingKey = useRef<string | null>(null);
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
@@ -512,6 +517,7 @@ export default function CoverLetterPage({
     editFindingKey.current = req.findingKey;
     setActiveSidebarTab("edit");
     setOpenBodyNonce((n) => (n ?? 0) + 1);
+    setFineTuneNonce((n) => (n ?? 0) + 1);
   }
 
   function handleGenerated(newClId: string) {
@@ -590,7 +596,9 @@ export default function CoverLetterPage({
   // computed against the CV — so that producer is declared absent rather than
   // reported as empty (which would claim there are none) or unknown (which
   // would claim it failed).
-  const reviewSurface = (
+  // D-4 (ADR-050 amendment): built per layout so the phone's command-bar sheet
+  // mounts the SAME live surface, not a forked panel.
+  const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
       documentId={clState?.coverLetterId ?? null}
@@ -603,6 +611,8 @@ export default function CoverLetterPage({
       onRefresh={applyReviewRefresh}
       locator={CL_LOCATOR}
       previewVersion={previewVersion}
+      layout={layout}
+      onLocateModeChange={layout === "sheet" ? setMobileLocating : undefined}
       onEditFinding={handleEditFinding}
       sectionLabel={() => t("bodySection")}
       gapAnalysisHref={`/flow/${flowId}/gaps`}
@@ -611,6 +621,22 @@ export default function CoverLetterPage({
           can never be mistaken for one of them. */}
       <UnaskedRequirementsPanel requirements={unasked} />
     </ReviewSurface>
+  );
+
+  // The letter's section editor — the Edit tab on desktop, the Fine-tune
+  // sheet on the phone (D-4). Both start from the EFFECTIVE body (D-2).
+  const renderContentTab = (where: "panel" | "sheet") => (
+    <CoverLetterContentTab
+      key={`cl-content-${where}-${contentVersion}`}
+      openBodyNonce={openBodyNonce}
+      coverLetterId={clState!.coverLetterId}
+      letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+      initialBody={effectiveLetterBody(
+        clState!.letterData as Parameters<typeof effectiveLetterBody>[0],
+        clState!.sectionOverrides,
+      )}
+      onSectionSaved={handleSectionSaved}
+    />
   );
 
   const group1Count = buildReviewGroups({
@@ -635,7 +661,7 @@ export default function CoverLetterPage({
             {group1Count}
           </span>
         ) : undefined,
-      body: reviewSurface,
+      body: renderReviewSurface("panel"),
     },
     {
       id: "edit",
@@ -643,17 +669,7 @@ export default function CoverLetterPage({
       icon: <Palette className="w-4 h-4" aria-hidden="true" />,
       body: (
         <div className="flex flex-col gap-3">
-          <CoverLetterContentTab
-            key={`cl-content-${contentVersion}`}
-            openBodyNonce={openBodyNonce}
-            coverLetterId={clState!.coverLetterId}
-            letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
-            initialBody={effectiveLetterBody(
-              clState!.letterData as Parameters<typeof effectiveLetterBody>[0],
-              clState!.sectionOverrides,
-            )}
-            onSectionSaved={handleSectionSaved}
-          />
+          {renderContentTab("panel")}
           {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
               finding groups, application-scoped (ADR-077 cl. 1). */}
           <ATSChecksPanel report={atsReport} variant="pins" />
@@ -735,6 +751,20 @@ export default function CoverLetterPage({
                 }}
               />
             }
+          />
+        }
+        commandBar={
+          /* D-4 (ADR-050 amendment): the letter's phone review — the same
+             command bar the CV page uses, hosting the live review surface and
+             the live body editor. */
+          <MobileCommandBar
+            atsReport={atsReport}
+            atsPanel={renderReviewSurface("sheet")}
+            fineTuneSurface={renderContentTab("sheet")}
+            onDownloadPdf={() => void requestDownload("pdf")}
+            openFineTuneNonce={fineTuneNonce}
+            suspended={mobileLocating}
+            openCount={atsReport || truthReport ? group1Count : null}
           />
         }
       />
