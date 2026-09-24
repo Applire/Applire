@@ -2910,6 +2910,31 @@ async def _resolve_photo_data_uri(
     return f"data:{mime};base64,{_base64.b64encode(photo_bytes).decode()}"
 
 
+async def _with_resolved_contact_photo(
+    tailored: "TailoredCVData",
+    storage: "StorageProvider",
+) -> "TailoredCVData":
+    """Swap the stored photo path for an inline data URI, or drop it.
+
+    When the stored file cannot be read (deleted, lost with a volume) the
+    photo is OMITTED — ``photo_url`` becomes ``None`` so the template's
+    ``{% if cv.contact.photo_url %}`` renders no image at all. Leaving the raw
+    storage path in place made every template emit a broken ``<img>`` that the
+    browser drew as a placeholder (founder UAT 2026-09-24).
+    """
+    if not (tailored.show_photo and tailored.contact.photo_url):
+        return tailored
+    data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, storage)
+    if data_uri is None:
+        logger.warning(
+            "CV render: stored photo %s is missing — rendered without a photo",
+            tailored.contact.photo_url,
+        )
+    return tailored.model_copy(update={
+        "contact": tailored.contact.model_copy(update={"photo_url": data_uri})
+    })
+
+
 # ---------------------------------------------------------------------------
 # POST /api/cv/generate — enqueue and return immediately
 # ---------------------------------------------------------------------------
@@ -3322,13 +3347,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
     tailored = strip_empty_projects(tailored)
 
     # Resolve stored photo path → inline base64 data URI for Playwright / srcDoc.
-    # If the file is missing (deleted after CV was generated) the photo is silently omitted.
-    if tailored.show_photo and tailored.contact.photo_url:
-        data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, get_storage())
-        if data_uri is not None:
-            tailored = tailored.model_copy(update={
-                "contact": tailored.contact.model_copy(update={"photo_url": data_uri})
-            })
+    tailored = await _with_resolved_contact_photo(tailored, get_storage())
 
     from applire.services.color_detection import resolve_color_context
     color_ctx = await resolve_color_context(record, db)
