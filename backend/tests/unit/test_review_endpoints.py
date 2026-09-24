@@ -487,9 +487,14 @@ async def test_cv_take_out_still_listed_true_when_reaudit_keeps_listing_the_term
 
 
 @pytest.mark.asyncio
-async def test_take_out_rewriter_unavailable_returns_503(db):
-    """WP-B's ``rewrite_for_removal`` is not installed on this branch — the
-    real (unpatched) ``_rewriter()`` must surface as 503."""
+async def test_take_out_rewriter_unavailable_returns_503(db, monkeypatch):
+    """A deployment without the removal rewrite service (import fails) must
+    surface as 503, never as a 500. The module is present after integration,
+    so the import failure is forced: ``sys.modules[name] = None`` makes
+    ``import`` raise ImportError."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "applire.services.review_rewrite", None)
     cv_id = await seed_cv(
         db, introduction="Kenntnisse in Kubernetes.",
         ats_report=_ats_report("cv", [_KUBERNETES], _MATCHES),
