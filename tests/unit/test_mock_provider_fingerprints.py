@@ -103,6 +103,8 @@ _ACOMPLETE_CONSTANTS = {
     "ASSIST_QUESTION_SYSTEM_PROMPT",
     "ASSIST_SUGGESTION_SYSTEM_PROMPT",
     "ASSIST_REWRITE_SYSTEM_PROMPT",
+    # ADR-090 cl. 3 (WP-B): the take-out removal rewrite is a prose completion too.
+    "REVIEW_REWRITE_SYSTEM_PROMPT",
 }
 
 
