@@ -6,6 +6,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The review tab turns findings into decisions (ADR-090).** Every place in a generated CV or cover letter that your profile does not cover now has four actions: **Show me where** highlights the wording in the preview and steps between places; **It's true, add it to my profile** records your own words and re-checks the document at once; **Take it out for me** rewrites only the sentence that holds the wording, saves it, shows what changed and offers **Undo**; **Let me edit it** opens that section in the editor. Your decisions are saved with the document and survive leaving and returning. The "All at once / One at a time" switch and its setting are gone: the tab shows one list with the current finding open, and the count counts only what is still open. A finding that the check matched only through a different word form (a verb for a noun) is not taken out automatically; use *Let me edit it*.
+- **The keyword check counts your profile's own wording.** A flagged job keyword now also counts as backed when the words the document actually uses are backed in your profile by the truthfulness check's grounding. On earlier test documents this removed most of the findings that had nothing to act on.
+- **API:** the ATS report's keyword coverage gains `present_unsupported_matches` / `present_denied_matches` (the wording that matched, with a `stem` flag), and the CV and cover-letter report responses carry `review_state`. New endpoints under `/api/cv/{id}/review/` and `/api/cover-letter/{id}/review/`: `add-evidence`, `take-out`, `undo`, `edited`, `walked`. New nullable column `review_state` on generated CVs and cover letters (Alembic 0070). The agent channel's report tools carry the same additive fields.
+
+### Fixed
+- **A cover letter edited by hand kept its paragraphs only on screen.** A saved letter body was rendered as a single paragraph in every template, so an edit in the Edit tab flattened the delivered letter. The body is now split on blank lines.
+- **A missing profile photo showed as a broken image.** When the stored photo file could not be read, the CV kept the raw file path and the preview drew a broken-image placeholder. The photo is now left out, and the log says the file is missing.
+
 ## [0.42.0-beta] – 2026-09-14
 
 ### Added
