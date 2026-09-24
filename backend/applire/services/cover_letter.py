@@ -289,10 +289,12 @@ async def get_cover_letter_status(
     html_url = None
     pdf_url = None
     letter_data = None
+    section_overrides = None
     if cl.status == CoverLetterStatus.ready.value:
         html_url = f"{base_url}/api/cover-letter/{cl_id}/html"
         pdf_url = f"{base_url}/api/cover-letter/{cl_id}/pdf"
         letter_data = cl.letter_data
+        section_overrides = cl.section_overrides or {}  # NOTE C-4
 
     # F-4b: the effective value accounts for this letter's own override — see
     # services.signature.resolve_signature_effective's own docstring for why
@@ -312,6 +314,7 @@ async def get_cover_letter_status(
         error_message=cl.error_message,
         expires_at=cl.expires_at,
         letter_data=letter_data,
+        section_overrides=section_overrides,
         origin=cl.origin,
         critic_report=cl.critic_report,
         # E054/US289 (clause 3b): pinned language, stored value as-is.
@@ -1093,7 +1096,15 @@ def _apply_section_overrides(letter_data: dict, overrides: dict) -> dict:
     data = copy.deepcopy(letter_data)
     for section, content in overrides.items():
         if section == "body" and isinstance(content, str):
-            data.setdefault("body", {})["paragraphs"] = [content]
+            # RULING B-2 (ADR-090 run): the body override is the Edit tab's /
+            # take-out's text with paragraphs separated by blank lines; every
+            # letter template renders one <p> per paragraph, so a single-element
+            # list collapsed the delivered letter into one paragraph.
+            # Windows / old-Mac line endings normalised first (adversarial finding 3):
+            # "\r\n\r\n" never matched the blank-line split and flattened the letter.
+            normalised = content.replace("\r\n", "\n").replace("\r", "\n")
+            paras = [p.strip() for p in re.split(r"\n[ \t]*\n", normalised) if p.strip()]
+            data.setdefault("body", {})["paragraphs"] = paras or [content]
         elif section in data:
             if isinstance(data[section], dict) and isinstance(content, str):
                 data[section]["_override"] = content
@@ -3347,6 +3358,7 @@ async def _update_ats_report_letter(
         ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
         # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
         # literal vault tie never lands in present_unsupported (one vocabulary).
+        from applire.services.ats_audit import grounding_vault_index
         from applire.services.keyword_ledger import profile_literal_corpus
 
         profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -3385,6 +3397,7 @@ async def _update_ats_report_letter(
             truth_floor_hits=set(truth_floor_hits),
             terminal_review=terminal_review,
             previous_report=previous_report,
+            vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -3582,6 +3595,7 @@ async def _update_ats_report_letter(
         # recomputed here rather than reused from the ats_report block
         # above, deliberately (see the paragraph comment).
         docx_ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        from applire.services.ats_audit import grounding_vault_index
         from applire.services.keyword_ledger import profile_literal_corpus
 
         docx_profile_row = await db.get(MasterProfile, cl.profile_id)
@@ -3620,6 +3634,9 @@ async def _update_ats_report_letter(
             truth_floor_hits=set(truth_floor_hits),
             terminal_review=terminal_review,
             previous_report=previous_docx_report,
+            vault_index=grounding_vault_index(
+                docx_profile_row.profile_json if docx_profile_row else None
+            ),
         ).model_dump()
     except Exception:
         logger.exception(
@@ -3632,7 +3649,9 @@ async def _update_ats_report_letter(
 
 async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
     """BackgroundTasks entrypoint — own session (request session gone by run time)."""
-    async with AsyncSessionLocal() as db:
+    from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
+
+    async with document_lock("cover_letter", cl_id), AsyncSessionLocal() as db:
         cl = await db.get(GeneratedCoverLetter, cl_id)
         if cl is not None:
             await _update_ats_report_letter(cl, db)
@@ -3666,7 +3685,10 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
                 cl.id,
             )
             report = None
-    return ATSReportResponse(document_id=cl.id, status=cl.status, report=report)
+    from applire.services.review_state import load_state
+
+    return ATSReportResponse(document_id=cl.id, status=cl.status, report=report,
+                             review_state=load_state(cl.review_state))
 
 
 async def get_cover_letter_truthfulness_report(

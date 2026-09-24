@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 
 @dataclass(frozen=True)
 class Figure:
-    kind: str  # "percent" | "currency" | "year" | "number"
+    kind: str  # "percent" | "currency" | "year" | "number" | "duration" | "datasize"
     value: str  # canonical: separators stripped, decimal dot, multiplier folded
     raw: str  # verbatim substring for report details
 
@@ -64,6 +64,83 @@ _MULT_RE = (
 )
 
 _PERCENT_RE = re.compile(r"[~≈]?\s*(\d+(?:[.,]\d+)?)\s*%")
+
+# N-1 (re-probe on eebd534d, covered by RULING E-1): a number with a TIME or
+# DATA-SIZE unit is a figure of its own kind. "from 1.8s to 240ms" yielded
+# nothing and "45 min to 8 min" only the 45 (as a plain count), so a vault
+# saying "1.8s" never backed a document's "1.8 seconds" and the Oracle flagged
+# a true figure as unbacked — the take-out then cost the letter that figure.
+#
+# Canonical value = ONE unit per dimension: milliseconds for time, bytes (SI:
+# kB = 1000) for data, so "1.8s" == "1800 ms" == "1.8 seconds". Kinds
+# ``duration`` / ``datasize`` stay distinct from ``number``/``currency`` — the
+# #215 cross-kind refusal: "2 hours" never backs a count of 2.
+#
+# Tokens (ADR-062: FACT — the number and its adjacent unit token only):
+# * time: ms/millisecond(s)/Millisekunde(n); s (ATTACHED only, lowercase —
+#   never "1990s"/"20s of"), sec(s)/second(s)/Sek./Sekunde(n); min(s)/
+#   minute(s)/Min./Minute(n); h (lowercase)/hr(s)/hour(s)/Std./Stunde(n).
+#   A lowercase "m" is NOT a time unit ("10m" stays out: metres).
+# * data: KB/MB/GB/TB/PB (uppercase B required: "Mb"/"mb" are bits or noise).
+# The unit must end the token ("5 mins" yes, "5 minor" no); an abbreviation may
+# carry its dot. Tenure years stay with ``_TENURE_RE`` (#214) — "years" is not
+# in this table.
+_DURATION_MS = {
+    "ms": 1, "millisecond": 1, "milliseconds": 1, "millisekunde": 1, "millisekunden": 1,
+    "sec": 1000, "secs": 1000, "second": 1000, "seconds": 1000,
+    "sek": 1000, "sekunde": 1000, "sekunden": 1000,
+    "min": 60_000, "mins": 60_000, "minute": 60_000, "minutes": 60_000, "minuten": 60_000,
+    "hr": 3_600_000, "hrs": 3_600_000, "hour": 3_600_000, "hours": 3_600_000,
+    "std": 3_600_000, "stunde": 3_600_000, "stunden": 3_600_000,
+}
+_DATASIZE_BYTES = {"KB": 10**3, "MB": 10**6, "GB": 10**9, "TB": 10**12, "PB": 10**15}
+_UNIT_NUM = r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
+_DURATION_RE = re.compile(
+    _UNIT_NUM
+    + r"(?:(?P<s>s)(?![\w])(?!\s+of\b)"          # "1.8s" — attached only
+    + r"|(?P<h>h)(?![\w])"                           # "24h", "24 h" handled below
+    + r"|\s?(?P<word>(?i:" + "|".join(sorted(_DURATION_MS, key=lambda t: (-len(t), t))) + r"))\.?(?![\w])"
+    + r"|\s(?P<hs>h)(?![\w]))"
+)
+_DATASIZE_RE = re.compile(
+    _UNIT_NUM + r"\s?(?P<unit>" + "|".join(_DATASIZE_BYTES) + r")(?![\w])"
+)
+_YEARISH_RE = re.compile(r"^(?:19|20)\d{2}$")
+
+
+def _scaled(digits: str, factor: int) -> str | None:
+    try:
+        return format((Decimal(digits) * factor).normalize(), "f")
+    except InvalidOperation:
+        return None
+
+
+# RULING E-1 (founder, 2026-09-24 delivery run): a BARE number with a magnitude
+# token — "~40k daily users", "1.2M rows", "200k invoices", "3 Mio. Datensätze"
+# — is a figure. Before, only the currency form folded a multiplier ("€40k"),
+# so "~40k" in a vault yielded nothing and a document's true "40,000" got the
+# Oracle's "no vault evidence for figure" verdict (4 of 8 group-1 findings on
+# the delivery run). Folded through the SAME ``_fold_multiplier`` as currency,
+# so "40k", "40.000" and "40,000" are one key. Kind stays ``number`` — the
+# #215 refusal of cross-kind matching is untouched.
+#
+# Token set, derived from ``_MULTIPLIERS`` and narrowed for bare numbers
+# (ADR-062: FACT — two adjacent tokens, no reading for meaning):
+# * attached single letters: ``k``/``K`` and UPPERCASE ``M`` only. A lowercase
+#   ``m`` after a number is metres or minutes ("10m sprint", "5m"); a single
+#   ``b``/``B`` is refused outright ("Level 2B", "Form 3B" — a billion is
+#   never written that way in a CV without a currency, and the word forms
+#   below cover it). The letter must END the token: "40kg", "1.2MB", "3D",
+#   "B2B" (the digit sits inside a word) never match.
+# * word forms, optional space and trailing dot, case-insensitive: tsd,
+#   tausend, mio, million, millionen, mrd, milliarden, billion — each must end
+#   at a word boundary, so "5 min", "10 Mitarbeitende" never match.
+_BARE_MULT_WORDS = ("milliarden", "millionen", "million", "billion", "tausend", "mrd", "mio", "tsd")
+_BARE_MULT_RE = re.compile(
+    r"(?<![\w.,])(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)"
+    r"(?:(?P<letter>[kK]|M)(?![\w])"
+    r"|\s?(?P<word>(?i:" + "|".join(_BARE_MULT_WORDS) + r"))(?:\.|(?![\w])))"
+)
 _CURRENCY_RE = re.compile(
     rf"(?:[€$£]\s*(\d[\d.,]*)\s*({_MULT_RE})?"
     rf"|(\d[\d.,]*)\s*({_MULT_RE})?\s*(?:€|EUR|USD|CHF|GBP|\$|£))",
@@ -379,6 +456,48 @@ def extract_figures(text: str) -> list[Figure]:
         figures.append(Figure("currency", value, m.group(0).strip()))
         consumed.append(m.span())
 
+    # N-1: durations and data sizes, canonicalised to ms / bytes.
+    for m in _DURATION_RE.finditer(text):
+        if not _free(*m.span()):
+            continue
+        if _overlaps(m.span(1), identifier_spans) or _overlaps(m.span(1), exempt_spans):
+            continue
+        digits = _canonical_number(m.group(1))
+        if m.group("s") and _YEARISH_RE.match(digits):
+            continue  # "1990s" is a decade, not 1990 seconds
+        if m.group("s"):
+            factor = 1000
+        elif m.group("h") or m.group("hs"):
+            factor = 3_600_000
+        else:
+            factor = _DURATION_MS[m.group("word").lower()]
+        value = _scaled(digits, factor)
+        if value is None:
+            continue
+        figures.append(Figure("duration", value, m.group(0).strip()))
+        consumed.append(m.span())
+
+    for m in _DATASIZE_RE.finditer(text):
+        if not _free(*m.span()):
+            continue
+        value = _scaled(_canonical_number(m.group(1)), _DATASIZE_BYTES[m.group("unit")])
+        if value is None:
+            continue
+        figures.append(Figure("datasize", value, m.group(0).strip()))
+        consumed.append(m.span())
+
+    # RULING E-1: bare number + magnitude token, folded like currency.
+    for m in _BARE_MULT_RE.finditer(text):
+        if not _free(*m.span()):
+            continue
+        if _overlaps(m.span(1), identifier_spans) or _overlaps(m.span(1), exempt_spans):
+            continue
+        suffix = m.group("letter") or m.group("word")
+        figures.append(Figure(
+            "number", _fold_multiplier(_canonical_number(m.group(1)), suffix), m.group(0).strip(),
+        ))
+        consumed.append(m.span())
+
     for m in _YEAR_RE.finditer(text):
         if not _free(*m.span()):
             continue
@@ -557,7 +676,20 @@ def extract_spelled_figures(text: str) -> list[Figure]:
         value = _spelled_small_number(tok)
         if value is not None:
             figures.append(Figure("number", str(value), tok))
+            # N-1: "two hours" / "zehn Minuten" in the candidate's own prose
+            # backs a document's "2 hours" — the duration kind needs the same
+            # vault-side bridge the plain count has (never claim-side).
+            u = _SPELLED_UNIT_RE.match(lowered, m.end())
+            if u:
+                figures.append(Figure(
+                    "duration", str(value * _DURATION_MS[u.group(1)]), lowered[m.start():u.end()],
+                ))
     return figures
+
+
+_SPELLED_UNIT_RE = re.compile(
+    r"\s+(" + "|".join(sorted(_DURATION_MS, key=lambda t: (-len(t), t))) + r")\.?(?![\w])"
+)
 
 
 def extract_range_bare_numbers(text: str) -> list[Figure]:

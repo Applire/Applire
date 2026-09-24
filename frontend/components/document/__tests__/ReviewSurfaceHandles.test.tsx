@@ -120,7 +120,6 @@ function base(overrides: Partial<ReviewSurfaceProps> = {}): ReviewSurfaceProps {
     truthReport: TRUTH,
     criticReport: CRITIC_RAN,
     gapClusters: [],
-    modePreference: "overview",
     ...overrides,
   };
 }

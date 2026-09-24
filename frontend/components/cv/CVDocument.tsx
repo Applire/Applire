@@ -31,10 +31,12 @@ export interface CVDocumentHandle {
 interface CVDocumentProps {
   cvId: string;
   className?: string;
+  /** Fires each time the preview document (re)loads — ADR-090 cl. 2 marks do not survive a reload. */
+  onPreviewLoad?: () => void;
 }
 
 export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
-  function CVDocument({ cvId, className }, ref) {
+  function CVDocument({ cvId, className, onPreviewLoad }, ref) {
     const t = useTranslations("cv");
     const containerRef = useRef<HTMLDivElement>(null);
     const [htmlContent, setHtmlContent] = useState<string | null>(null);
@@ -123,6 +125,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
               display: "block",
             }}
             data-testid="cv-iframe"
+            onLoad={onPreviewLoad}
           />
         ) : (
           // Container is wider than A4 — render at natural width, centred
@@ -138,6 +141,7 @@ export const CVDocument = forwardRef<CVDocumentHandle, CVDocumentProps>(
               margin: "0 auto",
             }}
             data-testid="cv-iframe"
+            onLoad={onPreviewLoad}
           />
         )}
       </div>

@@ -74,6 +74,19 @@ describe("resolveFlowRedirect", () => {
     expect(resolveFlowRedirect(FLOW, "/flow/f1/cv", "jd_analysis")).toBe("/flow/f1");
   });
 
+  // ── ADR-090 ruling C-1: the gap view is revisitable once it exists ───────
+
+  it("lets the gap view open after the analysis exists (review group-3 link)", () => {
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/gaps", "complete")).toBeNull();
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/gaps", "cv_generation")).toBeNull();
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/gaps", "interview")).toBeNull();
+  });
+
+  it("still bounces the gap view before the analysis exists", () => {
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/gaps", "cv_import")).toBe("/flow/f1/import");
+    expect(resolveFlowRedirect(FLOW, "/flow/f1/gaps", "jd_analysis")).toBe("/flow/f1");
+  });
+
   // ── Side routes are valid at any step ────────────────────────────────────
 
   it("never redirects side routes", () => {

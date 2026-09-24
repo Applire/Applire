@@ -632,6 +632,31 @@ def _mock_oracle_triage(prompt: str) -> dict[str, Any]:
     }
 
 
+def _mock_removal(prompt: str) -> str:
+    """Mock of the removal rewrite: the passage minus every fenced form (case- and
+    hyphen-insensitive), whitespace tidied. Deterministic, never a model judgement."""
+    import re as _re
+
+    from applire.services.untrusted_text import fenced_regions
+
+    try:
+        passage = prompt.split("----- PASSAGE START -----\n", 1)[1].rsplit(
+            "\n----- PASSAGE END -----", 1
+        )[0]
+    except IndexError:
+        return prompt
+    forms = [
+        line[2:].strip()
+        for region in fenced_regions(prompt)
+        for line in region.splitlines()
+        if line.startswith("- ")
+    ]
+    for form in sorted(forms, key=len, reverse=True):
+        pattern = r"[\s\-]+".join(_re.escape(t) for t in form.split())
+        passage = _re.sub(r"\s*\b" + pattern + r"\w*", "", passage, flags=_re.IGNORECASE)
+    return "\n".join(" ".join(line.split()) for line in passage.split("\n") if line.strip())
+
+
 class MockLLMProvider(LLMProvider):
     """Instant, deterministic LLM provider for CI/CD and E2E tests.
 
@@ -663,6 +688,15 @@ class MockLLMProvider(LLMProvider):
             return _ASSIST_SUGGESTION
         if "rewrite the given cv section" in system_lower:
             return _ASSIST_REWRITE
+        # ADR-090 cl. 3 (WP-B) — the *Take it out for me* removal rewrite. Returns the
+        # shape its call site consumes: the PASSAGE with every listed form cut out, so a
+        # mock-stack run of the review take-out saves a changed section instead of an
+        # interview question (which would still contain nothing and be refused).
+        if (
+            "you remove wording from one passage" in system_lower
+            or "you remove numbers from one passage" in system_lower  # E-1 figure variant
+        ):
+            return _mock_removal(prompt)
         return _INTERVIEW_QUESTION
 
     async def aparse_json(  # type: ignore[override]

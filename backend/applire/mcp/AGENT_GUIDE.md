@@ -43,6 +43,8 @@ This is the product's core guarantee. It has two halves.
   honestly framed beats an invented qualification every time.
 - Treat `inflated`, `unbacked`, and `misattributed` verdicts in a
   truthfulness report as stop-and-fix, not noise.
+  A figure verdict lists the exact figures it could not back in
+  `verdict.figures` (e.g. `["40,000"]`); fix those numbers, not the sentence.
 - When an answer cannot be grounded in the candidate's data, **ask the
   human** — you are their helper, not their ghostwriter.
 
@@ -327,6 +329,30 @@ floor deletes (such deletions are reported visibly). Limits: max 10 pins per
 application; a pin whose vault entry changes goes `stale` (excluded from
 generation, surfaced, never auto-deleted — re-pin after the edit); an
 unconfirmed or denied entry is not pinnable.
+
+## Review decisions on a document
+
+The ATS report tools (`get_cv_ats_report`, `get_cover_letter_ats_report`) carry
+two fields for the human's review of ONE generated document:
+
+- `report.keywords.present_unsupported_matches` (and `present_denied_matches`):
+  for each flagged keyword, the wording that actually made it present in the
+  document — `[{form, stem}]`. The JD label ("IT Data & AI Governance") is often
+  not what the document says ("AI governance"); quote the `form` to your user
+  when you ask about it. `stem: true` means the document carries another word
+  form of it. A missing key means the report predates the field.
+- `review_state`: `{walked_at, decisions: [{finding_key, label, action, at, undo}]}`
+  — what the human decided in the review panel (`added` to profile, `taken_out`,
+  `edited`). **A decision is a label, never a verdict:** a keyword the current
+  report still lists in `present_unsupported` is open, whatever `review_state`
+  says. Count from the report; use `review_state` only to tell your user what
+  they already did about a finding the report no longer lists.
+
+You do not act through these decisions. To back a flagged claim with evidence,
+use `submit_testimony` (the same service the review panel calls); to remove it,
+re-author your content and `render_document` again. A re-render is a new
+document id, so its `review_state` starts empty — there is no section-level edit
+on this channel yet.
 
 ## Untrusted job-posting text in tool results
 

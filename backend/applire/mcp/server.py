@@ -378,6 +378,10 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "keywords.missing_honest_gap", "keywords.present_unsupported",
         "keywords.present_denied",
         "keywords.claimable_concepts", "keywords.keyword_liability_concepts",
+        # ADR-090 cl. 2/6: matched forms come from the JD's Keyword Ledger, and a
+        # decision's label is the flagged keyword or claim text.
+        "keywords.present_unsupported_matches", "keywords.present_denied_matches",
+        "review_state.decisions[].label",
     ],
     "session": [
         "current_gap_id", "addressed_gap_ids", "gaps_unresolved", "first_question",
@@ -392,6 +396,8 @@ _JD_DERIVED_FIELDS: dict[str, list[str]] = {
         "ats_report.keywords.present", "ats_report.keywords.missing",
         "ats_report.keywords.missing_claimable", "ats_report.keywords.missing_honest_gap",
         "ats_report.keywords.present_unsupported", "ats_report.keywords.present_denied",
+        "ats_report.keywords.present_unsupported_matches",
+        "ats_report.keywords.present_denied_matches",
     ],
 }
 
@@ -1092,8 +1098,8 @@ async def get_cv_status(cv_id: str) -> dict:
 @mcp.tool(
     description=(
         "Get the persisted ATS audit report for a generated CV. Returns "
-        "{document_id, status, report}; report is null while pending — named "
-        "checks + keyword presence, no aggregate score."
+        "{document_id, status, report, review_state}; report is null while "
+        "pending — named checks + keyword presence, no aggregate score."
     )
 )
 async def get_cv_ats_report(cv_id: str) -> dict:
@@ -1374,8 +1380,8 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
 @mcp.tool(
     description=(
         "Get the persisted ATS audit report for a generated cover letter. "
-        "Returns {document_id, status, report}; report is null while pending "
-        "— named checks + keyword presence, no aggregate score."
+        "Returns {document_id, status, report, review_state}; report is null "
+        "while pending — named checks + keyword presence, no aggregate score."
     )
 )
 async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:

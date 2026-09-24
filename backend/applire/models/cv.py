@@ -93,6 +93,12 @@ class GeneratedCV(Base):
     # pass did not run; OutcomeCriticReport.reason says why). Written in the
     # same commit as ats_report/truthfulness_report. Never gates delivery.
     critic_report: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
+    # ADR-090 clause 6 (migration 0069): the user's review decisions on THIS
+    # document — {"walked_at": ts|null, "decisions": [{finding_key, label, action,
+    # at, undo}]}. A decision only LABELS a finding the live report no longer
+    # lists; every count derives from the report (services/review_state.py).
+    # NULL = no decision yet. A regeneration is a new row and starts empty.
+    review_state: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     color_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cv_color_profiles.id"), nullable=True
     )

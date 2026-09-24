@@ -26,10 +26,11 @@ import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterCont
 import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
+import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
 import { DocumentLanguageSwitch } from "@/components/document/DocumentLanguageSwitch";
 import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
-import { ReviewSurface } from "@/components/document/ReviewSurface";
+import { ReviewSurface, type EditFindingRequest } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
 import { ClipboardCheck, Palette, Zap } from "lucide-react";
 import { GenerateCoverLetterModal } from "@/components/cover-letter/GenerateCoverLetterModal";
@@ -44,8 +45,16 @@ import UnaskedRequirementsPanel, {
 import { PreDownloadNotice } from "@/components/review/PreDownloadNotice";
 import { getSettings, setHidePredownloadNotice } from "@/lib/api/settings";
 import { buildReviewGroups } from "@/lib/review-groups";
-import type { ReviewModePreference } from "@/lib/review-walked";
+import {
+  markEdited,
+  refreshedReport,
+  refreshedState,
+  type ReviewRefresh,
+  type ReviewState,
+} from "@/lib/api/document-review";
+import { iframeDocument, makePreviewLocator } from "@/lib/locate-in-preview";
 import { extractFilenameFromContentDisposition } from "@/lib/download-filename";
+import { effectiveLetterBody } from "@/lib/letter-body";
 
 type CLTemplate =
   | "classic_german"
@@ -63,6 +72,8 @@ interface CLState {
   status: string;
   template: CLTemplate;
   letterData: Record<string, unknown> | null;
+  /** D-2: the saved section overrides (the body override is what the letter says now). */
+  sectionOverrides: Record<string, unknown> | null;
   preGenInputs: Record<string, unknown> | null;
   jobId: string | null;
   applicationId: string | null;
@@ -72,6 +83,9 @@ interface CLState {
   /** E054/US289: the letter's PINNED language (clause 3b); null = legacy row. */
   documentLanguage: "de" | "en" | null;
 }
+
+// ADR-090 cl. 2 — Show me where searches the preview iframe, looked up at call time.
+const CL_LOCATOR = makePreviewLocator(() => iframeDocument("cover-letter-iframe"));
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 const POLL_INTERVAL_MS = 2000;
@@ -113,10 +127,22 @@ export default function CoverLetterPage({
   // report column on this letter — it cannot drift past a post-interview
   // recompute, and it clears itself once the candidate is asked and answers.
   const [unasked, setUnasked] = useState<UnaskedRequirement[]>([]);
-  // E058/US301 (ADR-081 cl. 5): the stored review-mode preference. `auto` is
-  // both the default and the degraded value — a settings failure must never
-  // decide the mode for the user.
-  const [reviewMode, setReviewMode] = useState<ReviewModePreference>("auto");
+  // ADR-090 cl. 6: the per-document review decisions (rides on the ATS-report response).
+  const [reviewState, setReviewState] = useState<ReviewState | null>(null);
+  // ADR-090 cl. 2: bumps on every preview (re)load — marks do not survive one.
+  const [previewVersion, setPreviewVersion] = useState(0);
+  // #667-style controlled tab, so *Let me edit it* can move the user to Edit.
+  const [activeSidebarTab, setActiveSidebarTab] = useState("review");
+  // ADR-090 cl. 5: opens the body editor; cleared when the user leaves Edit.
+  const [openBodyNonce, setOpenBodyNonce] = useState<number | undefined>(undefined);
+  // D-4: the phone's Fine-tune sheet opens on *Let me edit it*; the review
+  // sheet is suspended while the phone locate view shows.
+  const [fineTuneNonce, setFineTuneNonce] = useState<number | undefined>(undefined);
+  const [mobileLocating, setMobileLocating] = useState(false);
+  const editFindingKey = useRef<string | null>(null);
+  // Remounts the body editor after a review action rewrote the letter, so it
+  // never saves stale text over the rewrite.
+  const [contentVersion, setContentVersion] = useState(0);
   // F-4b (founder ruling, 2026-09-11): the letter's own signature override
   // (null = use the kind default) plus the resolved effective state and
   // whether a signature is on file at all — seeded from `init()`'s status
@@ -134,7 +160,6 @@ export default function CoverLetterPage({
     getSettings()
       .then((s) => {
         if (cancelled) return;
-        setReviewMode(s.review_mode ?? "auto");
         // F-4b: the letter kind default (F-0: on) — a settings failure keeps
         // the founder default rather than claiming "off".
         setSignatureKindDefaultOn(s.signature_in_letter ?? true);
@@ -173,6 +198,7 @@ export default function CoverLetterPage({
           status: "none",
           template: "classic_german",
           letterData: null,
+          sectionOverrides: null,
           preGenInputs: null,
           jobId: flowData.job_id ?? null,
           applicationId: flowData.application_id ?? null,
@@ -191,6 +217,7 @@ export default function CoverLetterPage({
       const statusData = await statusRes.json() as {
         status: string;
         letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
         document_language?: "de" | "en" | null;
         // F-4b (founder ruling, 2026-09-11): the per-document signature
         // override and its resolved state.
@@ -207,6 +234,7 @@ export default function CoverLetterPage({
         status: statusData.status,
         template: clSummary.template as CLTemplate,
         letterData: statusData.letter_data ?? null,
+        sectionOverrides: statusData.section_overrides ?? null,
         preGenInputs: null,
         jobId: flowData.job_id ?? null,
         applicationId: flowData.application_id ?? null,
@@ -246,8 +274,9 @@ export default function CoverLetterPage({
       try {
         const res = await fetch(`${API_BASE}/api/cover-letter/${clState!.coverLetterId}/ats-report`);
         if (!res.ok) return;
-        const data: { report: ATSReport } = await res.json();
+        const data: { report: ATSReport; review_state?: ReviewState | null } = await res.json();
         setAtsReport(data.report ?? null);
+        setReviewState(refreshedState({ review_state: data.review_state ?? null }));
       } catch {
         // Non-fatal — panel shows unavailable state
       }
@@ -304,6 +333,7 @@ export default function CoverLetterPage({
         const data = await res.json() as {
           status: string;
           letter_data?: Record<string, unknown> | null;
+          section_overrides?: Record<string, unknown> | null;
           document_language?: "de" | "en" | null;
         };
         if (data.status === "ready") {
@@ -315,6 +345,7 @@ export default function CoverLetterPage({
                   ...prev,
                   status: "ready",
                   letterData: data.letter_data ?? null,
+                  sectionOverrides: data.section_overrides ?? null,
                   documentLanguage: data.document_language ?? null,
                 }
               : prev
@@ -433,6 +464,60 @@ export default function CoverLetterPage({
 
   function handleSectionSaved() {
     setPreviewKey((k) => k + 1);
+    // D-2: re-read the saved body so a later remount of the editor starts
+    // from it (the open editor already shows the saved text — no remount).
+    if (clState?.coverLetterId) void reloadLetterData(clState.coverLetterId, { remount: false });
+    // ADR-090 cl. 5: a save made from a finding asks the server to re-audit
+    // (awaited) and record `edited` if the finding cleared.
+    const findingKey = editFindingKey.current;
+    if (findingKey && clState?.coverLetterId) {
+      editFindingKey.current = null;
+      markEdited("cover-letter", clState.coverLetterId, findingKey)
+        .then((r) => applyReviewRefresh(r, { documentChanged: false }))
+        .catch(() => {});
+    }
+  }
+
+  // The letter text after a review action rewrote it — the body editor reads it.
+  async function reloadLetterData(clId: string, opts: { remount: boolean } = { remount: true }) {
+    try {
+      const res = await fetch(`${API_BASE}/api/cover-letter/${clId}/status`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        letter_data?: Record<string, unknown> | null;
+        section_overrides?: Record<string, unknown> | null;
+      };
+      setClState((prev) =>
+        prev
+          ? {
+              ...prev,
+              letterData: data.letter_data ?? prev.letterData,
+              sectionOverrides: data.section_overrides ?? prev.sectionOverrides,
+            }
+          : prev,
+      );
+      if (opts.remount) setContentVersion((v) => v + 1);
+    } catch {
+      // Non-fatal — the editor keeps its text; the preview is still reloaded.
+    }
+  }
+
+  function applyReviewRefresh(refresh: ReviewRefresh, opts: { documentChanged: boolean }) {
+    const report = refreshedReport(refresh);
+      if (report !== undefined) setAtsReport(report);
+    if (refresh.truthfulness) setTruthReport(refresh.truthfulness);
+    setReviewState(refreshedState(refresh));
+    if (opts.documentChanged && clState?.coverLetterId) {
+      setPreviewKey((k) => k + 1);
+      void reloadLetterData(clState.coverLetterId);
+    }
+  }
+
+  function handleEditFinding(req: EditFindingRequest) {
+    editFindingKey.current = req.findingKey;
+    setActiveSidebarTab("edit");
+    setOpenBodyNonce((n) => (n ?? 0) + 1);
+    setFineTuneNonce((n) => (n ?? 0) + 1);
   }
 
   function handleGenerated(newClId: string) {
@@ -511,7 +596,9 @@ export default function CoverLetterPage({
   // computed against the CV — so that producer is declared absent rather than
   // reported as empty (which would claim there are none) or unknown (which
   // would claim it failed).
-  const reviewSurface = (
+  // D-4 (ADR-050 amendment): built per layout so the phone's command-bar sheet
+  // mounts the SAME live surface, not a forked panel.
+  const renderReviewSurface = (layout: "panel" | "sheet") => (
     <ReviewSurface
       documentKind="cover-letter"
       documentId={clState?.coverLetterId ?? null}
@@ -520,12 +607,36 @@ export default function CoverLetterPage({
       criticReport={criticReport}
       gapClusters={[]}
       hasClusterProducer={false}
-      modePreference={reviewMode}
+      reviewState={reviewState}
+      onRefresh={applyReviewRefresh}
+      locator={CL_LOCATOR}
+      previewVersion={previewVersion}
+      layout={layout}
+      onLocateModeChange={layout === "sheet" ? setMobileLocating : undefined}
+      onEditFinding={handleEditFinding}
+      sectionLabel={() => t("bodySection")}
+      gapAnalysisHref={`/flow/${flowId}/gaps`}
     >
       {/* Not one of ADR-081's four producers — rendered after the groups so it
           can never be mistaken for one of them. */}
       <UnaskedRequirementsPanel requirements={unasked} />
     </ReviewSurface>
+  );
+
+  // The letter's section editor — the Edit tab on desktop, the Fine-tune
+  // sheet on the phone (D-4). Both start from the EFFECTIVE body (D-2).
+  const renderContentTab = (where: "panel" | "sheet") => (
+    <CoverLetterContentTab
+      key={`cl-content-${where}-${contentVersion}`}
+      openBodyNonce={openBodyNonce}
+      coverLetterId={clState!.coverLetterId}
+      letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
+      initialBody={effectiveLetterBody(
+        clState!.letterData as Parameters<typeof effectiveLetterBody>[0],
+        clState!.sectionOverrides,
+      )}
+      onSectionSaved={handleSectionSaved}
+    />
   );
 
   const group1Count = buildReviewGroups({
@@ -550,7 +661,7 @@ export default function CoverLetterPage({
             {group1Count}
           </span>
         ) : undefined,
-      body: reviewSurface,
+      body: renderReviewSurface("panel"),
     },
     {
       id: "edit",
@@ -558,11 +669,7 @@ export default function CoverLetterPage({
       icon: <Palette className="w-4 h-4" aria-hidden="true" />,
       body: (
         <div className="flex flex-col gap-3">
-          <CoverLetterContentTab
-            coverLetterId={clState!.coverLetterId}
-            letterData={clState!.letterData as Parameters<typeof CoverLetterContentTab>[0]["letterData"]}
-            onSectionSaved={handleSectionSaved}
-          />
+          {renderContentTab("panel")}
           {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
               finding groups, application-scoped (ADR-077 cl. 1). */}
           <ATSChecksPanel report={atsReport} variant="pins" />
@@ -603,7 +710,13 @@ export default function CoverLetterPage({
   return (
     <div data-testid="cover-letter-page">
       <DocumentWorkspace
-        preview={<CoverLetterDocument key={previewKey} coverLetterId={clState!.coverLetterId} />}
+        preview={
+          <CoverLetterDocument
+            key={previewKey}
+            coverLetterId={clState!.coverLetterId}
+            onPreviewLoad={() => setPreviewVersion((v) => v + 1)}
+          />
+        }
         sidebar={
           <RefinementSidebar
             matchScore={clState?.matchScore ?? null}
@@ -612,6 +725,11 @@ export default function CoverLetterPage({
             collapsed={!panelOpen}
             onToggleCollapse={() => setPanelOpen((o) => !o)}
             initialTabId="review"
+            activeTabId={activeSidebarTab}
+            onTabChange={(id) => {
+              setActiveSidebarTab(id);
+              if (id !== "edit") setOpenBodyNonce(undefined);
+            }}
             identityBar={
               <DocumentIdentityBar
                 flowId={flowId}
@@ -633,6 +751,20 @@ export default function CoverLetterPage({
                 }}
               />
             }
+          />
+        }
+        commandBar={
+          /* D-4 (ADR-050 amendment): the letter's phone review — the same
+             command bar the CV page uses, hosting the live review surface and
+             the live body editor. */
+          <MobileCommandBar
+            atsReport={atsReport}
+            atsPanel={renderReviewSurface("sheet")}
+            fineTuneSurface={renderContentTab("sheet")}
+            onDownloadPdf={() => void requestDownload("pdf")}
+            openFineTuneNonce={fineTuneNonce}
+            suspended={mobileLocating}
+            openCount={atsReport || truthReport ? group1Count : null}
           />
         }
       />

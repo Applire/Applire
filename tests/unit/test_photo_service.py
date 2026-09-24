@@ -311,3 +311,61 @@ async def test_resolve_photo_data_uri_returns_none_for_none_input():
         result = await _resolve_photo_data_uri(None, storage)
 
     assert result is None
+
+
+# ── A stored photo whose FILE is gone must be omitted, never rendered as a
+#    broken <img> (founder UAT 2026-09-24: "only a placeholder was shown").
+#    get_cv_html used to keep the raw storage path in contact.photo_url when
+#    the file could not be read, so the template emitted <img src="data/uploads/…">
+#    and the browser drew a broken-image placeholder.
+
+
+def _tailored_with_photo(path, show_photo=True):
+    from applire.schemas.cv import TailoredCVData
+
+    return TailoredCVData.model_validate(
+        {"contact": {"name": "Alex Brandt", "photo_url": path}, "show_photo": show_photo}
+    )
+
+
+@pytest.mark.asyncio
+async def test_contact_photo_missing_file_is_omitted_not_left_as_raw_path():
+    import tempfile
+    from applire.storage.local import LocalStorageProvider
+    from applire.services.cv import _with_resolved_contact_photo
+
+    with tempfile.TemporaryDirectory() as tmp:
+        storage = LocalStorageProvider(tmp)
+        tailored = _tailored_with_photo(f"{tmp}/ghost.jpg")
+        result = await _with_resolved_contact_photo(tailored, storage)
+
+    assert result.contact.photo_url is None
+
+
+@pytest.mark.asyncio
+async def test_contact_photo_present_file_becomes_data_uri():
+    import tempfile
+    from applire.storage.local import LocalStorageProvider
+    from applire.services.cv import _with_resolved_contact_photo
+
+    with tempfile.TemporaryDirectory() as tmp:
+        storage = LocalStorageProvider(tmp)
+        path = await storage.save(b"\xff\xd8\xff", "photo.jpg")
+        result = await _with_resolved_contact_photo(_tailored_with_photo(path), storage)
+
+    assert result.contact.photo_url.startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
+async def test_contact_photo_hidden_is_left_untouched():
+    import tempfile
+    from applire.storage.local import LocalStorageProvider
+    from applire.services.cv import _with_resolved_contact_photo
+
+    with tempfile.TemporaryDirectory() as tmp:
+        storage = LocalStorageProvider(tmp)
+        tailored = _tailored_with_photo(f"{tmp}/ghost.jpg", show_photo=False)
+        result = await _with_resolved_contact_photo(tailored, storage)
+
+    # show_photo=False: the template never renders it; nothing to resolve.
+    assert result.contact.photo_url == tailored.contact.photo_url

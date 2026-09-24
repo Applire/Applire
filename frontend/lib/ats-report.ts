@@ -65,6 +65,9 @@ export type PinnedFactReportEntry = {
   ledger_conflict?: string[];
 };
 
+/** ADR-090 cl. 2 — one matched form of a flagged keyword. */
+export type KeywordMatch = { form: string; stem: boolean };
+
 export type ATSReport = {
   checks: ATSCheck[];
   // null/absent = audited without pin context (legacy reports, no pins).
@@ -86,6 +89,12 @@ export type ATSReport = {
     // vault does not cover?" would change that group's meaning and its verdict count.
     // Optional for back-compat: absent on a report that predates the field.
     present_denied?: string[];
+    // ADR-090 cl. 2: per flagged keyword, the forms from `keyword_present`'s
+    // search set that passed `surface_present` on THIS document (`stem` = only
+    // through the token-stem fallback). An absent keyword = no data (a report
+    // older than the field) → *Show me where* says it could not mark the place.
+    present_unsupported_matches?: Record<string, KeywordMatch[]>;
+    present_denied_matches?: Record<string, KeywordMatch[]>;
     // E048/US266 (#249 option b): EVERY claimable Keyword Ledger entry's surface
     // forms (concept name included), regardless of presence in the document.
     claimable_concepts?: string[];

@@ -33,6 +33,15 @@ export const STEP_ROUTE: Record<string, string> = {
 const SIDE_ROUTES = new Set(["cover-letter"]);
 
 /**
+ * ADR-090 (ruling C-1, 2026-09-23): the gap view is a side route ONCE the gap
+ * analysis exists — the document review's group-3 row takes the user back to
+ * it after generation (R-0.6), and without this the guard bounced `/gaps` to
+ * `/cv` at `complete`. Before `gap_analysis` there is no analysis to show, so
+ * those steps keep redirecting.
+ */
+const GAP_VIEW_REVISIT_STEPS = new Set(["gap_analysis", "interview", "cv_generation", "complete"]);
+
+/**
  * Normalises a URL segment to the flow step it should highlight in the stepper.
  * The cover-letter side route is a sub-artifact of the CV result screen, so it
  * lights the same 'cv_generation' node ("4 Lebenslauf") — otherwise the
@@ -64,6 +73,7 @@ export function resolveFlowRedirect(
 
   if (currentSegment === expectedSegment) return null;
   if (SIDE_ROUTES.has(currentSegment)) return null;
+  if (currentSegment === "gaps" && GAP_VIEW_REVISIT_STEPS.has(currentStep)) return null;
 
   return expectedSegment ? `${base}/${expectedSegment}` : base;
 }
