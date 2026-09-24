@@ -113,7 +113,10 @@ amount word ("tens of thousands", "dozens", "several hundred", "a large", \
 becomes "serving daily users"; "ein Budget von 3 Mio. €" becomes "ein Budget".
 3. Keep every other word of the passage as it is: every other number, name, tool, \
 employer, date, result and scope. Change only the few words the sentence needs to \
-stay grammatical once the figure is gone.
+stay grammatical once the figure is gone. If the figure is one end of a \
+"from … to …" pair, keep the other end and make the phrase whole ("reduced the error \
+rate from 12 %", "die Fehlerquote von 12 % aus gesenkt") — never leave "from 12 % to" \
+or "von 12 % auf" standing without its second figure.
 4. Never delete a bullet, sentence or clause because it held the figure.
 5. Keep the layout of the passage as described under PASSAGE KIND: the same lines, \
 no merged, split or reordered lines, no bullet markers, no heading, no blank line. \
