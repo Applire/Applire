@@ -86,6 +86,15 @@ test.describe('Document language switch (US289)', () => {
         body: JSON.stringify(MOCK_CV_STATUS),
       });
     });
+    // D-1 (ADR-090 delivery run): section labels come from the section editor's
+    // own door, GET /api/cv/{id}/sections — cv_summary never carried them.
+    await page.route(`**/api/cv/${TEST_CV_ID}/sections`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sections: MOCK_FLOW_STATE.cv_summary.sections, general_gaps: [] }),
+      });
+    });
     await page.route(`**/api/cv/${TEST_CV_ID}/html`, async (route) => {
       await route.fulfill({
         status: 200,
