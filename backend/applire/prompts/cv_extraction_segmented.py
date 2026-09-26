@@ -50,6 +50,8 @@
 import json
 from typing import Any
 
+from applire.services.untrusted_text import fence_document
+
 # Shared hygiene rules that apply to any section emitting technologies/skills, lifted
 # verbatim-in-spirit from cv_extraction.py so the segmented path extracts identically.
 _TECH_VS_PRACTICES = (
@@ -115,7 +117,8 @@ Rules:
 def build_extraction_outline_prompt(raw_text: str) -> str:
     return (
         "List every distinct work position in the following CV as a header (no bullets). "
-        "Return the JSON:\n\n" + raw_text
+        # ADR-084 amended 2026-09-26, point D7.
+        "Return the JSON:\n\n" + fence_document(raw_text)
     )
 
 
@@ -165,7 +168,8 @@ def build_extraction_detail_prompt(raw_text: str, position: dict[str, Any]) -> s
     )
     return (
         f"POSITION (extract details for this one only):\n{header}\n\n"
-        f"FULL CV TEXT:\n{raw_text}\n\n"
+        # ADR-084 amended 2026-09-26, point D8.
+        f"{fence_document(raw_text, header='FULL CV TEXT:')}\n\n"
         "Return this position's responsibilities, achievements, and technologies as JSON."
     )
 
@@ -234,5 +238,6 @@ Rules:
 def build_extraction_core_prompt(raw_text: str) -> str:
     return (
         "Extract every non-work-experience profile section from the following CV. "
-        "Return the JSON:\n\n" + raw_text
+        # ADR-084 amended 2026-09-26, point D9.
+        "Return the JSON:\n\n" + fence_document(raw_text)
     )

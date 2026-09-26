@@ -240,3 +240,44 @@ def test_notice_auto_dismiss_response_key_matches_the_declared_env_var():
     assert entry.name in Settings.model_fields
     assert entry.name in SettingsResponse.model_fields
     assert entry.default == str(Settings.model_fields[entry.name].default)
+
+
+# --------------------------------------------------------------------------
+# 3. Start order (Infra #605)
+# --------------------------------------------------------------------------
+
+
+def test_retention_waits_for_the_migrated_backend(compose):
+    """The backend runs the alembic migrations at boot and turns healthy after
+    them. A retention worker that waits only for postgres runs its first pass
+    against an empty schema on a fresh install (UndefinedTableError, Infra #605)."""
+    deps = compose["services"]["retention"]["depends_on"]
+    assert deps["backend"]["condition"] == "service_healthy"
+    assert deps["postgres"]["condition"] == "service_healthy"
+    # the condition is only meaningful because the backend HAS a healthcheck
+    assert "healthcheck" in compose["services"]["backend"]
+
+
+# --------------------------------------------------------------------------
+# 4. The copy-paste MCP client config (Agent #676, JF-O-8.2)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("readme", ["README.md", "README.de.md"])
+def test_readme_mcp_client_config_is_valid_json_and_names_the_shipped_service(readme, compose):
+    """The `mcpServers` block is copied verbatim into a client config — it must
+    parse, run the compose `mcp` service without a TTY (-T: stdio needs a pipe),
+    and that service must exist in the shipped compose file with stdin open."""
+    import json
+
+    text = (_REPO_ROOT / readme).read_text(encoding="utf-8")
+    m = re.search(r"```json\n(\{\n  \"mcpServers\".*?)\n```", text, re.S)
+    assert m, f"{readme}: no mcpServers block"
+    cfg = json.loads(m.group(1))["mcpServers"]["applire"]
+    assert cfg["command"] == "docker"
+    args = cfg["args"]
+    assert args[0] == "compose" and "-f" in args
+    assert args[-4:] == ["run", "--rm", "-T", "mcp"]
+    svc = compose["services"]["mcp"]
+    assert svc["command"] == "python -m applire.mcp"
+    assert svc.get("stdin_open") is True

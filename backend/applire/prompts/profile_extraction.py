@@ -74,6 +74,8 @@
 import json
 from typing import Any
 
+from applire.services.untrusted_text import fence_document
+
 SYSTEM_PROMPT = """\
 You are an expert CV analyst specialised in the DACH (Germany, Austria, Switzerland) job market.
 Your task is to extract structured profile information from raw CV or LinkedIn data and return it as JSON.
@@ -307,7 +309,8 @@ def build_user_prompt(raw_text: str) -> str:
         "null for anything missing. Split each role's bullets into responsibilities "
         "(duties) and achievements (outcomes with a metric or benchmark), and list "
         "that role's concrete tools under technologies.\n\n"
-        + raw_text
+        # ADR-084 amended 2026-09-26, point D4: the upload is data, never instructions.
+        + fence_document(raw_text)
     )
 
 
@@ -329,7 +332,8 @@ def build_retry_prompt(previous_draft: dict[str, Any], feedback: str, source: st
         "Patch the JSON to address every issue, re-reading the SOURCE TEXT as the source "
         "of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
-        f"SOURCE TEXT (source of truth):\n{source}\n\n"
+        # ADR-084 amended 2026-09-26, point D6.
+        f"{fence_document(source, header='SOURCE TEXT (source of truth):')}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )

@@ -38,6 +38,8 @@ import {
   type CVUploadResult,
   type ImportNotAppliedItem,
 } from "@/lib/import-cv";
+import { analyzeGapsAsync } from "@/lib/gap-analysis";
+import { STEP_ROUTE } from "@/lib/flow-routing";
 
 // Open gate states still require the user to merge or discard; resolved_* are inert.
 const OPEN_GATES: ReadonlySet<string> = new Set(["not_a_cv", "name_divergence"]);
@@ -84,7 +86,9 @@ async function readApiError(res: Response): Promise<string> {
 
 // The current phase of an in-flight update (#114 / US177): honest, stepped labels
 // instead of a static "Uploading…" through minutes of LLM merge work.
-type UploadPhase = "idle" | "uploading" | "merging" | "importing";
+// "analysing" (#677): the in-flow path with a job runs the async gap analysis
+// before it advances the flow — a third, honestly named step.
+type UploadPhase = "idle" | "uploading" | "merging" | "importing" | "analysing";
 
 export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImportViewProps) {
   const t = useTranslations("profileImport");
@@ -224,16 +228,21 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     refreshHistory();
     onImported?.();
 
-    if (flowId) {
-      try {
-        await proceedToGaps(flowId);
-      } catch (fe: unknown) {
-        setFlowError(fe instanceof Error ? fe.message : t("flowErrorGeneric"));
-      }
-    }
+    if (flowId) await advanceFlow(flowId);
     // F3 (#72): standalone updates no longer silently bounce the user. We show a
     // success strip with an explicit "Review what changed" CTA into the merge
     // review (/profile#import-log) instead, so the hand-off is clear.
+  }
+
+  /** In-flow hand-off to the gap step; a failure lands in the amber strip with a retry. */
+  async function advanceFlow(fId: string) {
+    setFlowError("");
+    try {
+      await proceedToGaps(fId);
+    } catch (fe: unknown) {
+      if (fe instanceof DOMException && fe.name === "AbortError") return; // unmounted
+      setFlowError(fe instanceof Error ? fe.message : t("flowErrorGeneric"));
+    }
   }
 
   function goToReview() {
@@ -269,20 +278,40 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     // let the user review what changed (same hand-off as the standalone path).
     if (!job_id) return;
 
-    const gapRes = await fetch(`${API_BASE}/api/job/${job_id}/gaps`, { method: "POST" });
-    if (!gapRes.ok) {
-      const msg = await readApiError(gapRes);
-      throw new Error(gapRes.status === 504 ? `KI-Zeitüberschreitung: ${msg}` : msg);
+    // #677: the synchronous POST /api/job/{id}/gaps was removed with the async gap
+    // jobs (97915fc3, 2026-07-01) — only GET remains, so this path answered 405.
+    // Start the gap job and poll it exactly like the flow index does
+    // (analyzeGapsAsync), then advance with its id as the step's artifact.
+    setLoading(true);
+    setPhase("analysing");
+    let gapId: string;
+    try {
+      const gap = await analyzeGapsAsync(job_id, {
+        apiBase: API_BASE,
+        signal: abortRef.current?.signal,
+      });
+      gapId = gap.id;
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      throw new Error(t("gapAnalysisFailed"));
+    } finally {
+      setLoading(false);
+      setPhase("idle");
     }
-    const gapData = await gapRes.json();
 
     const advRes = await fetch(`${API_BASE}/api/flow/${fId}/advance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ step: "gap_analysis", artifact_id: gapData.id }),
+      body: JSON.stringify({ step: "gap_analysis", artifact_id: gapId }),
     });
     if (!advRes.ok) throw new Error(await readApiError(advRes));
-    router.push(`/flow/${fId}/gaps`);
+    // Route by the step the backend now reports (the flow index's own rule,
+    // STEP_ROUTE) rather than a hard-coded segment. Not a push to the bare
+    // /flow/{id}: the flow layout keeps `ready` across in-flow navigation, so
+    // the index page would mount and advance the flow a second time.
+    const newState = await advRes.json().catch(() => ({}));
+    const segment = STEP_ROUTE[(newState as { current_step?: string }).current_step ?? ""];
+    router.push(segment ? `/flow/${fId}/${segment}` : `/flow/${fId}`);
   }
 
   return (
@@ -407,8 +436,18 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                         },
                         {
                           label: t("stepMerging"),
-                          status: phase === "merging" ? "active" : "pending",
+                          status:
+                            phase === "merging"
+                              ? "active"
+                              : phase === "analysing"
+                                ? "done"
+                                : "pending",
                         },
+                        // #677: only on the in-flow path with a job, and only
+                        // once it runs — a no-JD import never shows this step.
+                        ...(phase === "analysing"
+                          ? [{ label: t("stepAnalysingGaps"), status: "active" }]
+                          : []),
                       ] as ProgressStep[])
                 }
                 title={t("progressTitle")}
@@ -492,6 +531,18 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
               <span aria-hidden="true" className="material-symbols-outlined text-amber-500 text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
               <span className="text-[13px] font-semibold text-amber-700">{flowError}</span>
+              {/* #677: the profile merge already landed — retry only the hand-off
+                  to the gap step, never the upload. */}
+              {flowId && !loading && (
+                <button
+                  type="button"
+                  data-testid="flow-retry"
+                  onClick={() => void advanceFlow(flowId)}
+                  className="ml-auto text-[12px] font-bold text-amber-800 px-3 py-1.5 rounded-full border border-amber-400/60 hover:bg-amber-100 transition-colors"
+                >
+                  {tproc("retry")}
+                </button>
+              )}
             </div>
           )}
         </div>

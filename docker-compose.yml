@@ -163,8 +163,14 @@ services:
         required: false
     volumes:
       - applire_uploads:/app/data/uploads
+    # Waits for the MIGRATED backend, not just postgres: the backend runs the
+    # alembic migrations at boot and turns healthy after them, so on a first
+    # start the worker's first pass no longer hits an empty schema
+    # (UndefinedTableError, Infra #605).
     depends_on:
       postgres:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     command: sh -c "while true; do python -m applire.retention; sleep 86400; done"
     extra_hosts:

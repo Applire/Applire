@@ -1164,12 +1164,11 @@ async def ingest_cv(
     # can overwrite anything; safe default = don't merge. A held merge parks the staged
     # extraction for the user to resolve (merge / discard).
     existing = await _get_latest(db)
-    account_name = (
-        MasterProfileData.model_validate(existing.profile_json).personal_info.name
-        if existing
-        else None
-    )
-    gate = evaluate_merge_gate(account_name, incoming)
+    vault = MasterProfileData.model_validate(existing.profile_json) if existing else None
+    account_name = vault.personal_info.name if vault else None
+    # The vault is passed for the nameless-extraction branch (ADR-041 amended
+    # 2026-09-26, #674 line (b)): no name + no employer in common → held.
+    gate = evaluate_merge_gate(account_name, incoming, vault)
 
     if gate.gate != "none":
         record = await _persist_upload_record(

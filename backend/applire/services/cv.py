@@ -5255,7 +5255,11 @@ async def _update_ats_report(
     # Oracle sees), so it cannot depend on a name that block assigns.
     ledger: list[dict] | None = None
     try:
-        from applire.services.ats_audit import _audit_cv_text, extract_text_and_pages
+        from applire.services.ats_audit import (
+            _audit_cv_text,
+            extract_text_and_pages,
+            non_claim_names_for_job,
+        )
         from applire.services.cv_section_editor import apply_overrides_to_tailored
 
         if measured is not None:
@@ -5331,6 +5335,8 @@ async def _update_ats_report(
             # seam, which is user-mutable while a generation is in flight).
             document_language=getattr(record, "document_language", None),
             vault_index=grounding_vault_index(profile_json),  # ADR-090 cl. 4
+            # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim.
+            non_claim=non_claim_names_for_job(job),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -5435,6 +5441,7 @@ async def _update_ats_report(
     # failure must never take the PDF audit down, or vice versa.
     try:
         from applire.services.office_export.cv_docx import render_cv_docx
+        from applire.services.ats_audit import non_claim_names_for_job
         from applire.services.office_export.extract import audit_cv_docx
 
         # #563 (D): the .docx report has its own lineage, so it carries its OWN previous
@@ -5509,6 +5516,7 @@ async def _update_ats_report(
             terminal_review=terminal_review,
             previous_report=previous_docx_report,
             vault_index=grounding_vault_index(docx_profile_json),  # ADR-090 cl. 4
+            non_claim=non_claim_names_for_job(docx_job),  # WP-R, same names as the PDF report
         ).model_dump()
     except Exception:
         logger.exception(
@@ -5552,9 +5560,13 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
             )
             report = None
     from applire.services.review_state import load_state
+    from applire.services.truthfulness_summary import summarize
 
     return ATSReportResponse(document_id=record.id, status=record.status, report=report,
-                             review_state=load_state(record.review_state))
+                             review_state=load_state(record.review_state),
+                             # ADR-058 amended 2026-09-26 (ruling A-1): both doors.
+                             truthfulness=summarize(record.truthfulness_report,
+                                                    record.ats_report))
 
 
 async def get_cv_truthfulness_report(

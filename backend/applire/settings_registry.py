@@ -651,7 +651,7 @@ _register_all(
             introduced_in="0.42.0",
             description=(
                 "auto | off. ON by default. 'auto' hands your model the reconciler's "
-                "15-operation vocabulary as a JSON schema instead of only describing "
+                "operation vocabulary as a JSON schema instead of only describing "
                 "it in prose, on the one call that writes your vault. It costs about "
                 "2,300 extra input tokens per interview turn and helps a model that "
                 "drops a required field or mangles an operation name — measured, one "

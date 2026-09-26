@@ -460,6 +460,34 @@ GET /api/cv/{cv_id}/pdf
 
 ### Model Context Protocol (MCP)
 
+**Connect your agent — copy-paste config.** Most MCP clients (Claude Desktop,
+Claude Code, Cursor, …) take an `mcpServers` block. For a Docker install, point
+it at the `docker-compose.yml` you installed from (use its absolute path); the
+client then starts the MCP server as a short-lived container next to your
+running Applire, over stdio:
+
+```json
+{
+  "mcpServers": {
+    "applire": {
+      "command": "docker",
+      "args": [
+        "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
+        "run", "--rm", "-T", "mcp"
+      ]
+    }
+  }
+}
+```
+
+`-T` matters: it gives the server a plain pipe instead of a terminal, which is
+what the stdio transport needs. Start Applire first (`docker compose up -d`);
+the MCP container shares its database and your `.env`. Set
+`APPLIRE_BASE_URL=http://localhost` (or your public address) in that `.env`, so
+the document links your agent gets back open in your browser.
+
+For a source checkout, run the server directly instead:
+
 ```bash
 # Start MCP server (stdio transport)
 python -m applire.mcp
@@ -513,10 +541,10 @@ nginx/Caddy; the server logs a startup warning when it's unset. See
 |------|-------------|
 | `generate_cv(job_id, target_pages?)` | Initiate async CV generation; optional `target_pages` pins the page count for this run; returns `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Poll CV generation status (`pending` / `generating` / `ready` / `failed`) |
-| `get_cv_ats_report(cv_id)` | Persisted ATS audit report for a generated CV — named pass/fail checks + present/missing keywords, no aggregate score |
+| `get_cv_ats_report(cv_id)` | Persisted ATS audit report for a generated CV — named pass/fail checks + present/missing keywords, no aggregate score — plus `truthfulness`: the truthfulness check's verdict counts and `stop_and_fix` (the review panel lists an open finding — a flagged claim or an unbacked keyword; do not send before resolving it) |
 | `generate_cover_letter(job_id)` | Generate a cover letter (requires an existing flow session for the job); returns `cover_letter_id`, `html_url`, `pdf_url` |
 | `get_cover_letter_status(cover_letter_id)` | Poll cover-letter generation status (`pending` / `generating` / `ready` / `failed`) |
-| `get_cover_letter_ats_report(cover_letter_id)` | Persisted ATS audit report for a generated cover letter |
+| `get_cover_letter_ats_report(cover_letter_id)` | Persisted ATS audit report for a generated cover letter, with the same `truthfulness` summary |
 
 **Bring your own intelligence (ADR-054) — à la carte, no prior `generate_*` call needed**
 

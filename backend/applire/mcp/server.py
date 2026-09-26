@@ -134,7 +134,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-18"
+GUIDE_VERSION = "2026-09-26"
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +468,8 @@ async def import_cv(
         if len(raw) > MAX_CV_BYTES:
             raise invalid_input(
                 "CV exceeds 10 MB after decoding — "
-                "upload large files via REST POST /api/profile/upload instead."
+                "upload large files via REST POST /api/profile/import-jobs "
+                "(async; poll GET /api/profile/import-jobs/{import_id}) instead."
             )
         async with get_db() as db:
             uid = await _import_user_id(db)
@@ -1098,8 +1099,9 @@ async def get_cv_status(cv_id: str) -> dict:
 @mcp.tool(
     description=(
         "Get the persisted ATS audit report for a generated CV. Returns "
-        "{document_id, status, report, review_state}; report is null while "
-        "pending — named checks + keyword presence, no aggregate score."
+        "{document_id, status, report, review_state, truthfulness}; report is "
+        "null while pending — named checks + keyword presence, no aggregate "
+        "score."
     )
 )
 async def get_cv_ats_report(cv_id: str) -> dict:
@@ -1380,8 +1382,9 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
 @mcp.tool(
     description=(
         "Get the persisted ATS audit report for a generated cover letter. "
-        "Returns {document_id, status, report, review_state}; report is null "
-        "while pending — named checks + keyword presence, no aggregate score."
+        "Returns {document_id, status, report, review_state, truthfulness}; "
+        "report is null while pending — named checks + keyword presence, no "
+        "aggregate score."
     )
 )
 async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:

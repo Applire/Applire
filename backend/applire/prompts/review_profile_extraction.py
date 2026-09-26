@@ -78,6 +78,8 @@
 
 import json
 
+from applire.services.untrusted_text import fence_document
+
 from applire.prompts.review_severity import review_output_schema
 
 REVIEW_SYSTEM_PROMPT = """\
@@ -130,7 +132,8 @@ def build_review_prompt(raw_cv_text: str, extracted_json: dict) -> str:
     """
     return (
         "Review this extracted profile against the source CV text.\n\n"
-        f"SOURCE CV TEXT:\n{raw_cv_text}\n\n"
+        # ADR-084 amended 2026-09-26, point D5.
+        f"{fence_document(raw_cv_text, header='SOURCE CV TEXT:')}\n\n"
         f"EXTRACTED PROFILE:\n{json.dumps(extracted_json, ensure_ascii=False, indent=2)}\n\n"
         "Does the extracted profile faithfully represent the source — no duplicate entries, "
         "no fabricated entries, no invented dates, no invented bullets? Return your review JSON."

@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-09-18 · re-fetch anytime with `get_guide`*
+*Revision 2026-09-26 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -95,6 +95,32 @@ minimal work): `import_cv` → `analyze_jd` → `analyze_gaps` →
 also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
 advisory when the letter states something your CV doesn't back at the same
 depth. Read-only, never mutates either document; null until the pass runs.
+
+**Stop on a red verdict.** After every generation, read `truthfulness` on the
+ATS report (`get_cv_ats_report` / `get_cover_letter_ats_report`) before the
+document leaves:
+
+- `stop_and_fix: true` — `flagged` rows are open: the same rows the human sees
+  in the review panel. Two kinds, both on this envelope:
+  - a job keyword the document uses that the profile does not back — listed in
+    `report.keywords.present_unsupported` (the wording that matched is in
+    `present_unsupported_matches`). **Read each one before acting — these can be
+    false positives:** a phrase that describes the employer's business or
+    quotes the posting is not a claim about the candidate. Say so to the human
+    rather than removing it or inventing evidence for it;
+  - a claim the truthfulness check graded `inflated`, `misattributed` or
+    `unbacked` — call `audit_document(document_id=...)` for the claims.
+
+  Do not send the document until each row is resolved: back it with evidence
+  (`submit_testimony`), or have it removed and generate again, and tell the
+  human what you changed.
+- `available: false` — no audit is stored for this document yet (still pending,
+  or the audit failed). Call `audit_document(document_id=...)`; never read the
+  missing verdict as clean.
+- `stop_and_fix: false` — nothing open. `counts` carries the truthfulness
+  check's verdict tally (keyword rows are not verdicts and are not in it); `unverifiable_dominated: true` means most claims could not be checked
+  against the vault — say so rather than calling the document verified.
+
 Use
 `start_flow`/`advance_flow`/`get_flow_state` to track the state machine —
 `flow_id` is your stable recovery handle; steps that produce artifacts need
@@ -459,8 +485,10 @@ apply it.
   existing application (`get_application`, `list_applications`) instead of
   creating a duplicate.
 - **`import_cv`** takes base64 PDF (≤10 MB) or text; call once per document
-  to merge several CVs. It returns a summary, never the raw profile. **Read its
-  three merge fields — a `partial` import that you report as "done" is the
+  to merge several CVs. A larger file goes through the human's browser upload,
+  or REST `POST /api/profile/import-jobs` (async — poll
+  `GET /api/profile/import-jobs/{import_id}`). It returns a summary, never the
+  raw profile. **Read its three merge fields — a `partial` import that you report as "done" is the
   candidate silently losing a section of their CV:**
   - `merge_status` is `applied` (everything landed, or the only unlanded items
     are bookkeeping — see below) or `partial` (at least one incoming item is

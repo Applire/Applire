@@ -39,6 +39,8 @@
 import json
 from typing import Any
 
+from applire.services.untrusted_text import fence_document
+
 from applire.prompts.review_severity import review_output_schema
 
 CV_EXTRACTION_REVIEW_SYSTEM_PROMPT = """\
@@ -138,7 +140,8 @@ def build_cv_extraction_review_prompt(raw_cv_text: str, extracted_json: dict) ->
         "approve unless there is a material fabrication, a fact attached to the wrong entity, or a "
         "structurally invalid entry. Source-supported normalisation, paraphrase and date "
         "reformatting are NOT defects.\n\n"
-        f"SOURCE CV TEXT:\n{raw_cv_text}\n\n"
+        # ADR-084 amended 2026-09-26, point D2.
+        f"{fence_document(raw_cv_text, header='SOURCE CV TEXT:')}\n\n"
         f"EXTRACTED PROFILE:\n{json.dumps(extracted_json, ensure_ascii=False, indent=2)}\n\n"
         "Return your review JSON."
     )
@@ -161,7 +164,8 @@ def build_cv_extraction_retry_prompt(
         "Patch the JSON to address every issue, re-reading the SOURCE CV TEXT as the source "
         "of truth, and return the corrected object.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
-        f"SOURCE CV TEXT (source of truth):\n{source}\n\n"
+        # ADR-084 amended 2026-09-26, point D3.
+        f"{fence_document(source, header='SOURCE CV TEXT (source of truth):')}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         "Return ONLY the corrected JSON."
     )

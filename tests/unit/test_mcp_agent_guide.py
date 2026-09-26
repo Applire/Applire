@@ -275,3 +275,44 @@ def test_guide_states_that_cv_generation_does_not_require_the_id():
     assert "cv_generation" not in _ARTIFACT_REQUIRED
     guide = _guide()
     assert 'advance_flow(step="cv_generation", artifact_id=<cv_id>)' in guide
+
+
+# ---------------------------------------------------------------------------
+# Agent collector #676 (F-12, ADR-058 amended 2026-09-26, ruling A-1): the
+# guided pipeline must be told where the red verdict is and what to do with it
+# ---------------------------------------------------------------------------
+
+
+def test_guide_tells_the_guided_pipeline_to_stop_on_a_red_verdict():
+    """The founder's edge UAT (2026-09-20, F-12): an agent that followed the
+    guided pipeline never saw a `misattributed` verdict the human saw. The
+    envelope now carries `truthfulness`; the guide must name the field, the
+    stop, the tool that lists the claims, and that `available: false` is not
+    clean — in the guided-pipeline section, where the agent reads its path."""
+    guide = _guide()
+    start = guide.index("**Guided pipeline**")
+    end = guide.index("**Which artifact id goes with which step.**")
+    section = guide[start:end]
+    for needle in (
+        "truthfulness",
+        "stop_and_fix: true",
+        "Do not send the document",
+        "audit_document(document_id=...)",
+        "available: false",
+        "never read the\n  missing verdict as clean",
+        # ruling A-1b: the count covers the keyword rows too, and the agent
+        # must read them before acting — they can be false positives
+        "the same rows the human sees",
+        "present_unsupported",
+        "false positives",
+        "Do not send the document until each row is resolved",
+    ):
+        assert needle in section, needle
+
+
+def test_guide_points_large_imports_at_the_async_door_not_the_sync_upload():
+    """Vault #674 line (c), agent half: the sync `/upload` door is cut by nginx
+    at 300 s while the ingest keeps writing."""
+    guide = _guide()
+    assert "POST /api/profile/import-jobs" in guide
+    assert "/api/profile/upload" not in guide
