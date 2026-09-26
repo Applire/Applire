@@ -563,3 +563,51 @@ describe("LiabilityPanel — locking (ADR-089 clause 8, one open micro-session a
     expect(onActiveChange).toHaveBeenLastCalledWith(false);
   });
 });
+
+describe("LiabilityPanel — ruling M-1b: the follow-up label names what the follow-up asks", () => {
+  beforeEach(() => {
+    global.fetch = vi.fn();
+  });
+
+  it("lists follow_up_concepts, not the record's whole open list", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(jsonResponse({ session_id: "sess-1", question: "Tell me about RAG." }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          complete: false,
+          question: "And Helm?",
+          choices: null,
+          follow_up_concepts: ["Helm"],
+          cluster_coverage: {
+            cluster_id: "cluster-rag",
+            coverage: "partly_covered",
+            open_concepts: ["Vector search", "Helm"],
+            budget_remaining: 1,
+          },
+        })
+      );
+    render(
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={[{ concept: "RAG" }]}
+          clusters={CLUSTERS}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />
+      )
+    );
+    fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
+    await screen.findByTestId("liability-question-RAG");
+    fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), {
+      target: { value: "Built a production retrieval pipeline over our docs." },
+    });
+    fireEvent.click(screen.getByTestId("liability-submit-RAG"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("liability-follow-up-label-RAG")).toHaveTextContent("Helm")
+    );
+    expect(screen.getByTestId("liability-follow-up-label-RAG")).not.toHaveTextContent("Vector search");
+  });
+});

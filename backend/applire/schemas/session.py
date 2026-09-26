@@ -88,6 +88,10 @@ class SessionCreateResponse(BaseModel):
     # progress (SessionStateResponse already exposed this — this closes the
     # same gap on the create/resume response the frontend actually calls).
     questions_asked: int = 1
+    # Ruling M-1b — a RESUMED micro-session waiting on a partial-coverage
+    # follow-up reports what that follow-up asks about (see
+    # SessionMessageResponse.follow_up_concepts). None otherwise.
+    follow_up_concepts: list[str] | None = None
 
 
 class ConflictSummary(BaseModel):
@@ -188,6 +192,12 @@ class SessionMessageResponse(BaseModel):
     # follow-up turn `complete` is False and `question`/`choices` carry the
     # follow-up exactly like any other next question.
     cluster_coverage: ClusterCoverage | None = None
+    # Ruling M-1b — on a partial-coverage follow-up (ADR-089 clause 2), the
+    # requirements the follow-up asks about: the literal candidates minus what
+    # the drafting model judged the answer covered in other words (ruling M-1).
+    # The follow-up label names THESE; `cluster_coverage.open_concepts` stays
+    # the strict record. None on every other turn.
+    follow_up_concepts: list[str] | None = None
 
 
 class SessionStateResponse(BaseModel):
@@ -254,3 +264,8 @@ class InterviewState(TypedDict):
     # is ever copied onto a row with a longer lifetime. Missing on a row
     # persisted before ADR-089 (it then contributes no prior exchange).
     cluster_turns: list[dict]
+    # Ruling M-1b — the members the WAITING partial-coverage follow-up asks
+    # about (after ruling M-1's split), so a resumed micro-session can label it
+    # the way the turn that asked it did. Cleared at the start of every
+    # answered turn; absent on every other kind of question.
+    follow_up_concepts: list[str]

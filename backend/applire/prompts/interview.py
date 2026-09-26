@@ -421,12 +421,27 @@ def _already_asked_instruction(
         from applire.services.untrusted_text import fence_inline
 
         focus = fence_inline(", ".join(str(f) for f in follow_up_focus if f))
+        # Ruling M-1 (ADR-089 amended 2026-09-25): the list is what a LITERAL
+        # read leaves open (`_members_named_by`, a fact). Whether the answer
+        # covered one of them in other words is a judgement (ADR-062 clause 1),
+        # so it is the model's, here, in the call that drafts the question —
+        # returned as `covered_by_answer` and never read as coverage.
         lead = (
             "\n\nFOLLOW-UP on this cluster: the candidate's last answer (see the "
-            "Recent conversation) covered part of it. Still open: "
-            f"{focus}. Ask ONE follow-up question aimed at exactly these open "
-            "requirements, naming them — never ask again about what an earlier "
-            "answer already covered."
+            "Recent conversation) covered part of it. Still open by a literal "
+            f"reading: {focus}. First judge each of these against that last "
+            "answer, as a recruiter reading it would: a requirement the answer "
+            "already covered IN OTHER WORDS — a synonym, the same activity or "
+            "responsibility described differently, another language — is covered. "
+            "A related but different skill, a clearly lower level than the "
+            "requirement names (assisted where it asks for led), or a bare mention "
+            "without substance is NOT covered. Add the key \"covered_by_answer\" "
+            "to the JSON object: the requirements from the list above that the "
+            "answer covered, copied exactly as written there ([] when none). Then "
+            "ask ONE follow-up question aimed at exactly the requirements NOT in "
+            "covered_by_answer, naming them — never ask again about what an "
+            "earlier answer already covered. If every listed requirement is "
+            "covered, set \"question\" to \"\" and \"choices\" to null."
         )
     elif has_earlier:
         lead = (

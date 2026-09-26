@@ -2023,7 +2023,10 @@ async def _record_cluster_turn(
     # it again is the re-ask of what they just said (founder UAT 2026-09-23).
     # "Names it" is the seam's own eligibility fact — `surface_present` over
     # the member's ledger surface forms — and decides only what is ASKED next,
-    # never coverage: the record stays strict (clause 2's own line).
+    # never coverage: the record stays strict (clause 2's own line). Ruling M-1
+    # (2026-09-25): a literal read is only the CANDIDATE set — the drafting
+    # call then judges which of them the answer covered in other words and
+    # asks only about the rest (`_ask_partial_coverage_follow_up`).
     #
     # With no ledger on the row there is no evidence to classify against:
     # every member reads `open` by absence, which is no reason to ask again —
@@ -2193,6 +2196,7 @@ def _resumed_response(
         # #259 run-4 finding 9 — the real server-tracked count, so a page
         # refresh restores "N of up to M" instead of resetting to "1 of…".
         questions_asked=real_questions_asked,
+        follow_up_concepts=list(state.get("follow_up_concepts") or []) or None,
     )
 
 
@@ -3203,6 +3207,9 @@ async def send_message(
 
     state: InterviewState = dict(record.state)
     state["messages"].append({"role": "user", "content": message})
+    # Ruling M-1b: the waiting follow-up's label belongs to the question this
+    # message answers; a new partial-coverage follow-up sets it again.
+    state.pop("follow_up_concepts", None)
 
     # --- Done-signal check (pre-LLM, deterministic) ---
     if is_termination_signal(message):
@@ -3498,10 +3505,15 @@ async def send_message(
         and not resolving_confirmation
         and gap_coverage.remaining_budget(recorded_cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP) > 0
     ):
-        return await _ask_partial_coverage_follow_up(
+        follow_up = await _ask_partial_coverage_follow_up(
             record, state, db, provider, current_gap, current_idx, open_members,
             updated_profile, turn, questions_for_gap, lang, cluster_coverage,
         )
+        if follow_up is not None:
+            return follow_up
+        # Ruling M-1: the drafting model judged every literally-open member
+        # covered by this answer in other words — no follow-up, nothing spent;
+        # the addressed turn advances below like any other.
 
     if (
         addressed
@@ -3657,7 +3669,7 @@ async def _ask_partial_coverage_follow_up(
     questions_for_gap: int,
     lang: str,
     cluster_coverage: ClusterCoverage | None,
-) -> SessionMessageResponse:
+) -> SessionMessageResponse | None:
     """ADR-089 clause 2 — the ONE follow-up a partially covering answer earns.
 
     Spends the cluster's next budget slot exactly like the no-change retry
@@ -3667,8 +3679,18 @@ async def _ask_partial_coverage_follow_up(
     (``follow_up_focus``) — so the choices keep the #110/ADR-062 grounding
     guard and the ADR-064 coverage rules, and the US265 nudge stays off (the
     cluster's opening question already had it).
+
+    Ruling M-1 (ADR-089 amended 2026-09-25): ``open_members`` is the LITERAL
+    focus — the candidates. The same drafting call judges which of them the
+    answer covered in other words (``covered_by_answer``, the model's
+    judgement per ADR-062) and asks only about the rest. When nothing is left,
+    returns ``None`` with the session state as it found it: no question, no
+    budget slot spent, the cluster's members untouched — the caller advances.
+    The judgement never reaches the per-gap record; coverage stays strict.
     """
-    qpg = dict(state.get("questions_per_gap", {}))
+    qpg_before = dict(state.get("questions_per_gap", {}))
+    clusters_before = state.get("gap_clusters_by_id")
+    qpg = dict(qpg_before)
     qpg[current_gap] = questions_for_gap + 1
     state["questions_per_gap"] = qpg
     gap_category = (state.get("gap_categories") or {}).get(current_gap)
@@ -3691,10 +3713,27 @@ async def _ask_partial_coverage_follow_up(
         lang=lang,
         follow_up_focus=list(open_members),
     )
-    question = q_data["question"]
+    remaining = list(q_data.get("follow_up_remaining", open_members))
+    question = str(q_data.get("question") or "").strip()
+    if not remaining or not question:
+        state["questions_per_gap"] = qpg_before
+        state["gap_clusters_by_id"] = clusters_before
+        logger.info(
+            "Partial-coverage follow-up on %s not asked: the answer covered %s in other words",
+            current_gap, q_data.get("covered_by_answer") or open_members,
+        )
+        return None
+    if remaining != list(open_members):
+        # The follow-up is ABOUT what is left, so the session's copy narrows
+        # to it (the #188 seam and probe selection of its answer read it).
+        clusters_by_id = dict(state.get("gap_clusters_by_id") or {})
+        if isinstance(clusters_by_id.get(current_gap), dict):
+            clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": remaining}
+            state["gap_clusters_by_id"] = clusters_by_id
     choices = q_data.get("choices")
     state["current_question"] = question
     state["current_choices"] = choices
+    state["follow_up_concepts"] = remaining
     state["messages"].append({"role": "assistant", "content": question})
     record.state = state
     record.updated_at = datetime.now(timezone.utc)
@@ -3714,6 +3753,7 @@ async def _ask_partial_coverage_follow_up(
         denial_recorded=turn.denial_recorded,
         changes_applied=turn.addressed,
         cluster_coverage=cluster_coverage,
+        follow_up_concepts=remaining,
     )
 
 

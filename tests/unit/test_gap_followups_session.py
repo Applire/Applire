@@ -751,6 +751,186 @@ def test_members_named_by_reads_the_ledger_surface_forms():
 
 
 # ---------------------------------------------------------------------------
+# Ruling M-1 — the drafting model judges what the answer covered in other words
+# ---------------------------------------------------------------------------
+
+
+def _judging_writer(*replies):
+    """A question-writer double whose replies may carry the drafting model's
+    ruling-M-1 split, the way the real generator returns it: a str is a plain
+    question; a dict is returned as-is (``question``, ``covered_by_answer``,
+    ``follow_up_remaining``)."""
+    seq = list(replies)
+    calls: list[dict] = []
+
+    async def _gen(state, profile, provider, **kwargs):
+        calls.append({
+            "gap": state["critical_gaps"][state["current_gap_index"]],
+            "cluster_gaps": list(
+                ((state.get("gap_clusters_by_id") or {}).get(
+                    state["critical_gaps"][state["current_gap_index"]]) or {}).get("gaps") or []
+            ),
+            **kwargs,
+        })
+        r = seq.pop(0) if len(seq) > 1 else seq[0]
+        if isinstance(r, dict):
+            return dict(r)
+        return {"question": r, "choices": [f"choice for {r}"]}
+
+    mock = AsyncMock(side_effect=_gen)
+    mock.calls = calls
+    return mock
+
+
+_ALL_COVERED = {"question": "", "choices": None, "covered_by_answer": ["Grafana", "SLOs"],
+                "follow_up_remaining": []}
+
+
+@pytest.mark.asyncio
+async def test_a_follow_up_the_answer_covered_in_other_words_is_not_asked(db):
+    """The flagship shape (E1: "zwei Fertigungsbereiche" for "Produktion"): the
+    answer does not NAME the open members, the drafting model judges it covered
+    them anyway — no follow-up, no budget slot spent, and the record stays
+    strict (the judgement decides what is asked, never coverage)."""
+    from applire.models.session import InterviewSession
+
+    clusters, ledger = _b_cluster_seed()
+    job, _profile, _ = await _seed(db, clusters=clusters, ledger=ledger)
+    writer = _judging_writer("Observability — Prometheus, Grafana, SLOs?", _ALL_COVERED)
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(
+        db, created.session_id,
+        "I built the Prometheus setup, the dashboards on top of it, and the "
+        "availability targets with error budgets for all four services.",
+        _writing_bridge(add_skills=["Prometheus"]), writer,
+    )
+
+    assert writer.calls[-1]["follow_up_focus"] == ["Grafana", "SLOs"], "the literal candidates"
+    assert resp.complete is True, "nothing left to ask — the micro-session completes"
+    assert resp.question in (None, "")
+    assert resp.cluster_coverage.open_concepts == ["Prometheus", "Grafana", "SLOs"], (
+        "the record stays strict: the judgement never marks a member covered"
+    )
+    assert resp.cluster_coverage.budget_remaining == _PER_GAP - 1, "the follow-up slot is unspent"
+    record = await db.get(InterviewSession, created.session_id)
+    assert record.state["questions_per_gap"][_INFRA] == 1
+    assert record.state["gap_clusters_by_id"][_INFRA]["gaps"] == ["Prometheus", "Grafana", "SLOs"], (
+        "the session copy keeps its members — nothing was narrowed for a question never asked"
+    )
+    assert "" not in [m.get("content") for m in record.state["messages"]]
+
+
+@pytest.mark.asyncio
+async def test_a_follow_up_asks_only_what_the_model_left_open(db):
+    from applire.models.session import InterviewSession
+
+    clusters, ledger = _b_cluster_seed()
+    job, _profile, _ = await _seed(db, clusters=clusters, ledger=ledger)
+    writer = _judging_writer(
+        "Observability — Prometheus, Grafana, SLOs?",
+        {"question": "And SLOs — did you define any?", "choices": None,
+         "covered_by_answer": ["Grafana"], "follow_up_remaining": ["SLOs"]},
+    )
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(
+        db, created.session_id,
+        "I built the Prometheus setup and the dashboards the on-call team reads.",
+        _writing_bridge(add_skills=["Prometheus"]), writer,
+    )
+
+    assert resp.complete is False
+    assert resp.question == "And SLOs — did you define any?"
+    assert resp.follow_up_concepts == ["SLOs"], "ruling M-1b: the label names what is asked"
+    record = await db.get(InterviewSession, created.session_id)
+    assert record.state["gap_clusters_by_id"][_INFRA]["gaps"] == ["SLOs"], (
+        "the follow-up is ABOUT what is left — its answer's seam reads that set"
+    )
+    assert record.state["questions_per_gap"][_INFRA] == 2
+    assert resp.cluster_coverage.open_concepts == ["Prometheus", "Grafana", "SLOs"]
+
+
+@pytest.mark.asyncio
+async def test_full_interview_advances_when_the_answer_covered_the_rest_in_other_words(db):
+    """The full interview takes the same path: an unneeded follow-up is not
+    asked, the interview moves to the next cluster, and the first cluster keeps
+    its unspent slot for a later door."""
+    from applire.models.session import InterviewSession
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session
+
+    job, _profile, _ = await _seed(db)
+    writer = _judging_writer(
+        "Tell me about Kubernetes and Terraform.",
+        {"question": "", "choices": None, "covered_by_answer": ["Terraform"],
+         "follow_up_remaining": []},
+        "FastAPI — where have you built APIs?",
+    )
+    with patch("applire.services.session.question_generator_with_profile", new=writer):
+        full = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, _provider())
+    resp = await _answer(
+        db, full.session_id,
+        "I ran Kubernetes in production at Acme and wrote all our infrastructure as code with HCL modules.",
+        _writing_bridge(add_skills=["Kubernetes"]), writer,
+    )
+
+    assert resp.complete is False
+    assert resp.current_gap_id == _API, "advanced to the next cluster"
+    assert resp.question == "FastAPI — where have you built APIs?"
+    assert writer.calls[1]["follow_up_focus"] == ["Terraform"]
+    assert "follow_up_focus" not in writer.calls[2]
+    record = await db.get(InterviewSession, full.session_id)
+    assert record.state["questions_per_gap"][_INFRA] == 1, "no slot spent on the skipped follow-up"
+    persisted = await _latest_cluster(db, job.id, _INFRA)
+    assert persisted["gaps"] == ["Terraform"], "Terraform stays open on the record"
+    assert persisted["outcome"]["asked"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_writer_without_the_split_keeps_the_literal_follow_up(db):
+    """No ``follow_up_remaining`` key (a model that ignored the rule, a
+    malformed reply) is the behaviour before ruling M-1: the literal focus."""
+    job, _profile, _ = await _seed(db)
+    writer = _judging_writer("Tell me about Kubernetes and Terraform.", "And Terraform?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id,
+                         "I ran Kubernetes clusters in production at Acme for three years.",
+                         _writing_bridge(add_skills=["Kubernetes"]), writer)
+    assert resp.complete is False
+    assert resp.question == "And Terraform?"
+    assert resp.follow_up_concepts == ["Terraform"]
+
+
+@pytest.mark.asyncio
+async def test_a_resumed_follow_up_reports_what_it_asks_and_the_next_turn_clears_it(db):
+    """Ruling M-1b on the resume path (ruling B-3): a second click on a card
+    waiting on its follow-up gets the same label back; answering it clears the
+    stored focus so a later question never inherits it."""
+    from applire.models.session import InterviewSession
+
+    clusters, ledger = _b_cluster_seed()
+    job, _profile, _ = await _seed(db, clusters=clusters, ledger=ledger)
+    writer = _judging_writer(
+        "Observability — Prometheus, Grafana, SLOs?",
+        {"question": "And SLOs?", "choices": None,
+         "covered_by_answer": ["Grafana"], "follow_up_remaining": ["SLOs"]},
+    )
+    created = await _gap_click(db, job, _INFRA, writer)
+    await _answer(db, created.session_id,
+                  "I built the Prometheus setup and the dashboards the on-call team reads.",
+                  _writing_bridge(add_skills=["Prometheus"]), writer)
+
+    resumed = await _gap_click(db, job, _INFRA, writer)
+    assert resumed.session_id == created.session_id and resumed.resumed is True
+    assert resumed.question == "And SLOs?"
+    assert resumed.follow_up_concepts == ["SLOs"]
+
+    await _answer(db, created.session_id, "No SLOs of my own, only the team's.",
+                  _writing_bridge(addressed=False), writer)
+    record = await db.get(InterviewSession, created.session_id)
+    assert "follow_up_concepts" not in record.state
+
+
+# ---------------------------------------------------------------------------
 # ADR-038 — the strings the per-gap record adds follow the conversation language
 # ---------------------------------------------------------------------------
 
