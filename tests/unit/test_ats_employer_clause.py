@@ -54,12 +54,23 @@ def test_clause_from_the_short_name_to_the_sentence_end():
 
 
 def test_clause_stops_at_the_first_person_word():
-    t = ("NovaPay’s platform for European e-commerce merchants across checkout, settlement and "
-         "payout rails interests me, building on my B2B invoicing, subscription billing and "
+    t = ("NovaPay’s platform for European e-commerce merchants across checkout and settlement "
+         "rails interests me and builds on my B2B invoicing, subscription billing and "
          "Stripe-based checkout experience.")
     m = _masked(t, _NOVAPAY)
     assert "settlement" not in m and "european e commerce" not in m
-    assert "building on my b2b invoicing, subscription billing" in m
+    assert "my b2b invoicing, subscription billing" in m
+
+
+def test_clause_stops_at_a_comma():
+    """adv #4 (main-session ruling 2026-09-26): a comma ends the clause. Priced on
+    the captured rows: the review-recut letter's list comma ("checkout, settlement
+    and payout rails") brings `Settlement` back — 10 of the 11 rows still clear."""
+    t = ("NovaPay’s platform for European e-commerce merchants across checkout, settlement and "
+         "payout rails interests me.")
+    m = _masked(t, _NOVAPAY)
+    assert "european e commerce" not in m
+    assert "settlement and payout rails" in m
 
 
 def test_clause_stops_at_a_salutation_so_the_opening_claim_survives():
@@ -111,8 +122,8 @@ def test_you_and_sie_are_no_anchor():
 
 
 def test_employer_business_keyword_is_present_but_not_unsupported():
-    t = _norm("NovaPay’s platform for European e-commerce merchants across checkout, settlement "
-              "and payout rails interests me.")
+    t = _norm("NovaPay’s platform for European e-commerce merchants across checkout and settlement "
+              "rails interests me.")
     cov = _keyword_coverage(t, ["Settlement"], [_gap("Settlement")], non_claim=_NOVAPAY)
     assert cov.present == ["Settlement"] and cov.present_unsupported == []
 
@@ -147,8 +158,8 @@ def test_the_letter_audit_turns_the_clause_on_and_the_cv_audit_does_not():
     from applire.schemas.cv import TailoredCVData
     from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
 
-    text = ("NovaPay’s platform for European e-commerce merchants across checkout, settlement "
-            "and payout rails interests me.")
+    text = ("NovaPay’s platform for European e-commerce merchants across checkout and settlement "
+            "rails interests me.")
     names = non_claim_names("Senior Backend Engineer", ["NovaPay GmbH"])
     letter = _audit_letter_text(text, {"recipient": {"company": "NovaPay GmbH"}}, ["Settlement"],
                                 [_gap("Settlement")], non_claim=names)
