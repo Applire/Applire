@@ -3686,9 +3686,13 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
             )
             report = None
     from applire.services.review_state import load_state
+    from applire.services.truthfulness_summary import summarize
 
     return ATSReportResponse(document_id=cl.id, status=cl.status, report=report,
-                             review_state=load_state(cl.review_state))
+                             review_state=load_state(cl.review_state),
+                             # ADR-058 amended 2026-09-26 (ruling A-1): both doors.
+                             truthfulness=summarize(cl.truthfulness_report,
+                                                    cl.ats_report))
 
 
 async def get_cover_letter_truthfulness_report(
