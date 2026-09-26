@@ -25,6 +25,7 @@ enforced by tests/ats/test_roundtrip.py.
 import re
 import unicodedata
 from collections.abc import Sequence
+import dataclasses
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
@@ -1131,6 +1132,11 @@ class NonClaimNames:
     #: only — a CV bullet carries no first-person word, so a clause opened by an
     #: employer name there would run through the candidate's own bullet.
     employer_clause: bool = False
+    #: adv #2 (main-session ruling 2026-09-26): the posting's keyword / ledger
+    #: forms, normalised. An employer variant that IS one of them (or a whole word
+    #: inside one) is a skill, not only a name — "MongoDB Inc." must not hide
+    #: "sharded MongoDB clusters", "Software AG" must not mask "software".
+    skill_forms: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
         return bool(self.titles or self.employers)
@@ -1142,15 +1148,33 @@ class NonClaimNames:
         """The same names plus further employer names (e.g. the letter's own
         ``recipient.company``), normalised the same way."""
         extra = non_claim_names(None, names).employers
-        return NonClaimNames(
-            titles=self.titles,
-            employers=self.employers + tuple(e for e in extra if e not in self.employers),
-            employer_clause=self.employer_clause,
+        return dataclasses.replace(
+            self, employers=self.employers + tuple(e for e in extra if e not in self.employers),
         )
 
     def with_employer_clause(self) -> "NonClaimNames":
         """The same names, with the employer-business clause masked too (letters)."""
-        return NonClaimNames(titles=self.titles, employers=self.employers, employer_clause=True)
+        return dataclasses.replace(self, employer_clause=True)
+
+    def excluding_skills(self, forms: Sequence[str]) -> "NonClaimNames":
+        """adv #2: drop every employer variant that is a skill form (or a whole
+        word inside one); the full name with its legal form normally survives, so
+        the recipient block's "MongoDB Inc." is still masked. Titles are
+        untouched (a skill-bearing title is Strawberry scope, adv #6)."""
+        skills = tuple(dict.fromkeys(n for n in (_norm(f) for f in forms if isinstance(f, str)) if n))
+        return dataclasses.replace(
+            self,
+            employers=tuple(e for e in self.employers if not _is_skill_word(e, skills)),
+            skill_forms=skills,
+        )
+
+
+def _is_skill_word(word: str, skill_forms: Sequence[str]) -> bool:
+    """``word`` equals a skill form or stands inside one as whole words."""
+    if not word:
+        return False
+    pat = re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)")
+    return any(f == word or pat.search(f) for f in skill_forms)
 
 
 def non_claim_names(role_title: str | None, employer_names: Sequence[str | None] = ()) -> NonClaimNames:
@@ -1229,17 +1253,37 @@ def non_claim_names_for_job(job: Any) -> NonClaimNames | None:
 #: (the PDF text has no sentence break between the recipient block and "Sehr
 #: geehrte …," — without this stop the opening claim was masked on 4 of 16
 #: captured letters), or a masked fragment boundary.
-_CLAUSE_END_RE = re.compile(
+_CLAUSE_END_BASE = (
     r"\b(?:i|me|my|mine|myself|ich|mich|mir|mein|meine|meinen|meinem|meiner|meines)\b"
-    r"|[.!?;:](?=\s|$)"
-    r"|\b(?:sehr geehrte[rn]?|dear|hallo|guten tag)\b"
+    # adv #4 (main-session ruling): a comma also ends the clause — "for NovaPay,
+    # seven years of Kubernetes …" is the candidate speaking. Dashes cannot be a
+    # stop: `_norm` folds every dash to a space before this runs.
+    r"|[.!?;:](?=\s|$)|,"
     rf"|{_CORPUS_FRAGMENT_BOUNDARY}"
 )
+
+
+@lru_cache(maxsize=1)
+def _clause_end_re() -> "re.Pattern[str]":
+    """The clause stop, with the salutations taken from the letter producer's own
+    list (``cover_letter._SALUTATION_OPENERS``, adv #5) — one list, reconciled with
+    its producer, so every salutation the pipeline writes or keeps stops a clause.
+    An opener the producer spells with a trailing space ("dear ", "hi ", "sg ")
+    must end on a word boundary; the others match as prefixes ("liebe" → "lieber")."""
+    from applire.services.cover_letter import _SALUTATION_OPENERS
+
+    alts: list[str] = []
+    for opener in _SALUTATION_OPENERS:
+        n = _norm(opener)
+        if not n:
+            continue
+        alts.append(r"(?<!\w)" + re.escape(n) + (r"(?!\w)" if opener.endswith(" ") else ""))
+    return re.compile(_CLAUSE_END_BASE + "|" + "|".join(alts))
 #: The shortest first word of an employer name that anchors a clause on its own.
 _CLAUSE_ANCHOR_MIN_FIRST_WORD = 4
 
 
-def _employer_clause_anchors(employers: Sequence[str]) -> list[str]:
+def _employer_clause_anchors(employers: Sequence[str], skill_forms: Sequence[str] = ()) -> list[str]:
     """R-2: the employer names as given and without legal form (already in
     ``employers``) plus each name's first word when it has ≥ 4 letters and is
     not a generic company-name word (R-4, :data:`_GENERIC_FIRST_WORDS`)."""
@@ -1248,19 +1292,23 @@ def _employer_clause_anchors(employers: Sequence[str]) -> list[str]:
         for a in (e, (e.split() or [""])[0]):
             if not a or a in out:
                 continue
+            if _is_skill_word(a, skill_forms):
+                continue  # adv #2: a skill word never anchors a clause
             if a == e or (len(a) >= _CLAUSE_ANCHOR_MIN_FIRST_WORD and a not in _GENERIC_FIRST_WORDS):
                 out.append(a)
     return out
 
 
-def _employer_clause_intervals(text_norm: str, employers: Sequence[str]) -> list[tuple[int, int]]:
+def _employer_clause_intervals(
+    text_norm: str, employers: Sequence[str], skill_forms: Sequence[str] = (),
+) -> list[tuple[int, int]]:
     """R-2 (founder ruling, option A): the clause that describes the employer's
     business — from a whole-word mention of the employer's name to the first
     first-person word, sentence end or salutation. Anchored on the name ONLY:
     "Sie/Ihr/your" was measured to mask the candidate's own intent sentences.
     Measured on 16 captured synthetic letters: 0 of ~27 clauses masked a
     candidate claim; 7 of 17 placeable group-1 rows were such clauses."""
-    anchors = _employer_clause_anchors(employers)
+    anchors = _employer_clause_anchors(employers, skill_forms)
     if not anchors:
         return []
     pattern = re.compile(
@@ -1268,7 +1316,7 @@ def _employer_clause_intervals(text_norm: str, employers: Sequence[str]) -> list
     )
     spans: list[tuple[int, int]] = []
     for m in pattern.finditer(text_norm):
-        end_m = _CLAUSE_END_RE.search(text_norm, m.end())
+        end_m = _clause_end_re().search(text_norm, m.end())
         end = end_m.start() if end_m else len(text_norm)
         if end > m.start():
             spans.append((m.start(), end))
@@ -1287,7 +1335,7 @@ def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
         return text_norm
     intervals = _name_intervals(text_norm, names.all_names())
     if names.employer_clause:
-        intervals += _employer_clause_intervals(text_norm, names.employers)
+        intervals += _employer_clause_intervals(text_norm, names.employers, names.skill_forms)
     return _mask_intervals(text_norm, intervals)
 
 
@@ -1361,6 +1409,16 @@ def _keyword_coverage(
     # `non_claim=None` (every caller that passes nothing) reproduces the
     # full-text behaviour exactly.
     if non_claim:
+        # adv #2: an employer variant that is one of the posting's own keyword /
+        # ledger forms is a skill the candidate may claim — never masked. (A
+        # vault-only skill that is no JD keyword cannot be in present_unsupported,
+        # so keywords + ledger forms are the complete set this decision needs.)
+        skill_forms = list(keywords)
+        for e in ledger or []:
+            skill_forms.extend(e.get("surface_forms") or [])
+            if e.get("concept"):
+                skill_forms.append(e["concept"])
+        non_claim = non_claim.excluding_skills(skill_forms)
         claim_text_norm = mask_non_claim_spans(text_norm, non_claim)
         claim_matches = {k: keyword_matches(k, claim_text_norm, ledger) for k in present}
     else:
