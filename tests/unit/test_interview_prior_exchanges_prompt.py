@@ -427,3 +427,100 @@ def test_no_follow_up_focus_carries_no_split_keys():
         gap_category="C", lang="en",
     ))
     assert "follow_up_remaining" not in out and "covered_by_answer" not in out
+
+
+# ---------------------------------------------------------------------------
+# Ruling M-1c — the "be more specific" no-change retry judges the same way
+# ---------------------------------------------------------------------------
+
+
+def test_the_retry_json_system_prompt_differs_only_in_its_output_line():
+    from applire.prompts.interview import (
+        FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT,
+        FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
+    )
+
+    text_line = "- Output ONLY the question text — no preamble, no numbering, no explanation"
+    assert FOLLOW_UP_QUESTION_SYSTEM_PROMPT.endswith(text_line)
+    assert text_line not in FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT, "never bare text AND JSON (ADR-062 cl. 4)"
+    assert FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT.startswith(
+        FOLLOW_UP_QUESTION_SYSTEM_PROMPT[: -len(text_line)]
+    )
+    assert '"covered_by_answer"' in FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT
+
+
+def test_both_follow_ups_carry_the_one_judgement_rule():
+    from applire.prompts.interview import (
+        _COVERED_IN_OTHER_WORDS_RULE,
+        build_follow_up_question_prompt,
+        build_question_prompt,
+    )
+
+    cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
+    partial = build_question_prompt(cluster, {"skills": [], "work_experience": []}, [],
+                                    follow_up_focus=["Terraform"])
+    retry = build_follow_up_question_prompt("X", "hint", {}, [], retry_focus=["Terraform"])
+    plain = build_follow_up_question_prompt("X", "hint", {}, [])
+    assert _COVERED_IN_OTHER_WORDS_RULE in partial and _COVERED_IN_OTHER_WORDS_RULE in retry
+    assert _COVERED_IN_OTHER_WORDS_RULE not in plain, "a retry without a focus is unchanged"
+    assert plain.endswith("Generate the follow-up question probing the adjacent domain.")
+
+
+def _retry_state() -> dict:
+    cluster = {"id": "c1", "label": "Produktionsführung", "category": "C",
+               "gaps": ["Führungserfahrung", "Führungsspanne ~120 MA"], "jd_skills": [], "jd_context": ""}
+    return _mode_a_state(cluster)
+
+
+@pytest.mark.asyncio
+async def test_a_retry_judged_covered_returns_no_question_and_skips_the_language_review():
+    from applire.prompts.interview import FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "", "covered_by_answer": ["Führungserfahrung", "Führungsspanne ~120 MA"],
+    })
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+        retry_focus=["Führungserfahrung", "Führungsspanne ~120 MA"],
+    )
+
+    assert out["question"] == "" and out["follow_up_remaining"] == []
+    assert provider.aparse_json.await_count == 1, "JSON call, no language review"
+    assert provider.aparse_json.call_args.kwargs["system"].startswith(FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT)
+    provider.acomplete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_partly_covered_retry_keeps_the_rest():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "Wie groß war das größte Team, das du geführt hast?",
+        "covered_by_answer": ["Führungserfahrung"],
+    })
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+        retry_focus=["Führungserfahrung", "Führungsspanne ~120 MA"],
+    )
+    assert out["question"] == "Wie groß war das größte Team, das du geführt hast?"
+    assert out["follow_up_remaining"] == ["Führungsspanne ~120 MA"]
+    assert out["choices"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_retry_without_a_focus_stays_bare_text():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(return_value="Welches Beispiel fällt dir ein?")
+    provider.aparse_json = AsyncMock(return_value={"approved": True})
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+    )
+    assert out["question"] == "Welches Beispiel fällt dir ein?"
+    assert "follow_up_remaining" not in out
+    provider.acomplete.assert_awaited_once()

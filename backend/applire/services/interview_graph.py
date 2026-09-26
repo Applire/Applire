@@ -49,6 +49,7 @@ from applire.constants import (
 from applire.prompts.interview import (
     DENIAL_PROBE_QUESTION_SYSTEM_PROMPT,
     FIELD_GAP_QUESTION_SYSTEM_PROMPT,
+    FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT,
     FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
     GUIDED_QUESTION_SYSTEM_PROMPT,
     QUESTION_SYSTEM_PROMPT,
@@ -471,6 +472,7 @@ async def question_generator_with_profile(
     denial_probe: bool = False,
     prior_exchanges: list[dict] | None = None,
     follow_up_focus: list[str] | None = None,
+    retry_focus: list[str] | None = None,
 ) -> dict:
     """Generate the next question based on mode and context.
 
@@ -507,6 +509,13 @@ async def question_generator_with_profile(
     adjacent-domain framing is the opposite of asking about a named
     requirement), so the follow-up keeps the MODE A choice rules and the
     ``filter_ungrounded_choices`` guard.
+
+    retry_focus (ruling M-1c, ADR-089 amended 2026-09-26): with a
+    ``follow_up_hint`` (the "be more specific" no-change retry), the cluster's
+    members a LITERAL read leaves open. The retry then also judges which of
+    them the answer covered in other words — same rule and same output keys
+    (``covered_by_answer``, ``follow_up_remaining``) as ``follow_up_focus`` —
+    and returns an empty question when nothing is left.
 
     US265 — the quantification nudge rides a cluster's OPENING question only:
     it is never computed for a follow-up focus, nor for a cluster whose record
@@ -562,6 +571,33 @@ async def question_generator_with_profile(
             reviewed["question"] = str(reviewed.get("question", "")).strip()
             return reviewed
 
+        if retry_focus:
+            # Ruling M-1c: the retry judges what the answer covered in other
+            # words, in the same call — JSON instead of bare text.
+            with llm_log_stage("interview_draft"):
+                data = await provider.aparse_json(
+                    build_follow_up_question_prompt(
+                        gap_label,
+                        follow_up_hint,
+                        profile,
+                        state["messages"],
+                        gap_category=gap_category,
+                        retry_focus=retry_focus,
+                    ),
+                    system=with_language(FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT, lang),
+                    temperature=0.4,
+                    max_tokens=INTERVIEW_QUESTION_MAX_TOKENS,
+                    disable_thinking=True,  # chrome generation (F-B)
+                )
+            covered, remaining = split_follow_up_focus(retry_focus, data.get("covered_by_answer"))
+            split = {"covered_by_answer": covered, "follow_up_remaining": remaining}
+            question = str(data.get("question", "")).strip()
+            if not remaining or not question:
+                return {"question": "", "choices": None, **split}
+            reviewed = await _review_question_language(
+                {"question": question, "choices": None}, lang, provider
+            )
+            return {**reviewed, **split}
         with llm_log_stage("interview_draft"):
             text = await provider.acomplete(
                 build_follow_up_question_prompt(

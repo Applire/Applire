@@ -973,6 +973,64 @@ async def test_a_resumed_follow_up_reports_what_it_asks_and_the_next_turn_clears
 
 
 # ---------------------------------------------------------------------------
+# Ruling M-1c — the no-change retry judges what the answer covered in other words
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_no_change_answer_judged_covered_gets_no_retry_and_spends_nothing(db):
+    """The delivery-run shape (m1/delivery, cluster-führung): an answer that
+    restates what the profile already holds changes nothing — the retry's
+    drafting call judges it covered the open members in other words, so no
+    retry is asked, no slot is spent, and the micro-session completes; the
+    record stays strict for the re-analysis to decide."""
+    from applire.models.session import InterviewSession
+
+    job, _profile, _ = await _seed(db)
+    writer = _judging_writer(
+        "Tell me about Kubernetes and Terraform.",
+        {"question": "", "choices": None, "covered_by_answer": ["Kubernetes", "Terraform"],
+         "follow_up_remaining": []},
+    )
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id,
+                         "As in my CV: I have run our container platform and its infrastructure code since 2019.",
+                         _writing_bridge(addressed=False), writer)
+
+    retry_call = writer.calls[-1]
+    assert retry_call["retry_focus"] == ["Kubernetes", "Terraform"], "every OPEN member, not the literal filter"
+    assert "follow_up_hint" in retry_call
+    assert resp.complete is True
+    assert resp.cluster_coverage.open_concepts == ["Kubernetes", "Terraform"], "the record stays strict"
+    assert resp.cluster_coverage.budget_remaining == _PER_GAP - 1
+    record = await db.get(InterviewSession, created.session_id)
+    assert record.state["questions_per_gap"][_INFRA] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_no_change_retry_asks_only_what_is_left_and_labels_it(db):
+    from applire.models.session import InterviewSession
+
+    job, _profile, _ = await _seed(db)
+    writer = _judging_writer(
+        "Tell me about Kubernetes and Terraform.",
+        {"question": "Which Terraform modules did you write yourself?", "choices": None,
+         "covered_by_answer": ["Kubernetes"], "follow_up_remaining": ["Terraform"]},
+    )
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id, "As in my CV: I run our Kubernetes platform.",
+                         _writing_bridge(addressed=False), writer)
+
+    assert resp.complete is False
+    assert resp.question == "Which Terraform modules did you write yourself?"
+    assert resp.follow_up_concepts == ["Terraform"]
+    assert resp.choices is None
+    record = await db.get(InterviewSession, created.session_id)
+    assert record.state["questions_per_gap"][_INFRA] == 2
+    assert record.state["follow_up_concepts"] == ["Terraform"]
+
+
+# ---------------------------------------------------------------------------
 # ADR-038 — the strings the per-gap record adds follow the conversation language
 # ---------------------------------------------------------------------------
 

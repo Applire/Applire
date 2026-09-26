@@ -411,6 +411,27 @@ def _earlier_exchanges_block(prior_exchanges: list[dict] | None) -> str:
     )
 
 
+# Ruling M-1 (ADR-089 amended 2026-09-25/26) — ONE rule text for every
+# follow-up that asks about literally-open requirements: the partial-coverage
+# follow-up (MODE A) and the "be more specific" no-change retry (M-1c). The
+# list it judges is a literal read (`_members_named_by`, a fact); whether the
+# answer covered a requirement in other words is a judgement (ADR-062
+# clause 1), so it is the drafting model's, returned as `covered_by_answer`
+# and never read as coverage.
+_COVERED_IN_OTHER_WORDS_RULE = (
+    "First judge each of these against that last answer, as a recruiter "
+    "reading it would: a requirement the answer already covered IN OTHER "
+    "WORDS — a synonym, the same activity or responsibility described "
+    "differently, another language — is covered. A related but different "
+    "skill, a clearly lower level or smaller scope than the requirement names "
+    "(assisted where it asks for led; a team of 5 where it asks for about 50), "
+    "or a bare mention without substance is NOT covered. Add the key "
+    "\"covered_by_answer\" to the JSON object: the requirements from the list "
+    "above that the answer covered, copied exactly as written there ([] when "
+    "none)."
+)
+
+
 def _already_asked_instruction(
     has_earlier: bool, follow_up_focus: list[str] | None
 ) -> str:
@@ -429,16 +450,7 @@ def _already_asked_instruction(
         lead = (
             "\n\nFOLLOW-UP on this cluster: the candidate's last answer (see the "
             "Recent conversation) covered part of it. Still open by a literal "
-            f"reading: {focus}. First judge each of these against that last "
-            "answer, as a recruiter reading it would: a requirement the answer "
-            "already covered IN OTHER WORDS — a synonym, the same activity or "
-            "responsibility described differently, another language — is covered. "
-            "A related but different skill, a clearly lower level or smaller scope "
-            "than the requirement names (assisted where it asks for led; a team of "
-            "5 where it asks for about 50), or a bare mention without substance is "
-            "NOT covered. Add the key \"covered_by_answer\" "
-            "to the JSON object: the requirements from the list above that the "
-            "answer covered, copied exactly as written there ([] when none). Then "
+            f"reading: {focus}. {_COVERED_IN_OTHER_WORDS_RULE} Then "
             "ask ONE follow-up question aimed at exactly the requirements NOT in "
             "covered_by_answer, naming them — never ask again about what an "
             "earlier answer already covered. If every listed requirement is "
@@ -737,6 +749,18 @@ Requirements:
 - Remain encouraging — the candidate may simply not have recognised the connection
 - Output ONLY the question text — no preamble, no numbering, no explanation"""
 
+# Ruling M-1c (ADR-089 amended 2026-09-26) — the same retry when it also
+# judges which literally-open requirements the answer covered in other words
+# (`_COVERED_IN_OTHER_WORDS_RULE`). Identical except for the output line: a
+# prompt may not ask for bare text and for a JSON object at once (ADR-062
+# clause 4).
+_TEXT_OUTPUT_LINE = "- Output ONLY the question text — no preamble, no numbering, no explanation"
+assert FOLLOW_UP_QUESTION_SYSTEM_PROMPT.endswith(_TEXT_OUTPUT_LINE)
+FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT = FOLLOW_UP_QUESTION_SYSTEM_PROMPT[: -len(_TEXT_OUTPUT_LINE)] + (
+    "- Output ONLY a valid JSON object — no markdown, no explanations:\n"
+    '  {"covered_by_answer": [string], "question": "the question text, or \\"\\" when nothing is left to ask"}'
+)
+
 
 def build_follow_up_question_prompt(
     gap: str,
@@ -744,6 +768,7 @@ def build_follow_up_question_prompt(
     profile: dict,
     recent_messages: list[dict],
     gap_category: str | None = None,
+    retry_focus: list[str] | None = None,
 ) -> str:
     """Build the prompt for a lateral-probe follow-up question.
 
@@ -773,12 +798,24 @@ def build_follow_up_question_prompt(
     # ADR-084 embedding point 25c (Form A, inline): `gap` is the cluster
     # label, i.e. clustering-call output over posting-derived terms.
     from applire.services.untrusted_text import fence_inline
-    return (
+    head = (
         f"Gap not yet addressed: {fence_inline(gap)}\n"
         f"Follow-up direction: {follow_up_hint}\n\n"
         f"Candidate profile summary:\n{profile_summary}"
         f"{history}\n\n"
-        "Generate the follow-up question probing the adjacent domain."
+    )
+    if not retry_focus:
+        return head + "Generate the follow-up question probing the adjacent domain."
+    # Ruling M-1c — ADR-084 embedding point 25f (Form A, inline): the open
+    # requirements are ledger/cluster concept names, the posting's own terms.
+    focus = fence_inline(", ".join(str(f) for f in retry_focus if f))
+    return head + (
+        "The candidate's last answer (see the Recent conversation) changed "
+        "nothing in the profile. Open requirements of this gap by a literal "
+        f"reading: {focus}. {_COVERED_IN_OTHER_WORDS_RULE} Then write the "
+        "follow-up question for the requirements NOT in covered_by_answer, "
+        "probing the adjacent domain. If every listed requirement is covered, "
+        "set \"question\" to \"\".\n\nGenerate the JSON response."
     )
 
 

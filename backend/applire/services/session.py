@@ -3515,11 +3515,35 @@ async def send_message(
         # covered by this answer in other words — no follow-up, nothing spent;
         # the addressed turn advances below like any other.
 
+    # --- Ruling M-1c: the no-change retry on a recorded cluster judges, in its
+    # own drafting call, whether the answer covered the open members in other
+    # words (it restated the profile, so the vault did not change). Nothing
+    # left → no retry, nothing spent: the turn advances like an addressed one.
+    retry_judged_covered = False
+    if (
+        not addressed
+        and not denial_recorded
+        and not resolving_confirmation
+        and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
+        and recorded_cluster is not None
+        and cluster_coverage is not None
+        and cluster_coverage.open_concepts
+    ):
+        retry = await _ask_no_change_retry(
+            record, state, db, provider, current_gap, current_idx,
+            list(cluster_coverage.open_concepts), updated_profile, turn,
+            questions_for_gap, lang, cluster_coverage, conflict_summaries,
+        )
+        if retry is not None:
+            return retry
+        retry_judged_covered = True
+
     if (
         addressed
         or denial_recorded
         or resolving_confirmation
         or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP
+        or retry_judged_covered
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
@@ -3656,6 +3680,117 @@ async def send_message(
         )
 
 
+async def _judged_draft(
+    draft, focus: list[str], current_gap: str
+) -> tuple[dict, list[str], str]:
+    """Rulings M-1/M-1c — draft a follow-up whose drafting call also judges
+    which of ``focus`` the answer covered in other words.
+
+    ``draft(focus)`` returns the generator's dict; its ``follow_up_remaining``
+    (absent → the whole focus, the behaviour before the ruling) is what is
+    left to ask. A self-contradicting reply — requirements left, no question —
+    is drafted once more for exactly what is left (adversarial pass,
+    2026-09-26), never silently dropped. Returns ``(q_data, remaining,
+    question)``; an empty ``question`` means ask nothing.
+    """
+    q_data = await draft(focus)
+    remaining = list(q_data.get("follow_up_remaining", focus))
+    question = str(q_data.get("question") or "").strip()
+    if remaining and not question:
+        logger.warning(
+            "Follow-up on %s: the draft left %s open but wrote no question — retrying once",
+            current_gap, remaining,
+        )
+        q_data = await draft(remaining)
+        remaining = list(q_data.get("follow_up_remaining", remaining))
+        question = str(q_data.get("question") or "").strip()
+    if not remaining:
+        logger.info(
+            "Follow-up on %s not asked: the answer covered %s in other words",
+            current_gap, q_data.get("covered_by_answer") or focus,
+        )
+        return q_data, [], ""
+    if not question:
+        logger.warning("Follow-up on %s not asked: no question drafted for %s", current_gap, remaining)
+    return q_data, remaining, question
+
+
+async def _ask_no_change_retry(
+    record: InterviewSession,
+    state: InterviewState,
+    db: AsyncSession,
+    provider: LLMProvider,
+    current_gap: str,
+    current_idx: int,
+    retry_focus: list[str],
+    updated_profile: dict,
+    turn,
+    questions_for_gap: int,
+    lang: str,
+    cluster_coverage: ClusterCoverage | None,
+    conflict_summaries: list,
+) -> SessionMessageResponse | None:
+    """Ruling M-1c (ADR-089 amended 2026-09-26) — the "be more specific"
+    retry after an answer that changed nothing in the vault, on a cluster
+    with a per-gap record. ``retry_focus`` is the record's OPEN members (all
+    of them: an answer that restated the profile, or named a requirement
+    without substance, changed nothing — the literal B-4 filter does not
+    apply here). The retry's drafting call judges which of them the answer
+    covered in other words; when nothing is left, returns ``None`` with the
+    state untouched (no question, no budget slot) and the caller advances —
+    the re-analysis decides coverage, the record stays strict. Otherwise asks
+    the retry, labelled with what is left (ruling M-1b).
+    """
+    gap_category = (state.get("gap_categories") or {}).get(current_gap)
+    # #301: the hint carries the gap's label, never its internal id.
+    follow_up_hint = (
+        "ask for a more specific or concrete example related to "
+        f"{gap_display_label(state, current_gap)}"
+    )
+
+    async def _draft(focus: list[str]) -> dict:
+        return await question_generator_with_profile(
+            state,
+            updated_profile,
+            provider,
+            gap_category=gap_category,
+            follow_up_hint=follow_up_hint,
+            lang=lang,
+            retry_focus=list(focus),
+        )
+
+    _q_data, remaining, question = await _judged_draft(_draft, list(retry_focus), current_gap)
+    if not question:
+        return None
+
+    qpg = dict(state.get("questions_per_gap", {}))
+    qpg[current_gap] = questions_for_gap + 1
+    state["questions_per_gap"] = qpg
+    state["current_question"] = question
+    state["current_choices"] = None
+    state["follow_up_concepts"] = remaining
+    state["messages"].append({"role": "assistant", "content": question})
+    record.state = state
+    record.updated_at = datetime.now(timezone.utc)
+    await db.commit()  # ONE commit per turn (#179)
+
+    return SessionMessageResponse(
+        complete=False,
+        question=question,
+        gaps_remaining=_count_remaining(
+            state["critical_gaps"], current_idx, set(state.get("skipped_gaps", []))
+        ),
+        pending_conflicts=conflict_summaries if conflict_summaries else None,
+        choices=None,
+        current_gap_id=_current_gap_id(state),
+        addressed_gap_ids=list(state.get("addressed_gaps", [])),
+        denial_recorded=turn.denial_recorded,  # #380
+        changes_applied=turn.addressed,  # ADR-089
+        cluster_coverage=cluster_coverage,
+        follow_up_concepts=remaining,
+    )
+
+
 async def _ask_partial_coverage_follow_up(
     record: InterviewSession,
     state: InterviewState,
@@ -3703,27 +3838,8 @@ async def _ask_partial_coverage_follow_up(
         clusters_by_id[current_gap] = {**clusters_by_id[current_gap], "gaps": list(open_members)}
         state["gap_clusters_by_id"] = clusters_by_id
 
-    q_data = await _cluster_question(
-        state,
-        updated_profile,
-        provider,
-        db,
-        session_id=str(record.id),
-        gap_category=gap_category,
-        lang=lang,
-        follow_up_focus=list(open_members),
-    )
-    remaining = list(q_data.get("follow_up_remaining", open_members))
-    question = str(q_data.get("question") or "").strip()
-    if remaining and not question:
-        # A self-contradicting reply: requirements left, no question to ask
-        # about them. Draft once more for exactly what is left (adversarial
-        # pass, 2026-09-26) rather than silently dropping a needed follow-up.
-        logger.warning(
-            "Partial-coverage follow-up on %s: the draft left %s open but wrote no question — retrying once",
-            current_gap, remaining,
-        )
-        q_data = await _cluster_question(
+    async def _draft(focus: list[str]) -> dict:
+        return await _cluster_question(
             state,
             updated_profile,
             provider,
@@ -3731,23 +3847,13 @@ async def _ask_partial_coverage_follow_up(
             session_id=str(record.id),
             gap_category=gap_category,
             lang=lang,
-            follow_up_focus=list(remaining),
+            follow_up_focus=list(focus),
         )
-        remaining = list(q_data.get("follow_up_remaining", remaining))
-        question = str(q_data.get("question") or "").strip()
-    if not remaining or not question:
+
+    q_data, remaining, question = await _judged_draft(_draft, list(open_members), current_gap)
+    if not question:
         state["questions_per_gap"] = qpg_before
         state["gap_clusters_by_id"] = clusters_before
-        if remaining:
-            logger.warning(
-                "Partial-coverage follow-up on %s not asked: no question drafted for %s",
-                current_gap, remaining,
-            )
-        else:
-            logger.info(
-                "Partial-coverage follow-up on %s not asked: the answer covered %s in other words",
-                current_gap, q_data.get("covered_by_answer") or open_members,
-            )
         return None
     if remaining != list(open_members):
         # The follow-up is ABOUT what is left, so the session's copy narrows
