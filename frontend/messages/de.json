@@ -1219,6 +1219,8 @@
     "stepUploading": "Datei wird hochgeladen…",
     "stepMerging": "Lebenslauf wird gelesen & mit deinem Profil zusammengeführt…",
     "stepImporting": "LinkedIn-Archiv wird importiert…",
+    "stepAnalysingGaps": "Profil wird mit der Stelle abgeglichen…",
+    "gapAnalysisFailed": "Dein Profil wurde aktualisiert, aber der Abgleich mit der Stelle hat nicht geklappt. Bitte versuche es erneut.",
     "successPrefix": "Profil aktualisiert — Vollständigkeit: ",
     "successNoScore": "Profil aktualisiert",
     "uploadErrorGeneric": "Upload fehlgeschlagen",
