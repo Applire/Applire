@@ -9,10 +9,13 @@ and saw none. One function, called by both doors' shared service
 (``services.cv.get_cv_ats_report`` / ``services.cover_letter.get_cover_letter_ats_report``),
 so REST and MCP serialise the same object (ADR-066).
 
-``flagged`` is the SAME selection the panel renders — ``review_state._flagged_claims``
-over the persisted report, with the ATS report's ``claimable_concepts`` — so the
-panel and the agent cannot disagree about what is red. No LLM call, no re-audit:
-a summary of what is persisted (staleness inherited, SF-ORACLE.9).
+``flagged`` counts EVERY row the review panel lists in group 1 —
+``review_state.group_one_findings(ats, truth)``: the ATS ``present_unsupported``
+terms AND the flagged Oracle claims, folded exactly as the panel folds them
+(ruling A-1b, founder 2026-09-26: an ATS-only row the human sees must stop the
+agent too). The panel and the agent therefore cannot disagree about what is
+open. ``counts`` stays the Oracle's verdict tally. No LLM call, no re-audit: a
+summary of what is persisted (staleness inherited, SF-ORACLE.9).
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ import logging
 
 from applire.schemas.ats import TruthfulnessSummary
 from applire.schemas.oracle import TruthfulnessReport
-from applire.services.review_state import _flagged_claims
+from applire.services.review_state import group_one_findings
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +45,8 @@ def summarize(truth_report: dict | None, ats_report: dict | None) -> Truthfulnes
     except Exception:
         logger.warning("Stored truthfulness report is malformed — summary unavailable")
         return _unavailable()
-    keywords = ((ats_report or {}).get("keywords") or {}) if isinstance(ats_report, dict) else {}
-    claimable = list(keywords.get("claimable_concepts") or [])
-    flagged = len(_flagged_claims(truth_report, claimable))
+    ats = ats_report if isinstance(ats_report, dict) else None
+    flagged = len(group_one_findings(ats, truth_report))
     return TruthfulnessSummary(
         available=True,
         counts=dict(validated.counts),

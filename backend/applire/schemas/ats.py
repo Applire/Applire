@@ -189,11 +189,12 @@ class TruthfulnessSummary(BaseModel):
     available: bool
     # Verdict -> count, exactly the persisted report's ``counts`` ({} when unavailable).
     counts: dict[str, int] = Field(default_factory=dict)
-    # The Oracle claims the review panel's group 1 lists: FLAG_VERDICTS minus the
-    # "related skill" exclusion (``review_state._flagged_claims``).
+    # Every row the review panel lists in group 1 (``review_state.group_one_findings``):
+    # ATS ``present_unsupported`` terms AND flagged Oracle claims, folded as the
+    # panel folds them (ruling A-1b).
     flagged: Optional[int] = None
-    # True when at least one flagged claim exists — the agent must not send the
-    # document before fixing or backing it (``audit_document`` names the claims).
+    # True when group 1 holds at least one row — the agent must not send the
+    # document before reading and fixing or backing each one.
     stop_and_fix: Optional[bool] = None
     unverifiable_dominated: Optional[bool] = None
 
