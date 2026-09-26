@@ -3715,13 +3715,39 @@ async def _ask_partial_coverage_follow_up(
     )
     remaining = list(q_data.get("follow_up_remaining", open_members))
     question = str(q_data.get("question") or "").strip()
+    if remaining and not question:
+        # A self-contradicting reply: requirements left, no question to ask
+        # about them. Draft once more for exactly what is left (adversarial
+        # pass, 2026-09-26) rather than silently dropping a needed follow-up.
+        logger.warning(
+            "Partial-coverage follow-up on %s: the draft left %s open but wrote no question — retrying once",
+            current_gap, remaining,
+        )
+        q_data = await _cluster_question(
+            state,
+            updated_profile,
+            provider,
+            db,
+            session_id=str(record.id),
+            gap_category=gap_category,
+            lang=lang,
+            follow_up_focus=list(remaining),
+        )
+        remaining = list(q_data.get("follow_up_remaining", remaining))
+        question = str(q_data.get("question") or "").strip()
     if not remaining or not question:
         state["questions_per_gap"] = qpg_before
         state["gap_clusters_by_id"] = clusters_before
-        logger.info(
-            "Partial-coverage follow-up on %s not asked: the answer covered %s in other words",
-            current_gap, q_data.get("covered_by_answer") or open_members,
-        )
+        if remaining:
+            logger.warning(
+                "Partial-coverage follow-up on %s not asked: no question drafted for %s",
+                current_gap, remaining,
+            )
+        else:
+            logger.info(
+                "Partial-coverage follow-up on %s not asked: the answer covered %s in other words",
+                current_gap, q_data.get("covered_by_answer") or open_members,
+            )
         return None
     if remaining != list(open_members):
         # The follow-up is ABOUT what is left, so the session's copy narrows

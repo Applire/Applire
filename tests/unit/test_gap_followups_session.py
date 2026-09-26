@@ -886,6 +886,48 @@ async def test_full_interview_advances_when_the_answer_covered_the_rest_in_other
 
 
 @pytest.mark.asyncio
+async def test_a_draft_that_leaves_requirements_open_but_writes_no_question_is_retried_once(db):
+    """Adversarial pass (2026-09-26): `follow_up_remaining` non-empty with a
+    blank `question` contradicts itself. The follow-up is drafted once more for
+    what is left — never silently dropped."""
+    job, _profile, _ = await _seed(db)
+    writer = _judging_writer(
+        "Tell me about Kubernetes and Terraform.",
+        {"question": "", "choices": None, "covered_by_answer": [], "follow_up_remaining": ["Terraform"]},
+        {"question": "And Terraform?", "choices": None, "covered_by_answer": [],
+         "follow_up_remaining": ["Terraform"]},
+    )
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id,
+                         "I ran Kubernetes clusters in production at Acme for three years.",
+                         _writing_bridge(add_skills=["Kubernetes"]), writer)
+
+    assert resp.complete is False
+    assert resp.question == "And Terraform?"
+    assert [c.get("follow_up_focus") for c in writer.calls[1:]] == [["Terraform"], ["Terraform"]]
+
+
+@pytest.mark.asyncio
+async def test_a_second_blank_draft_skips_the_follow_up_and_spends_nothing(db):
+    from applire.models.session import InterviewSession
+
+    job, _profile, _ = await _seed(db)
+    blank = {"question": "", "choices": None, "covered_by_answer": [], "follow_up_remaining": ["Terraform"]}
+    writer = _judging_writer("Tell me about Kubernetes and Terraform.", blank, blank)
+    created = await _gap_click(db, job, _INFRA, writer)
+    resp = await _answer(db, created.session_id,
+                         "I ran Kubernetes clusters in production at Acme for three years.",
+                         _writing_bridge(add_skills=["Kubernetes"]), writer)
+
+    assert len(writer.calls) == 3, "one retry, never more"
+    assert resp.complete is True
+    assert resp.cluster_coverage.open_concepts == ["Terraform"], "the record stays strict — askable later"
+    assert resp.cluster_coverage.budget_remaining == _PER_GAP - 1
+    record = await db.get(InterviewSession, created.session_id)
+    assert record.state["questions_per_gap"][_INFRA] == 1
+
+
+@pytest.mark.asyncio
 async def test_a_writer_without_the_split_keeps_the_literal_follow_up(db):
     """No ``follow_up_remaining`` key (a model that ignored the rule, a
     malformed reply) is the behaviour before ruling M-1: the literal focus."""
