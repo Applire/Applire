@@ -1097,7 +1097,23 @@ def _page_band_not_applicable(checks: list[ATSCheck]) -> None:
 
 #: A trailing gender marker on a German/English job title — "(m/w/d)", "(m/f/d)",
 #: "(w/m/d)", "(all genders)" is left alone (it never appears inside a claim form).
-_GENDER_MARKER_RE = re.compile(r"\s*\((?:[mwfdx]|div)(?:\s*/\s*(?:[mwfdx]|div))+\)\s*$")
+_GENDER_MARKER_RE = re.compile(
+    r"\s*\((?:(?:[mwfdx]|div)(?:\s*/\s*(?:[mwfdx]|div))+|all genders|alle geschlechter|gn\*?)\)\s*$"
+)
+#: R-4 (main-session default 2026-09-26, adversarial finding 1): a title variant is
+#: masked only when it has at least this many tokens — a one-word title
+#: ("Engineer") is also the candidate's own wording for a role they claim.
+_TITLE_MIN_TOKENS = 2
+#: R-4 (adversarial finding 2): generic first words of company names that never
+#: open an employer clause on their own ("Deutsche" is also the language). The
+#: full name and the name without legal form still anchor.
+_GENERIC_FIRST_WORDS = frozenset({
+    "deutsche", "deutscher", "neue", "neuer", "erste", "allgemeine", "vereinigte",
+    "europäische", "internationale", "nationale", "bayerische", "berliner",
+    "international", "global", "united", "general", "national", "european",
+    "first", "new", "american", "british", "royal", "bank", "group", "gruppe",
+    "stadt", "stadtwerke", "institut", "university", "universität", "hochschule",
+})
 #: A legal-form suffix on an employer name, matched on the `_norm`ed name.
 _LEGAL_FORM_RE = re.compile(
     r"\s+(?:gmbh\s*&\s*co\.?\s*kg(?:aa)?|gmbh|ggmbh|mbh|ag|se|kg|kgaa|ohg|gbr|ug(?:\s*\(haftungsbeschränkt\))?"
@@ -1153,8 +1169,9 @@ def non_claim_names(role_title: str | None, employer_names: Sequence[str | None]
 
     t = _norm(role_title or "")
     if t:
-        _add(titles, t)
-        _add(titles, _GENDER_MARKER_RE.sub("", t).strip())
+        for variant in (t, _GENDER_MARKER_RE.sub("", t).strip()):
+            if len(variant.split()) >= _TITLE_MIN_TOKENS:
+                _add(titles, variant)
     for e in employer_names or ():
         n = _norm(e or "")
         if not n:
@@ -1183,10 +1200,17 @@ def _mask_intervals(text_norm: str, intervals: list[tuple[int, int]]) -> str:
     return "".join(out)
 
 
+def _name_pattern(name: str) -> str:
+    """A whole-word pattern for a normalised name that tolerates pypdf's spurious
+    kerning space at every character boundary — the same tolerance as
+    :func:`_find` (#399), so a title extracted as "of fice manager" is masked."""
+    return r"(?<!\w)" + r" *".join(re.escape(ch) for ch in name) + r"(?!\w)"
+
+
 def _name_intervals(text_norm: str, names: Sequence[str]) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     for n in sorted({x for x in names if x}, key=len, reverse=True):
-        for m in re.finditer(re.escape(n), text_norm):
+        for m in re.finditer(_name_pattern(n), text_norm):
             spans.append((m.start(), m.end()))
     return spans
 
@@ -1217,11 +1241,14 @@ _CLAUSE_ANCHOR_MIN_FIRST_WORD = 4
 
 def _employer_clause_anchors(employers: Sequence[str]) -> list[str]:
     """R-2: the employer names as given and without legal form (already in
-    ``employers``) plus each name's first word when it has ≥ 4 letters."""
+    ``employers``) plus each name's first word when it has ≥ 4 letters and is
+    not a generic company-name word (R-4, :data:`_GENERIC_FIRST_WORDS`)."""
     out: list[str] = []
     for e in employers:
         for a in (e, (e.split() or [""])[0]):
-            if a and a not in out and (a == e or len(a) >= _CLAUSE_ANCHOR_MIN_FIRST_WORD):
+            if not a or a in out:
+                continue
+            if a == e or (len(a) >= _CLAUSE_ANCHOR_MIN_FIRST_WORD and a not in _GENERIC_FIRST_WORDS):
                 out.append(a)
     return out
 

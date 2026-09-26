@@ -1396,3 +1396,10 @@ def test_protected_name_hit_needs_the_name_in_the_section_and_the_form_in_the_na
     assert ra.protected_name_hit("I built a payments platform.", ["Payments platform"], names) is None
     # name present, form not inside it → no hit
     assert ra.protected_name_hit(in_title, ["Kubernetes"], names) is None
+
+
+def test_protected_name_must_stand_as_whole_words_in_the_section():
+    """Adversarial finding 3: a vault title "IT" is a substring of "mit"/"seit"."""
+    text = "Ich arbeite seit 2019 mit agilen Methoden und Institutsleitung."
+    assert ra.protected_name_hit(text, ["IT"], ["it"]) is None
+    assert ra.protected_name_hit("Leitung der IT bei Acme.", ["IT"], ["it"]) == "it"

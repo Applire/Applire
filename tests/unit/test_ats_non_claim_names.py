@@ -145,3 +145,42 @@ def test_employer_name_substring_keyword_is_not_unsupported():
     cov = _keyword_coverage(text, ["Verpackungen"], [_gap("Verpackungen")], non_claim=_RHEINWERK)
     assert cov.present == ["Verpackungen"]
     assert cov.present_unsupported == []
+
+
+# ── R-4 + adversarial-pass instrument fixes (2026-09-26) ────────────────────
+
+
+def test_a_one_word_title_is_not_masked_so_the_candidates_own_role_still_flags():
+    """Adversarial finding 1: role_title "Engineer" masked the candidate's own
+    "Engineer bei Foobar AG" and a real unsupported claim left the list."""
+    n = non_claim_names("Engineer", [])
+    assert n.titles == ()
+    text = _norm("Berufserfahrung: Engineer bei Foobar AG 2018–2020.")
+    cov = _keyword_coverage(text, ["Engineer"], [_gap("Engineer")], non_claim=n)
+    assert cov.present_unsupported == ["Engineer"]
+
+
+def test_a_one_word_title_with_its_gender_marker_is_still_masked_as_the_posting_quote():
+    n = non_claim_names("Controller (m/w/d)", [])
+    assert n.titles == ("controller (m/w/d)",)
+
+
+def test_all_genders_markers_are_stripped_from_the_title_variant():
+    for marker in ("(all genders)", "(alle Geschlechter)", "(gn*)", "(w/m/d)"):
+        n = non_claim_names(f"Backend Engineer {marker}", [])
+        assert "backend engineer" in n.titles, marker
+
+
+def test_the_name_mask_tolerates_a_pypdf_kerning_space():
+    """Adversarial finding 5 — the same tolerance as ``_find`` (#399)."""
+    n = non_claim_names("Office Manager (m/w/d)", [])
+    masked = mask_non_claim_spans(_norm("Bewerbung als Of fice Manager bei Contoso."), n)
+    assert "manager" not in masked
+
+
+def test_the_name_mask_is_whole_word():
+    n = non_claim_names("Data Engineer (m/w/d)", [])
+    masked = mask_non_claim_spans(_norm("Ich habe Big Data Engineering betrieben."), n)
+    assert "data engineering" in masked
+    masked = mask_non_claim_spans(_norm("Ich war Bigdata Engineer bei Acme."), n)
+    assert "bigdata engineer" in masked

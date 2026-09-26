@@ -156,3 +156,13 @@ def test_the_letter_audit_turns_the_clause_on_and_the_cv_audit_does_not():
     cv = _audit_cv_text(text, TailoredCVData.model_validate({"contact": {"name": "X"}}), ["Settlement"],
                         [_gap("Settlement")], non_claim=names)
     assert cv.keywords.present_unsupported == ["Settlement"]
+
+
+def test_a_generic_first_word_opens_no_clause():
+    """Adversarial finding 2 / R-4: "Deutsche" is also the language."""
+    names = non_claim_names(None, ["Deutsche Bahn AG"]).with_employer_clause()
+    m = _masked("Ich spreche fließend Deutsche und Englisch und habe zwei Jahre in Frankreich gelebt.", names)
+    assert "deutsche und englisch und habe zwei jahre" in m
+    # the name without legal form still anchors
+    m2 = _masked("Deutsche Bahn betreibt Fernverkehr in Europa, was mich reizt.", names)
+    assert "fernverkehr" not in m2

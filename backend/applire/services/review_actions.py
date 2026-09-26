@@ -30,6 +30,7 @@ over the live report (SF-REVIEW.9).
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -243,7 +244,13 @@ def protected_name_hit(section_text: str, wording: list[str], names: list[str]) 
 
     t = _norm(section_text or "")
     for n in sorted(names, key=len, reverse=True):
-        if n and n in t and any(surface_present(w, n) for w in wording if w):
+        # the NAME must stand in the section as whole words (adversarial finding
+        # 3: a vault title "IT" is a substring of "mit"/"seit"); the FORM may sit
+        # inside the name as a substring, because the rewrite removes it from
+        # inside a compound or longer name too (removal prompt rule 1)
+        if not n or not re.search(r"(?<!\w)" + re.escape(n) + r"(?!\w)", t):
+            continue
+        if any(surface_present(w, n) for w in wording if w):
             return n
     return None
 
