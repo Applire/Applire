@@ -1191,14 +1191,66 @@ def non_claim_names_for_job(job: Any) -> NonClaimNames | None:
     return non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
 
 
+#: R-2 (founder, 2026-09-26): the words that end an employer clause — the first
+#: first-person word (the candidate speaking again), a sentence end, a salutation
+#: (the PDF text has no sentence break between the recipient block and "Sehr
+#: geehrte …," — without this stop the opening claim was masked on 4 of 16
+#: captured letters), or a masked fragment boundary.
+_CLAUSE_END_RE = re.compile(
+    r"\b(?:i|me|my|mine|myself|ich|mich|mir|mein|meine|meinen|meinem|meiner|meines)\b"
+    r"|[.!?;:](?=\s|$)"
+    r"|\b(?:sehr geehrte[rn]?|dear|hallo|guten tag)\b"
+    rf"|{_CORPUS_FRAGMENT_BOUNDARY}"
+)
+#: The shortest first word of an employer name that anchors a clause on its own.
+_CLAUSE_ANCHOR_MIN_FIRST_WORD = 4
+
+
+def _employer_clause_anchors(employers: Sequence[str]) -> list[str]:
+    """R-2: the employer names as given and without legal form (already in
+    ``employers``) plus each name's first word when it has ≥ 4 letters."""
+    out: list[str] = []
+    for e in employers:
+        for a in (e, (e.split() or [""])[0]):
+            if a and a not in out and (a == e or len(a) >= _CLAUSE_ANCHOR_MIN_FIRST_WORD):
+                out.append(a)
+    return out
+
+
+def _employer_clause_intervals(text_norm: str, employers: Sequence[str]) -> list[tuple[int, int]]:
+    """R-2 (founder ruling, option A): the clause that describes the employer's
+    business — from a whole-word mention of the employer's name to the first
+    first-person word, sentence end or salutation. Anchored on the name ONLY:
+    "Sie/Ihr/your" was measured to mask the candidate's own intent sentences.
+    Measured on 16 captured synthetic letters: 0 of ~27 clauses masked a
+    candidate claim; 7 of 17 placeable group-1 rows were such clauses."""
+    anchors = _employer_clause_anchors(employers)
+    if not anchors:
+        return []
+    pattern = re.compile(
+        r"(?<!\w)(?:" + "|".join(re.escape(a) for a in sorted(anchors, key=len, reverse=True)) + r")(?!\w)"
+    )
+    spans: list[tuple[int, int]] = []
+    for m in pattern.finditer(text_norm):
+        end_m = _CLAUSE_END_RE.search(text_norm, m.end())
+        end = end_m.start() if end_m else len(text_norm)
+        if end > m.start():
+            spans.append((m.start(), end))
+    return spans
+
+
 def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
     """``text_norm`` with the posting's own words replaced by the corpus fragment
     boundary (``␞``, which no surface form can bridge — see
     :data:`_CORPUS_FRAGMENT_BOUNDARY`): every occurrence of the target job title and
-    of the employer's name (:func:`non_claim_names`). ``None``/empty → unchanged."""
+    of the employer's name (:func:`non_claim_names`, ruling R-1), and the clause
+    that describes the employer's business (:func:`_employer_clause_intervals`,
+    ruling R-2). ``None``/empty → unchanged."""
     if not names:
         return text_norm
-    return _mask_intervals(text_norm, _name_intervals(text_norm, names.all_names()))
+    intervals = _name_intervals(text_norm, names.all_names())
+    intervals += _employer_clause_intervals(text_norm, names.employers)
+    return _mask_intervals(text_norm, intervals)
 
 
 def _keyword_coverage(
