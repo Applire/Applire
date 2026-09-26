@@ -1242,3 +1242,164 @@ async def test_cover_letter_status_section_overrides_empty_dict_when_none_saved(
     cl_id = await seed_letter(db)
     data = _client(db).get(f"/api/cover-letter/{cl_id}/status").json()
     assert data["section_overrides"] == {}
+
+
+# ── WP-R (ADR-090 am. 2026-09-26, ruling R-1 belt): protected names ──────────
+#
+# The #736 delivery run's letter: take-out on ``Payments platform`` would have
+# rewritten the target job title "Senior Backend Engineer — Payments Platform
+# (m/f/d)". A section holding a job title / employer name that contains the
+# finding's wording is refused BEFORE any model call.
+
+_PP = "Payments platform"
+_PP_KEY = rs.finding_key("ats", _PP)
+_PP_MATCHES = {_PP: [{"form": "Payments platform", "stem": False}]}
+_NOVAPAY_TITLE = "Senior Backend Engineer — Payments Platform (m/f/d)"
+
+
+async def _set_job(db, record_kind, doc_id, *, role_title=None, company_name=None):
+    from applire.models.job import JobAnalysis
+
+    record = await ra.load_document(record_kind, doc_id, db)
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    if role_title is not None:
+        job.role_title = role_title
+    if company_name is not None:
+        job.company_name = company_name
+    await db.commit()
+    return record
+
+
+async def _set_vault_work(db, record, work):
+    """Point the document at a fresh profile carrying ``work`` (profile_json is
+    write-guarded, ADR-063 cl. 6 — a new row via the factory is the sanctioned path)."""
+    profile_id = uuid.uuid4()
+    db.add(make_master_profile(id=profile_id, profile_json={"work_experience": work}))
+    record.profile_id = profile_id
+    await db.commit()
+
+
+def _post_take_out(client, kind_path, doc_id, key):
+    return client.post(f"/api/{kind_path}/{doc_id}/review/take-out", json={"finding_key": key})
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_take_out_refuses_when_the_target_title_holds_the_wording(db):
+    paragraphs = [
+        f"I am applying for the {_NOVAPAY_TITLE} role at NovaPay GmbH.",
+        "I built a payments platform for subscription billing.",
+    ]
+    cl_id = await seed_letter(
+        db, paragraphs=paragraphs, ats_report=_ats_report("cover_letter", [_PP], _PP_MATCHES),
+    )
+    await _set_job(db, "cover_letter", cl_id, role_title=_NOVAPAY_TITLE, company_name="NovaPay GmbH")
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"body": (True, "anything")})
+    fake_reaudit = FakeReaudit()
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=fake_reaudit):
+        response = _post_take_out(client, "cover-letter", cl_id, _PP_KEY)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_protected_name"
+    assert fake_rewrite.calls == [] and fake_reaudit.calls == 0
+    from applire.models.cover_letter import GeneratedCoverLetter
+    record = await db.get(GeneratedCoverLetter, cl_id)
+    assert record.section_overrides is None
+    assert (record.review_state or {}).get("decisions", []) == []
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_take_out_refuses_when_the_recipient_company_holds_the_wording(db):
+    """The letter's own ``recipient.company`` is protected even when the job row
+    carries no company name."""
+    term = "Antriebstechnik"
+    paragraphs = ["Die Position bei der Arnold Antriebstechnik GmbH spricht mich an."]
+    cl_id = await seed_letter(
+        db, paragraphs=paragraphs,
+        ats_report=_ats_report("cover_letter", [term], {term: [{"form": term, "stem": False}]}),
+    )
+    record = await ra.load_document("cover_letter", cl_id, db)
+    record.letter_data = {**record.letter_data, "recipient": {"company": "Arnold Antriebstechnik GmbH"}}
+    await db.commit()
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"body": (True, "anything")})
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=FakeReaudit()):
+        response = _post_take_out(client, "cover-letter", cl_id, rs.finding_key("ats", term))
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_protected_name"
+    assert fake_rewrite.calls == []
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_refuses_when_a_vault_job_title_in_the_section_holds_the_wording(db):
+    intro = "Head of Payments Platform bei Acme, verantwortlich für Checkout."
+    cv_id = await seed_cv(db, introduction=intro, ats_report=_ats_report("cv", [_PP], _PP_MATCHES))
+    record = await ra.load_document("cv", cv_id, db)
+    await _set_vault_work(db, record, [{"company": "Acme", "role": "Head of Payments Platform"}])
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"introduction": (True, "Bei Acme, verantwortlich für Checkout.")})
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=FakeReaudit()):
+        response = _post_take_out(client, "cv", cv_id, _PP_KEY)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_protected_name"
+    assert fake_rewrite.calls == []
+
+
+@pytest.mark.asyncio
+async def test_cv_take_out_refuses_when_a_vault_employer_in_the_section_holds_the_wording(db):
+    term = "Logistics"
+    intro = "Backend-Entwicklung bei Cargonaut Logistics GmbH seit 2021."
+    cv_id = await seed_cv(
+        db, introduction=intro,
+        ats_report=_ats_report("cv", [term], {term: [{"form": term, "stem": False}]}),
+    )
+    record = await ra.load_document("cv", cv_id, db)
+    await _set_vault_work(db, record, [{"company": "Cargonaut Logistics GmbH", "role": "Engineer"}])
+    client = _client(db)
+    fake_rewrite = FakeRewrite({"introduction": (True, "Backend-Entwicklung seit 2021.")})
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=FakeReaudit()):
+        response = _post_take_out(client, "cv", cv_id, rs.finding_key("ats", term))
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "take_out_unavailable_protected_name"
+    assert fake_rewrite.calls == []
+
+
+@pytest.mark.asyncio
+async def test_take_out_still_rewrites_when_the_title_in_the_section_does_not_hold_the_wording(db):
+    """The guard is scoped to names that CONTAIN the wording — a title standing in
+    the same passage for an unrelated wording does not block the removal."""
+    paragraphs = [f"I am applying for the {_NOVAPAY_TITLE} role.", "I use Kubernetes daily."]
+    cl_id = await seed_letter(
+        db, paragraphs=paragraphs,
+        ats_report=_ats_report("cover_letter", [_KUBERNETES], _MATCHES),
+    )
+    await _set_job(db, "cover_letter", cl_id, role_title=_NOVAPAY_TITLE, company_name="NovaPay GmbH")
+    client = _client(db)
+    after = "\n\n".join([paragraphs[0], "I use containers daily."])
+    fake_rewrite = FakeRewrite({"body": (True, after)})
+    with patch.object(ra, "_rewriter", lambda: fake_rewrite), \
+         patch.object(ra, "reaudit", new=FakeReaudit([(_ats_report("cover_letter", []), None)])):
+        response = _post_take_out(client, "cover-letter", cl_id, _KEY)
+    assert response.status_code == 200, response.text
+    assert fake_rewrite.calls == ["body"]
+
+
+def test_protected_name_hit_needs_the_name_in_the_section_and_the_form_in_the_name():
+    names = ["senior backend engineer payments platform (m/f/d)", "novapay"]
+    in_title = "I am applying for the Senior Backend Engineer — Payments Platform (m/f/d) role."
+    assert ra.protected_name_hit(in_title, ["Payments platform"], names) == names[0]
+    # name absent from the section → no hit, even though the form is in the name
+    assert ra.protected_name_hit("I built a payments platform.", ["Payments platform"], names) is None
+    # name present, form not inside it → no hit
+    assert ra.protected_name_hit(in_title, ["Kubernetes"], names) is None
+
+
+def test_protected_name_must_stand_as_whole_words_in_the_section():
+    """Adversarial finding 3: a vault title "IT" is a substring of "mit"/"seit"."""
+    text = "Ich arbeite seit 2019 mit agilen Methoden und Institutsleitung."
+    assert ra.protected_name_hit(text, ["IT"], ["it"]) is None
+    assert ra.protected_name_hit("Leitung der IT bei Acme.", ["IT"], ["it"]) == "it"

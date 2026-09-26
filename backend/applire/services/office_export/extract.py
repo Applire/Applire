@@ -121,7 +121,7 @@ from lxml.etree import QName
 
 from applire.schemas.ats import ATSReport
 from applire.schemas.cv import TailoredCVData
-from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+from applire.services.ats_audit import NonClaimNames, _audit_cv_text, _audit_letter_text
 
 
 def _local_name(tag: str) -> str:
@@ -179,6 +179,7 @@ def audit_cv_docx(
     terminal_review=None,
     previous_report: dict | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     """Audit a produced CV ``.docx`` against the structured CV data and keywords —
     the ``.docx`` twin of ``ats_audit.audit_cv`` (which audits a PDF).
@@ -208,6 +209,7 @@ def audit_cv_docx(
         terminal_review=terminal_review,
         previous_report=previous_report,
         vault_index=vault_index,  # ADR-090 cl. 4 — same grounding as the PDF report
+        non_claim=non_claim,  # ADR-090 am. 2026-09-26 (WP-R) — same names as the PDF report
     )
 
 
@@ -222,6 +224,7 @@ def audit_cover_letter_docx(
     terminal_review=None,
     previous_report: dict | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     """Audit a produced cover-letter ``.docx`` against the structured letter data
     and keywords — the ``.docx`` twin of ``ats_audit.audit_cover_letter``.
@@ -242,4 +245,5 @@ def audit_cover_letter_docx(
         terminal_review=terminal_review,
         previous_report=previous_report,
         vault_index=vault_index,  # ADR-090 cl. 4 — same grounding as the PDF report
+        non_claim=non_claim,  # ADR-090 am. 2026-09-26 (WP-R) — same names as the PDF report
     )

@@ -3347,7 +3347,7 @@ async def _update_ats_report_letter(
     # later section edit launder a letter that shipped on an exhausted review.
     previous_report = cl.ats_report if isinstance(cl.ats_report, dict) else None
     try:
-        from applire.services.ats_audit import audit_cover_letter
+        from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
         from applire.services.cover_letter_pdf import render_pdf
 
         pdf = pdf if pdf is not None else await render_pdf(cl.id)
@@ -3398,6 +3398,9 @@ async def _update_ats_report_letter(
             terminal_review=terminal_review,
             previous_report=previous_report,
             vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
+            # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
+            # (the audit adds the letter's own recipient.company).
+            non_claim=non_claim_names_for_job(job),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -3569,6 +3572,7 @@ async def _update_ats_report_letter(
     # own locals, which may be unset if that block raised before reaching
     # them.
     try:
+        from applire.services.ats_audit import non_claim_names_for_job
         from applire.services.office_export.extract import audit_cover_letter_docx
 
         # #563 (D): own lineage, own carry-forward (never the PDF report's).
@@ -3637,6 +3641,7 @@ async def _update_ats_report_letter(
             vault_index=grounding_vault_index(
                 docx_profile_row.profile_json if docx_profile_row else None
             ),
+            non_claim=non_claim_names_for_job(docx_job),  # WP-R, same names as the PDF report
         ).model_dump()
     except Exception:
         logger.exception(
