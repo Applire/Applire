@@ -474,6 +474,35 @@ GET /api/cv/{cv_id}/pdf
 
 ### Model Context Protocol (MCP)
 
+**Agent verbinden — Konfiguration zum Kopieren.** Die meisten MCP-Clients
+(Claude Desktop, Claude Code, Cursor, …) nehmen einen `mcpServers`-Block. Bei
+einer Docker-Installation zeigst du auf die `docker-compose.yml`, mit der du
+installiert hast (mit absolutem Pfad); der Client startet den MCP-Server dann
+als kurzlebigen Container neben deinem laufenden Applire, über stdio:
+
+```json
+{
+  "mcpServers": {
+    "applire": {
+      "command": "docker",
+      "args": [
+        "compose", "-f", "/absoluter/pfad/zu/applire/docker-compose.yml",
+        "run", "--rm", "-T", "mcp"
+      ]
+    }
+  }
+}
+```
+
+`-T` ist wichtig: Der Server bekommt eine einfache Pipe statt eines Terminals,
+und genau die braucht der stdio-Transport. Starte Applire vorher
+(`docker compose up -d`); der MCP-Container nutzt dieselbe Datenbank und deine
+`.env`. Setze dort `APPLIRE_BASE_URL=http://localhost` (oder deine öffentliche
+Adresse), damit sich die Dokument-Links, die dein Agent zurückbekommt, in deinem
+Browser öffnen.
+
+Aus einem Quellcode-Checkout startest du den Server stattdessen direkt:
+
 ```bash
 # MCP-Server starten (stdio-Transport)
 python -m applire.mcp
@@ -527,10 +556,10 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 |------|--------------|
 | `generate_cv(job_id, target_pages?)` | Asynchrone Lebenslauf-Erzeugung anstoßen; optionales `target_pages` fixiert die Seitenzahl für diesen Lauf; liefert `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Status der Lebenslauf-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
-| `get_cv_ats_report(cv_id)` | Persistierter ATS-Prüfbericht für einen erzeugten Lebenslauf — benannte Pass/Fail-Checks + vorhandene/fehlende Keywords, kein Gesamtscore |
+| `get_cv_ats_report(cv_id)` | Persistierter ATS-Prüfbericht für einen erzeugten Lebenslauf — benannte Pass/Fail-Checks + vorhandene/fehlende Keywords, kein Gesamtscore — dazu `truthfulness`: die Verdikt-Zählung der Wahrheitsprüfung und `stop_and_fix` (eine Aussage ist markiert — erst korrigieren, dann versenden) |
 | `generate_cover_letter(job_id)` | Ein Anschreiben erzeugen (erfordert eine bestehende Flow-Sitzung für die Stelle); liefert `cover_letter_id`, `html_url`, `pdf_url` |
 | `get_cover_letter_status(cover_letter_id)` | Status der Anschreiben-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
-| `get_cover_letter_ats_report(cover_letter_id)` | Persistierter ATS-Prüfbericht für ein erzeugtes Anschreiben |
+| `get_cover_letter_ats_report(cover_letter_id)` | Persistierter ATS-Prüfbericht für ein erzeugtes Anschreiben, mit derselben `truthfulness`-Zusammenfassung |
 
 **Bring your own intelligence (ADR-054) — à la carte, kein vorheriger `generate_*`-Aufruf nötig**
 
