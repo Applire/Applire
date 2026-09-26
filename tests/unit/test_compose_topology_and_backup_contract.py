@@ -240,3 +240,19 @@ def test_notice_auto_dismiss_response_key_matches_the_declared_env_var():
     assert entry.name in Settings.model_fields
     assert entry.name in SettingsResponse.model_fields
     assert entry.default == str(Settings.model_fields[entry.name].default)
+
+
+# --------------------------------------------------------------------------
+# 3. Start order (Infra #605)
+# --------------------------------------------------------------------------
+
+
+def test_retention_waits_for_the_migrated_backend(compose):
+    """The backend runs the alembic migrations at boot and turns healthy after
+    them. A retention worker that waits only for postgres runs its first pass
+    against an empty schema on a fresh install (UndefinedTableError, Infra #605)."""
+    deps = compose["services"]["retention"]["depends_on"]
+    assert deps["backend"]["condition"] == "service_healthy"
+    assert deps["postgres"]["condition"] == "service_healthy"
+    # the condition is only meaningful because the backend HAS a healthcheck
+    assert "healthcheck" in compose["services"]["backend"]
