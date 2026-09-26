@@ -1219,6 +1219,8 @@
     "stepUploading": "Uploading file…",
     "stepMerging": "Reading CV & merging with your profile…",
     "stepImporting": "Importing LinkedIn archive…",
+    "stepAnalysingGaps": "Comparing your profile with the job…",
+    "gapAnalysisFailed": "Your profile was updated, but comparing it with the job didn't work. Please try again.",
     "successPrefix": "Profile updated — completeness: ",
     "successNoScore": "Profile updated",
     "uploadErrorGeneric": "Upload failed",

@@ -236,23 +236,105 @@ describe("ProfileImportView", () => {
     expect(screen.queryByText(/pydantic/i)).not.toBeInTheDocument();
   });
 
-  it("navigates to /flow/:id/gaps when flowId is provided", async () => {
-    global.fetch = importJobsMock(READY({ completeness_score: 0.9 }), (u) => {
+  // #677: the sync POST /api/job/{id}/gaps was removed with the async gap jobs
+  // (97915fc3) — only GET remains, so the old in-flow hand-off answered 405. The
+  // previous version of this test mocked that URL for ANY method and so pinned
+  // the bug; this one asserts the method and URL of every gap request.
+  function inFlowWithJobMock(gapPoll: object | (() => object)) {
+    return importJobsMock(READY({ completeness_score: 0.9 }), (u) => {
       if (u.includes("/api/flow/flow-abc/state")) return { ok: true, body: { job_id: "job-123" } };
-      if (u.includes("/api/job/job-123/gaps")) return { ok: true, body: { id: "gap-456" } };
-      if (u.includes("/api/flow/flow-abc/advance")) return { ok: true, body: {} };
+      if (u.includes("/api/job/job-123/gap-jobs/gj-1"))
+        return { ok: true, body: typeof gapPoll === "function" ? gapPoll() : gapPoll };
+      if (u.includes("/api/job/job-123/gap-jobs"))
+        return { ok: true, status: 202, body: { gap_job_id: "gj-1", status: "pending" } };
+      if (u.includes("/api/job/job-123/gaps"))
+        return { ok: false, status: 405, body: { detail: "Method Not Allowed" } };
+      if (u.includes("/api/flow/flow-abc/advance"))
+        return { ok: true, body: { current_step: "gap_analysis" } };
       return null;
     });
+  }
 
-    render(<ProfileImportView flowId="flow-abc" />);
-
+  function uploadCv() {
     const input = screen.getByTestId("main-file-input");
     const file = new File(["content"], "cv.pdf", { type: "application/pdf" });
     fireEvent.change(input, { target: { files: [file] } });
+  }
+
+  it("starts the async gap job, advances with its id and routes to /flow/:id/gaps (#677)", async () => {
+    global.fetch = inFlowWithJobMock({
+      status: "ready",
+      error_code: null,
+      result: { id: "gap-456", match_score: 0.7 },
+    });
+
+    render(<ProfileImportView flowId="flow-abc" />);
+    uploadCv();
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("/flow/flow-abc/gaps");
     });
+
+    const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls as [
+      string,
+      RequestInit | undefined,
+    ][];
+    const gapCalls = calls.filter(([u]) => /\/api\/job\/job-123\//.test(u));
+    expect(gapCalls.map(([u, init]) => `${init?.method ?? "GET"} ${u}`)).toEqual([
+      "POST /api/job/job-123/gap-jobs",
+      "GET /api/job/job-123/gap-jobs/gj-1",
+    ]);
+    const adv = calls.find(([u]) => u.includes("/api/flow/flow-abc/advance"));
+    expect(adv?.[1]?.method).toBe("POST");
+    expect(JSON.parse(adv?.[1]?.body as string)).toEqual({
+      step: "gap_analysis",
+      artifact_id: "gap-456",
+    });
+    expect(screen.queryByText("gapAnalysisFailed")).not.toBeInTheDocument();
+  });
+
+  it("names the gap step in the progress widget while the gap job runs (#677)", async () => {
+    global.fetch = inFlowWithJobMock({ status: "processing", error_code: null, result: null });
+
+    render(<ProfileImportView flowId="flow-abc" />);
+    uploadCv();
+
+    await waitFor(() => {
+      expect(screen.getByText("stepAnalysingGaps")).toBeInTheDocument();
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("keeps the merge, shows a localized error and retries only the hand-off when the gap job fails (#677)", async () => {
+    let ready = false;
+    global.fetch = inFlowWithJobMock(() =>
+      ready
+        ? { status: "ready", error_code: null, result: { id: "gap-789", match_score: 0.5 } }
+        : { status: "failed", error_code: "llm_timeout", result: null },
+    );
+
+    render(<ProfileImportView flowId="flow-abc" />);
+    uploadCv();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-success-strip")).toBeInTheDocument();
+      expect(screen.getByText("gapAnalysisFailed")).toBeInTheDocument();
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+    const importPosts = () =>
+      ((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit?][])
+        .filter(([u, init]) => u.endsWith("/api/profile/import-jobs") && init?.method === "POST").length;
+    expect(importPosts()).toBe(1);
+
+    ready = true;
+    fireEvent.click(screen.getByTestId("flow-retry"));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/flow/flow-abc/gaps");
+    });
+    expect(screen.queryByText("gapAnalysisFailed")).not.toBeInTheDocument();
+    // The retry re-ran the hand-off, never the upload.
+    expect(importPosts()).toBe(1);
   });
 
   it("shows success strip and amber flow-error when proceedToGaps fails after upload", async () => {
