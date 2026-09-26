@@ -327,3 +327,200 @@ def test_a_follow_up_focus_member_is_never_listed_as_do_not_requestion():
     ask_line = next(line for line in out.splitlines() if line.startswith("Gap type:"))
     assert "evidences: Prometheus." in ask_line
     assert "Grafana" not in ask_line.split("Still unevidenced")[0]
+
+
+# ---------------------------------------------------------------------------
+# Ruling M-1 — the drafting call judges what the answer covered in other words
+# ---------------------------------------------------------------------------
+
+
+def test_follow_up_prompt_asks_for_the_covered_by_answer_judgement():
+    from applire.prompts.interview import build_question_prompt
+
+    cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
+    out = build_question_prompt(cluster, {"skills": [], "work_experience": []}, [],
+                                follow_up_focus=["Terraform", "Helm"])
+
+    assert '"covered_by_answer"' in out
+    assert "IN OTHER WORDS" in out
+    # The rule's two sides — what counts, and the level line that keeps a
+    # related or lower-level answer from reading as covered.
+    assert "another language" in out
+    assert "clearly lower level" in out
+    assert 'set "question" to ""' in out
+
+
+def _judging_provider(first_reply: dict) -> MagicMock:
+    provider = MagicMock()
+    provider.aparse_json = AsyncMock(side_effect=[first_reply, {"approved": True}])
+    provider.acomplete = AsyncMock()
+    return provider
+
+
+def _focus_state() -> dict:
+    cluster = {"id": "c1", "label": "Infrastructure as code", "category": "C",
+               "gaps": ["Terraform", "Helm"], "jd_skills": [], "jd_context": ""}
+    return _mode_a_state(cluster)
+
+
+@pytest.mark.asyncio
+async def test_all_candidates_covered_returns_no_question_and_skips_the_language_review():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "Tell me about Terraform and Helm.", "choices": None,
+        "covered_by_answer": ["Terraform", "helm "],
+    })
+    out = await question_generator_with_profile(
+        _focus_state(), {"skills": [], "work_experience": []}, provider,
+        gap_category="C", follow_up_focus=["Terraform", "Helm"], lang="en",
+    )
+
+    assert out["question"] == ""
+    assert out["follow_up_remaining"] == []
+    assert out["covered_by_answer"] == ["Terraform", "Helm"]
+    assert provider.aparse_json.await_count == 1, "no language review for a question nobody sees"
+
+
+@pytest.mark.asyncio
+async def test_a_partly_covered_focus_keeps_the_rest_in_focus_order():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "And Helm — have you packaged charts?", "choices": None,
+        "covered_by_answer": ["TERRAFORM"],
+    })
+    out = await question_generator_with_profile(
+        _focus_state(), {"skills": [], "work_experience": []}, provider,
+        gap_category="C", follow_up_focus=["Terraform", "Helm"], lang="en",
+    )
+
+    assert out["question"] == "And Helm — have you packaged charts?"
+    assert out["covered_by_answer"] == ["Terraform"]
+    assert out["follow_up_remaining"] == ["Helm"]
+
+
+@pytest.mark.parametrize(
+    "returned",
+    [["Kubernetes"], "Terraform", None, [None, 3, ""], {"Terraform": True}],
+    ids=["name-outside-focus", "bare-string", "missing", "junk-items", "object"],
+)
+def test_only_focus_names_in_a_list_count_as_covered(returned):
+    """Code computes facts about the model's output, never a judgement of its
+    own: a name outside the focus, or a field that is not a list of strings,
+    leaves the literal focus unchanged — the behaviour before ruling M-1."""
+    from applire.services.interview_graph import split_follow_up_focus
+
+    assert split_follow_up_focus(["Terraform", "Helm"], returned) == ([], ["Terraform", "Helm"])
+
+
+def test_no_follow_up_focus_carries_no_split_keys():
+    """A cluster's opening question is untouched: the split keys ride only on
+    a follow-up."""
+    import asyncio
+
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({"question": "Tell me about Terraform.", "choices": None})
+    out = asyncio.run(question_generator_with_profile(
+        _focus_state(), {"skills": [], "work_experience": []}, provider,
+        gap_category="C", lang="en",
+    ))
+    assert "follow_up_remaining" not in out and "covered_by_answer" not in out
+
+
+# ---------------------------------------------------------------------------
+# Ruling M-1c — the "be more specific" no-change retry judges the same way
+# ---------------------------------------------------------------------------
+
+
+def test_the_retry_json_system_prompt_differs_only_in_its_output_line():
+    from applire.prompts.interview import (
+        FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT,
+        FOLLOW_UP_QUESTION_SYSTEM_PROMPT,
+    )
+
+    text_line = "- Output ONLY the question text — no preamble, no numbering, no explanation"
+    assert FOLLOW_UP_QUESTION_SYSTEM_PROMPT.endswith(text_line)
+    assert text_line not in FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT, "never bare text AND JSON (ADR-062 cl. 4)"
+    assert FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT.startswith(
+        FOLLOW_UP_QUESTION_SYSTEM_PROMPT[: -len(text_line)]
+    )
+    assert '"covered_by_answer"' in FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT
+
+
+def test_both_follow_ups_carry_the_one_judgement_rule():
+    from applire.prompts.interview import (
+        _COVERED_IN_OTHER_WORDS_RULE,
+        build_follow_up_question_prompt,
+        build_question_prompt,
+    )
+
+    cluster = {"id": "c1", "label": "X", "gaps": [], "jd_skills": [], "jd_context": ""}
+    partial = build_question_prompt(cluster, {"skills": [], "work_experience": []}, [],
+                                    follow_up_focus=["Terraform"])
+    retry = build_follow_up_question_prompt("X", "hint", {}, [], retry_focus=["Terraform"])
+    plain = build_follow_up_question_prompt("X", "hint", {}, [])
+    assert _COVERED_IN_OTHER_WORDS_RULE in partial and _COVERED_IN_OTHER_WORDS_RULE in retry
+    assert _COVERED_IN_OTHER_WORDS_RULE not in plain, "a retry without a focus is unchanged"
+    assert plain.endswith("Generate the follow-up question probing the adjacent domain.")
+
+
+def _retry_state() -> dict:
+    cluster = {"id": "c1", "label": "Produktionsführung", "category": "C",
+               "gaps": ["Führungserfahrung", "Führungsspanne ~120 MA"], "jd_skills": [], "jd_context": ""}
+    return _mode_a_state(cluster)
+
+
+@pytest.mark.asyncio
+async def test_a_retry_judged_covered_returns_no_question_and_skips_the_language_review():
+    from applire.prompts.interview import FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "", "covered_by_answer": ["Führungserfahrung", "Führungsspanne ~120 MA"],
+    })
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+        retry_focus=["Führungserfahrung", "Führungsspanne ~120 MA"],
+    )
+
+    assert out["question"] == "" and out["follow_up_remaining"] == []
+    assert provider.aparse_json.await_count == 1, "JSON call, no language review"
+    assert provider.aparse_json.call_args.kwargs["system"].startswith(FOLLOW_UP_QUESTION_JSON_SYSTEM_PROMPT)
+    provider.acomplete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_partly_covered_retry_keeps_the_rest():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = _judging_provider({
+        "question": "Wie groß war das größte Team, das du geführt hast?",
+        "covered_by_answer": ["Führungserfahrung"],
+    })
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+        retry_focus=["Führungserfahrung", "Führungsspanne ~120 MA"],
+    )
+    assert out["question"] == "Wie groß war das größte Team, das du geführt hast?"
+    assert out["follow_up_remaining"] == ["Führungsspanne ~120 MA"]
+    assert out["choices"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_retry_without_a_focus_stays_bare_text():
+    from applire.services.interview_graph import question_generator_with_profile
+
+    provider = MagicMock()
+    provider.acomplete = AsyncMock(return_value="Welches Beispiel fällt dir ein?")
+    provider.aparse_json = AsyncMock(return_value={"approved": True})
+    out = await question_generator_with_profile(
+        _retry_state(), {"skills": [], "work_experience": []}, provider,
+        follow_up_hint="ask for a more specific example", lang="de",
+    )
+    assert out["question"] == "Welches Beispiel fällt dir ein?"
+    assert "follow_up_remaining" not in out
+    provider.acomplete.assert_awaited_once()

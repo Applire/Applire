@@ -128,6 +128,8 @@ interface SessionTurnResponse {
   pending_conflicts?: unknown[] | null;
   pending_confirmations?: unknown[] | null;
   cluster_coverage?: TurnClusterCoverage | null;
+  /** Ruling M-1b — what a partial-coverage follow-up asks about. */
+  follow_up_concepts?: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -882,7 +884,7 @@ export default function GapsPage({
         sessionId: data.session_id,
         question: data.question ?? data.first_question,
         choices: data.choices ?? null,
-        followUpOpen: resumedFollowUp && cluster ? cluster.gaps : null,
+        followUpOpen: resumedFollowUp && cluster ? (data.follow_up_concepts ?? cluster.gaps) : null,
       });
     } catch (e: unknown) {
       updateGapState(clusterId, {
@@ -939,7 +941,9 @@ export default function GapsPage({
         answer: "",
         question: data.question ?? st.question,
         choices: data.choices ?? null,
-        followUpOpen: !isConfirmation && turn ? turn.open_concepts : null,
+        // Ruling M-1b: the label names what the follow-up ASKS; the chips
+        // keep showing the strict record.
+        followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
         overlay: turn ?? st.overlay,
       });
       void reReadAnalysis();

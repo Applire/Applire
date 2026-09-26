@@ -40,7 +40,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: (ns: string) => (key: string, _vars?: object) => `${ns}.${key}`,
+  // The follow-up label's `items` are rendered so ruling M-1b can be asserted;
+  // every other key renders as its bare name.
+  useTranslations: (ns: string) => (key: string, vars?: { items?: string }) =>
+    key === "followUpLabel" && vars?.items !== undefined ? `${ns}.${key}:${vars.items}` : `${ns}.${key}`,
 }));
 
 function fulfilledParams(flowId: string) {
@@ -631,6 +634,94 @@ describe("ruling B-3 — a click on a cluster waiting on a follow-up resumes it"
     fireEvent.click(await waitFor(() => card("k8s")));
     await waitFor(() => within(card("k8s")).getByTestId("gap-question"));
     expect(within(card("k8s")).queryByTestId("gap-follow-up-label")).not.toBeInTheDocument();
+  });
+});
+
+describe("ruling M-1b — the follow-up label names what the follow-up asks", () => {
+  const partialRow = () =>
+    analysis([cl("k8s", { gaps: ["Kubernetes", "Helm", "ArgoCD"] })]);
+
+  it("lists follow_up_concepts, not the record's whole open list", async () => {
+    serve({
+      row: partialRow(),
+      turns: [
+        {
+          complete: false,
+          question: "And ArgoCD — did you run it?",
+          choices: null,
+          follow_up_concepts: ["ArgoCD"],
+          cluster_coverage: {
+            cluster_id: "k8s", coverage: "partly_covered",
+            open_concepts: ["Kubernetes", "Helm", "ArgoCD"], budget_remaining: 1,
+          },
+        },
+      ],
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() => within(card("k8s")).getByTestId("gap-question"));
+    await answer("k8s", "I ran our clusters and packaged every service as a chart.");
+
+    await waitFor(() =>
+      expect(within(card("k8s")).getByTestId("gap-follow-up-label")).toHaveTextContent(
+        "gaps.followUpLabel:ArgoCD",
+      ),
+    );
+    expect(within(card("k8s")).getByTestId("gap-follow-up-label")).not.toHaveTextContent("Helm");
+  });
+
+  it("falls back to the record's open list when the turn carries no follow_up_concepts", async () => {
+    serve({
+      row: partialRow(),
+      turns: [
+        {
+          complete: false,
+          question: "Anything more specific?",
+          choices: null,
+          cluster_coverage: {
+            cluster_id: "k8s", coverage: "partly_covered",
+            open_concepts: ["Helm", "ArgoCD"], budget_remaining: 1,
+          },
+        },
+      ],
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() => within(card("k8s")).getByTestId("gap-question"));
+    await answer("k8s", "Kubernetes in production.");
+
+    await waitFor(() =>
+      expect(within(card("k8s")).getByTestId("gap-follow-up-label")).toHaveTextContent(
+        "gaps.followUpLabel:Helm, ArgoCD",
+      ),
+    );
+  });
+
+  it("a resumed follow-up keeps its own label", async () => {
+    serve({
+      row: analysis([
+        cl("k8s", {
+          gaps: ["Helm", "ArgoCD"],
+          outcome: outcome(1, ["Kubernetes"]),
+          coverage: "partly_covered",
+          budget_remaining: 1,
+        }),
+      ]),
+      session: () => ({
+        status: 200,
+        body: {
+          session_id: "s-waiting", question: "And ArgoCD?", choices: null, resumed: true,
+          follow_up_concepts: ["ArgoCD"],
+        },
+      }),
+    });
+    await renderPage();
+    fireEvent.click(await waitFor(() => card("k8s")));
+    await waitFor(() =>
+      expect(within(card("k8s")).getByTestId("gap-follow-up-label")).toHaveTextContent(
+        "gaps.followUpLabel:ArgoCD",
+      ),
+    );
   });
 });
 
