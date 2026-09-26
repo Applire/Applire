@@ -32,6 +32,25 @@ const messages: Record<Locale, typeof enMessages> = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
+/**
+ * #677 / #605 — next-intl's global time zone. Without one, every server render
+ * logs `ENVIRONMENT_FALLBACK` and date formatting falls back to the process
+ * zone (UTC in the container) while the browser uses its own — a markup
+ * mismatch and a wrong-date risk. The server render and the FIRST client render
+ * both use this DACH-native default, so hydration compares identical markup;
+ * only after mount does the provider switch to the browser's own zone.
+ */
+export const DEFAULT_TIME_ZONE = "Europe/Berlin";
+
+/** The browser's IANA zone, or the default when the runtime cannot name one. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIME_ZONE;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
 interface LocaleContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => Promise<void>;
@@ -48,6 +67,13 @@ export function useLocale() {
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
+  const [timeZone, setTimeZone] = useState<string>(DEFAULT_TIME_ZONE);
+
+  // Post-mount only (never during render): a render-time browser lookup would
+  // make the first client render differ from the server's markup.
+  useEffect(() => {
+    setTimeZone(browserTimeZone());
+  }, []);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/settings`)
@@ -88,7 +114,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LocaleContext.Provider value={{ locale, setLocale }}>
-      <NextIntlClientProvider locale={locale} messages={messages[locale]}>
+      <NextIntlClientProvider locale={locale} messages={messages[locale]} timeZone={timeZone}>
         {children}
       </NextIntlClientProvider>
     </LocaleContext.Provider>
