@@ -100,17 +100,25 @@ depth. Read-only, never mutates either document; null until the pass runs.
 ATS report (`get_cv_ats_report` / `get_cover_letter_ats_report`) before the
 document leaves:
 
-- `stop_and_fix: true` — the truthfulness check flagged `flagged` claim(s) as
-  `inflated`, `misattributed` or `unbacked`: the same rows the human sees in the
-  review panel. Do not send the document. Call
-  `audit_document(document_id=...)` for the claims, then back each one with
-  evidence (`submit_testimony`) or have it removed and generate again, and tell
-  the human what you changed.
+- `stop_and_fix: true` — `flagged` rows are open: the same rows the human sees
+  in the review panel. Two kinds, both on this envelope:
+  - a job keyword the document uses that the profile does not back — listed in
+    `report.keywords.present_unsupported` (the wording that matched is in
+    `present_unsupported_matches`). **Read each one before acting — these can be
+    false positives:** a phrase that describes the employer's business or
+    quotes the posting is not a claim about the candidate. Say so to the human
+    rather than removing it or inventing evidence for it;
+  - a claim the truthfulness check graded `inflated`, `misattributed` or
+    `unbacked` — call `audit_document(document_id=...)` for the claims.
+
+  Do not send the document until each row is resolved: back it with evidence
+  (`submit_testimony`), or have it removed and generate again, and tell the
+  human what you changed.
 - `available: false` — no audit is stored for this document yet (still pending,
   or the audit failed). Call `audit_document(document_id=...)`; never read the
   missing verdict as clean.
-- `stop_and_fix: false` — nothing flagged. `counts` carries the full verdict
-  tally; `unverifiable_dominated: true` means most claims could not be checked
+- `stop_and_fix: false` — nothing open. `counts` carries the truthfulness
+  check's verdict tally (keyword rows are not verdicts and are not in it); `unverifiable_dominated: true` means most claims could not be checked
   against the vault — say so rather than calling the document verified.
 
 Use

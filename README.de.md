@@ -556,7 +556,7 @@ Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.examp
 |------|--------------|
 | `generate_cv(job_id, target_pages?)` | Asynchrone Lebenslauf-Erzeugung anstoßen; optionales `target_pages` fixiert die Seitenzahl für diesen Lauf; liefert `cv_id`, `html_url`, `pdf_url` |
 | `get_cv_status(cv_id)` | Status der Lebenslauf-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
-| `get_cv_ats_report(cv_id)` | Persistierter ATS-Prüfbericht für einen erzeugten Lebenslauf — benannte Pass/Fail-Checks + vorhandene/fehlende Keywords, kein Gesamtscore — dazu `truthfulness`: die Verdikt-Zählung der Wahrheitsprüfung und `stop_and_fix` (eine Aussage ist markiert — erst korrigieren, dann versenden) |
+| `get_cv_ats_report(cv_id)` | Persistierter ATS-Prüfbericht für einen erzeugten Lebenslauf — benannte Pass/Fail-Checks + vorhandene/fehlende Keywords, kein Gesamtscore — dazu `truthfulness`: die Verdikt-Zählung der Wahrheitsprüfung und `stop_and_fix` (die Prüfansicht listet einen offenen Befund — eine markierte Aussage oder ein nicht belegtes Keyword; erst klären, dann versenden) |
 | `generate_cover_letter(job_id)` | Ein Anschreiben erzeugen (erfordert eine bestehende Flow-Sitzung für die Stelle); liefert `cover_letter_id`, `html_url`, `pdf_url` |
 | `get_cover_letter_status(cover_letter_id)` | Status der Anschreiben-Erzeugung abfragen (`pending` / `generating` / `ready` / `failed`) |
 | `get_cover_letter_ats_report(cover_letter_id)` | Persistierter ATS-Prüfbericht für ein erzeugtes Anschreiben, mit derselben `truthfulness`-Zusammenfassung |

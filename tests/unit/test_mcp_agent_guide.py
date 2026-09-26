@@ -300,6 +300,12 @@ def test_guide_tells_the_guided_pipeline_to_stop_on_a_red_verdict():
         "audit_document(document_id=...)",
         "available: false",
         "never read the\n  missing verdict as clean",
+        # ruling A-1b: the count covers the keyword rows too, and the agent
+        # must read them before acting — they can be false positives
+        "the same rows the human sees",
+        "present_unsupported",
+        "false positives",
+        "Do not send the document until each row is resolved",
     ):
         assert needle in section, needle
 

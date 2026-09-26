@@ -120,11 +120,58 @@ def test_flagged_is_the_review_panels_group_one_selection():
     ats["keywords"]["claimable_concepts"] = ["Kubernetes"]
 
     s = summarize(truth, ats)
-    oracle_rows = [f for f in group_one_findings(ats, truth) if f.producer == "oracle"]
-    assert s.flagged == 1 == len(oracle_rows)
+    assert s.flagged == 1 == len(group_one_findings(ats, truth))
     assert s.stop_and_fix is True
     # without the ATS report there is no claimable set — both count 2
-    assert summarize(truth, None).flagged == 2
+    assert summarize(truth, None).flagged == 2 == len(group_one_findings(None, truth))
+
+
+def _ats_with_unsupported(terms, claimable=()):
+    ats = _make_ats_report("cv").model_dump(mode="json")
+    ats["keywords"]["present_unsupported"] = list(terms)
+    ats["keywords"]["present_unsupported_matches"] = {t: [{"form": t}] for t in terms}
+    ats["keywords"]["claimable_concepts"] = list(claimable)
+    return ats
+
+
+def test_ats_only_row_stops_the_agent_too():
+    """Ruling A-1b (founder 2026-09-26; adversarial probe + delivery letters
+    e84514c3 / e9c36a18): an ATS ``present_unsupported`` term with no Oracle
+    claim is a group-1 row the human sees — the summary must count it."""
+    from applire.services.review_state import group_one_findings
+    from applire.services.truthfulness_summary import summarize
+
+    ats = _ats_with_unsupported(["Kubernetes"])
+    truth = _truth_report([])
+    rows = group_one_findings(ats, truth)
+    assert [r.producer for r in rows] == ["ats"]
+    s = summarize(truth, ats)
+    assert (s.flagged, s.stop_and_fix) == (1, True)
+    # counts stays the Oracle's tally — the ATS row is not a verdict
+    assert sum(s.counts.values()) == 0
+
+
+def test_an_ats_term_folding_into_its_oracle_claim_is_one_row_not_two():
+    from applire.services.review_state import group_one_findings
+    from applire.services.truthfulness_summary import summarize
+
+    ats = _ats_with_unsupported(["Kubernetes", "Terraform"])
+    truth = _truth_report([
+        _claim("Kubernetes", "unbacked", kind="skill"),       # folds into the ATS row
+        _claim("Led a team of 12 engineers", "inflated"),     # Oracle-only row
+    ])
+    s = summarize(truth, ats)
+    assert s.flagged == 3 == len(group_one_findings(ats, truth))
+    assert s.counts["unbacked"] == 1 and s.counts["inflated"] == 1
+
+
+def test_unknown_truth_report_stays_unknown_even_with_ats_rows():
+    """No persisted Oracle report ⇒ unknown, never a partial count that reads
+    as the whole story."""
+    from applire.services.truthfulness_summary import summarize
+
+    s = summarize(None, _ats_with_unsupported(["Kubernetes"]))
+    assert (s.available, s.flagged, s.stop_and_fix) == (False, None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -222,3 +269,22 @@ async def test_seam_mcp_unknown_cv_id_still_not_found(db_with_cv):
     with patch("applire.mcp.server.get_db", return_value=_db_cm(db_with_cv["db"])):
         with pytest.raises(McpError):
             await mcp_tool(str(uuid.uuid4()))
+
+
+@pytest.mark.asyncio
+async def test_seam_rest_cover_letter_ats_only_row_stops(cl_ats_client):
+    """The delivery-run shape (letter e84514c3, ruling A-1b): one ATS
+    present_unsupported row, no Oracle flag — the door must say stop."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    client, session = cl_ats_client
+    ats = _make_ats_report("cover_letter").model_dump(mode="json")
+    ats["keywords"]["present_unsupported"] = ["Lebensmittelkunden"]
+    cl_id = await _seed_cl(session, ats_report=ats)
+    await _set_truth(session, GeneratedCoverLetter, cl_id,
+                     _truth_report([_claim("Sehr geehrte Damen und Herren", "not_applicable")],
+                                   "cover_letter"))
+
+    body = (await client.get(f"/api/cover-letter/{cl_id}/ats-report")).json()
+    assert body["truthfulness"]["flagged"] == 1
+    assert body["truthfulness"]["stop_and_fix"] is True
