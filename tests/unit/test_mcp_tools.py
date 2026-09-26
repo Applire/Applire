@@ -1169,7 +1169,10 @@ async def test_import_cv_oversize_points_to_rest():
     with pytest.raises(McpError) as exc:
         await import_cv(file_base64=big)
     assert exc.value.error.code == -32602
-    assert "profile/upload" in exc.value.error.message
+    # Vault #674 line (c), agent half: the sync /upload door is cut by nginx at
+    # 300 s while the ingest keeps writing — point at the async door instead.
+    assert "/api/profile/import-jobs" in exc.value.error.message
+    assert "profile/upload" not in exc.value.error.message
 
 
 @pytest.mark.asyncio
