@@ -337,6 +337,16 @@ def test_kaile_agent_journey(agent):
     # (tests/unit/test_mcp_render_document.py), which this Docker-gated tier
     # cannot construct without a real producer.
     assert ats["report"]["not_applicable"] == 0
+    # ADR-058 amended 2026-09-26 (ruling A-1, Agent #676 F-12): the Oracle's
+    # verdict summary rides the same envelope over the real stdio channel.
+    # Shape only — the verdicts themselves depend on the mock provider's text.
+    assert set(ats["truthfulness"]) == {
+        "available", "counts", "flagged", "stop_and_fix", "unverifiable_dominated",
+    }
+    if ats["truthfulness"]["available"]:
+        assert isinstance(ats["truthfulness"]["stop_and_fix"], bool)
+    else:
+        assert ats["truthfulness"]["stop_and_fix"] is None
 
     # 9. Log the application to the pipeline and confirm it is listed.
     app = agent.call("create_application", job_id=job_id)
