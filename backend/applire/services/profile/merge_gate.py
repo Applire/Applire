@@ -21,6 +21,9 @@ US167 (E033 / ADR-041 amended) — pre-merge integrity gate.
 Two deterministic (no-LLM) checks run BEFORE the additive merge commits:
   (a) not-a-CV / near-empty extraction  → gate "not_a_cv"
   (b) account-vs-CV name divergence     → gate "name_divergence"
+      — and, since ADR-041 amended 2026-09-26 (#674 line (b)), a NAMELESS
+      extraction whose employers share none with a populated vault's history,
+      held under the same gate value with ``cv_name=None``.
 
 The system detects *difference* only — identity is the user's call. Name
 divergence fires only when the normalised name tokens are DISJOINT, so
@@ -33,6 +36,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from applire.schemas.profile import MasterProfileData
+from applire.services.profile.merge import company_names_match
 
 
 @dataclass
@@ -76,10 +80,47 @@ def looks_like_cv(data: MasterProfileData) -> bool:
     )
 
 
+def _employers(data: MasterProfileData | None) -> list[str]:
+    """Non-blank employer names of a profile's work history."""
+    if data is None:
+        return []
+    return [w.company.strip() for w in data.work_experience if (w.company or "").strip()]
+
+
+def nameless_history_diverges(
+    extracted: MasterProfileData, vault: MasterProfileData | None
+) -> bool:
+    """True when the extraction carries NO name and none of its employers is one
+    the vault already holds (ADR-041 amended 2026-09-26, #674 line (b)).
+
+    ``names_clearly_differ`` needs both names, so a nameless extraction of a
+    different person's CV merged unheld against a full, divergent history. The
+    name being unreadable, the next-strongest identity evidence the vault holds
+    is the work history: ONE employer in common (under the merge's own identity
+    rule, :func:`merge.company_names_match` — ADR-066, one implementation of
+    "same employer") keeps the plain merge, because a false "different person"
+    re-adds the friction ADR-037 removed. Nothing to compare — an employer-less
+    extraction, or a vault with no employers — also keeps the plain merge.
+    """
+    if (extracted.personal_info.name or "").strip():
+        return False
+    incoming = _employers(extracted)
+    held = _employers(vault)
+    if not incoming or not held:
+        return False
+    return not any(company_names_match(a, b) for a in incoming for b in held)
+
+
 def evaluate_merge_gate(
-    account_name: str | None, extracted: MasterProfileData
+    account_name: str | None,
+    extracted: MasterProfileData,
+    vault: MasterProfileData | None = None,
 ) -> GateResult:
-    """Return the pre-merge gate verdict for an incoming CV extraction."""
+    """Return the pre-merge gate verdict for an incoming CV extraction.
+
+    *vault* is the profile the extraction would merge into (``None`` on a first
+    import); it is read only for the nameless-extraction branch.
+    """
     cv_name = extracted.personal_info.name or None
 
     # not-a-CV takes precedence: a near-empty doc has no reliable name to compare.
@@ -90,5 +131,10 @@ def evaluate_merge_gate(
         return GateResult(
             gate="name_divergence", account_name=account_name, cv_name=cv_name
         )
+
+    # Same hold, same gate value (ruling V-1): a new value would park the upload
+    # silently in every client that only knows the two existing ones.
+    if nameless_history_diverges(extracted, vault):
+        return GateResult(gate="name_divergence", account_name=account_name, cv_name=None)
 
     return GateResult(gate="none", account_name=account_name, cv_name=cv_name)

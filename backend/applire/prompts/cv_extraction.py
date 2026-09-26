@@ -73,6 +73,8 @@
 # Both target the full MasterProfileData schema (iter 11).
 # The model_validator on MasterProfileData handles backwards-compat with older field names.
 
+from applire.services.untrusted_text import fence_document
+
 _SCHEMA_DESCRIPTION = """\
 {
   "personal_info": {
@@ -306,7 +308,8 @@ def build_generic_prompt(raw_text: str) -> str:
     """
     return (
         "Extract the structured profile from the following CV text and return the JSON:\n\n"
-        + raw_text
+        # ADR-084 amended 2026-09-26, point D1: the upload is data, never instructions.
+        + fence_document(raw_text)
     )
 
 
