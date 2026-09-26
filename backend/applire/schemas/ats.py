@@ -175,6 +175,29 @@ class ATSReport(BaseModel):
     pinned_facts: Optional[list[PinnedFactReportEntry]] = None
 
 
+class TruthfulnessSummary(BaseModel):
+    """ADR-058 amended 2026-09-26 (ruling A-1): the Oracle's verdict on the
+    report the guided pipeline polls. Computed ONCE, by
+    ``services.truthfulness_summary.summarize``, from the row's PERSISTED
+    truthfulness report — never a new audit, never an LLM call.
+
+    Unknown is never clean: when no report is persisted (pending, audit error,
+    legacy row) or the stored one does not validate, ``available`` is False and
+    ``flagged`` / ``stop_and_fix`` are ``None`` — never ``0`` / ``False``.
+    """
+
+    available: bool
+    # Verdict -> count, exactly the persisted report's ``counts`` ({} when unavailable).
+    counts: dict[str, int] = Field(default_factory=dict)
+    # The Oracle claims the review panel's group 1 lists: FLAG_VERDICTS minus the
+    # "related skill" exclusion (``review_state._flagged_claims``).
+    flagged: Optional[int] = None
+    # True when at least one flagged claim exists — the agent must not send the
+    # document before fixing or backing it (``audit_document`` names the claims).
+    stop_and_fix: Optional[bool] = None
+    unverifiable_dominated: Optional[bool] = None
+
+
 class ATSReportResponse(BaseModel):
     document_id: uuid.UUID
     status: str                  # generation status of the underlying document
@@ -183,3 +206,8 @@ class ATSReportResponse(BaseModel):
     # {"walked_at", "decisions": [...]}. Labels only: every count derives from
     # `report` (a decision never hides a finding the report lists).
     review_state: Optional[dict] = None
+    # ADR-058 amended 2026-09-26 (ruling A-1, additive): the truthfulness verdict
+    # summary of the same row, so an agent on the guided pipeline sees a red
+    # verdict where it already looks. ``None`` only when the producer did not
+    # compute it (a caller that builds this envelope without a row).
+    truthfulness: Optional[TruthfulnessSummary] = None

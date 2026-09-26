@@ -257,6 +257,20 @@ async def patch_application(
         if field in provided:
             setattr(app, field, provided[field])
 
+    # Agent collector #676: the first transition to `applied` records WHEN — on
+    # every door. The stamp used to live only in the browser
+    # (`patchApplicationStatus(..., {stampAppliedAt})`), so
+    # `update_application(user_status="applied")` left `applied_at` null
+    # (ADR-058 clause 2 / ADR-066: a business rule lives in the service, not in
+    # one door). Same rule as `mark_application_hired`: stamp only when null, and
+    # an `applied_at` the caller sent (a date or an explicit null) wins.
+    if (
+        request.user_status == UserStatus.applied
+        and "applied_at" not in provided
+        and app.applied_at is None
+    ):
+        app.applied_at = datetime.now(timezone.utc)
+
     # Submitted pins (E039/US219): value = pin, explicit null = unpin. A pin must
     # reference a live artifact generated for THIS application's job — otherwise
     # the "sent version" recall (Branch G) would show a document from another

@@ -5552,9 +5552,13 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
             )
             report = None
     from applire.services.review_state import load_state
+    from applire.services.truthfulness_summary import summarize
 
     return ATSReportResponse(document_id=record.id, status=record.status, report=report,
-                             review_state=load_state(record.review_state))
+                             review_state=load_state(record.review_state),
+                             # ADR-058 amended 2026-09-26 (ruling A-1): both doors.
+                             truthfulness=summarize(record.truthfulness_report,
+                                                    record.ats_report))
 
 
 async def get_cv_truthfulness_report(

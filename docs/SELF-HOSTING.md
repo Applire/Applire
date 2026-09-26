@@ -236,7 +236,7 @@ docker compose logs backend | grep -i "402\|quota\|credit"
 ### Interview turns cost more input tokens than you expected
 
 `LLM_STRUCTURED_OUTPUT` is `auto` by default. On the one call that writes your vault — the
-interview/testimony reconciler — Applire sends your model the 15 operations it may emit as
+interview/testimony reconciler — Applire sends your model the operations it may emit as
 a JSON schema alongside the prompt. That is **about 2,300 extra input tokens per turn**
 (roughly a third more input on that call; output and latency are unchanged). It measurably
 helps a model that drops a required field or loses whole entries; on the models that were
