@@ -155,6 +155,14 @@ async def upload_cv_endpoint(
 
     Returns a CVUploadResponse with completeness score, status (DRAFT/COMPLETE),
     any detected conflicts, and the GDPR expiry date for the stored file.
+
+    **Synchronous — prefer ``POST /api/profile/import-jobs`` for anything large or
+    slow.** This request blocks for the whole ingest (extraction, review, enrichment,
+    merge — several sequential LLM calls), and a reverse proxy cuts it at its read
+    timeout (the shipped nginx config: 300 s) while the ingest keeps running and can
+    still write the vault minutes after the client was told it failed (#674, measured
+    on a self-hosted instance 2026-09-17). The async door returns a handle at once and
+    is what the browser UI uses. Retirement of this door is scheduled separately.
     """
     user = await auth.get_current_user(request)
     filename = file.filename or "upload"
@@ -245,8 +253,9 @@ async def start_cv_import_endpoint(
     Mirrors the async CV-generation lifecycle: the heavy segmented extraction + reconcile
     + enrichment runs in a background task, so a slow/output-capped model can't 504 the
     request and drop the CV. Poll GET /api/profile/import-jobs/{import_id} until the status
-    is ``ready`` (``result`` holds the CVUploadResponse) or ``failed``. The sync /upload
-    endpoint remains for the agent/MCP channel.
+    is ``ready`` (``result`` holds the CVUploadResponse) or ``failed``. This is the
+    recommended door for every REST caller; the sync ``/upload`` remains only for
+    compatibility and is cut by a proxy read timeout on a slow route (#674).
     """
     user = await auth.get_current_user(request)
     filename = file.filename or "upload"
@@ -405,7 +414,11 @@ async def import_profile(
 ) -> ProfileImportResponse | CVUploadResponse:
     """Structured data ingestor for LinkedIn/XING exports (ZIP, PDF or JSON).
 
-    For CV file uploads (PDF, DOCX, images), use POST /api/profile/upload instead.
+    For CV file uploads (PDF, DOCX, images), use ``POST /api/profile/import-jobs``
+    (async, poll ``GET /api/profile/import-jobs/{id}``) — not the synchronous
+    ``/upload``, which a reverse proxy cuts at its read timeout while the ingest keeps
+    writing (#674). Note that this door is synchronous too and, since #367, runs the
+    same full ingest chain.
 
     Since #367 (2026-09-13, ruling V-2) this is the third adapter over the one
     ingest function, so the US167/ADR-041 pre-merge integrity gate fires here too:
