@@ -24,9 +24,9 @@ from applire.services.ats_audit import (
 )
 
 _B = _CORPUS_FRAGMENT_BOUNDARY
-_RHEINWERK = non_claim_names("Leiter Operations (m/w/d)", ["Rheinwerk Verpackungen GmbH"])
-_NOVAPAY = non_claim_names("Senior Backend Engineer — Payments Platform (m/f/d)", ["NovaPay GmbH"])
-_ARNOLD = non_claim_names("Senior Controller (m/w/d)", ["Arnold Antriebstechnik GmbH"])
+_RHEINWERK = non_claim_names("Leiter Operations (m/w/d)", ["Rheinwerk Verpackungen GmbH"]).with_employer_clause()
+_NOVAPAY = non_claim_names("Senior Backend Engineer — Payments Platform (m/f/d)", ["NovaPay GmbH"]).with_employer_clause()
+_ARNOLD = non_claim_names("Senior Controller (m/w/d)", ["Arnold Antriebstechnik GmbH"]).with_employer_clause()
 
 
 def _gap(concept: str) -> dict:
@@ -81,21 +81,21 @@ def test_every_first_person_word_ends_the_clause(pronoun):
 
 
 def test_the_short_name_anchors_only_as_a_whole_word():
-    names = non_claim_names(None, ["Rhein Klinikum Bonn"])
+    names = non_claim_names(None, ["Rhein Klinikum Bonn"]).with_employer_clause()
     m = _masked("Im Rheinland habe ich Intensivpflege geleitet.", names)
     assert "rheinland habe ich intensivpflege" in m
     assert _B not in m
 
 
 def test_the_clause_never_crosses_a_sentence_end():
-    names = non_claim_names(None, ["SAP SE"])
+    names = non_claim_names(None, ["SAP SE"]).with_employer_clause()
     m = _masked("SAP hat Payroll. Danach kenne ich Payroll.", names)
     assert "hat payroll" not in m
     assert "danach kenne ich payroll" in m
 
 
 def test_a_first_word_shorter_than_four_letters_is_no_anchor():
-    names = non_claim_names(None, ["Ace Logistik GmbH"])
+    names = non_claim_names(None, ["Ace Logistik GmbH"]).with_employer_clause()
     m = _masked("Ace ist gut. Logistik habe ich geleitet.", names)
     assert "ace ist gut" in m
 
@@ -130,3 +130,29 @@ def test_a_candidate_claim_in_a_sentence_without_the_employer_still_flags():
         non_claim=_RHEINWERK,
     )
     assert cov.present_unsupported == ["Digitalisierung der Fertigung"]
+
+
+# ── R-3: letters only ───────────────────────────────────────────────────────
+
+
+def test_without_the_letter_flag_only_the_names_are_masked():
+    """A CV bullet has no first-person word; a clause opened by an employer name
+    there would run through the candidate's own claim (ruling R-3)."""
+    names = non_claim_names(None, ["Siemens Healthineers AG"])
+    m = _masked("Siemens Energy, München. Führte die SAP-Einführung für 400 Nutzer.", names)
+    assert "energy, münchen" in m
+
+
+def test_the_letter_audit_turns_the_clause_on_and_the_cv_audit_does_not():
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.ats_audit import _audit_cv_text, _audit_letter_text
+
+    text = ("NovaPay’s platform for European e-commerce merchants across checkout, settlement "
+            "and payout rails interests me.")
+    names = non_claim_names("Senior Backend Engineer", ["NovaPay GmbH"])
+    letter = _audit_letter_text(text, {"recipient": {"company": "NovaPay GmbH"}}, ["Settlement"],
+                                [_gap("Settlement")], non_claim=names)
+    assert letter.keywords.present_unsupported == []
+    cv = _audit_cv_text(text, TailoredCVData.model_validate({"contact": {"name": "X"}}), ["Settlement"],
+                        [_gap("Settlement")], non_claim=names)
+    assert cv.keywords.present_unsupported == ["Settlement"]

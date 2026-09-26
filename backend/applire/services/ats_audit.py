@@ -1111,6 +1111,10 @@ class NonClaimNames:
 
     titles: tuple[str, ...] = ()
     employers: tuple[str, ...] = ()
+    #: R-2 / R-3: mask the employer-business clause too. Set by the LETTER audit
+    #: only — a CV bullet carries no first-person word, so a clause opened by an
+    #: employer name there would run through the candidate's own bullet.
+    employer_clause: bool = False
 
     def __bool__(self) -> bool:
         return bool(self.titles or self.employers)
@@ -1125,7 +1129,12 @@ class NonClaimNames:
         return NonClaimNames(
             titles=self.titles,
             employers=self.employers + tuple(e for e in extra if e not in self.employers),
+            employer_clause=self.employer_clause,
         )
+
+    def with_employer_clause(self) -> "NonClaimNames":
+        """The same names, with the employer-business clause masked too (letters)."""
+        return NonClaimNames(titles=self.titles, employers=self.employers, employer_clause=True)
 
 
 def non_claim_names(role_title: str | None, employer_names: Sequence[str | None] = ()) -> NonClaimNames:
@@ -1243,13 +1252,15 @@ def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
     """``text_norm`` with the posting's own words replaced by the corpus fragment
     boundary (``␞``, which no surface form can bridge — see
     :data:`_CORPUS_FRAGMENT_BOUNDARY`): every occurrence of the target job title and
-    of the employer's name (:func:`non_claim_names`, ruling R-1), and the clause
+    of the employer's name (:func:`non_claim_names`, ruling R-1), and — when
+    ``names.employer_clause`` is set, i.e. on a cover letter (R-3) — the clause
     that describes the employer's business (:func:`_employer_clause_intervals`,
     ruling R-2). ``None``/empty → unchanged."""
     if not names:
         return text_norm
     intervals = _name_intervals(text_norm, names.all_names())
-    intervals += _employer_clause_intervals(text_norm, names.employers)
+    if names.employer_clause:
+        intervals += _employer_clause_intervals(text_norm, names.employers)
     return _mask_intervals(text_norm, intervals)
 
 
@@ -2040,7 +2051,7 @@ def _audit_letter_text(
     # joins the posting's names whenever the caller passed any (a caller passing
     # nothing keeps the pre-amendment full-text decision exactly).
     if non_claim is not None:
-        non_claim = non_claim.plus_employers(recipient.get("company"))
+        non_claim = non_claim.plus_employers(recipient.get("company")).with_employer_clause()
     report = _finish(
         "cover_letter", checks,
         _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim),
