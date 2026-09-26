@@ -32,11 +32,16 @@ tolerated; a false "different person" would re-add the friction ADR-037 removed.
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
 from applire.schemas.profile import MasterProfileData
-from applire.services.profile.merge import company_names_match
+# The ATS employer-clause detector's generic-first-word list (ruling R-4) is
+# reused, not forked: the same words are unsafe as an employer anchor there and
+# as identity evidence here (adversarial pass 2026-09-26, V-1 residual).
+from applire.services.ats_audit import _GENERIC_FIRST_WORDS
+from applire.services.profile.merge import _company_tokens, company_names_match
 
 
 @dataclass
@@ -87,6 +92,46 @@ def _employers(data: MasterProfileData | None) -> list[str]:
     return [w.company.strip() for w in data.work_experience if (w.company or "").strip()]
 
 
+#: Labels that fill the employer field for self-employment. They name a way of
+#: working, not an employer, so two strangers who both freelanced "share" one.
+_SELF_EMPLOYMENT_LABELS = frozenset({
+    "freelance", "freelancer", "freelancing", "self-employed", "self employed",
+    "selfemployed", "selbstständig", "selbständig", "selbststandig", "selbstaendig",
+    "freiberuflich", "freiberufler", "freiberuflerin", "freischaffend",
+    "independent", "independent contractor", "contractor", "sole trader",
+})
+
+
+def _is_self_employment_label(company: str) -> bool:
+    """True when the employer name is a self-employment label, optionally with
+    a parenthetical or a dash-suffixed field ("Freiberuflich (IT-Beratung)",
+    "Freelance – UX"). Matches the leading one or two words only."""
+    head = re.split(r"[(\[|:/,–—]|\s-\s", company, maxsplit=1)[0]
+    words = [w.strip(".,;") for w in head.casefold().split()]
+    if not words:
+        return False
+    return words[0] in _SELF_EMPLOYMENT_LABELS or " ".join(words[:2]) in _SELF_EMPLOYMENT_LABELS
+
+
+def _same_employer_for_identity(a: str, b: str) -> bool:
+    """:func:`merge.company_names_match`, narrowed for an IDENTITY decision
+    between two unverified sources (adversarial pass 2026-09-26, V-1 residual).
+
+    ``company_names_match`` stays as it is — it serves the merge, where both
+    names already belong to the same user. Here a match counts only when
+    neither side is a self-employment label and the words the two names share
+    are not ALL generic company words ("Deutsche" ⊆ "Deutsche Bahn AG" is not a
+    shared employer). An exact match with no significant token (``"SAP"`` ==
+    ``"SAP"``) still counts.
+    """
+    if _is_self_employment_label(a) or _is_self_employment_label(b):
+        return False
+    if not company_names_match(a, b):
+        return False
+    shared = _company_tokens(a) & _company_tokens(b)
+    return not shared or not shared <= _GENERIC_FIRST_WORDS
+
+
 def nameless_history_diverges(
     extracted: MasterProfileData, vault: MasterProfileData | None
 ) -> bool:
@@ -96,10 +141,11 @@ def nameless_history_diverges(
     ``names_clearly_differ`` needs both names, so a nameless extraction of a
     different person's CV merged unheld against a full, divergent history. The
     name being unreadable, the next-strongest identity evidence the vault holds
-    is the work history: ONE employer in common (under the merge's own identity
-    rule, :func:`merge.company_names_match` — ADR-066, one implementation of
-    "same employer") keeps the plain merge, because a false "different person"
-    re-adds the friction ADR-037 removed. Nothing to compare — an employer-less
+    is the work history: ONE employer in common keeps the plain merge, because a
+    false "different person" re-adds the friction ADR-037 removed. "In common"
+    is the merge's identity rule (:func:`merge.company_names_match`, ADR-066)
+    minus self-employment labels and generic-word-only overlaps
+    (:func:`_same_employer_for_identity`). Nothing to compare — an employer-less
     extraction, or a vault with no employers — also keeps the plain merge.
     """
     if (extracted.personal_info.name or "").strip():
@@ -108,7 +154,7 @@ def nameless_history_diverges(
     held = _employers(vault)
     if not incoming or not held:
         return False
-    return not any(company_names_match(a, b) for a in incoming for b in held)
+    return not any(_same_employer_for_identity(a, b) for a in incoming for b in held)
 
 
 def evaluate_merge_gate(

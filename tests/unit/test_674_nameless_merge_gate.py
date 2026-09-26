@@ -216,3 +216,55 @@ async def test_nameless_own_history_still_merges_on_every_door(door, sqlite_sess
 
     assert getattr(result, "status", None) != "GATED"
     assert getattr(result, "gate", "none") == "none"
+
+
+# ── adversarial pass 2026-09-26 (V-1 residual): what is NOT a shared employer ──
+#
+# `company_names_match` is the merge's rule for two spellings of ONE user's
+# employer and stays unchanged; the identity check narrows it. Mutation contract:
+#   * drop the self-employment check in `_same_employer_for_identity`
+#       → test_self_employment_label_is_not_a_shared_employer (all params)
+#   * drop the generic-only check
+#       → test_a_generic_first_word_alone_is_not_a_shared_employer, test_generic_word_hold_through_the_gate
+#   * drop the separator split before the label check
+#       → test_self_employment_label_is_not_a_shared_employer[Freelance/UX-Design-…]
+#   * treat an empty shared-token set as generic (`shared <= GENERIC` without `not shared`)
+#       → test_an_exact_short_name_still_counts
+
+
+@pytest.mark.parametrize("incoming,held", [
+    ("Freelance", "Freelance"),
+    ("Selbstständig", "Selbstständig"),
+    ("Freiberuflich (IT-Beratung)", "Freiberuflich"),
+    ("Self-employed", "Self-employed"),
+    ("Self employed – UX", "self employed"),
+    ("Freelance/UX-Design", "Freelance/UX-Design"),
+])
+def test_self_employment_label_is_not_a_shared_employer(incoming, held):
+    stranger = _profile("", [incoming, "Contoso Logistik GmbH"])
+    vault = _profile("Daniel Weber", [held, "NovaPay GmbH"])
+    assert nameless_history_diverges(stranger, vault) is True
+
+
+def test_a_generic_first_word_alone_is_not_a_shared_employer():
+    vault = _profile("Marcus Schmidt", ["Deutsche Bahn AG"])
+    assert nameless_history_diverges(_profile("", ["Deutsche"]), vault) is True
+    assert nameless_history_diverges(_profile("", ["Deutsche Telekom AG"]), vault) is True
+
+
+def test_generic_word_hold_through_the_gate():
+    vault = _profile("Marcus Schmidt", ["Deutsche Bahn AG"])
+    result = evaluate_merge_gate("Marcus Schmidt", _profile("", ["Deutsche"]), vault)
+    assert result.gate == "name_divergence" and result.cv_name is None
+
+
+def test_a_real_shared_employer_with_a_generic_first_word_still_counts():
+    vault = _profile("Marcus Schmidt", ["Deutsche Bahn AG"])
+    assert nameless_history_diverges(_profile("", ["Deutsche Bahn"]), vault) is False
+
+
+def test_an_exact_short_name_still_counts():
+    """'SAP' has no significant token (<= 3 chars) — the exact-name path of
+    `company_names_match` is still identity evidence."""
+    vault = _profile("Marcus Schmidt", ["SAP"])
+    assert nameless_history_diverges(_profile("", ["SAP"]), vault) is False
