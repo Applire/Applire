@@ -97,6 +97,8 @@ interface TurnResponse {
   choices?: string[] | null;
   pending_confirmations?: unknown[] | null;
   cluster_coverage?: TurnClusterCoverage | null;
+  /** Ruling M-1b — what a partial-coverage follow-up asks about. */
+  follow_up_concepts?: string[] | null;
 }
 
 async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
@@ -230,7 +232,8 @@ export function LiabilityPanel({
           answer: "",
           question: data.question ?? item.question,
           choices: data.choices ?? null,
-          followUpOpen: !isConfirmation && turn ? turn.open_concepts : null,
+          // Ruling M-1b: the label names what the follow-up asks.
+          followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
         });
         onFollowUpTurn?.(concept);
         return;
