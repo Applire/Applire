@@ -93,12 +93,21 @@ export function MergeGateDialog({
 
   const isDivergence = gate === "name_divergence";
   const title = isDivergence ? t("titleDivergence") : t("titleNotCv");
+  // #674 (merge-gate dialog) — a nameless CV (ADR-041 amended, founder ruling V-1 A)
+  // has no cvName to interpolate; render a dedicated copy variant instead of "".
+  const hasCvName = (cvName ?? "").trim() !== "";
 
   let body: string;
   if (isDivergence) {
-    body = accountName
-      ? t("bodyDivergence", { cvName: cvName ?? "", accountName })
-      : t("bodyDivergenceNoAccount", { cvName: cvName ?? "" });
+    if (!hasCvName) {
+      body = accountName
+        ? t("bodyDivergenceNoName", { accountName })
+        : t("bodyDivergenceNoNameNoAccount");
+    } else {
+      body = accountName
+        ? t("bodyDivergence", { cvName: cvName ?? "", accountName })
+        : t("bodyDivergenceNoAccount", { cvName: cvName ?? "" });
+    }
   } else {
     body = t("bodyNotCv");
   }

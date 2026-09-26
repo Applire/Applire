@@ -56,6 +56,95 @@ describe("MergeGateDialog", () => {
     expect(screen.getByText(/Markus Brandt/)).toBeInTheDocument();
   });
 
+  it("still renders bodyDivergence for the existing named-divergence case (cvName + accountName present)", () => {
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="s1"
+        accountName="Max Muster"
+        cvName="Markus Brandt"
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    // Exact echo from the mocked t(): "bodyDivergence Markus Brandt Max Muster"
+    expect(
+      screen.getByText("bodyDivergence Markus Brandt Max Muster")
+    ).toBeInTheDocument();
+  });
+
+  it("renders bodyDivergenceNoName (not the empty-quote bodyDivergence) when cvName is null and accountName is present (#674)", () => {
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="s1"
+        accountName="Marcus Schmidt"
+        cvName={null}
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByText("bodyDivergenceNoName Marcus Schmidt")
+    ).toBeInTheDocument();
+    // The old broken key path would echo "bodyDivergence" with an empty cvName param —
+    // assert that broken text is not what's rendered.
+    expect(screen.queryByText(/^bodyDivergence\s/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergenceNoAccount\s/)).not.toBeInTheDocument();
+  });
+
+  it("renders bodyDivergenceNoName when cvName is an empty string and accountName is present", () => {
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="s1"
+        accountName="Marcus Schmidt"
+        cvName=""
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByText("bodyDivergenceNoName Marcus Schmidt")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergence\s/)).not.toBeInTheDocument();
+  });
+
+  it("renders bodyDivergenceNoName when cvName is whitespace-only and accountName is present", () => {
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="s1"
+        accountName="Marcus Schmidt"
+        cvName="   "
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByText("bodyDivergenceNoName Marcus Schmidt")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergence\s/)).not.toBeInTheDocument();
+  });
+
+  it("renders bodyDivergenceNoNameNoAccount when both cvName and accountName are missing", () => {
+    render(
+      <MergeGateDialog
+        gate="name_divergence"
+        stagedId="s1"
+        accountName={null}
+        cvName={null}
+        onResolved={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.getByText("bodyDivergenceNoNameNoAccount")).toBeInTheDocument();
+    expect(screen.queryByText("bodyDivergence")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergence\s/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergenceNoAccount/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^bodyDivergenceNoName\s/)).not.toBeInTheDocument();
+  });
+
   it("renders the not-a-cv title", () => {
     render(
       <MergeGateDialog
