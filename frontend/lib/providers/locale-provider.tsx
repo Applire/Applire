@@ -18,7 +18,7 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../messages/en.json";
 import deMessages from "../../messages/de.json";
@@ -41,6 +41,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
  * only after mount does the provider switch to the browser's own zone.
  */
 export const DEFAULT_TIME_ZONE = "Europe/Berlin";
+
+// The browser's zone does not change during a session in any way we react to.
+const subscribeNever = () => () => {};
 
 /** The browser's IANA zone, or the default when the runtime cannot name one. */
 export function browserTimeZone(): string {
@@ -67,13 +70,15 @@ export function useLocale() {
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
-  const [timeZone, setTimeZone] = useState<string>(DEFAULT_TIME_ZONE);
-
-  // Post-mount only (never during render): a render-time browser lookup would
-  // make the first client render differ from the server's markup.
-  useEffect(() => {
-    setTimeZone(browserTimeZone());
-  }, []);
+  // Hydration-safe: React renders the server snapshot (the default) on the
+  // server AND during hydration, then re-renders with the browser's zone. A
+  // plain render-time lookup would make the first client render differ from
+  // the server's markup.
+  const timeZone = useSyncExternalStore(
+    subscribeNever,
+    browserTimeZone,
+    () => DEFAULT_TIME_ZONE,
+  );
 
   useEffect(() => {
     fetch(`${API_BASE}/api/settings`)

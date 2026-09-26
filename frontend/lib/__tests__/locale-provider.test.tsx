@@ -7,6 +7,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
+import { act } from "react";
 import { useTimeZone } from "next-intl";
 import {
   LocaleProvider,
@@ -71,6 +73,38 @@ describe("LocaleProvider time zone (#677)", () => {
       </LocaleProvider>,
     );
     await waitFor(() => expect(screen.getByTestId("zone").textContent).toBe("America/New_York"));
+  });
+
+  it("hydrates server markup rendered in another zone without a mismatch", async () => {
+    // Server: its process zone. Browser: a different one. A render-time zone
+    // lookup would make the first client render differ from this markup.
+    fakeBrowserZone("UTC");
+    const html = renderToString(
+      <LocaleProvider>
+        <ZoneProbe />
+      </LocaleProvider>,
+    );
+    fakeBrowserZone("Asia/Tokyo");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const recoverable = vi.fn();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await act(async () => {
+      hydrateRoot(
+        container,
+        <LocaleProvider>
+          <ZoneProbe />
+        </LocaleProvider>,
+        { onRecoverableError: recoverable },
+      );
+    });
+    expect(recoverable).not.toHaveBeenCalled();
+    expect(
+      consoleError.mock.calls.filter((c) => /hydrat/i.test(String(c[0]))),
+    ).toEqual([]);
+    expect(container.querySelector('[data-testid="zone"]')?.textContent).toBe("Asia/Tokyo");
+    container.remove();
   });
 
   it("falls back to the default when the runtime names no zone", () => {
