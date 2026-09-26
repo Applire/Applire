@@ -63,6 +63,18 @@ class TakeOutStemOnly(Exception):
     sentence in 4 of 4 rounds on this shape. Refused (→ 409); the user edits."""
 
 
+class TakeOutProtectedName(Exception):
+    """ADR-090 amended 2026-09-26 (WP-R, ruling R-1 belt): a section the removal
+    would rewrite holds a job title or employer name — the target posting's, the
+    letter's recipient, or one from the candidate's own work history — that
+    contains the finding's wording. The removal prompt's rule 1 (remove every
+    occurrence) and rule 4 (keep job titles and employers) cannot both hold on
+    that passage, and the all-or-nothing check (the form must be gone) can only
+    pass by changing the name. The #736 delivery run's ``Payments platform`` row
+    was exactly this: every take-out would have rewritten the target title.
+    Refused before any model call (→ 409); the user edits."""
+
+
 class RewriteUnavailable(Exception):
     """The removal rewrite service is not installed (pre-integration, → 503)."""
 
@@ -191,6 +203,51 @@ def _section_holds_figures(text: str, figures: list[str]) -> bool:
     return any(figure_present(f, text or "") for f in figures)
 
 
+async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
+    """The names a take-out may never rewrite, normalised (``ats_audit._norm``):
+    the posting's title and employer (``non_claim_names_for_job``, the same names
+    the audit masks), the letter's ``recipient.company``, and every employer, job
+    title and recorded alternate title in the candidate's vault work history.
+    Facts about the input (ADR-062 cl. 1), read fresh per request."""
+    from applire.models.job import JobAnalysis
+    from applire.models.profile import MasterProfile
+    from applire.services.ats_audit import NonClaimNames, _norm, non_claim_names_for_job
+
+    job = await db.get(JobAnalysis, record.job_analysis_id) if record.job_analysis_id else None
+    names = non_claim_names_for_job(job) or NonClaimNames()
+    if kind == "cover_letter":
+        recipient = ((record.letter_data or {}).get("recipient")) or {}
+        names = names.plus_employers(recipient.get("company"))
+    out: list[str] = list(names.all_names())
+    profile = await db.get(MasterProfile, record.profile_id) if getattr(record, "profile_id", None) else None
+    work = ((getattr(profile, "profile_json", None) or {}).get("work_experience")) or []
+    vault_employers: list[str] = []
+    for w in work:
+        if not isinstance(w, dict):
+            continue
+        vault_employers.append(w.get("company") or "")
+        for t in [w.get("role"), w.get("title"), *(w.get("role_aliases") or [])]:
+            n = _norm(t) if isinstance(t, str) else ""
+            if n and n not in out:
+                out.append(n)
+    for e in NonClaimNames().plus_employers(*vault_employers).employers:
+        if e not in out:
+            out.append(e)
+    return out
+
+
+def protected_name_hit(section_text: str, wording: list[str], names: list[str]) -> str | None:
+    """The first protected name that stands in ``section_text`` AND contains one
+    of ``wording``'s forms (the audit's own ``surface_present``), else ``None``."""
+    from applire.services.ats_audit import _norm, surface_present
+
+    t = _norm(section_text or "")
+    for n in sorted(names, key=len, reverse=True):
+        if n and n in t and any(surface_present(w, n) for w in wording if w):
+            return n
+    return None
+
+
 def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
     rs.split_key(key)  # ValueError → 422
     f = rs.find_listed(findings_of(record), key)
@@ -286,12 +343,25 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
         figures_only = finding.producer == "oracle" and bool(finding.claim_figures)
         if figures_only:
             wording = list(finding.claim_figures)
+        holds = _section_holds_figures if figures_only else _section_holds
+        sections = [
+            (sid, text) for sid, text in await patchable_sections(kind, record, db)
+            if holds(text, wording)
+        ]
+        # WP-R belt (ruling R-1): refuse BEFORE any model call when a section to
+        # be rewritten holds a job title / employer name containing the wording.
+        if sections:
+            names = await protected_names(kind, record, db)
+            for sid, text in sections:
+                hit = protected_name_hit(text, wording, names)
+                if hit is not None:
+                    raise TakeOutProtectedName(
+                        f"finding {key!r} stands inside the name {hit!r} in section {sid!r}; "
+                        "edit it yourself"
+                    )
         language = await _document_language(kind, record, db)
         changes: list[dict] = []
-        for section_id, section_text in await patchable_sections(kind, record, db):
-            holds = _section_holds_figures if figures_only else _section_holds
-            if not holds(section_text, wording):
-                continue
+        for section_id, section_text in sections:
             result = await rewrite_for_removal(
                 kind, record, section_id, section_text, wording, provider,
                 language=language, figures_only=figures_only,
