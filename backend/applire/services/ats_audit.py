@@ -25,6 +25,7 @@ enforced by tests/ats/test_roundtrip.py.
 import re
 import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from typing import Any, Literal
@@ -1094,12 +1095,119 @@ def _page_band_not_applicable(checks: list[ATSCheck]) -> None:
     ))
 
 
+#: A trailing gender marker on a German/English job title — "(m/w/d)", "(m/f/d)",
+#: "(w/m/d)", "(all genders)" is left alone (it never appears inside a claim form).
+_GENDER_MARKER_RE = re.compile(r"\s*\((?:[mwfdx]|div)(?:\s*/\s*(?:[mwfdx]|div))+\)\s*$")
+#: A legal-form suffix on an employer name, matched on the `_norm`ed name.
+_LEGAL_FORM_RE = re.compile(
+    r"\s+(?:gmbh\s*&\s*co\.?\s*kg(?:aa)?|gmbh|ggmbh|mbh|ag|se|kg|kgaa|ohg|gbr|ug(?:\s*\(haftungsbeschränkt\))?"
+    r"|e\.\s?v\.|ltd\.?|limited|inc\.?|llc|plc|corp\.?|s\.a\.|b\.v\.|n\.v\.)$"
+)
+
+
+@dataclass(frozen=True)
+class NonClaimNames:
+    """The posting's names the unsupported-claim decision must not read as claims."""
+
+    titles: tuple[str, ...] = ()
+    employers: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.titles or self.employers)
+
+    def all_names(self) -> tuple[str, ...]:
+        return self.titles + self.employers
+
+    def plus_employers(self, *names: str | None) -> "NonClaimNames":
+        """The same names plus further employer names (e.g. the letter's own
+        ``recipient.company``), normalised the same way."""
+        extra = non_claim_names(None, names).employers
+        return NonClaimNames(
+            titles=self.titles,
+            employers=self.employers + tuple(e for e in extra if e not in self.employers),
+        )
+
+
+def non_claim_names(role_title: str | None, employer_names: Sequence[str | None] = ()) -> NonClaimNames:
+    """ADR-090 amended 2026-09-26 (WP-R) — the posting's own names, normalised.
+
+    ``titles``: the target job title as analysed and without its trailing gender
+    marker. ``employers``: each employer name as given and without its legal form.
+    Both are FACTS about the posting (ADR-062 cl. 1): what is masked is exactly
+    the literal string, never a judgement about what a sentence means."""
+    titles: list[str] = []
+    employers: list[str] = []
+
+    def _add(out: list[str], s: str) -> None:
+        if s and s not in out:
+            out.append(s)
+
+    t = _norm(role_title or "")
+    if t:
+        _add(titles, t)
+        _add(titles, _GENDER_MARKER_RE.sub("", t).strip())
+    for e in employer_names or ():
+        n = _norm(e or "")
+        if not n:
+            continue
+        _add(employers, n)
+        _add(employers, _LEGAL_FORM_RE.sub("", n).strip())
+    return NonClaimNames(titles=tuple(titles), employers=tuple(employers))
+
+
+def _mask_intervals(text_norm: str, intervals: list[tuple[int, int]]) -> str:
+    if not intervals:
+        return text_norm
+    merged: list[list[int]] = []
+    for a, b in sorted(intervals):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    out: list[str] = []
+    pos = 0
+    for a, b in merged:
+        out.append(text_norm[pos:a])
+        out.append(f" {_CORPUS_FRAGMENT_BOUNDARY} ")
+        pos = b
+    out.append(text_norm[pos:])
+    return "".join(out)
+
+
+def _name_intervals(text_norm: str, names: Sequence[str]) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for n in sorted({x for x in names if x}, key=len, reverse=True):
+        for m in re.finditer(re.escape(n), text_norm):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def non_claim_names_for_job(job: Any) -> NonClaimNames | None:
+    """The four audit seams' one entry point: the analysed posting's title and
+    employer (``JobAnalysis.role_title`` / ``company_name``). ``None`` without a job,
+    which keeps the full-text decision."""
+    if job is None:
+        return None
+    return non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+
+
+def mask_non_claim_spans(text_norm: str, names: NonClaimNames | None) -> str:
+    """``text_norm`` with the posting's own words replaced by the corpus fragment
+    boundary (``␞``, which no surface form can bridge — see
+    :data:`_CORPUS_FRAGMENT_BOUNDARY`): every occurrence of the target job title and
+    of the employer's name (:func:`non_claim_names`). ``None``/empty → unchanged."""
+    if not names:
+        return text_norm
+    return _mask_intervals(text_norm, _name_intervals(text_norm, names.all_names()))
+
+
 def _keyword_coverage(
     text_norm: str,
     keywords: list[str],
     ledger: list[dict[str, Any]] | None = None,
     vault_text_norm: str | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -1153,11 +1261,26 @@ def _keyword_coverage(
         if vault_text_norm
         else set()
     )
+    # ADR-090 amended 2026-09-26 (WP-R, ruling R-1): the unsupported-claim
+    # decision reads only the CANDIDATE's text. The audited text also carries the
+    # posting's own words — the target job title, the employer's name (and, R-2,
+    # the employer-business clause) — which are on the page (so `present` and
+    # every coverage figure above keep the full text) but are no claim. A keyword
+    # whose every occurrence is the posting's is therefore not unsupported, and a
+    # flagged keyword's recorded forms are the ones the candidate's text carries.
+    # `non_claim=None` (every caller that passes nothing) reproduces the
+    # full-text behaviour exactly.
+    if non_claim:
+        claim_text_norm = mask_non_claim_spans(text_norm, non_claim)
+        claim_matches = {k: keyword_matches(k, claim_text_norm, ledger) for k in present}
+    else:
+        claim_matches = matches_by_kw
     present_unsupported = [
         k for k in present
         if _norm(k) in unclaimable_norm
         and _norm(k) not in claimable_norm
         and k not in literally_grounded
+        and claim_matches[k]
     ]
     # ADR-090 clause 4: the re-audit must see new evidence written in the
     # CANDIDATE's wording. The literal-only rule above never grounds "IT Data & AI
@@ -1169,7 +1292,7 @@ def _keyword_coverage(
     if vault_index is not None:
         present_unsupported = [
             k for k in present_unsupported
-            if not _grounded_through_matched_forms(matches_by_kw[k], vault_index)
+            if not _grounded_through_matched_forms(claim_matches[k], vault_index)
         ]
     # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
     # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
@@ -1200,7 +1323,7 @@ def _keyword_coverage(
         present_denied=present_denied,
         claimable_concepts=claimable_concepts,
         keyword_liability_concepts=keyword_liability_concepts,
-        present_unsupported_matches={k: matches_by_kw[k] for k in present_unsupported},
+        present_unsupported_matches={k: claim_matches[k] for k in present_unsupported},
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
     )
 
@@ -1275,6 +1398,7 @@ def _audit_cv_text(
     previous_report: dict | None = None,
     document_language: str | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1597,7 +1721,7 @@ def _audit_cv_text(
     checks.append(_terminal_review_check(terminal_review, previous_report))
     checks.append(_narrative_evidence_check(tailored, ledger))
 
-    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index))
+    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim))
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -1710,6 +1834,7 @@ def audit_cv(
     pins: list | None = None,
     document_language: str | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     """Audit a rendered CV PDF against the structured CV data and a list of keywords.
 
@@ -1743,6 +1868,7 @@ def audit_cv(
         target=target, region=region, condensation_exhausted=condensation_exhausted,
         vault_text_norm=vault_text_norm, vault_skill_forms=vault_skill_forms,
         document_language=document_language, vault_index=vault_index,
+        non_claim=non_claim,
     )
 
 
@@ -1759,6 +1885,7 @@ def _audit_letter_text(
     terminal_review=None,
     previous_report: dict | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -1857,7 +1984,15 @@ def _audit_letter_text(
         )
     )
 
-    report = _finish("cover_letter", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index))
+    # WP-R: the letter names its employer itself — the recipient block's company
+    # joins the posting's names whenever the caller passed any (a caller passing
+    # nothing keeps the pre-amendment full-text decision exactly).
+    if non_claim is not None:
+        non_claim = non_claim.plus_employers(recipient.get("company"))
+    report = _finish(
+        "cover_letter", checks,
+        _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim),
+    )
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -1874,6 +2009,7 @@ def audit_cover_letter(
     terminal_review=None,
     previous_report: dict | None = None,
     vault_index: Any = None,
+    non_claim: NonClaimNames | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -1893,7 +2029,7 @@ def audit_cover_letter(
         vault_text_norm=vault_text_norm,
         pins=pins, truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review, previous_report=previous_report,
-        vault_index=vault_index,
+        vault_index=vault_index, non_claim=non_claim,
     )
 
 
