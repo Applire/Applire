@@ -19,7 +19,7 @@
 
 
 import { useTranslations } from "next-intl";
-import { Check, Lock, Minus } from "lucide-react";
+import { Archive, Check, Lock, Minus, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   CardTone,
@@ -44,6 +44,16 @@ interface GapClusterCardProps {
   onClick?: () => void;
   /** Another card (or the liability panel) holds the open micro-session. */
   locked?: boolean;
+  /** Ruling K-1 — "Leave this gap open". Undefined = not offered (the card is
+   * not askable, or a micro-session is open). */
+  onLeaveOpen?: () => void;
+  /** Ruling K-1d — "Pick it up again" on a card left open by hand. Undefined =
+   * not offered. */
+  onReopen?: () => void;
+  /** A leave-open / pick-up request for this card is in flight. */
+  actionBusy?: boolean;
+  /** The last leave-open / pick-up request for this card failed. */
+  actionError?: string;
   children?: React.ReactNode;
 }
 
@@ -160,6 +170,10 @@ export function GapClusterCard({
   view,
   onClick,
   locked = false,
+  onLeaveOpen,
+  onReopen,
+  actionBusy = false,
+  actionError = "",
   children,
 }: GapClusterCardProps) {
   const t = useTranslations("gaps");
@@ -207,8 +221,52 @@ export function GapClusterCard({
               {t("coverageBudgetSpent", { count: view.asked })}
             </p>
           )}
+          {view.leftOpen && (
+            <p
+              data-testid="gap-left-open"
+              className="mt-1.5 flex items-start gap-1 text-xs text-on-surface-variant"
+            >
+              <Archive aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
+              {t("leftOpenLine")}
+            </p>
+          )}
         </div>
       </div>
+      {(onLeaveOpen || onReopen) && (
+        // A card is itself clickable (it opens the micro-session): the action's
+        // click must not reach it.
+        <div className="mt-2.5 flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {onLeaveOpen && (
+            <button
+              type="button"
+              data-testid="gap-leave-open"
+              disabled={actionBusy}
+              onClick={onLeaveOpen}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-outline-variant bg-white px-2.5 text-xs font-medium text-on-surface-variant hover:bg-surface-container disabled:opacity-60"
+            >
+              <Archive aria-hidden="true" className="h-3.5 w-3.5" />
+              {t("leaveGapOpen")}
+            </button>
+          )}
+          {onReopen && (
+            <button
+              type="button"
+              data-testid="gap-pick-up-again"
+              disabled={actionBusy}
+              onClick={onReopen}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-outline-variant bg-white px-2.5 text-xs font-medium text-on-surface-variant hover:bg-surface-container disabled:opacity-60"
+            >
+              <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+              {t("pickUpAgain")}
+            </button>
+          )}
+          {actionError && (
+            <p role="alert" data-testid="gap-action-error" className="text-xs text-critical">
+              {actionError}
+            </p>
+          )}
+        </div>
+      )}
       {children}
     </div>
   );

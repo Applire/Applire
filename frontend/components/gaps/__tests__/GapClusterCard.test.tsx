@@ -351,3 +351,51 @@ describe("GapClusterCard", () => {
     expect(terraform).toHaveAttribute("data-state", "gap");
   });
 });
+
+describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", () => {
+  it("offers 'Leave this gap open' only when the page passes the handler, and its click never reaches the card", () => {
+    const cluster = makeCluster({ gaps: ["Terraform"] });
+    const view = clusterView(cluster);
+    const onClick = vi.fn();
+    const onLeaveOpen = vi.fn();
+    const { rerender } = render(
+      withIntl(<GapClusterCard cluster={cluster} view={view} onClick={onClick} onLeaveOpen={onLeaveOpen} />),
+    );
+    fireEvent.click(screen.getByTestId("gap-leave-open"));
+    expect(screen.getByTestId("gap-leave-open")).toHaveTextContent("Leave this gap open");
+    expect(onLeaveOpen).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+
+    rerender(withIntl(<GapClusterCard cluster={cluster} view={view} onClick={onClick} />));
+    expect(screen.queryByTestId("gap-leave-open")).toBeNull();
+  });
+
+  it("a card left open by hand says so and offers 'Pick it up again'", () => {
+    const cluster = makeCluster({
+      gaps: ["Terraform"],
+      outcome: { asked: 0, covered: [], declined: [], session_ids: [], left_open: true },
+      member_statuses: [{ member: "Terraform", status: "gap" }],
+    });
+    const view = clusterView(cluster);
+    const onReopen = vi.fn();
+    render(withIntl(<GapClusterCard cluster={cluster} view={view} onReopen={onReopen} />));
+
+    expect(screen.getByTestId("gap-left-open")).toHaveTextContent(
+      "You chose to leave this gap open — no more questions on it.",
+    );
+    expect(screen.queryByTestId("gap-budget-spent")).toBeNull();
+    fireEvent.click(screen.getByTestId("gap-pick-up-again"));
+    expect(onReopen).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the action while its request is in flight and shows a failure", () => {
+    const cluster = makeCluster({ gaps: ["Terraform"] });
+    render(
+      withIntl(
+        <GapClusterCard cluster={cluster} view={clusterView(cluster)} onLeaveOpen={() => {}} actionBusy actionError="Nope" />,
+      ),
+    );
+    expect(screen.getByTestId("gap-leave-open")).toBeDisabled();
+    expect(screen.getByTestId("gap-action-error")).toHaveTextContent("Nope");
+  });
+});

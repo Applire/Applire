@@ -338,3 +338,22 @@ async def test_the_refusals_follow_the_conversation_language(db, lang, identical
     assert spent in refused.value.error.message
     for text in (retry.value.error.message, refused.value.error.message):
         assert not any(word in text for word in foreign), text
+
+
+@pytest.mark.parametrize(
+    "lang,expected", [("en", "left open on the gaps page"), ("de", "offen gelassen")], ids=["en", "de"],
+)
+@pytest.mark.asyncio
+async def test_a_gap_left_open_by_the_candidate_is_refused(db, lang, expected):
+    """Ruling K-1 — ``resolve_gap`` honours the candidate's "Leave this gap
+    open" like a spent budget: refused before any question is drafted, in the
+    conversation language, naming the way back."""
+    job_id = await _seed(
+        db, jd_language=lang,
+        outcome={"asked": 0, "covered": [], "declined": [], "session_ids": [], "left_open": True},
+    )
+    writer = _writer("never asked")
+    with pytest.raises(McpError) as refused:
+        await _call(db, job_id, "Some testimony.", bridge=_bridge(), writer=writer)
+    assert expected in refused.value.error.message
+    assert writer.calls == [], "no question is drafted for a gap left open"

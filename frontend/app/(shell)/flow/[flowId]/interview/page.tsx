@@ -29,7 +29,7 @@ import { ProgressLinear } from "@/components/ui/progress";
 import { DecisionTrailReview } from "@/components/review/DecisionTrailReview";
 import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
-import { Contrast, Lock } from "lucide-react";
+import { Archive, Contrast, Lock } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
 import {
   clusterView,
@@ -133,12 +133,13 @@ type TrackerStatus =
   | "partly_covered"
   | "declined"
   | "spent"
+  | "left_open"
   | "pending";
 
 /** Decorative, aria-hidden — the status is also spoken via an sr-only label.
- * `spent` and `partly_covered` draw a lucide icon instead (a text ◐ rendered
- * as a barely visible sliver in the UI font). */
-const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent" | "partly_covered">, string> = {
+ * `spent`, `left_open` and `partly_covered` draw a lucide icon instead (a
+ * text ◐ rendered as a barely visible sliver in the UI font). */
+const TRACKER_GLYPH: Record<Exclude<TrackerStatus, "spent" | "left_open" | "partly_covered">, string> = {
   resolved: "✓",
   current: "►",
   declined: "–",
@@ -156,6 +157,9 @@ function trackerStatus(
   if (view.coverage === "covered") return "resolved";
   if (view.coverage === "declined") return "declined";
   if (view.budgetSpent) return "spent";
+  // Ruling K-1/K-1e — the tracker keeps every cluster; one the candidate left
+  // open on the gaps page is marked, never asked.
+  if (view.leftOpen) return "left_open";
   if (view.coverage === "partly_covered" && (opts.addressed || view.asked > 0 || opts.turn)) {
     return "partly_covered";
   }
@@ -1069,7 +1073,9 @@ export default function InterviewPage({
                         ? tGaps("coverageDeclined")
                         : status === "spent"
                           ? tGaps("trackerNoMoreQuestions")
-                          : null;
+                          : status === "left_open"
+                            ? tGaps("trackerLeftOpen")
+                            : null;
                 return (
                   <div
                     key={cluster.id}
@@ -1082,13 +1088,16 @@ export default function InterviewPage({
                       status === "resolved" && "bg-success-container/40 text-on-surface-variant",
                       status === "current" && "bg-teal/5 text-neutral-dark font-medium",
                       status === "partly_covered" && "text-on-surface",
-                      (status === "declined" || status === "spent") && "text-on-surface-variant",
+                      (status === "declined" || status === "spent" || status === "left_open") &&
+                        "text-on-surface-variant",
                       status === "pending" && "text-gray-400",
                     )}
                   >
                     <div className="relative flex items-center gap-2">
                       {status === "spent" ? (
                         <Lock aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
+                      ) : status === "left_open" ? (
+                        <Archive aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
                       ) : status === "partly_covered" ? (
                         <Contrast aria-hidden="true" className={cn("h-3 w-3 shrink-0", tone.icon)} />
                       ) : (

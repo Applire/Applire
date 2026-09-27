@@ -243,6 +243,14 @@ class KeywordLiabilityDowngradeRequest(BaseModel):
     concept: str
 
 
+class GapLeftOpenRequest(BaseModel):
+    """Body for POST /api/job/{job_id}/gaps/{cluster_id}/left-open (ruling
+    K-1, ADR-089 amended 2026-09-27) — the gaps page's "Leave this gap open"
+    (``true``) and "Pick it up again" (``false``)."""
+
+    left_open: bool
+
+
 _GAP_JOB_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
 
 

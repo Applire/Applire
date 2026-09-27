@@ -22,6 +22,7 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { use } from "react";
 import { useTranslations } from "next-intl";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -416,7 +417,11 @@ function GapClickPanel({
     if (state.refusal) {
       return (
         <p data-testid="gap-refusal" className="mt-2 text-xs text-on-surface-variant">
-          {state.refusal === "gap_budget_spent" ? t("refusalBudgetSpent") : t("refusalAlreadyCovered")}
+          {state.refusal === "gap_budget_spent"
+            ? t("refusalBudgetSpent")
+            : state.refusal === "gap_left_open"
+              ? t("refusalLeftOpen")
+              : t("refusalAlreadyCovered")}
         </p>
       );
     }
@@ -540,6 +545,18 @@ export default function GapsPage({
   const openClusterId =
     Object.keys(gapStates).find((id) => gapStates[id].status !== "idle") ?? null;
   const sessionOpen = openClusterId !== null || liabilityActive;
+  // Ruling K-1 — which part of the list a card sits in: the open list, or the
+  // folded Done section (covered, declined, budget spent, left open by hand).
+  // Fixed per card for this visit when the card is first seen, so a card an
+  // answer closes stays in place showing its result until the page is left or
+  // reloaded; "Leave this gap open" / "Pick it up again" move it at once. This
+  // is placement only — whether a gap is covered is still the server's record
+  // (ADR-089 clause 8).
+  const [placement, setPlacement] = useState<Record<string, "open" | "done">>({});
+  const [doneExpanded, setDoneExpanded] = useState(false);
+  const [leaveOpenState, setLeaveOpenState] = useState<
+    Record<string, { busy: boolean; error: string }>
+  >({});
   // ADR-090 clause 8 — the analysis never re-runs by itself when the profile
   // changed elsewhere; the row says so (`inputs_changed`) and the user asks
   // for the re-check.
@@ -740,6 +757,59 @@ export default function GapsPage({
     }, 3000);
     return () => { cancelled = true; clearTimeout(id); };
   }, [flowState?.job_id, gaps]);
+
+  // Ruling K-1 — a card seen for the first time is placed by its record; a
+  // card already placed keeps its place for the rest of the visit.
+  useEffect(() => {
+    const clusters = gaps?.gap_clusters ?? [];
+    if (clusters.length === 0) return;
+    setPlacement((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const cluster of clusters) {
+        if (next[cluster.id]) continue;
+        next[cluster.id] = clusterView(cluster).closed ? "done" : "open";
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [gaps?.gap_clusters]);
+
+  /** Ruling K-1 — "Leave this gap open" (`true`) / "Pick it up again"
+   * (`false`): the record's `outcome.left_open`, then the whole row adopted. */
+  async function setGapLeftOpen(clusterId: string, leftOpen: boolean) {
+    if (!flowState?.job_id || sessionOpen) return;
+    setLeaveOpenState((prev) => ({ ...prev, [clusterId]: { busy: true, error: "" } }));
+    const seq = beginAnalysisRead();
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/job/${flowState.job_id}/gaps/${encodeURIComponent(clusterId)}/left-open`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ left_open: leftOpen }),
+        },
+      );
+      if (!res.ok) {
+        setLeaveOpenState((prev) => ({
+          ...prev,
+          [clusterId]: { busy: false, error: t("leaveOpenFailed") },
+        }));
+        // A 409 means the card's state moved under it (e.g. another window):
+        // show the row as it is now.
+        void reReadAnalysis();
+        return;
+      }
+      replaceAnalysis((await res.json()) as GapAnalysis, seq);
+      setPlacement((prev) => ({ ...prev, [clusterId]: leftOpen ? "done" : "open" }));
+      setLeaveOpenState((prev) => ({ ...prev, [clusterId]: { busy: false, error: "" } }));
+    } catch {
+      setLeaveOpenState((prev) => ({
+        ...prev,
+        [clusterId]: { busy: false, error: t("leaveOpenFailed") },
+      }));
+    }
+  }
 
   function updateGapState(clusterId: string, patch: Partial<GapClickState>) {
     setGapStates((prev) => ({
@@ -1068,6 +1138,20 @@ export default function GapsPage({
   // row (ADR-089 clause 8) — no client-side "resolved" set.
   const counts = gapCounts(gaps);
   const clusterCounts = clusterCoverageCounts(gaps?.gap_clusters);
+  // Ruling K-1 — the open list holds the cards that can still be asked;
+  // closed ones sit in the folded Done section. Order is by severity only
+  // (C before B), never by coverage: a card stays where it was while its
+  // state changes, so re-entry shows the same list the user left (ADR-089
+  // clause 4).
+  const orderedClusters = [...(gaps?.gap_clusters ?? [])].sort((a, b) => {
+    if (a.category === "C" && b.category !== "C") return -1;
+    if (a.category !== "C" && b.category === "C") return 1;
+    return 0;
+  });
+  const placeOf = (cluster: GapCluster) =>
+    placement[cluster.id] ?? (clusterView(cluster).closed ? "done" : "open");
+  const openClusters = orderedClusters.filter((c) => placeOf(c) === "open");
+  const doneClusters = orderedClusters.filter((c) => placeOf(c) === "done");
 
   // Flow context cases (Spaghettieis UAT, ADR-016 amended 2026-07-13):
   //   Case 1  JD + CVs (first run, "new")  → hero + this-run merge pointer + analysis
@@ -1260,22 +1344,24 @@ export default function GapsPage({
             )}
           </div>
 
-          {/* Cluster-based gap display */}
+          {/* Cluster-based gap display — ruling K-1: the open list holds the
+              cards that can still be asked; closed ones sit in a folded Done
+              section below. */}
           {gaps?.gap_clusters && gaps.gap_clusters.length > 0 ? (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-500 mb-3">
-                {t("clustersToAddress", { count: clusterCounts.askable })}
-              </p>
-              {/* Order is by severity only (C before B), never by coverage: a
-                  card stays where it was while its state changes, so re-entry
-                  shows the same list the user left (ADR-089 clause 4). */}
-              {[...gaps.gap_clusters]
-                .sort((a, b) => {
-                  if (a.category === "C" && b.category !== "C") return -1;
-                  if (a.category !== "C" && b.category === "C") return 1;
-                  return 0;
-                })
-                .map((cluster) => {
+              <div className="space-y-3">
+                {openClusters.length > 0 ? (
+                  <p className="text-xs text-gray-500 mb-3">
+                    {t("clustersToAddress", { count: clusterCounts.askable })}
+                  </p>
+                ) : (
+                  <p
+                    data-testid="gaps-none-open"
+                    className="rounded-lg border border-dashed border-outline-variant bg-white p-5 text-sm text-on-surface-variant"
+                  >
+                    {t("noOpenTopics")}
+                  </p>
+                )}
+                {openClusters.map((cluster) => {
                   const clusterState = gapStates[cluster.id] ?? EMPTY_GAP_STATE;
                   const view = clusterView(cluster, clusterState.overlay);
                   const clickable =
@@ -1283,6 +1369,7 @@ export default function GapsPage({
                     !sessionOpen &&
                     clusterState.status === "idle" &&
                     !clusterState.refusal;
+                  const action = leaveOpenState[cluster.id];
                   return (
                     <GapClusterCard
                       key={cluster.id}
@@ -1294,6 +1381,9 @@ export default function GapsPage({
                           ? () => void startMicroSession(cluster.id, flowState?.job_id ?? "")
                           : undefined
                       }
+                      onLeaveOpen={clickable ? () => void setGapLeftOpen(cluster.id, true) : undefined}
+                      actionBusy={action?.busy ?? false}
+                      actionError={action?.error ?? ""}
                     >
                       <div onClick={(e) => e.stopPropagation()}>
                         <GapClickPanel
@@ -1306,7 +1396,52 @@ export default function GapsPage({
                     </GapClusterCard>
                   );
                 })}
-            </div>
+                {doneClusters.length > 0 && (
+                  <div data-testid="gaps-done-section">
+                    <button
+                      type="button"
+                      data-testid="gaps-done-toggle"
+                      aria-expanded={doneExpanded}
+                      onClick={() => setDoneExpanded((v) => !v)}
+                      className="mt-5 flex w-full items-start gap-2 border-t border-gray-200 px-1 py-3 text-left"
+                    >
+                      {doneExpanded ? (
+                        <ChevronDown aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-on-surface-variant" />
+                      ) : (
+                        <ChevronRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-on-surface-variant" />
+                      )}
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold text-on-surface">
+                          {t("doneSection", { count: doneClusters.length })}
+                        </span>
+                        <span className="text-xs text-on-surface-variant">{t("doneSubtitle")}</span>
+                      </span>
+                    </button>
+                    {doneExpanded && (
+                      <div className="space-y-3">
+                        {doneClusters.map((cluster) => {
+                          const view = clusterView(cluster);
+                          const action = leaveOpenState[cluster.id];
+                          return (
+                            <GapClusterCard
+                              key={cluster.id}
+                              cluster={cluster}
+                              view={view}
+                              onReopen={
+                                view.reopenable && !sessionOpen
+                                  ? () => void setGapLeftOpen(cluster.id, false)
+                                  : undefined
+                              }
+                              actionBusy={action?.busy ?? false}
+                              actionError={action?.error ?? ""}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
           ) : (
             /* No clusters yet (analysis still running) */
             ((gaps?.category_c && gaps.category_c.length > 0) || (gaps?.category_b && gaps.category_b.length > 0)) ? (

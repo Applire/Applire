@@ -38,6 +38,10 @@ class GapClusterOutcome(BaseModel):
     covered: list[str] = Field(default_factory=list)
     declined: list[str] = Field(default_factory=list)
     session_ids: list[str] = Field(default_factory=list)
+    #: Ruling K-1 (ADR-089 amended 2026-09-27) — the candidate left this gap
+    #: open by hand on the gaps page; no door asks it until they pick it up
+    #: again. A legacy record carries none and reads ``False``.
+    left_open: bool = False
 
 
 class GapClusterMemberStatus(BaseModel):

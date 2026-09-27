@@ -1564,10 +1564,11 @@ async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession) -> b
 
 class GapNotAskableError(Exception):
     """ADR-089 clause 1/7 — a session was requested on a gap cluster that can
-    no longer be asked: its per-gap budget is spent, or its coverage is already
-    ``covered``/``declined``. The REST door answers HTTP 409 with the
-    machine-readable ``error_code`` (``gap_budget_spent`` |
-    ``gap_already_covered``); the agent door (``resolve_gap``) answers
+    no longer be asked: its per-gap budget is spent, its coverage is already
+    ``covered``/``declined``, or the candidate left it open by hand (ruling
+    K-1). The REST door answers HTTP 409 with the machine-readable
+    ``error_code`` (``gap_budget_spent`` | ``gap_already_covered`` |
+    ``gap_left_open``); the agent door (``resolve_gap``) answers
     ``invalid_input`` with the same ``message``, which names the cluster."""
 
     def __init__(self, error_code: str, message: str, cluster_id: str):
@@ -1596,6 +1597,10 @@ _GAP_RECORD_COPY: dict[str, dict[str, str]] = {
             '"{label}" has already been asked {asked} time(s) — its question '
             "budget ({per_gap} per gap, across every interview) is spent."
         ),
+        "left_open": (
+            '"{label}" was left open on the gaps page — nothing is asked about '
+            "it until it is picked up again there."
+        ),
         "all_worked": (
             "Every gap in this analysis has already been worked through — "
             "you can proceed to CV generation."
@@ -1619,6 +1624,10 @@ _GAP_RECORD_COPY: dict[str, dict[str, str]] = {
         "spent": (
             "„{label}“ wurde bereits {asked}-mal gefragt — das Fragenbudget "
             "({per_gap} pro Lücke, über alle Interviews hinweg) ist aufgebraucht."
+        ),
+        "left_open": (
+            "„{label}“ wurde auf der Lückenseite offen gelassen — dazu wird nichts "
+            "gefragt, bis die Lücke dort wieder aufgenommen wird."
         ),
         "all_worked": (
             "Jede Lücke dieser Analyse wurde bereits bearbeitet — "
@@ -1665,6 +1674,13 @@ def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | Non
     cluster_id = str(cluster.get("id") or "")
     label = str(cluster.get("label") or cluster_id)
     coverage = gap_coverage.stored_or_derived_coverage(cluster)
+    if gap_coverage.is_left_open(cluster) and coverage not in ("covered", "declined"):
+        # Ruling K-1 — the candidate's own "enough"; the message names the way
+        # back (the gaps page's "Pick it up again"). A left-open cluster that a
+        # later recompute found covered/declined reports that fact instead.
+        return GapNotAskableError(
+            "gap_left_open", gap_record_copy("left_open", lang, label=label), cluster_id,
+        )
     if coverage == "declined":
         return GapNotAskableError(
             "gap_already_covered", gap_record_copy("declined", lang, label=label), cluster_id,
@@ -2282,7 +2298,8 @@ async def _create_targeted_session(
     if len(askable_ids) != len(cluster_ids):
         logger.info(
             "targeted session plan for job %s: skipped %d cluster(s) the per-gap "
-            "record marks covered/declined or budget-spent (ADR-089 clause 6): %s",
+            "record marks covered/declined, budget-spent or left open "
+            "(ADR-089 clause 6, ruling K-1): %s",
             job_id,
             len(cluster_ids) - len(askable_ids),
             [cid for cid in cluster_ids if cid not in askable_ids],

@@ -464,6 +464,32 @@ async def test_full_interview_skips_a_spent_and_a_covered_cluster(db):
 
 
 @pytest.mark.asyncio
+async def test_full_interview_leaves_out_a_gap_left_open_by_hand(db):
+    """Ruling K-1 — a NEW full interview does not ask a gap the candidate left
+    open on the gaps page, although its budget is untouched; picking it up
+    again brings it back."""
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.gap_coverage import with_left_open
+    from applire.services.session import create_session
+
+    left = _cluster(_INFRA, "Cloud infrastructure", ["Terraform"],
+                    outcome={"asked": 0, "covered": [], "declined": [], "session_ids": [],
+                             "left_open": True})
+    job, _profile, _ = await _seed(db, clusters=[left, _cluster("cluster-k8s", "Kubernetes", ["Kubernetes"])])
+    with patch("applire.services.session.question_generator_with_profile", new=_writer("Kubernetes?")):
+        full = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, _provider())
+    assert full.gaps_total == 1
+    assert full.current_gap_id == "cluster-k8s"
+
+    picked_up = with_left_open(left, False)
+    job2, _profile2, _ = await _seed(db, clusters=[picked_up])
+    with patch("applire.services.session.question_generator_with_profile", new=_writer("Terraform?")):
+        again = await create_session(SessionCreateRequest(job_id=job2.id, mode="targeted"), db, _provider())
+    assert again.gaps_total == 1
+    assert again.current_gap_id == _INFRA
+
+
+@pytest.mark.asyncio
 async def test_nothing_left_to_ask_says_so_honestly(db):
     from applire.schemas.session import SessionCreateRequest
     from applire.services.session import create_session
@@ -494,8 +520,10 @@ async def test_nothing_left_to_ask_says_so_honestly(db):
          "covered", "gap_already_covered"),
         ({"asked": 1, "covered": [], "declined": ["Kubernetes", "Terraform"], "session_ids": []},
          "declined", "gap_already_covered"),
+        ({"asked": 0, "covered": [], "declined": [], "session_ids": [], "left_open": True},
+         "open", "gap_left_open"),
     ],
-    ids=["budget_spent", "covered", "declined"],
+    ids=["budget_spent", "covered", "declined", "left_open"],
 )
 @pytest.mark.asyncio
 async def test_gap_click_on_a_cluster_that_cannot_be_asked_is_refused(db, outcome, coverage, code):

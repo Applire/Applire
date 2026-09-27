@@ -295,6 +295,9 @@ interface Server {
   refreshed?: Json;
   /** Mutation the message turn applies to the row (the turn's own record). */
   onTurn?: (row: Json, turnIndex: number) => Json;
+  /** POST /gaps/{id}/left-open — HTTP status (default 200: the row with the
+   * cluster's `outcome.left_open` set as asked). */
+  leftOpenStatus?: number;
 }
 
 function serve(server: Server) {
@@ -315,6 +318,21 @@ function serve(server: Server) {
         application_id: null,
         created_at: FLOW_CREATED_AT,
       });
+    }
+    const leftOpen = url.match(/\/api\/job\/j1\/gaps\/([^/]+)\/left-open$/);
+    if (leftOpen && method === "POST") {
+      const status = server.leftOpenStatus ?? 200;
+      if (status >= 400) return ok({ detail: { error_code: "gap_not_askable" } }, status);
+      const value = JSON.parse(String(init?.body ?? "{}")).left_open === true;
+      server.row = {
+        ...server.row,
+        gap_clusters: (server.row.gap_clusters as Json[]).map((c) =>
+          c.id === decodeURIComponent(leftOpen[1])
+            ? { ...c, outcome: { ...(c.outcome as Json), left_open: value } }
+            : c,
+        ),
+      };
+      return ok(server.row);
     }
     if (url.endsWith("/api/job/j1/gaps/refresh") && method === "POST") {
       server.row = server.refreshed ?? server.row;
@@ -373,6 +391,9 @@ describe("ADR-089 cl. 8 — card state is the server's record", () => {
     });
     await renderPage();
     await waitFor(() => expect(card("open")).toBeInTheDocument());
+    // Ruling K-1 — closed cards load into the folded Done section.
+    expect(document.querySelector('[data-cluster-id="covered"]')).toBeNull();
+    fireEvent.click(screen.getByTestId("gaps-done-toggle"));
 
     expect(card("open")).toHaveAttribute("data-coverage", "open");
     expect(card("partly")).toHaveAttribute("data-coverage", "partly_covered");
@@ -399,7 +420,136 @@ describe("ADR-089 cl. 8 — card state is the server's record", () => {
     });
     await renderPage();
     await waitFor(() => expect(screen.getByTestId("gaps-section")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("gaps-none-open")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("gaps-done-toggle"));
     expect(within(card("covered")).getByTestId("gap-resolved")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ruling K-1 — closed cards leave the open list; a gap can be left open
+// ---------------------------------------------------------------------------
+
+function inDone(id: string): boolean {
+  const done = screen.queryByTestId("gaps-done-section");
+  return Boolean(done?.querySelector(`[data-cluster-id="${id}"]`));
+}
+
+describe("ruling K-1 — closed cards leave the open list", () => {
+  it("loads covered, declined, spent and left-open cards into a folded Done section with their count", async () => {
+    serve({
+      row: analysis([
+        cl("open"),
+        cl("covered", { gaps: [], outcome: outcome(1, ["Jenkins"]), coverage: "covered", budget_remaining: 1 }),
+        cl("declined", { gaps: [], outcome: outcome(1, [], ["Go"]), coverage: "declined", budget_remaining: 1 }),
+        cl("spent", { gaps: ["Prometheus"], outcome: outcome(2), budget_remaining: 0 }),
+        cl("left", { outcome: { ...outcome(), left_open: true } }),
+      ]),
+    });
+    await renderPage();
+    await waitFor(() => expect(card("open")).toBeInTheDocument());
+
+    const toggle = screen.getByTestId("gaps-done-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveTextContent("gaps.doneSection");
+    for (const id of ["covered", "declined", "spent", "left"]) {
+      expect(document.querySelector(`[data-cluster-id="${id}"]`)).toBeNull();
+    }
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    for (const id of ["covered", "declined", "spent", "left"]) expect(inDone(id)).toBe(true);
+    expect(inDone("open")).toBe(false);
+    // Done is read-only: nothing opens a question there.
+    for (const id of ["covered", "declined", "spent", "left"]) {
+      expect(card(id).className).not.toContain("cursor-pointer");
+      expect(within(card(id)).queryByTestId("gap-leave-open")).toBeNull();
+    }
+    // Only the card left open by hand offers the way back, and says why it is there.
+    expect(within(card("left")).getByTestId("gap-left-open")).toHaveTextContent("gaps.leftOpenLine");
+    expect(within(card("left")).getByTestId("gap-pick-up-again")).toBeInTheDocument();
+    for (const id of ["covered", "declined", "spent"]) {
+      expect(within(card(id)).queryByTestId("gap-pick-up-again")).toBeNull();
+    }
+    // The spent card keeps its lock line and its colour (red = the gap stayed open).
+    expect(within(card("spent")).getByTestId("gap-budget-spent")).toBeInTheDocument();
+    expect(card("spent")).toHaveAttribute("data-tone", "red");
+  });
+
+  it("'Leave this gap open' records the fact and moves the card to Done at once; 'Pick it up again' brings it back", async () => {
+    const fetchMock = serve({ row: analysis([cl("k8s"), cl("iac")]) });
+    await renderPage();
+    await waitFor(() => expect(card("k8s")).toBeInTheDocument());
+    expect(screen.queryByTestId("gaps-done-section")).toBeNull();
+
+    fireEvent.click(within(card("k8s")).getByTestId("gap-leave-open"));
+    await waitFor(() => expect(screen.getByTestId("gaps-done-section")).toBeInTheDocument());
+    const posts = calls(fetchMock, (u, m) => u.endsWith("/api/job/j1/gaps/k8s/left-open") && m === "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(String((posts[0][1] as RequestInit).body))).toEqual({ left_open: true });
+    // Leaving a card open never opens a question on it.
+    expect(calls(fetchMock, (u, m) => u.endsWith("/api/session") && m === "POST")).toHaveLength(0);
+    expect(document.querySelector('[data-cluster-id="k8s"]')).toBeNull();
+    expect(card("iac")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("gaps-done-toggle"));
+    fireEvent.click(within(card("k8s")).getByTestId("gap-pick-up-again"));
+    await waitFor(() => expect(screen.queryByTestId("gaps-done-section")).toBeNull());
+    expect(card("k8s").className).toContain("cursor-pointer");
+    const back = calls(fetchMock, (u, m) => u.endsWith("/api/job/j1/gaps/k8s/left-open") && m === "POST");
+    expect(JSON.parse(String((back[1][1] as RequestInit).body))).toEqual({ left_open: false });
+  });
+
+  it("a card an answer closes during the visit stays in place showing its result", async () => {
+    serve({
+      row: analysis([cl("k8s", { gaps: ["Kubernetes"] }), cl("iac")]),
+      turns: [{ complete: true }],
+      onTurn: (row) => ({
+        ...row,
+        gap_clusters: (row.gap_clusters as Json[]).map((c) =>
+          c.id === "k8s"
+            ? { ...c, gaps: [], outcome: outcome(1, ["Kubernetes"]), coverage: "covered", budget_remaining: 1 }
+            : c,
+        ),
+      }),
+    });
+    await renderPage();
+    await waitFor(() => expect(card("k8s")).toBeInTheDocument());
+    fireEvent.click(card("k8s"));
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-answer-textarea")).toBeInTheDocument());
+    await answer("k8s", "Five years of Kubernetes in production.");
+
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-resolved")).toBeInTheDocument());
+    expect(inDone("k8s")).toBe(false);
+    expect(screen.queryByTestId("gaps-done-section")).toBeNull();
+    expect(within(card("k8s")).queryByTestId("gap-leave-open")).toBeNull();
+  });
+
+  it("offers 'Leave this gap open' only on a card that can be asked, and not while a question is open", async () => {
+    serve({ row: analysis([cl("k8s"), cl("iac")]) });
+    await renderPage();
+    await waitFor(() => expect(card("k8s")).toBeInTheDocument());
+    expect(within(card("k8s")).getByTestId("gap-leave-open")).toBeInTheDocument();
+
+    fireEvent.click(card("k8s"));
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-answer-textarea")).toBeInTheDocument());
+    expect(within(card("k8s")).queryByTestId("gap-leave-open")).toBeNull();
+    expect(within(card("iac")).queryByTestId("gap-leave-open")).toBeNull();
+  });
+
+  it("a failed leave-open keeps the card in the open list and says so", async () => {
+    serve({ row: analysis([cl("k8s")]), leftOpenStatus: 409 });
+    await renderPage();
+    await waitFor(() => expect(card("k8s")).toBeInTheDocument());
+    fireEvent.click(within(card("k8s")).getByTestId("gap-leave-open"));
+    await waitFor(() => expect(within(card("k8s")).getByTestId("gap-action-error")).toHaveTextContent("gaps.leaveOpenFailed"));
+    expect(inDone("k8s")).toBe(false);
+  });
+
+  it("says so in one line when nothing is open any more", async () => {
+    serve({ row: analysis([cl("spent", { outcome: outcome(2), budget_remaining: 0 })]) });
+    await renderPage();
+    await waitFor(() => expect(screen.getByTestId("gaps-none-open")).toHaveTextContent("gaps.noOpenTopics"));
+    expect(screen.queryByText("gaps.clustersToAddress")).toBeNull();
   });
 });
 

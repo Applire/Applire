@@ -77,12 +77,13 @@ def cluster(cid="c1", gaps=("A",), *, outcome=None, coverage=None, category="C")
     return c
 
 
-def outcome(asked=0, covered=(), declined=(), session_ids=()):
+def outcome(asked=0, covered=(), declined=(), session_ids=(), left_open=False):
     return {
         "asked": asked,
         "covered": list(covered),
         "declined": list(declined),
         "session_ids": list(session_ids),
+        "left_open": left_open,
     }
 
 
@@ -102,7 +103,7 @@ def test_answer_scope_defaults_are_the_refresh_case():
 def test_empty_outcome_is_a_fresh_dict_each_time():
     a = empty_outcome()
     a["covered"].append("X")
-    assert empty_outcome() == {"asked": 0, "covered": [], "declined": [], "session_ids": []}
+    assert empty_outcome() == {"asked": 0, "covered": [], "declined": [], "session_ids": [], "left_open": False}
 
 
 # ---------------------------------------------------------------------------

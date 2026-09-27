@@ -33,12 +33,13 @@ from applire.schemas.gap import (
     GapAnalysisResponse,
     GapJobResponse,
     GapJobStatusResponse,
+    GapLeftOpenRequest,
     KeywordLiabilityDowngradeRequest,
 )
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
 from applire.services.application import find_duplicate_application
-from applire.services.gap import analyze_gaps, downgrade_keyword_liability
-from applire.services.gap_coverage import AnswerScope
+from applire.services.gap import analyze_gaps, downgrade_keyword_liability, set_cluster_left_open
+from applire.services.gap_coverage import AnswerScope, LeftOpenRefused
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
 from applire.services.job import analyze_jd
 from applire.services.scraper import ScraperError, scrape_job_url
@@ -212,6 +213,53 @@ async def downgrade_gap_keyword_liability(
                 "message": "An unexpected error occurred. Please try again.",
             },
         )
+
+
+@router.post(
+    "/{job_id}/gaps/{cluster_id}/left-open",
+    response_model=GapAnalysisResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def set_gap_left_open(
+    job_id: uuid.UUID,
+    cluster_id: str,
+    request: GapLeftOpenRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: AuthProvider = Depends(get_auth_provider),
+) -> GapAnalysisResponse:
+    """Ruling K-1 (ADR-089 amended 2026-09-27) — "Leave this gap open"
+    (``left_open: true``) and "Pick it up again" (``false``) on the gaps page.
+
+    Deterministic, no LLM: records the candidate's own "enough" on the gap's
+    per-gap record (``outcome.left_open``) and returns the whole analysis, like
+    the read route, so the page adopts it. The gap stays a gap — score,
+    members and budget do not move. 409 ``gap_not_askable`` when leaving open
+    a gap that is covered, declined or out of questions (nothing is open to
+    leave); 404 when the job, its analysis or the gap is unknown.
+    """
+    from sqlalchemy import select
+    from applire.models.job import JobAnalysis
+    from applire.services.gap import stored_analysis_inputs_changed
+
+    job = (
+        await db.execute(
+            select(JobAnalysis).where(JobAnalysis.id == job_id, JobAnalysis.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    try:
+        gap = await set_cluster_left_open(job_id, cluster_id, request.left_open, db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except LeftOpenRefused as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error_code": "gap_not_askable", "message": str(exc)},
+        )
+    response = GapAnalysisResponse.model_validate(gap)
+    response.inputs_changed = await stored_analysis_inputs_changed(gap, job, db)
+    return response
 
 
 @router.get(
