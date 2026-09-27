@@ -398,4 +398,10 @@ describe("GapClusterCard — ruling K-1 (leave a gap open, pick it up again)", (
     expect(screen.getByTestId("gap-leave-open")).toBeDisabled();
     expect(screen.getByTestId("gap-action-error")).toHaveTextContent("Nope");
   });
+
+  it("keeps a failure visible after a re-read took the action away (K1-ADV-4)", () => {
+    const cluster = makeCluster({ gaps: ["Terraform"], budget_remaining: 0 });
+    render(withIntl(<GapClusterCard cluster={cluster} view={clusterView(cluster)} actionError="Nope" />));
+    expect(screen.getByTestId("gap-action-error")).toHaveTextContent("Nope");
+  });
 });

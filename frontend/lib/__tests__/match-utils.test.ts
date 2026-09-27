@@ -230,6 +230,16 @@ describe("clusterView — a card's state comes from the server record only", () 
     expect(v.tone).toBe("red");
   });
 
+  it("ruling K-1: a left-open gap whose budget an in-flight session spent reads as spent (precedence covered/declined > spent > left open)", () => {
+    const v = clusterView(
+      cluster({ outcome: { asked: 2, covered: [], declined: [], session_ids: ["s1", "s2"], left_open: true }, budget_remaining: 0 }),
+    );
+    expect(v.budgetSpent).toBe(true);
+    expect(v.leftOpen).toBe(false);
+    expect(v.reopenable).toBe(false);
+    expect(v.closed).toBe(true);
+  });
+
   it("ruling K-1: a left-open gap a later recompute found covered reads as covered, with nothing to pick up", () => {
     const v = clusterView(
       cluster({ coverage: "covered", outcome: { asked: 1, covered: ["Kubernetes"], declined: [], session_ids: ["s1"], left_open: true } }),

@@ -291,8 +291,10 @@ export interface ClusterView {
   /** Not askable ONLY because the budget is gone — a spent budget is shown,
    * not hidden (ADR-089 clause 3). */
   budgetSpent: boolean;
-  /** Ruling K-1 — left open by hand while it was still open (a left-open
-   * cluster a later recompute found covered/declined reads as that instead). */
+  /** Ruling K-1 — left open by hand and still open with budget left.
+   * Precedence covered/declined > spent > left open, as the server's refusal:
+   * a left-open cluster a later recompute found covered/declined reads as
+   * that, and one whose budget an in-flight session spent reads as spent. */
   leftOpen: boolean;
   /** Ruling K-1 — nothing can be asked here: covered, declined, budget spent
    * or left open. A closed card belongs to the Done section. */
@@ -387,7 +389,7 @@ export function clusterView(
 
   const finished = coverage === "covered" || coverage === "declined";
   const hasBudget = budget === null ? true : budget > 0;
-  const leftOpen = !finished && cluster.outcome?.left_open === true;
+  const leftOpen = !finished && hasBudget && cluster.outcome?.left_open === true;
   const askable = !finished && hasBudget && !leftOpen;
   return {
     coverage,

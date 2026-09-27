@@ -1659,6 +1659,26 @@ def _prior_asked(cluster: dict | None) -> int:
         return 0
 
 
+async def _left_open_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> set[str]:
+    """Ids of the clusters the candidate left open by hand (ruling K-1), read
+    from the job's latest analysis row — the row the gaps page writes."""
+    row = (
+        await db.execute(
+            select(GapAnalysis)
+            .where(GapAnalysis.job_analysis_id == job_id, GapAnalysis.deleted_at.is_(None))
+            .order_by(GapAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return set()
+    return {
+        str(c.get("id"))
+        for c in row.gap_clusters or []
+        if isinstance(c, dict) and c.get("id") and gap_coverage.is_left_open(c)
+    }
+
+
 def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | None:
     """The refusal for a cluster ``gap_coverage.is_askable`` rejects, else None.
 
@@ -1674,10 +1694,16 @@ def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | Non
     cluster_id = str(cluster.get("id") or "")
     label = str(cluster.get("label") or cluster_id)
     coverage = gap_coverage.stored_or_derived_coverage(cluster)
-    if gap_coverage.is_left_open(cluster) and coverage not in ("covered", "declined"):
+    if (
+        gap_coverage.is_left_open(cluster)
+        and coverage not in ("covered", "declined")
+        and gap_coverage.remaining_budget(cluster, per_gap) > 0
+    ):
         # Ruling K-1 — the candidate's own "enough"; the message names the way
-        # back (the gaps page's "Pick it up again"). A left-open cluster that a
-        # later recompute found covered/declined reports that fact instead.
+        # back (the gaps page's "Pick it up again"). Precedence covered/declined
+        # > spent > left open: a cluster whose budget an in-flight session spent
+        # after it was left open cannot be picked up again, so it reports
+        # "spent" (the same order the gaps page and the liability panel use).
         return GapNotAskableError(
             "gap_left_open", gap_record_copy("left_open", lang, label=label), cluster_id,
         )
@@ -2645,6 +2671,14 @@ async def _create_micro_session(
             gap_category = persisted.get("category")
             found = True
 
+    # Ruling K-1 — a gap the candidate left open is not asked again, not even
+    # the follow-up a micro-session opened BEFORE is still waiting on (the
+    # resume below would ask it): the refusal comes first.
+    if found and gap_coverage.is_left_open(cluster):
+        refusal = gap_not_askable(cluster, lang)
+        if refusal is not None:
+            raise refusal
+
     existing_active = await _get_active_session(job_id, db)
     if existing_active is not None and _is_pending_micro_on(existing_active, target_cluster_id):
         return _resumed_response(
@@ -3236,6 +3270,21 @@ async def send_message(
     current_gap = state["critical_gaps"][current_idx]
     current_question = state["current_question"]
 
+    # --- Ruling K-1: a gap the candidate left open (e.g. on the gaps page while
+    # this interview was paused) is never asked from here on — the plan skips
+    # it like a Skip would. The gap on screen now is answered as usual: its
+    # answer is recorded, and the advance decision below asks nothing further
+    # on it. ---
+    if record.job_analysis_id is not None:
+        left_open_ids = await _left_open_cluster_ids(record.job_analysis_id, db)
+        skipped_now = list(state.get("skipped_gaps", []))
+        newly = sorted(
+            g for g in left_open_ids
+            if g != current_gap and g in state["critical_gaps"] and g not in skipped_now
+        )
+        if newly:
+            state["skipped_gaps"] = skipped_now + newly
+
     # --- US163: a deferred Tier-1 gate is resolved deterministically (no LLM),
     # never run through the gap response parser / profile updater. ---
     gate_entry = _gate_entry(state, current_gap)
@@ -3429,6 +3478,11 @@ async def send_message(
         updated_profile=updated_profile,
     )
     cluster_coverage = _coverage_of(recorded_cluster)
+    # Ruling K-1 — the candidate left this gap open while its question was on
+    # screen (another window, the gaps page mid-interview): the answer is
+    # recorded above, and nothing further is asked on it — no probe, no
+    # follow-up, no retry; the session advances.
+    left_open_now = recorded_cluster is not None and gap_coverage.is_left_open(recorded_cluster)
 
     # --- Hard ceiling check ---
     if questions_asked >= state["hard_ceiling"]:
@@ -3493,6 +3547,7 @@ async def send_message(
         and denial_recorded
         and probing_concept is None
         and not resolving_confirmation
+        and not left_open_now
         and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
     ):
         probe_concept = await _select_denial_probe_concept(
@@ -3520,6 +3575,7 @@ async def send_message(
         and addressed
         and open_members
         and not resolving_confirmation
+        and not left_open_now
         and gap_coverage.remaining_budget(recorded_cluster, INTERVIEW_MAX_QUESTIONS_PER_GAP) > 0
     ):
         follow_up = await _ask_partial_coverage_follow_up(
@@ -3541,6 +3597,7 @@ async def send_message(
         not addressed
         and not denial_recorded
         and not resolving_confirmation
+        and not left_open_now
         and questions_for_gap < INTERVIEW_MAX_QUESTIONS_PER_GAP
         and recorded_cluster is not None
         and cluster_coverage is not None
@@ -3561,6 +3618,7 @@ async def send_message(
         or resolving_confirmation
         or questions_for_gap >= INTERVIEW_MAX_QUESTIONS_PER_GAP
         or retry_judged_covered
+        or left_open_now
     ):
         # Advance to next gap
         state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]

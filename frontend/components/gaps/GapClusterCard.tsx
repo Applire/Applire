@@ -232,7 +232,7 @@ export function GapClusterCard({
           )}
         </div>
       </div>
-      {(onLeaveOpen || onReopen) && (
+      {(onLeaveOpen || onReopen || actionError) && (
         // A card is itself clickable (it opens the micro-session): the action's
         // click must not reach it.
         <div className="mt-2.5 flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>

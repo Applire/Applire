@@ -160,6 +160,15 @@ def test_the_refusal_names_the_gap_and_the_way_back(lang, expected):
     assert "Label c1" in refusal.message and expected in refusal.message
 
 
+def test_a_left_open_gap_whose_budget_was_spent_meanwhile_reports_spent():
+    """Precedence covered/declined > spent > left open (K1-ADV-2): "pick it up
+    again" is impossible once the budget is gone, so the refusal says spent —
+    the same order the gaps page and the liability panel use."""
+    from applire.services.session import gap_not_askable
+
+    assert gap_not_askable(_cluster(asked=2, left_open=True), "en").error_code == "gap_budget_spent"
+
+
 def test_a_left_open_gap_a_recompute_found_covered_reports_covered():
     from applire.services.session import gap_not_askable
 
