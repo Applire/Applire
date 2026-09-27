@@ -1,0 +1,32 @@
+{
+ "body": {
+  "signature": {
+   "name": "STEFAN BRANDT",
+   "closing": null
+  },
+  "paragraphs": [
+   "Sehr geehrte Damen und Herren,",
+   "die Position als Leiter Operations bei der Rheinwerk Verpackungen GmbH spricht mich an, weil Sie Kunststoff- und Verbundverpackungen für Konsumgüter- und Lebensmittelkunden fertigen. Meine Erfahrung in der Produktionsleitung und mit Kunststoff-Verpackungskomponenten für Kosmetikkunden möchte ich in Ihr wachsendes Unternehmen in Koblenz einbringen.",
+   "Bei der Weberit Kunststofftechnik GmbH verantworte ich zwei Fertigungsbereiche mit 38 Mitarbeitenden im Dreischichtbetrieb und führe drei Schichtleiter. Insgesamt bringe ich 13 Jahre Mitarbeiterführung sowie Eskalationsverantwortung für Kundenreklamationen mit – eine belastbare Grundlage für die geforderte Führungsstärke. Shopfloor-Management und KVP senkten die Ausschussquote von 4,1 % auf 2,3 %; OEE im Spritzguss stieg von 61 % auf 73 %, die Termintreue durch Feinplanung und SMED-Rüstworkshops von 87 % auf 96 %. Zudem trage ich rund 6 Mio. € Budgetverantwortung und bin Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain.",
+   "Bei Weberit verantwortete ich operativ die MES-Einführung bis zum Rollout auf zwei Fertigungsbereiche sowie die Datenerfassung an 14 Spritzgussmaschinen. Ich setzte SAP PP und MM ein und aktualisiere Gefährdungsbeurteilungen sowie Unterweisungen. Die Vorbereitung der ISO-45001-Zertifizierung, die Überarbeitung der Gefährdungsbeurteilungen und das Aufsetzen des Unterweisungssystems zeigen angrenzende Arbeitssicherheitskompetenz, ohne eine eigenständige Steuerung des Arbeitssicherheitsmanagementsystems zu behaupten. Meine Instandhaltungserfahrung aus Rasselstein sowie die SAP-MM-Disposition für Instandhaltungsmaterial ergänzen dies. IFS oder BRC sowie direkte Erfahrung in der Lebensmittelindustrie und mit Verbundverpackungen bringe ich nicht mit; Hygiene- und Dokumentationsdisziplin aus der Sauberraumfertigung von Kosmetik-Verpackungen bei Weberit sowie ISO-9001-Audit-Praxis sind jedoch übertragbar. Ich freue mich auf ein persönliches Gespräch oder Interview, um meine Eignung näher zu erläutern.",
+   "Mit freundlichen Grüßen"
+  ]
+ },
+ "header": {
+  "name": "STEFAN BRANDT",
+  "email": "stefan.brandt@example.com",
+  "phone": "+49 261 0000000",
+  "address": "Koblenz"
+ },
+ "recipient": {
+  "date": "27. September 2026",
+  "name": null,
+  "title": null,
+  "address": null,
+  "company": "Rheinwerk Verpackungen GmbH"
+ },
+ "signature": {
+  "name": "STEFAN BRANDT",
+  "closing": "Mit freundlichen Grüßen"
+ }
+}

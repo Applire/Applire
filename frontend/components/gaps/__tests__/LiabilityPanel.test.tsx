@@ -343,6 +343,41 @@ describe("LiabilityPanel — ADR-089 askability", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it("ruling K-1: an owning cluster the candidate left open shows its own refusal without spending a fetch", async () => {
+    const clusters: GapCluster[] = [
+      {
+        id: "cluster-rag",
+        label: "RAG",
+        category: "C",
+        gaps: ["RAG"],
+        jd_skills: [],
+        jd_context: "",
+        outcome: { asked: 0, covered: [], declined: [], session_ids: [], left_open: true },
+        coverage: "open",
+        budget_remaining: 2,
+        member_statuses: [{ member: "RAG", status: "gap" }],
+      },
+    ];
+    render(
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={[{ concept: "RAG" }]}
+          clusters={clusters}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />
+      )
+    );
+    fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
+
+    expect(await screen.findByTestId("liability-refusal-RAG")).toHaveTextContent(
+      "You left this gap open — pick it up again under Done to answer it."
+    );
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("pre-checks askability: an already-covered owning cluster shows the already-covered refusal without spending a fetch", async () => {
     const clusters: GapCluster[] = [
       {

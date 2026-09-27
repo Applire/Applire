@@ -696,6 +696,18 @@ const COVERAGE_CLUSTERS = [
     budget_remaining: 0,
     member_statuses: [{ member: "Helm", status: "gap" }],
   },
+  {
+    id: "c-left",
+    label: "Terraform",
+    category: "C",
+    gaps: ["Terraform"],
+    jd_skills: [],
+    jd_context: "",
+    outcome: { asked: 0, covered: [], declined: [], session_ids: [], left_open: true },
+    coverage: "open",
+    budget_remaining: 2,
+    member_statuses: [{ member: "Terraform", status: "gap" }],
+  },
 ];
 
 describe("InterviewPage tracker reflects the server's own coverage record at load (ADR-089 clause 8)", () => {
@@ -759,6 +771,8 @@ describe("InterviewPage tracker reflects the server's own coverage record at loa
     expect(screen.getByTestId("gap-cluster-c-covered")).toHaveAttribute("data-status", "resolved");
     expect(screen.getByTestId("gap-cluster-c-declined")).toHaveAttribute("data-status", "declined");
     expect(screen.getByTestId("gap-cluster-c-spent")).toHaveAttribute("data-status", "spent");
+    // Ruling K-1e — the tracker keeps a gap left open on the gaps page and marks it.
+    expect(screen.getByTestId("gap-cluster-c-left")).toHaveAttribute("data-status", "left_open");
   });
 });
 

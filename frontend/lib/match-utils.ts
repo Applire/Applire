@@ -153,6 +153,10 @@ export interface ClusterOutcome {
   declined: string[];
   /** The sessions that asked it (the transcripts live there, not here). */
   session_ids: string[];
+  /** Ruling K-1 — the candidate left this gap open by hand ("Leave this gap
+   * open"); no door asks it until they pick it up again. A legacy row carries
+   * none: read as `false`. */
+  left_open?: boolean;
 }
 
 /** One member's ledger fact (ruling C-1 contract addition): `covered` =
@@ -193,10 +197,10 @@ export interface TurnClusterCoverage {
 }
 
 /** `POST /api/session` 409 body codes (contract item 5). */
-export type GapRefusalCode = "gap_budget_spent" | "gap_already_covered";
+export type GapRefusalCode = "gap_budget_spent" | "gap_already_covered" | "gap_left_open";
 
 export function isGapRefusalCode(code: unknown): code is GapRefusalCode {
-  return code === "gap_budget_spent" || code === "gap_already_covered";
+  return code === "gap_budget_spent" || code === "gap_already_covered" || code === "gap_left_open";
 }
 
 /**
@@ -281,11 +285,22 @@ export interface ClusterView {
   members: { term: string; state: MemberState }[];
   tone: CardTone;
   pill: CoveragePill | null;
-  /** Budget left AND coverage not covered/declined (`gap_coverage.is_askable`). */
+  /** Budget left AND coverage not covered/declined AND not left open by hand
+   * (`gap_coverage.is_askable`). */
   askable: boolean;
   /** Not askable ONLY because the budget is gone — a spent budget is shown,
    * not hidden (ADR-089 clause 3). */
   budgetSpent: boolean;
+  /** Ruling K-1 — left open by hand and still open with budget left.
+   * Precedence covered/declined > spent > left open, as the server's refusal:
+   * a left-open cluster a later recompute found covered/declined reads as
+   * that, and one whose budget an in-flight session spent reads as spent. */
+  leftOpen: boolean;
+  /** Ruling K-1 — nothing can be asked here: covered, declined, budget spent
+   * or left open. A closed card belongs to the Done section. */
+  closed: boolean;
+  /** Ruling K-1d — "Pick it up again" is offered: left open, budget left. */
+  reopenable: boolean;
   /** Answered turns on this cluster across every door. */
   asked: number;
 }
@@ -374,13 +389,18 @@ export function clusterView(
 
   const finished = coverage === "covered" || coverage === "declined";
   const hasBudget = budget === null ? true : budget > 0;
+  const leftOpen = !finished && hasBudget && cluster.outcome?.left_open === true;
+  const askable = !finished && hasBudget && !leftOpen;
   return {
     coverage,
     members,
     tone,
     pill,
-    askable: !finished && hasBudget,
+    askable,
     budgetSpent: !finished && !hasBudget,
+    leftOpen,
+    closed: !askable,
+    reopenable: leftOpen && hasBudget,
     asked,
   };
 }

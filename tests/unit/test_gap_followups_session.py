@@ -464,6 +464,103 @@ async def test_full_interview_skips_a_spent_and_a_covered_cluster(db):
 
 
 @pytest.mark.asyncio
+async def test_full_interview_leaves_out_a_gap_left_open_by_hand(db):
+    """Ruling K-1 — a NEW full interview does not ask a gap the candidate left
+    open on the gaps page, although its budget is untouched; picking it up
+    again brings it back."""
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.gap_coverage import with_left_open
+    from applire.services.session import create_session
+
+    left = _cluster(_INFRA, "Cloud infrastructure", ["Terraform"],
+                    outcome={"asked": 0, "covered": [], "declined": [], "session_ids": [],
+                             "left_open": True})
+    job, _profile, _ = await _seed(db, clusters=[left, _cluster("cluster-k8s", "Kubernetes", ["Kubernetes"])])
+    with patch("applire.services.session.question_generator_with_profile", new=_writer("Kubernetes?")):
+        full = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, _provider())
+    assert full.gaps_total == 1
+    assert full.current_gap_id == "cluster-k8s"
+
+    picked_up = with_left_open(left, False)
+    job2, _profile2, _ = await _seed(db, clusters=[picked_up])
+    with patch("applire.services.session.question_generator_with_profile", new=_writer("Terraform?")):
+        again = await create_session(SessionCreateRequest(job_id=job2.id, mode="targeted"), db, _provider())
+    assert again.gaps_total == 1
+    assert again.current_gap_id == _INFRA
+
+
+async def _leave_open(db, job_id, cid):
+    """The gaps page's "Leave this gap open" (ruling K-1), through its service."""
+    from applire.services.gap import set_cluster_left_open
+
+    await set_cluster_left_open(job_id, cid, True, db)
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_follow_up_is_not_resumed_on_a_gap_left_open(db):
+    """Ruling K-1 (adversarial K1-ADV-1) — a micro-session waiting on a
+    follow-up is resumed by the next click on the same gap (ruling B-3); once
+    the candidate left that gap open (e.g. in another window), the resume is
+    refused like a fresh session would be."""
+    from applire.services.session import GapNotAskableError
+
+    job, _profile, _ = await _seed(db)
+    writer = _writer("Tell me about Kubernetes and Terraform.", "And Terraform?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    await _answer(db, created.session_id, "Kubernetes daily at Acme.",
+                  _writing_bridge(add_skills=["Kubernetes"]), writer)
+    await _leave_open(db, job.id, _INFRA)
+
+    again = _writer("never asked")
+    with pytest.raises(GapNotAskableError) as exc:
+        await _gap_click(db, job, _INFRA, again)
+    assert exc.value.error_code == "gap_left_open"
+    assert again.calls == []
+
+
+@pytest.mark.asyncio
+async def test_an_answer_to_a_question_on_screen_is_recorded_but_nothing_further_is_asked(db):
+    """Ruling K-1 (K1-ADV-1) — the question was on screen when the gap was
+    left open elsewhere: the answer still counts, but the partial answer earns
+    no follow-up and the micro-session completes."""
+    job, _profile, _ = await _seed(db)
+    writer = _writer("Tell me about Kubernetes and Terraform.", "And Terraform?")
+    created = await _gap_click(db, job, _INFRA, writer)
+    await _leave_open(db, job.id, _INFRA)
+
+    resp = await _answer(db, created.session_id, "I ran Kubernetes clusters at Acme.",
+                         _writing_bridge(add_skills=["Kubernetes"]), writer)
+    assert resp.complete is True, "no follow-up on a gap the candidate left open"
+    assert len(writer.calls) == 1, "only the opening question was ever drafted"
+    persisted = await _latest_cluster(db, job.id, _INFRA)
+    assert persisted["outcome"]["asked"] == 1
+    assert persisted["outcome"]["covered"] == ["Kubernetes"]
+    assert persisted["outcome"]["left_open"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_running_full_interview_skips_a_gap_left_open_meanwhile(db):
+    """Ruling K-1 (K1-ADV-1) — the candidate pauses the full interview, leaves
+    a later gap open on the gaps page and comes back: the interview never
+    reaches that gap."""
+    from applire.schemas.session import SessionCreateRequest
+    from applire.services.session import create_session
+
+    job, _profile, _ = await _seed(db)
+    full_writer = _writer("Kubernetes and Terraform — where?", "FastAPI?")
+    with patch("applire.services.session.question_generator_with_profile", new=full_writer):
+        full = await create_session(SessionCreateRequest(job_id=job.id, mode="targeted"), db, _provider())
+    assert full.gaps_total == 2 and full.current_gap_id == _INFRA
+    await _leave_open(db, job.id, _API)
+
+    resp = await _answer(db, full.session_id, "Kubernetes and Terraform, three years each at Acme.",
+                         _writing_bridge(add_skills=["Kubernetes", "Terraform"]), full_writer)
+    assert resp.current_gap_id != _API
+    assert resp.question != "FastAPI?"
+    assert all(call.get("follow_up_focus") != ["FastAPI"] for call in full_writer.calls)
+
+
+@pytest.mark.asyncio
 async def test_nothing_left_to_ask_says_so_honestly(db):
     from applire.schemas.session import SessionCreateRequest
     from applire.services.session import create_session
@@ -494,8 +591,10 @@ async def test_nothing_left_to_ask_says_so_honestly(db):
          "covered", "gap_already_covered"),
         ({"asked": 1, "covered": [], "declined": ["Kubernetes", "Terraform"], "session_ids": []},
          "declined", "gap_already_covered"),
+        ({"asked": 0, "covered": [], "declined": [], "session_ids": [], "left_open": True},
+         "open", "gap_left_open"),
     ],
-    ids=["budget_spent", "covered", "declined"],
+    ids=["budget_spent", "covered", "declined", "left_open"],
 )
 @pytest.mark.asyncio
 async def test_gap_click_on_a_cluster_that_cannot_be_asked_is_refused(db, outcome, coverage, code):

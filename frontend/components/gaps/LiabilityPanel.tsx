@@ -176,7 +176,11 @@ export function LiabilityPanel({
     if (!view.askable) {
       update(concept, {
         error: "",
-        refusal: view.budgetSpent ? "gap_budget_spent" : "gap_already_covered",
+        refusal: view.budgetSpent
+          ? "gap_budget_spent"
+          : view.leftOpen
+            ? "gap_left_open"
+            : "gap_already_covered",
       });
       return;
     }
@@ -341,7 +345,9 @@ export function LiabilityPanel({
                 >
                   {item.refusal === "gap_budget_spent"
                     ? t("refusalBudgetSpent")
-                    : t("refusalAlreadyCovered")}
+                    : item.refusal === "gap_left_open"
+                      ? t("refusalLeftOpen")
+                      : t("refusalAlreadyCovered")}
                 </p>
               )}
 

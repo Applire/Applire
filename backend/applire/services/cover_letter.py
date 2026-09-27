@@ -1045,6 +1045,72 @@ def _split_inline_salutation(letter_data: dict) -> dict:
     return letter_data
 
 
+# Sign-off formulas, normalised by :func:`_salutation_norm` (lowercase,
+# punctuation folded to spaces). A WHOLE body paragraph matching one is a
+# sign-off; a sign-off inside a sentence is prose and never matched.
+_SIGNOFF_FORMS: frozenset[str] = frozenset(
+    {
+        "mit freundlichen grüßen", "mit freundlichen grüssen", "freundliche grüße",
+        "freundliche grüsse", "mit besten grüßen", "mit besten grüssen", "beste grüße",
+        "beste grüsse", "viele grüße", "viele grüsse", "herzliche grüße", "herzliche grüsse",
+        "mit herzlichen grüßen", "mit herzlichen grüssen", "hochachtungsvoll",
+        "kind regards", "best regards", "regards", "warm regards", "warmest regards",
+        "with best regards", "with kind regards", "sincerely", "yours sincerely",
+        "sincerely yours", "yours faithfully", "yours truly", "best wishes",
+    }
+)
+
+
+def _drop_trailing_signoff(letter_data: dict) -> dict:
+    """Drop a final body paragraph that is only a sign-off (ruling K-2, 2026-09-27).
+
+    Every letter template prints ``signature.closing`` (the language-routed
+    chrome label, #189) above the name. The writer can ALSO end the body with
+    the sign-off as its own paragraph — the K-1 delivery run's letter did
+    (``body.paragraphs[-1] == "Mit freundlichen Grüßen"``), and the rendered
+    letter printed "Mit freundlichen Grüßen" twice in a row; both blind
+    reviewers flagged it. The twin of :func:`_inject_salutation` /
+    :func:`_split_inline_salutation` at the other end of the letter.
+
+    Fact-only (ADR-062): the last non-empty paragraph, normalised, IS a known
+    sign-off formula — alone, followed by the signature's name in the same
+    paragraph, or followed by a paragraph holding only that name. A sign-off
+    inside a sentence, or a paragraph with anything else in it, is left
+    untouched; the body is never emptied. Trailing blank paragraphs go with it.
+    """
+    body = letter_data.get("body")
+    if not isinstance(body, dict):
+        return letter_data
+    paragraphs = body.get("paragraphs")
+    if not isinstance(paragraphs, list):
+        return letter_data
+    signature = letter_data.get("signature")
+    name = _salutation_norm(signature.get("name") or "") if isinstance(signature, dict) else ""
+
+    kept = list(paragraphs)
+    while kept and not _salutation_norm(kept[-1] if isinstance(kept[-1], str) else ""):
+        kept.pop()
+    if not kept:
+        return letter_data
+    last = _salutation_norm(kept[-1] if isinstance(kept[-1], str) else "")
+    drop = 0
+    if last in _SIGNOFF_FORMS or (name and any(last == f"{form} {name}" for form in _SIGNOFF_FORMS)):
+        drop = 1
+    elif name and last == name and len(kept) >= 2:
+        before = _salutation_norm(kept[-2] if isinstance(kept[-2], str) else "")
+        if before in _SIGNOFF_FORMS:
+            drop = 2
+    if not drop or len(kept) <= drop:
+        return letter_data
+    logger.info(
+        "cover letter: dropped a trailing sign-off paragraph the template prints "
+        "itself (ruling K-2): %r",
+        kept[-drop:],
+    )
+    body["paragraphs"] = kept[:-drop]
+    return letter_data
+
+
 def _backfill_sender_name(letter_data: dict, cv_data: dict, profile) -> dict:
     """Fill an empty ``signature.name`` / ``header.name`` from the candidate's real
     name (#189).
@@ -2240,6 +2306,9 @@ def _compose_letter(
     # #307: the Anrede gets its own paragraph — the writer runs it into the
     # opening sentence, the DACH letter's most visible formal defect.
     letter_data = _split_inline_salutation(letter_data)
+    # Ruling K-2: the other end — a sign-off the writer repeated as the body's
+    # last paragraph goes; the template prints `signature.closing` itself.
+    letter_data = _drop_trailing_signoff(letter_data)
     return letter_data
 
 
@@ -3842,6 +3911,8 @@ async def render_agent_letter(
     letter_data = _inject_salutation(letter_data, language)
     # #307: an agent may write the Anrede inline just as the pipeline writer does.
     letter_data = _split_inline_salutation(letter_data)
+    # Ruling K-2: an agent may end the body with the sign-off, too.
+    letter_data = _drop_trailing_signoff(letter_data)
 
     cl = GeneratedCoverLetter(
         job_analysis_id=job_id,

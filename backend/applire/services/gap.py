@@ -51,9 +51,12 @@ from applire.schemas.gap_cluster import LLM_CLUSTER_KEYS, GapClusterSchema
 from applire.services.gap_coverage import (
     AnswerScope,
     all_members,
+    cluster_by_id,
     initialise_cluster_record,
+    is_left_open,
     refresh_cluster_from_ledger,
     resplit_cluster,
+    with_left_open,
 )
 from applire.services.gap_inference import pre_classify
 from applire.services.keyword_ledger import (
@@ -431,6 +434,51 @@ async def downgrade_keyword_liability(
         await db.commit()
         await db.refresh(gap_analysis)
     return GapAnalysisResponse.model_validate(gap_analysis)
+
+
+async def set_cluster_left_open(
+    job_id: uuid.UUID,
+    cluster_id: str,
+    left_open: bool,
+    db: AsyncSession,
+) -> GapAnalysis:
+    """Ruling K-1 (ADR-089 amended 2026-09-27) — the candidate leaves a gap
+    open by hand ("Leave this gap open") or picks it up again.
+
+    Writes ``outcome.left_open`` on the job's LATEST analysis row — the row the
+    gaps page shows — and nothing else: no LLM, no vault write, no budget, no
+    score change (the gap stays a gap). ``gap_coverage.is_askable`` reads the
+    fact, so every door leaves the cluster out until it is cleared. Raises
+    ``LookupError`` when the job has no analysis or the latest one does not
+    carry the cluster, and ``gap_coverage.LeftOpenRefused`` when setting it on
+    a cluster that is not open to questions. Clearing an unset fact and
+    repeating a set are no-ops (the row is returned unchanged, nothing
+    committed).
+    """
+    gap_analysis = await _latest_gap_analysis(job_id, db)
+    if gap_analysis is None:
+        raise LookupError(f"No gap analysis found for job {job_id}")
+    cluster = cluster_by_id(gap_analysis.gap_clusters, cluster_id)
+    if cluster is None:
+        raise LookupError(f"The latest gap analysis of job {job_id} has no gap {cluster_id!r}")
+    if is_left_open(cluster) == bool(left_open):
+        # Idempotent: a repeated click (or clearing an unset fact) writes nothing.
+        return gap_analysis
+    updated = with_left_open(cluster, left_open)
+    # JSONB tracking gotcha: gap_clusters is a plain _JSON column — only a NEW
+    # list object marks the attribute dirty.
+    gap_analysis.gap_clusters = [
+        updated if c is cluster else c for c in (gap_analysis.gap_clusters or [])
+    ]
+    await db.commit()
+    await db.refresh(gap_analysis)
+    logger.info(
+        "gap %r of job %s %s by the candidate (ruling K-1)",
+        cluster_id,
+        job_id,
+        "left open" if left_open else "picked up again",
+    )
+    return gap_analysis
 
 
 # ---------------------------------------------------------------------------

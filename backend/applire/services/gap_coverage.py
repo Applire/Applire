@@ -39,6 +39,7 @@ Shape of one persisted `gap_clusters` entry after ADR-089::
         "covered": [str],       # members whose ledger row is `direct`
         "declined": [str],      # members that are recorded denials
         "session_ids": [str],   # sessions that asked it (transcripts live there)
+        "left_open": bool,      # the candidate left it open by hand (ruling K-1)
       },
       "coverage": "open" | "partly_covered" | "covered" | "declined",
     }
@@ -132,7 +133,7 @@ class AnswerScope:
 
 def empty_outcome() -> dict[str, Any]:
     """The record of a cluster nobody has asked yet."""
-    return {"asked": 0, "covered": [], "declined": [], "session_ids": []}
+    return {"asked": 0, "covered": [], "declined": [], "session_ids": [], "left_open": False}
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +149,14 @@ def _str_list(value: Any) -> list[str]:
 
 
 def _outcome_of(cluster: dict[str, Any]) -> dict[str, Any]:
-    """The cluster's ``outcome``, normalised to the four keys (a legacy row
-    has none; a malformed one is read as empty, never raised on)."""
+    """The cluster's ``outcome``, normalised to the five keys (a legacy row
+    has none; a malformed one is read as empty, never raised on).
+
+    This is the ONE normaliser every carry path rebuilds ``outcome`` from
+    (``_with_split``, ``refresh_cluster_from_ledger``, ``resplit_cluster``,
+    ``apply_turn_outcome``), so a key it does not return is lost on the next
+    recompute — ``left_open`` (ruling K-1) is carried here for that reason.
+    Anything but a literal ``True`` reads as not left open."""
     raw = cluster.get("outcome") if isinstance(cluster, dict) else None
     if not isinstance(raw, dict):
         return empty_outcome()
@@ -161,6 +168,7 @@ def _outcome_of(cluster: dict[str, Any]) -> dict[str, Any]:
         "covered": _str_list(raw.get("covered")),
         "declined": _str_list(raw.get("declined")),
         "session_ids": [s for s in (raw.get("session_ids") or []) if isinstance(s, str) and s],
+        "left_open": raw.get("left_open") is True,
     }
 
 
@@ -443,14 +451,25 @@ def stored_or_derived_coverage(
     return derive_coverage(cluster, keyword_ledger)
 
 
-def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> bool:
-    """Budget left AND coverage not ``covered``/``declined``.
+def is_left_open(cluster: dict[str, Any]) -> bool:
+    """The candidate left this gap open by hand (ruling K-1, ADR-089 amended
+    2026-09-27): no door asks it again until they pick it up again."""
+    return isinstance(cluster, dict) and _outcome_of(cluster)["left_open"]
 
+
+def is_askable(cluster: dict[str, Any], per_gap: int = INTERVIEW_MAX_QUESTIONS_PER_GAP) -> bool:
+    """Budget left AND coverage not ``covered``/``declined`` AND not left open
+    by hand (ruling K-1).
+
+    This is the one predicate every door asks (Gap-Click, the full interview's
+    plan, ``resolve_gap``), so the left-open fact reaches all of them here.
     A cluster with no open member left is never askable either (there is
     nothing to ask about) — a well-formed record reads ``covered``/``declined``
     in that case anyway; this guards a malformed one.
     """
     if not isinstance(cluster, dict):
+        return False
+    if is_left_open(cluster):
         return False
     if remaining_budget(cluster, per_gap) <= 0:
         return False
@@ -614,6 +633,30 @@ def cluster_by_id(clusters: Any, cluster_id: str) -> dict[str, Any] | None:
         if isinstance(c, dict) and c.get("id") == cluster_id:
             return c
     return None
+
+
+class LeftOpenRefused(Exception):
+    """Ruling K-1 — "Leave this gap open" on a cluster that is not askable:
+    covered, declined or its budget spent — there is nothing open to leave."""
+
+    def __init__(self, cluster_id: str):
+        super().__init__(f"Gap {cluster_id!r} cannot be left open: it is not open to questions")
+        self.cluster_id = cluster_id
+
+
+def with_left_open(cluster: dict[str, Any], left_open: bool) -> dict[str, Any]:
+    """PURE. A new cluster dict with ``outcome.left_open`` set (ruling K-1).
+
+    Setting it requires an askable cluster (else :class:`LeftOpenRefused`);
+    clearing it where it is not set returns an unchanged copy. Nothing else
+    moves: members, ``coverage`` and ``outcome.asked`` stay as they are — the
+    gap stays a gap, and leaving it open spends no budget.
+    """
+    if left_open and not is_askable(cluster):
+        raise LeftOpenRefused(str(cluster.get("id") or ""))
+    new = copy.deepcopy(cluster)
+    new["outcome"] = {**_outcome_of(cluster), "left_open": bool(left_open)}
+    return new
 
 
 async def record_turn_outcome(

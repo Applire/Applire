@@ -159,7 +159,10 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   `open` / `partly_covered` / `covered` / `declined`, `outcome.asked` counts
   the questions any door (the UI, `run_interview`, `resolve_gap`) already
   spent on it, and `budget_remaining` is what is left of its per-gap question
-  budget. Cluster ids stay stable while the job description does not change.
+  budget. `outcome.left_open` is `true` when the candidate left the gap open on
+  the gaps page: no door asks it (`resolve_gap` refuses it) until they pick it
+  up again there — respect it; you cannot set or clear it. Cluster ids stay
+  stable while the job description does not change.
   Calling `analyze_gaps` is itself the check against the CURRENT profile, so
   its `inputs_changed` is always `false`; the field exists for the UI, which
   shows a stored analysis and offers a re-check when the profile changed.

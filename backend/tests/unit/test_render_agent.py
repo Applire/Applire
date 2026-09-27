@@ -415,6 +415,25 @@ async def test_render_agent_letter_missing_anrede_gets_the_generic_floor_564(see
 
 
 @pytest.mark.asyncio
+async def test_render_agent_letter_drops_a_repeated_sign_off_paragraph_k2(seeded):
+    """Ruling K-2 (2026-09-27): the agent door runs the same sign-off guard as
+    the pipeline — a body that ends with the sign-off as its own paragraph
+    would print it twice, because the template renders ``signature.closing``."""
+    from applire.services.cover_letter import render_agent_letter
+
+    content = {
+        **AGENT_LETTER_CONTENT,
+        "body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Hauptteil.", "Mit freundlichen Grüßen"]},
+    }
+    p1, p2 = _letter_patches()
+    with p1, p2:
+        cl = await render_agent_letter(content, seeded["job_id"], seeded["db"])
+
+    assert cl.letter_data["body"]["paragraphs"] == ["Sehr geehrte Damen und Herren,", "Hauptteil."]
+    assert cl.letter_data["signature"]["closing"]
+
+
+@pytest.mark.asyncio
 async def test_render_agent_letter_keeps_caller_chrome_verbatim(seeded):
     """Deviation from the pipeline (which OVERWRITES date+closing): the agent
     is the author — supplied chrome is kept (ADR-054 §4)."""
