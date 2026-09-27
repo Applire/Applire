@@ -362,6 +362,17 @@ async function setupRecordMocks(page: import("@playwright/test").Page, state: { 
 const cardById = (page: import("@playwright/test").Page, id: string) =>
   page.locator(`[data-testid="gap-cluster-card"][data-cluster-id="${id}"]`);
 
+/** Ruling K-1: closed cards (covered, declined, spent, left open) sit in a
+ *  folded Done section and are rendered only once it is opened. */
+async function openDone(page: import("@playwright/test").Page) {
+  const toggle = page.getByTestId("gaps-done-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+const doneCard = (page: import("@playwright/test").Page, id: string) =>
+  page.getByTestId("gaps-done-section").locator(`[data-testid="gap-cluster-card"][data-cluster-id="${id}"]`);
+
 test.describe("Gaps page — ADR-089 coverage record", () => {
   test("four card states and a spent budget render from the record, and survive a reload", async ({ page }) => {
     const state = { row: recordAnalysis(RECORD_CLUSTERS) };
@@ -370,6 +381,16 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(page.getByTestId("gap-analysis-page")).toBeVisible({ timeout: 10000 });
 
     for (let pass = 0; pass < 2; pass++) {
+      // Ruling K-1: the spent, covered and declined cards load into the folded Done section.
+      await expect(page.getByTestId("gaps-done-toggle")).toContainText("Done (3)");
+      for (const id of ["cl-spent", "cl-covered", "cl-declined"]) {
+        await expect(cardById(page, id)).toHaveCount(0);
+      }
+      await openDone(page);
+      for (const id of ["cl-spent", "cl-covered", "cl-declined"]) {
+        await expect(doneCard(page, id)).toBeVisible();
+      }
+      await expect(page.getByTestId("gaps-done-section").locator('[data-cluster-id="cl-open"]')).toHaveCount(0);
       await expect(cardById(page, "cl-open")).toHaveAttribute("data-coverage", "open");
       // Ruling C-1: the card's colour is its worst requirement.
       await expect(cardById(page, "cl-open")).toHaveAttribute("data-tone", "red");
@@ -525,10 +546,13 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     await expect(page.getByText("2 gaps covered ✓")).toBeVisible();
     expect(refreshed).toBe(1);
 
-    // Reload: the same record comes back from the server.
+    // Reload: the same record comes back from the server; the card closed by the
+    // answer during the visit now loads into Done (ruling K-1g).
     await page.reload();
-    await expect(cardById(page, "cl-open").getByTestId("gap-resolved")).toBeVisible();
     await expect(cardById(page, "cl-appended")).toBeVisible();
+    await expect(cardById(page, "cl-open")).toHaveCount(0);
+    await openDone(page);
+    await expect(doneCard(page, "cl-open").getByTestId("gap-resolved")).toBeVisible();
   });
 
   for (const [code, text] of [
@@ -584,6 +608,8 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
     };
     await setupRecordMocks(page, state);
     await page.goto(`/flow/${FLOW_ID}/gaps`);
+    // The two covered cards sit in Done (ruling K-1) and keep their colour there.
+    await openDone(page);
 
     const edge = (id: string) => cardById(page, id).evaluate((el) => getComputedStyle(el).borderLeftColor);
     await expect(cardById(page, "cl-yellow")).toHaveAttribute("data-tone", "yellow");
@@ -609,6 +635,56 @@ test.describe("Gaps page — ADR-089 coverage record", () => {
 
     // The pill colour follows the card: a partly covered card with a red member has a red pill.
     await expect(cardById(page, "cl-red").getByTestId("gap-partly-covered")).toHaveAttribute("data-tone", "red");
+  });
+
+  test("ruling K-1: 'Leave this gap open' moves the card to Done at once and persists; 'Pick it up again' brings it back", async ({ page }) => {
+    const state = { row: recordAnalysis(RECORD_CLUSTERS, { match_score: 0.5 }) };
+    await setupRecordMocks(page, state);
+    const posted: unknown[] = [];
+    let sessions = 0;
+    await page.route("**/api/session", (route) => {
+      sessions += 1;
+      return route.fulfill({ status: 500, body: "" });
+    });
+    await page.route(`**/api/job/${JOB_ID}/gaps/cl-open/left-open`, (route) => {
+      const body = route.request().postDataJSON() as { left_open: boolean };
+      posted.push(body);
+      state.row = recordAnalysis(
+        RECORD_CLUSTERS.map((c) => (c.id === "cl-open" ? { ...c, outcome: { ...outcome(), left_open: body.left_open } } : c)),
+        { match_score: 0.5 }
+      );
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...state.row, inputs_changed: false }),
+      });
+    });
+
+    await page.goto(`/flow/${FLOW_ID}/gaps`);
+    await expect(page.getByTestId("gaps-done-toggle")).toContainText("Done (3)");
+    await cardById(page, "cl-open").getByTestId("gap-leave-open").click();
+
+    // At once: gone from the open list and counted in Done; no session opened, the score did not move.
+    await expect(page.getByTestId("gaps-done-toggle")).toContainText("Done (4)");
+    await expect(cardById(page, "cl-open")).toHaveCount(0);
+    expect(posted).toEqual([{ left_open: true }]);
+    expect(sessions).toBe(0);
+    await expect(page.getByTestId("match-score-display")).toContainText("50%");
+
+    // The record carries it: after a reload the card loads into Done, saying so, not clickable.
+    await page.reload();
+    await expect(page.getByTestId("gaps-done-toggle")).toContainText("Done (4)");
+    await openDone(page);
+    const left = doneCard(page, "cl-open");
+    await expect(left.getByTestId("gap-left-open")).toHaveText("You chose to leave this gap open — no more questions on it.");
+    await expect(left).not.toHaveClass(/cursor-pointer/);
+
+    // Pick it up again: back in the open list and askable.
+    await left.getByTestId("gap-pick-up-again").click();
+    await expect(page.getByTestId("gaps-done-section").locator('[data-cluster-id="cl-open"]')).toHaveCount(0);
+    await expect(cardById(page, "cl-open")).toHaveClass(/cursor-pointer/);
+    await expect(page.getByTestId("gaps-done-toggle")).toContainText("Done (3)");
+    expect(posted).toEqual([{ left_open: true }, { left_open: false }]);
   });
 
   test("ruling C-1b: a likely match nobody has asked yet reads 'Likely match'; after an answer, the normal state", async ({ page }) => {
