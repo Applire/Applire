@@ -427,10 +427,10 @@ POST /api/job/analyze
   "url": "https://example.com/job"  # Optional
 }
 
-# CV Upload & Profile Enrichment (async job — poll until done)
+# CV Upload & Profile Enrichment (async job — poll until status is "ready" or "failed")
 POST /api/profile/import-jobs
 Content-Type: multipart/form-data
-files: [cv1.pdf, cv2.pdf]
+file: cv.pdf          # one document per job; post again for a second CV or a LinkedIn export
 GET  /api/profile/import-jobs/{job_id}
 
 # Gap Analysis (session-scoped)
