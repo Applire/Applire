@@ -40,5 +40,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 # (never the Engine class: alembic's own engine stays unguarded). W0: registered
 # but disabled by ``applire.ownership.GUARD_ENABLED``.
 from applire.ownership import install_guard as _install_guard  # noqa: E402
+from applire.ownership import install_orm_hooks as _install_orm_hooks  # noqa: E402
 
 _install_guard(engine)
+# ADR-092 cl. 1 + cl. 8b: owner fill / chain-owner check on every owned model's
+# INSERT, and the (uncredited) loader criteria while the guard is on.
+_install_orm_hooks(Base)

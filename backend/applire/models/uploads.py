@@ -34,9 +34,10 @@ class UploadRecord(Base):
     __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    # user_id added in iter17 for GDPR erasure scoping; NULL for pre-iter17 rows
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True, index=True
+    # The owner (ADR-092 cl. 3). NOT NULL since migration 0074, which backfilled
+    # the ownerless pre-iter17 / agent-import rows to the stub user.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
     )
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)  # SHA-256
