@@ -69,7 +69,7 @@ async def post_generate(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> CoverLetterGenerateResponse:
     """Enqueue async cover letter generation. Returns immediately with status='pending'."""
     # #232: derive from the operator-configured external origin, not the
@@ -77,7 +77,11 @@ async def post_generate(
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await generate_cover_letter(body, db, provider, background_tasks, base_url)
+        return await generate_cover_letter(
+            body, db, provider, background_tasks, base_url, user_id=user.id
+        )
+    except HTTPException:
+        raise
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
@@ -89,14 +93,14 @@ async def get_by_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> CoverLetterStatusResponse:
     # #232: derive from the operator-configured external origin, not the
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await get_cover_letter_by_job(job_id, db, base_url)
+        return await get_cover_letter_by_job(job_id, db, base_url, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -106,14 +110,14 @@ async def get_cl_status(
     cl_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> CoverLetterStatusResponse:
     # #232: derive from the operator-configured external origin, not the
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await get_cover_letter_status(cl_id, db, base_url)
+        return await get_cover_letter_status(cl_id, db, base_url, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -122,11 +126,11 @@ async def get_cl_status(
 async def get_cl_ats_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> ATSReportResponse:
     """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
     try:
-        return await get_cover_letter_ats_report(cl_id, db)
+        return await get_cover_letter_ats_report(cl_id, db, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -135,12 +139,12 @@ async def get_cl_ats_report(
 async def get_cl_truthfulness_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> TruthfulnessReportResponse:
     """ADR-052 / US246: persisted truthfulness self-audit. `report` is null until
     generation + self-audit complete (or for pre-Tiramisu rows)."""
     try:
-        return await get_cover_letter_truthfulness_report(cl_id, db)
+        return await get_cover_letter_truthfulness_report(cl_id, db, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -149,13 +153,13 @@ async def get_cl_truthfulness_report(
 async def get_cl_critic_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> OutcomeCriticReportResponse:
     """ADR-060 Pass B / #322: persisted cross-document coherence advisory.
     `report` is null until generation + the critic pass complete (or for
     pre-Tiramisu rows / when the pass did not run — see `report.reason`)."""
     try:
-        return await get_cover_letter_critic_report(cl_id, db)
+        return await get_cover_letter_critic_report(cl_id, db, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -164,10 +168,10 @@ async def get_cl_critic_report(
 async def get_html(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(user_or_signed_link),
+    user: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
-        html = await get_cover_letter_html(cl_id, db)
+        html = await get_cover_letter_html(cl_id, db, user_id=user.id)
         return HTMLResponse(
             content=html,
             headers={
@@ -185,13 +189,16 @@ async def get_html(
 async def get_pdf(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(user_or_signed_link),
+    user: User = Depends(user_or_signed_link),
 ) -> Response:
     try:
         from applire.services.cover_letter import get_cover_letter_pdf_filename
         from applire.services.cover_letter_pdf import render_pdf
+        # ADR-092 (S-10): the owned lookup runs BEFORE the render, so a foreign
+        # id is a 404 without launching Chromium; render_pdf opens its own
+        # session and inherits this request's owner context.
+        filename = await get_cover_letter_pdf_filename(cl_id, db, user_id=user.id)
         pdf_bytes = await render_pdf(cl_id)
-        filename = await get_cover_letter_pdf_filename(cl_id, db)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -207,15 +214,15 @@ async def get_pdf(
 async def get_docx(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(user_or_signed_link),
+    user: User = Depends(user_or_signed_link),
 ) -> Response:
     """ADR-079 / E057 / US297: the editable Word export — direct python-docx,
     rendered on demand from letter_data, no bytes persisted. Mirrors
     GET /{cl_id}/pdf's contract exactly; only the artefact differs."""
     try:
         from applire.services.cover_letter import get_cover_letter_docx, get_cover_letter_docx_filename
-        docx_bytes = await get_cover_letter_docx(cl_id, db)
-        filename = await get_cover_letter_docx_filename(cl_id, db)
+        docx_bytes = await get_cover_letter_docx(cl_id, db, user_id=user.id)
+        filename = await get_cover_letter_docx_filename(cl_id, db, user_id=user.id)
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -233,10 +240,12 @@ async def patch_section(
     body: SectionOverridePatch,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> SectionOverridePatchResponse:
     try:
-        await patch_cover_letter_section(cl_id, body.section, body.content, db, background_tasks)
+        await patch_cover_letter_section(
+            cl_id, body.section, body.content, db, background_tasks, user_id=user.id
+        )
         return SectionOverridePatchResponse(cover_letter_id=cl_id, section=body.section)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -254,7 +263,7 @@ async def patch_cover_letter_signature(
     cl_id: uuid.UUID,
     body: CoverLetterSignatureOverrideRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> CoverLetterSignatureOverrideResponse:
     """F-4b (founder ruling, 2026-09-11): set this letter's per-document
     signature override. ``signature_override: null`` resets to the kind
@@ -266,7 +275,9 @@ async def patch_cover_letter_signature(
     toggling and re-downloading takes effect without regenerating.
     """
     try:
-        effective = await set_cover_letter_signature_override(cl_id, body.signature_override, db)
+        effective = await set_cover_letter_signature_override(
+            cl_id, body.signature_override, db, user_id=user.id
+        )
         return CoverLetterSignatureOverrideResponse(
             cover_letter_id=cl_id,
             signature_override=body.signature_override,
