@@ -31,8 +31,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
 from applire.ocr import get_ocr_extractor
@@ -146,7 +146,7 @@ async def upload_cv_endpoint(
     provider: LLMProvider = Depends(_get_provider),
     storage: StorageProvider = Depends(_get_storage),
     ocr: CVImageExtractor = Depends(_get_ocr),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVUploadResponse:
     """Upload a CV in any supported format and merge it into the Master Profile.
 
@@ -164,7 +164,7 @@ async def upload_cv_endpoint(
     on a self-hosted instance 2026-09-17). The async door returns a handle at once and
     is what the browser UI uses. Retirement of this door is scheduled separately.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     filename = file.filename or "upload"
     content_type = file.content_type or "application/octet-stream"
 
@@ -246,7 +246,7 @@ async def start_cv_import_endpoint(
         default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"
     ),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVImportJobResponse:
     """Start an async CV import and return a handle immediately (202).
 
@@ -257,7 +257,7 @@ async def start_cv_import_endpoint(
     recommended door for every REST caller; the sync ``/upload`` remains only for
     compatibility and is cut by a proxy read timeout on a slow route (#674).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     filename = file.filename or "upload"
     content_type = file.content_type or "application/octet-stream"
     file_bytes = await file.read()
@@ -287,7 +287,7 @@ async def list_cv_import_jobs_endpoint(
         description="Only jobs still running (pending/processing, not expired)",
     ),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> list[CVImportJobListItem]:
     """List the current user's async CV imports, oldest first (PQ F1).
 
@@ -296,7 +296,7 @@ async def list_cv_import_jobs_endpoint(
     indicator after a refresh interrupted the onboarding overlay. User-scoped (same
     IDOR guard as GET /import-jobs/{id}); another user's jobs are never listed.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     jobs = await list_import_jobs(db, user_id=user.id, active=active)
     return [
         CVImportJobListItem(
@@ -318,10 +318,10 @@ async def get_cv_import_status_endpoint(
     import_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVImportStatusResponse:
     """Poll an async CV import. 404 if unknown or owned by another user (IDOR guard)."""
-    user = await auth.get_current_user(request)
+    user = current_user
     job = await get_import_job(db, import_id, user_id=user.id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import not found")
@@ -348,7 +348,7 @@ async def resolve_staged_extraction_endpoint(
     body: StagedResolveRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
@@ -359,7 +359,7 @@ async def resolve_staged_extraction_endpoint(
     attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
     the authenticated user, so a foreign upload returns 404 (IDOR guard).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await resolve_staged_extraction(
             db, staged_id, action=body.action, user_id=user.id, provider=provider
@@ -380,7 +380,7 @@ async def resolve_staged_extraction_endpoint(
 async def undo_last_merge_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> UndoLastMergeResponse:
     """Undo the last Master Profile merge (US168 / ADR-042).
 
@@ -390,7 +390,6 @@ async def undo_last_merge_endpoint(
     whole-profile restore; per-field revert deferred). Idempotent: a repeat call
     with nothing left to undo returns ``restored=false``.
     """
-    await auth.get_current_user(request)
     result = await undo_last_merge(db)
     return UndoLastMergeResponse(
         restored=result.restored,
@@ -408,7 +407,7 @@ async def import_profile(
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     file: Annotated[UploadFile | None, File(description="LinkedIn export ZIP")] = None,
     linkedin_json: Annotated[str | None, Form(description="LinkedIn export JSON string")] = None,
 ) -> ProfileImportResponse | CVUploadResponse:
@@ -438,7 +437,7 @@ async def import_profile(
             detail="Provide either a file or linkedin_json, not both",
         )
 
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         if file is not None:
             file_bytes = await file.read()
@@ -533,7 +532,7 @@ async def upload_photo_endpoint(
     consent: bool = Query(default=False, description="Must be True — GDPR Art. 9(2)(a) explicit consent"),
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict[str, str]:
     """Upload a profile photo. Consent must be explicitly provided.
 
@@ -541,7 +540,7 @@ async def upload_photo_endpoint(
     Photo is stored and photo_url is set in the Master Profile personal_info.
     Re-uploading replaces the existing photo and refreshes consent_at.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     if not consent:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -568,10 +567,10 @@ async def delete_photo_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> None:
     """Delete the profile photo and clear GDPR consent."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         await delete_photo(user_id=user.id, db=db, storage=storage)
     except LookupError as exc:
@@ -583,10 +582,10 @@ async def get_photo_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> Response:
     """Return the raw photo bytes (GDPR data portability). 404 if no photo on file."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         photo_bytes, media_type = await get_photo_bytes(user_id=user.id, db=db, storage=storage)
     except LookupError:
@@ -600,7 +599,7 @@ async def get_photo_endpoint(
 @router.get("/exists")
 async def check_profile_exists(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> dict:
     """Lightweight check: returns exists + completeness_score (no full profile payload)."""
     return await profile_exists(db)
@@ -609,7 +608,7 @@ async def check_profile_exists(
 @router.get("", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)
 async def get_current_profile(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> MasterProfileResponse:
     profile = await get_profile(db)
     if not profile:
@@ -624,10 +623,10 @@ async def get_current_profile(
 async def get_upload_history(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> list[UploadHistoryItem]:
     """Return the last 10 uploads for the current user, newest first."""
-    user = await auth.get_current_user(request)
+    user = current_user
     result = await db.execute(
         select(UploadRecord)
         .where(UploadRecord.user_id == user.id)
@@ -661,7 +660,7 @@ async def get_upload_history(
 )
 async def get_profile_enrichment_history(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> list[EnrichmentRecord]:
     return await get_enrichment_history(db)
 
@@ -673,7 +672,7 @@ async def get_profile_enrichment_history(
 )
 async def get_profile_changes_endpoint(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> ProfileChangesResponse:
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
@@ -687,7 +686,7 @@ async def get_profile_changes_endpoint(
 )
 async def get_profile_health_endpoint(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> ProfileHealthResponse:
     """US160 (E033 / ADR-041 amended) — deterministic Profile Health: conflict +
     accuracy issues (severity-tagged) plus a completeness block. No LLM; reads
@@ -704,7 +703,7 @@ async def resolve_profile_conflict(
     conflict_id: str,
     body: ConflictResolutionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> MasterProfileResponse:
     try:
         return await resolve_conflict(conflict_id, body.resolution, body.value, db)
@@ -724,7 +723,7 @@ async def resolve_profile_conflict(
 async def submit_testimony_endpoint(
     body: TestimonyRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
 ) -> TestimonyResult:
     """#258 — the UI door for free-text testimony ("anything else recruiters
@@ -746,7 +745,7 @@ async def patch_section(
     section: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
     basis_updated_at: Annotated[
         datetime | None,
@@ -797,7 +796,7 @@ async def erase_profile(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict:
     """GDPR Art. 17 — full user data erasure.
 
@@ -820,7 +819,7 @@ async def erase_profile(
     from applire.models.uploads import UploadRecord
     from applire.models.user import User
 
-    user = await auth.get_current_user(request)
+    user = current_user
     uid = user.id
     now = datetime.now(timezone.utc)
 
@@ -1011,7 +1010,7 @@ async def erase_profile(
 async def export_profile(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> JSONResponse:
     """GDPR Art. 20 — data portability. Returns complete user data as JSON download.
 
@@ -1023,7 +1022,7 @@ async def export_profile(
     from applire.models.session import InterviewSession
     from applire.models.uploads import UploadRecord
 
-    user = await auth.get_current_user(request)
+    user = current_user
     uid = user.id
 
     # Profile — MasterProfile has no user_id column; use the same _get_latest pattern

@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_admin, require_user
+from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.services.color_detection import _CE_STUB_USER_ID, derive_tint
@@ -330,7 +330,7 @@ class UpgradeNoticeDismissResponse(BaseModel):
 @router.post("/upgrade-notice/dismiss", response_model=UpgradeNoticeDismissResponse)
 async def api_dismiss_upgrade_notice(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_admin),
 ) -> UpgradeNoticeDismissResponse:
     """Record the running version as seen and clear the version-jump notice.
 
@@ -363,7 +363,7 @@ async def api_dismiss_upgrade_notice(
 @router.get("", response_model=SettingsResponse)
 async def api_get_settings(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SettingsResponse:
     result = await get_settings(db)
     result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
@@ -374,7 +374,7 @@ async def api_get_settings(
 async def api_patch_settings(
     body: SettingsPatchRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SettingsResponse:
     # Distinguish an explicit {"target_cv_pages": null} (clear the stored
     # value → "use region standard") from an omitted key (leave untouched).

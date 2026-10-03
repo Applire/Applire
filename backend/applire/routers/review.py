@@ -23,8 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.providers import get_provider
 from applire.providers.llm.base import LLMProvider
@@ -127,7 +127,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         body: AddEvidenceBody,
         db: AsyncSession = Depends(get_db),
         provider: LLMProvider = Depends(_get_provider),
-        _auth: AuthProvider = Depends(get_auth_provider),
+        _auth: User = Depends(require_user),
     ) -> AddEvidenceResponse:
         """ADR-090 cl. 4 — testimony (the `/api/profile/testimony` service), then
         the awaited document re-audit."""
@@ -139,7 +139,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
         provider: LLMProvider = Depends(_get_provider),
-        _auth: AuthProvider = Depends(get_auth_provider),
+        _auth: User = Depends(require_user),
     ) -> TakeOutResponse:
         """ADR-090 cl. 3 — model rewrite of each section holding the wording,
         saved, re-audited in this request, undoable."""
@@ -154,7 +154,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         doc_id: uuid.UUID,
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
-        _auth: AuthProvider = Depends(get_auth_provider),
+        _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """Restore the text a *take it out* / *edited* decision replaced; re-audit."""
         await _run(ra.undo(kind, doc_id, body.finding_key, db))
@@ -164,7 +164,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         doc_id: uuid.UUID,
         body: FindingKeyBody,
         db: AsyncSession = Depends(get_db),
-        _auth: AuthProvider = Depends(get_auth_provider),
+        _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """ADR-090 cl. 5 — after a section save opened from a finding: await the
         re-audit; record `edited` when the finding cleared."""
@@ -174,7 +174,7 @@ def _mount(prefix: str, kind: Kind) -> None:
     async def walked(
         doc_id: uuid.UUID,
         db: AsyncSession = Depends(get_db),
-        _auth: AuthProvider = Depends(get_auth_provider),
+        _auth: User = Depends(require_user),
     ) -> ReviewStateResponse:
         """Stamp `walked_at` (replaces ADR-081 cl. 5a's browser-local bit)."""
         out = await _run(ra.walked(kind, doc_id, db))

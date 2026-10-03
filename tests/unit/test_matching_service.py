@@ -863,6 +863,7 @@ class TestJobsMatchRouter:
         from applire.routers.jobs import router
         from applire.db.session import get_db
         from applire.auth import get_auth_provider
+        from applire.auth.no_auth import NoAuthProvider
 
         app = FastAPI()
         app.include_router(router)
@@ -876,7 +877,7 @@ class TestJobsMatchRouter:
             yield mock_session
 
         async def override_auth():
-            return None
+            return NoAuthProvider()
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_auth_provider] = override_auth
@@ -895,8 +896,7 @@ class TestJobsMatchRouter:
         app = self._make_app()
 
         # Patch dependencies
-        with patch("applire.routers.jobs.get_auth_provider"), \
-             patch("applire.routers.jobs.get_db"), \
+        with patch("applire.routers.jobs.get_db"), \
              patch("applire.routers.jobs.rank_jobs", new=AsyncMock(return_value=[])):
 
             profile_mock = MagicMock(spec=MasterProfile)
@@ -916,10 +916,11 @@ class TestJobsMatchRouter:
                 yield mock_session
 
             async def override_auth():
-                return None
+                return NoAuthProvider()
 
             from applire.db.session import get_db
             from applire.auth import get_auth_provider
+            from applire.auth.no_auth import NoAuthProvider
 
             fresh_app.include_router(router)
             fresh_app.dependency_overrides[get_db] = override_db

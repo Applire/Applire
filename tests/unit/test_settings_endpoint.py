@@ -258,6 +258,7 @@ class TestTargetCvPagesExplicitClear:
     @pytest_asyncio.fixture
     async def client(self, db):
         from applire.auth import get_auth_provider
+        from applire.auth.no_auth import NoAuthProvider
         from applire.db.session import get_db
         from applire.routers.settings import router
         from fastapi import FastAPI
@@ -267,7 +268,7 @@ class TestTargetCvPagesExplicitClear:
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_db] = lambda: db
-        app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+        app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -304,6 +305,7 @@ class TestReviewModeSetting:
     @pytest_asyncio.fixture
     async def client(self, db):
         from applire.auth import get_auth_provider
+        from applire.auth.no_auth import NoAuthProvider
         from applire.db.session import get_db
         from applire.routers.settings import router
         from fastapi import FastAPI
@@ -313,7 +315,7 @@ class TestReviewModeSetting:
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_db] = lambda: db
-        app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+        app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -421,6 +423,7 @@ class TestDismissedExplainers:
     @pytest_asyncio.fixture
     async def client(self, db):
         from applire.auth import get_auth_provider
+        from applire.auth.no_auth import NoAuthProvider
         from applire.db.session import get_db
         from applire.routers.settings import router
         from fastapi import FastAPI
@@ -430,7 +433,7 @@ class TestDismissedExplainers:
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_db] = lambda: db
-        app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+        app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

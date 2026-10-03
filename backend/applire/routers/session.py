@@ -22,8 +22,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.exceptions import (
     LLMProviderUnavailableError,
@@ -85,7 +85,7 @@ async def start_session(
     body: SessionCreateRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SessionCreateResponse:
     try:
         return await create_session(body, db, provider)
@@ -130,7 +130,7 @@ async def start_session(
 async def start_profile_review_session(
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SessionCreateResponse:
     """US165 — launch the standalone profile-review interview (no JD)."""
     try:
@@ -162,7 +162,7 @@ async def start_profile_review_session(
 async def get_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SessionStateResponse:
     try:
         return await get_session_state(session_id, db)
@@ -182,7 +182,7 @@ async def analyze_session_gaps(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     try:
         return await analyze_gaps_for_session(session_id, db, provider)
@@ -220,7 +220,7 @@ async def post_message(
     body: SessionMessageRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SessionMessageResponse:
     if not body.message.strip():
         raise HTTPException(

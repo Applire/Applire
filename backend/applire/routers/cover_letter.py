@@ -21,8 +21,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.providers import get_provider
@@ -69,7 +69,7 @@ async def post_generate(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CoverLetterGenerateResponse:
     """Enqueue async cover letter generation. Returns immediately with status='pending'."""
     # #232: derive from the operator-configured external origin, not the
@@ -89,7 +89,7 @@ async def get_by_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CoverLetterStatusResponse:
     # #232: derive from the operator-configured external origin, not the
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
@@ -106,7 +106,7 @@ async def get_cl_status(
     cl_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CoverLetterStatusResponse:
     # #232: derive from the operator-configured external origin, not the
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
@@ -122,7 +122,7 @@ async def get_cl_status(
 async def get_cl_ats_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> ATSReportResponse:
     """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
     try:
@@ -135,7 +135,7 @@ async def get_cl_ats_report(
 async def get_cl_truthfulness_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> TruthfulnessReportResponse:
     """ADR-052 / US246: persisted truthfulness self-audit. `report` is null until
     generation + self-audit complete (or for pre-Tiramisu rows)."""
@@ -149,7 +149,7 @@ async def get_cl_truthfulness_report(
 async def get_cl_critic_report(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> OutcomeCriticReportResponse:
     """ADR-060 Pass B / #322: persisted cross-document coherence advisory.
     `report` is null until generation + the critic pass complete (or for
@@ -164,7 +164,7 @@ async def get_cl_critic_report(
 async def get_html(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> HTMLResponse:
     try:
         html = await get_cover_letter_html(cl_id, db)
@@ -185,7 +185,7 @@ async def get_html(
 async def get_pdf(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> Response:
     try:
         from applire.services.cover_letter import get_cover_letter_pdf_filename
@@ -207,7 +207,7 @@ async def get_pdf(
 async def get_docx(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> Response:
     """ADR-079 / E057 / US297: the editable Word export — direct python-docx,
     rendered on demand from letter_data, no bytes persisted. Mirrors
@@ -233,7 +233,7 @@ async def patch_section(
     body: SectionOverridePatch,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SectionOverridePatchResponse:
     try:
         await patch_cover_letter_section(cl_id, body.section, body.content, db, background_tasks)
@@ -254,7 +254,7 @@ async def patch_cover_letter_signature(
     cl_id: uuid.UUID,
     body: CoverLetterSignatureOverrideRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CoverLetterSignatureOverrideResponse:
     """F-4b (founder ruling, 2026-09-11): set this letter's per-document
     signature override. ``signature_override: null`` resets to the kind

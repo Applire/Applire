@@ -22,8 +22,8 @@ a natural person (Art. 4(14)). See the ADR-063 amendment of 2026-09-11.
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.services.signature import (
     delete_signature,
@@ -46,14 +46,14 @@ async def upload_signature_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict[str, str]:
     """Store a signature image on the profile.
 
     Accepted formats: PNG (transparent background renders best), JPEG, WebP.
     Max 2 MB. Re-uploading replaces the existing image.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     file_bytes = await file.read()
     content_type = file.content_type or "application/octet-stream"
     try:
@@ -75,10 +75,10 @@ async def delete_signature_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> None:
     """Delete the stored signature image. Idempotent — no signature is a no-op."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         await delete_signature(user_id=user.id, db=db, storage=storage)
     except LookupError as exc:
@@ -90,10 +90,10 @@ async def get_signature_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> Response:
     """Return the raw signature bytes. 404 when nothing is on file."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         raw, media_type = await get_signature_bytes(
             user_id=user.id, db=db, storage=storage

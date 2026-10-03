@@ -20,7 +20,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.auth.deps import require_admin
 from applire.db.session import get_db
+from applire.models.user import User
 from applire.schemas.color_scheme import (
     ActiveSchemeResponse,
     ColorSchemeCreate,
@@ -47,6 +49,7 @@ router = APIRouter(prefix="/api/admin/color-schemes", tags=["admin"])
 
 @router.get("/active", response_model=ActiveSchemeResponse)
 async def get_active(db: AsyncSession = Depends(get_db)):
+    # Public by design (ADR-091 cl. 20 allowlist, MD-6): the login page themes itself.
     scheme = await get_active_scheme(db)
     if scheme is None:
         raise HTTPException(status_code=404, detail="No active color scheme found")
@@ -54,12 +57,14 @@ async def get_active(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("", response_model=list[ColorSchemeResponse])
-async def list_all(db: AsyncSession = Depends(get_db)):
+async def list_all(
+    db: AsyncSession = Depends(get_db), _auth: User = Depends(require_admin)
+):
     return await list_schemes(db)
 
 
 @router.post("/preview", response_model=dict)
-async def preview(body: ColorSchemePreviewRequest):
+async def preview(body: ColorSchemePreviewRequest, _auth: User = Depends(require_admin)):
     """Compute derived values without saving. Used by the editor for live preview."""
     return derive_scheme(
         body.seed_primary,
@@ -70,7 +75,11 @@ async def preview(body: ColorSchemePreviewRequest):
 
 
 @router.post("", response_model=ColorSchemeResponse, status_code=status.HTTP_201_CREATED)
-async def create(body: ColorSchemeCreate, db: AsyncSession = Depends(get_db)):
+async def create(
+    body: ColorSchemeCreate,
+    db: AsyncSession = Depends(get_db),
+    _auth: User = Depends(require_admin),
+):
     return await create_scheme(
         db,
         name=body.name,
@@ -82,7 +91,11 @@ async def create(body: ColorSchemeCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{scheme_id}/activate", response_model=ColorSchemeResponse)
-async def activate(scheme_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def activate(
+    scheme_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: User = Depends(require_admin),
+):
     scheme = await activate_scheme(db, scheme_id)
     if scheme is None:
         raise HTTPException(status_code=404, detail="Color scheme not found")
@@ -90,7 +103,11 @@ async def activate(scheme_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{scheme_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete(scheme_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete(
+    scheme_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: User = Depends(require_admin),
+):
     try:
         await delete_scheme(db, scheme_id)
     except SchemeNotFound:

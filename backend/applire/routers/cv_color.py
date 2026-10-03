@@ -23,8 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.models.color_profile import ColorProfile
 from applire.models.cv import CVGenerationStatus, GeneratedCV
@@ -83,7 +83,7 @@ async def patch_cv_color(
     cv_id: uuid.UUID,
     body: ColorOverrideRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> ColorOverrideResponse:
     try:
         result = await apply_cv_color(cv_id, body.accent_hex, db)

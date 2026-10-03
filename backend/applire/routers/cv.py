@@ -22,8 +22,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
@@ -67,7 +67,7 @@ async def post_generate(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CVGenerateResponse:
     """Enqueue async CV generation. Returns immediately with status='pending'.
     Poll GET /api/cv/{cv_id}/status until status='ready'."""
@@ -96,7 +96,7 @@ async def get_status(
     cv_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CVStatusResponse:
     """Poll CV generation progress (17.12). Returns pdf_url/html_url only when ready."""
     # #232: derive from the operator-configured external origin, not the
@@ -115,7 +115,7 @@ async def get_status(
 async def get_cv_ats_report_handler(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> ATSReportResponse:
     """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
     try:
@@ -128,7 +128,7 @@ async def get_cv_ats_report_handler(
 async def get_cv_truthfulness_report_handler(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> TruthfulnessReportResponse:
     """ADR-052 / US246: persisted truthfulness self-audit. `report` is null until
     generation + self-audit complete (or for pre-Tiramisu rows)."""
@@ -142,7 +142,7 @@ async def get_cv_truthfulness_report_handler(
 async def get_cv_critic_report_handler(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> OutcomeCriticReportResponse:
     """ADR-060 (third amendment) / E049 49.6: the outcome critic's Pass A
     verdict on the ASSEMBLED CV — advisory-only, never gates delivery.
@@ -159,7 +159,7 @@ async def get_cv_critic_report_handler(
 async def get_cv_profile_diff_handler(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CVProfileDiffResponse:
     """US147 / ADR-040: deterministic diff of the generated CV vs the Master Profile,
     for the pre-download review. No LLM; reads persisted artifacts only (retention-safe)."""
@@ -173,7 +173,7 @@ async def get_cv_profile_diff_handler(
 async def get_html(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> HTMLResponse:
     try:
         html = await get_cv_html(cv_id, db)
@@ -194,7 +194,7 @@ async def get_html(
 async def get_pdf(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> Response:
     try:
         pdf_bytes = await get_cv_pdf(cv_id, db)
@@ -214,7 +214,7 @@ async def get_pdf(
 async def get_docx(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> Response:
     """ADR-079 / E057 / US296: the editable Word export — direct python-docx,
     rendered on demand from tailored_data, no bytes persisted. Mirrors
@@ -238,7 +238,7 @@ async def get_cvs_for_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> list[CVStatusResponse]:
     """List all CVs for a given job (20.11)."""
     # #232: derive from the operator-configured external origin, not the
@@ -257,7 +257,7 @@ async def get_cvs_for_job(
 async def get_sections(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CVSectionsResponse:
     """Return structured sections with gap hints (23.3). Empty sections if no snapshot yet."""
     try:
@@ -278,7 +278,7 @@ async def post_section_assist(
     body: AssistStartRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> AssistStartResponse:
     """Start a Kaile micro-session for one gap (24.1).
 
@@ -304,7 +304,7 @@ async def patch_section_assist(
     body: AssistAnswerRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> AssistAnswerResponse:
     """Submit answer to micro-session, receive suggestion (24.2).
 
@@ -330,7 +330,7 @@ async def post_section_rewrite(
     body: RewriteRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> RewriteResponse:
     """Single-turn directed rewrite for a CV section (Sprint 22, US089).
 
@@ -360,7 +360,7 @@ async def patch_section(
     body: SectionPatchRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> SectionPatchResponse:
     """Write section override and re-render CV HTML (23.4).
 
@@ -384,7 +384,7 @@ async def patch_cv_signature(
     cv_id: uuid.UUID,
     body: CVSignatureOverrideRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> CVSignatureOverrideResponse:
     """F-4b (founder ruling, 2026-09-11): set this CV's per-document signature
     override. ``signature_override: null`` resets to the kind default
