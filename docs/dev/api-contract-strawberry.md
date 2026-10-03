@@ -33,7 +33,7 @@ Contents: [1 Conventions](#1-conventions) · [2 Errors](#2-errors) ·
 | Bearer | `Authorization: Bearer apl_<prefix8>_<43 b64url>`. **If an `Authorization` header is present only the bearer is evaluated — the cookie is never read**; an invalid or wrong-scope bearer is 401. `api` tokens work on every authenticated route except the credential-management routes (`require_session_user`). `agent` tokens are never accepted over HTTP (stdio MCP only). `probe` tokens only on `GET /api/ops/health`. |
 | CSRF / origin | Unsafe methods (POST/PUT/PATCH/DELETE) need `Origin` or `Referer` whose netloc (host **and** port) equals the request `Host` — or the `APPLIRE_BASE_URL` netloc when that is set and not the shipped default. Neither header, or `Origin: null` → 403 `origin_mismatch`. **Exempt only:** requests carrying a **valid** `api` bearer. With `APPLIRE_BASE_URL` set, an unsafe request whose `Host` is neither that netloc nor `localhost`/`127.0.0.1` is refused the same way (anti-rebinding). No state-changing GET exists. |
 | Link tokens | Invite/reset tokens travel only in the page URL **fragment** (`/invite#<token>`, `/reset#<token>`) and in POST bodies — never in a request path or query. Set-password pages send `Referrer-Policy: no-referrer`. |
-| Signed document links | Agent-door only: `…/html|pdf|docx?exp=<unix>&sig=<b64url>`, 60 min. Responses to document GETs carry `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`. REST-returned document URLs stay unsigned. |
+| Signed document links | Agent-door only: `…/html|pdf|docx?exp=<unix>&uid=<user uuid>&sig=<b64url>`, 60 min (`uid` carries the signer so the MAC is checked against `users` before any owned table is read — CONTRACT-CHANGE 1c-2, MD-16). Responses to document GETs carry `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`. REST-returned document URLs stay unsigned. |
 | Foreign ids | A foreign id answers **exactly** like a missing one: `404 {"detail": "<kind> not found"}` (REST) / `not_found` (MCP). Never 403. |
 | Throttle | Login is never refused for a correct password, only **delayed** (after 5 failures in 15 min per (casefolded email, client): 1 s doubling to 30 s). No error code — the response is slower; a `401 invalid_credentials` that was delayed carries the header **`X-Applire-Throttled: 1`** (identical for known and unknown emails — no enumeration, RD-8), from which the login page shows `auth.errorThrottled` (CONTRACT-CHANGE 1a, accepted 2026-10-03). |
 | Emails | Compared case-insensitively (`UNIQUE(lower(email))`; SQL `lower(email) = lower(:x)` — never Python `casefold()`). |
@@ -156,8 +156,11 @@ the 8 characters after `apl_`.
 | `DELETE /api/admin/probe-tokens/{token_id}` | `require_admin` | — | 204 | 404 | 1c |
 
 `AdminUserItem` = `{id, email, role, status: pending|active|disabled, created_at,
-last_login_at, last_active_at, metadata: {application_count, document_count,
-storage_bytes}}`. `IssuedLink` = `{purpose, url, expires_at, mailed, mail_failed}`
+last_login_at, last_active_at, invite_expires_at, metadata: {application_count,
+document_count, storage_bytes, ai_tokens_30d}}` — `invite_expires_at` = expiry of
+the newest unused invite link of a pending account, else `null` (CONTRACT-CHANGE
+1b-4); `ai_tokens_30d` = `llm_usage.total_tokens` of the last 30 days, `null` while
+unattributable (CONTRACT-CHANGE 1b-1). `IssuedLink` = `{purpose, url, expires_at, mailed, mail_failed}`
 with `url` = `<origin>/invite#<token>` or `<origin>/reset#<token>`. Every admin
 action writes an audit row (user ids only, no IP). Adding a field to the users
 list is a contract change.
@@ -217,6 +220,11 @@ TokenScope = Literal["agent", "api", "probe"]
 class InvalidToken(Exception)          # one exception for every cause — no oracle
 async def resolve_agent_token(db, raw: str) -> User            # raises InvalidToken
 async def resolve_bearer(db, raw: str, scope: TokenScope) -> User | None
+def bearer_from_request(request) -> str | None                 # None / "" / raw
+async def request_bearer_user(request, db, scope: TokenScope = "api") -> User | None
+async def is_csrf_exempt(request, db) -> bool                  # valid api bearer of an active user only
+async def create_token(...); async def list_tokens(...); async def revoke_token(...)
+async def revoke_all_for_user(db, user_id) -> int              # agent + api; bumps link_epoch
 ```
 
 `backend/applire/auth/links.py` (1c):
@@ -225,11 +233,15 @@ async def resolve_bearer(db, raw: str, scope: TokenScope) -> User | None
 DocumentKind = Literal["cv", "cover_letter"]
 class LinkExpired(Exception)           # -> 410 link_expired
 def sign_document_url(kind: DocumentKind, doc_id: uuid.UUID, user: User, base: str) -> str
-async def verify_document_link(kind, doc_id, exp: str, sig: str, db) -> User | None
+async def verify_document_link(kind, doc_id, exp: str, sig: str, db, uid: str | uuid.UUID | None) -> User | None
+def derive_key(purpose: Literal["doc-link", "oidc-state"]) -> bytes
+async def load_instance_secret(db) -> bytes | None
+def set_instance_secret(value) -> None
 ```
 
-`sig = HMAC(doc-link key, "<kind>:<doc_id>:<user_id>:<link_epoch>:<exp>")`, key
-derived from `instance_state.auth.instance_secret`; `base` is the unsigned URL
+`sig = HMAC(doc-link key, "<kind>:<doc_id>:<user_id>:<link_epoch>:<exp>")`; `uid`
+carries `<user_id>` so the MAC is checked against `users` before any owned table is
+read (CONTRACT-CHANGE 1c-2). Key derived from `instance_state.auth.instance_secret`; `base` is the unsigned URL
 (it may already carry a query). W0 bodies raise `NotImplementedError`.
 
 ## 6. Ownership API (F4)
