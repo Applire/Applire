@@ -70,6 +70,11 @@ KEY_AUTH_INSTANCE_SECRET = "auth.instance_secret"
 # unclaimed; deleted by the claim.
 KEY_AUTH_SETUP_TOKEN_HASH = "auth.setup_token_hash"
 
+# ADR-091 cl. 14: "after a claim, the next boot logs once 'claimed at <ts> by
+# <email>'". Written by the claim ({"at", "email"}), deleted by the boot that
+# logged it — the "once" needs a fact that survives the restart.
+KEY_AUTH_CLAIM_NOTICE = "auth.claim_notice"
+
 #: Every key this table is allowed to carry. New key => new constant here.
 KNOWN_KEYS = frozenset(
     {
@@ -78,6 +83,7 @@ KNOWN_KEYS = frozenset(
         KEY_LAST_BACKUP_AT,
         KEY_AUTH_INSTANCE_SECRET,
         KEY_AUTH_SETUP_TOKEN_HASH,
+        KEY_AUTH_CLAIM_NOTICE,
     }
 )
 

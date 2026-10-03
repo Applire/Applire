@@ -20,11 +20,14 @@ the context, so the owner it set would never reach the endpoint (adversarial
 re-check g2). ``tests/unit/test_auth_deps_async.py`` asserts
 ``iscoroutinefunction`` over the whole dependant tree.
 
-**W0 (Strawberry build 1) — harness-backed, behaviour-neutral.** All five resolve
-the user through ``get_auth_provider`` (the override point, ADR-008) exactly as
-the routers did before the swap, so the app on the NoAuth stub behaves as today.
-Package 1a fills session/bearer resolution, the role check and the harness
-fences; 1c fills the signed-link branch and the probe-token branch.
+**W1 (package 1a).** Resolution goes through ``get_auth_provider`` (the
+override point, ADR-008): ``LocalAuthProvider`` (session cookie or ``api``
+bearer) or the fenced ``HarnessAuthProvider``. Before resolving, every unsafe
+request that carries a ``Cookie`` and no ``Authorization`` header passes the
+origin check (ADR-091 cl. 12, ``auth/csrf.py``). ``require_admin`` checks
+``role == "admin"`` (the harness stub acts as admin). ``require_session_user``
+refuses a bearer-authenticated request with 403 ``forbidden``. 1c fills the
+signed-link branch and the probe-token branch (``auth/deps_links.py``).
 """
 
 from __future__ import annotations
@@ -34,6 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
 from applire.auth.base import AuthProvider
+from applire.auth.csrf import check_origin, needs_cookie_csrf_check
+from applire.auth.roles import is_admin
 from applire.db.session import get_db
 from applire.models.user import User
 from applire.ownership import set_owner
@@ -53,19 +58,13 @@ def _forbidden() -> HTTPException:
 
 
 async def _resolve(request: Request, provider: AuthProvider, db: AsyncSession) -> User:
+    if needs_cookie_csrf_check(request):
+        check_origin(request)
     user = await provider.get_current_user(request, db)
     if user is None:
         raise _unauthenticated()
     set_owner(user.id)
     return user
-
-
-def _is_admin(user: User) -> bool:
-    # W0: ``users.role`` arrives with migration 0071 (package 1a). Until then the
-    # only identity is the NoAuth stub, which the harness treats as admin
-    # (ADR-091 cl. 3). 1a replaces this with ``user.role == "admin"``.
-    role = getattr(user, "role", None)
-    return role is None or role == "admin"
 
 
 async def require_user(
@@ -84,7 +83,7 @@ async def require_admin(
 ) -> User:
     """Role ``admin``; 401 if anonymous, 403 ``forbidden`` for a non-admin."""
     user = await _resolve(request, provider, db)
-    if not _is_admin(user):
+    if not is_admin(user, request):
         raise _forbidden()
     return user
 
@@ -96,9 +95,19 @@ async def require_session_user(
 ) -> User:
     """Authenticated by a **session** (credential-management routes, cl. 17).
 
-    W0: identical to ``require_user``; 1a refuses bearer-authenticated requests (401).
+    An ``api`` bearer is refused with 403 ``forbidden`` (contract §3.5): the token
+    is valid, it is just not allowed to manage credentials.
     """
-    return await _resolve(request, provider, db)
+    user = await _resolve(request, provider, db)
+    if getattr(request.state, "auth_via", None) == "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "forbidden",
+                "message": "Managing credentials needs a signed-in session, not an API token.",
+            },
+        )
+    return user
 
 
 async def user_or_signed_link(

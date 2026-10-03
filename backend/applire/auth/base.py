@@ -24,7 +24,16 @@ from applire.models.user import User
 
 
 class AuthProvider(ABC):
-    """Base class for all auth provider implementations (ADR 008)."""
+    """Base class for all auth provider implementations (ADR 008).
+
+    A provider that resolves a user sets ``request.state.auth_via`` to
+    ``"session"``, ``"bearer"`` or ``"harness"`` (``require_session_user`` and
+    the admin check read it; a provider that sets nothing is treated as a
+    session-equivalent credential, e.g. a Cloud IdP session).
+    """
+
+    #: True only for the fenced test harness (ADR-091 cl. 3).
+    is_harness: bool = False
 
     @abstractmethod
     async def get_current_user(self, request: Request, db: AsyncSession) -> User | None:
