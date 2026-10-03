@@ -253,7 +253,22 @@ NOT_RESOURCE_PARAMS: dict[str, str] = {
     "conflict_id": "a conflict inside the CALLER's own vault",
     "pin_id": "a fact pin inside the application the route's application_id names",
     "scheme_id": "instance colour scheme, admin-only (MD-6) — not owned",
+    # W1 integration (1b/1c routers mounted): account management is admin-only
+    # (require_admin; a non-admin B gets 403 before any lookup) — accounts and
+    # instance probe tokens are not ADR-092 owned resources.
+    "user_id@/api/admin/users": "an account, admin-only account management (ADR-091 cl. 22)",
+    "token_id@/api/admin/probe-tokens": "an instance probe token, admin-only (ADR-091 cl. 17)",
 }
+
+
+def not_resource(param: str, path: str = "") -> bool:
+    """``param`` is a declared sub-key / non-resource — bare, or ``param@<path prefix>``."""
+    if param in NOT_RESOURCE_PARAMS:
+        return True
+    return any(
+        k.startswith(f"{param}@") and path.startswith(k.split("@", 1)[1])
+        for k in NOT_RESOURCE_PARAMS
+    )
 
 
 def register(key: str, factory: Factory) -> None:

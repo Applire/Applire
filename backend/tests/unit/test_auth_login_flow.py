@@ -294,7 +294,7 @@ async def test_require_session_user_refuses_an_api_bearer_with_403(async_client,
     async def fake_bearer(request, db, scope="api"):
         return await db.get(User, user.id)
 
-    monkeypatch.setattr("applire.auth._seams.bearer_user", fake_bearer)
+    monkeypatch.setattr("applire.auth.local.request_bearer_user", fake_bearer)
     headers = {"Authorization": "Bearer apl_x"}
     assert (await async_client.get("/api/auth/me", headers=headers)).status_code == 200
     # Bearer POST needs no Origin (valid api bearer is the CSRF exemption) …

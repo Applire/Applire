@@ -130,3 +130,25 @@ def build_app(tdb: TokenDB, routers: Iterable[Any], *, as_user: User | None = No
 
     app.dependency_overrides[get_auth_provider] = _provider
     return app
+
+
+# --- cross-user isolation registry (ADR-092 cl. 8c; W1 integration) ---------------
+
+async def _personal_token_factory(world) -> str:
+    """A personal ``api`` token of the world's owner — ``DELETE /api/me/tokens/{id}``
+    by another user must be 404 (foreign = missing), by the owner 204."""
+    from applire.auth.tokens import create_token
+
+    row, _raw = await create_token(world.db, user_id=world.user.id, scope="api", name="iso")
+    return str(row.id)
+
+
+def _register_isolation_factories() -> None:
+    from tests.support.isolation import RESOURCE_FACTORIES, register
+
+    if "token_id@/api/me/tokens" not in RESOURCE_FACTORIES:
+        register("token_id@/api/me/tokens", _personal_token_factory)
+
+
+_register_isolation_factories()
+

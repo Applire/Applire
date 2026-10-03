@@ -40,6 +40,7 @@ from tests.support.isolation import (
     RESOURCE_FACTORIES,
     OwnerWorld,
     load_package_factories,
+    not_resource,
     resolve,
 )
 
@@ -200,7 +201,7 @@ def test_every_id_is_mapped():
     unmapped = []
     for r in _rest_routes():
         for p in r.param_convertors:
-            if not resolve(p, r.path) and p not in NOT_RESOURCE_PARAMS:
+            if not resolve(p, r.path) and not not_resource(p, r.path):
                 unmapped.append(f"REST {r.path} :: {p}")
     tools, templates = _mcp_surface()
     for tool, args in tools.items():
