@@ -27,7 +27,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-TEST_USER_ID = uuid.uuid4()
+from tests.support.owners import HARNESS_USER_ID  # noqa: E402
+
+#: ADR-092: the acting user owns the seeded rows (owner fill = harness user).
+TEST_USER_ID = HARNESS_USER_ID
 
 
 @pytest_asyncio.fixture
