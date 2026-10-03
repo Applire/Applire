@@ -44,7 +44,8 @@ def test_unsafe_without_origin_or_referer_is_refused(base, method):
 
 
 def test_origin_null_is_refused(base):
-    _refused(_req(host="nas.local", origin="null"))
+    msg = _refused(_req(host="nas.local", origin="null"))
+    assert "Origin: null" in msg  # refused for being opaque, named as such
 
 
 def test_same_netloc_passes_and_the_port_matters(base):

@@ -51,8 +51,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 INVALID_CREDENTIALS_MESSAGE = "Email address or password is incorrect."
 
 
-def auth_error(status_code: int, code: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"error_code": code, "message": message})
+#: CONTRACT-CHANGE 1a (accepted 2026-10-03): a delayed failed login says so in a
+#: header, identically for known and unknown emails (RD-8 — no enumeration).
+THROTTLED_HEADER = "X-Applire-Throttled"
+
+
+def auth_error(
+    status_code: int, code: str, message: str, headers: dict[str, str] | None = None
+) -> HTTPException:
+    return HTTPException(
+        status_code=status_code, detail={"error_code": code, "message": message}, headers=headers
+    )
 
 
 def _harness_on() -> bool:
@@ -100,12 +109,17 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     key = login_key(body.email, request)
-    await login_throttle.wait(key)
+    delayed = await login_throttle.wait(key)
     user = await find_user_by_email(db, body.email)
     ok = await verify_password(body.password, user.password_hash if user else None)
     if not ok or user is None:
         login_throttle.record_failure(key)
-        raise auth_error(401, "invalid_credentials", INVALID_CREDENTIALS_MESSAGE)
+        raise auth_error(
+            401,
+            "invalid_credentials",
+            INVALID_CREDENTIALS_MESSAGE,
+            headers={THROTTLED_HEADER: "1"} if delayed > 0 else None,
+        )
     login_throttle.record_success(key)
     if user.disabled_at is not None:
         raise auth_error(

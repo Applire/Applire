@@ -74,16 +74,16 @@ async def test_create_admin_claims_an_unclaimed_instance_in_place(async_db):
 
 
 @pytest.mark.asyncio
-async def test_create_admin_on_a_claimed_instance_adds_an_admin(async_db):
+async def test_create_admin_on_a_claimed_instance_is_refused(async_db):
+    """Ruling 1a-1: after the claim the CLI makes no admins (reset-password recovers)."""
     await ensure_stub_user(async_db)
     await create_admin(async_db, email="op@example.org", password=PASSWORD)
     await async_db.commit()
-    assert await create_admin(async_db, email="second@example.org", password=PASSWORD) == "created"
-    await async_db.commit()
-    rows = (await async_db.execute(select(User).where(User.role == "admin"))).scalars().all()
-    assert {u.email for u in rows} == {"op@example.org", "second@example.org"}
-    with pytest.raises(ValueError, match="reset-password"):
-        await create_admin(async_db, email="SECOND@example.org", password=PASSWORD)
+    with pytest.raises(ValueError, match="already set up"):
+        await create_admin(async_db, email="second@example.org", password=PASSWORD)
+    await async_db.rollback()
+    rows = (await async_db.execute(select(User))).scalars().all()
+    assert [u.email for u in rows] == ["op@example.org"]
 
 
 @pytest.mark.asyncio

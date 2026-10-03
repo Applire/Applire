@@ -109,6 +109,30 @@ async def test_wrong_password_unknown_email_and_credential_less_account_answer_i
 
 
 @pytest.mark.asyncio
+async def test_every_failed_login_spends_exactly_one_scrypt(async_client, async_db, monkeypatch):
+    """SF-IAM.6 timing half: unknown email and a credential-less account still
+    hash (against the dummy), so they cost what a wrong password costs."""
+    import applire.routers.auth as auth_router
+    from applire.auth import passwords
+
+    await _user(async_db, "pw@example.org")
+    await _user(async_db, "invited@example.org", password=None)
+    calls: list[object] = []
+    real = passwords.verify_password
+
+    async def counting(raw, stored):
+        calls.append(stored)
+        return await real(raw, stored)
+
+    monkeypatch.setattr(auth_router, "verify_password", counting)
+    for email in ("pw@example.org", "unknown@example.org", "invited@example.org"):
+        calls.clear()
+        assert (await _login(async_client, email, "wrong wrong wrong")).status_code == 401
+        assert len(calls) == 1, email
+    assert calls == [None]  # the credential-less account went through the dummy path
+
+
+@pytest.mark.asyncio
 async def test_disabled_account_is_named_only_after_a_correct_password(async_client, async_db):
     """Founder ruling W0B-3."""
     await _user(async_db, "off@example.org", disabled=True)
@@ -311,9 +335,14 @@ async def test_throttle_delays_known_and_unknown_emails_alike_and_never_refuses(
     monkeypatch.setattr(login_throttle, "_sleep", fake_sleep)
     for email in ("lena@example.org", "ghost@example.org"):
         slept.clear()
+        flags = []
         for _ in range(7):
-            assert (await _login(async_client, email, "wrong wrong wrong")).status_code == 401
+            resp = await _login(async_client, email, "wrong wrong wrong")
+            assert resp.status_code == 401
+            flags.append(resp.headers.get("X-Applire-Throttled"))
         assert slept == [1.0, 2.0], email  # attempts 6 and 7 waited; 1–5 were free
+        # CONTRACT-CHANGE 1a: the delayed 401 says so — same for a known and an unknown email.
+        assert flags == [None] * 5 + ["1", "1"], email
     slept.clear()
     right = await _login(async_client, "lena@example.org")
     assert right.status_code == 204  # a correct password on a hot key: delayed, not refused
