@@ -31,6 +31,8 @@ import pytest
 import sqlalchemy as sa
 
 PG_URL = os.environ.get("APPLIRE_PG_TEST_URL", "")
+if PG_URL:  # the app's settings need a URL before any model import (no conftest here)
+    os.environ.setdefault("DATABASE_URL", PG_URL)
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 
 pytestmark = pytest.mark.skipif(
@@ -102,12 +104,15 @@ def test_migration_chain_on_postgres():
     log = _alembic("upgrade", "head")
     assert str(ids["p_old"]) in log, "RD-9: the retired profile id is in the migration log"
 
-    def check(conn):
+    def check(conn, *, first_pass: bool = True):
         db = FixtureDB(conn)
         live = {pid for pid, d in db.rows("master_profiles", "id", "deleted_at") if d is None}
         assert live == {ids["p_new"]}
         state = dict(db.rows("instance_state", "key", "value"))
-        assert state[M74.KEY_RETIRED_PROFILES]["profile_ids"] == [str(ids["p_old"])]
+        if first_pass:
+            assert state[M74.KEY_RETIRED_PROFILES]["profile_ids"] == [str(ids["p_old"])]
+        else:  # re-upgrade: nothing left to retire, so no notice is re-written
+            assert M74.KEY_RETIRED_PROFILES not in state
         for table in M75.OWNED_WITH_USER_ID:
             assert {r[0] for r in db.rows(table, "user_id")} <= {STUB}, table
             assert db.columns(table)["user_id"]["nullable"] is False, table
@@ -128,12 +133,26 @@ def test_migration_chain_on_postgres():
         assert ("gap_analysis_jobs", ("job_analysis_id",), "job_analyses") in fks
         uniq = {i["name"]: i for i in insp.get_indexes("gap_analysis_jobs")}
         assert uniq["uq_gap_jobs_live_kickoff"]["column_names"] == ["user_id", "job_analysis_id"]
+        # SF-OWN.7 over the REAL catalogue (not the models): no unique index or
+        # constraint on an owned table is keyed by the posting without the owner.
+        job_keyed = []
+        for t in M75.OWNED_WITH_USER_ID:
+            uniques = [i for i in insp.get_indexes(t) if i["unique"]]
+            uniques += [
+                {"name": c["name"], "column_names": c["column_names"]}
+                for c in insp.get_unique_constraints(t)
+            ]
+            for i in uniques:
+                cols = i["column_names"]
+                if ({"job_analysis_id", "job_id"} & set(cols)) and "user_id" not in cols:
+                    job_keyed.append((t, i["name"], cols))
+        assert job_keyed == [], job_keyed
 
     asyncio.run(_sync(check))
 
     _alembic("downgrade", "0073")
     _alembic("upgrade", "head")
-    asyncio.run(_sync(check))
+    asyncio.run(_sync(lambda conn: check(conn, first_pass=False)))
 
 
 def test_stub_inserted_when_missing_on_postgres():
@@ -167,18 +186,20 @@ async def test_orm_owner_rules_on_postgres():
     with unscoped("tooling"):
         async with Session() as s:
             s.add_all([User(id=a, email="a@example.org"), User(id=b, email="b@example.org")])
+            await s.flush()  # no relationship(): the unit of work does not order by FK
             job = JobAnalysis(raw_text_hash="h", raw_text="t", role_title="r", language_requirement="en")
             with authorized_profile_write():
                 pa = MasterProfile(profile_json={}, user_id=a)
             s.add_all([job, pa])
             await s.commit()
+            job_id, pa_id = job.id, pa.id  # rollback() below expires the instances
 
-            cv = GeneratedCV(job_analysis_id=job.id, profile_id=pa.id, tailored_data={})
+            cv = GeneratedCV(job_analysis_id=job_id, profile_id=pa_id, tailored_data={})
             s.add(cv)
             await s.commit()
             assert cv.user_id == a, "the chain row copies its profile's owner"
 
-            s.add(GeneratedCV(job_analysis_id=job.id, profile_id=pa.id, tailored_data={}, user_id=b))
+            s.add(GeneratedCV(job_analysis_id=job_id, profile_id=pa_id, tailored_data={}, user_id=b))
             with pytest.raises(OwnerMismatch):
                 await s.flush()
             await s.rollback()
@@ -189,7 +210,7 @@ async def test_orm_owner_rules_on_postgres():
                 await s.flush()
             await s.rollback()
 
-            s.add(GeneratedCV(job_analysis_id=job.id, profile_id=uuid.uuid4(), tailored_data={}, user_id=a))
+            s.add(GeneratedCV(job_analysis_id=job_id, profile_id=uuid.uuid4(), tailored_data={}, user_id=a))
             with pytest.raises(sa.exc.IntegrityError):
                 await s.flush()
             await s.rollback()

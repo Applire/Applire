@@ -18,7 +18,11 @@ end-of-migration assertion (ADR-092 cl. 1, 3, 4; D-10, S-8; Strawberry package 3
    ``uq_gap_analyses_live_fingerprint`` → ``(user_id, job_analysis_id,
    input_fingerprint)``; ``uq_interview_sessions_active_per_job`` →
    ``(user_id, job_analysis_id)``. Both new keys are supersets of the old ones, so
-   no existing row can collide.
+   no existing row can collide. The **legacy** ``uq_active_session_per_job``
+   (migration 0011: ``UNIQUE(job_analysis_id) WHERE status = 'active'``, never in
+   the models, superseded by 0048's index but never dropped — found by the
+   PostgreSQL proof of this migration, 2026-10-03) is dropped: left in place it
+   would keep the second user's interview on a shared posting failing.
 4. ``llm_usage.user_id`` — nullable, FK ``ON DELETE SET NULL`` (S-8). History is
    **not** backfilled: past rows include ops probes, which belong to no person;
    NULL means "not attributed".
@@ -127,6 +131,7 @@ def upgrade() -> None:
     # 2. The chain tables copy their profile's owner.
     op.drop_index("uq_gap_analyses_live_fingerprint", table_name="gap_analyses")
     op.drop_index("uq_interview_sessions_active_per_job", table_name="interview_sessions")
+    op.execute("DROP INDEX IF EXISTS uq_active_session_per_job")
     mp = sa.table("master_profiles", sa.column("id", sa.Uuid()), sa.column("user_id", sa.Uuid()))
     for table in CHAIN_TABLES:
         op.add_column(table, sa.Column("user_id", sa.Uuid(), nullable=True))
@@ -207,3 +212,11 @@ def downgrade() -> None:
 
     with op.batch_alter_table("user_settings") as batch:
         batch.drop_constraint("uq_user_settings_user", type_="unique")
+    if op.get_bind().dialect.name == "postgresql":  # 0011 created it on PostgreSQL only
+        op.create_index(
+            "uq_active_session_per_job",
+            "interview_sessions",
+            ["job_analysis_id"],
+            unique=True,
+            postgresql_where=sa.text("status = 'active'"),
+        )
