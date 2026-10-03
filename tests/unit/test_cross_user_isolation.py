@@ -135,9 +135,6 @@ PENDING_REST: set[tuple[str, str]] = {
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist"),  # 3c
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/rewrite"),  # 3c
     ("POST", "/api/job/{job_id}/gaps/{cluster_id}/left-open"),  # 4a
-    ("POST", "/api/profile/enrich/{session_id}/na"),  # 3b
-    ("POST", "/api/profile/enrich/{session_id}/respond"),  # 3b
-    ("POST", "/api/profile/enrich/{session_id}/skip"),  # 3b
     ("POST", "/api/session/{session_id}/message"),  # 3d
     ("GET", "/api/cover-letter/{cl_id}/ats-report"),  # 3d
     ("GET", "/api/cover-letter/{cl_id}/critic-report"),  # 3d

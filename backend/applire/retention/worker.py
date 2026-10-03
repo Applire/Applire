@@ -355,7 +355,10 @@ async def _tombstone_inactive_users(db: AsyncSession) -> int:
     try:
         result = await db.execute(
             update(User)
-            .where(func.coalesce(User.last_active_at, User.created_at) < cutoff)
+            .where(
+                func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
+                < cutoff
+            )
             .where(User.role != ROLE_ADMIN)
             .where(User.deleted_at.is_(None))
             .values(deleted_at=now)

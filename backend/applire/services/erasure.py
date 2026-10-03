@@ -108,6 +108,15 @@ def _posting_reference_models() -> tuple[Any, ...]:
     )
 
 
+def _posting_fk(model: Any) -> Any:
+    """The model's column that references ``job_analyses.id`` (``job_analysis_id``,
+    ``job_id`` on ``flow_sessions``) — read from the FK, never assumed by name."""
+    for col in model.__table__.columns:
+        if any(fk.column.table.name == "job_analyses" for fk in col.foreign_keys):
+            return getattr(model, col.key)
+    raise TypeError(f"{model.__tablename__} has no FK into job_analyses")
+
+
 #: Table names of the referencing set — a test asserts it equals the FK catalogue.
 POSTING_REFERENCES: tuple[str, ...] = (
     "applications",
@@ -155,7 +164,7 @@ async def purge_unreferenced_postings(
         # we waited for the lock.
         stmt = delete(JobAnalysis).where(JobAnalysis.id.in_(locked))
         for model in _posting_reference_models():
-            stmt = stmt.where(~exists().where(model.job_analysis_id == JobAnalysis.id))
+            stmt = stmt.where(~exists().where(_posting_fk(model) == JobAnalysis.id))
         result = await db.execute(stmt.execution_options(synchronize_session=False))
         return int(result.rowcount or 0)
 
@@ -190,7 +199,7 @@ async def _candidate_postings(db: AsyncSession, uid: uuid.UUID) -> set[uuid.UUID
         out.update(
             v
             for v in (
-                await db.execute(select(model.job_analysis_id).where(model.user_id == uid))
+                await db.execute(select(_posting_fk(model)).where(model.user_id == uid))
             ).scalars()
             if v is not None
         )

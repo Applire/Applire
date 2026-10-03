@@ -15,197 +15,138 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""#367 (adversarial) — an ownerless HELD import becomes permanently invisible
-and unresolvable the moment any User row exists.
+"""#367 (adversarial) — rewritten for ADR-092 cl. 4 (Strawberry W2, package 3b).
 
-`import_cv`'s own docstring (`mcp/server.py::_import_user_id`) treats an empty
-`users` table as an expected, non-error state: "an empty `users` table is an
-ownerless import rather than a failure." The README documents `python -m
-applire.mcp` (stdio, no FastAPI lifespan) as a standalone launch — a
-self-hoster can run the agent channel WITHOUT ever starting `applire.main:app`
-(whose `lifespan` is the only place that seeds the single stub user). So an
-agent-door HOLD raised before any `User` row exists is a real, reachable state
-on a documented deployment path — not merely theoretical.
+**What #367 pinned (v0.42):** an HELD import ``import_cv`` raised before any
+``User`` row existed was stored with ``user_id=NULL``; three doors filtering on
+``user_id == :uid`` lost it once a user appeared, so ``list_open_gates``,
+``resolve_staged_extraction`` and the GDPR erasure were widened to
+``user_id == :uid OR user_id IS NULL`` — sound while Community was single-user.
 
-Once a `User` row DOES appear (the FastAPI app starts later; a second
-self-hosted surface is brought up; a fresh `User` row is created by any
-means), three doors that scope `UploadRecord` by exact `user_id == :uid`
-equality silently exclude the ownerless (`user_id IS NULL`) row:
+**Why the widening had to go:** with accounts, an ownerless row is nobody's,
+and the ``OR IS NULL`` arm would hand one user's parked CV (its full
+``staged_extraction``) to *every* user. ADR-092 cl. 4 removes the premise
+instead: migration 0074 gives every NULL-owner upload to the stub user and
+makes ``uploads.user_id`` NOT NULL; the MCP door needs a token, hence a user.
 
-  * `list_open_gates`             — the Health hub / agent `held_merges` never
-                                     lists it, so the human is never asked to
-                                     adjudicate it (ADR-041: "the system
-                                     detects difference, the user decides").
-  * `resolve_staged_extraction`   — `StagedResolveRequest`/`resolve_held_merge`
-                                     answer 404/`StagedExtractionNotFound` for
-                                     a `staged_id` that demonstrably exists.
-  * `DELETE /api/profile` (GDPR erasure) — the user-scoped DELETE leaves the
-                                     row (and its `staged_extraction` JSONB,
-                                     containing the parked CV's full personal
-                                     data) behind.
-
-The fix mirrors an existing precedent in the SAME package for the sibling
-async-import door: `import_jobs.py::list_import_jobs` already scopes with
-``or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))`` for
-exactly this reason (Community is single-user — ADR-022 rejected — so an
-ownerless row is unambiguously "the" user's row). `list_open_gates` and
-`resolve_staged_extraction` widen to the same shape; the GDPR erasure sweep
-in `routers/profile.py` does too.
+**What this file pins now (the same three doors, owner-keyed):**
+* an upload without an owner cannot be stored at all (NOT NULL);
+* ``list_open_gates`` lists the OWNER's parked CV and never another user's;
+* ``resolve_staged_extraction`` resolves the owner's and answers a foreign
+  ``staged_id`` exactly like a missing one (S-10);
+* the owner's erasure deletes their parked CV (staged personal data included)
+  and leaves another user's parked CV alone.
 """
 import uuid
 
 import pytest
 import pytest_asyncio
-
-# Superseded by ADR-092 cl. 4 (Strawberry): no ownerless per-user row survives —
-# migration 0074 gives every NULL-owner upload to the stub user and makes
-# `uploads.user_id` NOT NULL; a row inserted without an owner takes the acting
-# user's (ownership.py owner fill) or is refused. The NULL widenings these tests
-# pin are removed by package 3b (W2), which retires or rewrites this file.
-# Strict: an unexpected pass means the premise came back.
-pytestmark = pytest.mark.xfail(
-    strict=True,
-    reason="ADR-092 cl. 4: ownerless uploads no longer exist (0074 NOT NULL); 3b retires this file in W2",
-)
-from sqlalchemy import text
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-USER_ID = uuid.uuid4()
+from applire import ownership
+
+pytestmark = pytest.mark.no_owner_context
 
 
 @pytest_asyncio.fixture
-async def db_session():
+async def factory():
     from applire.db.session import Base
-    from applire.models.application import Application
-    from applire.models.cover_letter import GeneratedCoverLetter
-    from applire.models.cv import GeneratedCV
-    from applire.models.flow import FlowSession
-    from applire.models.gap import GapAnalysis
-    from applire.models.profile import MasterProfile
-    from applire.models.session import InterviewSession
-    from applire.models.uploads import UploadRecord
-    from applire.models.user import User
-    from applire.models.user_settings import UserSettings
+    import applire.models  # noqa: F401
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    tables = [
-        User.__table__,
-        UploadRecord.__table__,
-        MasterProfile.__table__,
-        GeneratedCV.__table__,
-        InterviewSession.__table__,
-        GapAnalysis.__table__,
-        GeneratedCoverLetter.__table__,
-        Application.__table__,
-        FlowSession.__table__,
-        UserSettings.__table__,
-    ]
-    async with engine.begin() as conn:
-        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=tables))
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        yield session
+    with ownership.unscoped("tooling"):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
 
 
-@pytest_asyncio.fixture
-async def orphan_hold(db_session):
-    """An ownerless (``user_id=None``) GATED upload — exactly what `import_cv`
-    persists when it runs before any `User` row exists (#367's own
-    `_import_user_id` fallback)."""
+def _held(user_id):
     from applire.models.uploads import UploadRecord
 
-    rec = UploadRecord(
-        user_id=None,
+    return UploadRecord(
+        user_id=user_id,
         original_filename="cv.pdf",
-        content_hash="a" * 64,
+        content_hash=uuid.uuid4().hex * 2,
         mime_type="application/pdf",
-        file_path="/app/data/uploads/orphan.pdf",
-        byte_size=999,
+        file_path=f"/uploads/{uuid.uuid4().hex}.pdf",
+        byte_size=1234,
         gate_status="name_divergence",
-        staged_extraction={"personal_info": {"name": "Anna Bauer"}},
+        staged_extraction={"personal_info": {"name": "Parked Person"}},
     )
-    db_session.add(rec)
-    await db_session.commit()
-    await db_session.refresh(rec)
-    return rec
 
 
 @pytest_asyncio.fixture
-async def real_user(db_session):
-    """The User row that appears LATER — e.g. the FastAPI app's `lifespan`
-    finally runs, seeding the single Community stub user."""
+async def two_holds(factory):
     from applire.models.user import User
 
-    user = User(id=USER_ID, email="local@applire.community")
-    db_session.add(user)
-    await db_session.commit()
-    return user
+    a = User(id=uuid.uuid4(), email="hold-a@example.org")
+    b = User(id=uuid.uuid4(), email="hold-b@example.org")
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            s.add_all([a, b])
+            await s.flush()
+            ha, hb = _held(a.id), _held(b.id)
+            s.add_all([ha, hb])
+            await s.commit()
+    return a.id, b.id, ha.id, hb.id
 
 
 @pytest.mark.asyncio
-async def test_list_open_gates_finds_the_ownerless_hold_once_a_user_exists(
-    db_session, orphan_hold, real_user
-):
-    """The Health hub (`held_merges`) must still surface the parked CV — the
-    human can only adjudicate a hold they can see."""
+async def test_an_upload_without_an_owner_cannot_be_stored(factory):
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            s.add(_held(None))
+            with pytest.raises(IntegrityError):
+                await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_list_open_gates_lists_the_owners_hold_only(factory, two_holds):
     from applire.services.profile import list_open_gates
 
-    held = await list_open_gates(db_session, user_id=USER_ID)
-    assert any(r.id == orphan_hold.id for r in held), (
-        "an ownerless HOLD vanished from list_open_gates the moment a User "
-        "row existed — the human is never asked about a CV the gate parked"
-    )
+    a, b, ha, hb = two_holds
+    async with factory() as s:
+        with ownership.owner_context(a):
+            assert [r.id for r in await list_open_gates(s, user_id=a)] == [ha]
+            # no user_id → the owner context, never "everyone's"
+            assert [r.id for r in await list_open_gates(s)] == [ha]
+        assert [r.id for r in await list_open_gates(s, user_id=b)] == [hb]
 
 
 @pytest.mark.asyncio
-async def test_resolve_staged_extraction_resolves_the_ownerless_hold(
-    db_session, orphan_hold, real_user
-):
-    """`resolve_held_merge` / `POST /staged/{id}/resolve` must be able to
-    discard (or merge) a hold that was parked before any user existed."""
-    from applire.services.profile import resolve_staged_extraction
+async def test_resolve_staged_extraction_refuses_a_foreign_hold_like_a_missing_one(factory, two_holds):
+    from applire.services.profile import StagedExtractionNotFound, resolve_staged_extraction
 
-    result = await resolve_staged_extraction(
-        db_session, orphan_hold.id, action="discard", user_id=USER_ID
-    )
-    assert result.staged_id == orphan_hold.id
-    assert result.action == "discard"
+    a, b, ha, hb = two_holds
+    async with factory() as s:
+        with pytest.raises(StagedExtractionNotFound) as foreign:
+            await resolve_staged_extraction(s, hb, action="discard", user_id=a)
+        with pytest.raises(StagedExtractionNotFound) as missing:
+            await resolve_staged_extraction(s, uuid.uuid4(), action="discard", user_id=a)
+        assert type(foreign.value) is type(missing.value)
+        res = await resolve_staged_extraction(s, ha, action="discard", user_id=a)
+        assert res.action == "discard"
 
 
 @pytest.mark.asyncio
-async def test_erasure_sweeps_the_ownerless_upload(db_session, orphan_hold, real_user):
-    """DELETE /api/profile (Art. 17) must not leave an ownerless staged CV —
-    with its full personal_info payload — behind."""
-    from fastapi import FastAPI
-    from httpx import ASGITransport, AsyncClient
-    from unittest.mock import AsyncMock, MagicMock
+async def test_erasure_deletes_the_owners_hold_and_spares_the_other(factory, two_holds):
+    from applire.models.uploads import UploadRecord
+    from applire.services.erasure import erase
 
-    from applire.auth import get_auth_provider
-    from applire.db.session import get_db
-    from applire.routers.profile import _get_storage, router
+    class _Storage:
+        deleted: list = []
 
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db_session
+        async def delete(self, p):
+            self.deleted.append(p)
 
-    storage = MagicMock()
-    storage.delete = AsyncMock(return_value=None)
-    app.dependency_overrides[_get_storage] = lambda: storage
-
-    auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=USER_ID))
-    app.dependency_overrides[get_auth_provider] = lambda: auth
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.delete("/api/profile")
-
-    assert resp.status_code == 202
-    remaining = (
-        await db_session.execute(text("SELECT COUNT(*) FROM uploads"))
-    ).scalar_one()
-    assert remaining == 0, (
-        "an ownerless staged CV (full personal_info in staged_extraction) "
-        "survived an Art. 17 erasure request"
-    )
+    a, b, ha, hb = two_holds
+    async with factory() as s:
+        counts = await erase(s, a, "vault", storage=_Storage())
+    assert counts["uploads"] == 1
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            left = [r.id for r in (await s.execute(select(UploadRecord))).scalars()]
+    assert left == [hb]
