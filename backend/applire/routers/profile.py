@@ -91,6 +91,14 @@ from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
+
+def _uid(user: "User | None"):
+    """The resolved caller's id. ``require_user`` always yields a user (and sets
+    the owner context to it); ``None`` only reaches here when a test calls the
+    route function directly — the service then takes the owner context
+    (ruling 3d-1), which is the same user on every real request."""
+    return getattr(user, "id", None)
+
 # Clean, user-appropriate message for a reconcile that hit the token budget
 # (LLMTruncatedError). The merge could not be completed in full, so we fail this
 # file rather than persist a silent half-merge — but we never leak the raw
@@ -390,7 +398,7 @@ async def undo_last_merge_endpoint(
     whole-profile restore; per-field revert deferred). Idempotent: a repeat call
     with nothing left to undo returns ``restored=false``.
     """
-    result = await undo_last_merge(db, user_id=current_user.id)
+    result = await undo_last_merge(db, user_id=_uid(current_user))
     return UndoLastMergeResponse(
         restored=result.restored,
         discarded_later_edits=result.discarded_later_edits,
@@ -602,7 +610,7 @@ async def check_profile_exists(
     current_user: User = Depends(require_user),
 ) -> dict:
     """Lightweight check: returns exists + completeness_score (no full profile payload)."""
-    return await profile_exists(db, user_id=current_user.id)
+    return await profile_exists(db, user_id=_uid(current_user))
 
 
 @router.get("", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)
@@ -610,7 +618,7 @@ async def get_current_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> MasterProfileResponse:
-    profile = await get_profile(db, user_id=current_user.id)
+    profile = await get_profile(db, user_id=_uid(current_user))
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -662,7 +670,7 @@ async def get_profile_enrichment_history(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> list[EnrichmentRecord]:
-    return await get_enrichment_history(db, user_id=current_user.id)
+    return await get_enrichment_history(db, user_id=_uid(current_user))
 
 
 @router.get(
@@ -676,7 +684,7 @@ async def get_profile_changes_endpoint(
 ) -> ProfileChangesResponse:
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
-    return await get_profile_changes(db, user_id=current_user.id)
+    return await get_profile_changes(db, user_id=_uid(current_user))
 
 
 @router.get(
@@ -691,7 +699,7 @@ async def get_profile_health_endpoint(
     """US160 (E033 / ADR-041 amended) — deterministic Profile Health: conflict +
     accuracy issues (severity-tagged) plus a completeness block. No LLM; reads
     only the durable Master Profile (never the 7-day upload — ADR-005)."""
-    return await get_profile_health(db, user_id=current_user.id)
+    return await get_profile_health(db, user_id=_uid(current_user))
 
 
 @router.post(
@@ -707,7 +715,7 @@ async def resolve_profile_conflict(
 ) -> MasterProfileResponse:
     try:
         return await resolve_conflict(
-            conflict_id, body.resolution, body.value, db, user_id=current_user.id
+            conflict_id, body.resolution, body.value, db, user_id=_uid(current_user)
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -737,7 +745,7 @@ async def submit_testimony_endpoint(
     Calls the exact same `submit_testimony` service the MCP `submit_testimony`
     tool calls (ADR-058 door parity)."""
     try:
-        return await submit_testimony(body.text, db, provider, user_id=current_user.id)
+        return await submit_testimony(body.text, db, provider, user_id=_uid(current_user))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -765,10 +773,10 @@ async def patch_section(
     try:
         return await patch_profile_section(
             section, body, db, provider=provider, basis_updated_at=basis_updated_at,
-            user_id=current_user.id,
+            user_id=_uid(current_user),
         )
     except StaleEditError as exc:
-        current = await get_profile(db, user_id=current_user.id)
+        current = await get_profile(db, user_id=_uid(current_user))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -813,7 +821,9 @@ async def erase_profile(
     from applire.services.erasure import ErasureFailed, erase
 
     try:
-        counts = await erase(db, current_user.id, "vault", storage=storage)
+        from applire.services.profile.owner import resolve_owner
+
+        counts = await erase(db, resolve_owner(_uid(current_user)), "vault", storage=storage)
     except ErasureFailed:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

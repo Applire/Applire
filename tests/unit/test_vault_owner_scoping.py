@@ -182,3 +182,54 @@ async def test_rank_jobs_sees_only_the_callers_linked_postings(world):
         assert res[0].role_title == "A's own title"  # the caller's override (cl. 5f)
         with pytest.raises(LookupError):
             await rank_jobs(pb.id, s, user_id=a.id)  # B's profile id is not A's
+
+
+@pytest.mark.asyncio
+async def test_signature_settings_row_is_the_callers(world):
+    """ADR-088 signature lives on the CALLER's settings row (D-10)."""
+    from applire.services import signature
+
+    factory, a, b, c = world
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            row = (await s.execute(select(UserSettings).where(UserSettings.user_id == a.id))).scalar_one()
+            row.signature_path = "/sig/a.png"
+            await s.commit()
+    async with factory() as s:
+        assert await signature.resolve_signature_available(s, user_id=a.id) is True
+        assert await signature.resolve_signature_available(s, user_id=b.id) is False
+        with ownership.owner_context(b.id):  # fallback: the context, never "the" row
+            assert await signature.resolve_signature_available(s) is False
+
+
+@pytest.mark.asyncio
+async def test_a_vault_write_resweeps_only_the_owners_fact_pins(world):
+    """``_sweep_fact_pins`` (ADR-077 cl. 7) re-verifies pins against the vault
+    just written — only the vault OWNER's applications; B's pin, which quotes
+    B's vault, must not be marked stale by A's write."""
+    from applire.models.application import Application
+    from applire.services.profile.commit import CommitProvenance, commit_ops
+    from applire.services.profile.reconcile.ops import SetProfileMeta
+
+    factory, a, b, c = world
+    pin = {"pin_id": "p1", "entry_type": "skill", "entry_id": "s-b", "quote": "Kotlin",
+           "targets": ["cv", "letter"], "stale": False}
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            await OwnerWorld(s, a).application()
+            app_b = await OwnerWorld(s, b).application()
+            app_b.pinned_facts = [pin]
+            await s.commit()
+    async with factory() as s:
+        with ownership.owner_context(a.id):
+            record = (await s.execute(select(MasterProfile).where(MasterProfile.user_id == a.id))).scalar_one()
+            await commit_ops(
+                s, [SetProfileMeta(key="na_fields", value="summary")],
+                CommitProvenance(source="manual_edit", intake="gap_na", actor="candidate"),
+                record=record, grounding=None, snapshot=None,
+            )
+            await s.commit()
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            stored = (await s.execute(select(Application.pinned_facts).where(Application.user_id == b.id))).scalar_one()
+    assert stored[0].get("stale") in (False, None), "A's write re-swept B's pin against A's vault"

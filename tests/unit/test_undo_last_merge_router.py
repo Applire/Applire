@@ -18,6 +18,8 @@
 """US168 — POST /api/profile/undo-last-merge endpoint (merge→undo round-trip)."""
 import uuid
 
+from tests.support.owners import HARNESS_USER_ID
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -64,7 +66,7 @@ async def client(db_session):
     app.dependency_overrides[get_db] = lambda: db_session
 
     auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+    auth.get_current_user = AsyncMock(return_value=MagicMock(id=HARNESS_USER_ID))  # ADR-092: the vault's owner
     app.dependency_overrides[get_auth_provider] = lambda: auth
 
     transport = ASGITransport(app=app)

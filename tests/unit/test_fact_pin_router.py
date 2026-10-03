@@ -72,7 +72,9 @@ async def scene():
         )
         with authorized_profile_write():
             profile = MasterProfile(
-                profile_json=profile_data.model_dump(mode="json")
+                # ADR-092 cl. 2: the pin owner's own vault (a pin resolves against it)
+                user_id=TEST_USER_ID,
+                profile_json=profile_data.model_dump(mode="json"),
             )
             session.add(profile)
         job = JobAnalysis(

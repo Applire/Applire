@@ -296,6 +296,7 @@ async def test_the_photo_service_is_authorised(db_session):
     with authorized_profile_write():
         db_session.add(
             MasterProfile(
+                user_id=user_id,  # ADR-092 cl. 2: the photo owner's own vault
                 profile_json={
                     "personal_info": {
                         "full_name": "Daniel Kovač",

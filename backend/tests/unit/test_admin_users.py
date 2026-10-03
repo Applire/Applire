@@ -308,14 +308,21 @@ async def test_erasure_failure_leaves_account_disabled_and_retryable(env, monkey
 
 
 @pytest.mark.asyncio
-async def test_w0_erase_stub_raises_and_nothing_is_tombstoned(env):
-    """Against the real F9 stub (3b fills it in W2): the endpoint never half-deletes."""
+async def test_real_erase_then_tombstone(env, monkeypatch):
+    """Against the REAL F9 erasure (3b, W2 — was the W0 stub's NotImplementedError):
+    erased, then tombstoned and audited (three-step order). Full two-user
+    coverage: tests/unit/test_erasure_per_user.py::test_account_deletion_real_path_disable_erase_tombstone."""
+    class _NoFiles:
+        async def delete(self, path):  # noqa: ANN001
+            return None
+
+    monkeypatch.setattr("applire.storage.get_storage", lambda: _NoFiles())
     db, _, _, admin = env
     user = await add_user(db)
-    with pytest.raises(NotImplementedError):
-        await accounts.delete_account(db, actor=admin, user_id=user.id, by="admin")
+    await accounts.delete_account(db, actor=admin, user_id=user.id, by="admin")
     row = await db.get(User, user.id, populate_existing=True)
-    assert row.deleted_at is None
+    assert row.deleted_at is not None and row.email == f"deleted+{user.id}@invalid"
+    assert len(await _audit(db, "user.deleted")) == 1
 
 
 # --- SF-IAM.15: every mutating admin route writes exactly one audit row ----------

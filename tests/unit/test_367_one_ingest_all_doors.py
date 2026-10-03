@@ -320,7 +320,11 @@ async def test_a_held_import_is_also_recorded_and_resolvable(door, sqlite_sessio
     """
     from applire.services.profile import list_open_gates, resolve_staged_extraction
 
-    user_id = uuid.uuid4()
+    from tests.support.owners import HARNESS_USER_ID
+
+    # ADR-092 cl. 2: the gate compares the CV with the importer's OWN vault —
+    # `_seed_profile` seeds the acting (harness) user's, so the importer is that user.
+    user_id = HARNESS_USER_ID
     await _seed_profile(sqlite_session, storage, "Marcus Schmidt")
     result = await door(sqlite_session, storage, _cv("Anna Bauer"), user_id=user_id)
 

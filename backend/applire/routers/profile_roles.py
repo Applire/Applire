@@ -34,6 +34,14 @@ from applire.services.profile.role_add import (
 router = APIRouter(prefix="/api/profile/roles", tags=["profile"])
 
 
+def _uid(user: "User | None"):
+    """The resolved caller's id. ``require_user`` always yields a user (and sets
+    the owner context to it); ``None`` only reaches here when a test calls the
+    route function directly — the service then takes the owner context
+    (ruling 3d-1), which is the same user on every real request."""
+    return getattr(user, "id", None)
+
+
 @router.post("", response_model=AddRoleResponse)
 async def add_role(
     body: AddRoleRequest,
@@ -41,7 +49,7 @@ async def add_role(
     current_user: User = Depends(require_user),
 ) -> AddRoleResponse:
     try:
-        return await add_role_to_profile(body, db, user_id=current_user.id)
+        return await add_role_to_profile(body, db, user_id=_uid(current_user))
     except LookupError:
         raise HTTPException(status_code=404, detail="No master profile found")
     except AddRoleValidationError as exc:

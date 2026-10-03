@@ -33,6 +33,8 @@ PR 1 migrates two writers: the testimony bridge and the agent-claims bridge.
 """
 import sys
 import uuid
+
+from tests.support.owners import HARNESS_USER_ID
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -136,7 +138,7 @@ async def test_testimony_door_write_survives_the_request(durable_db):
     async with factory() as request_session:
         app.dependency_overrides[get_db] = lambda: request_session
         auth = MagicMock()
-        auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+        auth.get_current_user = AsyncMock(return_value=MagicMock(id=HARNESS_USER_ID))  # ADR-092: the vault's owner
         app.dependency_overrides[get_auth_provider] = lambda: auth
         app.dependency_overrides[_get_provider] = lambda: _Provider(
             {
@@ -176,7 +178,7 @@ async def test_testimony_door_persists_a_no_op_turns_receipt(durable_db):
     async with factory() as request_session:
         app.dependency_overrides[get_db] = lambda: request_session
         auth = MagicMock()
-        auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+        auth.get_current_user = AsyncMock(return_value=MagicMock(id=HARNESS_USER_ID))  # ADR-092: the vault's owner
         app.dependency_overrides[get_auth_provider] = lambda: auth
         app.dependency_overrides[_get_provider] = lambda: _Provider(
             {"ops": [], "ambiguities": [], "denials": []}

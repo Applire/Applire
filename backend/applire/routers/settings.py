@@ -34,6 +34,14 @@ from applire.services.profile.owner import resolve_owner
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+
+def _uid(user: "User | None"):
+    """The resolved caller's id. ``require_user`` always yields a user (and sets
+    the owner context to it); ``None`` only reaches here when a test calls the
+    route function directly — the service then takes the owner context
+    (ruling 3d-1), which is the same user on every real request."""
+    return getattr(user, "id", None)
+
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _VALID_LANGUAGES = {"de", "en"}
 # ADR-081 clause 5 (US301): three-valued document-review preference.
@@ -370,7 +378,7 @@ async def api_get_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> SettingsResponse:
-    result = await get_settings(db, user_id=current_user.id)
+    result = await get_settings(db, user_id=_uid(current_user))
     result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
     return SettingsResponse(**result)
 
@@ -400,7 +408,7 @@ async def api_patch_settings(
             dismiss_explainer=body.dismiss_explainer,
             signature_in_letter=body.signature_in_letter,
             signature_in_cv=body.signature_in_cv,
-            user_id=current_user.id,
+            user_id=_uid(current_user),
         )
         result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
         return SettingsResponse(**result)
