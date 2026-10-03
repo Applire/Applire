@@ -61,12 +61,23 @@ KEY_UPGRADE_NOTICE_DISMISSED_FOR = "upgrade_notice_dismissed_for"
 #: N days" and warns at >= 30 days (US312, WP-O1).
 KEY_LAST_BACKUP_AT = "last_backup_at"
 
+# ADR-091 cl. 10 (D-8): 32 random bytes (urlsafe b64), generated at first start
+# by the lifespan; purpose-derived HMAC keys come from it (``auth.links.derive_key``).
+# Never served on any endpoint. Rotation = delete the row + restart.
+KEY_AUTH_INSTANCE_SECRET = "auth.instance_secret"
+
+# ADR-091 cl. 14 (MD-1): sha256 of the per-boot setup code while the instance is
+# unclaimed; deleted by the claim.
+KEY_AUTH_SETUP_TOKEN_HASH = "auth.setup_token_hash"
+
 #: Every key this table is allowed to carry. New key => new constant here.
 KNOWN_KEYS = frozenset(
     {
         KEY_LAST_SEEN_VERSION,
         KEY_UPGRADE_NOTICE_DISMISSED_FOR,
         KEY_LAST_BACKUP_AT,
+        KEY_AUTH_INSTANCE_SECRET,
+        KEY_AUTH_SETUP_TOKEN_HASH,
     }
 )
 
