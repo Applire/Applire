@@ -11,22 +11,32 @@ FastAPI app (in-memory sqlite, full router + service stack, no mocking of the
 endpoint under test) with two distinct authenticated users against one flow.
 """
 import uuid
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth import get_auth_provider
+from applire.auth.base import AuthProvider
 from applire.main import app as fastapi_app
 from applire.models.flow import FlowSession
 from applire.models.user import User
 
 
-def _auth_as(user_id: uuid.UUID) -> MagicMock:
-    auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=user_id))
-    return auth
+class _ProviderAs(AuthProvider):
+    """A provider on the ADR-091 cl. 4 contract (``request, db``), as a Cloud
+    provider would implement it — no MagicMock standing in for the seam."""
+
+    def __init__(self, user_id: uuid.UUID):
+        self.user_id = user_id
+
+    async def get_current_user(self, request, db: AsyncSession) -> User | None:
+        assert isinstance(db, AsyncSession)  # the request's session reaches the provider
+        return await db.get(User, self.user_id)
+
+
+def _auth_as(user_id: uuid.UUID) -> AuthProvider:
+    return _ProviderAs(user_id)
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +70,8 @@ async def test_get_flow_state_as_other_user_returns_404(
     owner_id = uuid.uuid4()
     other_id = uuid.uuid4()
     flow = await _make_flow(async_db, owner_id=owner_id)
+    async_db.add(User(id=other_id, email=f"{other_id}@example.com"))
+    await async_db.commit()
 
     fastapi_app.dependency_overrides[get_auth_provider] = lambda: _auth_as(other_id)
     resp = await async_client.get(f"/api/flow/{flow.id}/state")
@@ -88,6 +100,8 @@ async def test_advance_flow_as_other_user_returns_404(
     owner_id = uuid.uuid4()
     other_id = uuid.uuid4()
     flow = await _make_flow(async_db, owner_id=owner_id)
+    async_db.add(User(id=other_id, email=f"{other_id}@example.com"))
+    await async_db.commit()
 
     fastapi_app.dependency_overrides[get_auth_provider] = lambda: _auth_as(other_id)
     resp = await async_client.post(

@@ -16,16 +16,17 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+import os
 import subprocess
-import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import func, select
 
 from applire._version import __version__
 from applire.config import resolve_static_dir, settings
@@ -46,10 +47,10 @@ from applire.routers import application, cover_letter, cv, cv_color, documents a
 from applire.routers import settings as settings_router
 from applire.routers import review as review_router  # ADR-090
 from applire.routers.admin import color_schemes as admin_color_schemes
+from applire.routers import auth as auth_router
+from applire.routers import setup as setup_router
+from applire.auth.deps import require_user
 from applire.services.thumbnails import ensure_thumbnails
-
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-_STUB_EMAIL = "local@applire.community"
 
 STATIC_DIR = resolve_static_dir()
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,6 +71,15 @@ def _log_startup_posture() -> None:
             "delete it. There is no size or age cap by design. Turn this off in "
             "production (LLM_DEBUG_LOG=false) and remove the files.",
             settings.llm_debug_log_dir,
+        )
+    from applire.auth import auth_provider_is_re_meant, provider_name
+
+    provider_name()  # an unknown AUTH_PROVIDER raises here, before serving (ADR-091 cl. 2)
+    if auth_provider_is_re_meant():
+        _applire_logger.warning(
+            "AUTH_PROVIDER=none now means AUTH_PROVIDER=local: Applire has accounts and "
+            "sign-in is always on. You can delete the line AUTH_PROVIDER=none from your "
+            ".env — it changes nothing any more."
         )
     if settings.applire_topology.strip().lower() == "dev":
         _applire_logger.warning(
@@ -105,13 +115,19 @@ async def _publish_upgrade_notice() -> None:
     async with AsyncSessionLocal() as db:
         last_seen = await read_state(db, KEY_LAST_SEEN_VERSION)
         if not isinstance(last_seen, str) or not last_seen:
-            # Fresh install: record what ran and say nothing. Reporting every
-            # setting introduced since 0.31.0 to someone installing today would
-            # be noise, and there is no upgrade to describe.
-            await write_state(db, KEY_LAST_SEEN_VERSION, __version__)
-            await db.commit()
-            set_upgrade_notice(None)
-            return
+            if await _database_holds_data(db):
+                # ADR-091 cl. 16: no key but data = an upgrade from before 0062
+                # (instance_state did not exist yet), NOT a fresh install —
+                # report everything since the first release.
+                last_seen = "0.0.0"
+            else:
+                # Fresh install: record what ran and say nothing. Reporting every
+                # setting introduced since 0.31.0 to someone installing today would
+                # be noise, and there is no upgrade to describe.
+                await write_state(db, KEY_LAST_SEEN_VERSION, __version__)
+                await db.commit()
+                set_upgrade_notice(None)
+                return
 
         dismissed_for = await read_state(db, KEY_UPGRADE_NOTICE_DISMISSED_FOR)
 
@@ -127,28 +143,77 @@ async def _publish_upgrade_notice() -> None:
     set_upgrade_notice(notice)
 
 
+async def _database_holds_data(db) -> bool:
+    """The database holds a vault (ADR-091 cl. 16: ``master_profiles`` non-empty).
+
+    A pre-0062 instance has no ``last_seen_version`` key; if it holds a profile
+    it is an upgrade, not a fresh install. (Every profile belongs to a user, so
+    "a user with a profile" is the same test.)
+    """
+    from applire.models.profile import MasterProfile
+    from applire.ownership import unscoped
+
+    with unscoped("startup-backfill"):
+        count = (await db.execute(select(func.count()).select_from(MasterProfile))).scalar_one()
+    return bool(count)
+
+
+async def _enforce_harness_fences() -> None:
+    """ADR-091 cl. 3: with AUTH_HARNESS on, a failed fence ends the process (exit 1)."""
+    if not settings.auth_harness:
+        return
+    from applire.auth import _seams
+    from applire.auth.harness import HarnessRefused, enforce_at_startup, log_refusal
+
+    async with AsyncSessionLocal() as db:
+        try:
+            await enforce_at_startup(db)
+        except HarnessRefused as exc:
+            log_refusal(exc)
+            logging.shutdown()
+            os._exit(1)
+        await _seams.audit(
+            db, actor_id=None, action="harness.boot", target_type="instance",
+            target_id=None, details={},
+        )
+        await db.commit()
+
+
+async def _prepare_accounts() -> None:
+    """Stub row, instance secret, and the setup code (ADR-091 cl. 10, 14, 15)."""
+    from applire.auth.setup import (
+        ensure_instance_secret,
+        ensure_stub_user,
+        prepare_boot,
+        setup_block,
+    )
+
+    async with AsyncSessionLocal() as db:
+        await ensure_stub_user(db)
+        await ensure_instance_secret(db)
+        code = None if settings.auth_harness else await prepare_boot(db)
+        await db.commit()
+    if code is not None:
+        _applire_logger.warning(setup_block(code))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_startup_posture()
     subprocess.run(["alembic", "upgrade", "head"], check=True)
+    await _enforce_harness_fences()
     await _publish_upgrade_notice()
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            text(
-                "INSERT INTO users (id, email, created_at) VALUES (:id, :email, :created_at)"
-                " ON CONFLICT (id) DO NOTHING"
-            ),
-            {"id": str(_STUB_USER_ID), "email": _STUB_EMAIL, "created_at": datetime.now(timezone.utc)},
-        )
-        await db.commit()
+    await _prepare_accounts()
     # ADR-077 clause 1 — one-time entry-id backfill through the committer
     # module. Idempotent (skips fully-migrated profiles), so it rides every
     # startup right after the schema migration, like the migration itself.
+    from applire.ownership import unscoped
     from applire.services.profile.commit import backfill_entry_ids
 
     async with AsyncSessionLocal() as db:
-        await backfill_entry_ids(db)
-        await db.commit()
+        with unscoped("startup-backfill"):
+            await backfill_entry_ids(db)
+            await db.commit()
     await ensure_thumbnails(STATIC_DIR)
     # ADR-086 clause 9 — the ops verdict (and the WARNING that follows a change) is
     # computed on a timer, because after hand-over the operator is not watching.
@@ -163,7 +228,27 @@ app = FastAPI(
     description="AI-powered DACH CV tailoring — Community Edition",
     version=__version__,
     lifespan=lifespan,
+    # D-6: the API docs are re-mounted below behind a login.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_json(_user=Depends(require_user)) -> JSONResponse:
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False)
+async def swagger_docs(_user=Depends(require_user)):
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{app.title} — docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_docs(_user=Depends(require_user)):
+    return get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} — ReDoc")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -175,6 +260,8 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(health.router)
+app.include_router(auth_router.router)
+app.include_router(setup_router.router)
 app.include_router(ops.router)
 app.include_router(job.router)
 app.include_router(jobs.router)
