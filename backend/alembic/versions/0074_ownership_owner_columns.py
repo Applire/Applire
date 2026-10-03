@@ -196,6 +196,9 @@ def upgrade() -> None:
     _reown_to_stub(bind, "uploads")
     with op.batch_alter_table("uploads") as batch:
         batch.alter_column("user_id", existing_type=sa.Uuid(), nullable=False)
+    # The model has always declared it; no migration created it (drift found by
+    # comparing the migrated PostgreSQL schema with the models, 2026-10-03).
+    op.create_index("ix_uploads_user_id", "uploads", ["user_id"], if_not_exists=True)
 
     _reown_to_stub(bind, "cv_import_jobs")
     with op.batch_alter_table("cv_import_jobs") as batch:
@@ -281,6 +284,7 @@ def downgrade() -> None:
         batch.drop_constraint("fk_cv_import_jobs_user_id_users", type_="foreignkey")
         batch.alter_column("user_id", existing_type=sa.Uuid(), nullable=True)
 
+    op.drop_index("ix_uploads_user_id", table_name="uploads", if_exists=True)
     with op.batch_alter_table("uploads") as batch:
         batch.alter_column("user_id", existing_type=sa.Uuid(), nullable=True)
 

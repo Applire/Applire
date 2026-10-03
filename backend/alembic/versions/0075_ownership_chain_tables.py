@@ -127,6 +127,8 @@ def upgrade() -> None:
     _dedupe_user_settings(bind)
     with op.batch_alter_table("user_settings") as batch:
         batch.create_unique_constraint("uq_user_settings_user", ["user_id"])
+    # Declared by the model, never created by a migration (drift, 2026-10-03).
+    op.create_index("ix_user_settings_user_id", "user_settings", ["user_id"], if_not_exists=True)
 
     # 2. The chain tables copy their profile's owner.
     op.drop_index("uq_gap_analyses_live_fingerprint", table_name="gap_analyses")
@@ -210,6 +212,7 @@ def downgrade() -> None:
         sqlite_where=sa.text(_FP_WHERE),
     )
 
+    op.drop_index("ix_user_settings_user_id", table_name="user_settings", if_exists=True)
     with op.batch_alter_table("user_settings") as batch:
         batch.drop_constraint("uq_user_settings_user", type_="unique")
     if op.get_bind().dialect.name == "postgresql":  # 0011 created it on PostgreSQL only
