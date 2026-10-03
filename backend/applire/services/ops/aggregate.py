@@ -7,10 +7,9 @@
 verdict, and remembers the result. Two consumers read the cache rather than
 recomputing:
 
-* ``GET /health`` — its ``ops`` summary field. ``/health`` is the container
-  healthcheck's endpoint, called every 30 s (``docker-compose.yml:91``); making
-  it depend on Postgres would turn a database blip into a restart loop, so it
-  never computes anything (ADR-086 clause 3). Cold cache = ``null``.
+* ``GET /api/ops/health`` — its ``ops`` summary field (moved off the public
+  ``/health`` by RD-1, 2026-10-03). ``/health`` itself never computes anything:
+  it is the container healthcheck (ADR-086 clause 3). Cold cache = ``null``.
 * the background refresher — which is what makes the WARNING a *push* rather
   than something only a page load can trigger. ``Personas/Operator.md`` Step 5:
   *"the operator is not watching"*.
@@ -150,7 +149,7 @@ def _now_iso() -> str:
 
 
 def cached_summary() -> dict[str, Any] | None:
-    """What ``GET /health`` puts in its ``ops`` field. Never computes."""
+    """The ``ops`` field of ``GET /api/ops/health`` (was on ``/health`` before RD-1). Never computes."""
     if _state is None:
         return None
     return {"status": _state[0], "since": _state[1]}
@@ -173,10 +172,15 @@ def reset_state() -> None:
 async def _refresh_loop() -> None:
     from applire.db.session import AsyncSessionLocal
 
+    from applire.ownership import unscoped
+
     while True:
         try:
-            async with AsyncSessionLocal() as db:
-                await collect(db)
+            # ADR-092 cl. 7: the refresher is created in the lifespan and has no
+            # owner; it reads instance tables only (adversarial re-check §1 (c)).
+            with unscoped("ops-aggregate"):
+                async with AsyncSessionLocal() as db:
+                    await collect(db)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive
