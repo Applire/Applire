@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import _seams, provider_name
+from applire.auth import provider_name
+from applire.services.audit import record as audit_record
 from applire.auth.csrf import require_origin
 from applire.auth.deps import require_session_user, require_user
 from applire.auth.passwords import (
@@ -189,7 +190,7 @@ async def change_password(
     await revoke_user_sessions(
         db, user.id, except_session_id=getattr(request.state, "auth_session_id", None)
     )
-    await _seams.audit(
+    await audit_record(
         db,
         actor_id=user.id,
         action="password.changed",

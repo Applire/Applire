@@ -49,7 +49,15 @@ from applire.routers import review as review_router  # ADR-090
 from applire.routers.admin import color_schemes as admin_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
+from applire.routers import auth_links, me_account, me_tokens  # Strawberry W1 (1b, 1c)
+from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
+from applire.routers.admin import users as admin_users  # 1b
 from applire.auth.deps import require_user
+from applire.auth.deps_links import DocumentResponseHeaders
+from applire.auth.logfilter import install_access_log_redaction
+
+# ADR-091 cl. 18: the uvicorn access log never carries a link signature or a token.
+install_access_log_redaction()
 from applire.services.thumbnails import ensure_thumbnails
 
 STATIC_DIR = resolve_static_dir()
@@ -162,7 +170,6 @@ async def _enforce_harness_fences() -> None:
     """ADR-091 cl. 3: with AUTH_HARNESS on, a failed fence ends the process (exit 1)."""
     if not settings.auth_harness:
         return
-    from applire.auth import _seams
     from applire.auth.harness import HarnessRefused, enforce_at_startup, log_refusal
 
     async with AsyncSessionLocal() as db:
@@ -172,7 +179,9 @@ async def _enforce_harness_fences() -> None:
             log_refusal(exc)
             logging.shutdown()
             os._exit(1)
-        await _seams.audit(
+        from applire.services.audit import record as audit_record
+
+        await audit_record(
             db, actor_id=None, action="harness.boot", target_type="instance",
             target_id=None, details={},
         )
@@ -188,11 +197,15 @@ async def _prepare_accounts() -> None:
         setup_block,
     )
 
+    from applire.auth.links import load_instance_secret
+
     async with AsyncSessionLocal() as db:
         await ensure_stub_user(db)
         await ensure_instance_secret(db)
         code = None if settings.auth_harness else await prepare_boot(db)
         await db.commit()
+        # cl. 18: the process copy of the secret the doc-link keys derive from.
+        await load_instance_secret(db)
     if code is not None:
         _applire_logger.warning(setup_block(code))
 
@@ -257,6 +270,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# cl. 18: Referrer-Policy + Cache-Control on the six document GETs (pure ASGI).
+app.add_middleware(DocumentResponseHeaders)
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(health.router)
@@ -279,3 +295,8 @@ app.include_router(settings_router.router)
 app.include_router(application.router)
 app.include_router(documents_router.router)
 app.include_router(admin_color_schemes.router)
+app.include_router(auth_links.router)
+app.include_router(me_account.router)
+app.include_router(me_tokens.router)
+app.include_router(admin_users.router)
+app.include_router(admin_probe_tokens.router)

@@ -16,9 +16,9 @@ from __future__ import annotations
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import _seams
 from applire.auth.base import AuthProvider
 from applire.auth.sessions import SESSION_COOKIE, resolve_session, user_is_live
+from applire.auth.tokens import request_bearer_user
 from applire.models.user import User
 
 
@@ -29,7 +29,7 @@ class LocalAuthProvider(AuthProvider):
 
     async def get_current_user(self, request: Request, db: AsyncSession) -> User | None:
         if "authorization" in request.headers:
-            user = await _seams.bearer_user(request, db, scope="api")
+            user = await request_bearer_user(request, db, scope="api")
             if not user_is_live(user):
                 return None
             request.state.auth_via = "bearer"

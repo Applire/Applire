@@ -60,9 +60,17 @@ def test_compiled_sql_with_every_owner_column_present_uses_only_allowed_columns(
     assert set(stmts) == {"application_count", "cv_count", "letter_count", "storage_bytes", "ai_tokens_30d"}
     _assert_allowed(_compiled(stmts))
 
+    # The profile path: chain tables WITHOUT an owner column (the pre-0075 shape;
+    # after the W1 merge the real models carry ``user_id``, so hide it explicitly).
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.cv import GeneratedCV
     from applire.models.profile import MasterProfile
-    monkeypatch.setattr(metadata, "_owner_col",
-                        lambda m: m.id if m is MasterProfile else getattr(m, "user_id", None))
+    monkeypatch.setattr(
+        metadata, "_owner_col",
+        lambda m: m.id if m is MasterProfile
+        else None if m in (GeneratedCV, GeneratedCoverLetter)
+        else getattr(m, "user_id", None),
+    )
     stmts = metadata.metadata_statements([uuid.uuid4()])
     assert "cv_count" in stmts and "JOIN master_profiles" in _compiled({"x": stmts["cv_count"]})[0]
     _assert_allowed(_compiled(stmts))

@@ -24,7 +24,7 @@ import argparse
 import getpass
 import sys
 
-from applire.auth import _seams
+from applire.services.audit import record as audit_record
 from applire.auth.harness import STUB_USER_ID
 from applire.auth.passwords import check_password_policy, hash_password
 from applire.auth.setup import claim_stub, ensure_stub_user, setup_required
@@ -66,7 +66,7 @@ async def create_admin(db, *, email: str, password: str) -> str:
     if await setup_required(db):
         if not await claim_stub(db, email=email, password_hash=password_hash):
             raise ValueError("The instance was claimed meanwhile — run the command again.")
-        await _seams.audit(
+        await audit_record(
             db, actor_id=STUB_USER_ID, action="setup.claimed", target_type="user",
             target_id=STUB_USER_ID, details={"via": "cli"},
         )

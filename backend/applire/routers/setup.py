@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import _seams
+from applire.services.audit import record as audit_record
 from applire.auth.csrf import require_origin
 from applire.auth.harness import STUB_USER_ID, forget_credential_cache
 from applire.auth.passwords import check_password_policy, hash_password
@@ -78,7 +78,7 @@ async def claim_instance(
     setup_throttle.record_success(key)
     user = await db.get(User, STUB_USER_ID)
     await db.refresh(user)
-    await _seams.audit(
+    await audit_record(
         db,
         actor_id=user.id,
         action="setup.claimed",

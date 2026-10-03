@@ -240,11 +240,6 @@ async def _owns_document(
 
     model = GeneratedCV if kind == "cv" else GeneratedCoverLetter
     with owner_context(user_id):
-        if not hasattr(model, "user_id"):
-            # Integration shim (removed by the main session once 3a's 0075 owner
-            # column is merged): before the column exists there is one user, so
-            # existence is ownership.
-            return await db.get(model, doc_id) is not None
         try:
             await get_owned(db, model, doc_id, user_id)
         except OwnedNotFound:

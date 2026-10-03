@@ -26,8 +26,8 @@ bearer) or the fenced ``HarnessAuthProvider``. Before resolving, every unsafe
 request that carries a ``Cookie`` and no ``Authorization`` header passes the
 origin check (ADR-091 cl. 12, ``auth/csrf.py``). ``require_admin`` checks
 ``role == "admin"`` (the harness stub acts as admin). ``require_session_user``
-refuses a bearer-authenticated request with 403 ``forbidden``. 1c fills the
-signed-link branch and the probe-token branch (``auth/deps_links.py``).
+refuses a bearer-authenticated request with 403 ``forbidden``. ``user_or_signed_link``
+and ``admin_or_probe`` are 1c's, re-exported from ``auth/deps_links.py``.
 """
 
 from __future__ import annotations
@@ -110,32 +110,10 @@ async def require_session_user(
     return user
 
 
-async def user_or_signed_link(
-    request: Request,
-    provider: AuthProvider = Depends(get_auth_provider),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Document GETs: session, ``api`` bearer, or a valid signed link (cl. 16/18).
-
-    W0: identical to ``require_user``. 1c adds the link branch in
-    ``auth/deps_links.py`` (``?exp=&sig=`` → ``auth.links.verify_document_link``;
-    past or non-numeric ``exp`` → 410 ``link_expired``).
-    """
-    return await _resolve(request, provider, db)
-
-
-async def admin_or_probe(
-    request: Request,
-    provider: AuthProvider = Depends(get_auth_provider),
-    db: AsyncSession = Depends(get_db),
-) -> User | None:
-    """``GET /api/ops/health``: an admin, or a ``probe``-scope bearer (S-16).
-
-    Returns the admin ``User``, or ``None`` when a probe token authenticated
-    (a probe token has an owner row but acts for no user's data). W0: admin
-    only, via the provider; 1c adds the probe branch.
-    """
-    return await require_admin(request, provider, db)
+# 1c's two dependencies live in ``auth/deps_links.py`` (work-packages §3); re-exported
+# here so ``AUTH_DEPENDENCIES`` holds the very objects the routes depend on.
+# ``deps_links`` imports this module lazily inside its functions — no cycle.
+from applire.auth.deps_links import admin_or_probe, user_or_signed_link  # noqa: E402
 
 
 #: The five, for the route-auth inventory (US319) and the async test.

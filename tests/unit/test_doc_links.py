@@ -234,8 +234,6 @@ async def test_an_inactive_signer_gets_nothing(token_db, state):
 async def test_a_link_for_someone_elses_document_is_refused(token_db):
     """A correctly-MACed link whose signer does not own the document (only
     constructible with the secret) still opens nothing — the ownership check."""
-    if not hasattr(__import__("applire.models.cv", fromlist=["GeneratedCV"]).GeneratedCV, "user_id"):
-        pytest.skip("owner column arrives with 3a's migration 0075 (integration)")
     async with token_db.session() as db:
         owner = await make_person(db)
         stranger = await make_person(db)

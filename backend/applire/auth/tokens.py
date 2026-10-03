@@ -308,7 +308,7 @@ async def revoke_all_for_user(db: AsyncSession, user_id: uuid.UUID) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Audit seam (S-11): one helper, one guarded import
+# Audit (S-11): one helper over 1b's services.audit.record
 # ---------------------------------------------------------------------------
 
 
@@ -325,15 +325,10 @@ async def audit_token_event(
     """Write the audit row for a token action through 1b's ``services.audit.record``.
 
     ``details`` carry ids, the scope and a count only — never a token, a prefix,
-    a name or an email (ADR-091 cl. 26 key-set rule). Returns ``False`` when the
-    audit module is absent (this branch alone, before 1b is merged — the main
-    session removes the guard at integration). Does not commit.
+    a name or an email (ADR-091 cl. 26 key-set rule).
+    Does not commit. Always returns ``True`` (kept for the callers' signature).
     """
-    try:
-        from applire.services.audit import record  # package 1b
-    except ImportError:  # pragma: no cover - integration guard
-        logger.debug("services.audit absent — %s not audited on this branch", action)
-        return False
+    from applire.services.audit import record  # lazy: keeps auth/ free of a services import cycle
     details: dict[str, Any] = {}
     if token_id is not None:
         details["token_id"] = str(token_id)
