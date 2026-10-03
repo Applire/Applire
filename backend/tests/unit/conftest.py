@@ -10,6 +10,9 @@ import uuid
 # ADR-091 cl. 3 (c): the harness proof for this tree is an IN-MEMORY SQLite URL
 # (was a ./test.db file, which outlives the run and so is no proof).
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
+# ADR-091 cl. 3: the unit tiers run on the NoAuth harness (AUTH_PROVIDER now
+# defaults to `local`; CI's unit step sets neither) — 1a NEEDS-EDIT, accepted by main.
+os.environ.setdefault("AUTH_HARNESS", "true")
 
 import pytest
 import pytest_asyncio
