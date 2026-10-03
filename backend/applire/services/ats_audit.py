@@ -1239,13 +1239,34 @@ def _name_intervals(text_norm: str, names: Sequence[str]) -> list[tuple[int, int
     return spans
 
 
-def non_claim_names_for_job(job: Any) -> NonClaimNames | None:
+def non_claim_names_for_job(job: Any, application: Any | None = None) -> NonClaimNames | None:
     """The four audit seams' one entry point: the analysed posting's title and
     employer (``JobAnalysis.role_title`` / ``company_name``). ``None`` without a job,
-    which keeps the full-text decision."""
+    which keeps the full-text decision.
+
+    ADR-092 cl. 5(f) (Strawberry): the posting is shared and immutable; what THIS
+    user calls the role and the employer lives on their ``applications`` row
+    (``effective_posting_labels``). Before Strawberry an agent's override was
+    written onto the posting itself, so the audit masked the override; with
+    ``application`` given, the effective labels are masked as well as the
+    posting's own — both are names of the posting, never a claim."""
     if job is None:
         return None
-    return non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+    posting = non_claim_names(getattr(job, "role_title", None), [getattr(job, "company_name", None)])
+    if application is None:
+        return posting
+    from applire.services.posting_labels import effective_posting_labels
+
+    role_title, company_name = effective_posting_labels(job, application)
+    effective = non_claim_names(role_title, [company_name])
+
+    def _union(a: tuple[str, ...], b: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(a + b))
+
+    return NonClaimNames(
+        titles=_union(effective.titles, posting.titles),
+        employers=_union(effective.employers, posting.employers),
+    )
 
 
 #: R-2 (founder, 2026-09-26): the words that end an employer clause — the first

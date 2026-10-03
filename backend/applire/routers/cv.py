@@ -84,9 +84,12 @@ async def post_generate(
             body.template,
             base_url,
             target_pages=body.target_pages,
+            user_id=_auth.id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -104,9 +107,11 @@ async def get_status(
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await get_cv_status(cv_id, db, base_url)
+        return await get_cv_status(cv_id, db, base_url, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -119,7 +124,7 @@ async def get_cv_ats_report_handler(
 ) -> ATSReportResponse:
     """ADR-039: persisted ATS audit report. `report` is null until generation + audit complete."""
     try:
-        return await get_cv_ats_report(cv_id, db)
+        return await get_cv_ats_report(cv_id, db, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -133,7 +138,7 @@ async def get_cv_truthfulness_report_handler(
     """ADR-052 / US246: persisted truthfulness self-audit. `report` is null until
     generation + self-audit complete (or for pre-Tiramisu rows)."""
     try:
-        return await get_cv_truthfulness_report(cv_id, db)
+        return await get_cv_truthfulness_report(cv_id, db, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -150,7 +155,7 @@ async def get_cv_critic_report_handler(
     pre-two-mount rows); `report.reason` distinguishes did-not-run from
     ran-and-found-nothing."""
     try:
-        return await get_cv_critic_report(cv_id, db)
+        return await get_cv_critic_report(cv_id, db, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -164,7 +169,7 @@ async def get_cv_profile_diff_handler(
     """US147 / ADR-040: deterministic diff of the generated CV vs the Master Profile,
     for the pre-download review. No LLM; reads persisted artifacts only (retention-safe)."""
     try:
-        return await get_cv_profile_diff(cv_id, db)
+        return await get_cv_profile_diff(cv_id, db, user_id=_auth.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -176,7 +181,7 @@ async def get_html(
     _auth: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
-        html = await get_cv_html(cv_id, db)
+        html = await get_cv_html(cv_id, db, user_id=_auth.id)
         return HTMLResponse(
             content=html,
             headers={
@@ -186,6 +191,8 @@ async def get_html(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -197,8 +204,8 @@ async def get_pdf(
     _auth: User = Depends(user_or_signed_link),
 ) -> Response:
     try:
-        pdf_bytes = await get_cv_pdf(cv_id, db)
-        filename = await get_pdf_filename(cv_id, db)
+        pdf_bytes = await get_cv_pdf(cv_id, db, user_id=_auth.id)
+        filename = await get_pdf_filename(cv_id, db, user_id=_auth.id)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -206,6 +213,8 @@ async def get_pdf(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -220,8 +229,8 @@ async def get_docx(
     rendered on demand from tailored_data, no bytes persisted. Mirrors
     GET /{cv_id}/pdf's contract exactly; only the artefact differs."""
     try:
-        docx_bytes = await get_cv_docx(cv_id, db)
-        filename = await get_docx_filename(cv_id, db)
+        docx_bytes = await get_cv_docx(cv_id, db, user_id=_auth.id)
+        filename = await get_docx_filename(cv_id, db, user_id=_auth.id)
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -229,6 +238,8 @@ async def get_docx(
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -246,9 +257,11 @@ async def get_cvs_for_job(
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     base_url = settings.applire_base_url.rstrip("/")
     try:
-        return await list_cvs_for_job(job_id, db, base_url)
+        return await list_cvs_for_job(job_id, db, base_url, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -261,9 +274,11 @@ async def get_sections(
 ) -> CVSectionsResponse:
     """Return structured sections with gap hints (23.3). Empty sections if no snapshot yet."""
     try:
-        return await get_cv_sections(cv_id, db)
+        return await get_cv_sections(cv_id, db, user_id=_auth.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -285,11 +300,13 @@ async def post_section_assist(
     Returns a single focused question. 422 if gap_id not found.
     """
     try:
-        return await start_assist_session(cv_id, section_id, body.gap_id, provider, db)
+        return await start_assist_session(cv_id, section_id, body.gap_id, provider, db, user_id=_auth.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -311,11 +328,13 @@ async def patch_section_assist(
     422 if session_id invalid or expired.
     """
     try:
-        return await submit_assist_answer(cv_id, section_id, body.session_id, body.answer, provider, db)
+        return await submit_assist_answer(cv_id, section_id, body.session_id, body.answer, provider, db, user_id=_auth.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -340,12 +359,15 @@ async def post_section_rewrite(
     """
     try:
         return await rewrite_section(
-            cv_id, section_id, body.directions, body.gap_ids, provider, db
+            cv_id, section_id, body.directions, body.gap_ids, provider, db,
+            user_id=_auth.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -369,12 +391,15 @@ async def patch_section(
     """
     try:
         return await patch_cv_section(
-            cv_id, section_id, body.content, body.save_to_profile, db, background_tasks
+            cv_id, section_id, body.content, body.save_to_profile, db, background_tasks,
+            user_id=_auth.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
@@ -396,7 +421,7 @@ async def patch_cv_signature(
     re-downloading takes effect without regenerating.
     """
     try:
-        effective = await set_cv_signature_override(cv_id, body.signature_override, db)
+        effective = await set_cv_signature_override(cv_id, body.signature_override, db, user_id=_auth.id)
         return CVSignatureOverrideResponse(
             cv_id=cv_id,
             signature_override=body.signature_override,

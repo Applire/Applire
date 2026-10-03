@@ -132,8 +132,6 @@ PENDING_REST: set[tuple[str, str]] = {
     ("GET", "/api/job/{job_id}/gaps"),  # 4a
     ("POST", "/api/job/{job_id}/gaps/liabilities/downgrade"),  # 4a
     ("GET", "/api/session/{session_id}"),  # 3d
-    ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist"),  # 3c
-    ("POST", "/api/cv/{cv_id}/sections/{section_id}/rewrite"),  # 3c
     ("POST", "/api/job/{job_id}/gaps/{cluster_id}/left-open"),  # 4a
     ("POST", "/api/profile/enrich/{session_id}/na"),  # 3b
     ("POST", "/api/profile/enrich/{session_id}/respond"),  # 3b
@@ -148,42 +146,19 @@ PENDING_REST: set[tuple[str, str]] = {
     ("PATCH", "/api/cover-letter/{cl_id}/signature"),  # 3d
     ("GET", "/api/cover-letter/{cl_id}/status"),  # 3d
     ("GET", "/api/cover-letter/{cl_id}/truthfulness-report"),  # 3d
-    ("POST", "/api/cover-letter/{doc_id}/review/add-evidence"),  # 3c
-    ("POST", "/api/cover-letter/{doc_id}/review/edited"),  # 3c
-    ("POST", "/api/cover-letter/{doc_id}/review/take-out"),  # 3c
-    ("POST", "/api/cover-letter/{doc_id}/review/undo"),  # 3c
-    ("POST", "/api/cover-letter/{doc_id}/review/walked"),  # 3c
-    ("GET", "/api/cv/{cv_id}/ats-report"),  # 3c
-    ("PATCH", "/api/cv/{cv_id}/color"),  # 3c
-    ("GET", "/api/cv/{cv_id}/critic-report"),  # 3c
-    ("GET", "/api/cv/{cv_id}/docx"),  # 3c
-    ("GET", "/api/cv/{cv_id}/html"),  # 3c
-    ("GET", "/api/cv/{cv_id}/pdf"),  # 3c
-    ("GET", "/api/cv/{cv_id}/profile-diff"),  # 3c
-    ("GET", "/api/cv/{cv_id}/sections"),  # 3c
-    ("PATCH", "/api/cv/{cv_id}/sections/{section_id:path}"),  # 3c
-    ("PATCH", "/api/cv/{cv_id}/sections/{section_id}/assist"),  # 3c
-    ("PATCH", "/api/cv/{cv_id}/signature"),  # 3c
-    ("GET", "/api/cv/{cv_id}/status"),  # 3c
-    ("GET", "/api/cv/{cv_id}/truthfulness-report"),  # 3c
-    ("POST", "/api/cv/{doc_id}/review/add-evidence"),  # 3c
-    ("POST", "/api/cv/{doc_id}/review/edited"),  # 3c
-    ("POST", "/api/cv/{doc_id}/review/take-out"),  # 3c
-    ("POST", "/api/cv/{doc_id}/review/undo"),  # 3c
-    ("POST", "/api/cv/{doc_id}/review/walked"),  # 3c
     ("GET", "/api/job/{job_id}"),  # 4a
     ("POST", "/api/job/{job_id}/gap-jobs"),  # 4a
     ("POST", "/api/job/{job_id}/gaps/refresh"),  # 4a
     ("POST", "/api/session/{session_id}/analyze-gaps"),  # 3d
 }
 
-#: MCP read tools / resources not yet scoped (4b, W2).
+#: MCP read tools / resources not yet scoped (4b, W2). ``get_cv_status`` and
+#: ``get_cv_ats_report`` left the list with 3c (W2): the CV services they call
+#: resolve the caller's owner context and read owner-keyed, so B gets not_found.
 PENDING_MCP: set[str] = {
     "get_application",
     "get_cover_letter_ats_report",
     "get_cover_letter_status",
-    "get_cv_ats_report",
-    "get_cv_status",
     "get_flow_state",
     "resource cv://",
     "resource flow://",
