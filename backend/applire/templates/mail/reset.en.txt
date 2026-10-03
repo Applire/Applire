@@ -1,0 +1,14 @@
+Subject: New password for Applire
+
+Hello,
+
+a new password was requested for the Applire account {email}. Set it here:
+
+{link}
+
+The link is valid for one hour (until {expires_at}) and works only once. You will be signed out on your other devices afterwards.
+
+Did not request this? Then you can delete this email — your current password stays valid.
+
+—
+This email was sent by the Applire instance at {instance_url}.
