@@ -31,7 +31,7 @@ from mcp.shared.exceptions import McpError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from tests.support.profile_factory import make_master_profile
+from tests.support.profile_factory import make_master_profile, retire_live_profiles
 
 _INFRA = "cluster-infra"
 _INVALID_INPUT = -32602
@@ -73,6 +73,7 @@ async def _seed(db, *, outcome=None, coverage="open", members=("Kubernetes", "Te
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
         company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test"},
         "skills": [{"name": "Python", "category": "technical"}],

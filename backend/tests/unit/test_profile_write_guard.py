@@ -924,13 +924,17 @@ async def test_the_executemany_insert_form_carrying_the_vault_raises(db_session)
     assert excinfo.value.reason == "ORM bulk INSERT"
 
 
+_STUB_OWNER = uuid.UUID("00000000-0000-0000-0000-000000000001")  # ADR-092 cl. 2 owner
+
+
 @pytest.mark.asyncio
 async def test_a_tokened_bulk_insert_succeeds(db_session):
     new_id = uuid.uuid4()
 
     with authorized_profile_write():
         await db_session.execute(
-            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+            # a bulk INSERT bypasses the ORM owner fill: it names the owner itself
+            insert(MasterProfile).values(id=new_id, profile_json=_seed(), user_id=_STUB_OWNER)
         )
     await db_session.commit()
 

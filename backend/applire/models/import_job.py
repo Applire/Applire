@@ -28,7 +28,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-from sqlalchemy import JSON, DateTime, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,9 +60,13 @@ class CVImportJob(Base):
     __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    # Scopes the status lookup to its owner (IDOR guard, parity with staged extractions).
-    # Nullable for single-user community / agent contexts that don't carry a user.
-    user_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    # The owner (ADR-092 cl. 3): NOT NULL + FK since migration 0074 — no ownerless
+    # job is readable by everyone any more (cl. 4).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="fk_cv_import_jobs_user_id_users"),
+        nullable=False,
+        index=True,
+    )
     filename: Mapped[str] = mapped_column(String(512), nullable=False, default="upload")
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=CVImportStatus.pending.value

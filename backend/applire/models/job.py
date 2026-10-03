@@ -33,11 +33,25 @@ from applire.db.session import Base
 
 class JobAnalysis(Base):
     __tablename__ = "job_analyses"
+    # The shared, immutable posting cache (S-17, ADR-092 cl. 5): NOT owned.
+    __table_args__ = (
+        sa.CheckConstraint(
+            "raw_text_origin IN ('scraped','supplied')",
+            name="ck_job_analyses_raw_text_origin",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     raw_text_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    # Where ``raw_text`` came from (ADR-092 cl. 5d, MD-10; migration 0074):
+    # ``scraped`` — fetched from ``source_url``, safe to share by URL;
+    # ``supplied`` — pasted/handed in by a person (may carry their notes), so it is
+    # never matched by URL for another user. Default ``supplied``: the private side.
+    raw_text_origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="supplied", server_default="supplied"
+    )
     role_title: Mapped[str] = mapped_column(Text, nullable=False)
     required_skills: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)
     nice_to_have_skills: Mapped[list] = mapped_column(_JSON, nullable=False, default=list)

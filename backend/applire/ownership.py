@@ -19,14 +19,35 @@ listener on the application engine's ``sync_engine`` (never the ``Engine`` class
 ``alembic/env.py`` builds its own engine and stays unguarded). Its table regex is
 built from the models carrying ``__owned__ = True`` — never hand-written.
 
-**W0 state (Strawberry build 1):** the listener is registered but **disabled** by
-the module flag ``GUARD_ENABLED``. Package 3a adds the ORM loader criteria
-(defence in depth, cl. 8b) and package 3e flips the flag.
+**State (Strawberry build 1, W1 / package 3a):** the listener is registered but
+**disabled** by the module flag ``GUARD_ENABLED``; ``GUARD_REPORT_ONLY`` turns an
+enabled guard into a logger (the W2 "report mode": the violation is logged and
+kept in ``guard_reports()``, nothing raises). Package 3e flips the flags (W3).
+
+Three more mechanisms live here, installed on the declarative ``Base`` by
+``install_orm_hooks`` (called from ``applire/db/session.py``):
+
+* **Owner fill + chain consistency (cl. 1, SF-OWN.9)** — a ``before_insert``
+  mapper listener on every ``__owned__`` model with a ``user_id`` column. A chain
+  row (``profile_id`` + ``user_id``) whose ``user_id`` differs from its profile's
+  owner raises ``OwnerMismatch`` (checked when the profile is loaded in the
+  session); a row inserted with ``user_id`` unset takes the profile's owner (chain
+  tables) or else the *user* owner context — the latter counted in ``FILL_STATS``
+  and logged (WARNING), so W2/3e can see which constructors still rely on it. With neither,
+  the column stays NULL and the database's NOT NULL refuses the row — an
+  ``unscoped`` context never names an owner by itself. Always on (it is a model
+  rule, not the guard).
+* **Loader criteria (cl. 8b, defence in depth, never credited)** — a
+  ``do_orm_execute`` hook adds ``with_loader_criteria(Model, Model.user_id == uid)``
+  for every owned model on SELECT/UPDATE/DELETE while a *user* context is set and
+  the guard is enabled.
 """
 
 from __future__ import annotations
 
+import collections
 import contextlib
+import logging
 import re
 import uuid
 from contextvars import ContextVar, Token
@@ -62,8 +83,21 @@ IDENTITY_TABLES: frozenset[str] = frozenset(
     }
 )
 
-#: W0: the guard is registered but OFF. 3e flips this (ADR-092 cl. 8a).
+#: W0/W1: the guard is registered but OFF. 3e flips this (ADR-092 cl. 8a).
 GUARD_ENABLED: bool = False
+
+#: W2 report mode: with ``GUARD_ENABLED`` the guard logs + records instead of raising.
+GUARD_REPORT_ONLY: bool = False
+
+#: Owner fills taken from the owner CONTEXT (not a profile), per table — W2/3e read
+#: these to decide strict mode (main ruling, W1). Reset with ``FILL_STATS.clear()``.
+FILL_STATS: "collections.Counter[str]" = collections.Counter()
+
+_log = logging.getLogger(__name__)
+
+#: Report-mode findings (newest last, bounded) — the W2 isolation run reads these.
+_REPORTS_MAX = 500
+_reports: list[str] = []
 
 
 @dataclass(frozen=True)
@@ -86,6 +120,10 @@ _owner: ContextVar[OwnerContext | None] = ContextVar("applire_owner", default=No
 
 class OwnerContextMissing(RuntimeError):
     """Owned-table SQL ran with no owner context (the fail-closed guard, cl. 8a)."""
+
+
+class OwnerMismatch(RuntimeError):
+    """A chain row names a different owner than its profile (ADR-092 cl. 1, SF-OWN.9)."""
 
 
 class OwnedNotFound(HTTPException):
@@ -198,10 +236,27 @@ def check_statement(statement: str) -> None:
         )
 
 
+def guard_reports() -> list[str]:
+    """Report-mode findings so far (a copy)."""
+    return list(_reports)
+
+
+def clear_guard_reports() -> None:
+    _reports.clear()
+
+
 def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
     if not GUARD_ENABLED:
         return
-    check_statement(statement)
+    if not GUARD_REPORT_ONLY:
+        check_statement(statement)
+        return
+    try:
+        check_statement(statement)
+    except OwnerContextMissing as exc:
+        _log.warning("ownership guard (report mode): %s", exc)
+        _reports.append(f"{exc} :: {statement[:200]}")
+        del _reports[:-_REPORTS_MAX]
 
 
 def install_guard(async_engine: Any) -> None:
@@ -251,3 +306,127 @@ async def get_owned(db: Any, Model: type[M], id: Any, user_id: uuid.UUID, *, kin
     if row is None:
         raise OwnedNotFound(label)
     return row
+
+
+# ---------------------------------------------------------------------------
+# ORM hooks — owner fill / chain consistency (cl. 1) and loader criteria (cl. 8b)
+# ---------------------------------------------------------------------------
+
+
+def _context_user_id() -> uuid.UUID | None:
+    ctx = _owner.get()
+    return ctx.user_id if ctx is not None and not ctx.is_unscoped else None
+
+
+def _loaded_profile_owner(target: Any) -> uuid.UUID | None:
+    """The owner of ``target.profile_id``'s profile if that profile is in the session."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.orm.util import identity_key
+
+    from applire.models.profile import MasterProfile
+
+    pid = getattr(target, "profile_id", None)
+    session = sa_inspect(target).session
+    if pid is None or session is None:
+        return None
+    loaded = session.identity_map.get(identity_key(MasterProfile, pid))
+    return loaded.user_id if loaded is not None else None
+
+
+def _stored_profile_owner(connection: Any, target: Any) -> uuid.UUID | None:
+    from sqlalchemy import select
+
+    from applire.models.profile import MasterProfile
+
+    pid = getattr(target, "profile_id", None)
+    if pid is None:
+        return None
+    table = MasterProfile.__table__
+    return connection.execute(
+        select(table.c.user_id).where(table.c.id == pid)
+    ).scalar_one_or_none()
+
+
+def _before_insert_owner(mapper: Any, connection: Any, target: Any) -> None:
+    """Owner fill + chain-owner check (ADR-092 cl. 1).
+
+    * explicit ``user_id`` on a chain row: compared with the profile's owner **when
+      the profile is loaded** in the session (the ADR's wording — no extra query);
+      a difference raises ``OwnerMismatch``;
+    * ``user_id`` unset: the profile's owner (loaded, else one SELECT), else the
+      *user* owner context; with neither it stays NULL and NOT NULL refuses it.
+    """
+    cls = type(target)
+    if cls.__dict__.get("__owned__") is not True or "user_id" not in mapper.columns:
+        return
+    is_chain = "profile_id" in mapper.columns and cls.__tablename__ != "master_profiles"
+    if target.user_id is not None:
+        if is_chain:
+            owner = _loaded_profile_owner(target)
+            if owner is not None and owner != target.user_id:
+                raise OwnerMismatch(
+                    f"{cls.__tablename__} row names owner {target.user_id} but its "
+                    f"profile belongs to {owner} (ADR-092 cl. 1)"
+                )
+        return
+    owner = None
+    if is_chain:
+        owner = _loaded_profile_owner(target) or _stored_profile_owner(connection, target)
+    if owner is None:
+        owner = _context_user_id()
+        if owner is not None:
+            # RULING (main, W1): a fill from the CONTEXT is counted + logged so the
+            # W2 report-mode run shows which constructors still rely on it; 3e
+            # decides strict mode in W3 from FILL_STATS.
+            FILL_STATS[cls.__tablename__] += 1
+            _log.warning(
+                "ownership owner-fill from context",
+                extra={"ownership_fill": {"table": cls.__tablename__, "source": "context"}},
+            )
+    target.user_id = owner
+
+
+def _owned_models_with_user_id() -> list[type]:
+    return [
+        cls
+        for cls in _mapped_classes()
+        if cls.__dict__.get("__owned__") is True and hasattr(cls, "user_id")
+    ]
+
+
+def _do_orm_execute_criteria(orm_execute_state: Any) -> None:
+    if not GUARD_ENABLED:
+        return
+    uid = _context_user_id()
+    if uid is None:
+        return
+    if not (
+        orm_execute_state.is_select
+        or orm_execute_state.is_update
+        or orm_execute_state.is_delete
+    ):
+        return
+    from sqlalchemy.orm import with_loader_criteria
+
+    options = [
+        with_loader_criteria(
+            Model,
+            lambda cls, _uid=uid: cls.user_id == _uid,
+            include_aliases=True,
+            propagate_to_loaders=True,
+            track_closure_variables=False,
+        )
+        for Model in _owned_models_with_user_id()
+    ]
+    orm_execute_state.statement = orm_execute_state.statement.options(*options)
+
+
+def install_orm_hooks(base: Any) -> None:
+    """Register the owner-fill listener on ``base`` (propagating) and the criteria hook (idempotent)."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    if not event.contains(base, "before_insert", _before_insert_owner):
+        event.listen(base, "before_insert", _before_insert_owner, propagate=True)
+    if not event.contains(Session, "do_orm_execute", _do_orm_execute_criteria):
+        event.listen(Session, "do_orm_execute", _do_orm_execute_criteria)

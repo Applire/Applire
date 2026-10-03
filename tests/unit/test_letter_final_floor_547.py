@@ -60,7 +60,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from tests.support.profile_factory import make_master_profile
+from tests.support.profile_factory import make_master_profile, retire_live_profiles
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -120,6 +120,7 @@ async def _seed(db):
         language_requirement="de",
         jd_language="de",
     )
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     profile = make_master_profile(profile_json=_MINIMAL_PROFILE_JSON)
     db.add_all([user, job, profile])
     await db.flush()

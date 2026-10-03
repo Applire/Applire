@@ -59,7 +59,11 @@ async def test_get_profile_for_user_returns_the_newest_live_row(db):
     from tests.support.profile_factory import make_master_profile
 
     now = datetime.now(timezone.utc)
-    older = make_master_profile(profile_json={"personal_info": {"name": "Older"}})
+    # One live vault per owner (ADR-092 cl. 2): the older live row is another
+    # owner's — `_get_latest` (W0 body) still picks the newest live row overall.
+    older = make_master_profile(
+        profile_json={"personal_info": {"name": "Older"}}, user_id=uuid.uuid4()
+    )
     older.created_at = now - timedelta(days=2)
     newer = make_master_profile(profile_json={"personal_info": {"name": "Newer"}})
     newer.created_at = now - timedelta(days=1)
@@ -89,7 +93,13 @@ async def test_create_profile_record_accepts_user_id(db):
     await db.commit()
     assert record.id is not None
     assert record.profile_json == {}
-    positional = await create_profile_record(db, USER_ID)
+    # a second owner: the row's owner comes from the acting user's context
+    # until 3b makes `create_profile_record` set it (ADR-092 cl. 2)
+    from applire.ownership import owner_context
+
+    other = uuid.uuid4()
+    with owner_context(other):
+        positional = await create_profile_record(db, other)
     assert positional.id != record.id
 
 

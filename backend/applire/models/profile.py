@@ -49,7 +49,26 @@ class MasterProfile(Base):
     __tablename__ = "master_profiles"
     __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
+    # 1 User -> 1 live Profile (ADR-092 cl. 2, migration 0074): soft-deleted rows
+    # stay outside the constraint (RD-9 retires older duplicates that way).
+    __table_args__ = (
+        sa.Index(
+            "uq_master_profiles_user_live",
+            "user_id",
+            unique=True,
+            sqlite_where=sa.text("deleted_at IS NULL"),
+            postgresql_where=sa.text("deleted_at IS NULL"),
+        ),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # The owner (ADR-092 cl. 2). NOT NULL since migration 0074 (backfilled to the
+    # stub user, which setup converts into the admin — S-3).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("users.id", name="fk_master_profiles_user_id_users"),
+        nullable=False,
+        index=True,
+    )
     profile_json: Mapped[dict] = mapped_column(_ProfileJSON, nullable=False)
     # Embedding vector for job-profile similarity scoring (migration 0016).
     # Re-computed on every upsert; NULL until first pass; always NULL on SQLite.

@@ -491,8 +491,11 @@ async def _seed_grounding_cv(db, *, skill_name: str | None, suffix: str):
         company_culture_signals=[],
         language_requirement="en",
     )
+    # Two independent vaults = two owners (ADR-092 cl. 2: one live profile per
+    # owner); the CV takes its profile's owner (cl. 1).
     profile = make_master_profile(
         id=profile_id,
+        user_id=uuid.uuid4(),
         profile_json=_profile_json(skill_name),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
