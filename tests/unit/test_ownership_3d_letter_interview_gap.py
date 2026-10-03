@@ -544,3 +544,26 @@ async def test_meta_colour_fetch_reads_the_safe_get_response():
     with patch.object(safe_fetch, "safe_get", new=AsyncMock(return_value=resp)) as sg:
         assert await cd._fetch_meta_color("example.org") == "#ab12cd"
     assert sg.call_args.kwargs["headers"]["User-Agent"].startswith("Applire/")
+
+
+@pytest.mark.asyncio
+async def test_seam_profile_review_resumes_the_owners_session_not_a_newer_foreign_one(world):
+    """The standalone profile review (no job) is per owner: A resumes A's
+    in-flight review even though B's review is newer."""
+    from applire.services.session import create_profile_review_session
+
+    def _review(profile, at):
+        s = _interview(None, profile, created_at=at)
+        s.mode = "guided"
+        s.state = {**s.state, "mode": "guided", "job_id": None}
+        return s
+
+    with ownership.unscoped("tooling"):
+        async with world.factory() as db:
+            for s in (await db.execute(select(InterviewSession))).scalars():
+                s.status = "complete"
+            ra, rb = _review(world.pa, _T0), _review(world.pb, _T0 + timedelta(hours=2))
+            db.add_all([ra, rb])
+            await db.commit()
+    out = await _as(world, world.a, lambda db: create_profile_review_session(db, MagicMock(), user_id=world.a.id))
+    assert out.session_id == ra.id
