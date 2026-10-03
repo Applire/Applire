@@ -73,7 +73,7 @@ validation errors (422 from FastAPI, `detail` = list) and resource-not-found
 | `user_not_active` | 409 | `POST /api/admin/users/{id}/reset-link` | Pending (use reinvite) or disabled. |
 | `oidc_failed` | — (redirect) | `GET /api/auth/oidc/callback` → `302 /login?error=oidc_failed` | Any IdP/state/claim check failed. |
 | `oidc_no_account` | — (redirect) | callback → `302 /login?error=oidc_no_account` | Unknown identity and no pending invitation for its verified email ("ask your administrator for an invitation"). |
-| **TODO** `account_disabled` | 403 (proposed) | login / every request | **Pending a founder ruling** — whether a disabled person is told so, or sees `invalid_credentials`/`unauthenticated`. Not in `ErrorCode` until the ruling lands. |
+| `account_disabled` | 403 | `POST /api/auth/login` (and OIDC callback → `302 /login?error=account_disabled`) | Founder ruling W0B-3: returned **only after a correct password** (or a successful IdP round-trip) on a disabled account. A wrong password on a disabled account keeps `invalid_credentials` with identical body and timing — the code never reveals that an account exists. Requests on an existing session of a disabled account get `401 unauthenticated` (sessions are revoked on disable). |
 
 ## 3. Endpoints
 
@@ -98,7 +98,7 @@ the old `/health` body — 1c reduces it.
 |---|---|---|---|---|---|
 | `GET /api/auth/state` | public | — | `auth.AuthStateResponse` `{setup_required, oidc_enabled, oidc_button_label, smtp_enabled, harness}` | — | 1a |
 | `POST /api/setup` | public | `auth.SetupRequest` `{setup_token, email, password}` | 204 + session cookie | 403 `invalid_setup_token`, 409 `setup_done`, 409 `harness_active`, 422 `password_policy`, 403 `origin_mismatch` | 1a |
-| `POST /api/auth/login` | public | `auth.LoginRequest` `{email, password}` | 204 + session cookie | 401 `invalid_credentials`, 403 `origin_mismatch` | 1a |
+| `POST /api/auth/login` | public | `auth.LoginRequest` `{email, password}` | 204 + session cookie | 401 `invalid_credentials`, 403 `account_disabled` (correct password only, W0B-3), 403 `origin_mismatch` | 1a |
 | `POST /api/auth/logout` | `require_session_user` | — | 204, cookie cleared, session row revoked | 401 | 1a |
 | `GET /api/auth/me` | `require_user` | — | `auth.MeResponse` `{id, email, role, has_password, oidc_linked, ui_language}` | 401 | 1a |
 | `POST /api/auth/password` | `require_session_user` | `auth.PasswordChangeRequest` `{current, new}` | 204; the person's **other** sessions revoked | 403 `invalid_credentials`, 422 `password_policy` | 1a |
@@ -351,4 +351,5 @@ because the contract reads them: `AUTH_PROVIDER` (`local`; `none` re-meant),
 | W0-4 | `get_auth_provider` is `async def` | It is in every route's dependant tree; a sync factory runs in the threadpool and fails the async-all-the-way-down test. |
 | W0-5 | `OwnedNotFound` subclasses `HTTPException` | 404 rendering without touching `main.py`; MCP maps it explicitly. |
 | W0-6 | `require_session_user` on logout | A bearer has no session to end. |
+| W0-8 | `account_disabled` (403) per founder ruling W0B-3 | Only after a correct credential; never an existence oracle. |
 | W0-7 | Codes added beyond the ADR's list: `harness_disabled`, `invalid_setup_token`, `link_invalid`, `link_expired`, `email_taken`, `password_policy`, `reauth_required`, `user_not_pending`, `user_not_active`, `oidc_failed`, `oidc_no_account` | Each is a distinct state a page must word differently. |

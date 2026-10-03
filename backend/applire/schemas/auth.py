@@ -54,8 +54,9 @@ ErrorCode = Literal[
     "user_not_active",
     "oidc_failed",
     "oidc_no_account",
-    # TODO(FOUNDER-QUESTION pending): "account_disabled" (403) — whether a disabled
-    # person is told so at sign-in or sees invalid_credentials. A RULING settles it.
+    # RULING W0B-3: only after a CORRECT password on a disabled account (403);
+    # a wrong password keeps invalid_credentials with identical body and timing.
+    "account_disabled",
 ]
 
 
