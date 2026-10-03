@@ -44,6 +44,9 @@ class AdminUserMetadata(BaseModel):
     document_count: int
     #: Bytes of the person's uploads + rendered files, when measurable.
     storage_bytes: int | None = None
+    #: LLM tokens (``llm_usage.total_tokens``) of the last 30 days (W0B-1, CONTRACT-CHANGE
+    #: 1b-1); ``None`` while ``llm_usage`` carries no ``user_id`` (before migration 0075).
+    ai_tokens_30d: int | None = None
 
 
 class AdminUserItem(BaseModel):
@@ -54,6 +57,9 @@ class AdminUserItem(BaseModel):
     created_at: datetime
     last_login_at: datetime | None = None
     last_active_at: datetime | None = None
+    #: Pending accounts: expiry of the newest unused invite link (CONTRACT-CHANGE 1b-4,
+    #: users-list mock "Invitation valid until {date}"); ``None`` otherwise.
+    invite_expires_at: datetime | None = None
     metadata: AdminUserMetadata
 
 
