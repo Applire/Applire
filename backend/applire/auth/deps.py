@@ -38,9 +38,10 @@ from applire.db.session import get_db
 from applire.models.user import User
 from applire.ownership import set_owner
 
-#: Error bodies (contract: docs/dev/api-contract-strawberry.md §Errors).
-UNAUTHENTICATED = {"code": "unauthenticated", "detail": "Sign in to continue."}
-FORBIDDEN = {"code": "forbidden", "detail": "This needs an administrator."}
+#: Error ``detail`` objects (contract: docs/dev/api-contract-strawberry.md §Errors;
+#: shape = ``schemas.auth.ErrorDetail``, the codebase's ``error_code``/``message`` form).
+UNAUTHENTICATED = {"error_code": "unauthenticated", "message": "Sign in to continue."}
+FORBIDDEN = {"error_code": "forbidden", "message": "This needs an administrator."}
 
 
 def _unauthenticated() -> HTTPException:

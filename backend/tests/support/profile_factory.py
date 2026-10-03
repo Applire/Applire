@@ -41,8 +41,19 @@ from typing import Any
 from applire.models.profile import MasterProfile, authorized_profile_write
 
 
+#: Default owner of fixture profiles (Strawberry F12): the harness user, so the
+#: ~145 callers stay unedited when ``master_profiles.user_id`` lands (0074, 3a).
+from tests.support.owners import HARNESS_USER_ID  # noqa: E402
+
+
 def make_master_profile(**kwargs: Any) -> MasterProfile:
-    """Construct a `MasterProfile` fixture through the authorised door."""
+    """Construct a `MasterProfile` fixture through the authorised door.
+
+    Owner defaults to the harness user once the model has ``user_id`` (ADR-092
+    cl. 2); pass ``user_id=`` to build another person's vault.
+    """
+    if hasattr(MasterProfile, "user_id"):
+        kwargs.setdefault("user_id", HARNESS_USER_ID)
     with authorized_profile_write():
         return MasterProfile(**kwargs)
 

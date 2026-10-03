@@ -7,7 +7,9 @@ import os
 import uuid
 
 # Must be set before app modules are imported (pydantic Settings validates at import time)
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
+# ADR-091 cl. 3 (c): the harness proof for this tree is an IN-MEMORY SQLite URL
+# (was a ./test.db file, which outlives the run and so is no proof).
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 
 import pytest
 import pytest_asyncio
@@ -20,6 +22,18 @@ from applire.db.session import Base, get_db
 from applire.main import app
 from applire.schemas.profile import MasterProfileData
 
+# ADR-092 cl. 8 test bootstrap (Strawberry F12): the sync autouse owner context,
+# the opt-out marker, and the two-user fixture.
+from tests.support.owners import (  # noqa: E402,F401
+    harness_owner_context,
+    register_markers,
+    two_users,
+)
+
+
+def pytest_configure(config):
+    register_markers(config)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def docker_environment():
@@ -28,8 +42,12 @@ def docker_environment():
 
 
 @pytest_asyncio.fixture
-async def async_db():
-    """Create an in-memory SQLite database for testing."""
+async def async_db(harness_owner_context):
+    """Create an in-memory SQLite database for testing.
+
+    Depends on ``harness_owner_context`` so the owner context is set BEFORE
+    ``create_all`` (its PRAGMA statements name the owned tables — ADR-092 cl. 8).
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 
     # Create all tables

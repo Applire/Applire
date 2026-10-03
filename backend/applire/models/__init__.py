@@ -24,6 +24,7 @@ from applire.models import (  # noqa: F401
     color_profile,
     color_scheme,
     company,
+    cover_letter,
     cv,
     flow,
     gap,
