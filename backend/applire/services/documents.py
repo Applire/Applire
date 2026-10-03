@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.application import Application
 from applire.models.cv import GeneratedCV
+from applire.models.job import JobAnalysis
 from applire.schemas.documents import DocumentItem, DocumentListResponse
+from applire.services.posting_labels import effective_posting_labels
 
 
 async def list_documents(
@@ -38,11 +40,17 @@ async def list_documents(
 
     Joins generated_cvs → applications to get role_title, company_name and
     flow_session_id without touching master_profiles.
+
+    ADR-092 cl. 3 (US333/US334): the posting is shared, so the join on
+    ``job_analysis_id`` alone would pair the caller's application with ANOTHER
+    user's CV for the same posting — both sides are keyed on the owner.
     """
     base = (
-        select(GeneratedCV, Application)
+        select(GeneratedCV, Application, JobAnalysis)
         .join(Application, GeneratedCV.job_analysis_id == Application.job_analysis_id)
+        .join(JobAnalysis, JobAnalysis.id == GeneratedCV.job_analysis_id)
         .where(
+            GeneratedCV.user_id == user_id,
             Application.user_id == user_id,
             GeneratedCV.deleted_at.is_(None),
             Application.deleted_at.is_(None),
@@ -67,14 +75,15 @@ async def list_documents(
         DocumentItem(
             cv_id=cv.id,
             flow_id=app.flow_session_id,
-            role_title=app.role_title,
-            company_name=app.company_name,
+            role_title=labels[0],
+            company_name=labels[1],
             template=cv.template,
             status=cv.status,
             created_at=cv.created_at,
             expires_at=cv.expires_at,
             origin=cv.origin,
         )
-        for cv, app in rows
+        for cv, app, job in rows
+        for labels in (effective_posting_labels(job, app),)
     ]
     return DocumentListResponse(items=items, total=total)

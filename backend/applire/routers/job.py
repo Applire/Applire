@@ -37,11 +37,12 @@ from applire.schemas.gap import (
     KeywordLiabilityDowngradeRequest,
 )
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
-from applire.services.application import find_duplicate_application
+from applire.services.application import get_application_for_job
 from applire.services.gap import analyze_gaps, downgrade_keyword_liability, set_cluster_left_open
 from applire.services.gap_coverage import AnswerScope, LeftOpenRefused
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
-from applire.services.job import analyze_jd
+from applire.services.job import analyze_jd, get_job_for_user
+from applire.services.posting_labels import effective_posting_labels
 from applire.services.scraper import ScraperError, scrape_job_url
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,19 @@ router = APIRouter(prefix="/api/job", tags=["job"])
 
 def _get_provider() -> LLMProvider:
     return get_provider()
+
+
+async def _linked_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """The posting ``job_id`` through the caller's link (ADR-092 cl. 5c), else 404.
+
+    A dependency so a route can declare it BEFORE the provider: a foreign or
+    missing id answers 404 before any provider is even constructed (S-10).
+    """
+    return await get_job_for_user(db, job_id, current_user.id)
 
 
 @router.post("/analyze", response_model=JobAnalysisResponse, status_code=status.HTTP_200_OK)
@@ -75,12 +89,20 @@ async def analyze_job_description(
                 detail={"error_code": "jd_fetch_failed", "message": exc.reason},
             )
         source_url = body.url
+        origin = "scraped"
     else:
         text = body.text.strip()  # type: ignore[union-attr]
         source_url = None
+        origin = "supplied"
 
     try:
-        analysis = await analyze_jd(text, db, provider, source_url=source_url)
+        # ADR-092 cl. 5 / RD-2: analyze links the posting to the caller (their
+        # application row) and returns their labels + the Branch-F repost hint
+        # (computed before the link, so the fresh link never flags itself).
+        analysis = await analyze_jd(
+            text, db, provider, source_url=source_url,
+            user_id=current_user.id, raw_text_origin=origin,
+        )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -97,23 +119,6 @@ async def analyze_job_description(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-
-    # Branch F (E039/US220): flag a repost of a job already in the user's
-    # pipeline. Best-effort read-model enrichment — a failure here must never
-    # take down a successful analysis, so log-and-continue instead of raising.
-    try:
-        user = current_user
-        if user is not None:
-            analysis.duplicate_of = await find_duplicate_application(
-                user.id,
-                job_analysis_id=analysis.id,
-                source_url=source_url,
-                raw_text=text,
-                db=db,
-            )
-    except Exception:
-        logger.warning("duplicate-JD check failed; returning analysis without hint.", exc_info=True)
-
     return analysis
 
 
@@ -121,22 +126,19 @@ async def analyze_job_description(
 async def get_job_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> JobAnalysisResponse:
-    """Retrieve a stored JobAnalysis without re-triggering LLM (17.11)."""
-    from sqlalchemy import select
-    from applire.models.job import JobAnalysis
+    """Retrieve a stored JobAnalysis without re-triggering LLM (17.11).
 
-    result = await db.execute(
-        select(JobAnalysis).where(
-            JobAnalysis.id == job_id,
-            JobAnalysis.deleted_at.is_(None),
-        )
-    )
-    job = result.scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
-    return JobAnalysisResponse.model_validate(job)
+    Reachable only through the caller's link to the shared posting
+    (``get_job_for_user``, ADR-092 cl. 5c) — 404 otherwise (S-10). The labels
+    are the caller's own (``effective_posting_labels``, cl. 5f).
+    """
+    job = await get_job_for_user(db, job_id, current_user.id)
+    app = await get_application_for_job(job.id, current_user.id, db)
+    response = JobAnalysisResponse.model_validate(job)
+    response.role_title, response.company_name = effective_posting_labels(job, app)
+    return response
 
 
 @router.post(
@@ -147,8 +149,9 @@ async def get_job_analysis(
 async def refresh_gap_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+    _job=Depends(_linked_job),  # before the provider: 404 first
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Re-run gap analysis against the current profile (19.11).
 
@@ -163,7 +166,9 @@ async def refresh_gap_analysis(
     that completes a micro-session (clause 8).
     """
     try:
-        return await analyze_gaps(job_id, db, provider, answer_scope=AnswerScope())
+        return await analyze_gaps(
+            job_id, db, provider, answer_scope=AnswerScope(), user_id=current_user.id
+        )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -188,7 +193,7 @@ async def downgrade_gap_keyword_liability(
     job_id: uuid.UUID,
     request: KeywordLiabilityDowngradeRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """#260 exit (b) — the pre-generation liability summary's "drop the
     keyword" action. Deterministic, no LLM: flips the matching claimable
@@ -196,8 +201,11 @@ async def downgrade_gap_keyword_liability(
     exit stays the existing POST /api/session (target_gap) micro-session
     flow — this endpoint only ever removes a claim, never adds one.
     """
+    await get_job_for_user(db, job_id, current_user.id)
     try:
-        return await downgrade_keyword_liability(job_id, request.concept, db)
+        return await downgrade_keyword_liability(
+            job_id, request.concept, db, user_id=current_user.id
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception:
@@ -225,7 +233,7 @@ async def set_gap_left_open(
     cluster_id: str,
     request: GapLeftOpenRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Ruling K-1 (ADR-089 amended 2026-09-27) — "Leave this gap open"
     (``left_open: true``) and "Pick it up again" (``false``) on the gaps page.
@@ -237,19 +245,13 @@ async def set_gap_left_open(
     a gap that is covered, declined or out of questions (nothing is open to
     leave); 404 when the job, its analysis or the gap is unknown.
     """
-    from sqlalchemy import select
-    from applire.models.job import JobAnalysis
     from applire.services.gap import stored_analysis_inputs_changed
 
-    job = (
-        await db.execute(
-            select(JobAnalysis).where(JobAnalysis.id == job_id, JobAnalysis.deleted_at.is_(None))
-        )
-    ).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    job = await get_job_for_user(db, job_id, current_user.id)
     try:
-        gap = await set_cluster_left_open(job_id, cluster_id, request.left_open, db)
+        gap = await set_cluster_left_open(
+            job_id, cluster_id, request.left_open, db, user_id=current_user.id
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except LeftOpenRefused as exc:
@@ -258,7 +260,9 @@ async def set_gap_left_open(
             detail={"error_code": "gap_not_askable", "message": str(exc)},
         )
     response = GapAnalysisResponse.model_validate(gap)
-    response.inputs_changed = await stored_analysis_inputs_changed(gap, job, db)
+    response.inputs_changed = await stored_analysis_inputs_changed(
+        gap, job, db, user_id=current_user.id
+    )
     return response
 
 
@@ -270,7 +274,7 @@ async def set_gap_left_open(
 async def get_latest_gap_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Return the most recent stored gap analysis for a job — no LLM call.
 
@@ -281,22 +285,16 @@ async def get_latest_gap_analysis(
     (``POST /gaps/refresh``)."""
     from sqlalchemy import select, desc
     from applire.models.gap import GapAnalysis
-    from applire.models.job import JobAnalysis
 
-    job_result = await db.execute(
-        select(JobAnalysis).where(
-            JobAnalysis.id == job_id,
-            JobAnalysis.deleted_at.is_(None),
-        )
-    )
-    job = job_result.scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    job = await get_job_for_user(db, job_id, current_user.id)
 
+    # ADR-092 cl. 3 / S-17: the posting is shared, the gap analysis is the
+    # caller's — newest gap BY OWNER, never another user's analysis of it.
     gap_result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == current_user.id,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(desc(GapAnalysis.created_at))
@@ -311,7 +309,9 @@ async def get_latest_gap_analysis(
     from applire.services.gap import stored_analysis_inputs_changed
 
     response = GapAnalysisResponse.model_validate(gap)
-    response.inputs_changed = await stored_analysis_inputs_changed(gap, job, db)
+    response.inputs_changed = await stored_analysis_inputs_changed(
+        gap, job, db, user_id=current_user.id
+    )
     return response
 
 
@@ -336,6 +336,7 @@ async def start_gap_analysis_endpoint(
     the same analyze_gaps, which reuses a matching gap_analyses row and skips the LLM.
     """
     user = current_user
+    await get_job_for_user(db, job_id, user.id)  # ADR-092 cl. 5c: 404 without a link
     job = await create_gap_job(db, job_analysis_id=job_id, user_id=user.id)
     background_tasks.add_task(run_gap_job_background, job.id, job_id, user.id)
     return GapJobResponse(gap_job_id=job.id, status=GapJobStatus(job.status))
@@ -365,7 +366,7 @@ async def get_gap_job_status_endpoint(
     result = None
     if job.status == GapJobStatus.ready.value and job.result_gap_analysis_id is not None:
         gap = await db.get(GapAnalysis, job.result_gap_analysis_id)
-        if gap is not None:
+        if gap is not None and gap.user_id == user.id:
             result = GapAnalysisResponse.model_validate(gap)
     return GapJobStatusResponse(
         gap_job_id=job.id,
