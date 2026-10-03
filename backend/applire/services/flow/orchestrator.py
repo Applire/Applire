@@ -437,12 +437,17 @@ async def repoint_flow_gap_analysis(
 
     Scope: a flow is uniquely (user_id, job_id) — keyed on BOTH (ADR-092 cl. 3,
     S-17: the posting is shared, so job_id alone can name several users' flows).
-    ``user_id`` None falls back to the user owner context (ruling 3d-1).
+    ``user_id`` None: the owner is the gap analysis row's own ``user_id`` (the
+    data names it — no context needed), else the user owner context (ruling 3d-1).
     Null-safe: no job_id or no owning flow is a no-op. Only the FK is touched —
     current_step and the step machine are left untouched (this is NOT a transition).
     """
     if job_id is None:
         return
+    if user_id is None:
+        user_id = await db.scalar(
+            select(GapAnalysis.user_id).where(GapAnalysis.id == gap_analysis_id)
+        )
     uid = resolve_user_id(user_id, "flow.repoint_flow_gap_analysis")
     result = await db.execute(
         select(FlowSession).where(
@@ -476,6 +481,10 @@ async def advance_flow_on_interview_complete(
     or the flow is not on the interview step. advance_flow is idempotent, so a
     later 'Generate CV' re-advance to cv_generation is harmless.
     """
+    if user_id is None:  # the session row names its owner (ADR-092 cl. 1)
+        user_id = await db.scalar(
+            select(InterviewSession.user_id).where(InterviewSession.id == interview_session_id)
+        )
     uid = resolve_user_id(user_id, "flow.advance_flow_on_interview_complete")
     result = await db.execute(
         select(FlowSession).where(

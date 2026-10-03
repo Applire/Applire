@@ -410,6 +410,48 @@ async def analyze_jd(
     user_id: uuid.UUID | None = None,
     raw_text_origin: str | None = None,
 ) -> JobAnalysisResponse:
+    """See :func:`_analyze_jd_once`; retried ONCE on an ``IntegrityError``.
+
+    ADR-092 cl. 11 / SF-OWN.4: a concurrent erasure can delete the shared
+    posting between this call's cache hit and its link insert (the link's FK
+    then fails). The retry runs the whole dedup again in a fresh transaction —
+    the posting is re-found or re-analysed, never linked to a deleted row.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    kwargs = dict(
+        source_url=source_url,
+        embedding_provider=embedding_provider,
+        role_title_override=role_title_override,
+        company_name_override=company_name_override,
+        user_id=user_id,
+        raw_text_origin=raw_text_origin,
+    )
+    try:
+        return await _analyze_jd_once(text, db, provider, **kwargs)
+    except IntegrityError:
+        # The link/posting inserts run in savepoints, so the outer transaction is
+        # normally still usable (and the caller's loaded objects stay loaded); roll
+        # back only a transaction the error left inactive.
+        tx = db.sync_session.get_transaction()
+        if tx is not None and not tx.is_active:
+            await db.rollback()
+        logger.warning("analyze_jd: integrity error (concurrent posting delete?) — retrying the dedup once.")
+        return await _analyze_jd_once(text, db, provider, **kwargs)
+
+
+async def _analyze_jd_once(
+    text: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    source_url: str | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
+    raw_text_origin: str | None = None,
+) -> JobAnalysisResponse:
     """Analyse a posting into the shared cache and link it to the caller (ADR-092 cl. 5).
 
     * The ``job_analyses`` row is one shared, immutable analysis per posting

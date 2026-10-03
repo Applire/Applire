@@ -317,3 +317,33 @@ async def test_analyze_without_owner_refuses(async_db, no_review_loop):
         with pytest.raises(ownership.OwnerContextMissing):
             await analyze_jd(_JD, async_db, provider)
     provider.aparse_json.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_analyze_retries_once_when_the_link_insert_hits_an_integrity_error(
+    async_db, two_users, no_review_loop, monkeypatch
+):
+    """ADR-092 cl. 11 / SF-OWN.4: a concurrent erasure deletes the posting between
+    the cache hit and the link insert → FK error → the dedup runs once more."""
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy.exc import IntegrityError
+
+    import applire.services.job as job_svc
+
+    a, _ = two_users
+    provider = AsyncMock()
+    provider.aparse_json = AsyncMock(return_value=_jd_payload())
+    real = job_svc.ensure_application_link
+    calls = []
+
+    async def flaky(*args, **kw):  # noqa: ANN002, ANN003
+        calls.append(1)
+        if len(calls) == 1:
+            raise IntegrityError("INSERT INTO applications", {}, Exception("FOREIGN KEY constraint failed"))
+        return await real(*args, **kw)
+
+    monkeypatch.setattr(job_svc, "ensure_application_link", flaky)
+    res = await job_svc.analyze_jd(_JD, async_db, provider, user_id=a.id)
+    assert len(calls) == 2
+    assert (await get_job_for_user(async_db, res.id, a.id)).id == res.id

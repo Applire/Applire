@@ -70,7 +70,7 @@ async def db():
     await engine.dispose()
 
 
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000042")
+_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")  # ADR-092: the harness owner the rows are filled with
 
 
 def _mock_provider(question="What is your GCP experience?"):

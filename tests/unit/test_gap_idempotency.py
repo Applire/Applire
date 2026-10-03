@@ -51,7 +51,7 @@ from applire.services.gap_coverage import AnswerScope
 
 from tests.support.profile_factory import make_master_profile, set_profile_json
 
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
+_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")  # ADR-092: the harness owner the rows are filled with
 
 
 class _SpyProvider(MockLLMProvider):
