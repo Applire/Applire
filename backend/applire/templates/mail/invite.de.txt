@@ -1,0 +1,19 @@
+Subject: Deine Einladung zu Applire
+
+Hallo,
+
+du wurdest zu Applire eingeladen — dem Werkzeug, mit dem du Lebensläufe und Anschreiben für deine Bewerbungen erstellst.
+
+Leg hier dein Passwort fest:
+
+{link}
+
+Der Link gilt bis {expires_at} und funktioniert nur einmal. Danach meldest du dich mit {email} und deinem Passwort an unter:
+
+{instance_url}
+
+Ist der Link abgelaufen, bitte die Person, die dich eingeladen hat, um einen neuen.
+Hast du keine Einladung erwartet, kannst du diese E-Mail einfach löschen — ohne den Link passiert nichts.
+
+—
+Diese E-Mail wurde von der Applire-Instanz unter {instance_url} verschickt.
