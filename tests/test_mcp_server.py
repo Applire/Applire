@@ -250,6 +250,42 @@ def test_mcp_server_advertises_applire_name():
     assert init_resp["result"].get("serverInfo", {}).get("name") == "Applire"
 
 
+def _start_refused(env: list[str]) -> tuple[int, str, str]:
+    proc = subprocess.Popen(
+        ["docker", "compose", "exec", "-iT", *env, "backend", "python", "-m", "applire.mcp"],
+        cwd=PROJECT_ROOT,
+        env=_DOCKER_ENV,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout, stderr = proc.communicate(input="", timeout=30)
+    return proc.returncode, stdout, stderr
+
+
+def test_mcp_refuses_to_start_without_an_agent_token():
+    """ADR-091 cl. 17 / S-5 — outside the test harness, no APPLIRE_AGENT_TOKEN means
+    the stdio server does not serve: stderr names Settings → Tokens, exit 1, and
+    stdout (the protocol channel) stays empty."""
+    code, stdout, stderr = _start_refused(
+        ["-e", "AUTH_HARNESS=false", "-e", "APPLIRE_AGENT_TOKEN="]
+    )
+    assert code == 1, (code, stderr[-500:])
+    assert "APPLIRE_AGENT_TOKEN" in stderr and "Settings" in stderr
+    assert stdout == ""
+
+
+def test_mcp_refuses_to_start_with_an_invalid_agent_token_even_on_the_harness():
+    """A given token always wins over the harness — a bogus one refuses the start."""
+    code, stdout, stderr = _start_refused(
+        ["-e", "APPLIRE_AGENT_TOKEN=apl_abcdefgh_" + "A" * 43]
+    )
+    assert code == 1, (code, stderr[-500:])
+    assert "APPLIRE_AGENT_TOKEN" in stderr
+    assert stdout == ""
+
+
 def test_mcp_sse_transport_rejected_with_exit_code_1():
     """MCP_TRANSPORT=sse must exit immediately with code 1."""
     proc = subprocess.Popen(
