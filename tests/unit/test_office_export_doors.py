@@ -115,6 +115,7 @@ async def client(db):
     will use — the parity assertion only means something if both doors
     read/write the SAME row."""
     from applire.auth import get_auth_provider
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
     from applire.routers.cover_letter import router as cl_router
     from applire.routers.cv import router as cv_router
@@ -123,7 +124,7 @@ async def client(db):
     app.include_router(cv_router)
     app.include_router(cl_router)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_auth_provider] = lambda: object()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

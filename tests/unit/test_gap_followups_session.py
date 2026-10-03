@@ -628,6 +628,8 @@ def test_the_rest_door_answers_409_with_the_error_code():
     from fastapi.testclient import TestClient
 
     from applire.auth import get_auth_provider
+
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
     from applire.routers.session import _get_provider, router
     from applire.services.session import GapNotAskableError
@@ -636,7 +638,7 @@ def test_the_rest_door_answers_409_with_the_error_code():
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: MagicMock()
     app.dependency_overrides[_get_provider] = lambda: MagicMock()
-    app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     refusal = GapNotAskableError("gap_budget_spent", '"Cloud infrastructure" is spent.', _INFRA)
     with patch("applire.routers.session.create_session", new=AsyncMock(side_effect=refusal)):
         resp = TestClient(app).post(

@@ -30,8 +30,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.models.profile import MasterProfile
 from applire.services.matching import JobMatchResult, rank_jobs
@@ -57,7 +57,7 @@ async def match_jobs(
     top_n: int = Query(default=10, ge=1, le=100, description="Maximum number of results"),
     berufsbild_code: Optional[str] = Query(default=None, description="KldB 2020 prefix filter"),
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> list[JobMatchResultResponse]:
     """Return jobs ranked by combined score (embedding similarity + LLM match score).
 

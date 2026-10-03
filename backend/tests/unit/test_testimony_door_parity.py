@@ -276,6 +276,7 @@ def test_rest_door_serialises_not_applied_over_the_wire():
     other profile-adjacent routers."""
     import applire.routers.profile as profile_router
     from applire.auth import get_auth_provider
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
 
     canned = TestimonyResult(
@@ -294,7 +295,7 @@ def test_rest_door_serialises_not_applied_over_the_wire():
         yield None
 
     app = FastAPI()
-    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     app.dependency_overrides[get_db] = _stub_db
     app.dependency_overrides[profile_router._get_provider] = lambda: None
     app.include_router(profile_router.router)

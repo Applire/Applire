@@ -22,8 +22,8 @@ docs/superpowers/specs/2026-05-18-post-hire-profile-refresh-design.md
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.schemas.profile_roles import AddRoleRequest, AddRoleResponse
 from applire.services.profile.role_add import (
@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/profile/roles", tags=["profile"])
 async def add_role(
     body: AddRoleRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> AddRoleResponse:
     try:
         return await add_role_to_profile(body, db)

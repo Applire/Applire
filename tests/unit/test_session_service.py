@@ -3301,6 +3301,7 @@ def _setup_router_deps(app, mock_db=None, mock_provider=None):
     """Override db and auth dependencies on the app."""
     from applire.db.session import get_db
     from applire.auth import get_auth_provider
+    from applire.auth.no_auth import NoAuthProvider
 
     if mock_db is None:
         mock_db = AsyncMock()
@@ -3309,7 +3310,7 @@ def _setup_router_deps(app, mock_db=None, mock_provider=None):
         yield mock_db
 
     async def override_auth():
-        return None
+        return NoAuthProvider()
 
     if mock_provider is None:
         mock_provider = _mock_provider()

@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from applire.auth import get_auth_provider
+
+from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 from applire.routers.cv import router
 
@@ -21,7 +23,7 @@ async def _stub_db():
 @pytest.fixture()
 def client():
     app = FastAPI()
-    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     app.dependency_overrides[get_db] = _stub_db
     app.include_router(router)
     return TestClient(app, raise_server_exceptions=True)

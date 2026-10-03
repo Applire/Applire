@@ -9,6 +9,8 @@ Run:
 import uuid
 from unittest.mock import MagicMock, patch
 
+import asyncio
+
 import pytest
 
 
@@ -23,7 +25,7 @@ def test_factory_returns_no_auth_provider_by_default():
 
     with patch("applire.auth.settings") as mock_settings:
         mock_settings.auth_provider = "none"
-        provider = get_auth_provider()
+        provider = asyncio.run(get_auth_provider())
     assert isinstance(provider, NoAuthProvider)
 
 
@@ -33,7 +35,7 @@ def test_factory_is_case_insensitive():
 
     with patch("applire.auth.settings") as mock_settings:
         mock_settings.auth_provider = "None"
-        provider = get_auth_provider()
+        provider = asyncio.run(get_auth_provider())
     assert isinstance(provider, NoAuthProvider)
 
 
@@ -43,7 +45,7 @@ def test_factory_raises_on_unknown_provider():
     with patch("applire.auth.settings") as mock_settings:
         mock_settings.auth_provider = "magic"
         with pytest.raises(ValueError, match="Unknown AUTH_PROVIDER"):
-            get_auth_provider()
+            asyncio.run(get_auth_provider())
 
 
 # ---------------------------------------------------------------------------

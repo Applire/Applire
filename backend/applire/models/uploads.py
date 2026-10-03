@@ -31,6 +31,7 @@ _StagedJSON = JSONB().with_variant(JSON(), "sqlite")
 
 class UploadRecord(Base):
     __tablename__ = "uploads"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # user_id added in iter17 for GDPR erasure scoping; NULL for pre-iter17 rows

@@ -22,8 +22,8 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError
 from applire.models.gap_job import GapJobStatus
@@ -59,7 +59,7 @@ async def analyze_job_description(
     request: Request,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> JobAnalysisResponse:
     if body.url:
         try:
@@ -102,7 +102,7 @@ async def analyze_job_description(
     # pipeline. Best-effort read-model enrichment — a failure here must never
     # take down a successful analysis, so log-and-continue instead of raising.
     try:
-        user = await auth.get_current_user(request)
+        user = current_user
         if user is not None:
             analysis.duplicate_of = await find_duplicate_application(
                 user.id,
@@ -121,7 +121,7 @@ async def analyze_job_description(
 async def get_job_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> JobAnalysisResponse:
     """Retrieve a stored JobAnalysis without re-triggering LLM (17.11)."""
     from sqlalchemy import select
@@ -148,7 +148,7 @@ async def refresh_gap_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Re-run gap analysis against the current profile (19.11).
 
@@ -188,7 +188,7 @@ async def downgrade_gap_keyword_liability(
     job_id: uuid.UUID,
     request: KeywordLiabilityDowngradeRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """#260 exit (b) — the pre-generation liability summary's "drop the
     keyword" action. Deterministic, no LLM: flips the matching claimable
@@ -225,7 +225,7 @@ async def set_gap_left_open(
     cluster_id: str,
     request: GapLeftOpenRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Ruling K-1 (ADR-089 amended 2026-09-27) — "Leave this gap open"
     (``left_open: true``) and "Pick it up again" (``false``) on the gaps page.
@@ -270,7 +270,7 @@ async def set_gap_left_open(
 async def get_latest_gap_analysis(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     """Return the most recent stored gap analysis for a job — no LLM call.
 
@@ -325,7 +325,7 @@ async def start_gap_analysis_endpoint(
     background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> GapJobResponse:
     """Start an async gap analysis and return a handle immediately (202).
 
@@ -335,7 +335,7 @@ async def start_gap_analysis_endpoint(
     Idempotency (migration 0040 input_fingerprint) is preserved: the background task calls
     the same analyze_gaps, which reuses a matching gap_analyses row and skips the LLM.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     job = await create_gap_job(db, job_analysis_id=job_id, user_id=user.id)
     background_tasks.add_task(run_gap_job_background, job.id, job_id, user.id)
     return GapJobResponse(gap_job_id=job.id, status=GapJobStatus(job.status))
@@ -351,12 +351,12 @@ async def get_gap_job_status_endpoint(
     gap_job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> GapJobStatusResponse:
     """Poll an async gap analysis. 404 if unknown or owned by another user (IDOR guard)."""
     from applire.models.gap import GapAnalysis
 
-    user = await auth.get_current_user(request)
+    user = current_user
     job = await get_gap_job(db, gap_job_id, user_id=user.id)
     if job is None:
         raise HTTPException(

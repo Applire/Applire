@@ -42,6 +42,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.auth import get_auth_provider
+
+from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 from applire.schemas.testimony import TestimonyResult
 from tests.support.profile_factory import make_master_profile
@@ -91,7 +93,7 @@ def _client(db) -> TestClient:
         yield db
 
     app = FastAPI()
-    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[review_router._get_provider] = lambda: object()
     app.include_router(review_router.router)

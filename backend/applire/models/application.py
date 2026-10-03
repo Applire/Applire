@@ -90,6 +90,8 @@ class Application(Base):
 
     __tablename__ = "applications"
 
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
+
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True

@@ -33,7 +33,7 @@ _NOW = datetime(2026, 5, 8, 12, 0, 0, tzinfo=timezone.utc)
 
 
 class _MockAuth:
-    async def get_current_user(self, request):
+    async def get_current_user(self, request, db=None):
         user = MagicMock()
         user.id = _USER_ID
         return user

@@ -24,8 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.constants import INTERVIEW_SESSION_TTL_DAYS
 from applire.db.session import get_db
 from applire.models.profile import MasterProfile
@@ -207,7 +207,7 @@ async def start_enrich_session(
     body: EnrichStartRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> EnrichStartResponse:
     """Create a new Mode C profile enrichment session.
 
@@ -293,7 +293,7 @@ async def respond_to_enrich(
     body: EnrichRespondRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> EnrichRespondResponse:
     """Submit a user answer for the current gap question.
 
@@ -420,7 +420,7 @@ async def skip_gap(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> EnrichActionResponse:
     """Skip the current gap and advance to the next one."""
     session = await _load_session(session_id, db)
@@ -455,7 +455,7 @@ async def mark_gap_na(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    _auth: User = Depends(require_user),
 ) -> EnrichActionResponse:
     """Mark the current gap as not applicable (N/A).
 

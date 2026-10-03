@@ -32,7 +32,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.auth.deps import admin_or_probe
 from applire.db.session import get_db
+from applire.models.user import User
 from applire.services.ops.aggregate import collect
 from applire.services.ops.probes import DOWN
 
@@ -41,7 +43,9 @@ router = APIRouter(prefix="/api/ops", tags=["ops"])
 
 @router.get("/health")
 async def ops_health(
-    response: Response, db: AsyncSession = Depends(get_db)
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    _auth: User | None = Depends(admin_or_probe),
 ) -> dict[str, Any]:
     """Aggregated instance health. 503 only when the verdict is ``down``."""
     report = await collect(db)

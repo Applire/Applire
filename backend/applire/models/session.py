@@ -29,6 +29,7 @@ from applire.db.session import Base
 
 class InterviewSession(Base):
     __tablename__ = "interview_sessions"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
     __table_args__ = (
         # At most one active session per job — closes the check-then-create
         # race in create_session (concurrent requests, React StrictMode).
