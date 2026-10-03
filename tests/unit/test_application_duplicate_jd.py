@@ -41,6 +41,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.schemas.application import CreateApplicationRequest
 from applire.services.application import create_application, find_duplicate_application
 
@@ -122,6 +123,7 @@ async def user(db):
 
 async def _add_application(db, job, user_id=_STUB_USER_ID, **create_kwargs):
     db.add(job)
+    await link_posting(db, job, user_id)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return await create_application(
         user_id,

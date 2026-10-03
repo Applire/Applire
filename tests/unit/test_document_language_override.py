@@ -35,7 +35,10 @@ from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from tests.support.posting_links import link_posting
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -98,6 +101,7 @@ async def user_and_job(db):
         language_requirement="DE",
     )
     db.add_all([user, job])
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return user, job
 
@@ -299,10 +303,11 @@ class TestGenerationPinning:
         from applire.models.application import Application
 
         user, job = user_and_job
-        db.add(
-            Application(
-                user_id=user.id, job_analysis_id=job.id, language_override="en"
-            )
+        # ADR-092 cl.5: the user's link already exists (fixture); pin onto it, live.
+        await db.execute(
+            update(Application)
+            .where(Application.user_id == user.id, Application.job_analysis_id == job.id)
+            .values(language_override="en", deleted_at=None)
         )
         await db.commit()
 
@@ -484,10 +489,11 @@ class TestCoverLetterPinning:
 
         user, job = user_and_job
         await self._seed_profile(db)
-        db.add(
-            Application(
-                user_id=user.id, job_analysis_id=job.id, language_override="en"
-            )
+        # ADR-092 cl.5: the user's link already exists (fixture); pin onto it, live.
+        await db.execute(
+            update(Application)
+            .where(Application.user_id == user.id, Application.job_analysis_id == job.id)
+            .values(language_override="en", deleted_at=None)
         )
         db.add(FlowSession(user_id=user.id, job_id=job.id, current_step="cv_generation"))
         await db.commit()

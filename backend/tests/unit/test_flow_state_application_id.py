@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.flow import FlowSession
 from applire.services.flow.orchestrator import get_flow_state
+from tests.support.owners import HARNESS_USER_ID
 
 
 async def _make_flow(
@@ -21,7 +22,7 @@ async def _make_flow(
 ) -> FlowSession:
     """Insert a minimal FlowSession with an optional application_id."""
     flow = FlowSession(
-        user_id=uuid.uuid4(),
+        user_id=HARNESS_USER_ID,  # ADR-092: get_flow_state is owner-keyed
         job_id=None,
         current_step="cv_generation",
         user_type="returning",

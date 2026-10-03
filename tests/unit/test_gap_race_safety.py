@@ -193,13 +193,13 @@ async def test_create_gap_job_returns_winner_when_race_lost(db, seeded):
     real_find = gap_jobs_module._find_nonterminal_job
     calls = {"n": 0}
 
-    async def racy_find(session, job_analysis_id):
+    async def racy_find(session, job_analysis_id, user_id):
         # First call = the race window (the winner's insert lands after our
         # check); later calls behave normally, as the recovery re-select does.
         calls["n"] += 1
         if calls["n"] == 1:
             return None
-        return await real_find(session, job_analysis_id)
+        return await real_find(session, job_analysis_id, user_id)
 
     # Rollback (inside the lost race) expires ORM instances — pin the id now.
     job_id = job.id

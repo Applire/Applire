@@ -250,9 +250,14 @@ async def create_flow(
     if request.job_id is not None:
         # ADR-092 cl. 5c: the shared posting is reachable only through the
         # caller's link (their application row) — 404 otherwise.
+        from applire.ownership import OwnedNotFound
         from applire.services.job import get_job_for_user
 
-        job = await get_job_for_user(db, request.job_id, user_id)
+        try:
+            job = await get_job_for_user(db, request.job_id, user_id)
+        except OwnedNotFound:
+            # Same error both doors already map to 404 / not_found (S-10).
+            raise LookupError(f"Job {request.job_id} not found") from None
         job_summary = await _job_summary(job, user_id, db)
 
         existing = await _get_existing_flow(user_id, request.job_id, db)

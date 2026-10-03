@@ -37,6 +37,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
@@ -151,6 +152,7 @@ def _iso(dt: datetime) -> str:
 async def _make_application(db, job=None):
     job = job or _make_job()
     db.add(job)
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return await create_application(
         _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db

@@ -16,6 +16,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
+
 
 async def _job_and_cv(async_db: AsyncSession):
     from applire.models.cv import GeneratedCV
@@ -34,6 +37,8 @@ async def _job_and_cv(async_db: AsyncSession):
     )
     async_db.add_all([job, profile])
     await async_db.flush()
+    # ADR-092: the caller (harness user) reaches the posting through their link.
+    await link_posting(async_db, job, HARNESS_USER_ID)
     cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={})
     async_db.add(cv)
     await async_db.commit()

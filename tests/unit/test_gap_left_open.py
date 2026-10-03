@@ -34,7 +34,12 @@ from applire.services.gap_coverage import (
     with_left_open,
 )
 
-TEST_USER_ID = uuid.uuid4()
+# ADR-092: the rows below are owner-keyed to the ambient (harness) owner; the HTTP
+# caller must be that same user to reach them.
+from tests.support.owners import HARNESS_USER_ID  # noqa: E402
+from tests.support.posting_links import link_posting  # noqa: E402
+
+TEST_USER_ID = HARNESS_USER_ID
 
 
 def _row(concept, status):
@@ -214,6 +219,8 @@ async def db_session():
         )
         profile = make_master_profile(id=uuid.uuid4(), profile_json={"skills": [{"name": "Docker"}]})
         session.add_all([job, profile])
+        await session.flush()
+        await link_posting(session, job, TEST_USER_ID)  # ADR-092: the caller's link
         await session.commit()
         older = GapAnalysis(
             job_analysis_id=job.id, profile_id=profile.id, match_score=0.4,

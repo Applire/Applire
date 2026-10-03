@@ -33,6 +33,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
@@ -96,6 +97,7 @@ async def user_and_job(db):
         language_requirement="DE",
     )
     db.add_all([user, job])
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return user, job
 
@@ -106,8 +108,16 @@ _MANUAL_URL = "https://www.linkedin.com/jobs/view/456"
 @pytest.mark.asyncio
 async def test_create_denormalizes_source_url_from_job(db, user_and_job):
     """URL-tab path: the JD was scraped from a URL — it becomes the application's source."""
+    from sqlalchemy import update
+    from applire.models.application import Application
+
     user, job = user_and_job
     job.source_url = _JOB_URL
+    # ADR-092 cl.5: analyze records the caller's own URL on their link (the shared
+    # row's URL is never read back for an existing link), so mirror that here.
+    await db.execute(
+        update(Application).where(Application.job_analysis_id == job.id).values(source_url=_JOB_URL)
+    )
     await db.commit()
 
     resp = await create_application(

@@ -40,6 +40,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.models.application import UserStatus
 from applire.schemas.application import (
     CreateApplicationRequest,
@@ -151,6 +152,7 @@ async def user_and_job(db):
     )
     job = _make_job()
     db.add_all([user, job])
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return user, job
 
