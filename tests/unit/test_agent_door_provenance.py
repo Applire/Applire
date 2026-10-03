@@ -147,7 +147,7 @@ class TestDeliverySeamsReadTheRowsOrigin:
 
         seen: dict = {}
 
-        async def _fake_html(cv_id, db):
+        async def _fake_html(cv_id, db, **kwargs):
             return "<html></html>"
 
         async def _fake_pdf(html, *, digital_source_type=None):
@@ -158,7 +158,7 @@ class TestDeliverySeamsReadTheRowsOrigin:
             def __init__(self, origin):
                 self.origin = origin
 
-        async def _fake_load(cv_id, db):
+        async def _fake_load(cv_id, db, **kwargs):
             return _Row(origin)
 
         monkeypatch.setattr(cv_svc, "get_cv_html", _fake_html)
@@ -185,7 +185,7 @@ class TestDeliverySeamsReadTheRowsOrigin:
             def __init__(self, origin):
                 self.origin = origin
 
-        async def _fake_load(cv_id, db):
+        async def _fake_load(cv_id, db, **kwargs):
             return _Row(origin)
 
         async def _fake_prep(record, db):
@@ -275,7 +275,7 @@ class TestDeliverySeamsReadTheRowsOrigin:
         async def _session():
             yield _DB()
 
-        async def _fake_html(cl_id, db, require_ready=True):
+        async def _fake_html(cl_id, db, require_ready=True, **kwargs):
             return "<html></html>"
 
         class _Page:

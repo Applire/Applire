@@ -111,7 +111,9 @@ class TestGetCVProfileDiffService:
         profile.profile_json = _PROFILE
 
         db = AsyncMock()
-        db.get.side_effect = [cv, profile]  # GeneratedCV, then MasterProfile
+        db.get.side_effect = [profile]  # MasterProfile
+        # ADR-092: the CV is an owner-keyed SELECT (``owned_cv``), not ``db.get``.
+        db.execute.return_value = MagicMock(**{"scalar_one_or_none.return_value": cv})
         result = await get_cv_profile_diff("cv-1", db)
         assert result.grounded is False
         assert any(c.section == "skills" and c.new_value == "Kubernetes" for c in result.items)
@@ -123,17 +125,19 @@ class TestGetCVProfileDiffService:
 
         cv = MagicMock(); cv.tailored_data = _cv(); cv.profile_id = "p-1"
         profile = MagicMock(); profile.profile_json = _PROFILE
-        db = AsyncMock(); db.get.side_effect = [cv, profile]
+        db = AsyncMock(); db.get.side_effect = [profile]
+        db.execute.return_value = MagicMock(**{"scalar_one_or_none.return_value": cv})
 
         result = await get_cv_profile_diff("cv-1", db)
         assert result.grounded is True and result.items == []
 
     @pytest.mark.asyncio
     async def test_unknown_cv_raises(self):
-        from unittest.mock import AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
         import pytest as _pytest
         from applire.services.cv_diff import get_cv_profile_diff
 
-        db = AsyncMock(); db.get.side_effect = [None]
+        db = AsyncMock()
+        db.execute.return_value = MagicMock(**{"scalar_one_or_none.return_value": None})
         with _pytest.raises(ValueError):
             await get_cv_profile_diff("nope", db)

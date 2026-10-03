@@ -153,6 +153,10 @@ async def seeded(db):
             ),
         ]
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)
     await db.commit()
     return {"db": db, "job_id": job_id, "profile_id": profile_id}
 
@@ -296,6 +300,10 @@ async def test_render_agent_cv_unknown_job_and_missing_profile(db):
             language_requirement="de",
         )
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)  # linked: it must fail on the MISSING PROFILE
     await db.commit()
     with pytest.raises(LookupError):
         await render_agent_cv(dict(AGENT_CV_CONTENT), job_id, db)

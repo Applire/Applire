@@ -313,7 +313,12 @@ class TestGenerationPinning:
     async def test_generate_cv_pins_detection_without_an_override(
         self, db, user_and_job, monkeypatch
     ):
+        from tests.support.owners_3c import link_job
+
         user, job = user_and_job
+        # ADR-092: the user reaches the posting through their own link (no override).
+        await link_job(db, job.id, user.id)
+        await db.commit()
         record = await self._generate(db, job, monkeypatch)
         assert record.document_language == "de"
 
@@ -415,7 +420,7 @@ class TestBackgroundRenderThreadsPinnedLanguage:
         }[id_]
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_gap
-        mock_db.execute.return_value = mock_result
+        mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
         fallback_kwargs: dict = {}
         language_pass_langs: list = []
@@ -583,3 +588,31 @@ async def _call_mcp_update_application(db, application_id: str, **kwargs):
     cm.__aexit__ = AsyncMock(return_value=False)
     with patch("applire.mcp.server.get_db", return_value=cm):
         return await update_application(application_id=application_id, **kwargs)
+
+
+def _execute_by_entity(mock_cv, default_result, job_id):
+    """ADR-092: the background render loads the CV via an owner-keyed SELECT
+    (not ``db.get``), so route ``execute`` by the selected entity. The CV row
+    is owned by the harness user, the acting owner."""
+    from unittest.mock import MagicMock
+
+    from applire.models.application import Application
+    from applire.models.cv import GeneratedCV
+    from tests.support.owners import HARNESS_USER_ID
+
+    mock_cv.user_id = HARNESS_USER_ID
+    mock_cv.job_analysis_id = job_id
+
+    def _execute(stmt, *args, **kwargs):
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is GeneratedCV:
+            row = mock_cv
+        elif entity is Application:
+            row = None
+        else:
+            return default_result
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = row
+        return result
+
+    return _execute
