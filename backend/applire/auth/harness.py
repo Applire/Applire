@@ -153,10 +153,11 @@ async def any_credential(db: AsyncSession, *, use_cache: bool = True) -> bool:
         value = bool(
             (await db.execute(select(exists().where(credential_predicate())))).scalar()
         )
-    except DatabaseError:
-        # No ``users`` table (a unit test that creates only the tables it needs):
-        # a database without a users table holds no credential. Production
-        # always has it — the lifespan migrates before serving.
+    except (DatabaseError, OSError):
+        # No ``users`` table (a unit test that creates only the tables it needs),
+        # or no database reachable at all (an in-process test against an unset
+        # URL): such a database holds no credential and serves no data. A
+        # serving process has both — the lifespan migrates before serving.
         await db.rollback()
         return False
     try:
@@ -201,7 +202,7 @@ class HarnessAuthProvider(AuthProvider):
                 raise harness_disabled()
             try:
                 user = await db.get(User, STUB_USER_ID)
-            except DatabaseError:
+            except (DatabaseError, OSError):
                 await db.rollback()
                 user = None
         # A test that overrides ``get_db`` with a non-session double gets the

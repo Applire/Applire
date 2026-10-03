@@ -230,3 +230,30 @@ async def test_the_credential_cache_is_bounded_to_five_seconds(async_db, monkeyp
     assert await any_credential(async_db) is False  # cached
     clock[0] += 0.2
     assert await any_credential(async_db) is True  # > 5 s: re-read
+
+
+@pytest.mark.asyncio
+async def test_no_users_table_or_no_database_reads_as_no_credential():
+    """In-process suites that build partial schemas or never connect: no table,
+    no reachable DB ⇒ nothing to protect and nothing to serve (stated in harness.py)."""
+    from sqlalchemy.exc import OperationalError
+
+    class _Db(AsyncSession):
+        def __init__(self, exc):
+            self._exc = exc
+            self.rolled_back = False
+
+        def get_bind(self, *a, **k):
+            return object.__new__(type("Bind", (), {}))
+
+        async def execute(self, *a, **k):
+            raise self._exc
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    for exc in (OperationalError("x", {}, Exception("no such table: users")),
+                OSError("Connect call failed")):
+        db = _Db(exc)
+        assert await any_credential(db, use_cache=False) is False
+        assert db.rolled_back
