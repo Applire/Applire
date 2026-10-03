@@ -42,6 +42,7 @@ from applire.schemas.session import (
     SessionStateResponse,
 )
 from applire.services.gap import analyze_gaps_for_session
+from applire.services.job import get_job_for_user
 from applire.services.session import (
     GapNotAskableError,
     create_profile_review_session,
@@ -87,6 +88,9 @@ async def start_session(
     provider: LLMProvider = Depends(_get_provider),
     user: User = Depends(require_user),
 ) -> SessionCreateResponse:
+    # ADR-092 cl. 5(c) / S-10: the posting must be one the caller is linked to;
+    # a foreign or missing job id is the same 404.
+    await get_job_for_user(db, body.job_id, user.id)
     try:
         return await create_session(body, db, provider, user_id=user.id)
     except GapNotAskableError as exc:

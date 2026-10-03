@@ -201,7 +201,7 @@ def test_generation_logs_the_silence_once():
 
     from applire.services import cover_letter as cl
 
-    src = inspect.getsource(cl._render_cover_letter_background)
+    src = inspect.getsource(cl._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
     assert "LETTER_UNASKED_REQUIREMENTS" in src
     assert "logger.warning" in src.split("LETTER_UNASKED_REQUIREMENTS")[0][-400:]
 

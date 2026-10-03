@@ -64,7 +64,10 @@ async def client(db):
     app.dependency_overrides[get_db] = lambda: db
 
     auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+    # ADR-092: the acting user owns the seeded documents (owner fill = harness user).
+    from tests.support.owners import HARNESS_USER_ID
+
+    auth.get_current_user = AsyncMock(return_value=MagicMock(id=HARNESS_USER_ID))
     app.dependency_overrides[get_auth_provider] = lambda: auth
 
     transport = ASGITransport(app=app)

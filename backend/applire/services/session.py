@@ -54,7 +54,6 @@ from applire.utils.language_detection import resolve_jd_language
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
-from applire import ownership
 from applire.services.owner_resolution import resolve_user_id
 from applire.services.owner_scope import owned_row
 from applire.providers.llm.base import LLMProvider
@@ -191,7 +190,7 @@ def _account_name(profile_record: MasterProfile | None) -> str | None:
 
 
 async def _pending_gate_clusters(
-    db: AsyncSession, lang: str, account_name: str | None, *, user_id: uuid.UUID
+    db: AsyncSession, lang: str, account_name: str | None, *, user_id: uuid.UUID | None = None
 ) -> tuple[list[str], dict, dict]:
     """Build gate-first pseudo-clusters for every open parked gate (US167).
 
@@ -199,6 +198,7 @@ async def _pending_gate_clusters(
     caller can prepend the gate ids ahead of the JD gaps, mandatory and
     job-irrelevant. Empty when nothing is parked — the no-gate path is unchanged.
     """
+    user_id = resolve_user_id(user_id, site="session._pending_gate_clusters")
     from applire.services.profile import list_open_gates  # lazy: avoid import cycle
 
     records = await list_open_gates(db, user_id=user_id)
@@ -1276,7 +1276,7 @@ async def _ask_confirmation(
 async def _get_active_profile_review_session(
     db: AsyncSession,
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> InterviewSession | None:
     """The active standalone profile-review session, if one is in flight.
 
@@ -1285,6 +1285,7 @@ async def _get_active_profile_review_session(
     Mode-C enrichment sessions are ``mode='profile_enrich'``, so
     "guided + job IS NULL" identifies a profile review uniquely (resume-safe,
     ADR-004)."""
+    user_id = resolve_user_id(user_id, site="session._get_active_profile_review_session")
     result = await db.execute(
         select(InterviewSession)
         .where(
@@ -1686,10 +1687,11 @@ def _prior_asked(cluster: dict | None) -> int:
 
 
 async def _left_open_cluster_ids(
-    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> set[str]:
     """Ids of the clusters the candidate left open by hand (ruling K-1), read
     from the owner's latest analysis row of the job — the row the gaps page writes."""
+    user_id = resolve_user_id(user_id, site="session._left_open_cluster_ids")
     row = (
         await db.execute(
             select(GapAnalysis)
@@ -1788,7 +1790,7 @@ async def _prior_exchanges(
     db: AsyncSession,
     cluster: dict | None,
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     exclude_session_id: str | None = None,
 ) -> list[dict]:
     """Earlier (question, answer) pairs on ``cluster``, oldest first (ADR-089
@@ -1801,6 +1803,7 @@ async def _prior_exchanges(
     ``exclude_session_id`` is the asking session itself, whose own exchanges
     already reach the prompt as its "Recent conversation".
     """
+    user_id = resolve_user_id(user_id, site="session._prior_exchanges")
     if not cluster:
         return []
     cluster_id = str(cluster.get("id") or "")
@@ -1829,12 +1832,13 @@ async def _prior_exchanges(
 
 
 async def _latest_cluster_with_ledger(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> tuple[dict | None, list | None]:
     """The cluster entry as the job's latest analysis row carries it, and that
     row's keyword ledger (a legacy cluster's coverage is derived against it,
     exactly as ``GapAnalysisResponse`` derives it) — ``(None, None)`` when the
     latest row does not carry the cluster."""
+    user_id = resolve_user_id(user_id, site="session._latest_cluster_with_ledger")
     result = await db.execute(
         select(GapAnalysis)
         .where(
@@ -1852,9 +1856,10 @@ async def _latest_cluster_with_ledger(
 
 
 async def _latest_cluster(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> dict | None:
     """The cluster entry as the owner's latest analysis row carries it, or None."""
+    user_id = resolve_user_id(user_id, site="session._latest_cluster")
     cluster, _ledger = await _latest_cluster_with_ledger(
         job_id, cluster_id, db, user_id=user_id
     )
@@ -1963,7 +1968,7 @@ async def _cluster_question(
     provider: LLMProvider,
     db: AsyncSession,
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     session_id: str | None = None,
     **kwargs,
 ) -> dict:
@@ -1972,6 +1977,7 @@ async def _cluster_question(
     already asked carries those exchanges (read from the referenced
     transcripts, :func:`_prior_exchanges`). ``prior_exchanges`` is passed only
     when there is one, so a first-time cluster's call is unchanged."""
+    user_id = resolve_user_id(user_id, site="session._cluster_question")
     if state.get("mode") == "targeted":
         cluster_id = _current_gap_id(state)
         cluster = (state.get("gap_clusters_by_id") or {}).get(cluster_id) if cluster_id else None
@@ -2159,18 +2165,23 @@ async def create_session(
     *,
     user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
-    from applire.services.job import get_job_for_user
     from applire.services.profile import get_profile_for_user
 
     job_id = request.job_id
     uid = resolve_user_id(user_id, site="session.create_session")
 
-    # Resolve the posting the caller is linked to (ADR-092 cl. 5c; foreign or
-    # missing → the same 404, S-10).
-    try:
-        job = await get_job_for_user(db, job_id, uid)
-    except ownership.OwnedNotFound:
-        raise LookupError(f"Job analysis {job_id} not found") from None
+    # Resolve the shared posting. Posting ACCESS (ADR-092 cl. 5c) is the door's
+    # check (routers/session.py, the MCP tools) — everything read for the user
+    # below is owner-keyed.
+    job_result = await db.execute(
+        select(JobAnalysis).where(
+            JobAnalysis.id == job_id,
+            JobAnalysis.deleted_at.is_(None),
+        )
+    )
+    job = job_result.scalar_one_or_none()
+    if job is None:
+        raise LookupError(f"Job analysis {job_id} not found")
 
     # Resolve the caller's profile (may be None for MODE B)
     profile_record = await get_profile_for_user(db, uid)
@@ -2300,8 +2311,9 @@ async def _create_targeted_session(
     provider: LLMProvider,
     lang: str = "en",
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
+    user_id = resolve_user_id(user_id, site="session._create_targeted_session")
     if profile_record is None:
         raise LookupError(
             "No profile found — upload a CV first, or use mode='guided' to build from scratch"
@@ -2553,8 +2565,9 @@ async def _create_guided_session(
     provider: LLMProvider,
     lang: str = "en",
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
+    user_id = resolve_user_id(user_id, site="session._create_guided_session")
     # MODE B can start without a profile — create an empty stub if needed.
     #
     # #480 PR 8: the row is created by the vault's own write module, inside the
@@ -2683,7 +2696,7 @@ async def _create_micro_session(
     provider: LLMProvider,
     lang: str = "en",
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
     """Create a micro-session scoped to a single cluster (Gap-Click mode).
 
@@ -2699,6 +2712,7 @@ async def _create_micro_session(
     a follow-up RESUMES that session (clauses 7/8): the pending question is the
     one answered, and nothing is generated or charged twice.
     """
+    user_id = resolve_user_id(user_id, site="session._create_micro_session")
     if profile_record is None:
         raise LookupError(
             "No profile found — upload a CV first before using Gap-Click mode"
@@ -4355,7 +4369,7 @@ def _make_session_record(
     job_id: uuid.UUID,
     gap_analysis_id: uuid.UUID | None,
     profile_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     mode: str,
     status: str,
     state: InterviewState,
@@ -4378,8 +4392,9 @@ def _make_session_record(
 
 
 async def _get_active_session(
-    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> InterviewSession | None:
+    user_id = resolve_user_id(user_id, site="session._get_active_session")
     # Newest-first + first(): pre-migration databases may still hold
     # duplicate active sessions; never raise MultipleResultsFound here.
     result = await db.execute(
@@ -4406,9 +4421,10 @@ async def _load_profile(profile_id: str, db: AsyncSession) -> MasterProfile:
 
 
 async def _posting_role_title(
-    db: AsyncSession, job: JobAnalysis, user_id: uuid.UUID
+    db: AsyncSession, job: JobAnalysis, user_id: uuid.UUID | None = None
 ) -> str:
     """The owner's label for the posting (ADR-092 cl. 5f — application wins)."""
+    user_id = resolve_user_id(user_id, site="session._posting_role_title")
     from applire.services.application import get_application_for_job
     from applire.services.posting_labels import effective_posting_labels
 
@@ -4417,8 +4433,9 @@ async def _posting_role_title(
 
 
 async def _load_job_context(
-    job_id: str | None, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: str | None, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> dict:
+    user_id = resolve_user_id(user_id, site="session._load_job_context")
     if not job_id:
         return {}
     result = await db.execute(

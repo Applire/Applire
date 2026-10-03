@@ -641,7 +641,8 @@ def test_the_rest_door_answers_409_with_the_error_code():
     app.dependency_overrides[_get_provider] = lambda: MagicMock()
     app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     refusal = GapNotAskableError("gap_budget_spent", '"Cloud infrastructure" is spent.', _INFRA)
-    with patch("applire.routers.session.create_session", new=AsyncMock(side_effect=refusal)):
+    with patch("applire.routers.session.create_session", new=AsyncMock(side_effect=refusal)), \
+            patch("applire.routers.session.get_job_for_user", new=AsyncMock()):
         resp = TestClient(app).post(
             "/api/session", json={"job_id": str(uuid.uuid4()), "target_gap": _INFRA}
         )

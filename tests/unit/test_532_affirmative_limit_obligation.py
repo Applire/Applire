@@ -306,7 +306,7 @@ def test_the_generation_path_builds_the_block_from_the_jobs_own_ledger():
 
     from applire.services import cover_letter as svc
 
-    src = inspect.getsource(svc._render_cover_letter_background)
+    src = inspect.getsource(svc._render_cover_letter_body)  # ADR-092: the body behind the owner-context entry
     assert "render_required_limits_block(" in src
     assert "select_jd_relevant_limits(denied_concepts, keyword_ledger)" in src
     assert "required_limits_block=required_limits_block," in src

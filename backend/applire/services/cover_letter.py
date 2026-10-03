@@ -211,12 +211,8 @@ async def generate_cover_letter(
     from applire.services.application import get_application_for_job
     from applire.utils.language_detection import resolve_document_language
 
-    from applire.services.job import get_job_for_user
-
-    try:
-        job_row = await get_job_for_user(db, request.job_id, uid)
-    except ownership.OwnedNotFound:
-        raise LookupError(f"Job {request.job_id} not found") from None
+    # The caller's own flow (above) already implies their link to the posting.
+    job_row = await db.get(JobAnalysis, request.job_id)
     application = await get_application_for_job(request.job_id, uid, db)
     document_language = (
         resolve_document_language(application, job_row) if job_row else "de"
@@ -1243,10 +1239,18 @@ async def _render_cover_letter_body(
                 job = job_result.scalar_one_or_none()
                 if job is None:
                     raise LookupError("Job not found")
-                # ADR-092 cl. 5(f): the user's own labels for this posting.
-                from applire.services.application import get_application_for_job
+                # ADR-092 cl. 5(f): the user's own labels for this posting —
+                # from the application the caller already resolved (no new query).
+                from applire.models.application import Application
 
-                label_application = await get_application_for_job(job_id, user_id, db)
+                label_application = (
+                    await db.get(Application, application_id)
+                    if application_id is not None else None
+                )
+                if label_application is not None and getattr(
+                    label_application, "user_id", user_id
+                ) != user_id:
+                    label_application = None
                 job_role_title, job_company_name = effective_posting_labels(
                     job, label_application
                 )
@@ -3894,14 +3898,13 @@ async def render_agent_letter(
     only then flipped 'ready' — so 'ready' is never observable without reports.
     """
     from applire.schemas.cover_letter import LetterData
-    from applire.services.job import get_job_for_user
     from applire.services.profile import get_profile_for_user
 
     uid = resolve_user_id(user_id, site="cover_letter.render_agent_letter")
-    try:
-        job = await get_job_for_user(db, job_id, uid)
-    except ownership.OwnedNotFound:
-        raise LookupError(f"Job analysis {job_id} not found") from None
+    # Posting ACCESS (ADR-092 cl. 5c) is the MCP door's check (render_document).
+    job = await db.get(JobAnalysis, job_id)
+    if job is None:
+        raise LookupError(f"Job analysis {job_id} not found")
 
     profile = await get_profile_for_user(db, uid)
     if profile is None:

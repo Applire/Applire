@@ -256,9 +256,9 @@ async def test_two_users_on_one_posting_each_get_their_own_gap_analysis(world):
 @pytest.mark.asyncio
 async def test_a_user_without_a_link_to_the_posting_cannot_start_an_interview_on_it(world):
     """ADR-092 cl. 5(c) + S-10: a third user who never analysed the posting gets
-    the missing-job answer, not an interview on someone else's posting."""
+    the missing-job 404 at the door, not an interview on someone else's posting."""
+    from applire.routers.session import start_session
     from applire.schemas.session import SessionCreateRequest
-    from applire.services.session import create_session
 
     c = User(id=uuid.uuid4(), email="c-3d@example.org", role="user")
     with ownership.unscoped("tooling"):
@@ -266,8 +266,11 @@ async def test_a_user_without_a_link_to_the_posting_cannot_start_an_interview_on
             db.add(c)
             await db.commit()
     req = SessionCreateRequest(job_id=world.job.id, mode="targeted")
-    with pytest.raises(LookupError, match="not found"):
-        await _as(world, c, lambda db: create_session(req, db, MagicMock(), user_id=c.id))
+    with pytest.raises(ownership.OwnedNotFound):
+        await _as(world, c, lambda db: start_session(req, db, MagicMock(), user=c))
+    # A, who is linked, passes the door check (resumes their own session).
+    out = await _as(world, world.a, lambda db: start_session(req, db, MagicMock(), user=world.a))
+    assert out.session_id == world.ia.id
 
 
 # ---------------------------------------------------------------------------

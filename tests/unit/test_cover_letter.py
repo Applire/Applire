@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.owners import HARNESS_USER_ID
+
 from tests.support.profile_factory import make_master_profile
 
 _backend = Path(__file__).parent.parent.parent / "backend"
@@ -46,6 +48,7 @@ def test_profile_inactivity_ttl_default():
 # ---------------------------------------------------------------------------
 
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
@@ -684,7 +687,7 @@ async def test_generate_cover_letter_creates_pending_record(db):
     from applire.schemas.cover_letter import CoverLetterGenerateRequest
 
     # Seed minimal DB records
-    user = User(id=uuid.uuid4(), email="test@test.com")
+    user = User(id=HARNESS_USER_ID, email="test@test.com")  # ADR-092: the acting (harness) user owns the flow
     db.add(user)
     job = JobAnalysis(
         id=uuid.uuid4(),
@@ -770,7 +773,7 @@ async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db)
     from applire.models.user import User
     from applire.schemas.cover_letter import CoverLetterGenerateRequest
 
-    user = User(id=uuid.uuid4(), email="test2@test.com")
+    user = User(id=HARNESS_USER_ID, email="test2@test.com")  # ADR-092: the acting (harness) user owns the flow
     db.add(user)
     job = JobAnalysis(
         id=uuid.uuid4(),
@@ -807,7 +810,7 @@ async def test_generate_cover_letter_renders_inline_when_no_background_tasks(db)
 
     mock_provider = AsyncMock()
 
-    async def _fake_render_inline(cl_id, cv_id, job_id, application_id=None):
+    async def _fake_render_inline(cl_id, cv_id, job_id, application_id=None, *, user_id=None):
         # Stand-in for the real LLM+Jinja2+Playwright render — flips the
         # record to a terminal status, same observable effect the agent
         # relies on (get_cover_letter_status/generate_cover_letter's own
@@ -972,7 +975,7 @@ async def test_get_cover_letter_by_job_returns_status(db):
     from applire.models.job import JobAnalysis
     from applire.services.cover_letter import get_cover_letter_by_job
 
-    user = User(id=uuid.uuid4(), email="byj@test.com")
+    user = User(id=HARNESS_USER_ID, email="byj@test.com")  # ADR-092: the acting (harness) user owns the flow
     db.add(user)
     job = JobAnalysis(
         id=uuid.uuid4(),
@@ -1468,7 +1471,7 @@ async def test_router_patch_section_maps_value_error_to_422():
                 SectionOverridePatch(section="body", content="x"),
                 BackgroundTasks(),
                 db=None,
-                _auth=None,
+                user=SimpleNamespace(id=uuid.uuid4()),
             )
     assert exc_info.value.status_code == 422
 
@@ -1492,7 +1495,7 @@ async def test_router_post_generate_creates_pending_record(cl_client):
     from applire.models.profile import MasterProfile
     from applire.models.user import User
 
-    user = User(id=uuid.uuid4(), email="router@test.com")
+    user = User(id=HARNESS_USER_ID, email="router@test.com")  # ADR-092: the acting (harness) user owns the flow
     db.add(user)
     job = JobAnalysis(
         id=uuid.uuid4(),
@@ -1593,7 +1596,14 @@ async def test_router_get_pdf_409_not_ready(cl_client):
     from unittest.mock import patch
     client, db, _ = cl_client
 
+    # ADR-092: the owned lookup (filename) runs before the render — stub it so
+    # this test keeps isolating the router's ValueError -> 409 mapping.
+    from unittest.mock import AsyncMock
+
     with patch(
+        "applire.services.cover_letter.get_cover_letter_pdf_filename",
+        new=AsyncMock(return_value="letter.pdf"),
+    ), patch(
         "applire.services.cover_letter_pdf.render_pdf",
         side_effect=ValueError("Cover letter not ready"),
     ):
@@ -1610,7 +1620,7 @@ async def test_router_get_by_job_ok(cl_client):
     from applire.models.job import JobAnalysis
     from applire.models.user import User
 
-    user = User(id=uuid.uuid4(), email="byjrouter@test.com")
+    user = User(id=HARNESS_USER_ID, email="byjrouter@test.com")  # ADR-092: the acting (harness) user owns the flow
     db.add(user)
     job = JobAnalysis(
         id=uuid.uuid4(),

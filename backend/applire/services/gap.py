@@ -42,7 +42,6 @@ from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
-from applire import ownership
 from applire.services.owner_resolution import resolve_user_id
 from applire.services.owner_scope import owned_row
 from applire.models.session import InterviewSession
@@ -282,10 +281,11 @@ async def stored_analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, db:
 
 
 async def _latest_gap_analysis(
-    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> GapAnalysis | None:
     """The owner's most recent non-deleted gap analysis of a job (the read-path
     row). ADR-092: the posting is shared; the analysis is per user."""
+    user_id = resolve_user_id(user_id, site="gap._latest_gap_analysis")
     result = await db.execute(
         select(GapAnalysis)
         .where(
@@ -670,7 +670,7 @@ async def _cluster_concepts(
     # import avoids the session<->gap circular dependency.
     from applire.services.session import get_conversation_language
     lang = await get_conversation_language(
-        db, job_id=job.id, user_id=gap_analysis.user_id
+        db, job_id=job.id, user_id=getattr(gap_analysis, "user_id", None)
     )
     raw = await provider.aparse_json(
         build_clustering_prompt(
@@ -1181,8 +1181,9 @@ async def _run_analysis(
     provider: LLMProvider,
     *,
     answer_scope: AnswerScope | None = None,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysisResponse:
+    user_id = resolve_user_id(user_id, site="gap._run_analysis")
     job_dict = _job_inputs(job)
 
     # E037 PQ #3 — idempotency: same (job, profile) → same score, computed once.
@@ -1418,18 +1419,27 @@ async def _run_analysis(
     return GapAnalysisResponse.model_validate(record)
 
 
-async def _resolve_job(job_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID) -> JobAnalysis:
-    """The shared posting the user is linked to (ADR-092 cl. 5c); a foreign or
-    missing posting is the same ``LookupError`` (S-10)."""
-    from applire.services.job import get_job_for_user
+async def _resolve_job(job_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID | None = None) -> JobAnalysis:
+    """The shared posting (instance cache, no owner — S-17).
 
-    try:
-        return await get_job_for_user(db, job_id, user_id)
-    except ownership.OwnedNotFound:
-        raise LookupError(f"Job analysis {job_id} not found") from None
+    Posting ACCESS (ADR-092 cl. 5c, ``services.job.get_job_for_user``) is checked
+    at the doors (REST routers, MCP tools) before they reach this service; what
+    the service reads FOR the user — profile, previous analyses — is owner-keyed.
+    """
+    result = await db.execute(
+        select(JobAnalysis).where(
+            JobAnalysis.id == job_id,
+            JobAnalysis.deleted_at.is_(None),
+        )
+    )
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise LookupError(f"Job analysis {job_id} not found")
+    return job
 
 
-async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfile:
+async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID | None = None) -> MasterProfile:
+    user_id = resolve_user_id(user_id, site="gap._resolve_profile")
     from applire.services.profile import get_profile_for_user
 
     profile = await get_profile_for_user(db, user_id)

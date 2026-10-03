@@ -129,10 +129,8 @@ PENDING_REST: set[tuple[str, str]] = {
     # exposed by the positive control (they 404'd for B only because A's own
     # rows were not reachable either — the first run's false greens):
     ("GET", "/api/job/{job_id}/gaps"),  # 4a
-    ("POST", "/api/job/{job_id}/gaps/liabilities/downgrade"),  # 4a
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/assist"),  # 3c
     ("POST", "/api/cv/{cv_id}/sections/{section_id}/rewrite"),  # 3c
-    ("POST", "/api/job/{job_id}/gaps/{cluster_id}/left-open"),  # 4a
     ("POST", "/api/profile/enrich/{session_id}/na"),  # 3b
     ("POST", "/api/profile/enrich/{session_id}/respond"),  # 3b
     ("POST", "/api/profile/enrich/{session_id}/skip"),  # 3b
