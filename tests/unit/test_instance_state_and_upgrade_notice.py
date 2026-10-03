@@ -195,56 +195,9 @@ async def test_a_key_never_written_reads_as_none(db):
 
 
 # ===========================================================================
-# 11. /health keeps its four original fields
+# 11. /health — moved to tests/unit/test_health_liveness.py (Strawberry 1c, US329:
+#     /health is liveness only; the additive fields are on /api/ops/health)
 # ===========================================================================
-
-
-@pytest.mark.asyncio
-async def test_health_four_original_fields_are_frozen(health_client):
-    # ADR-087 cl. 8: `status`, `edition`, `version`, `llm_provider` are read
-    # by the compose healthcheck (docker-compose.yml's backend service),
-    # the pre-release install gate, and whatever uptime probe a self-hoster
-    # points at the instance — they must keep their names, types and values
-    # no matter what gets added around them.
-    from applire._version import __version__
-    from applire.config import HAS_CLOUD, settings
-
-    resp = await health_client.get("/health")
-    assert resp.status_code == 200
-    body = resp.json()
-
-    assert body["status"] == "ok"
-    assert body["edition"] == ("cloud" if HAS_CLOUD else "community")
-    assert body["version"] == __version__
-    assert body["llm_provider"] == settings.llm_provider
-    assert isinstance(body["status"], str)
-    assert isinstance(body["edition"], str)
-    assert isinstance(body["version"], str)
-    assert isinstance(body["llm_provider"], str)
-
-
-@pytest.mark.asyncio
-async def test_health_additive_fields_default_to_nothing_to_report(health_client):
-    from applire.config import settings
-
-    resp = await health_client.get("/health")
-    body = resp.json()
-
-    assert body["upgrade_notice"] is None
-    assert body["debug_log_on"] == bool(settings.llm_debug_log)
-    assert body["topology"] == settings.applire_topology
-
-
-@pytest.mark.asyncio
-async def test_health_upgrade_notice_reflects_whatever_was_published(health_client):
-    from applire.routers.health import set_upgrade_notice
-
-    notice = {"from": "0.30.0", "to": "0.41.0", "unset": [], "re_meant": []}
-    set_upgrade_notice(notice)
-
-    resp = await health_client.get("/health")
-    assert resp.json()["upgrade_notice"] == notice
-
 
 # ===========================================================================
 # 12. the dismiss endpoint advances last-seen and clears the notice
