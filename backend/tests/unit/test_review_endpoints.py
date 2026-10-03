@@ -46,7 +46,7 @@ from applire.auth import get_auth_provider
 from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 from applire.schemas.testimony import TestimonyResult
-from tests.support.profile_factory import make_master_profile
+from tests.support.profile_factory import make_master_profile, retire_live_profiles
 
 import applire.routers.review as review_router
 import applire.services.review_actions as ra
@@ -1276,6 +1276,7 @@ async def _set_vault_work(db, record, work):
     """Point the document at a fresh profile carrying ``work`` (profile_json is
     write-guarded, ADR-063 cl. 6 — a new row via the factory is the sanctioned path)."""
     profile_id = uuid.uuid4()
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     db.add(make_master_profile(id=profile_id, profile_json={"work_experience": work}))
     record.profile_id = profile_id
     await db.commit()
