@@ -182,7 +182,7 @@ mcp = FastMCP("Applire", instructions=_INSTRUCTIONS)
 #: An absolute document URL this door may hand out — CV or letter, html/pdf/docx.
 #: Every match is (re-)signed before it leaves the door (ADR-091 cl. 18).
 _DOCUMENT_URL_RE = re.compile(
-    r"^(?P<prefix>.*?/api/(?P<seg>cv|cover-letter)/)"
+    r"^(?P<prefix>https?://[^\s?#]*?/api/(?P<seg>cv|cover-letter)/)"
     r"(?P<doc_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
     r"/(?:html|pdf|docx)(?:\?.*)?$"
 )
