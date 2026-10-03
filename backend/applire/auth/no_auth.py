@@ -44,4 +44,6 @@ class NoAuthProvider(AuthProvider):
             email=_STUB_EMAIL,
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             deleted_at=None,
+            # ADR-091 cl. 3: the harness identity acts as admin.
+            role="admin",
         )
