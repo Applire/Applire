@@ -188,6 +188,111 @@ def _coerce_jd_payload(data: dict) -> dict:
     return coerced
 
 
+def _clean(value: str | None) -> str | None:
+    """A caller-supplied label, stripped; blank → None."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+async def get_job_for_user(
+    db: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID
+) -> JobAnalysis:
+    """The shared posting ``job_id`` if ``user_id`` holds a link to it (ADR-092 cl. 5c).
+
+    The posting cache has no owner (S-17); a user reaches a posting only through
+    their own ``applications`` row for it (RD-2). A soft-deleted application still
+    counts — removing the card keeps access to the posting. A missing posting, a
+    soft-deleted posting and a posting the user never analysed are the same
+    ``OwnedNotFound("job")`` (404 ``{"detail": "job not found"}``, S-10).
+    """
+    from applire.models.application import Application
+    from applire.ownership import OwnedNotFound
+
+    job = (
+        await db.execute(
+            select(JobAnalysis)
+            .join(Application, Application.job_analysis_id == JobAnalysis.id)
+            .where(
+                JobAnalysis.id == job_id,
+                JobAnalysis.deleted_at.is_(None),
+                Application.user_id == user_id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise OwnedNotFound("job")
+    return job
+
+
+async def ensure_application_link(
+    db: AsyncSession,
+    job: JobAnalysis,
+    user_id: uuid.UUID,
+    *,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
+    source_url: str | None = None,
+):
+    """Get-or-create the caller's link to a posting — their ``applications`` row (RD-2).
+
+    Analyze (REST + MCP) calls this so the analysing user can reach the posting
+    (``get_job_for_user``); an agent-only analysis becomes a visible tracking card
+    (ADR-058 door parity). A new row is ``user_status='tracking'`` with the
+    posting's labels denormalised, overrides winning; an existing row — also a
+    soft-deleted one, which keeps its deleted state — receives only the non-blank
+    overrides (#222: the authoritative title a later call carries is never
+    dropped, and never written to the shared posting, ADR-092 cl. 5a).
+    ``source_url`` is the CALLER's own URL — never the shared row's, which may
+    be another user's (MD-10). Flushes; the caller commits. Returns the row.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from applire.models.application import Application
+
+    role = _clean(role_title_override)
+    company = _clean(company_name_override)
+
+    async def _existing():
+        return (
+            await db.execute(
+                select(Application).where(
+                    Application.user_id == user_id,
+                    Application.job_analysis_id == job.id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    app = await _existing()
+    if app is None:
+        candidate = Application(
+            user_id=user_id,
+            job_analysis_id=job.id,
+            role_title=role or job.role_title,
+            company_name=company or job.company_name,
+            source_url=source_url,
+        )
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
+                await db.flush()
+            return candidate
+        except IntegrityError:
+            # A concurrent analyze of the same posting by the same user won
+            # uq_application_user_job — adopt the winner (savepoint rolled back).
+            app = await _existing()
+            if app is None:
+                raise
+    if role is not None:
+        app.role_title = role
+    if company is not None:
+        app.company_name = company
+    await db.flush()
+    return app
+
+
 async def _apply_title_overrides(
     record: JobAnalysis,
     role_title_override: str | None,
