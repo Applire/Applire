@@ -687,3 +687,55 @@ async def test_mcp_id_less_reads_return_the_callers_own_rows(world, name, monkey
     finally:
         identity.bind(previous)
     assert MCP_SELF_READS[name](result) == expected, f"{name} as A did not return A's own rows"
+
+
+#: The door resolves every OWNED id itself (ADR-092 cl. 10) — independent of the
+#: service it then calls. Each case stubs the service out (an unscoped service
+#: would hand A's row back) and B must still get ``not_found``: the door check is
+#: its own control, not a mirror of the service's.
+MCP_DOOR_PRECHECKS: dict[str, tuple[str, Any]] = {
+    "get_cv_status": ("cv_svc.get_cv_status", lambda ids: {"cv_id": ids["cv_id"]}),
+    "get_cv_ats_report": ("cv_svc.get_cv_ats_report", lambda ids: {"cv_id": ids["cv_id"]}),
+    "get_cover_letter_status": ("cover_letter_svc.get_cover_letter_status", lambda ids: {"cover_letter_id": ids["cover_letter_id"]}),
+    "get_cover_letter_ats_report": ("cover_letter_svc.get_cover_letter_ats_report", lambda ids: {"cover_letter_id": ids["cover_letter_id"]}),
+    "get_flow_state": ("flow_svc.get_flow_state", lambda ids: {"flow_id": ids["flow_id"]}),
+    "advance_flow": ("flow_svc.advance_flow", lambda ids: {"flow_id": ids["flow_id"], "step": "gap_analysis"}),
+    "get_application": ("app_svc.get_application", lambda ids: {"application_id": ids["application_id"]}),
+    "update_application": ("app_svc.patch_application", lambda ids: {"application_id": ids["application_id"], "notes": "B"}),
+    "send_message": ("session_svc.send_message", lambda ids: {"session_id": ids["session_id"], "message": "Hi."}),
+    "resolve_held_merge": ("profile_svc.resolve_staged_extraction", lambda ids: {"staged_id": ids["staged_id"], "decision": "discard"}),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(MCP_DOOR_PRECHECKS))
+async def test_mcp_door_resolves_owned_ids_itself(world, name, monkeypatch, mcp_signing_secret):
+    import contextlib
+    from unittest.mock import AsyncMock
+
+    import applire.mcp.server as server
+    from applire.mcp import identity
+
+    factory, a, b, ids = world
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        async with factory() as s:
+            yield s
+
+    monkeypatch.setattr(server, "get_db", _db)
+    monkeypatch.setattr(server, "get_provider", lambda *a, **k: _NO_PROVIDER)
+    target, build = MCP_DOOR_PRECHECKS[name]
+    module, attr = target.split(".")
+    leaked = AsyncMock(side_effect=AssertionError("the service ran for a foreign id"))
+    monkeypatch.setattr(getattr(server, module), attr, leaked)
+    previous = await _bind_agent(factory, b)
+    try:
+        try:
+            result = await getattr(server, name)(**build(ids))
+        except Exception as exc:  # noqa: BLE001
+            result = exc
+    finally:
+        identity.bind(previous)
+    assert _is_not_found(result), f"{name}: {result!r}"[:300]
+    assert leaked.await_count == 0

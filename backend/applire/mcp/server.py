@@ -1710,6 +1710,7 @@ async def get_application(application_id: str) -> dict:
     aid = _parse_uuid(application_id, "application_id")
     uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, Application, aid, "application")
         try:
             result = await app_svc.get_application(aid, uid, db)
         except LookupError as exc:
