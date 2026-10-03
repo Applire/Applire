@@ -75,6 +75,11 @@ KEY_AUTH_SETUP_TOKEN_HASH = "auth.setup_token_hash"
 # logged it — the "once" needs a fact that survives the restart.
 KEY_AUTH_CLAIM_NOTICE = "auth.claim_notice"
 
+# ADR-092 / RD-9: the ids of older duplicate live master profiles that migration
+# 0074 soft-deleted on upgrade ({"profile_ids": [...], ...}); written by the
+# migration, read for the post-claim notice.
+KEY_UPGRADE_RETIRED_PROFILES = "upgrade.retired_profiles"
+
 #: Every key this table is allowed to carry. New key => new constant here.
 KNOWN_KEYS = frozenset(
     {
@@ -84,6 +89,7 @@ KNOWN_KEYS = frozenset(
         KEY_AUTH_INSTANCE_SECRET,
         KEY_AUTH_SETUP_TOKEN_HASH,
         KEY_AUTH_CLAIM_NOTICE,
+        KEY_UPGRADE_RETIRED_PROFILES,
     }
 )
 
