@@ -106,6 +106,7 @@ async def test_get_gap_job_ready_returns_analysis(client, db_session):
     analysis = GapAnalysis(
         job_analysis_id=job_id,
         profile_id=uuid.uuid4(),
+        user_id=TEST_USER_ID,  # the owner (ADR-092 cl. 1); no profile row in this DB
         match_score=0.72,
     )
     db_session.add(analysis)

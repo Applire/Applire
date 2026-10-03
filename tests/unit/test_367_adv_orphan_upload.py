@@ -56,6 +56,17 @@ import uuid
 
 import pytest
 import pytest_asyncio
+
+# Superseded by ADR-092 cl. 4 (Strawberry): no ownerless per-user row survives —
+# migration 0074 gives every NULL-owner upload to the stub user and makes
+# `uploads.user_id` NOT NULL; a row inserted without an owner takes the acting
+# user's (ownership.py owner fill) or is refused. The NULL widenings these tests
+# pin are removed by package 3b (W2), which retires or rewrites this file.
+# Strict: an unexpected pass means the premise came back.
+pytestmark = pytest.mark.xfail(
+    strict=True,
+    reason="ADR-092 cl. 4: ownerless uploads no longer exist (0074 NOT NULL); 3b retires this file in W2",
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 

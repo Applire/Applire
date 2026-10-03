@@ -31,6 +31,7 @@ so the fix arrives with the routing rather than as a patch. Same for the trail:
 the writer kept its own hand-rolled `EnrichmentRecord`, which is now the
 committer's (invariant 3), and there must be exactly ONE record per act.
 """
+from datetime import datetime, timezone
 import sys
 import uuid
 from contextlib import asynccontextmanager
@@ -379,10 +380,15 @@ async def test_both_doors_produce_the_same_vault_state(durable_db, monkeypatch):
         )
     rest_state = await _read_back(engine, rest_profile)
 
-    # A second, independent profile for the agent door.
+    # A second, independent profile for the agent door. One live vault per
+    # owner (ADR-092 cl. 2, uq_master_profiles_user_live): retire the REST one
+    # first, as the pr3 parity test does.
     from applire.models.profile import MasterProfile, authorized_profile_write
 
     async with factory() as session:
+        rest_row = await session.get(MasterProfile, rest_profile)
+        rest_row.deleted_at = datetime.now(timezone.utc)
+        await session.commit()
         with authorized_profile_write():
             record = MasterProfile(profile_json=_seed_profile_json())
         session.add(record)

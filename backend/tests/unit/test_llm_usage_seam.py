@@ -338,6 +338,8 @@ def test_llm_usage_has_no_text_column():
         "application_id",
         "duration_ms",
         "ok",
+        # ADR-092 cl. 3 / S-8 (migration 0075): who caused the call — an id, no text.
+        "user_id",
     }
     columns = {c.name for c in LlmUsage.__table__.columns}
     assert columns == allowed, f"unexpected column set: {columns ^ allowed}"

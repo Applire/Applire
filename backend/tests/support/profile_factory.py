@@ -62,3 +62,22 @@ def set_profile_json(record: MasterProfile, value: dict) -> None:
     """Assign `profile_json` on an existing fixture record, authorised."""
     with authorized_profile_write():
         record.profile_json = value
+
+
+async def retire_live_profiles(db, user_id=HARNESS_USER_ID) -> None:
+    """Soft-delete ``user_id``'s live profile(s) before seeding a newer one.
+
+    One live vault per owner (ADR-092 cl. 2, ``uq_master_profiles_user_live``):
+    a test that seeds a fresh scenario profile for the same person retires the
+    previous one first — the newest live row stays what the app shows (RD-9).
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    await db.execute(
+        update(MasterProfile)
+        .where(MasterProfile.user_id == user_id, MasterProfile.deleted_at.is_(None))
+        .values(deleted_at=datetime.now(timezone.utc))
+    )
+    await db.flush()

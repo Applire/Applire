@@ -38,7 +38,7 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from tests.support.profile_factory import make_master_profile  # noqa: E402
+from tests.support.profile_factory import make_master_profile, retire_live_profiles  # noqa: E402
 
 _INFRA = "cluster-infra"
 _API = "cluster-api"
@@ -106,6 +106,7 @@ async def _seed(db, *, clusters=None, ledger=None, jd_language="en"):
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
         company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test", "email": "mara@example.de"},
         "skills": [{"name": "Python", "category": "technical"}],

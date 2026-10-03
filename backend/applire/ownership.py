@@ -310,22 +310,29 @@ def _context_user_id() -> uuid.UUID | None:
     return ctx.user_id if ctx is not None and not ctx.is_unscoped else None
 
 
-def _profile_owner(connection: Any, target: Any) -> uuid.UUID | None:
-    """The ``user_id`` of ``target.profile_id``'s profile — identity map first, then SQL."""
-    from sqlalchemy import inspect as sa_inspect, select
+def _loaded_profile_owner(target: Any) -> uuid.UUID | None:
+    """The owner of ``target.profile_id``'s profile if that profile is in the session."""
+    from sqlalchemy import inspect as sa_inspect
     from sqlalchemy.orm.util import identity_key
+
+    from applire.models.profile import MasterProfile
+
+    pid = getattr(target, "profile_id", None)
+    session = sa_inspect(target).session
+    if pid is None or session is None:
+        return None
+    loaded = session.identity_map.get(identity_key(MasterProfile, pid))
+    return loaded.user_id if loaded is not None else None
+
+
+def _stored_profile_owner(connection: Any, target: Any) -> uuid.UUID | None:
+    from sqlalchemy import select
 
     from applire.models.profile import MasterProfile
 
     pid = getattr(target, "profile_id", None)
     if pid is None:
         return None
-    state = sa_inspect(target)
-    session = state.session
-    if session is not None:
-        loaded = session.identity_map.get(identity_key(MasterProfile, pid))
-        if loaded is not None and loaded.user_id is not None:
-            return loaded.user_id
     table = MasterProfile.__table__
     return connection.execute(
         select(table.c.user_id).where(table.c.id == pid)
@@ -333,19 +340,31 @@ def _profile_owner(connection: Any, target: Any) -> uuid.UUID | None:
 
 
 def _before_insert_owner(mapper: Any, connection: Any, target: Any) -> None:
+    """Owner fill + chain-owner check (ADR-092 cl. 1).
+
+    * explicit ``user_id`` on a chain row: compared with the profile's owner **when
+      the profile is loaded** in the session (the ADR's wording — no extra query);
+      a difference raises ``OwnerMismatch``;
+    * ``user_id`` unset: the profile's owner (loaded, else one SELECT), else the
+      *user* owner context; with neither it stays NULL and NOT NULL refuses it.
+    """
     cls = type(target)
     if cls.__dict__.get("__owned__") is not True or "user_id" not in mapper.columns:
         return
-    profile_owner = None
-    if "profile_id" in mapper.columns and cls.__tablename__ != "master_profiles":
-        profile_owner = _profile_owner(connection, target)
-    if target.user_id is None:
-        target.user_id = profile_owner or _context_user_id()
-    elif profile_owner is not None and profile_owner != target.user_id:
-        raise OwnerMismatch(
-            f"{cls.__tablename__} row names owner {target.user_id} but its profile "
-            f"belongs to {profile_owner} (ADR-092 cl. 1)"
-        )
+    is_chain = "profile_id" in mapper.columns and cls.__tablename__ != "master_profiles"
+    if target.user_id is not None:
+        if is_chain:
+            owner = _loaded_profile_owner(target)
+            if owner is not None and owner != target.user_id:
+                raise OwnerMismatch(
+                    f"{cls.__tablename__} row names owner {target.user_id} but its "
+                    f"profile belongs to {owner} (ADR-092 cl. 1)"
+                )
+        return
+    owner = None
+    if is_chain:
+        owner = _loaded_profile_owner(target) or _stored_profile_owner(connection, target)
+    target.user_id = owner or _context_user_id()
 
 
 def _owned_models_with_user_id() -> list[type]:
