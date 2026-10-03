@@ -45,14 +45,11 @@ async def _get_user(user_id: uuid.UUID, db: AsyncSession) -> User:
     return user
 
 
-async def _get_profile(db: AsyncSession) -> MasterProfile:
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = result.scalar_one_or_none()
+async def _get_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfile:
+    """The photo owner's live profile (ADR-092 cl. 2) — never another user's."""
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, user_id)
     if profile is None:
         raise LookupError("No profile found — import a CV first")
     return profile
@@ -79,7 +76,7 @@ async def upload_photo(
         raise ValueError("Photo exceeds the 5 MB limit. Please use a smaller file.")
 
     user = await _get_user(user_id, db)
-    profile = await _get_profile(db)
+    profile = await _get_profile(db, user_id)
 
     profile_data = MasterProfileData.model_validate(profile.profile_json)
     old_path = profile_data.personal_info.photo_url
@@ -119,7 +116,7 @@ async def delete_photo(
 ) -> None:
     """Remove stored photo file and clear consent. No-op if no photo on file."""
     user = await _get_user(user_id, db)
-    profile = await _get_profile(db)
+    profile = await _get_profile(db, user_id)
 
     profile_data = MasterProfileData.model_validate(profile.profile_json)
     if profile_data.personal_info.photo_url:
@@ -142,7 +139,7 @@ async def get_photo_bytes(
 ) -> tuple[bytes, str]:
     """Return raw photo bytes and MIME type for the user. Raises LookupError if no photo."""
     await _get_user(user_id, db)
-    profile = await _get_profile(db)
+    profile = await _get_profile(db, user_id)
     profile_data = MasterProfileData.model_validate(profile.profile_json)
     path = profile_data.personal_info.photo_url
     if not path:

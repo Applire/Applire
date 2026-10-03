@@ -82,15 +82,11 @@ async def _prune(db: AsyncSession, profile_id: uuid.UUID) -> None:
         await db.execute(delete(ProfileSnapshot).where(ProfileSnapshot.id.in_(stale)))
 
 
-async def _latest_profile(db: AsyncSession) -> MasterProfile | None:
-    return (
-        await db.execute(
-            select(MasterProfile)
-            .where(MasterProfile.deleted_at.is_(None))
-            .order_by(MasterProfile.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+async def _latest_profile(db: AsyncSession, user_id: uuid.UUID | None = None) -> MasterProfile | None:
+    """The owner's live profile (ADR-092 cl. 2) — the one read path."""
+    from applire.services.profile import get_profile_for_user
+
+    return await get_profile_for_user(db, user_id)
 
 
 def _head_enrichment_id(profile_json: dict) -> str | None:
@@ -107,7 +103,7 @@ async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None)
     Idempotent: after a successful undo all snapshots are consumed, so a repeat
     call is a no-op (single-level "undo last merge"; multi-level history deferred).
     """
-    profile = await _latest_profile(db)
+    profile = await _latest_profile(db, user_id)
     if profile is None:
         return UndoResult(restored=False, discarded_later_edits=False)
 

@@ -147,16 +147,11 @@ def load_pins(application, *, user_id: uuid.UUID | None = None) -> list[FactPin]
     return [FactPin.model_validate(p) for p in (application.pinned_facts or [])]
 
 
-async def _load_profile(db: AsyncSession) -> MasterProfileData:
-    from applire.models.profile import MasterProfile
+async def _load_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfileData:
+    """The pin owner's vault (ADR-092 cl. 2) — a pin resolves against its own vault."""
+    from applire.services.profile import get_profile_for_user
 
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    record = result.scalar_one_or_none()
+    record = await get_profile_for_user(db, user_id)
     if record is None:
         raise LookupError("No profile found — import a CV first")
     return MasterProfileData.model_validate(record.profile_json)
@@ -181,7 +176,7 @@ async def add_fact_pin(
     check_target_renderable(request)
 
     app = await _get_or_404(application_id, user_id, db)
-    profile = await _load_profile(db)
+    profile = await _load_profile(db, user_id)
 
     entry = _find_entry(profile, request.entry_type, request.entry_id)
     if entry is None:

@@ -33,9 +33,10 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire import ownership
 from applire.db.session import AsyncSessionLocal
 from applire.exceptions import (
     LLMRateLimitError,
@@ -46,6 +47,7 @@ from applire.models.import_job import CVImportJob, CVImportStatus
 from applire.ocr import get_ocr_extractor
 from applire.providers import get_provider
 from applire.storage import get_storage
+from applire.services.profile.owner import resolve_owner
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +69,11 @@ _user_import_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[u
 )
 
 
-def _import_lock_for(user_id: uuid.UUID | None) -> asyncio.Lock:
-    """Per-user lock; userless (agent/single-user) jobs share the ``None`` slot."""
+def _import_lock_for(user_id: uuid.UUID) -> asyncio.Lock:
+    """Per-user lock. There is no shared ``None`` slot any more (ADR-092 cl. 4):
+    every job has an owner, and two users' imports never serialise on each other."""
+    if user_id is None:
+        raise ownership.OwnerContextMissing("an import job runs for a user (ADR-092 cl. 4)")
     loop = asyncio.get_running_loop()
     locks = _user_import_locks.setdefault(loop, {})
     lock = locks.get(user_id)
@@ -99,7 +104,7 @@ async def create_import_job(
     """Create a pending import job and return it (the upload's immediate handle)."""
     job = CVImportJob(
         filename=(filename or "upload")[:512],
-        user_id=user_id,
+        user_id=resolve_owner(user_id),
         status=CVImportStatus.pending.value,
     )
     db.add(job)
@@ -113,10 +118,14 @@ async def get_import_job(
 ) -> CVImportJob | None:
     """Fetch an import job, scoped to its owner (IDOR guard). Returns None for an
     unknown/deleted job or a job owned by a different user."""
-    job = await db.get(CVImportJob, import_id)
+    job = (
+        await db.execute(
+            select(CVImportJob).where(
+                CVImportJob.id == import_id, CVImportJob.user_id == resolve_owner(user_id)
+            )
+        )
+    ).scalar_one_or_none()
     if job is None or job.deleted_at is not None:
-        return None
-    if user_id is not None and job.user_id is not None and job.user_id != user_id:
         return None
     return job
 
@@ -138,14 +147,12 @@ async def list_import_jobs(
     only pending/processing jobs are returned, and jobs past their TTL are excluded so
     an orphaned job (e.g. a server restart mid-import) can't pin the indicator forever.
 
-    Owner scoping mirrors ``get_import_job`` (IDOR guard): a user sees their own jobs
-    plus userless (agent/single-user context) ones — never another user's.
+    Owner-keyed like ``get_import_job`` (S-10): a user sees their own jobs only —
+    the old "plus userless ones" arm is gone (ADR-092 cl. 4, 0074 NOT NULL).
     """
-    stmt = select(CVImportJob).where(CVImportJob.deleted_at.is_(None))
-    if user_id is not None:
-        stmt = stmt.where(
-            or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))
-        )
+    stmt = select(CVImportJob).where(
+        CVImportJob.deleted_at.is_(None), CVImportJob.user_id == resolve_owner(user_id)
+    )
     if active:
         stmt = stmt.where(
             CVImportJob.status.in_(ACTIVE_IMPORT_STATUSES),
@@ -180,17 +187,19 @@ async def run_import_job_background(
     # Imported here to avoid a circular import (services.profile.__init__ imports this module).
     from applire.services.profile import upload_cv
 
-    async with _import_lock_for(user_id):
-        await _process_import_job(
-            import_id,
-            file_bytes,
-            filename,
-            content_type,
-            job_id,
-            user_id,
-            upload_cv=upload_cv,
-            session_factory=session_factory,
-        )
+    user_id = resolve_owner(user_id)
+    with ownership.owner_context(user_id):
+        async with _import_lock_for(user_id):
+            await _process_import_job(
+                import_id,
+                file_bytes,
+                filename,
+                content_type,
+                job_id,
+                user_id,
+                upload_cv=upload_cv,
+                session_factory=session_factory,
+            )
 
 
 async def _process_import_job(

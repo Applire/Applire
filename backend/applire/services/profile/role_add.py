@@ -173,13 +173,9 @@ async def add_role_to_profile(req: AddRoleRequest, db: AsyncSession, *, user_id:
     captures none now; the omission is a parameter that says so, not a silent
     gap (ADR-063 amendment (5) / #339).
     """
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    record = result.scalar_one_or_none()
+    from applire.services.profile import get_profile_for_user
+
+    record = await get_profile_for_user(db, user_id)
     if record is None:
         raise LookupError("No master profile found")
 
