@@ -23,9 +23,6 @@ from applire.models.user import User
 from applire.routers import auth_links, me_account
 from applire.routers.admin import users as admin_users
 
-#: A precomputed ``scrypt$15$8$1$…`` of "correct horse battery" via the seam module
-#: would cost 0.1 s per user; tests that need a real hash call ``hash_password``.
-
 
 class ActingAs:
     """Provider double: ``get_current_user(request, db)`` returns ``self.user_id``'s row."""

@@ -316,3 +316,46 @@ async def test_w0_erase_stub_raises_and_nothing_is_tombstoned(env):
         await accounts.delete_account(db, actor=admin, user_id=user.id, by="admin")
     row = await db.get(User, user.id, populate_existing=True)
     assert row.deleted_at is None
+
+
+# --- SF-IAM.15: every mutating admin route writes exactly one audit row ----------
+
+def _mutating_routes():
+    from applire.routers.admin import users as router_mod
+    return sorted((m, r.path) for r in router_mod.router.routes for m in r.methods if m != "GET")
+
+
+def test_the_route_list_below_is_complete():
+    assert _mutating_routes() == sorted([
+        ("POST", "/api/admin/users"),
+        ("PATCH", "/api/admin/users/{user_id}"),
+        ("DELETE", "/api/admin/users/{user_id}"),
+        ("POST", "/api/admin/users/{user_id}/reinvite"),
+        ("POST", "/api/admin/users/{user_id}/reset-link"),
+        ("POST", "/api/admin/users/{user_id}/revoke-tokens"),
+    ])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path,state,body,action", [
+    ("POST", "/api/admin/users", None, {"email": "audit-new@example.org"}, "user.created"),
+    ("PATCH", "/api/admin/users/{id}", "active", {"role": "admin"}, "user.role_changed"),
+    ("PATCH", "/api/admin/users/{id}", "active", {"disabled": True}, "user.disabled"),
+    ("PATCH", "/api/admin/users/{id}", "disabled", {"disabled": False}, "user.enabled"),
+    ("DELETE", "/api/admin/users/{id}", "active", None, "user.deleted"),
+    ("POST", "/api/admin/users/{id}/reinvite", "pending", None, "user.reinvited"),
+    ("POST", "/api/admin/users/{id}/reset-link", "active", None, "reset_link.issued"),
+    ("POST", "/api/admin/users/{id}/revoke-tokens", "active", None, "tokens.revoked_all"),
+])
+async def test_each_admin_action_writes_exactly_one_audit_row(env, erase_calls, method, path, state, body, action):
+    db, client, _, admin = env
+    target = await add_user(db, state=state) if state else None
+    url = path.replace("{id}", str(target.id)) if target else path
+    r = await client.request(method, url, json=body, headers=ORIGIN_HEADERS)
+    assert r.status_code < 300, r.text
+    rows = (await db.execute(select(AuditEvent))).scalars().all()
+    assert [e.action for e in rows] == [action]
+    assert rows[0].actor_user_id == admin.id
+    if target:
+        assert rows[0].target_user_id == target.id
+    assert all("@" not in str(v) for v in rows[0].detail.values())
