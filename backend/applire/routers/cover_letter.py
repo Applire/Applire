@@ -21,7 +21,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth.deps import require_user
+from applire.auth.deps import require_user, user_or_signed_link
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
@@ -164,7 +164,7 @@ async def get_cl_critic_report(
 async def get_html(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
         html = await get_cover_letter_html(cl_id, db)
@@ -185,7 +185,7 @@ async def get_html(
 async def get_pdf(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> Response:
     try:
         from applire.services.cover_letter import get_cover_letter_pdf_filename
@@ -207,7 +207,7 @@ async def get_pdf(
 async def get_docx(
     cl_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> Response:
     """ADR-079 / E057 / US297: the editable Word export — direct python-docx,
     rendered on demand from letter_data, no bytes persisted. Mirrors

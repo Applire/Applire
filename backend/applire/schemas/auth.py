@@ -50,7 +50,10 @@ ErrorCode = Literal[
     "email_taken",
     "password_policy",
     "reauth_required",
+    "user_not_pending",
+    "user_not_active",
     "oidc_failed",
+    "oidc_no_account",
     # TODO(FOUNDER-QUESTION pending): "account_disabled" (403) — whether a disabled
     # person is told so at sign-in or sees invalid_credentials. A RULING settles it.
 ]

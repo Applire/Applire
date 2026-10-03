@@ -22,7 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth.deps import require_user
+from applire.auth.deps import require_user, user_or_signed_link
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
@@ -173,7 +173,7 @@ async def get_cv_profile_diff_handler(
 async def get_html(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> HTMLResponse:
     try:
         html = await get_cv_html(cv_id, db)
@@ -194,7 +194,7 @@ async def get_html(
 async def get_pdf(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> Response:
     try:
         pdf_bytes = await get_cv_pdf(cv_id, db)
@@ -214,7 +214,7 @@ async def get_pdf(
 async def get_docx(
     cv_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    _auth: User = Depends(user_or_signed_link),
 ) -> Response:
     """ADR-079 / E057 / US296: the editable Word export — direct python-docx,
     rendered on demand from tailored_data, no bytes persisted. Mirrors
