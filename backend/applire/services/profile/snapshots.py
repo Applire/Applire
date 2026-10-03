@@ -98,7 +98,7 @@ def _head_enrichment_id(profile_json: dict) -> str | None:
     return history[-1].get("id") if history else None
 
 
-async def undo_last_merge(db: AsyncSession) -> UndoResult:
+async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> UndoResult:
     """Restore the most recent pre-merge snapshot.
 
     Clears the conflicts the undone merge introduced (the restored pre-merge JSON

@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import uuid
 import hashlib
 import json
 import logging
@@ -322,6 +323,8 @@ async def analyze_jd(
     embedding_provider: EmbeddingProvider | None = None,
     role_title_override: str | None = None,
     company_name_override: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> JobAnalysisResponse:
     # #222: LinkedIn (and most boards) separate the title/company from the body,
     # so the caller can pass authoritative values — otherwise the LLM infers a

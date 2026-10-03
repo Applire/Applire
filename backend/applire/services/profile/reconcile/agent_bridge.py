@@ -136,6 +136,8 @@ async def submit_agent_claims(
     job_id: uuid.UUID | None,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SubmissionResult:
     """Reconcile a batch of agent-elicited claims into the vault.
 

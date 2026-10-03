@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 _NON_TERMINAL = (GapJobStatus.pending.value, GapJobStatus.processing.value)
 
 
-def classify_gap_error(exc: BaseException) -> str:
+def classify_gap_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
     """Map a gap-analysis failure to a STABLE machine code (parity with
     classify_import_error). Raw exception text stays internal; the API surfaces only this
     code, localized by the frontend."""

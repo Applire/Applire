@@ -120,7 +120,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-async def get_ui_language(db: AsyncSession) -> str:
+async def get_ui_language(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Resolve the user's UI language for conversational LLM output (ADR-038).
 
     Reads the CE stub user's settings; returns 'en' when no explicit choice
@@ -137,7 +137,9 @@ async def get_ui_language(db: AsyncSession) -> str:
 
 
 async def get_conversation_language(
-    db: AsyncSession, job_id: uuid.UUID | str | None = None
+    db: AsyncSession, job_id: uuid.UUID | str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> str:
     """Resolve the language for job-scoped conversational output.
 
@@ -904,7 +906,7 @@ def _confirmation_state(confirmation) -> dict:
     }
 
 
-def render_confirmation(pending_conf: dict, lang: str) -> tuple[str, list[str]]:
+def render_confirmation(pending_conf: dict, lang: str, *, user_id: uuid.UUID | None = None) -> tuple[str, list[str]]:
     """One parked confirmation as this reader's language sees it (#669).
 
     Mirrors ``RequestConfirmation.rendered`` for the dict form that lives in
@@ -1350,6 +1352,8 @@ async def create_profile_review_session(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
     """Launch the standalone profile-review interview (US165).
 
@@ -1480,7 +1484,7 @@ async def create_profile_review_session(
 # ---------------------------------------------------------------------------
 
 
-async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str] | None:
+async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[str] | None:
     """Return the gap-cluster ids from the job's latest gap analysis.
 
     Used by the agent channel (`resolve_gap`) to validate a caller-supplied
@@ -1505,7 +1509,7 @@ async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> list[str] | No
     return [c.get("id") for c in (gap_analysis.gap_clusters or []) if c.get("id")]
 
 
-def is_micro_session(record: InterviewSession) -> bool:
+def is_micro_session(record: InterviewSession, *, user_id: uuid.UUID | None = None) -> bool:
     """Whether `record` is a Gap-Click micro-session (US265/19.9), never a
     full MODE A/B interview — the one predicate `create_session`'s
     idempotency branch and `resolve_gap`'s guard (mcp/server.py) both use.
@@ -1533,7 +1537,7 @@ def is_micro_session(record: InterviewSession) -> bool:
     return record.hard_ceiling == 1
 
 
-async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession) -> bool:
+async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bool:
     """Whether the job has an active FULL interview (MODE A or MODE B) —
     i.e. an active session that is NOT a Gap-Click micro-session.
 
@@ -1644,7 +1648,7 @@ _GAP_RECORD_COPY: dict[str, dict[str, str]] = {
 }
 
 
-def gap_record_copy(key: str, lang: str = "en", **fields: object) -> str:
+def gap_record_copy(key: str, lang: str = "en", *, user_id: uuid.UUID | None = None, **fields: object) -> str:
     """One per-gap-record string in the conversation language (ADR-038)."""
     strings = _GAP_RECORD_COPY.get(lang, _GAP_RECORD_COPY["en"])
     return strings[key].format(**fields)
@@ -1679,7 +1683,7 @@ async def _left_open_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> set[str
     }
 
 
-def gap_not_askable(cluster: dict, lang: str = "en") -> GapNotAskableError | None:
+def gap_not_askable(cluster: dict, lang: str = "en", *, user_id: uuid.UUID | None = None) -> GapNotAskableError | None:
     """The refusal for a cluster ``gap_coverage.is_askable`` rejects, else None.
 
     ADR-089 clause 1: "a session opened on a cluster with no budget left is
@@ -1825,7 +1829,9 @@ async def _latest_cluster(
 
 
 async def last_recorded_answer(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> str | None:
     """The answer the cluster's record last recorded, or None (ADR-089 clause 7).
 
@@ -1840,7 +1846,7 @@ async def last_recorded_answer(
     return pairs[-1]["answer"] if pairs else None
 
 
-def same_testimony(a: str | None, b: str | None) -> bool:
+def same_testimony(a: str | None, b: str | None, *, user_id: uuid.UUID | None = None) -> bool:
     """Whether two answers are the same testimony after normalisation (ADR-089
     clause 7's retry test): the ATS normaliser (NFKC, dash folding, whitespace,
     case) plus trailing sentence punctuation — a resent answer that lost its
@@ -1853,7 +1859,9 @@ def same_testimony(a: str | None, b: str | None) -> bool:
 
 
 async def cluster_coverage_for(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> ClusterCoverage | None:
     """The cluster's coverage as the job's latest analysis row records it — the
     agent door's fallback when a turn wrote no record of its own."""
@@ -2108,6 +2116,8 @@ async def create_session(
     request: SessionCreateRequest,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
     job_id = request.job_id
 
@@ -3239,6 +3249,8 @@ async def send_message(
     message: str,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionMessageResponse:
     # Load session
     session_result = await db.execute(
@@ -3972,6 +3984,8 @@ async def _ask_partial_coverage_follow_up(
 async def get_session_state(
     session_id: uuid.UUID,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionStateResponse:
     session_result = await db.execute(
         select(InterviewSession).where(

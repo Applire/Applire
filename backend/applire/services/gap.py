@@ -213,7 +213,7 @@ _GAP_IRRELEVANT_PERSONAL_INFO: frozenset[str] = frozenset(
 )
 
 
-def gap_relevant_profile(profile_json: dict | None) -> dict:
+def gap_relevant_profile(profile_json: dict | None, *, user_id: uuid.UUID | None = None) -> dict:
     """PURE. The part of the profile a gap analysis reads (ADR-090 clause 8).
 
     The profile content minus contact data and the photo (``personal_info``'s
@@ -252,7 +252,7 @@ def _gap_inputs_fingerprint(job: JobAnalysis, profile: MasterProfile) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, profile: MasterProfile) -> bool:
+def analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, profile: MasterProfile, *, user_id: uuid.UUID | None = None) -> bool:
     """PURE. Did the gap-relevant inputs change after ``row`` was computed?
 
     Compares the row's ``gap_inputs_fingerprint``. A row from before Alembic
@@ -267,7 +267,7 @@ def analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, profile: MasterP
     return False
 
 
-async def stored_analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, db: AsyncSession) -> bool:
+async def stored_analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bool:
     """The read route's ``inputs_changed`` (ADR-090 clause 8). No profile →
     nothing to compare → False."""
     try:
@@ -302,6 +302,7 @@ async def analyze_gaps(
     provider: LLMProvider,
     *,
     answer_scope: AnswerScope | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysisResponse:
     """
     Canonical gap analysis entry point.
@@ -349,6 +350,8 @@ async def analyze_gaps_for_session(
     session_id: uuid.UUID,
     db: AsyncSession,
     provider: LLMProvider,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysisResponse:
     """
     Session-scoped convenience wrapper.
@@ -374,6 +377,8 @@ async def downgrade_keyword_liability(
     job_id: uuid.UUID,
     concept: str,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysisResponse:
     """Exit (b) of the #260 pre-generation liability check: the candidate's
     own choice to DROP a keyword-liability concept (a JD hard requirement,
@@ -441,6 +446,8 @@ async def set_cluster_left_open(
     cluster_id: str,
     left_open: bool,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysis:
     """Ruling K-1 (ADR-089 amended 2026-09-27) — the candidate leaves a gap
     open by hand ("Leave this gap open") or picks it up again.
@@ -486,7 +493,7 @@ async def set_cluster_left_open(
 # ---------------------------------------------------------------------------
 
 
-def askable_gap_inputs(gap_analysis: GapAnalysis) -> list:
+def askable_gap_inputs(gap_analysis: GapAnalysis, *, user_id: uuid.UUID | None = None) -> list:
     """The augmented category_c list cluster_gaps() actually clusters on (#166
     Important-1).
 
@@ -521,7 +528,7 @@ def askable_gap_inputs(gap_analysis: GapAnalysis) -> list:
     return category_c
 
 
-def has_clustering_input(gap_analysis: GapAnalysis) -> bool:
+def has_clustering_input(gap_analysis: GapAnalysis, *, user_id: uuid.UUID | None = None) -> bool:
     """True when cluster_gaps() has non-empty input to work with.
 
     Mirrors cluster_gaps()'s own "was there something to cluster" test — the
@@ -711,6 +718,8 @@ async def cluster_gaps(
     job: JobAnalysis,
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Run clustering LLM call and persist result to gap_analysis.gap_clusters."""
     # US204 (ADR-048 §10): keyword-only honest gaps carry no fit weight, so they
@@ -764,7 +773,7 @@ _LEDGER_PUBLISHABLE_KEYS = frozenset(
 )
 
 
-def ledger_input_from_classification(c: dict[str, Any]) -> dict[str, Any]:
+def ledger_input_from_classification(c: dict[str, Any], *, user_id: uuid.UUID | None = None) -> dict[str, Any]:
     """One classifier result → one keyword-ledger input row.
 
     ADR-048: the ledger is the single source of truth for every JD expectation,
@@ -883,7 +892,9 @@ def _term_owners(ledger: list[Any], terms: list[str]) -> dict[str, int]:
 
 
 def pair_rows_by_requirement(
-    fresh: list[Any], previous: list[Any], jd_terms: list[str]
+    fresh: list[Any], previous: list[Any], jd_terms: list[str],
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> list[int | None]:
     """For each fresh ledger row, the index of the previous row that is the
     SAME requirement — or ``None`` (ADR-089 clause 5).
@@ -969,6 +980,7 @@ def merge_ledger_per_requirement(
     *,
     jd_terms: list[str],
     touched_members: list[str],
+    user_id: uuid.UUID | None = None,
 ) -> tuple[list[dict[str, Any]], list[int]]:
     """PURE. ADR-089 clause 5's per-requirement merge, BEFORE the floors.
 

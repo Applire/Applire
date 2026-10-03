@@ -230,6 +230,19 @@ async def _get_latest(db: AsyncSession) -> MasterProfile | None:
     return result.scalar_one_or_none()
 
 
+async def get_profile_for_user(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> MasterProfile | None:
+    """The one vault read path (ADR-092 cl. 2) — the user's live profile row.
+
+    Strawberry W0 (frozen interface F6): accepts the owner and, for now,
+    delegates to :func:`_get_latest` (the newest live row) — zero behaviour
+    change. W2 (package 3b) replaces the body with the owner-keyed read and
+    moves every latest-profile site onto this function.
+    """
+    return await _get_latest(db)
+
+
 def _make_enrichment_record(
     source: str,
     section: str = "*",
@@ -589,14 +602,14 @@ async def _import_from_text(
     )
 
 
-async def get_profile(db: AsyncSession) -> MasterProfileResponse | None:
+async def get_profile(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> MasterProfileResponse | None:
     record = await _get_latest(db)
     if not record:
         return None
     return _to_response(record)
 
 
-async def profile_exists(db: AsyncSession) -> dict:
+async def profile_exists(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> dict:
     """Lightweight check: returns exists + completeness_score without full profile payload."""
     record = await _get_latest(db)
     if not record:
@@ -616,6 +629,8 @@ async def patch_profile_section(
     source_session_id: str | None = None,
     provider: LLMProvider | None = None,
     basis_updated_at: datetime | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
 
@@ -692,7 +707,7 @@ async def patch_profile_section(
     return _to_response(result.record)
 
 
-async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:
+async def get_enrichment_history(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[EnrichmentRecord]:
     record = await _get_latest(db)
     if not record:
         return []
@@ -702,7 +717,7 @@ async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:
     return profile_data.metadata.enrichment_history
 
 
-async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
+async def get_profile_changes(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileChangesResponse:
     """US145 / ADR-040 — the combined "what changed & why" surface contract:
     the decision trail plus any pending conflicts, read from the Master Profile only.
     Never touches the source uploads (retention-independent — ADR-005)."""
@@ -718,7 +733,7 @@ async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
     )
 
 
-async def get_profile_health(db: AsyncSession) -> ProfileHealthResponse:
+async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileHealthResponse:
     """US160 (E033 / ADR-041 amended) — deterministic Tier-2 health for the
     current profile: conflict + accuracy issues plus a completeness block.
 
@@ -738,6 +753,8 @@ async def resolve_conflict(
     resolution: str,
     value: object,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """Resolve a pending conflict by conflict_id — the `ResolveField` intake.
 
@@ -819,6 +836,8 @@ async def resolve_confirmation(
     confirmation_id: str,
     chosen_option: str,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """Resolve a pending import-time confirmation (E037 PQ #4).
 

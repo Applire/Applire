@@ -72,6 +72,8 @@ async def compute_similarity(
     profile_id: uuid.UUID,
     db: AsyncSession,
     embedding_provider: EmbeddingProvider,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> float:
     """Return cosine similarity between stored job and profile embeddings.
 
@@ -109,6 +111,8 @@ async def rank_jobs(
     db: AsyncSession,
     top_n: int = 10,
     berufsbild_code: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> list[JobMatchResult]:
     """Rank all non-deleted jobs for the given profile by combined score.
 

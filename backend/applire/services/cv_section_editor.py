@@ -56,7 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover — annotation only; the runtime import is
 # ---------------------------------------------------------------------------
 
 
-def build_content_snapshot(tailored: TailoredCVData) -> dict:
+def build_content_snapshot(tailored: TailoredCVData, *, user_id: uuid.UUID | None = None) -> dict:
     """Extract a structured snapshot dict from TailoredCVData.
 
     Called once at generation time. ~5ms, no LLM.
@@ -100,6 +100,8 @@ def apply_overrides_to_tailored(
     tailored: TailoredCVData,
     content_snapshot: dict | None,
     section_overrides: dict | None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> TailoredCVData:
     """Return a new TailoredCVData with section_overrides applied.
 
@@ -139,7 +141,7 @@ def apply_overrides_to_tailored(
 # ---------------------------------------------------------------------------
 
 
-async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsResponse:
+async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> CVSectionsResponse:
     """Load sections + overrides + gap hints for a CV.
 
     Returns empty sections list when content_snapshot is NULL.
@@ -234,6 +236,8 @@ async def patch_cv_section(
     save_to_profile: bool,
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SectionPatchResponse:
     """Write a section override and re-render the CV HTML.
 
@@ -339,6 +343,7 @@ def build_section_field_edit(
     profile_data: "MasterProfileData",
     content_snapshot: dict | None,
     lang: str,
+    user_id: uuid.UUID | None = None,
 ) -> tuple[str, object] | None:
     """Intake adapter (ADR-063 clause 3): a CV-section edit → one ``FieldEdit``.
 

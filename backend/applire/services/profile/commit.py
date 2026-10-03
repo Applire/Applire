@@ -75,6 +75,7 @@ integration test asserting the write survives the request.
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -243,7 +244,9 @@ def _log_embedding_staleness_once() -> None:
 UN_DENIAL_INTAKE = "un_denial"
 
 
-async def create_profile_record(db: AsyncSession) -> MasterProfile:
+async def create_profile_record(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> MasterProfile:
     """Create the vault's row — the ONLY constructor of a `MasterProfile`.
 
     #480 PR 8. Three sites used to build the first profile themselves with
@@ -274,6 +277,10 @@ async def create_profile_record(db: AsyncSession) -> MasterProfile:
     **Flushed, not committed** (ADR-063 amended clause 6), like everything else
     in this module: the caller owns the transaction, and needs the flush for the
     generated id.
+
+    ``user_id`` (Strawberry W0, frozen interface F6): accepted and ignored for
+    now; W2 (package 3b) sets ``MasterProfile.user_id`` from it once the column
+    exists (ADR-092 cl. 2).
     """
     # The flush stays INSIDE the token span. Today the construction alone is
     # enough — the setter records its verdict on the instance and `before_flush`
