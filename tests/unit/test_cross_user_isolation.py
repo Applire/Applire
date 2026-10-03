@@ -623,3 +623,67 @@ async def test_mcp_owner_reaches_their_own_resource(world, name, monkeypatch, mc
     finally:
         identity.bind(previous)
     assert not _is_not_found(result), f"{name} as the OWNER → {str(result)[:200]}"
+
+
+#: Id-less MCP reads: the caller gets their OWN rows, never another user's (the old door read "the
+#: first user"/"the latest profile"). Pending: the profile read path (3b, F6).
+MCP_SELF_READS: dict[str, Any] = {
+    "get_profile": lambda r: r["id"],
+    "resource profile://current": lambda r: r["id"],
+    "list_applications": lambda r: sorted(item["id"] for item in r),
+}
+PENDING_MCP_SELF: dict[str, str] = {
+    "get_profile": "3b",
+    "resource profile://current": "3b",
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(
+            n,
+            marks=[pytest.mark.xfail(strict=True, reason=f"W2: {PENDING_MCP_SELF[n]} profile read path not yet owner-keyed")]
+            if n in PENDING_MCP_SELF else [],
+            id=n,
+        )
+        for n in sorted(MCP_SELF_READS)
+    ],
+)
+async def test_mcp_id_less_reads_return_the_callers_own_rows(world, name, monkeypatch, mcp_signing_secret):
+    import contextlib
+    import json
+
+    import applire.mcp.server as server
+    from applire.mcp import identity
+    from applire.models.application import Application
+    from applire.models.profile import MasterProfile
+
+    factory, a, b, ids = world
+    # The caller is A, whose rows are the OLDER ones (the world builds A first):
+    # a door that reads "the newest profile" hands A B's vault — B as the caller
+    # would pass by accident of insertion order.
+    caller = a
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        async with factory() as s:
+            yield s
+
+    monkeypatch.setattr(server, "get_db", _db)
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            b_profile = (await s.execute(select(MasterProfile.id).where(MasterProfile.user_id == caller.id))).scalar_one()
+            b_apps = sorted(str(x) for x in (await s.execute(select(Application.id).where(Application.user_id == caller.id))).scalars())
+    expected = {"get_profile": str(b_profile), "resource profile://current": str(b_profile), "list_applications": b_apps}[name]
+    previous = await _bind_agent(factory, caller)
+    try:
+        if name.startswith("resource "):
+            contents = await server.mcp.read_resource(name.split(" ", 1)[1])
+            result = json.loads(list(contents)[0].content)
+        else:
+            result = await getattr(server, name)()
+    finally:
+        identity.bind(previous)
+    assert MCP_SELF_READS[name](result) == expected, f"{name} as A did not return A's own rows"
