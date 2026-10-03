@@ -67,14 +67,11 @@ def _get_provider() -> LLMProvider:
     return get_provider()
 
 
-async def _load_profile(db: AsyncSession) -> MasterProfile:
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    record = result.scalar_one_or_none()
+async def _load_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfile:
+    """The caller's live profile (ADR-092 cl. 2) — the one read path."""
+    from applire.services.profile import get_profile_for_user
+
+    record = await get_profile_for_user(db, user_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No master profile found")
     return record
@@ -124,10 +121,15 @@ def _resume_response(session: InterviewSession) -> EnrichStartResponse:
     )
 
 
-async def _load_session(session_id: uuid.UUID, db: AsyncSession) -> InterviewSession:
+async def _load_session(
+    session_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID
+) -> InterviewSession:
+    """The caller's active enrichment session — a foreign id is a missing id
+    (S-10: same 404 body, no existence oracle)."""
     result = await db.execute(
         select(InterviewSession).where(
             InterviewSession.id == session_id,
+            InterviewSession.user_id == user_id,
             InterviewSession.mode == _ENRICH_MODE,
             InterviewSession.status == "active",
         )
@@ -207,7 +209,7 @@ async def start_enrich_session(
     body: EnrichStartRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> EnrichStartResponse:
     """Create a new Mode C profile enrichment session.
 
@@ -220,7 +222,7 @@ async def start_enrich_session(
 
     Returns the first question, gap list, and session ID.
     """
-    profile_record = await _load_profile(db)
+    profile_record = await _load_profile(db, current_user.id)
     profile_data: dict = profile_record.profile_json or {}
 
     existing = await _active_enrich_session(profile_record.id, db)
@@ -264,6 +266,7 @@ async def start_enrich_session(
     session = InterviewSession(
         job_analysis_id=None,
         profile_id=profile_record.id,
+        user_id=profile_record.user_id,
         mode=_ENRICH_MODE,
         status="active",
         state=state,
@@ -293,7 +296,7 @@ async def respond_to_enrich(
     body: EnrichRespondRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> EnrichRespondResponse:
     """Submit a user answer for the current gap question.
 
@@ -301,9 +304,9 @@ async def respond_to_enrich(
     The separate ResponseParser+reviewer+ProfileUpdater chain is replaced by the
     ADR-046 reconciler (no review step).
     """
-    session = await _load_session(session_id, db)
+    session = await _load_session(session_id, db, current_user.id)
     state: dict = dict(session.state)
-    profile_record = await _load_profile(db)
+    profile_record = await _load_profile(db, current_user.id)
 
     answer = body.answer.strip()
     if is_termination_signal(answer):
@@ -420,10 +423,10 @@ async def skip_gap(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> EnrichActionResponse:
     """Skip the current gap and advance to the next one."""
-    session = await _load_session(session_id, db)
+    session = await _load_session(session_id, db, current_user.id)
     state: dict = dict(session.state)
     current_gap = state["critical_gaps"][state["current_gap_index"]]
     skipped: list[str] = state.get("skipped_gaps", [])
@@ -431,7 +434,7 @@ async def skip_gap(
     state["skipped_gaps"] = skipped
     session.state = state
 
-    profile_record = await _load_profile(db)
+    profile_record = await _load_profile(db, current_user.id)
     next_question, done = await _next_question_or_done(
         session, profile_record.profile_json or {}, provider, db
     )
@@ -455,7 +458,7 @@ async def mark_gap_na(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> EnrichActionResponse:
     """Mark the current gap as not applicable (N/A).
 
@@ -475,7 +478,7 @@ async def mark_gap_na(
     cursor stay ONE transaction, so an interview cursor can never advance past a
     gap whose durable suppression was rolled back.
     """
-    session = await _load_session(session_id, db)
+    session = await _load_session(session_id, db, current_user.id)
     state: dict = dict(session.state)
     current_gap = state["critical_gaps"][state["current_gap_index"]]
 
@@ -486,7 +489,7 @@ async def mark_gap_na(
     session.state = state
 
     # Persist N/A to profile `_meta` so future scans exclude this field.
-    profile_record = await _load_profile(db)
+    profile_record = await _load_profile(db, current_user.id)
     await commit_ops(
         db,
         [SetProfileMeta(key="na_fields", value=current_gap)],

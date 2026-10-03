@@ -29,7 +29,8 @@ from applire.auth.deps import require_admin, require_user
 from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
-from applire.services.color_detection import _CE_STUB_USER_ID, derive_tint
+from applire.services.color_detection import derive_tint
+from applire.services.profile.owner import resolve_owner
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -109,8 +110,9 @@ class SettingsPatchRequest(BaseModel):
     signature_in_cv: bool | None = None
 
 
-async def get_settings(db: AsyncSession) -> dict:
-    """Service logic — returns current settings for the CE stub user.
+async def get_settings(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> dict:
+    """Service logic — returns the settings of ``user_id`` (D-10: one row per user;
+    ``None`` → the user owner context, ruling 3d-1).
 
     ui_language is nullable (ADR-038 amended 2026-08-01): NULL = never chosen,
     served as 'en' with ui_language_explicit=False so the frontend can
@@ -120,7 +122,7 @@ async def get_settings(db: AsyncSession) -> dict:
     from applire.models.color_profile import ColorProfile
 
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == resolve_owner(user_id))
     )
     row = result.scalar_one_or_none()
 
@@ -201,8 +203,10 @@ async def update_settings(
     dismiss_explainer: str | None = None,
     signature_in_letter: bool | None = None,
     signature_in_cv: bool | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> dict:
-    """Service logic — upsert user settings. All fields are optional.
+    """Service logic — upsert ``user_id``'s settings row. All fields are optional.
 
     target_cv_pages=None means "not provided" (leave untouched), matching the
     other optional fields. To explicitly clear a stored value back to NULL
@@ -239,12 +243,13 @@ async def update_settings(
             f"Must be one of {sorted(EXPLAINER_IDS)}."
         )
 
+    owner = resolve_owner(user_id)
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == owner)
     )
     row = result.scalar_one_or_none()
     if row is None:
-        row = UserSettings(user_id=_CE_STUB_USER_ID)
+        row = UserSettings(user_id=owner)
         db.add(row)
 
     if accent_hex is not None:
@@ -363,9 +368,9 @@ async def api_dismiss_upgrade_notice(
 @router.get("", response_model=SettingsResponse)
 async def api_get_settings(
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> SettingsResponse:
-    result = await get_settings(db)
+    result = await get_settings(db, user_id=current_user.id)
     result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
     return SettingsResponse(**result)
 
@@ -374,7 +379,7 @@ async def api_get_settings(
 async def api_patch_settings(
     body: SettingsPatchRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> SettingsResponse:
     # Distinguish an explicit {"target_cv_pages": null} (clear the stored
     # value → "use region standard") from an omitted key (leave untouched).
@@ -395,6 +400,7 @@ async def api_patch_settings(
             dismiss_explainer=body.dismiss_explainer,
             signature_in_letter=body.signature_in_letter,
             signature_in_cv=body.signature_in_cv,
+            user_id=current_user.id,
         )
         result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
         return SettingsResponse(**result)

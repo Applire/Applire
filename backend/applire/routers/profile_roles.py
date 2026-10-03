@@ -38,10 +38,10 @@ router = APIRouter(prefix="/api/profile/roles", tags=["profile"])
 async def add_role(
     body: AddRoleRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    current_user: User = Depends(require_user),
 ) -> AddRoleResponse:
     try:
-        return await add_role_to_profile(body, db)
+        return await add_role_to_profile(body, db, user_id=current_user.id)
     except LookupError:
         raise HTTPException(status_code=404, detail="No master profile found")
     except AddRoleValidationError as exc:

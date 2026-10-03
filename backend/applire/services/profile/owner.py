@@ -15,38 +15,34 @@ without an owner is exactly the cross-user read ADR-092 exists to rule out.
 
 from __future__ import annotations
 
-import collections
 import inspect
 import uuid
 
-from applire import ownership
+from applire.services.owner_resolution import OWNER_FALLBACK_STATS, resolve_user_id
 
 __all__ = ["OWNER_FALLBACK_STATS", "resolve_owner"]
 
-#: W2 convention (main ruling 3d-1): every hit where a caller passed no
-#: ``user_id`` and the owner came from the execution context, keyed by the
-#: calling function — reported per package; 3e (W3) makes the parameter strict.
-OWNER_FALLBACK_STATS: "collections.Counter[str]" = collections.Counter()
+#: wrappers skipped when naming the call site for the shared fallback counter
+_WRAPPERS = frozenset({"resolve_owner", "_get_latest", "get_profile_for_user", "_latest_profile",
+                       "_get_profile", "_load_profile"})
 
 
 def resolve_owner(user_id: uuid.UUID | None) -> uuid.UUID:
-    """``user_id`` if given, else the user owner context; else refuse."""
-    if user_id is not None:
-        if not isinstance(user_id, uuid.UUID):
-            user_id = uuid.UUID(str(user_id))
-        return user_id
-    ctx = ownership.current_owner()
-    if ctx is not None and ctx.user_id is not None:
+    """``user_id`` if given, else the user owner context; else refuse.
+
+    Delegates to the shared ``services.owner_resolution.resolve_user_id`` (main
+    ruling MD-21 / 3d-1) — one ``OWNER_FALLBACK_STATS`` counter for the build;
+    the site is the first caller outside the vault read wrappers.
+    """
+    if user_id is not None and not isinstance(user_id, uuid.UUID):
+        user_id = uuid.UUID(str(user_id))
+    site = "?"
+    if user_id is None:
         frame = inspect.currentframe()
         caller = frame.f_back if frame is not None else None
-        # skip the thin wrappers so the counter names the real caller
-        while caller is not None and caller.f_code.co_name in ("_get_latest", "get_profile_for_user", "_owner"):
+        while caller is not None and caller.f_code.co_name in _WRAPPERS:
             caller = caller.f_back
         if caller is not None:
             mod = caller.f_globals.get("__name__", "?").removeprefix("applire.")
-            OWNER_FALLBACK_STATS[f"{mod}.{caller.f_code.co_name}"] += 1
-        return ctx.user_id
-    raise ownership.OwnerContextMissing(
-        "a vault read/write named no owner: pass user_id or run under "
-        "owner_context(user_id) (ADR-092 cl. 2/14)"
-    )
+            site = f"{mod}.{caller.f_code.co_name}"
+    return resolve_user_id(user_id, site)

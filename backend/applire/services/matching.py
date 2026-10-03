@@ -36,10 +36,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.config import settings
+from applire.models.application import Application
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire.providers.embedding.base import EmbeddingProvider
+from applire.services.posting_labels import effective_posting_labels
+from applire.services.profile.owner import resolve_owner
 
 
 @dataclass
@@ -80,19 +83,19 @@ async def compute_similarity(
     Falls back to 0.0 if either embedding is absent (e.g., noop provider).
     This function re-uses stored embeddings; it does NOT re-embed on the fly.
     """
-    job_result = await db.execute(
-        select(JobAnalysis).where(
-            JobAnalysis.id == job_id,
-            JobAnalysis.deleted_at.is_(None),
-        )
-    )
-    job = job_result.scalar_one_or_none()
-    if job is None:
-        raise LookupError(f"Job analysis {job_id} not found")
+    from applire.ownership import OwnedNotFound
+    from applire.services.job import get_job_for_user
+
+    owner = resolve_owner(user_id)
+    try:
+        job = await get_job_for_user(db, job_id, owner)
+    except OwnedNotFound:
+        raise LookupError(f"Job analysis {job_id} not found") from None
 
     profile_result = await db.execute(
         select(MasterProfile).where(
             MasterProfile.id == profile_id,
+            MasterProfile.user_id == owner,
             MasterProfile.deleted_at.is_(None),
         )
     )
@@ -131,10 +134,13 @@ async def rank_jobs(
     w_emb = settings.matching_score_embedding_weight
     w_llm = settings.matching_score_llm_weight
 
-    # Resolve profile embedding
+    owner = resolve_owner(user_id)
+
+    # Resolve profile embedding — the caller's own profile only (ADR-092 cl. 2)
     profile_result = await db.execute(
         select(MasterProfile).where(
             MasterProfile.id == profile_id,
+            MasterProfile.user_id == owner,
             MasterProfile.deleted_at.is_(None),
         )
     )
@@ -144,21 +150,35 @@ async def rank_jobs(
 
     profile_embedding = list(profile.embedding) if profile.embedding is not None else None
 
-    # Fetch all non-deleted jobs
-    job_query = select(JobAnalysis).where(JobAnalysis.deleted_at.is_(None))
+    # The caller's postings only: the shared cache holds every user's analyses
+    # (S-17); a user ranks the postings they hold a live link (application) to
+    # (RD-2). Their own title/company overrides win (ADR-092 cl. 5f).
+    job_query = (
+        select(JobAnalysis, Application)
+        .join(Application, Application.job_analysis_id == JobAnalysis.id)
+        .where(
+            JobAnalysis.deleted_at.is_(None),
+            Application.user_id == owner,
+            Application.deleted_at.is_(None),
+        )
+    )
     if berufsbild_code:
         # Prefix match: e.g. "43" matches "4311", "4321", etc.
         job_query = job_query.where(
             JobAnalysis.berufsbild_code.like(f"{berufsbild_code}%")
         )
     jobs_result = await db.execute(job_query)
-    jobs = list(jobs_result.scalars().all())
+    linked = {}
+    for job_row, app_row in jobs_result.all():
+        linked.setdefault(job_row.id, (job_row, app_row))
+    jobs = [j for j, _ in linked.values()]
 
     if not jobs:
         return []
 
     # Fetch latest gap analysis for each job+profile pair
     gap_query = select(GapAnalysis).where(
+        GapAnalysis.user_id == owner,
         GapAnalysis.profile_id == profile_id,
         GapAnalysis.deleted_at.is_(None),
     )
@@ -191,10 +211,11 @@ async def rank_jobs(
         effective_llm = llm_score if llm_score is not None else 0.0
         combined = w_emb * effective_emb + w_llm * effective_llm
 
+        role_title, company_name = effective_posting_labels(job, linked[job.id][1])
         results.append(JobMatchResult(
             job_id=job.id,
-            role_title=job.role_title,
-            company_name=job.company_name,
+            role_title=role_title,
+            company_name=company_name,
             berufsbild_code=job.berufsbild_code,
             berufsbild_label=job.berufsbild_label,
             llm_match_score=llm_score,
