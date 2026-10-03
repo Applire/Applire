@@ -114,7 +114,15 @@ async def two_worlds():
 
             s.add(Application(user_id=a.id, job_analysis_id=private.id,
                               company_name="Solo", role_title="Solo"))
+            # A posting NOBODY references yet (another user's analysis whose link
+            # is still being created) — not A's to purge; retention's age-floored
+            # orphan rule owns it (cl. 12c).
+            stray = JobAnalysis(raw_text_hash=uuid.uuid4().hex, raw_text="Stray.",
+                                role_title="Stray", seniority_level="mid",
+                                language_requirement="English")
+            s.add(stray)
             await s.commit()
+            factory.stray_id = stray.id
     yield factory, a, b, wa["job"].id, private.id
     await eng.dispose()
 
@@ -159,6 +167,7 @@ async def test_erase_deletes_all_of_a_and_nothing_of_b(two_worlds, scope):
     # Shared posting kept (B references it), A's private posting purged.
     assert await _job_exists(factory, shared)
     assert not await _job_exists(factory, private)
+    assert await _job_exists(factory, factory.stray_id), "erasure purged a posting A never referenced"
     assert counts["job_analyses"] == 1
     # Files after the commit: A's upload, photo and signature — never B's.
     assert any(str(a.id) in p for p in storage.deleted)
