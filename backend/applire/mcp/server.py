@@ -141,7 +141,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-26"
+GUIDE_VERSION = "2026-10-03"
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,12 @@ async def _owned(db, Model, id_, kind: str):
 
 
 async def _owned_job(db, job_id: uuid.UUID):
-    """The shared posting, reachable only through the user's own link (ADR-092 cl. 5c)."""
+    """The shared posting, reachable only through the user's own link (ADR-092 cl. 5c).
+
+    Used where the DOOR itself reads the posting (``job://``). Tools taking a
+    ``job_id`` pass ``user_id`` into the core function REST calls, which applies
+    the same rule (ADR-058/066: one rule, both doors).
+    """
     return await job_svc.get_job_for_user(db, job_id, _acting_user().id)
 
 
@@ -913,8 +918,6 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        if jid is not None:
-            await _owned_job(db, jid)
         try:
             result = await submit_agent_claims(submission, jid, db, provider, user_id=uid)
         except ValueError as exc:
@@ -966,7 +969,6 @@ async def analyze_gaps(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             result = await gap_svc.analyze_gaps(jid, db, provider, user_id=uid)
         except LookupError as exc:
@@ -990,7 +992,6 @@ async def run_interview(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             from applire.schemas.session import SessionCreateRequest as _SCR
             result = await session_svc.create_session(
@@ -1071,7 +1072,6 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         valid_ids = await session_svc.gap_cluster_ids(jid, db, user_id=uid)
         if valid_ids is None:
             raise not_found(
@@ -1224,7 +1224,6 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1445,7 +1444,6 @@ async def render_document(
     base = settings.applire_base_url
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the
             # identity wrapper on the way out.
@@ -1531,7 +1529,6 @@ async def generate_cover_letter(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             result = await cover_letter_svc.generate_cover_letter(
                 CoverLetterGenerateRequest(job_id=jid),
@@ -1600,8 +1597,6 @@ async def start_flow(job_id: str | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id") if job_id else None
     uid = await _current_user_id()
     async with get_db() as db:
-        if jid is not None:
-            await _owned_job(db, jid)
         try:
             result = await flow_svc.create_flow(
                 CreateFlowRequest(job_id=jid), uid, db, settings.applire_base_url
@@ -1758,7 +1753,6 @@ async def create_application(
     )
     uid = await _current_user_id()
     async with get_db() as db:
-        await _owned_job(db, jid)
         try:
             result = await app_svc.create_application(uid, req, db)
         except app_svc.ConflictError as exc:

@@ -134,20 +134,23 @@ async def test_list_applications_invalid_status_filter_raises():
 
 
 @pytest.mark.asyncio
-async def test_list_applications_no_user_raises_not_found():
-    """When no User row exists in the DB, McpError with not-found code (-32001) is raised."""
+async def test_list_applications_lists_the_acting_users_pipeline():
+    """ADR-092 cl. 10: the pipeline is the call's identity's (here the harness stub),
+    never the first user row the old code selected."""
+    from applire.auth.harness import STUB_USER_ID
     from applire.mcp.server import list_applications
 
-    cm, mock_session = _mock_db()
-    mock_execute_result = MagicMock()
-    mock_execute_result.scalar_one_or_none.return_value = None  # no user
-    mock_session.execute = AsyncMock(return_value=mock_execute_result)
+    cm, _ = _mock_db()
+    empty = MagicMock(items=[])
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch(
+            "applire.mcp.server.app_svc.list_applications", AsyncMock(return_value=empty)
+        ) as svc,
+    ):
+        assert await list_applications() == []
 
-    with patch("applire.mcp.server.get_db", return_value=cm):
-        with pytest.raises(McpError) as exc_info:
-            await list_applications()
-
-    assert exc_info.value.error.code == -32001
+    assert svc.await_args.kwargs["user_id"] == STUB_USER_ID
 
 
 # ---------------------------------------------------------------------------

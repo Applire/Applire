@@ -24,6 +24,7 @@ from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.support.profile_factory import make_master_profile
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 
 @pytest_asyncio.fixture
@@ -60,7 +61,10 @@ async def _seed(db):
     from applire.models.job import JobAnalysis
     from applire.models.user import User
 
-    user = User(email=f"kaile-{uuid.uuid4()}@example.org")
+    from applire.auth.harness import STUB_USER_ID
+
+    # The agent door acts for its identity (in-process: the harness stub user).
+    user = User(id=STUB_USER_ID, email=f"kaile-{uuid.uuid4()}@example.org")
     job = JobAnalysis(
         raw_text_hash=f"hash-{uuid.uuid4()}",
         raw_text="Sample job description",

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, sentinel
 
 import pytest
 from mcp.shared.exceptions import McpError
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -133,8 +134,10 @@ async def test_analyze_jd_carries_duplicate_of_hint():
 
 
 @pytest.mark.asyncio
-async def test_analyze_jd_without_user_still_succeeds():
-    """No user yet (fresh install) — the hint is skipped, analysis still returns."""
+async def test_analyze_jd_passes_the_acting_user_and_survives_a_failed_hint():
+    """ADR-092 cl. 5(b)/10 (RD-2): the service gets the caller's id — it creates
+    their application link. A failing repost-hint lookup still returns the analysis."""
+    from applire.auth.harness import STUB_USER_ID
     from applire.mcp.server import analyze_jd
     from applire.schemas.job import JobAnalysisResponse
 
@@ -154,16 +157,17 @@ async def test_analyze_jd_without_user_still_succeeds():
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
-        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)),
+        patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)) as svc,
         patch(
-            "applire.mcp.server._current_user_id",
-            AsyncMock(side_effect=Exception("no user")),
+            "applire.mcp.server.app_svc.find_duplicate_application",
+            AsyncMock(side_effect=Exception("lookup failed")),
         ),
     ):
         result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
 
     assert result["role_title"] == "Backend Engineer"
     assert result["duplicate_of"] is None
+    assert svc.await_args.kwargs["user_id"] == STUB_USER_ID
 
 
 # ---------------------------------------------------------------------------
@@ -648,32 +652,28 @@ async def test_generate_cv_invalid_uuid_raises():
 
 
 @pytest.mark.asyncio
-async def test_current_user_id_returns_uuid():
-    import uuid as _uuid
+async def test_current_user_id_is_the_acting_user_of_the_call():
+    """ADR-092 cl. 10: the id is the call's re-checked identity, never "the first
+    user row" (the old ``select(User).limit(1)``)."""
+    from applire.auth.harness import stub_user
+    from applire.mcp import identity
     from applire.mcp.server import _current_user_id
 
-    cm, session = _mock_db()
-    uid = _uuid.uuid4()
-    user_row = MagicMock(); user_row.id = uid
-    res = MagicMock(); res.scalar_one_or_none.return_value = user_row
-    session.execute = AsyncMock(return_value=res)
-
-    async with cm as db:
-        assert await _current_user_id(db) == uid
+    user = stub_user()
+    token = identity.set_call_user(user)
+    try:
+        assert await _current_user_id() == user.id
+    finally:
+        identity.reset_call_user(token)
 
 
 @pytest.mark.asyncio
-async def test_current_user_id_no_user_raises():
+async def test_current_user_id_outside_a_call_is_refused():
     from applire.mcp.server import _current_user_id
 
-    cm, session = _mock_db()
-    res = MagicMock(); res.scalar_one_or_none.return_value = None
-    session.execute = AsyncMock(return_value=res)
-
     with pytest.raises(McpError) as exc:
-        async with cm as db:
-            await _current_user_id(db)
-    assert exc.value.error.code == -32001
+        await _current_user_id()
+    assert exc.value.error.code == -32003
 
 
 # ---------------------------------------------------------------------------
@@ -1277,7 +1277,7 @@ async def test_add_role_tool_computes_close_end_date():
     from applire.mcp.server import add_role
     captured = {}
 
-    async def fake_service(req, db):
+    async def fake_service(req, db, *, user_id=None):
         captured["req"] = req
         return _mock_result(profile_id="p1", new_role_id="w", closed_role_ids=["w0"], completeness_score=1.0)
 

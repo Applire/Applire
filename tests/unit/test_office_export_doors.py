@@ -47,6 +47,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:

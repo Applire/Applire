@@ -35,6 +35,7 @@ from applire.auth import get_auth_provider
 from applire.db.session import Base, get_db
 from applire.main import app
 from applire.models.user import User
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse; the door signs links
 from tests.support.isolation import (
     NOT_RESOURCE_PARAMS,
     RESOURCE_FACTORIES,
@@ -177,17 +178,21 @@ PENDING_REST: set[tuple[str, str]] = {
     ("POST", "/api/session/{session_id}/analyze-gaps"),  # 3d
 }
 
-#: MCP read tools / resources not yet scoped (4b, W2).
+#: MCP calls not yet scoped. 4b (W2) emptied the read list; the entries left are
+#: tools taking a shared-posting ``job_id``, whose access rule (ADR-092 cl. 5c,
+#: ``get_job_for_user``) is applied by the core service REST also calls — the
+#: owning package in the comment. They pass ``user_id`` already (4b).
 PENDING_MCP: set[str] = {
-    "get_application",
-    "get_cover_letter_ats_report",
-    "get_cover_letter_status",
-    "get_cv_ats_report",
-    "get_cv_status",
-    "get_flow_state",
-    "resource cv://",
-    "resource flow://",
-    "resource job://",
+    "advance_flow artifact_id",  # 4a — orchestrator records an artifact by id alone
+    "analyze_gaps",  # 3d — services/gap.py
+    "create_application",  # 4a — services/application.py
+    "generate_cover_letter",  # 3d — services/cover_letter.py
+    "generate_cv",  # 3c — services/cv.py
+    "render_document",  # 3c — services/cv.render_agent_cv
+    "resolve_gap",  # 3d — services/session.py
+    "run_interview",  # 3d — services/session.py
+    "start_flow",  # 4a — services/flow/orchestrator.py
+    "submit_claims",  # 4a — services/profile/reconcile/agent_bridge.py
 }
 
 
@@ -228,7 +233,7 @@ def test_pending_lists_name_real_doors():
     """A stale ratchet entry (route renamed/removed) is an error, not silence."""
     assert PENDING_REST <= set(_resource_routes())
     tools, templates = _mcp_surface()
-    assert PENDING_MCP <= set(MCP_READ_CALLS)
+    assert PENDING_MCP <= set(MCP_READ_CALLS) | set(MCP_WRITE_CALLS)
     assert set(REST_BODIES) <= set(routes_ := _resource_routes()), set(REST_BODIES) - set(routes_)
 
 
@@ -418,7 +423,7 @@ def _neutralise_side_effects(monkeypatch) -> None:
 # MCP — read tools and resources as B with A's ids
 # ---------------------------------------------------------------------------
 
-#: name → (tool/resource, kwargs builder). Write tools are 4b's to add here.
+#: name → (tool/resource, kwargs builder).
 MCP_READ_CALLS: dict[str, Any] = {
     "get_cv_status": lambda ids: {"cv_id": ids["cv_id"]},
     "get_cv_ats_report": lambda ids: {"cv_id": ids["cv_id"]},
@@ -426,31 +431,136 @@ MCP_READ_CALLS: dict[str, Any] = {
     "get_cover_letter_ats_report": lambda ids: {"cover_letter_id": ids["cover_letter_id"]},
     "get_flow_state": lambda ids: {"flow_id": ids["flow_id"]},
     "get_application": lambda ids: {"application_id": ids["application_id"]},
+    "audit_document cv": lambda ids: {"document_id": ids["cv_id"]},
+    "audit_document letter": lambda ids: {"document_id": ids["cover_letter_id"]},
     "resource job://": lambda ids: f"job://{ids['job_id']}",
     "resource flow://": lambda ids: f"flow://{ids['flow_id']}",
     "resource cv://": lambda ids: f"cv://{ids['cv_id']}",
 }
 
+#: Write tools with an id argument — as B with A's ids (``own`` = B's own ids, for
+#: the second id of a two-id call). A's rows must be unchanged afterwards.
+MCP_WRITE_CALLS: dict[str, Any] = {
+    "send_message": lambda ids, own: {"session_id": ids["session_id"], "message": "Hello."},
+    "advance_flow": lambda ids, own: {"flow_id": ids["flow_id"], "step": "gap_analysis"},
+    "advance_flow artifact_id": lambda ids, own: {
+        "flow_id": own["flow_id"], "step": "gap_analysis", "artifact_id": ids["gap_analysis_id"],
+    },
+    "update_application": lambda ids, own: {"application_id": ids["application_id"], "notes": "B"},
+    "update_application submitted_cv_id": lambda ids, own: {
+        "application_id": own["application_id"], "submitted_cv_id": ids["cv_id"],
+    },
+    "update_application submitted_cover_letter_id": lambda ids, own: {
+        "application_id": own["application_id"],
+        "submitted_cover_letter_id": ids["cover_letter_id"],
+    },
+    "resolve_held_merge": lambda ids, own: {"staged_id": ids["staged_id"], "decision": "discard"},
+    # job_id tools — the shared posting through the caller's own link (cl. 5c)
+    "analyze_gaps": lambda ids, own: {"job_id": ids["job_id"]},
+    "run_interview": lambda ids, own: {"job_id": ids["job_id"]},
+    "resolve_gap": lambda ids, own: {"job_id": ids["job_id"], "gap_id": "cluster-1", "answer": "I ran Kubernetes."},
+    "generate_cv": lambda ids, own: {"job_id": ids["job_id"]},
+    "generate_cover_letter": lambda ids, own: {"job_id": ids["job_id"]},
+    "render_document": lambda ids, own: {
+        "document_kind": "cv", "job_id": ids["job_id"],
+        "content": {
+            "contact": {"name": "B", "email": "b@example.org", "location": "Berlin"},
+            "summary": "Engineer.", "work_history": [], "skills": ["Python"],
+            "show_photo": False,
+        },
+    },
+    "submit_claims": lambda ids, own: {
+        "claims": [{"statement": "I ran Kubernetes clusters."}], "job_id": ids["job_id"],
+    },
+    "create_application": lambda ids, own: {"job_id": ids["job_id"]},
+    "start_flow": lambda ids, own: {"job_id": ids["job_id"]},
+}
 
-def _mcp_params():
+
+def _mcp_params(calls):
     return [
         pytest.param(
             name,
-            marks=[pytest.mark.xfail(strict=True, reason="W2 (4b): MCP door not yet owner-scoped")]
+            marks=[pytest.mark.xfail(strict=True, reason=f"W2: {PENDING_MCP_OWNER.get(name, '4b')} not yet owner-scoped")]
             if name in PENDING_MCP
             else [],
             id=name,
         )
-        for name in sorted(MCP_READ_CALLS)
+        for name in sorted(calls)
     ]
 
 
+#: Owning package of each PENDING_MCP entry (the service the tool calls).
+PENDING_MCP_OWNER: dict[str, str] = {
+    "advance_flow artifact_id": "4a", "analyze_gaps": "3d", "create_application": "4a",
+    "generate_cover_letter": "3d", "generate_cv": "3c", "render_document": "3c",
+    "resolve_gap": "3d", "run_interview": "3d", "start_flow": "4a", "submit_claims": "4a",
+}
+
+
+async def _bind_agent(factory, user):
+    """Bind the MCP process identity to ``user`` through a REAL agent token, the
+    way ``python -m applire.mcp`` does at start (ADR-091 cl. 17) — every call then
+    re-checks it (MD-3). Returns the previous binding."""
+    from applire.auth.tokens import create_token
+    from applire.mcp import identity
+
+    previous = identity.bound()
+    async with factory() as s:
+        _row, raw = await create_token(s, user_id=user.id, scope="agent", name="iso")
+        await s.commit()
+        await identity.establish(s, raw)
+    return previous
+
+
+async def _own_ids(factory, user) -> dict[str, str]:
+    """A user's flow / application / gap-analysis ids (two-id calls pair B's own
+    container with A's id)."""
+    from applire.models.application import Application
+    from applire.models.flow import FlowSession
+    from applire.models.gap import GapAnalysis
+
+    out = {}
+    with ownership.owner_context(user.id):
+        async with factory() as s:
+            for key, model in (
+                ("flow_id", FlowSession), ("application_id", Application),
+                ("gap_analysis_id", GapAnalysis),
+            ):
+                row = (await s.execute(select(model).where(model.user_id == user.id))).scalars().first()
+                out[key] = str(row.id)
+    return out
+
+
+#: A provider any use of which fails — a door reaching it got past the lookup.
+_NO_PROVIDER = object()
+
+
+def _is_not_found(result) -> bool:
+    """The door's miss, identical for a missing and a foreign id (S-10): a tool's
+    ``McpError`` with the not-found code (-32001), or a resource read FastMCP
+    wraps into ``ValueError`` around the door's not-found message."""
+    from mcp.shared.exceptions import McpError
+
+    if isinstance(result, McpError):
+        return result.error.code == -32001
+    return isinstance(result, ValueError) and "not found" in str(result).lower()
+
+
+async def _call_mcp(server, name: str, call):
+    tool = name.split(" ", 1)[0]
+    if name.startswith("resource "):
+        return await server.mcp.read_resource(call)
+    return await getattr(server, tool)(**call)
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", _mcp_params())
-async def test_mcp_foreign_id_is_not_found(world, name, monkeypatch):
+@pytest.mark.parametrize("name", _mcp_params(MCP_READ_CALLS) + _mcp_params(MCP_WRITE_CALLS))
+async def test_mcp_foreign_id_is_not_found(world, name, monkeypatch, mcp_signing_secret):
     import contextlib
 
     import applire.mcp.server as server
+    from applire.mcp import identity
 
     factory, a, b, ids = world
 
@@ -461,18 +571,55 @@ async def test_mcp_foreign_id_is_not_found(world, name, monkeypatch):
 
     monkeypatch.setattr(server, "get_db", _db)
     _neutralise_side_effects(monkeypatch)
-    call = MCP_READ_CALLS[name](ids)
+    monkeypatch.setattr(server, "get_provider", lambda *a, **k: _NO_PROVIDER)
+    if name in MCP_READ_CALLS:
+        call = MCP_READ_CALLS[name](ids)
+    else:
+        call = MCP_WRITE_CALLS[name](
+            {**ids, "gap_analysis_id": (await _own_ids(factory, a))["gap_analysis_id"]},
+            await _own_ids(factory, b),
+        )
+    before = await _snapshot(factory, a.id)
+    previous = await _bind_agent(factory, b)
     outcome = "returned"
-    with ownership.owner_context(b.id):
-        try:
-            if name.startswith("resource "):
-                result = await server.mcp.read_resource(call)
-            else:
-                result = await getattr(server, name)(**call)
-        except Exception as exc:  # noqa: BLE001 — classify below
-            result = exc
-            outcome = type(exc).__name__
+    try:
+        result = await _call_mcp(server, name, call)
+    except Exception as exc:  # noqa: BLE001 — classify below
+        result = exc
+        outcome = type(exc).__name__
+    finally:
+        identity.bind(previous)
     text = str(result)
-    assert outcome != "returned" and "not" in text.lower() and "found" in text.lower(), (
-        f"{name} as B with A's id → {outcome}: {text[:200]}"
-    )
+    assert _is_not_found(result), f"{name} as B with A's id → {outcome}: {text[:200]}"
+    assert await _snapshot(factory, a.id) == before, "A's rows changed under B's MCP call"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(MCP_READ_CALLS))
+async def test_mcp_owner_reaches_their_own_resource(world, name, monkeypatch, mcp_signing_secret):
+    """Positive control: the same read as A, through A's own agent token, is not a
+    miss — so B's ``not_found`` above is ownership, not a broken factory."""
+    import contextlib
+
+    import applire.mcp.server as server
+    from applire.mcp import identity
+
+    factory, a, b, ids = world
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        async with factory() as s:
+            yield s
+
+    monkeypatch.setattr(server, "get_db", _db)
+    _neutralise_side_effects(monkeypatch)
+    monkeypatch.setattr(server, "get_provider", lambda *a, **k: _NO_PROVIDER)
+    previous = await _bind_agent(factory, a)
+    try:
+        try:
+            result = await _call_mcp(server, name, MCP_READ_CALLS[name](ids))
+        except Exception as exc:  # noqa: BLE001
+            result = exc
+    finally:
+        identity.bind(previous)
+    assert not _is_not_found(result), f"{name} as the OWNER → {str(result)[:200]}"

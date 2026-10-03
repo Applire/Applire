@@ -100,7 +100,11 @@ def _profile_json(name: str = _ACCOUNT, enrichment_id: str | None = None) -> dic
 async def _seed_user(db) -> uuid.UUID:
     from applire.models.user import User
 
-    user = User(id=uuid.uuid4(), email="kontakt@applire.de")
+    from applire.auth.harness import STUB_USER_ID
+
+    # ADR-092 cl. 10: the door acts for its identity — in-process, the harness
+    # stub user — never for "the first user row".
+    user = User(id=STUB_USER_ID, email="kontakt@applire.de")
     db.add(user)
     await db.flush()
     return user.id

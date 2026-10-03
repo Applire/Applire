@@ -55,6 +55,8 @@ async def test_add_fact_pin_param_reaches_the_pin_service():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        # the door resolves the application id as the acting user's first (S-10)
+        patch("applire.mcp.server._owned", AsyncMock()),
         patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uid)),
         patch(
             "applire.mcp.server.pin_svc.add_fact_pin", AsyncMock()
@@ -90,6 +92,8 @@ async def test_remove_fact_pin_param_reaches_the_pin_service():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        # the door resolves the application id as the acting user's first (S-10)
+        patch("applire.mcp.server._owned", AsyncMock()),
         patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uid)),
         patch(
             "applire.mcp.server.pin_svc.remove_fact_pin", AsyncMock()
@@ -114,6 +118,8 @@ async def test_a_pin_op_alone_is_a_valid_call():
     cm, _session = _mock_db()
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        # the door resolves the application id as the acting user's first (S-10)
+        patch("applire.mcp.server._owned", AsyncMock()),
         patch(
             "applire.mcp.server._current_user_id",
             AsyncMock(return_value=uuid.uuid4()),
@@ -138,6 +144,8 @@ async def test_malformed_add_fact_pin_is_invalid_input():
     cm, _session = _mock_db()
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        # the door resolves the application id as the acting user's first (S-10)
+        patch("applire.mcp.server._owned", AsyncMock()),
         patch(
             "applire.mcp.server._current_user_id",
             AsyncMock(return_value=uuid.uuid4()),
@@ -161,6 +169,8 @@ async def test_a_cv_target_on_a_volunteer_pin_is_invalid_input_on_the_agent_door
     cm, _session = _mock_db()
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
+        # the door resolves the application id as the acting user's first (S-10)
+        patch("applire.mcp.server._owned", AsyncMock()),
         patch(
             "applire.mcp.server._current_user_id",
             AsyncMock(return_value=uuid.uuid4()),
