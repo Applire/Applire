@@ -123,10 +123,15 @@ def derive_key(purpose: KeyPurpose) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def link_ttl_seconds() -> int:
+def _configured_ttl_minutes() -> object:
+    """``AGENT_LINK_TTL_MINUTES`` (registry entry + ``Settings`` field by 1a)."""
     from applire.config import settings
 
-    minutes = getattr(settings, "agent_link_ttl_minutes", DEFAULT_LINK_TTL_MINUTES)
+    return getattr(settings, "agent_link_ttl_minutes", DEFAULT_LINK_TTL_MINUTES)
+
+
+def link_ttl_seconds() -> int:
+    minutes = _configured_ttl_minutes()
     try:
         minutes = int(minutes)
     except (TypeError, ValueError):
