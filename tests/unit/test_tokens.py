@@ -469,6 +469,18 @@ async def test_agent_and_api_tokens_of_a_non_admin_do_not_open_ops_health(token_
 
 
 @pytest.mark.asyncio
+async def test_an_admins_agent_token_does_not_open_ops_health(token_db, monkeypatch):
+    """The probe branch resolves the probe scope only: an admin's agent token (a
+    stdio-only credential) must not become an HTTP credential on the ops route."""
+    async with token_db.session() as db:
+        admin = await make_person(db, role="admin")
+        _r, agent = await _token(db, admin, "agent")
+    async with _client(_ops_app(token_db, None, monkeypatch)) as c:
+        r = await c.get("/api/ops/health", headers={"Authorization": f"Bearer {agent}"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_a_probe_dies_when_its_creator_stops_being_an_active_admin(token_db, monkeypatch):
     async with token_db.session() as db:
         admin = await make_person(db, role="admin")
