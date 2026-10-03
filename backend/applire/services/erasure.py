@@ -89,8 +89,10 @@ async def erase(db: AsyncSession, user_id: uuid.UUID, scope: ErasureScope) -> di
         kwargs["storage"] = profile_router._get_storage()
     if "auth" in params:
         kwargs["auth"] = _FixedUserAuth(user_id)
-    if "user" in params:  # after W0-A1's dependency swap (F2)
+    if "user" in params:
         kwargs["user"] = _UserRef(user_id)
+    if "current_user" in params:  # W0-A1's dependency swap (F2) names it current_user
+        kwargs["current_user"] = _UserRef(user_id)
     try:
         result = await handler(**kwargs)
     except HTTPException as exc:
