@@ -34,11 +34,14 @@ from tests.support.isolation import OwnerWorld
 
 pytestmark = pytest.mark.no_owner_context
 
-NOW = datetime.now(timezone.utc)
+def _now() -> datetime:
+    # per call, never at import: in a full run the module is imported minutes
+    # before this test runs, and a "+5 min" grant would already have expired.
+    return datetime.now(timezone.utc)
 
 
 def _ago(days: float) -> datetime:
-    return NOW - timedelta(days=days)
+    return _now() - timedelta(days=days)
 
 
 @pytest_asyncio.fixture
@@ -135,20 +138,20 @@ async def test_auth_housekeeping_purges_dead_credentials_only(factory):
 
             live = _sess(created_at=_ago(1), last_seen_at=_ago(0.1))
             revoked = _sess(created_at=_ago(1), last_seen_at=_ago(0.1), revoked_at=_ago(0.5))
-            idle = _sess(created_at=_ago(20), last_seen_at=NOW - IDLE_TIMEOUT - timedelta(hours=1))
-            too_old = _sess(created_at=NOW - ABSOLUTE_TIMEOUT - timedelta(hours=1), last_seen_at=_ago(0.1))
+            idle = _sess(created_at=_ago(20), last_seen_at=_now() - IDLE_TIMEOUT - timedelta(hours=1))
+            too_old = _sess(created_at=_now() - ABSOLUTE_TIMEOUT - timedelta(hours=1), last_seen_at=_ago(0.1))
             await s.flush()
             s.add_all([
-                AuthLink(user_id=uid, purpose="reset", token_hash=uuid.uuid4().hex, expires_at=NOW + timedelta(hours=1)),
+                AuthLink(user_id=uid, purpose="reset", token_hash=uuid.uuid4().hex, expires_at=_now() + timedelta(hours=1)),
                 AuthLink(user_id=uid, purpose="reset", token_hash=uuid.uuid4().hex, expires_at=_ago(0.1)),
                 AuthLink(user_id=uid, purpose="invite", token_hash=uuid.uuid4().hex,
-                         expires_at=NOW + timedelta(days=3), used_at=_ago(0.2)),
+                         expires_at=_now() + timedelta(days=3), used_at=_ago(0.2)),
                 ReauthGrant(user_id=uid, session_id=live.id, action="account.delete", target_id=uid,
-                            expires_at=NOW + timedelta(minutes=5)),
+                            expires_at=_now() + timedelta(minutes=5)),
                 ReauthGrant(user_id=uid, session_id=live.id, action="account.delete", target_id=uid,
                             expires_at=_ago(0.01)),
                 ReauthGrant(user_id=uid, session_id=revoked.id, action="account.delete", target_id=uid,
-                            expires_at=NOW + timedelta(minutes=5)),
+                            expires_at=_now() + timedelta(minutes=5)),
             ])
             await s.commit()
             out = await worker._purge_auth_housekeeping(s)
