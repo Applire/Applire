@@ -290,6 +290,13 @@ async def test_latest_keyword_ledger_is_owner_keyed(world, monkeypatch):
         return gap.keyword_ledger
 
     monkeypatch.setattr(keyword_ledger, "refresh_persist_and_rescore", _passthrough)
+    from datetime import datetime, timedelta, timezone
+
+    with ownership.unscoped("tooling"):  # A's analysis is the newest of the posting
+        async with world["factory"]() as s:
+            g = await s.get(GapAnalysis, world["a"]["gap"])
+            g.created_at = datetime.now(timezone.utc) + timedelta(days=1)
+            await s.commit()
     async with _as(world, "b") as db:
         ledger = await cv_svc._latest_keyword_ledger(db, world["job"], user_id=world["b"]["user"])
     assert ledger == [{"concept": "ledger-b", "status": "gap"}]
