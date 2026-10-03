@@ -57,6 +57,7 @@ refusals and the two doors' error mappings. Those are the properties that made
 ``UpsertWork`` an unusable stand-in and produced the ``AddRole`` ruling; see
 that op's docstring for the two refutations.
 """
+import uuid
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -157,7 +158,7 @@ def apply_add_role(profile: MasterProfileData, req: AddRoleRequest) -> AddRoleRe
     )
 
 
-async def add_role_to_profile(req: AddRoleRequest, db: AsyncSession) -> AddRoleResponse:
+async def add_role_to_profile(req: AddRoleRequest, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> AddRoleResponse:
     """Load the latest profile, commit the post-hire act, and answer the door.
 
     Shared by ``POST /api/profile/roles`` and the MCP ``add_role`` tool, so both

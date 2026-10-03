@@ -42,6 +42,7 @@ accusation on truthful content.
 Reads only the two persisted artifacts — never the source upload
 (retention-safe, ADR-005).
 """
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.cv import GeneratedCV
@@ -52,7 +53,7 @@ from applire.services.ats_audit import surface_present
 from applire.services.keyword_ledger import profile_literal_corpus
 
 
-def compute_cv_profile_diff(tailored: dict, profile: dict) -> list[FieldChange]:
+def compute_cv_profile_diff(tailored: dict, profile: dict, *, user_id: uuid.UUID | None = None) -> list[FieldChange]:
     """Return the structured divergences of the tailored CV from the Master
     Profile — skills only, since ADR-067 made every other fact vault-joined."""
     changes: list[FieldChange] = []
@@ -84,7 +85,7 @@ def compute_cv_profile_diff(tailored: dict, profile: dict) -> list[FieldChange]:
     return changes
 
 
-async def get_cv_profile_diff(cv_id, db: AsyncSession) -> CVProfileDiffResponse:
+async def get_cv_profile_diff(cv_id, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> CVProfileDiffResponse:
     """Load a generated CV and its Master Profile and return their deterministic diff.
 
     Reads only the persisted `tailored_data` and `profile_json` — never the source

@@ -94,6 +94,8 @@ async def submit_testimony(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> TestimonyResult:
     """Reconcile one free-text testimony submission into the vault.
 

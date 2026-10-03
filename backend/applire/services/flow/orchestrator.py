@@ -137,7 +137,7 @@ def _artifact_field_sentence() -> str:
     )
 
 
-def unrecordable_artifact_notice(step: str) -> str:
+def unrecordable_artifact_notice(step: str, *, user_id: uuid.UUID | None = None) -> str:
     """The response notice for an artifact_id passed at a step that records none.
 
     #676 line 35 / ruling D-4: an id the flow cannot record is answered with an
@@ -407,6 +407,8 @@ async def repoint_flow_gap_analysis(
     job_id: uuid.UUID | None,
     gap_analysis_id: uuid.UUID,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Repoint the owning flow's gap_analysis_id FK to the latest gap analysis.
 
@@ -445,6 +447,8 @@ async def repoint_flow_gap_analysis(
 async def advance_flow_on_interview_complete(
     interview_session_id: uuid.UUID,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Advance the owning flow off the 'interview' step when its interview completes.
 

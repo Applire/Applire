@@ -151,6 +151,8 @@ async def generate_cover_letter(
     provider: LLMProvider,
     background_tasks: BackgroundTasks | None = None,
     base_url: str = "http://localhost:8001",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterGenerateResponse:
     """Create a GeneratedCoverLetter record and render it.
 
@@ -275,6 +277,8 @@ async def get_cover_letter_status(
     cl_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterStatusResponse:
     result = await db.execute(
         select(GeneratedCoverLetter).where(
@@ -335,7 +339,9 @@ async def get_cover_letter_status(
 
 
 async def set_cover_letter_signature_override(
-    cl_id: uuid.UUID, override: bool | None, db: AsyncSession
+    cl_id: uuid.UUID, override: bool | None, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     """Persist ``signature_override`` on one cover letter and return the
     resulting ``signature_effective``. Letter-side twin of
@@ -360,7 +366,7 @@ async def set_cover_letter_signature_override(
     return await resolve_signature_effective(db, document="letter", override=override)
 
 
-async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a cover-letter PDF (E039/US219).
 
     Format: <name>_<company>_<role>_<suffix>.pdf — same contract as the CV
@@ -411,6 +417,8 @@ async def get_cover_letter_html(
     cl_id: uuid.UUID,
     db: AsyncSession,
     require_ready: bool = True,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> str:
     """Render the cover letter HTML via Jinja2. Only works when status='ready'.
 
@@ -650,7 +658,7 @@ async def _prepare_cover_letter_docx_render(
     return letter, lang, color_ctx["primary"], signature_bytes
 
 
-async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
+async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bytes:
     """The editable Word export. Rendered ON DEMAND from letter_data, exactly
     like get_cover_letter_html / get_cover_letter_pdf — no bytes are
     persisted (ADR-079 clause 8; models/cover_letter.py has no
@@ -700,7 +708,7 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
     )
 
 
-async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a cover-letter .docx
     export — the same <name>_<company>_<role>_<suffix> contract as
     get_cover_letter_pdf_filename (E039/US219), with a .docx extension.
@@ -782,6 +790,8 @@ def _constraining_stated_limits_entry(limits: list[str]) -> dict:
 def build_stated_limits_entry(
     denied_concepts: list[dict] | None,
     keyword_ledger: list[dict] | None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> dict | None:
     """The ADR-075 affirmative entry, or ``None`` when nothing is owed (#532).
 
@@ -843,6 +853,8 @@ async def patch_cover_letter_section(
     content: str,
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     if section not in SUPPORTED_SECTION_OVERRIDES:
         raise ValueError(
@@ -873,6 +885,8 @@ async def get_cover_letter_by_job(
     job_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterStatusResponse:
     # Find active cover letter via flow session
     flow_result = await db.execute(
@@ -1184,6 +1198,8 @@ async def _render_cover_letter_background(
     cv_id: uuid.UUID | None,
     job_id: uuid.UUID,
     application_id: uuid.UUID | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Background task: LLM → Jinja2 → PDF. Updates status on completion.
 
@@ -3721,7 +3737,7 @@ async def _update_ats_report_letter(
     await db.commit()
 
 
-async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
+async def _update_ats_report_letter_by_id(cl_id: uuid.UUID, *, user_id: uuid.UUID | None = None) -> None:
     """BackgroundTasks entrypoint — own session (request session gone by run time)."""
     from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
 
@@ -3731,7 +3747,7 @@ async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
             await _update_ats_report_letter(cl, db)
 
 
-async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
+async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
     """Return the persisted ATS report for a cover letter (ADR-039).
 
     Raises LookupError if the cover letter is not found (→ 404 in the router).
@@ -3770,7 +3786,9 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
 
 
 async def get_cover_letter_truthfulness_report(
-    cl_id: uuid.UUID, db: AsyncSession
+    cl_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "TruthfulnessReportResponse":
     """Return the persisted truthfulness report for a cover letter (ADR-052/US246).
 
@@ -3803,7 +3821,9 @@ async def get_cover_letter_truthfulness_report(
 
 
 async def get_cover_letter_critic_report(
-    cl_id: uuid.UUID, db: AsyncSession
+    cl_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "OutcomeCriticReportResponse":
     """Return the persisted ADR-060 Pass B advisory for a cover letter (#322).
 
@@ -3849,6 +3869,8 @@ async def render_agent_letter(
     job_id: uuid.UUID,
     db: AsyncSession,
     template: str = "classic_german",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GeneratedCoverLetter:
     """Render agent-authored cover-letter content (ADR-054) — letter twin of
     ``services.cv.render_agent_cv``.

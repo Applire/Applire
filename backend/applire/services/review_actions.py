@@ -91,7 +91,7 @@ class ActionOutcome:
 # ── per-kind plumbing ────────────────────────────────────────────────────────
 
 
-async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession):
+async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None):
     if kind == "cv":
         from applire.services.cv import _load_cv
 
@@ -111,7 +111,7 @@ async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession):
     return cl
 
 
-async def reaudit(kind: Kind, record, db: AsyncSession) -> None:
+async def reaudit(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:
     """The document re-audit, AWAITED (ADR-090 cl. 3/4) — the exact function the
     section editor's background task runs. It commits."""
     if kind == "cv":
@@ -125,7 +125,7 @@ async def reaudit(kind: Kind, record, db: AsyncSession) -> None:
     await db.refresh(record)
 
 
-def findings_of(record) -> list[rs.GroupOneFinding]:
+def findings_of(record, *, user_id: uuid.UUID | None = None) -> list[rs.GroupOneFinding]:
     ats = record.ats_report if isinstance(record.ats_report, dict) else None
     truth = record.truthfulness_report if isinstance(record.truthfulness_report, dict) else None
     return rs.group_one_findings(ats, truth)
@@ -150,7 +150,7 @@ async def _document_language(kind: Kind, record, db: AsyncSession) -> str:
     return resolve_document_language(application, job) if job else "de"
 
 
-async def patchable_sections(kind: Kind, record, db: AsyncSession) -> list[tuple[str, str]]:
+async def patchable_sections(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[tuple[str, str]]:
     """(section_id, current text) for every section the user's editor can write —
     CV: what ``PATCH /api/cv/{id}/sections/{section_id}`` takes; letter: ``body``."""
     if kind == "cv":
@@ -165,7 +165,7 @@ async def patchable_sections(kind: Kind, record, db: AsyncSession) -> list[tuple
     return [("body", "\n\n".join(p for p in paragraphs if isinstance(p, str)))]
 
 
-async def write_section(kind: Kind, record, section_id: str, content: str, db: AsyncSession) -> None:
+async def write_section(kind: Kind, record, section_id: str, content: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:
     """The section-editor write, WITHOUT its background re-audit (the caller
     awaits one)."""
     if kind == "cv":
@@ -204,7 +204,7 @@ def _section_holds_figures(text: str, figures: list[str]) -> bool:
     return any(figure_present(f, text or "") for f in figures)
 
 
-async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
+async def protected_names(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[str]:
     """The names a take-out may never rewrite, normalised (``ats_audit._norm``):
     the posting's title and employer (``non_claim_names_for_job``, the same names
     the audit masks), the letter's ``recipient.company``, and every employer, job
@@ -237,7 +237,7 @@ async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
     return out
 
 
-def protected_name_hit(section_text: str, wording: list[str], names: list[str]) -> str | None:
+def protected_name_hit(section_text: str, wording: list[str], names: list[str], *, user_id: uuid.UUID | None = None) -> str | None:
     """The first protected name that stands in ``section_text`` AND contains one
     of ``wording``'s forms (the audit's own ``surface_present``), else ``None``."""
     from applire.services.ats_audit import _norm, surface_present
@@ -266,7 +266,7 @@ def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
 # ── the actions ──────────────────────────────────────────────────────────────
 
 
-async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: AsyncSession, provider) -> ActionOutcome:
+async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
     async with rs.document_lock(kind, doc_id):
@@ -288,7 +288,7 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
     return ActionOutcome(record=record, testimony=testimony, still_listed=still)
 
 
-async def sibling_document_id(kind: Kind, record, db: AsyncSession) -> tuple[Kind, uuid.UUID] | None:
+async def sibling_document_id(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> tuple[Kind, uuid.UUID] | None:
     """The other document of the same application: the job's flow session
     (one per user+job) records the CURRENT CV and cover letter. Only when the
     pressed document IS that flow's current one — an older regeneration has no
@@ -334,7 +334,7 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
             pass
 
 
-async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider) -> ActionOutcome:
+async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     rewrite_for_removal = _rewriter()
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db)
@@ -393,7 +393,7 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
         return ActionOutcome(record=record, changes=changes, still_listed=still)
 
 
-async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> ActionOutcome:
+async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     rs.split_key(key)
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db)
@@ -416,7 +416,7 @@ async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> Act
         return ActionOutcome(record=record, still_listed=still)
 
 
-async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> ActionOutcome:
+async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     """Called after a section save that was opened from a finding (cl. 5). The
     save itself went through the editor unchanged; this awaits the re-audit and
     records ``edited`` only if the finding cleared. No undo text: the editor's
@@ -461,7 +461,7 @@ def _term_known_to_report(record, key: str) -> bool:
     return False
 
 
-async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession) -> ActionOutcome:
+async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db)
         await _save_state(record, rs.with_walked(rs.load_state(record.review_state)), db)

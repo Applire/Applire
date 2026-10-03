@@ -356,6 +356,8 @@ async def sync_workflow_status(
     application_id: uuid.UUID,
     new_step: str,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """Called by advance_flow() after a successful step transition.
 

@@ -121,7 +121,7 @@ from applire.constants import (
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 
 
-def classify_generation_error(exc: BaseException) -> str:
+def classify_generation_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
     """Map an internal CV-generation failure to a STABLE machine code (ADR-047 §4).
 
     Honest-failure UX (PQ F6): the raw exception text — e.g. "Raise max_tokens or
@@ -156,7 +156,7 @@ class UnknownWorkEntryIdError(ValueError):
     misassignment this design removes), so generation fails instead."""
 
 
-def assemble_tailored_cv(prose: dict, profile_json: dict) -> dict:
+def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID | None = None) -> dict:
     """Deterministically join the writer's PROSE onto the vault's FACTS, producing a
     TailoredCVData-shaped dict (E049 / ADR-067 clauses 2–3 — one assembly for both
     generation paths, ADR-066).
@@ -313,6 +313,7 @@ async def generate_cv_segmented(
     scope_positioning_block: str | None = None,
     vault_evidence_items: "list | None" = None,
     pinned_facts_block: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> dict:
     """Outline-then-expand CV tailoring (ADR-047 §1 / US189) — the segmented path.
 
@@ -2881,7 +2882,7 @@ _PHOTO_MIME: dict[str, str] = {
 }
 
 
-def format_place_date_for_cv(location: str | None, language: str) -> str:
+def format_place_date_for_cv(location: str | None, language: str, *, user_id: uuid.UUID | None = None) -> str:
     """#359: the CV tail's ``Ort, Datum`` line. A thin alias so both CV render
     paths name the same function; the implementation lives with the rest of the
     signature logic in ``services/signature.py``."""
@@ -2948,6 +2949,8 @@ async def generate_cv(
     template: CVTemplate = "classic_german",
     base_url: str = "http://localhost:8001",
     target_pages: int | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CVGenerateResponse:
     """Create a GeneratedCV record and render it.
 
@@ -3053,6 +3056,8 @@ async def get_cv_status(
     cv_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CVStatusResponse:
     from datetime import timedelta
     from datetime import datetime as _dt
@@ -3115,7 +3120,9 @@ async def get_cv_status(
 
 
 async def set_cv_signature_override(
-    cv_id: uuid.UUID, override: bool | None, db: AsyncSession
+    cv_id: uuid.UUID, override: bool | None, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     """Persist ``signature_override`` on one CV and return the resulting
     ``signature_effective``, mirroring ``routers.cv_color.apply_cv_color``'s
@@ -3158,6 +3165,8 @@ async def list_cvs_for_job(
     job_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> list[CVStatusResponse]:
     """Return all non-deleted CVs for a job, newest first."""
     result = await db.execute(
@@ -3211,7 +3220,7 @@ async def list_cvs_for_job(
 # ---------------------------------------------------------------------------
 
 
-def filename_part(value: str | None) -> str:
+def filename_part(value: str | None, *, user_id: uuid.UUID | None = None) -> str:
     """Sanitize one segment of a download filename (E039/US219, FMEA JF-E-Q.1).
 
     Umlaut-safe (ä→ae, ß→ss per DIN 5007-2) and diacritic-safe (á→a, č→c via
@@ -3241,7 +3250,8 @@ def filename_part(value: str | None) -> str:
 
 
 def compose_document_filename(
-    *parts: str | None, suffix: str = "", fallback: str, extension: str = "pdf"
+    *parts: str | None, suffix: str = "", fallback: str, extension: str = "pdf",
+    user_id: uuid.UUID | None = None,
 ) -> str:
     """Join sanitized parts as <name>_<company>_<role>[_suffix].<extension>;
     empty parts are skipped. When nothing survives sanitization, fall back to
@@ -3258,7 +3268,7 @@ def compose_document_filename(
     return "_".join(clean) + f".{extension}"
 
 
-async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a CV PDF.
 
     Format: <name>_<company>_<role>.pdf (sanitized, umlaut-safe) — the download
@@ -3280,7 +3290,7 @@ async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
 # ---------------------------------------------------------------------------
 
 
-def project_has_content(project: Any) -> bool:
+def project_has_content(project: Any, *, user_id: uuid.UUID | None = None) -> bool:
     """True when a project carries at least one non-blank bullet.
 
     The single predicate behind #312 (ADR-066: one logical operation, one
@@ -3291,7 +3301,7 @@ def project_has_content(project: Any) -> bool:
     return any(isinstance(b, str) and b.strip() for b in (bullets or []))
 
 
-def strip_empty_projects(tailored: TailoredCVData) -> TailoredCVData:
+def strip_empty_projects(tailored: TailoredCVData, *, user_id: uuid.UUID | None = None) -> TailoredCVData:
     """Remove every bullet-less project from the RENDER context (#312).
 
     Charter run #7 delivered a CV whose ``PROJEKTE`` section held a bold
@@ -3334,7 +3344,7 @@ def strip_empty_projects(tailored: TailoredCVData) -> TailoredCVData:
 # ---------------------------------------------------------------------------
 
 
-async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     from applire.services.cv_section_editor import apply_overrides_to_tailored
     from applire.storage import get_storage
 
@@ -3398,7 +3408,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
+async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bytes:
     """The delivered CV PDF.
 
     ADR-085 / ruling 14: this is where an agent-authored document's mark is
@@ -3517,7 +3527,7 @@ async def _prepare_cv_docx_render(
     return tailored, lang, color_ctx.primary, photo_bytes, signature_bytes, signature_place_date
 
 
-async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
+async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bytes:
     """The editable Word export. Rendered ON DEMAND from tailored_data, exactly
     like get_cv_pdf — no bytes are persisted (ADR-079 clause 8; models/cv.py
     has no document-bytes column).
@@ -3550,7 +3560,7 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession) -> bytes:
     )
 
 
-async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a CV .docx export — the
     same <name>_<company>_<role> contract as get_pdf_filename (E039/US219),
     with a .docx extension."""
@@ -3577,6 +3587,8 @@ async def _render_cv_background(
     profile_id: uuid.UUID,
     template: CVTemplate,
     application_id: uuid.UUID | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     """LLM tailoring + Playwright PDF rendering — runs outside request lifecycle.
 
@@ -5527,7 +5539,7 @@ async def _update_ats_report(
         await db.commit()
 
 
-async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
+async def _update_ats_report_by_id(cv_id: uuid.UUID, *, user_id: uuid.UUID | None = None) -> None:
     """BackgroundTasks entrypoint — opens its own session (the request session is gone by run time).
 
     The section-editor's post-edit re-audit path: passes NO CondenseContext, so it is
@@ -5540,7 +5552,7 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID) -> None:
             await _update_ats_report(record, db)
 
 
-async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
+async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
     """Return the persisted ATS report for a CV (ADR-039).
 
     Raises LookupError if the CV is not found (→ 404 in the router).
@@ -5570,7 +5582,9 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession) -> "ATSReportRes
 
 
 async def get_cv_truthfulness_report(
-    cv_id: uuid.UUID, db: AsyncSession
+    cv_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "TruthfulnessReportResponse":
     """Return the persisted truthfulness report for a CV (ADR-052 / US246).
 
@@ -5597,7 +5611,9 @@ async def get_cv_truthfulness_report(
 
 
 async def get_cv_critic_report(
-    cv_id: uuid.UUID, db: AsyncSession
+    cv_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "OutcomeCriticReportResponse":
     """Return the persisted Pass A outcome-critic report for a CV (ADR-060
     third amendment / E049 49.6) — the CV-side mirror of
@@ -5639,6 +5655,8 @@ async def render_agent_cv(
     db: AsyncSession,
     template: CVTemplate = "classic_german",
     target_pages: int | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GeneratedCV:
     """Render agent-authored CV content through Applire's templates (ADR-054).
 

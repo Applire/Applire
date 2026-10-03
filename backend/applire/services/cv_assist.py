@@ -84,6 +84,8 @@ async def start_assist_session(
     gap_id: str,
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> AssistStartResponse:
     """Generate one focused question for a gap in a CV section.
 
@@ -127,6 +129,8 @@ async def submit_assist_answer(
     answer: str,
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> AssistAnswerResponse:
     """Generate suggested section text from user's answer.
 
@@ -170,6 +174,8 @@ async def rewrite_section(
     gap_ids: list[str],
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> RewriteResponse:
     """Single-turn directed rewrite for a CV section.
 

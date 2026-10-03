@@ -265,7 +265,8 @@ async def _signature_path_if_enabled(
 
 
 async def resolve_signature_data_uri(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> str | None:
     """Inline ``data:`` URI for the HTML/PDF renderers, or None.
 
@@ -292,7 +293,8 @@ async def resolve_signature_data_uri(
 
 
 async def resolve_signature_bytes(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> bytes | None:
     """Raw bytes for the DOCX writers (python-docx needs a stream, not a URI)."""
     data_uri = await resolve_signature_data_uri(db, document=document, override=override)
@@ -302,7 +304,7 @@ async def resolve_signature_bytes(
     return base64.b64decode(payload)
 
 
-async def resolve_signature_available(db: AsyncSession) -> bool:
+async def resolve_signature_available(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bool:
     """Whether ANY signature image is on file at all, independent of either
     kind toggle or any document's override.
 
@@ -321,7 +323,8 @@ async def resolve_signature_available(db: AsyncSession) -> bool:
 
 
 async def resolve_signature_effective(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     """Whether a signature WOULD render for this document right now — the
     ``signature_effective`` field the status/detail responses expose (F-4b)
@@ -341,7 +344,7 @@ async def resolve_signature_effective(
     return path is not None
 
 
-def format_place_date(location: str | None, language: str, today: date | None = None) -> str:
+def format_place_date(location: str | None, language: str, today: date | None = None, *, user_id: uuid.UUID | None = None) -> str:
     """The CV's closing ``Ort, Datum`` line.
 
     ``"Berlin, 11. September 2026"`` / ``"Berlin, 11 September 2026"``, falling
