@@ -30,8 +30,10 @@ Three more mechanisms live here, installed on the declarative ``Base`` by
 * **Owner fill + chain consistency (cl. 1, SF-OWN.9)** — a ``before_insert``
   mapper listener on every ``__owned__`` model with a ``user_id`` column. A chain
   row (``profile_id`` + ``user_id``) whose ``user_id`` differs from its profile's
-  owner raises ``OwnerMismatch``; a row inserted with ``user_id`` unset takes the
-  profile's owner (chain tables) or else the *user* owner context. With neither,
+  owner raises ``OwnerMismatch`` (checked when the profile is loaded in the
+  session); a row inserted with ``user_id`` unset takes the profile's owner (chain
+  tables) or else the *user* owner context — the latter counted in ``FILL_STATS``
+  and logged (WARNING), so W2/3e can see which constructors still rely on it. With neither,
   the column stays NULL and the database's NOT NULL refuses the row — an
   ``unscoped`` context never names an owner by itself. Always on (it is a model
   rule, not the guard).
@@ -43,7 +45,9 @@ Three more mechanisms live here, installed on the declarative ``Base`` by
 
 from __future__ import annotations
 
+import collections
 import contextlib
+import logging
 import re
 import uuid
 from contextvars import ContextVar, Token
@@ -84,6 +88,12 @@ GUARD_ENABLED: bool = False
 
 #: W2 report mode: with ``GUARD_ENABLED`` the guard logs + records instead of raising.
 GUARD_REPORT_ONLY: bool = False
+
+#: Owner fills taken from the owner CONTEXT (not a profile), per table — W2/3e read
+#: these to decide strict mode (main ruling, W1). Reset with ``FILL_STATS.clear()``.
+FILL_STATS: "collections.Counter[str]" = collections.Counter()
+
+_log = logging.getLogger(__name__)
 
 #: Report-mode findings (newest last, bounded) — the W2 isolation run reads these.
 _REPORTS_MAX = 500
@@ -244,9 +254,7 @@ def _before_cursor_execute(conn, cursor, statement, parameters, context, execute
     try:
         check_statement(statement)
     except OwnerContextMissing as exc:
-        import logging
-
-        logging.getLogger(__name__).warning("ownership guard (report mode): %s", exc)
+        _log.warning("ownership guard (report mode): %s", exc)
         _reports.append(f"{exc} :: {statement[:200]}")
         del _reports[:-_REPORTS_MAX]
 
@@ -364,7 +372,18 @@ def _before_insert_owner(mapper: Any, connection: Any, target: Any) -> None:
     owner = None
     if is_chain:
         owner = _loaded_profile_owner(target) or _stored_profile_owner(connection, target)
-    target.user_id = owner or _context_user_id()
+    if owner is None:
+        owner = _context_user_id()
+        if owner is not None:
+            # RULING (main, W1): a fill from the CONTEXT is counted + logged so the
+            # W2 report-mode run shows which constructors still rely on it; 3e
+            # decides strict mode in W3 from FILL_STATS.
+            FILL_STATS[cls.__tablename__] += 1
+            _log.warning(
+                "ownership owner-fill from context",
+                extra={"ownership_fill": {"table": cls.__tablename__, "source": "context"}},
+            )
+    target.user_id = owner
 
 
 def _owned_models_with_user_id() -> list[type]:
