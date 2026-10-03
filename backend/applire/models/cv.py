@@ -44,6 +44,7 @@ def _expires_at() -> datetime:
 
 class GeneratedCV(Base):
     __tablename__ = "generated_cvs"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     job_analysis_id: Mapped[uuid.UUID] = mapped_column(

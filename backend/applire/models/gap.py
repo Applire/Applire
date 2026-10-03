@@ -29,6 +29,7 @@ from applire.db.session import Base
 
 class GapAnalysis(Base):
     __tablename__ = "gap_analyses"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
     # One LIVE analysis per (job, input fingerprint) — the app-level idempotency
     # check in analyze_gaps is check-then-insert and lost a 7 ms race (two rows,
     # two scores, the "Analyzing your profile…" hang; Spaghettieis UAT 2026-07-13).

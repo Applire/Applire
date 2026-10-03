@@ -34,3 +34,11 @@ class Base(DeclarativeBase):
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
+
+
+# ADR-092 cl. 8a — the statement guard lives on the application engine only
+# (never the Engine class: alembic's own engine stays unguarded). W0: registered
+# but disabled by ``applire.ownership.GUARD_ENABLED``.
+from applire.ownership import install_guard as _install_guard  # noqa: E402
+
+_install_guard(engine)

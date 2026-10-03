@@ -47,6 +47,7 @@ _VECTOR_1024 = Vector(1024).with_variant(sa.Text(), "sqlite")
 
 class MasterProfile(Base):
     __tablename__ = "master_profiles"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     profile_json: Mapped[dict] = mapped_column(_ProfileJSON, nullable=False)
@@ -428,6 +429,8 @@ class ProfileSnapshot(Base):
     """
 
     __tablename__ = "profile_snapshots"
+
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     profile_id: Mapped[uuid.UUID] = mapped_column(

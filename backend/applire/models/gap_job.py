@@ -57,6 +57,7 @@ def _expires_at() -> datetime:
 
 class GapAnalysisJob(Base):
     __tablename__ = "gap_analysis_jobs"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
     # At most ONE live (pending/processing) job per job_analysis_id. The
     # create_gap_job SELECT dedup is check-then-insert and lost a 7 ms race
     # (two kickoffs → two full LLM analyses; Spaghettieis UAT 2026-07-13) —

@@ -18,6 +18,7 @@
 from abc import ABC, abstractmethod
 
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.user import User
 
@@ -26,5 +27,10 @@ class AuthProvider(ABC):
     """Base class for all auth provider implementations (ADR 008)."""
 
     @abstractmethod
-    async def get_current_user(self, request: Request) -> User | None:
-        """Return the authenticated User for this request, or None if unauthenticated."""
+    async def get_current_user(self, request: Request, db: AsyncSession) -> User | None:
+        """Return the authenticated User for this request, or None if unauthenticated.
+
+        ADR-091 cl. 4 (D-2): the provider receives the request's DB session and
+        returns a live (not disabled, not tombstoned) user row, or ``None``. Routes
+        never call this — they depend on ``applire.auth.deps`` (which raise).
+        """

@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.auth.base import AuthProvider
 from applire.models.user import User
@@ -35,7 +36,9 @@ class NoAuthProvider(AuthProvider):
     Behaviour is identical to pre-auth MVP — existing routes are unaffected.
     """
 
-    async def get_current_user(self, request: Request) -> User:  # type: ignore[override]
+    async def get_current_user(  # type: ignore[override]
+        self, request: Request, db: AsyncSession | None = None
+    ) -> User:
         return User(
             id=_STUB_USER_ID,
             email=_STUB_EMAIL,

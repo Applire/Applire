@@ -57,6 +57,7 @@ def _expires_at() -> datetime:
 
 class CVImportJob(Base):
     __tablename__ = "cv_import_jobs"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # Scopes the status lookup to its owner (IDOR guard, parity with staged extractions).

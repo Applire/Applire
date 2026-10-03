@@ -19,8 +19,12 @@ from applire.config import settings
 from applire.auth.base import AuthProvider
 
 
-def get_auth_provider() -> AuthProvider:
+async def get_auth_provider() -> AuthProvider:
     """Factory: instantiate the configured auth provider (ADR 008).
+
+    ``async def`` (Strawberry W0, ADR-091 cl. 4): it sits in the dependant tree of
+    every route through ``applire.auth.deps``, and a sync dependency would run in
+    the threadpool. It stays THE override point (``dependency_overrides``).
 
     Controlled by the AUTH_PROVIDER environment variable:
       none  — NoAuthProvider; fixed single-user stub, zero enforcement (default)

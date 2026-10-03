@@ -30,6 +30,7 @@ _JSON = JSONB().with_variant(JSON(), "sqlite")
 
 class UserSettings(Base):
     __tablename__ = "user_settings"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
