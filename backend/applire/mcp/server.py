@@ -303,25 +303,6 @@ async def _owned(db, Model, id_, kind: str):
     return row
 
 
-async def _owned_artifact(db, artifact_id: uuid.UUID, step: str) -> None:
-    """``advance_flow``'s artifact must be one of the caller's own rows (MD-23).
-
-    Checked against the model the step records (the orchestrator's own map). An
-    id the caller does not own answers EXACTLY like an id that does not exist —
-    the orchestrator's ``ArtifactNotFoundError`` (→ ``invalid_input``), S-10.
-    Steps that record nothing take no lookup (the orchestrator returns a notice).
-    """
-    model = flow_svc._ARTIFACT_MODEL.get(step)
-    if model is None:
-        return
-    try:
-        row = await ownership.get_owned(db, model, artifact_id, _acting_user().id)
-    except ownership.OwnedNotFound:
-        row = None
-    if row is None or getattr(row, "deleted_at", None) is not None:
-        raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
-
-
 async def _owned_job(db, job_id: uuid.UUID):
     """The shared posting, reachable only through the user's own link (ADR-092 cl. 5c).
 
@@ -1653,8 +1634,8 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
     async with get_db() as db:
         await _owned(db, FlowSession, fid, "flow")
         try:
-            if aid is not None:
-                await _owned_artifact(db, aid, step)
+            # The artifact's owner check is the orchestrator's (MD-24 (5)): it
+            # runs before the transition check, identically for both doors.
             result = await flow_svc.advance_flow(
                 fid, AdvanceFlowRequest(step=step, artifact_id=aid), db,
                 settings.applire_base_url, user_id=uid,

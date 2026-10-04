@@ -30,7 +30,6 @@ from applire.models.application import Application
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.llm_usage import LlmUsage
-from applire.models.profile import MasterProfile
 from applire.models.uploads import UploadRecord as Upload
 from applire.ownership import unscoped
 
@@ -40,7 +39,7 @@ AI_USAGE_WINDOW_DAYS = 30
 
 #: The only columns a metadata statement may touch (tested on the compiled SQL).
 ALLOWED_COLUMNS = frozenset({
-    "id", "user_id", "profile_id", "created_at", "deleted_at", "byte_size", "total_tokens",
+    "id", "user_id", "created_at", "deleted_at", "byte_size", "total_tokens",
 })
 
 
@@ -52,59 +51,36 @@ class UserMetadata:
     ai_tokens_30d: int | None = None
 
 
-def _owner_col(model):
-    return getattr(model, "user_id", None)
-
-
-def _document_count_stmt(model, user_ids) -> Select | None:
-    owner = _owner_col(model)
-    if owner is not None:  # chain tables carry user_id after 0075
-        return select(owner, func.count(model.id)).where(owner.in_(user_ids)).group_by(owner)
-    profile_owner = _owner_col(MasterProfile)
-    if profile_owner is not None and hasattr(model, "profile_id"):
-        return (
-            select(profile_owner, func.count(model.id))
-            .join(MasterProfile, MasterProfile.id == model.profile_id)
-            .where(profile_owner.in_(user_ids))
-            .group_by(profile_owner)
-        )
-    return None
+def _count_by_owner(model, user_ids) -> Select:
+    """``(user_id, count)`` per owner — every owned table carries ``user_id``
+    since 0074/0075 (the W1 profile-join fallback for chain tables was dead
+    code once they did; removed in W3, MD-24 (6))."""
+    return (
+        select(model.user_id, func.count(model.id))
+        .where(model.user_id.in_(user_ids))
+        .group_by(model.user_id)
+    )
 
 
 def metadata_statements(user_ids: list[uuid.UUID], *, now: datetime | None = None) -> dict[str, Select]:
     """Aggregate statements keyed by metric; each returns ``(user_id, value)`` rows."""
     now = now or datetime.now(timezone.utc)
-    stmts: dict[str, Select] = {}
-
-    owner = _owner_col(Application)
-    if owner is not None:
-        stmts["application_count"] = (
-            select(owner, func.count(Application.id))
-            .where(owner.in_(user_ids))
-            .group_by(owner)
-        )
-    for key, model in (("cv_count", GeneratedCV), ("letter_count", GeneratedCoverLetter)):
-        stmt = _document_count_stmt(model, user_ids)
-        if stmt is not None:
-            stmts[key] = stmt
-
-    owner = _owner_col(Upload)
-    if owner is not None:
-        stmts["storage_bytes"] = (
-            select(owner, func.coalesce(func.sum(Upload.byte_size), 0))
-            .where(owner.in_(user_ids))
-            .group_by(owner)
-        )
-
-    owner = _owner_col(LlmUsage)
-    if owner is not None:
-        since = now - timedelta(days=AI_USAGE_WINDOW_DAYS)
-        stmts["ai_tokens_30d"] = (
-            select(owner, func.coalesce(func.sum(LlmUsage.total_tokens), 0))
-            .where(owner.in_(user_ids), LlmUsage.created_at >= since)
-            .group_by(owner)
-        )
-    return stmts
+    since = now - timedelta(days=AI_USAGE_WINDOW_DAYS)
+    return {
+        "application_count": _count_by_owner(Application, user_ids),
+        "cv_count": _count_by_owner(GeneratedCV, user_ids),
+        "letter_count": _count_by_owner(GeneratedCoverLetter, user_ids),
+        "storage_bytes": (
+            select(Upload.user_id, func.coalesce(func.sum(Upload.byte_size), 0))
+            .where(Upload.user_id.in_(user_ids))
+            .group_by(Upload.user_id)
+        ),
+        "ai_tokens_30d": (
+            select(LlmUsage.user_id, func.coalesce(func.sum(LlmUsage.total_tokens), 0))
+            .where(LlmUsage.user_id.in_(user_ids), LlmUsage.created_at >= since)
+            .group_by(LlmUsage.user_id)
+        ),
+    }
 
 
 async def collect(db: AsyncSession, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, UserMetadata]:
@@ -113,10 +89,8 @@ async def collect(db: AsyncSession, user_ids: list[uuid.UUID]) -> dict[uuid.UUID
     if not user_ids:
         return out
     stmts = metadata_statements(user_ids)
-    usage_known = "ai_tokens_30d" in stmts
-    if usage_known:
-        for meta in out.values():
-            meta.ai_tokens_30d = 0
+    for meta in out.values():
+        meta.ai_tokens_30d = 0  # llm_usage carries user_id: a person without rows used 0
     with unscoped("admin-metadata"):
         for key, stmt in stmts.items():
             for uid, value in (await db.execute(stmt)).all():

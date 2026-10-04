@@ -91,7 +91,14 @@ def register_markers(config: pytest.Config) -> None:
 def harness_owner_context(request: pytest.FixtureRequest):
     """Act as the harness user for the whole test, unless opted out."""
     if request.node.get_closest_marker(NO_OWNER_CONTEXT_MARKER) is not None:
-        yield None
+        # Clear explicitly: an owner leaked into the session's base context by an
+        # earlier test (a dependency's set_owner run in-task) must not make the
+        # guard invisible here (W3 finding — order-dependent green).
+        token = ownership._owner.set(None)
+        try:
+            yield None
+        finally:
+            ownership._owner.reset(token)
         return
     token = set_owner(HARNESS_USER_ID)
     try:

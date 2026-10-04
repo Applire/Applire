@@ -62,7 +62,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import ownership
 from applire.db.session import AsyncSessionLocal
-from applire.services.cv_owner import job_for_user, owned_cv, resolve_owner
+from applire.services.owner_resolution import job_for_user, owned_cv, resolve_owner
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis

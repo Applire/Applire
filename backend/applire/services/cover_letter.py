@@ -52,8 +52,7 @@ from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire import ownership
-from applire.services.owner_resolution import resolve_user_id
-from applire.services.owner_scope import owned_row
+from applire.services.owner_resolution import owned_row, resolve_user_id
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,

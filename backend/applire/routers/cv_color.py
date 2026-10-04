@@ -58,7 +58,7 @@ async def apply_cv_color(
     if not _HEX_RE.match(accent_hex):
         raise ValueError(f"Invalid hex color: {accent_hex!r}. Must be #RRGGBB.")
 
-    from applire.services.cv_owner import owned_cv, resolve_owner
+    from applire.services.owner_resolution import owned_cv, resolve_owner
 
     owner = resolve_owner(user_id, site="cv_color.apply_cv_color")
     try:

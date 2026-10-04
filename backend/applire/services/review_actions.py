@@ -94,7 +94,7 @@ class ActionOutcome:
 async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None):
     """The caller's live document — a foreign id reads like a missing one
     (ADR-092 cl. 6, S-10; both kinds, both through an owner-keyed read)."""
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.load_document")
     if kind == "cv":
@@ -285,7 +285,7 @@ def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
 async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.add_evidence")
     async with rs.document_lock(kind, doc_id):
@@ -356,7 +356,7 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
 
 
 async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.take_out")
     # ADR-092: the ownership check precedes everything else, so a foreign id is
@@ -421,7 +421,7 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
 
 
 async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.undo")
     rs.split_key(key)
@@ -451,7 +451,7 @@ async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, u
     save itself went through the editor unchanged; this awaits the re-audit and
     records ``edited`` only if the finding cleared. No undo text: the editor's
     own history is the user's."""
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.edited")
     rs.split_key(key)
@@ -495,7 +495,7 @@ def _term_known_to_report(record, key: str) -> bool:
 
 
 async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
-    from applire.services.cv_owner import resolve_owner
+    from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_actions.walked")
     async with rs.document_lock(kind, doc_id):

@@ -42,8 +42,7 @@ from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
-from applire.services.owner_resolution import resolve_user_id
-from applire.services.owner_scope import owned_row
+from applire.services.owner_resolution import owned_row, resolve_user_id
 from applire.models.session import InterviewSession
 from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt
 from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT, build_clustering_prompt

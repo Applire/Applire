@@ -31,6 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+#: The catch-all 500 text (same wording as routers/session.py's #256 body).
+_INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
+
 from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.db.session import get_db
@@ -234,10 +237,13 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -521,10 +527,13 @@ async def import_profile(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -721,8 +730,11 @@ async def resolve_profile_conflict(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    except Exception:
+        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
+        )
 
 
 @router.post(
@@ -785,6 +797,15 @@ async def patch_section(
                 "current": current.model_dump(mode="json"),
             },
         )
+    except VaultWriteRevertedError as exc:
+        # The same structured body the upload doors give (#597): before W3 this
+        # door surfaced it only through the catch-all's str(exc), which no
+        # longer echoes exception text (MD-24 (6)).
+        logger.error("patch_section: vault write reverted (%s)", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -795,10 +816,13 @@ async def patch_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 

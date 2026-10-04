@@ -22,6 +22,13 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/
 # defaults to `local`; CI's unit step sets neither) — 1a NEEDS-EDIT, accepted by main.
 os.environ.setdefault("AUTH_HARNESS", "true")
 
+# MD-24 (2) — the 0-production-fallback ratchet (autouse fixture + counters).
+from tests.support.owner_ratchet import (  # noqa: E402,F401
+    install_owner_ratchet,
+    owner_fallback_ratchet,
+    register_ratchet_marker,
+)
+
 # ADR-092 cl. 8 test bootstrap (Strawberry F12): the sync autouse owner context
 # (harness user) and its opt-out marker ``no_owner_context``.
 from tests.support.owners import configure_test_guard, harness_owner_context, register_markers  # noqa: E402,F401
@@ -33,6 +40,10 @@ def pytest_configure(config):
     # (``APPLIRE_TEST_OWNER_GUARD=off|report`` for the isolation suite's second arm
     # and diagnostics).
     configure_test_guard()
+    # MD-24 (2): production doors reach the user_id=None fallback / a context
+    # owner fill 0 times — the autouse ratchet fails the test that does.
+    install_owner_ratchet()
+    register_ratchet_marker(config)
 
 
 @pytest.fixture(scope="session", autouse=True)
