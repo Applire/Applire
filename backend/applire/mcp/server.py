@@ -303,12 +303,30 @@ async def _owned(db, Model, id_, kind: str):
     return row
 
 
+async def _owned_artifact(db, artifact_id: uuid.UUID, step: str) -> None:
+    """``advance_flow``'s artifact must be one of the caller's own rows (MD-23).
+
+    Checked against the model the step records (the orchestrator's own map). An
+    id the caller does not own answers EXACTLY like an id that does not exist —
+    the orchestrator's ``ArtifactNotFoundError`` (→ ``invalid_input``), S-10.
+    Steps that record nothing take no lookup (the orchestrator returns a notice).
+    """
+    model = flow_svc._ARTIFACT_MODEL.get(step)
+    if model is None:
+        return
+    try:
+        row = await ownership.get_owned(db, model, artifact_id, _acting_user().id)
+    except ownership.OwnedNotFound:
+        row = None
+    if row is None or getattr(row, "deleted_at", None) is not None:
+        raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
+
+
 async def _owned_job(db, job_id: uuid.UUID):
     """The shared posting, reachable only through the user's own link (ADR-092 cl. 5c).
 
-    Used where the DOOR itself reads the posting (``job://``). Tools taking a
-    ``job_id`` pass ``user_id`` into the core function REST calls, which applies
-    the same rule (ADR-058/066: one rule, both doors).
+    MD-23: services do not check posting access — every tool taking a
+    ``job_id`` and the ``job://`` resource call this at the door.
     """
     return await job_svc.get_job_for_user(db, job_id, _acting_user().id)
 
@@ -690,19 +708,10 @@ async def analyze_jd(
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
-        # Branch F (E039/US220): repost hint against the user's own pipeline.
-        # Best-effort — any lookup failure just skips the hint; the analysis
-        # itself must never fail because of it.
-        try:
-            result.duplicate_of = await app_svc.find_duplicate_application(
-                uid,
-                job_analysis_id=result.id,
-                source_url=source_url,
-                raw_text=jd_text,
-                db=db,
-            )
-        except Exception:
-            pass
+        # Branch F (E039/US220): the service computes `duplicate_of` BEFORE it
+        # creates the caller's link (a recognised repost gets a hidden link,
+        # ruling 4a-1) — a post-hoc lookup here would always match the link the
+        # analysis itself just created. The result is returned as-is.
     return _marked(result.model_dump(mode="json"), "analyze_jd")
 
 
@@ -918,6 +927,9 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        if jid is not None:
+            await _owned_job(db, jid)
         try:
             result = await submit_agent_claims(submission, jid, db, provider, user_id=uid)
         except ValueError as exc:
@@ -969,6 +981,8 @@ async def analyze_gaps(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await gap_svc.analyze_gaps(jid, db, provider, user_id=uid)
         except LookupError as exc:
@@ -992,6 +1006,8 @@ async def run_interview(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             from applire.schemas.session import SessionCreateRequest as _SCR
             result = await session_svc.create_session(
@@ -1072,6 +1088,8 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         valid_ids = await session_svc.gap_cluster_ids(jid, db, user_id=uid)
         if valid_ids is None:
             raise not_found(
@@ -1224,6 +1242,8 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1285,6 +1305,20 @@ async def get_cv_ats_report(cv_id: str) -> dict:
     return _marked(result.model_dump(mode="json"), "ats_report")
 
 
+def _ledger_owner_kwargs(user_id) -> dict:
+    """``user_id=`` for ``cv._latest_keyword_ledger`` once 3c's signature has it.
+
+    INTEGRATION (W2): 3c adds the keyword; delete this shim and pass
+    ``user_id=`` directly when the branches meet.
+    """
+    import inspect
+
+    if user_id is None:
+        return {}
+    params = inspect.signature(cv_svc._latest_keyword_ledger).parameters
+    return {"user_id": user_id} if "user_id" in params else {}
+
+
 async def _audit_stored_document(record, kind: str, db) -> dict:
     """Persisted-or-fresh truthfulness report for a generated CV/letter row.
 
@@ -1316,7 +1350,8 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     if kind == "cv":
         try:
             keyword_ledger = await cv_svc._latest_keyword_ledger(
-                db, record.job_analysis_id, profile_json=profile_json or None
+                db, record.job_analysis_id, profile_json=profile_json or None,
+                **_ledger_owner_kwargs(getattr(record, "user_id", None)),
             )
         except Exception:
             logger.exception(
@@ -1444,6 +1479,8 @@ async def render_document(
     base = settings.applire_base_url
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the
             # identity wrapper on the way out.
@@ -1529,6 +1566,8 @@ async def generate_cover_letter(job_id: str) -> dict:
     provider = get_provider()
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await cover_letter_svc.generate_cover_letter(
                 CoverLetterGenerateRequest(job_id=jid),
@@ -1597,6 +1636,9 @@ async def start_flow(job_id: str | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id") if job_id else None
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        if jid is not None:
+            await _owned_job(db, jid)
         try:
             result = await flow_svc.create_flow(
                 CreateFlowRequest(job_id=jid), uid, db, settings.applire_base_url
@@ -1625,6 +1667,8 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
     async with get_db() as db:
         await _owned(db, FlowSession, fid, "flow")
         try:
+            if aid is not None:
+                await _owned_artifact(db, aid, step)
             result = await flow_svc.advance_flow(
                 fid, AdvanceFlowRequest(step=step, artifact_id=aid), db,
                 settings.applire_base_url, user_id=uid,
@@ -1754,6 +1798,8 @@ async def create_application(
     )
     uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await app_svc.create_application(uid, req, db)
         except app_svc.ConflictError as exc:

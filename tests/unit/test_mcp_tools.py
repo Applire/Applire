@@ -88,7 +88,9 @@ async def test_analyze_jd_empty_text_raises():
 @pytest.mark.asyncio
 async def test_analyze_jd_carries_duplicate_of_hint():
     """MCP mirror of the Branch F enrichment (E039/US220) — the agent channel
-    must see the same repost hint as the UI."""
+    must see the same repost hint as the UI. The service computes it before it
+    links the posting (ruling 4a-1); the door returns it as-is and never looks
+    it up again (a post-hoc lookup self-matches the new link)."""
     from datetime import datetime, timezone
 
     from applire.mcp.server import analyze_jd
@@ -108,7 +110,7 @@ async def test_analyze_jd_carries_duplicate_of_hint():
         language_requirement="German",
         raw_text_hash="abc",
     )
-    hint = DuplicateOfHint(
+    analysis_hint = DuplicateOfHint(
         application_id=uuid.uuid4(),
         job_analysis_id=job_id,
         company_name="Acme GmbH",
@@ -116,6 +118,7 @@ async def test_analyze_jd_carries_duplicate_of_hint():
         analyzed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
         matched_on="job",
     )
+    analysis.duplicate_of = analysis_hint
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
@@ -124,19 +127,20 @@ async def test_analyze_jd_carries_duplicate_of_hint():
         patch("applire.mcp.server._current_user_id", AsyncMock(return_value=uuid.uuid4())),
         patch(
             "applire.mcp.server.app_svc.find_duplicate_application",
-            AsyncMock(return_value=hint),
-        ),
+            AsyncMock(side_effect=AssertionError("the door must not look the hint up again")),
+        ) as post_hoc,
     ):
         result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
 
+    assert post_hoc.await_count == 0
     assert result["duplicate_of"]["matched_on"] == "job"
     assert result["duplicate_of"]["company_name"] == "Acme GmbH"
 
 
 @pytest.mark.asyncio
-async def test_analyze_jd_passes_the_acting_user_and_survives_a_failed_hint():
+async def test_analyze_jd_passes_the_acting_user_and_the_overrides():
     """ADR-092 cl. 5(b)/10 (RD-2): the service gets the caller's id — it creates
-    their application link. A failing repost-hint lookup still returns the analysis."""
+    their application link — and the agent's overrides."""
     from applire.auth.harness import STUB_USER_ID
     from applire.mcp.server import analyze_jd
     from applire.schemas.job import JobAnalysisResponse
@@ -158,16 +162,16 @@ async def test_analyze_jd_passes_the_acting_user_and_survives_a_failed_hint():
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
         patch("applire.mcp.server.job_svc.analyze_jd", AsyncMock(return_value=analysis)) as svc,
-        patch(
-            "applire.mcp.server.app_svc.find_duplicate_application",
-            AsyncMock(side_effect=Exception("lookup failed")),
-        ),
     ):
-        result = await analyze_jd(text="Senior Backend Engineer at Acme GmbH")
+        result = await analyze_jd(
+            text="Senior Backend Engineer at Acme GmbH", role_title="Lead", company_name="Acme"
+        )
 
     assert result["role_title"] == "Backend Engineer"
     assert result["duplicate_of"] is None
-    assert svc.await_args.kwargs["user_id"] == STUB_USER_ID
+    kw = svc.await_args.kwargs
+    assert kw["user_id"] == STUB_USER_ID
+    assert (kw["role_title_override"], kw["company_name_override"]) == ("Lead", "Acme")
 
 
 # ---------------------------------------------------------------------------

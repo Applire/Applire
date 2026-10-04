@@ -178,22 +178,9 @@ PENDING_REST: set[tuple[str, str]] = {
     ("POST", "/api/session/{session_id}/analyze-gaps"),  # 3d
 }
 
-#: MCP calls not yet scoped. 4b (W2) emptied the read list; the entries left are
-#: tools taking a shared-posting ``job_id``, whose access rule (ADR-092 cl. 5c,
-#: ``get_job_for_user``) is applied by the core service REST also calls — the
-#: owning package in the comment. They pass ``user_id`` already (4b).
-PENDING_MCP: set[str] = {
-    "advance_flow artifact_id",  # 4a — orchestrator records an artifact by id alone
-    "analyze_gaps",  # 3d — services/gap.py
-    "create_application",  # 4a — services/application.py
-    "generate_cover_letter",  # 3d — services/cover_letter.py
-    "generate_cv",  # 3c — services/cv.py
-    "render_document",  # 3c — services/cv.render_agent_cv
-    "resolve_gap",  # 3d — services/session.py
-    "run_interview",  # 3d — services/session.py
-    "start_flow",  # 4a — services/flow/orchestrator.py
-    "submit_claims",  # 4a — services/profile/reconcile/agent_bridge.py
-}
+#: MCP calls not yet scoped — empty since 4b (W2): every owned id and every
+#: shared-posting ``job_id`` is resolved at the door (ADR-092 cl. 5c/10, MD-23).
+PENDING_MCP: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +464,15 @@ MCP_WRITE_CALLS: dict[str, Any] = {
 }
 
 
+#: Calls whose miss is not ``not_found`` but the service's own refusal of a
+#: missing id — the foreign id must produce the identical answer.
+MCP_ANSWERS_LIKE_MISSING: dict[str, Any] = {
+    "advance_flow artifact_id": lambda ids, call: (
+        call["artifact_id"], {**call, "artifact_id": str(uuid.uuid4())},
+    ),
+}
+
+
 def _mcp_params(calls):
     return [
         pytest.param(
@@ -491,11 +487,7 @@ def _mcp_params(calls):
 
 
 #: Owning package of each PENDING_MCP entry (the service the tool calls).
-PENDING_MCP_OWNER: dict[str, str] = {
-    "advance_flow artifact_id": "4a", "analyze_gaps": "3d", "create_application": "4a",
-    "generate_cover_letter": "3d", "generate_cv": "3c", "render_document": "3c",
-    "resolve_gap": "3d", "run_interview": "3d", "start_flow": "4a", "submit_claims": "4a",
-}
+PENDING_MCP_OWNER: dict[str, str] = {}
 
 
 async def _bind_agent(factory, user):
@@ -590,7 +582,22 @@ async def test_mcp_foreign_id_is_not_found(world, name, monkeypatch, mcp_signing
     finally:
         identity.bind(previous)
     text = str(result)
-    assert _is_not_found(result), f"{name} as B with A's id → {outcome}: {text[:200]}"
+    if name in MCP_ANSWERS_LIKE_MISSING:
+        # The door answers a foreign id EXACTLY like a missing one (S-10) —
+        # here the orchestrator's own "no matching record" refusal.
+        foreign_id, call_missing = MCP_ANSWERS_LIKE_MISSING[name](ids, call)
+        previous = await _bind_agent(factory, b)
+        try:
+            missing = await _call_mcp(server, name, call_missing)
+        except Exception as exc:  # noqa: BLE001
+            missing = exc
+        finally:
+            identity.bind(previous)
+        assert type(result) is type(missing) and outcome != "returned", (text, missing)
+        assert result.error.code == missing.error.code
+        assert text.replace(foreign_id, "<id>") == str(missing).replace(call_missing["artifact_id"], "<id>")
+    else:
+        assert _is_not_found(result), f"{name} as B with A's id → {outcome}: {text[:200]}"
     assert await _snapshot(factory, a.id) == before, "A's rows changed under B's MCP call"
 
 

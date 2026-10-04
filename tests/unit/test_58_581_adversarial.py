@@ -37,6 +37,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from tests.support.profile_factory import make_master_profile
 
 
+
 @pytest_asyncio.fixture
 async def db():
     import importlib
@@ -215,3 +216,13 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     msg = str(exc.value)
     assert str(cv.id) in msg
     assert "gap_analysis" in msg
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

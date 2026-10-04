@@ -8,6 +8,9 @@
 * ``assert_signed_document_url`` — the URL is the unsigned one plus ``exp``,
   ``uid`` and a ``sig`` that verifies for that user.
 * ``bound_identity`` — bind the process agent identity for a block (and unbind).
+* ``grant_posting_access`` — stub the door's posting check (``_owned_job``) for
+  tests about a tool's OWN logic with a seeded job that has no application link.
+  Access itself is pinned by ``tests/unit/test_cross_user_isolation.py``.
 """
 
 from __future__ import annotations
@@ -53,3 +56,17 @@ def bound_identity(identity):
         yield identity
     finally:
         mcp_identity.bind(previous)
+
+
+def grant_posting_access(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    import applire.mcp.server as server
+
+    monkeypatch.setattr(server, "_owned_job", AsyncMock())
+
+
+@pytest.fixture
+def posting_access_granted(monkeypatch):
+    """Opt-in (``pytest.mark.usefixtures``) form of :func:`grant_posting_access`."""
+    grant_posting_access(monkeypatch)
