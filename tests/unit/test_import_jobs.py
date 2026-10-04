@@ -29,6 +29,7 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 from applire.db.session import Base
+from applire.ownership import owner_context
 from applire.models.import_job import CVImportJob, CVImportStatus
 from applire.schemas.profile import CVUploadResponse
 from applire.exceptions import LLMTruncatedError, LLMTimeoutError
@@ -40,6 +41,16 @@ from applire.services.profile.import_jobs import (
 )
 
 UID = uuid.uuid4()
+
+
+@pytest.fixture(autouse=True)
+def _act_as_uid():
+    """Every test here acts for UID, as a request does for its user (ADR-092 cl. 8);
+    a read for another user runs in that user's own context below."""
+    from applire.ownership import owner_context
+
+    with owner_context(UID):
+        yield
 
 
 @pytest_asyncio.fixture
@@ -167,7 +178,8 @@ async def test_get_import_job_idor_scoped(factory):
         jid = job.id
     other = uuid.uuid4()
     async with factory() as db:
-        assert await get_import_job(db, jid, user_id=other) is None  # foreign → hidden
+        with owner_context(other):
+            assert await get_import_job(db, jid, user_id=other) is None  # foreign → hidden
         assert await get_import_job(db, jid, user_id=UID) is not None
         assert await get_import_job(db, uuid.uuid4(), user_id=UID) is None  # unknown id
 

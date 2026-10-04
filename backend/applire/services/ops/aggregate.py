@@ -184,7 +184,14 @@ async def _refresh_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("ops refresh failed: %s: %s", type(exc).__name__, exc)
+            from applire.ownership import OwnerContextMissing
+
+            # An owner-guard refusal is a code defect, never a transient: loud
+            # (SF-OWN.3 detection — "loud log"), not the debug line below.
+            if isinstance(exc, OwnerContextMissing):
+                logger.warning("ops refresh refused by the owner guard: %s", exc)
+            else:
+                logger.debug("ops refresh failed: %s: %s", type(exc).__name__, exc)
         await asyncio.sleep(max(OPS_REFRESH_SECONDS, 5))
 
 

@@ -48,8 +48,10 @@ async def _startup() -> None:
 
     try:
         async with get_db() as db:
-            # ADR-091 cl. 3: the harness fences hold for this process too.
-            await harness.enforce_at_startup(db)
+            # ADR-091 cl. 3: the harness fences hold for this process too —
+            # except the profile-count boot latch (MD-26: the stdio door is
+            # reachable only with host access; fence (b) is re-checked per call).
+            await harness.enforce_at_startup(db, door="stdio")
             # ADR-091 cl. 18: signed document links need the instance secret.
             await load_instance_secret(db)
             await identity.establish(db, settings.applire_agent_token)

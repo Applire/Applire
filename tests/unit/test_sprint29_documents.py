@@ -61,6 +61,10 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 _USER_A = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
+
+from tests.support.owners import act_as  # noqa: E402
+
+_acting_user = act_as(_USER_A)  # list_documents acts for _USER_A (ADR-092 cl. 8)
 _USER_B = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002")
 
 

@@ -55,10 +55,23 @@ async def test_async_db_create_all_runs_with_the_owner_set(owned_sql_spy, async_
 
 @pytest.mark.no_owner_context
 @pytest.mark.asyncio
-async def test_without_the_fixture_create_all_would_be_ownerless(owned_sql_spy, async_db):
-    """The opposite arm: the same spy sees no owner once the fixture is opted out —
-    so the guard, when on, would refuse the schema build (why the fixture exists)."""
-    assert owned_sql_spy and all(c is None for c in owned_sql_spy)
+async def test_without_the_fixture_the_guard_refuses_the_schema_build(monkeypatch):
+    """The opposite arm (why the fixture exists): with the fixture opted out the
+    schema build runs ownerless, and the guard — ON since W3 — refuses it."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from applire.db.session import Base
+
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", True)
+    monkeypatch.setattr(ownership, "GUARD_REPORT_ONLY", False)
+    assert ownership.current_owner() is None
+    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        with pytest.raises(ownership.OwnerContextMissing):
+            async with eng.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+    finally:
+        await eng.dispose()
 
 
 @pytest.mark.asyncio

@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
-from applire.services.cv_owner import owned_cv, resolve_owner
+from applire.services.owner_resolution import owned_cv, resolve_owner
 from applire.models.gap import GapAnalysis
 from applire.models.profile import MasterProfile
 from applire.schemas.cv import TailoredCVData

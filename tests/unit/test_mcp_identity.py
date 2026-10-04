@@ -198,8 +198,9 @@ async def test_startup_runs_the_fences_then_the_secret_then_the_identity(monkeyp
     async def _db():
         yield "db"
 
-    async def _fence(db):
+    async def _fence(db, *, door="http"):
         calls.append(("fence", db))
+        assert door == "stdio", "MD-26: the stdio process names its door"
 
     async def _secret(db):
         calls.append(("secret", db))

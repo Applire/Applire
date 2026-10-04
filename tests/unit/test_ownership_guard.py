@@ -11,8 +11,9 @@ experiments t2/t6/t7) is run twice on a guarded engine with NO owner context:
   nothing — memory ``feedback_mutation_test_the_guard``);
 * guard **on** — ``OwnerContextMissing``.
 
-The module flag stays OFF in the product (W1); these tests switch it on locally
-with ``monkeypatch``. All tests run without the autouse harness owner context
+The module flag is ON in the product since W3 (MD-24); every test here names the
+arm it runs explicitly (``guard_on`` / ``guard_off``), so the file proves the
+same thing whatever the session default is. All tests run without the autouse harness owner context
 (``no_owner_context``), because with it the guard is invisible.
 
 Residuals pinned (documented, not fixed — ADR-092 cl. 8b Negative): the loader
@@ -88,6 +89,13 @@ def guard_on(monkeypatch):
     monkeypatch.setattr(ownership, "GUARD_REPORT_ONLY", False)
 
 
+@pytest.fixture
+def guard_off(monkeypatch):
+    """The baseline arm: the flag the product used to ship with (W0–W2)."""
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", False)
+    monkeypatch.setattr(ownership, "GUARD_REPORT_ONLY", False)
+
+
 # ---------------------------------------------------------------------------
 # (a) the statement guard — every shape, baseline first
 # ---------------------------------------------------------------------------
@@ -112,7 +120,7 @@ READS = {
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", sorted(READS))
-async def test_read_shapes_leak_without_the_guard(world, shape):
+async def test_read_shapes_leak_without_the_guard(world, guard_off, shape):
     """Baseline: with the guard off and no owner named, B's row is reachable."""
     factory, ids = world
     assert ownership.current_owner() is None
@@ -139,7 +147,7 @@ WRITES = {
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shape", sorted(WRITES))
-async def test_write_shapes_change_rows_without_the_guard(world, shape):
+async def test_write_shapes_change_rows_without_the_guard(world, guard_off, shape):
     factory, ids = world
     async with factory() as s:
         result = await s.execute(WRITES[shape](ids))
@@ -251,7 +259,7 @@ async def test_loader_criteria_follow_each_context_in_sequence(world, guard_on):
 
 
 @pytest.mark.asyncio
-async def test_loader_criteria_are_off_with_the_guard_off(world):
+async def test_loader_criteria_are_off_with_the_guard_off(world, guard_off):
     factory, ids = world
     async with factory() as s:
         with ownership.owner_context(A):
@@ -332,6 +340,41 @@ async def test_chain_row_copies_its_profiles_owner_not_the_context(world):
                 assert cv.user_id == B
                 assert ownership.FILL_STATS["generated_cvs"] == 0, "profile-derived, not counted"
                 await s2.rollback()
+
+
+@pytest.mark.asyncio
+async def test_chain_row_added_in_the_same_flush_as_its_profile_takes_the_profiles_owner(world):
+    """W3 finding (SF-OWN.9): profile and CV added together, in another user's
+    context. The profile is pending (not in the identity map) and, with no FK
+    ordering the two inserts, may not be stored when the CV's ``before_insert``
+    runs — the fill used to fall through to the CONTEXT owner (A) and gave the
+    CV an owner its profile does not have."""
+    factory, ids = world
+    async with factory() as s:
+        with ownership.owner_context(A):
+            pb = _profile(B)
+            pb.id = uuid.uuid4()
+            cv = GeneratedCV(job_analysis_id=ids["job"], profile_id=pb.id, tailored_data={})
+            s.add_all([cv, pb])
+            await s.flush()
+            assert cv.user_id == B
+            await s.rollback()
+
+
+@pytest.mark.asyncio
+async def test_chain_row_naming_another_owner_than_its_pending_profile_raises(world):
+    factory, ids = world
+    async with factory() as s:
+        with ownership.unscoped("tooling"):
+            pb = _profile(B)
+            pb.id = uuid.uuid4()
+            cv = GeneratedCV(
+                job_analysis_id=ids["job"], profile_id=pb.id, tailored_data={}, user_id=A
+            )
+            s.add_all([cv, pb])
+            with pytest.raises(ownership.OwnerMismatch):
+                await s.flush()
+            await s.rollback()
 
 
 @pytest.mark.asyncio

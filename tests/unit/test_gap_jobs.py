@@ -28,7 +28,11 @@ from applire.db.session import Base
 from applire.exceptions import LLMTimeoutError
 from applire.models.gap_job import GapAnalysisJob, GapJobStatus
 
+from applire.ownership import owner_context
+from tests.support.owners import act_as
+
 UID = uuid.uuid4()
+_acting_user = act_as(UID)  # the services below act for UID (ADR-092 cl. 8)
 
 
 @pytest_asyncio.fixture
@@ -133,7 +137,8 @@ async def test_get_gap_job_idor_scoped(factory):
         jid = job.id
     other = uuid.uuid4()
     async with factory() as db:
-        assert await get_gap_job(db, jid, user_id=other) is None  # foreign → hidden
+        with owner_context(other):
+            assert await get_gap_job(db, jid, user_id=other) is None  # foreign → hidden
         assert await get_gap_job(db, jid, user_id=UID) is not None
         assert await get_gap_job(db, uuid.uuid4(), user_id=UID) is None  # unknown id
 

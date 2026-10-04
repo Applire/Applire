@@ -563,7 +563,12 @@ async def test_cv_pdf_grounding_widens_present_unsupported(db):
                  "applire.services.office_export.extract._audit_cv_text",
                  return_value=_make_report("cv"),
              ):
-            await _update_ats_report(cv, db)
+            # The audit acts for the CV's owner, as its background task does
+            # (ADR-092 cl. 8) — each seeded CV has an owner of its own.
+            from applire.ownership import owner_context
+
+            with owner_context(cv.user_id):
+                await _update_ats_report(cv, db)
 
     await _run(grounded_cv)
 

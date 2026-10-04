@@ -122,14 +122,18 @@ async def user(db):
 
 
 async def _add_application(db, job, user_id=_STUB_USER_ID, **create_kwargs):
+    from applire.ownership import owner_context
+
     db.add(job)
     await link_posting(db, job, user_id)  # ADR-092 cl.5: own link to the posting
     await db.commit()
-    return await create_application(
-        user_id,
-        CreateApplicationRequest(job_analysis_id=job.id, **create_kwargs),
-        db,
-    )
+    # The seed acts for the user it creates the application for (ADR-092 cl. 8).
+    with owner_context(user_id):
+        return await create_application(
+            user_id,
+            CreateApplicationRequest(job_analysis_id=job.id, **create_kwargs),
+            db,
+        )
 
 
 # ---------------------------------------------------------------------------

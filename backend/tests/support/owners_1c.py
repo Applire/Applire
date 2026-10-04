@@ -44,9 +44,14 @@ class TokenDB:
 async def token_db():
     import applire.models  # noqa: F401 — register every mapper
 
+    from applire.ownership import unscoped
+
     engine = create_async_engine("sqlite+aiosqlite://")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # The schema build names every owned table; a no_owner_context test has no
+    # owner, so the fixture declares its own (test tooling, ADR-092 cl. 8).
+    with unscoped("tooling"):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     links_module.set_instance_secret(TEST_SECRET)
     try:
@@ -95,7 +100,12 @@ async def make_document(db: AsyncSession, kind: str, owner: User):
         fields["user_id"] = owner.id
     row = model(**fields)
     db.add(row)
-    await db.commit()
+    # The seed acts for the document's owner (ADR-092 cl. 8): the guard refuses
+    # an owned-table INSERT with no owner context, as in a no_owner_context test.
+    from applire.ownership import owner_context
+
+    with owner_context(owner.id):
+        await db.commit()
     return row
 
 

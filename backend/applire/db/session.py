@@ -37,8 +37,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 # ADR-092 cl. 8a — the statement guard lives on the application engine only
-# (never the Engine class: alembic's own engine stays unguarded). W0: registered
-# but disabled by ``applire.ownership.GUARD_ENABLED``.
+# (never the Engine class: alembic's own engine stays unguarded). On since W3
+# (``applire.ownership.GUARD_ENABLED`` defaults to True, MD-24).
 from applire.ownership import install_guard as _install_guard  # noqa: E402
 from applire.ownership import install_orm_hooks as _install_orm_hooks  # noqa: E402
 

@@ -351,13 +351,20 @@ async def advance_flow(
     if request.artifact_id is not None and target not in _ARTIFACT_FIELD:
         notices.append(unrecordable_artifact_notice(target))
 
+    # ADR-092 cl. 6 / S-10 (MD-24 (5)): the artifact is checked against its
+    # step's model AND the flow owner BEFORE the transition is validated, so a
+    # foreign or missing artifact id answers ArtifactNotFoundError on every
+    # door and at every step — never "invalid transition" first. This is the
+    # one owner check; the doors no longer pre-check (4b's MCP pre-check gone).
+    if request.artifact_id is not None and target in _ARTIFACT_MODEL:
+        await _check_artifact_exists(target, request.artifact_id, db, flow.user_id)
+
     # Idempotent re-advance: already on the target step. Treat as a no-op rather
     # than raising InvalidTransitionError (which the router maps to HTTP 409).
     # This absorbs benign double-submits (e.g. photo-skip firing twice) and lets
     # a re-generated artifact (e.g. a new CV) refresh the recorded FK.
     if target == flow.current_step:
         if target in _ARTIFACT_FIELD and request.artifact_id is not None:
-            await _check_artifact_exists(target, request.artifact_id, db, flow.user_id)
             setattr(flow, _ARTIFACT_FIELD[target], request.artifact_id)
             flow.updated_at = datetime.now(timezone.utc)
             await db.commit()
@@ -378,7 +385,6 @@ async def advance_flow(
             if target in _ARTIFACT_REQUIRED:
                 raise ArtifactRequiredError(step=target, field=field)
         else:
-            await _check_artifact_exists(target, request.artifact_id, db, flow.user_id)
             setattr(flow, field, request.artifact_id)
 
     flow.current_step = target

@@ -19,10 +19,13 @@ listener on the application engine's ``sync_engine`` (never the ``Engine`` class
 ``alembic/env.py`` builds its own engine and stays unguarded). Its table regex is
 built from the models carrying ``__owned__ = True`` — never hand-written.
 
-**State (Strawberry build 1, W1 / package 3a):** the listener is registered but
-**disabled** by the module flag ``GUARD_ENABLED``; ``GUARD_REPORT_ONLY`` turns an
-enabled guard into a logger (the W2 "report mode": the violation is logged and
-kept in ``guard_reports()``, nothing raises). Package 3e flips the flags (W3).
+**State (Strawberry build 1, W3 / package 3e, MD-24):** the guard is **on** —
+``GUARD_ENABLED`` defaults to ``True`` and an owned-table statement with no owner
+context raises ``OwnerContextMissing``. ``GUARD_REPORT_ONLY`` (default ``False``)
+is a test/diagnostic switch only: it turns the enabled guard into a logger (the
+violation is logged and kept in ``guard_reports()``, nothing raises). Neither is
+an operator setting; the unit suites drive them through
+``tests/support/owners.configure_test_guard`` (``APPLIRE_TEST_OWNER_GUARD``).
 
 Three more mechanisms live here, installed on the declarative ``Base`` by
 ``install_orm_hooks`` (called from ``applire/db/session.py``):
@@ -83,10 +86,12 @@ IDENTITY_TABLES: frozenset[str] = frozenset(
     }
 )
 
-#: W0/W1: the guard is registered but OFF. 3e flips this (ADR-092 cl. 8a).
-GUARD_ENABLED: bool = False
+#: The statement guard is ON (ADR-092 cl. 8a; MD-24 (1), W3). Not an operator
+#: setting — a test/diagnostic switch only.
+GUARD_ENABLED: bool = True
 
-#: W2 report mode: with ``GUARD_ENABLED`` the guard logs + records instead of raising.
+#: Diagnostic report mode: with ``GUARD_ENABLED`` the guard logs + records instead
+#: of raising. Tests/diagnostics only (MD-24 (1)); never set in the running app.
 GUARD_REPORT_ONLY: bool = False
 
 #: Owner fills taken from the owner CONTEXT (not a profile), per table — W2/3e read
@@ -330,7 +335,16 @@ def _loaded_profile_owner(target: Any) -> uuid.UUID | None:
     if pid is None or session is None:
         return None
     loaded = session.identity_map.get(identity_key(MasterProfile, pid))
-    return loaded.user_id if loaded is not None else None
+    if loaded is not None:
+        return loaded.user_id
+    # A profile added in the SAME flush is pending, not yet in the identity map,
+    # and — with no FK ordering the two inserts — may not be stored yet either.
+    # Without this the fill fell through to the CONTEXT owner and gave the chain
+    # row an owner its profile does not have (W3 finding, SF-OWN.9).
+    for obj in session.new:
+        if isinstance(obj, MasterProfile) and obj.id == pid:
+            return obj.user_id
+    return None
 
 
 def _stored_profile_owner(connection: Any, target: Any) -> uuid.UUID | None:

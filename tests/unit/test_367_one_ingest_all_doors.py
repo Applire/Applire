@@ -295,10 +295,16 @@ async def test_every_door_persists_an_upload_record(door, sqlite_session, storag
     """
     from applire.models.uploads import UploadRecord
 
-    user_id = uuid.uuid4()
-    await door(sqlite_session, storage, _cv("Marcus Schmidt"), user_id=user_id)
+    from applire.ownership import owner_context, unscoped
 
-    rows = (await sqlite_session.execute(select(UploadRecord))).scalars().all()
+    user_id = uuid.uuid4()
+    with owner_context(user_id):  # the door acts for its user, as a request does
+        await door(sqlite_session, storage, _cv("Marcus Schmidt"), user_id=user_id)
+
+    # Read every upload row, whoever owns it — a wrongly-owned row must be seen
+    # (and fail the owner assertion), not filtered away by the loader criteria.
+    with unscoped("tooling"):
+        rows = (await sqlite_session.execute(select(UploadRecord))).scalars().all()
     assert len(rows) == 1, f"{door.__name__} wrote {len(rows)} upload records"
     rec = rows[0]
     assert rec.user_id == user_id, "an ownerless row is invisible to the scoped lists"

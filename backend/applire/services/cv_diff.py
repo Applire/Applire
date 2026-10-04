@@ -90,7 +90,7 @@ async def get_cv_profile_diff(cv_id, db: AsyncSession, *, user_id: uuid.UUID | N
     Reads only the persisted `tailored_data` and `profile_json` — never the source
     upload (retention-safe, ADR-005). Raises ValueError if the CV is unknown.
     """
-    from applire.services.cv_owner import owned_cv, resolve_owner
+    from applire.services.owner_resolution import owned_cv, resolve_owner
 
     owner = resolve_owner(user_id, site="cv_diff.get_cv_profile_diff")
     # ADR-092 cl. 6: a foreign id reads exactly like a missing one (S-10). The

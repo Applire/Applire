@@ -39,7 +39,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.services.cv_owner import owned_cv, resolve_owner
+from applire.services.owner_resolution import owned_cv, resolve_owner
 from applire.models.flow import FlowSession
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis

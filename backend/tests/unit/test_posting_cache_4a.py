@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from applire.models.application import Application
 from applire.models.job import JobAnalysis
-from applire.ownership import OwnedNotFound
+from applire.ownership import OwnedNotFound, owner_context, unscoped
 from applire.services.job import ensure_application_link, get_job_for_user
 
 
@@ -33,11 +33,13 @@ async def _job(db, **kw) -> JobAnalysis:
 async def test_get_job_for_user_needs_a_link(async_db, two_users):
     a, b = two_users
     job = await _job(async_db)
-    with pytest.raises(OwnedNotFound):
-        await get_job_for_user(async_db, job.id, a.id)
-    await ensure_application_link(async_db, job, a.id)
-    assert (await get_job_for_user(async_db, job.id, a.id)).id == job.id
-    with pytest.raises(OwnedNotFound) as exc:
+    # Each call acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(a.id):
+        with pytest.raises(OwnedNotFound):
+            await get_job_for_user(async_db, job.id, a.id)
+        await ensure_application_link(async_db, job, a.id)
+        assert (await get_job_for_user(async_db, job.id, a.id)).id == job.id
+    with owner_context(b.id), pytest.raises(OwnedNotFound) as exc:
         await get_job_for_user(async_db, job.id, b.id)
     assert exc.value.status_code == 404 and exc.value.detail == "job not found"
 
@@ -48,10 +50,11 @@ async def test_get_job_for_user_soft_deleted_link_still_counts(async_db, two_use
 
     a, _ = two_users
     job = await _job(async_db)
-    app = await ensure_application_link(async_db, job, a.id)
-    app.deleted_at = datetime.now(timezone.utc)
-    await async_db.flush()
-    assert (await get_job_for_user(async_db, job.id, a.id)).id == job.id
+    with owner_context(a.id):
+        app = await ensure_application_link(async_db, job, a.id)
+        app.deleted_at = datetime.now(timezone.utc)
+        await async_db.flush()
+        assert (await get_job_for_user(async_db, job.id, a.id)).id == job.id
 
 
 @pytest.mark.asyncio
@@ -73,17 +76,20 @@ async def test_get_job_for_user_missing_and_deleted_posting_are_404(async_db, tw
 async def test_ensure_link_is_get_or_create_and_overrides_stay_private(async_db, two_users):
     a, b = two_users
     job = await _job(async_db, role_title="Engineer", company_name="Acme")
-    app_a = await ensure_application_link(async_db, job, a.id, role_title_override="  Staff Engineer ")
-    again = await ensure_application_link(async_db, job, a.id)
+    with owner_context(a.id):
+        app_a = await ensure_application_link(async_db, job, a.id, role_title_override="  Staff Engineer ")
+        again = await ensure_application_link(async_db, job, a.id)
     assert again.id == app_a.id
     assert app_a.role_title == "Staff Engineer" and app_a.company_name == "Acme"
     assert app_a.user_status == "tracking"
-    app_b = await ensure_application_link(async_db, job, b.id, company_name_override="Acme GmbH")
+    with owner_context(b.id):
+        app_b = await ensure_application_link(async_db, job, b.id, company_name_override="Acme GmbH")
     assert app_b.id != app_a.id
     assert (app_b.role_title, app_b.company_name) == ("Engineer", "Acme GmbH")
     await async_db.refresh(job)
     assert (job.role_title, job.company_name) == ("Engineer", "Acme"), "shared posting untouched"
-    n = await async_db.scalar(select(func.count()).select_from(Application))
+    with unscoped("tooling"):  # the test's own cross-user count
+        n = await async_db.scalar(select(func.count()).select_from(Application))
     assert n == 2
 
 
@@ -91,8 +97,9 @@ async def test_ensure_link_is_get_or_create_and_overrides_stay_private(async_db,
 async def test_ensure_link_blank_override_keeps_value(async_db, two_users):
     a, _ = two_users
     job = await _job(async_db)
-    await ensure_application_link(async_db, job, a.id, role_title_override="Lead")
-    app = await ensure_application_link(async_db, job, a.id, role_title_override="   ")
+    with owner_context(a.id):
+        await ensure_application_link(async_db, job, a.id, role_title_override="Lead")
+        app = await ensure_application_link(async_db, job, a.id, role_title_override="   ")
     assert app.role_title == "Lead"
 
 
@@ -176,8 +183,10 @@ async def test_two_users_share_one_posting_but_nothing_personal(async_db, two_us
     provider = AsyncMock()
     provider.aparse_json = AsyncMock(return_value=_jd_payload())
 
-    ra = await analyze_jd(_JD, async_db, provider, user_id=a.id, role_title_override="Platform Lead")
-    rb = await analyze_jd(_JD, async_db, provider, user_id=b.id, company_name_override="Nordlicht")
+    with owner_context(a.id):
+        ra = await analyze_jd(_JD, async_db, provider, user_id=a.id, role_title_override="Platform Lead")
+    with owner_context(b.id):
+        rb = await analyze_jd(_JD, async_db, provider, user_id=b.id, company_name_override="Nordlicht")
     assert ra.id == rb.id, "one shared posting row"
     assert provider.aparse_json.await_count == 1, "the second user is a cache hit — analysed once"
     assert (await async_db.scalar(select(func.count()).select_from(JobAnalysis))) == 1
@@ -197,7 +206,8 @@ async def test_two_users_share_one_posting_but_nothing_personal(async_db, two_us
     assert gb.json()["role_title"] == "Senior Platform Engineer" and gb.json()["company_name"] == "Nordlicht"
 
     # separate applications …
-    apps = (await async_db.execute(select(Application).where(Application.job_analysis_id == ra.id))).scalars().all()
+    with unscoped("tooling"):  # the test's own cross-user read
+        apps = (await async_db.execute(select(Application).where(Application.job_analysis_id == ra.id))).scalars().all()
     assert sorted(x.user_id for x in apps) == sorted([a.id, b.id])
 
     # … separate flows (create_flow per user, same posting) …
@@ -207,7 +217,8 @@ async def test_two_users_share_one_posting_but_nothing_personal(async_db, two_us
     assert fa.json()["flow_id"] != fb.json()["flow_id"]
     assert fa.json()["job_summary"]["role_title"] == "Platform Lead"
     assert fb.json()["job_summary"]["role_title"] == "Senior Platform Engineer"
-    flows = (await async_db.execute(select(FlowSession).where(FlowSession.job_id == ra.id))).scalars().all()
+    with unscoped("tooling"):
+        flows = (await async_db.execute(select(FlowSession).where(FlowSession.job_id == ra.id))).scalars().all()
     assert sorted(f.user_id for f in flows) == sorted([a.id, b.id])
     # B cannot read A's flow
     other = await _call(async_db, b, "GET", f"/api/flow/{fa.json()['flow_id']}/state")
@@ -293,15 +304,16 @@ async def test_repost_gets_a_hidden_link_no_phantom_card(async_db, two_users, no
     a, _ = two_users
     provider = AsyncMock()
     provider.aparse_json = AsyncMock(return_value=_jd_payload())
-    first = await analyze_jd(_JD, async_db, provider, source_url="https://board-a.example/1", user_id=a.id)
-    repost = await analyze_jd(_JD + " ", async_db, provider, source_url="https://board-b.example/9", user_id=a.id)
-    assert repost.id != first.id and repost.duplicate_of is not None
-    assert repost.duplicate_of.matched_on == "text"
-    visible = (await async_db.execute(
-        select(Application).where(Application.user_id == a.id, Application.deleted_at.is_(None))
-    )).scalars().all()
-    assert [x.job_analysis_id for x in visible] == [first.id]
-    assert (await get_job_for_user(async_db, repost.id, a.id)).id == repost.id, "access via hidden link"
+    with owner_context(a.id):
+        first = await analyze_jd(_JD, async_db, provider, source_url="https://board-a.example/1", user_id=a.id)
+        repost = await analyze_jd(_JD + " ", async_db, provider, source_url="https://board-b.example/9", user_id=a.id)
+        assert repost.id != first.id and repost.duplicate_of is not None
+        assert repost.duplicate_of.matched_on == "text"
+        visible = (await async_db.execute(
+            select(Application).where(Application.user_id == a.id, Application.deleted_at.is_(None))
+        )).scalars().all()
+        assert [x.job_analysis_id for x in visible] == [first.id]
+        assert (await get_job_for_user(async_db, repost.id, a.id)).id == repost.id, "access via hidden link"
 
 
 @pytest.mark.asyncio
@@ -344,9 +356,10 @@ async def test_analyze_retries_once_when_the_link_insert_hits_an_integrity_error
         return await real(*args, **kw)
 
     monkeypatch.setattr(job_svc, "ensure_application_link", flaky)
-    res = await job_svc.analyze_jd(_JD, async_db, provider, user_id=a.id)
-    assert len(calls) == 2
-    assert (await get_job_for_user(async_db, res.id, a.id)).id == res.id
+    with owner_context(a.id):
+        res = await job_svc.analyze_jd(_JD, async_db, provider, user_id=a.id)
+        assert len(calls) == 2
+        assert (await get_job_for_user(async_db, res.id, a.id)).id == res.id
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ Run:
 import tempfile
 
 import pytest
+from applire.ownership import owner_context
 
 from tests.support.profile_factory import make_master_profile
 
@@ -133,30 +134,32 @@ async def test_upload_photo_stores_file_and_sets_photo_url(photo_db):
     photo_db.add(profile)
     await photo_db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        from applire.storage.local import LocalStorageProvider
-        storage = LocalStorageProvider(tmp)
+    # Acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(user_id):
+        with tempfile.TemporaryDirectory() as tmp:
+            from applire.storage.local import LocalStorageProvider
+            storage = LocalStorageProvider(tmp)
 
-        from applire.services.photo import upload_photo
-        result = await upload_photo(
-            user_id=user_id,
-            file_bytes=b"fake-jpeg",
-            content_type="image/jpeg",
-            db=photo_db,
-            storage=storage,
-        )
+            from applire.services.photo import upload_photo
+            result = await upload_photo(
+                user_id=user_id,
+                file_bytes=b"fake-jpeg",
+                content_type="image/jpeg",
+                db=photo_db,
+                storage=storage,
+            )
 
-    assert result["photo_url"] is not None
-    assert result["consent_at"] is not None
+        assert result["photo_url"] is not None
+        assert result["consent_at"] is not None
 
-    await photo_db.refresh(user)
-    assert user.photo_consent is True
-    assert user.photo_consent_at is not None
+        await photo_db.refresh(user)
+        assert user.photo_consent is True
+        assert user.photo_consent_at is not None
 
-    await photo_db.refresh(profile)
-    from applire.schemas.profile import MasterProfileData
-    profile_data = MasterProfileData.model_validate(profile.profile_json)
-    assert profile_data.personal_info.photo_url == result["photo_url"]
+        await photo_db.refresh(profile)
+        from applire.schemas.profile import MasterProfileData
+        profile_data = MasterProfileData.model_validate(profile.profile_json)
+        assert profile_data.personal_info.photo_url == result["photo_url"]
 
 
 @pytest.mark.asyncio
@@ -174,32 +177,34 @@ async def test_delete_photo_clears_url_and_consent(photo_db):
     )
     photo_db.add(user)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        from applire.storage.local import LocalStorageProvider
-        storage = LocalStorageProvider(tmp)
+    # Acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(user_id):
+        with tempfile.TemporaryDirectory() as tmp:
+            from applire.storage.local import LocalStorageProvider
+            storage = LocalStorageProvider(tmp)
 
-        # Pre-save a file so delete has something to remove
-        path = await storage.save(b"fake-jpeg", "photo.jpg")
+            # Pre-save a file so delete has something to remove
+            path = await storage.save(b"fake-jpeg", "photo.jpg")
 
-        profile = make_master_profile(
-            user_id=user_id,  # ADR-092 cl. 2: the photo owner's own vault
-            profile_json=MasterProfileData(
-                personal_info=PersonalInfo(name="Anna Bauer", photo_url=path)
-            ).model_dump(mode="json"),
-        )
-        photo_db.add(profile)
-        await photo_db.commit()
+            profile = make_master_profile(
+                user_id=user_id,  # ADR-092 cl. 2: the photo owner's own vault
+                profile_json=MasterProfileData(
+                    personal_info=PersonalInfo(name="Anna Bauer", photo_url=path)
+                ).model_dump(mode="json"),
+            )
+            photo_db.add(profile)
+            await photo_db.commit()
 
-        from applire.services.photo import delete_photo
-        await delete_photo(user_id=user_id, db=photo_db, storage=storage)
+            from applire.services.photo import delete_photo
+            await delete_photo(user_id=user_id, db=photo_db, storage=storage)
 
-    await photo_db.refresh(user)
-    assert user.photo_consent is False
-    assert user.photo_consent_at is None
+        await photo_db.refresh(user)
+        assert user.photo_consent is False
+        assert user.photo_consent_at is None
 
-    await photo_db.refresh(profile)
-    profile_data = MasterProfileData.model_validate(profile.profile_json)
-    assert profile_data.personal_info.photo_url is None
+        await photo_db.refresh(profile)
+        profile_data = MasterProfileData.model_validate(profile.profile_json)
+        assert profile_data.personal_info.photo_url is None
 
 
 # ---------------------------------------------------------------------------

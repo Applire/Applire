@@ -54,8 +54,7 @@ from applire.utils.language_detection import resolve_jd_language
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
-from applire.services.owner_resolution import resolve_user_id
-from applire.services.owner_scope import owned_row
+from applire.services.owner_resolution import owned_row, resolve_user_id
 from applire.providers.llm.base import LLMProvider
 # #480 PR 7 — `EnrichmentRecord`, `ProfileMetadata` and `record_denials` are no
 # longer imported here: the interview's last three hand-rolled vault writes (the
