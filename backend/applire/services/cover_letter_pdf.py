@@ -35,7 +35,9 @@ from applire.services.pdf_provenance import (
 )
 
 
-async def render_pdf(cl_id: uuid.UUID, allow_unready: bool = False) -> bytes:
+async def render_pdf(
+    cl_id: uuid.UUID, allow_unready: bool = False, *, user_id: uuid.UUID | None = None
+) -> bytes:
     """Render the cover letter to PDF using Playwright. Returns raw PDF bytes.
 
     ``allow_unready`` (E037 PQ #2): the generation path renders the smoke PDF while the
@@ -49,11 +51,22 @@ async def render_pdf(cl_id: uuid.UUID, allow_unready: bool = False) -> bytes:
     content and cannot attest its authorship. Read here, at the ONE letter PDF
     seam, so the pre-audit render inside the agent door and every later download
     of the same row agree.
+
+    ADR-092 cl. 14 (Strawberry W2, 3c catch-all): opens its own session, so it
+    names its user — explicit ``user_id``, else the user owner context (ruling
+    3d-1, counted) — and reads the letter owner-keyed.
     """
+    from applire.services.owner_resolution import resolve_user_id
+
+    owner = resolve_user_id(user_id, "cover_letter_pdf.render_pdf")
     async with AsyncSessionLocal() as db:
-        html = await get_cover_letter_html(cl_id, db, require_ready=not allow_unready)
+        html = await get_cover_letter_html(
+            cl_id, db, require_ready=not allow_unready, user_id=owner
+        )
         origin = await db.scalar(
-            select(GeneratedCoverLetter.origin).where(GeneratedCoverLetter.id == cl_id)
+            select(GeneratedCoverLetter.origin).where(
+                GeneratedCoverLetter.id == cl_id, GeneratedCoverLetter.user_id == owner
+            )
         )
 
     async with async_playwright() as p:

@@ -27,7 +27,7 @@ from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.db.session import get_db
 from applire.models.color_profile import ColorProfile
-from applire.models.cv import CVGenerationStatus, GeneratedCV
+from applire.models.cv import CVGenerationStatus
 from applire.services.color_detection import derive_tint
 
 router = APIRouter(prefix="/api/cv", tags=["cv"])
@@ -48,21 +48,23 @@ async def apply_cv_color(
     cv_id: uuid.UUID,
     accent_hex: str,
     db: AsyncSession,
+    *,
+    user_id: "uuid.UUID | None" = None,
 ) -> dict:
-    """Service logic — extracted for unit testability."""
+    """Service logic — extracted for unit testability.
+
+    ADR-092 cl. 6: the CV must be the caller's — a foreign id reads exactly like
+    a missing one (S-10)."""
     if not _HEX_RE.match(accent_hex):
         raise ValueError(f"Invalid hex color: {accent_hex!r}. Must be #RRGGBB.")
 
-    from sqlalchemy import select
-    result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == cv_id,
-            GeneratedCV.deleted_at.is_(None),
-        )
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise LookupError(f"CV {cv_id} not found")
+    from applire.services.cv_owner import owned_cv, resolve_owner
+
+    owner = resolve_owner(user_id, site="cv_color.apply_cv_color")
+    try:
+        record = await owned_cv(db, cv_id, owner)
+    except LookupError:
+        raise LookupError(f"CV {cv_id} not found") from None
     if record.status != CVGenerationStatus.ready.value:
         raise LookupError(f"CV {cv_id} is not ready (status={record.status})")
 
@@ -86,7 +88,7 @@ async def patch_cv_color(
     _auth: User = Depends(require_user),
 ) -> ColorOverrideResponse:
     try:
-        result = await apply_cv_color(cv_id, body.accent_hex, db)
+        result = await apply_cv_color(cv_id, body.accent_hex, db, user_id=_auth.id)
         return ColorOverrideResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

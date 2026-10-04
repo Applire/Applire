@@ -164,8 +164,10 @@ class TestGenerateCVThreadsApplicationId:
 
     @pytest.mark.asyncio
     async def test_no_application_row_threads_none_not_a_crash(self, db, monkeypatch):
-        """No Application exists yet (e.g. a document generated before one is
-        created) — must degrade to document-only attribution, never raise."""
+        """ADR-092 cl. 5c: a posting the user has NO application link to is
+        refused (LookupError, same text as a missing job) — never a crash deeper
+        in, never a generation against a posting the user cannot see. (The old
+        "no row -> threads None" degrade is unreachable: the link IS the gate.)"""
         import applire.services.cv as cv_module
         from applire.models.job import JobAnalysis
         from applire.models.profile import MasterProfile, authorized_profile_write
@@ -186,10 +188,10 @@ class TestGenerateCVThreadsApplicationId:
         mock_render = AsyncMock()
         monkeypatch.setattr(cv_module, "_render_cv_background", mock_render)
 
-        await cv_module.generate_cv(job.id, db, provider=AsyncMock())
+        with pytest.raises(LookupError, match="not found"):
+            await cv_module.generate_cv(job.id, db, provider=AsyncMock())
 
-        mock_render.assert_awaited_once()
-        assert mock_render.await_args.args[-1] is None
+        mock_render.assert_not_awaited()
 
 
 class TestGenerateCoverLetterThreadsApplicationId:

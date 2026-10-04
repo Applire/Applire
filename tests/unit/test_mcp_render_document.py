@@ -125,6 +125,10 @@ async def seeded(db):
             ),
         ]
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)
     await db.commit()
     return {"db": db, "job_id": job_id}
 

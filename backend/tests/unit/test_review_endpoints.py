@@ -1043,8 +1043,10 @@ async def _seed_pair(db, *, cv_ats, cl_ats, with_flow=True):
         ats_report=cl_ats,
     ))
     if with_flow:
-        user_id = uuid.uuid4()
-        db.add(User(id=user_id, email="kontakt@applire.de"))
+        # ADR-092: the sibling flow belongs to the documents' owner.
+        user_id = cv.user_id
+        if await db.get(User, user_id) is None:
+            db.add(User(id=user_id, email="kontakt@applire.de"))
         db.add(FlowSession(
             user_id=user_id, job_id=cv.job_analysis_id, current_step="complete",
             user_type="new", available_actions={},

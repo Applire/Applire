@@ -80,20 +80,20 @@ class TakeOutResponse(ReviewReportResponse):
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _reports(kind: Kind, doc_id: uuid.UUID, db: AsyncSession) -> dict[str, Any]:
+async def _reports(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID) -> dict[str, Any]:
     if kind == "cv":
         from applire.services.cv import get_cv_ats_report, get_cv_truthfulness_report
 
-        ats = await get_cv_ats_report(doc_id, db)
-        truth = await get_cv_truthfulness_report(doc_id, db)
+        ats = await get_cv_ats_report(doc_id, db, user_id=user_id)
+        truth = await get_cv_truthfulness_report(doc_id, db, user_id=user_id)
     else:
         from applire.services.cover_letter import (
             get_cover_letter_ats_report,
             get_cover_letter_truthfulness_report,
         )
 
-        ats = await get_cover_letter_ats_report(doc_id, db)
-        truth = await get_cover_letter_truthfulness_report(doc_id, db)
+        ats = await get_cover_letter_ats_report(doc_id, db, user_id=user_id)
+        truth = await get_cover_letter_truthfulness_report(doc_id, db, user_id=user_id)
     return {"report": ats, "truthfulness": truth.report, "review_state": ats.review_state or {}}
 
 
@@ -131,8 +131,8 @@ def _mount(prefix: str, kind: Kind) -> None:
     ) -> AddEvidenceResponse:
         """ADR-090 cl. 4 — testimony (the `/api/profile/testimony` service), then
         the awaited document re-audit."""
-        out = await _run(ra.add_evidence(kind, doc_id, body.finding_key, body.text, db, provider))
-        return AddEvidenceResponse(testimony=out.testimony, **await _reports(kind, doc_id, db))
+        out = await _run(ra.add_evidence(kind, doc_id, body.finding_key, body.text, db, provider, user_id=_auth.id))
+        return AddEvidenceResponse(testimony=out.testimony, **await _reports(kind, doc_id, db, _auth.id))
 
     async def take_out(
         doc_id: uuid.UUID,
@@ -143,11 +143,11 @@ def _mount(prefix: str, kind: Kind) -> None:
     ) -> TakeOutResponse:
         """ADR-090 cl. 3 — model rewrite of each section holding the wording,
         saved, re-audited in this request, undoable."""
-        out = await _run(ra.take_out(kind, doc_id, body.finding_key, db, provider))
+        out = await _run(ra.take_out(kind, doc_id, body.finding_key, db, provider, user_id=_auth.id))
         return TakeOutResponse(
             changes=[SectionChange(**c) for c in out.changes],
             still_listed=out.still_listed,
-            **await _reports(kind, doc_id, db),
+            **await _reports(kind, doc_id, db, _auth.id),
         )
 
     async def undo(
@@ -157,8 +157,8 @@ def _mount(prefix: str, kind: Kind) -> None:
         _auth: User = Depends(require_user),
     ) -> ReviewReportResponse:
         """Restore the text a *take it out* / *edited* decision replaced; re-audit."""
-        await _run(ra.undo(kind, doc_id, body.finding_key, db))
-        return ReviewReportResponse(**await _reports(kind, doc_id, db))
+        await _run(ra.undo(kind, doc_id, body.finding_key, db, user_id=_auth.id))
+        return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
 
     async def edited(
         doc_id: uuid.UUID,
@@ -168,8 +168,8 @@ def _mount(prefix: str, kind: Kind) -> None:
     ) -> ReviewReportResponse:
         """ADR-090 cl. 5 — after a section save opened from a finding: await the
         re-audit; record `edited` when the finding cleared."""
-        await _run(ra.edited(kind, doc_id, body.finding_key, db))
-        return ReviewReportResponse(**await _reports(kind, doc_id, db))
+        await _run(ra.edited(kind, doc_id, body.finding_key, db, user_id=_auth.id))
+        return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
 
     async def walked(
         doc_id: uuid.UUID,
@@ -177,7 +177,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         _auth: User = Depends(require_user),
     ) -> ReviewStateResponse:
         """Stamp `walked_at` (replaces ADR-081 cl. 5a's browser-local bit)."""
-        out = await _run(ra.walked(kind, doc_id, db))
+        out = await _run(ra.walked(kind, doc_id, db, user_id=_auth.id))
         from applire.services.review_state import load_state
 
         return ReviewStateResponse(review_state=load_state(out.record.review_state))

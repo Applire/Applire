@@ -60,7 +60,9 @@ from playwright.async_api import async_playwright
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire import ownership
 from applire.db.session import AsyncSessionLocal
+from applire.services.cv_owner import job_for_user, owned_cv, resolve_owner
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
@@ -2964,31 +2966,20 @@ async def generate_cv(
     is override > the user's ``UserSettings.target_cv_pages`` > the DACH
     region standard (``resolve_target_pages``).
     """
-    # Validate job exists
-    job = await db.get(JobAnalysis, job_id)
-    if job is None:
-        raise LookupError(f"Job analysis {job_id} not found")
+    # ADR-092 cl. 14: the acting user (explicit from every 3c door; the owner
+    # context only for callers not yet threaded — counted).
+    owner = resolve_owner(user_id, site="cv.generate_cv")
+    # ADR-092 cl. 5c: the posting is reachable only through the user's own link.
+    job = await job_for_user(db, job_id, owner)
 
-    # Validate profile exists
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    # Validate profile exists — the caller's own vault (ADR-092 cl. 2).
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, owner)
     if profile is None:
         raise LookupError("No profile found — import a CV first")
 
-    from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
-
-    settings_result = await db.execute(
-        select(UserSettings.target_cv_pages).where(
-            UserSettings.user_id == _CE_STUB_USER_ID
-        )
-    )
-    user_setting = settings_result.scalar_one_or_none()
+    user_setting = await _user_target_cv_pages(db, owner)
     resolved_target_pages = resolve_target_pages(target_pages, user_setting)
 
     # E054 / ADR-038 amendment clause 3: resolve the document language ONCE,
@@ -2997,13 +2988,14 @@ async def generate_cv(
     # value, never a fresh resolve.
     from applire.services.application import get_application_for_job
 
-    application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
+    application = await get_application_for_job(job_id, owner, db)
     document_language = resolve_document_language(application, job)
 
-    # Create pending record
+    # Create pending record — the constructor names its owner (ADR-092 cl. 1).
     record = GeneratedCV(
         job_analysis_id=job_id,
         profile_id=profile.id,
+        user_id=owner,
         tailored_data={},  # populated by background task
         template=template,
         status=CVGenerationStatus.pending.value,
@@ -3024,7 +3016,7 @@ async def generate_cv(
     if background_tasks is None:
         # Agent channel: no request lifecycle to defer to — render inline.
         await _render_cv_background(
-            record.id, job_id, profile.id, template, application_id
+            record.id, job_id, profile.id, template, application_id, user_id=owner
         )
         await db.refresh(record)
     else:
@@ -3036,6 +3028,7 @@ async def generate_cv(
             profile.id,
             template,
             application_id,
+            user_id=owner,
         )
 
     return CVGenerateResponse(
@@ -3062,7 +3055,8 @@ async def get_cv_status(
     from datetime import timedelta
     from datetime import datetime as _dt
 
-    record = await _load_cv(cv_id, db)
+    owner = resolve_owner(user_id, site="cv.get_cv_status")
+    record = await _load_cv(cv_id, db, user_id=owner)
     status = CVGenerationStatus(record.status)
 
     # Inline staleness check: give the frontend immediate failed feedback without
@@ -3080,9 +3074,9 @@ async def get_cv_status(
     from applire.services.signature import resolve_signature_available, resolve_signature_effective
 
     signature_effective = await resolve_signature_effective(
-        db, document="cv", override=record.signature_override
+        db, document="cv", override=record.signature_override, user_id=owner
     )
-    signature_available = await resolve_signature_available(db)
+    signature_available = await resolve_signature_available(db, user_id=owner)
 
     return CVStatusResponse(
         cv_id=record.id,
@@ -3139,21 +3133,19 @@ async def set_cv_signature_override(
     """
     from applire.services.signature import resolve_signature_effective
 
-    result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == cv_id,
-            GeneratedCV.deleted_at.is_(None),
-        )
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise LookupError(f"CV {cv_id} not found")
+    owner = resolve_owner(user_id, site="cv.set_cv_signature_override")
+    try:
+        record = await owned_cv(db, cv_id, owner)
+    except LookupError:
+        raise LookupError(f"CV {cv_id} not found") from None
     if record.status != CVGenerationStatus.ready.value:
         raise LookupError(f"CV {cv_id} is not ready (status={record.status})")
 
     record.signature_override = override
     await db.commit()
-    return await resolve_signature_effective(db, document="cv", override=override)
+    return await resolve_signature_effective(
+        db, document="cv", override=override, user_id=owner
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3168,11 +3160,15 @@ async def list_cvs_for_job(
     *,
     user_id: uuid.UUID | None = None,
 ) -> list[CVStatusResponse]:
-    """Return all non-deleted CVs for a job, newest first."""
+    """Return the caller's non-deleted CVs for a job, newest first.
+
+    ADR-092: the posting is shared, the CVs are not — keyed on the owner too."""
+    owner = resolve_owner(user_id, site="cv.list_cvs_for_job")
     result = await db.execute(
         select(GeneratedCV)
         .where(
             GeneratedCV.job_analysis_id == job_id,
+            GeneratedCV.user_id == owner,
             GeneratedCV.deleted_at.is_(None),
         )
         .order_by(GeneratedCV.created_at.desc())
@@ -3185,7 +3181,7 @@ async def list_cvs_for_job(
     # once outside the loop.
     from applire.services.signature import resolve_signature_available, resolve_signature_effective
 
-    signature_available = await resolve_signature_available(db)
+    signature_available = await resolve_signature_available(db, user_id=owner)
     out: list[CVStatusResponse] = []
     for r in records:
         out.append(
@@ -3207,7 +3203,7 @@ async def list_cvs_for_job(
                 document_language=r.document_language,
                 signature_override=r.signature_override,
                 signature_effective=await resolve_signature_effective(
-                    db, document="cv", override=r.signature_override
+                    db, document="cv", override=r.signature_override, user_id=owner
                 ),
                 signature_available=signature_available,
             )
@@ -3274,15 +3270,32 @@ async def get_pdf_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.
     Format: <name>_<company>_<role>.pdf (sanitized, umlaut-safe) — the download
     must stay identifiable among a pipeline's worth of files (E039/US219).
     """
-    record = await _load_cv_ready(cv_id, db)
-    job = await db.get(JobAnalysis, record.job_analysis_id)
+    owner = resolve_owner(user_id, site="cv.get_pdf_filename")
+    record = await _load_cv_ready(cv_id, db, user_id=owner)
+    role_title, company_name = await _posting_labels_for(record, db, owner)
     contact = (record.tailored_data or {}).get("contact") or {}
     return compose_document_filename(
         contact.get("name"),
-        job.company_name if job else None,
-        job.role_title if job else None,
+        company_name,
+        role_title,
         fallback=f"lebenslauf-{str(cv_id)[:8]}",
     )
+
+
+async def _posting_labels_for(
+    record: GeneratedCV, db: AsyncSession, owner: uuid.UUID
+) -> tuple[str | None, str | None]:
+    """(role_title, company_name) of the CV's posting as THIS user names it —
+    ADR-092 cl. 5(f): the filename builders receive the application, so an
+    override lives on the user's own row, never on the shared posting."""
+    from applire.services.application import get_application_for_job
+    from applire.services.posting_labels import effective_posting_labels
+
+    job = await db.get(JobAnalysis, record.job_analysis_id)
+    if job is None:
+        return None, None
+    application = await get_application_for_job(record.job_analysis_id, owner, db)
+    return effective_posting_labels(job, application)
 
 
 # ---------------------------------------------------------------------------
@@ -3348,7 +3361,8 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     from applire.services.cv_section_editor import apply_overrides_to_tailored
     from applire.storage import get_storage
 
-    record = await _load_cv_ready(cv_id, db)
+    owner = resolve_owner(user_id, site="cv.get_cv_html")
+    record = await _load_cv_ready(cv_id, db, user_id=owner)
     tailored = TailoredCVData.model_validate(record.tailored_data)
     tailored = apply_overrides_to_tailored(
         tailored, record.content_snapshot, record.section_overrides
@@ -3360,7 +3374,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     tailored = await _with_resolved_contact_photo(tailored, get_storage())
 
     from applire.services.color_detection import resolve_color_context
-    color_ctx = await resolve_color_context(record, db)
+    color_ctx = await resolve_color_context(record, db, user_id=owner)
 
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
@@ -3371,11 +3385,10 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     lang = record.document_language
     if not lang:
         from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
 
         job = await db.get(JobAnalysis, record.job_analysis_id)
         application = await get_application_for_job(
-            record.job_analysis_id, _CE_STUB_USER_ID, db
+            record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
     # #359: the signature is resolved at RENDER time from user_settings, not
@@ -3387,7 +3400,7 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     from applire.services.signature import format_place_date, resolve_signature_data_uri
 
     signature_image = await resolve_signature_data_uri(
-        db, document="cv", override=record.signature_override
+        db, document="cv", override=record.signature_override, user_id=owner
     )
     return template.render(
         cv=tailored,
@@ -3418,8 +3431,9 @@ async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID |
     download. Reading ``record.origin`` (ADR-054: ``"agent"`` vs ``"pipeline"``)
     therefore marks every fetch correctly, not only the one during the tool call.
     """
-    record = await _load_cv_ready(cv_id, db)
-    html = await get_cv_html(cv_id, db)
+    owner = resolve_owner(user_id, site="cv.get_cv_pdf")
+    record = await _load_cv_ready(cv_id, db, user_id=owner)
+    html = await get_cv_html(cv_id, db, user_id=owner)
     return await _html_to_pdf(
         html, digital_source_type=digital_source_type_for_origin(record.origin)
     )
@@ -3433,6 +3447,10 @@ async def get_cv_pdf(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID |
 async def _prepare_cv_docx_render(
     record: GeneratedCV, db: AsyncSession
 ) -> tuple[TailoredCVData, str, str, bytes | None]:
+    # ADR-092: everything this prep reads per user (colour, language fallback,
+    # signature) belongs to the ROW's owner — the record was already resolved
+    # for its owner by every caller (GET door: _load_cv_ready; audit seam: the
+    # record it holds), so the owner is the row's, never a second lookup.
     """Build the four inputs render_cv_docx needs — section overrides applied,
     empty projects stripped, photo resolved, colour + language resolved —
     as ONE function so every caller that renders the .docx for THIS record
@@ -3492,7 +3510,8 @@ async def _prepare_cv_docx_render(
             _, _, b64_payload = data_uri.partition(",")
             photo_bytes = _base64.b64decode(b64_payload)
 
-    color_ctx = await resolve_color_context(record, db)
+    owner = record.user_id
+    color_ctx = await resolve_color_context(record, db, user_id=owner)
 
     # Same PINNED-language-first fallback as get_cv_html (E054 clause 3b) —
     # duplicated rather than factored out, to keep this addition a pure
@@ -3500,11 +3519,10 @@ async def _prepare_cv_docx_render(
     lang = record.document_language
     if not lang:
         from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
 
         job = await db.get(JobAnalysis, record.job_analysis_id)
         application = await get_application_for_job(
-            record.job_analysis_id, _CE_STUB_USER_ID, db
+            record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
 
@@ -3517,7 +3535,7 @@ async def _prepare_cv_docx_render(
     from applire.services.signature import resolve_signature_bytes
 
     signature_bytes = await resolve_signature_bytes(
-        db, document="cv", override=record.signature_override
+        db, document="cv", override=record.signature_override, user_id=owner
     )
     signature_place_date = (
         format_place_date_for_cv(tailored.contact.location, lang)
@@ -3545,7 +3563,8 @@ async def get_cv_docx(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     """
     from applire.services.office_export.cv_docx import render_cv_docx
 
-    record = await _load_cv_ready(cv_id, db)
+    owner = resolve_owner(user_id, site="cv.get_cv_docx")
+    record = await _load_cv_ready(cv_id, db, user_id=owner)
     (
         tailored, lang, accent_color, photo_bytes, signature_bytes, signature_place_date,
     ) = await _prepare_cv_docx_render(record, db)
@@ -3564,13 +3583,14 @@ async def get_docx_filename(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid
     """Build the Content-Disposition filename for a CV .docx export — the
     same <name>_<company>_<role> contract as get_pdf_filename (E039/US219),
     with a .docx extension."""
-    record = await _load_cv_ready(cv_id, db)
-    job = await db.get(JobAnalysis, record.job_analysis_id)
+    owner = resolve_owner(user_id, site="cv.get_docx_filename")
+    record = await _load_cv_ready(cv_id, db, user_id=owner)
+    role_title, company_name = await _posting_labels_for(record, db, owner)
     contact = (record.tailored_data or {}).get("contact") or {}
     return compose_document_filename(
         contact.get("name"),
-        job.company_name if job else None,
-        job.role_title if job else None,
+        company_name,
+        role_title,
         fallback=f"lebenslauf-{str(cv_id)[:8]}",
         extension="docx",
     )
@@ -3605,14 +3625,20 @@ async def _render_cv_background(
     # an audit tail cannot inherit it.
     from applire.providers.llm.usage import llm_usage_context
 
-    with llm_usage_context(
+    # ADR-092 cl. 14: the task carries its user and sets the owner context
+    # itself — it may outlive the request that scheduled it.
+    owner = resolve_owner(user_id, site="cv._render_cv_background")
+    with ownership.owner_context(owner), llm_usage_context(
         stage="cv",
         document_kind="cv",
         document_id=cv_id,
         application_id=application_id,
     ):
         async with AsyncSessionLocal() as db:
-            record = await db.get(GeneratedCV, cv_id)
+            try:
+                record = await owned_cv(db, cv_id, owner)
+            except LookupError:
+                record = None
             if record is None:
                 logger.error("CV %s not found in background task", cv_id)
                 return
@@ -3636,14 +3662,18 @@ async def _render_cv_background(
                 # Auto-detect and cache company brand color (best-effort; never blocks CV generation)
                 try:
                     from applire.services.color_detection import detect_and_cache_company_color
-                    await detect_and_cache_company_color(job, db)
+                    await detect_and_cache_company_color(job, db, user_id=owner)
                 except Exception:
                     logger.debug("detect_and_cache_company_color failed silently", exc_info=True)
 
+                # ADR-092: the posting is shared, the gap analysis is the
+                # user's — keyed on the owner too (another user's analysis of
+                # the same posting must never steer this CV).
                 gap_result = await db.execute(
                     select(GapAnalysis)
                     .where(
                         GapAnalysis.job_analysis_id == job_id,
+                        GapAnalysis.user_id == owner,
                         GapAnalysis.deleted_at.is_(None),
                     )
                     .order_by(GapAnalysis.created_at.desc())
@@ -3677,8 +3707,12 @@ async def _render_cv_background(
                     else []
                 )
 
+                # ADR-092 cl. 5(f): the title the writer targets is the one THIS
+                # user's link carries (an agent override lives there now, no
+                # longer on the shared posting).
+                writer_role_title = (await _posting_labels_for(record, db, owner))[0]
                 job_dict = {
-                    "role_title": job.role_title,
+                    "role_title": writer_role_title,
                     "required_skills": job.required_skills,
                     "nice_to_have_skills": job.nice_to_have_skills,
                     "keywords": job.keywords,
@@ -3767,7 +3801,6 @@ async def _render_cv_background(
                 try:
                     from applire.schemas.profile import MasterProfileData
                     from applire.services.application import get_application_for_job
-                    from applire.services.color_detection import _CE_STUB_USER_ID
                     from applire.services.fact_pins import (
                         load_pins,
                         refresh_pin_staleness,
@@ -3778,7 +3811,7 @@ async def _render_cv_background(
                     )
 
                     pin_application = await get_application_for_job(
-                        record.job_analysis_id, _CE_STUB_USER_ID, db
+                        record.job_analysis_id, owner, db
                     )
                     if pin_application is not None and pin_application.pinned_facts:
                         raw_profile_data = MasterProfileData.model_validate(
@@ -4387,21 +4420,29 @@ def _compose_document(
     return tailored
 
 
-async def _load_cv(cv_id: uuid.UUID, db: AsyncSession) -> GeneratedCV:
+async def _load_cv(
+    cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> GeneratedCV:
+    """The live CV ``cv_id`` of the acting user — a foreign id reads exactly like
+    a missing one (ADR-092 cl. 6, S-10)."""
+    owner = resolve_owner(user_id, site="cv._load_cv")
+    return await owned_cv(db, cv_id, owner)
+
+
+async def _user_target_cv_pages(db: AsyncSession, owner: uuid.UUID) -> int | None:
+    """The user's own ``target_cv_pages`` setting (ADR-051 §1), ``None`` if unset."""
+    from applire.models.user_settings import UserSettings
+
     result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == cv_id,
-            GeneratedCV.deleted_at.is_(None),
-        )
+        select(UserSettings.target_cv_pages).where(UserSettings.user_id == owner)
     )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise LookupError(f"Generated CV {cv_id} not found")
-    return record
+    return result.scalar_one_or_none()
 
 
-async def _load_cv_ready(cv_id: uuid.UUID, db: AsyncSession) -> GeneratedCV:
-    record = await _load_cv(cv_id, db)
+async def _load_cv_ready(
+    cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> GeneratedCV:
+    record = await _load_cv(cv_id, db, user_id=user_id)
     if record.status != CVGenerationStatus.ready.value:
         raise LookupError(
             f"CV {cv_id} is not ready (status: {record.status}). "
@@ -4451,6 +4492,7 @@ async def _latest_keyword_ledger(
     job_id: uuid.UUID,
     *,
     profile_json: dict | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
@@ -4465,7 +4507,9 @@ async def _latest_keyword_ledger(
     row is re-derived against the CURRENT vault here
     (:func:`keyword_ledger.refresh_persist_and_rescore` — read its docstring for
     the measurement) so a DO-NOT-CLAIM list can never contradict the very profile
-    the writer is handed. **#670 / ADR-048 amended 2026-09-05: no longer read-only.**
+    the writer is handed. ADR-092: the posting is shared, the analysis is the
+    user's — the read is keyed on ``user_id`` too (explicit, else the owner
+    context). **#670 / ADR-048 amended 2026-09-05: no longer read-only.**
     The refreshed row, the match score and the Gaps screen are persisted here, so the
     number the candidate sees matches the document they are about to receive — the
     ruling's accepted price is that a score they have already seen may move.
@@ -4474,10 +4518,12 @@ async def _latest_keyword_ledger(
     generation path does). Omitted, the profile is loaded from the analysis's own
     ``profile_id``.
     """
+    owner = resolve_owner(user_id, site="cv._latest_keyword_ledger")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == owner,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -4571,13 +4617,8 @@ async def _resolve_audit_target(record: GeneratedCV, db: AsyncSession) -> int:
     same way ``generate_cv`` does (ADR-051 §1)."""
     if record.target_pages is not None:
         return record.target_pages
-    from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
-
-    result = await db.execute(
-        select(UserSettings.target_cv_pages).where(UserSettings.user_id == _CE_STUB_USER_ID)
-    )
-    return resolve_target_pages(None, result.scalar_one_or_none())
+    # ADR-092: the setting of the ROW's owner.
+    return resolve_target_pages(None, await _user_target_cv_pages(db, record.user_id))
 
 
 def _vault_skill_forms_for_audit(profile_json: dict | None) -> list[str]:
@@ -4654,7 +4695,7 @@ async def _measure_and_condense(
     # Bail rule (amendment §1): never condense over an override. A section PATCH can
     # land mid-generation; the audit render applies overrides the loop must not fight.
     if record.section_overrides:
-        html = await get_cv_html(record.id, db)
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
         pdf = await _html_to_pdf(html)
         text, count = extract_text_and_pages(pdf)
         return MeasuredRender(text, count, False, target, region)
@@ -4672,7 +4713,7 @@ async def _measure_and_condense(
     # computes for its own purposes.
     pending_iteration: tuple[int, int] | None = None
     for iteration in (1, 2):
-        html = await get_cv_html(record.id, db)
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
         pdf = await _html_to_pdf(html)
         text, count = extract_text_and_pages(pdf)
         if pending_iteration is not None:
@@ -4718,7 +4759,7 @@ async def _measure_and_condense(
     else:
         # Both iterations applied without meeting the target — measure the final
         # render and report the honest state.
-        html = await get_cv_html(record.id, db)
+        html = await get_cv_html(record.id, db, user_id=record.user_id)
         pdf = await _html_to_pdf(html)
         text, count = extract_text_and_pages(pdf)
         condensation_exhausted = count > target
@@ -5262,6 +5303,8 @@ async def _update_ats_report(
     # there and any later edit would launder a document that shipped on an exhausted
     # review into one that reads as cleanly audited (the #634 class).
     previous_report = record.ats_report if isinstance(record.ats_report, dict) else None
+    # ADR-092: every per-user read of this audit is the ROW's owner's.
+    owner = record.user_id
     # Bound BEFORE the ATS try block: the truthfulness self-audit below is its
     # own independent try (an ATS engine error may never change what the
     # Oracle sees), so it cannot depend on a name that block assigns.
@@ -5284,7 +5327,7 @@ async def _update_ats_report(
             target = await _resolve_audit_target(record, db)
             region = DEFAULT_REGION
             condensation_exhausted = False
-            html = await get_cv_html(record.id, db)
+            html = await get_cv_html(record.id, db, user_id=owner)
             pdf = await _html_to_pdf(html)
             text, count = extract_text_and_pages(pdf)
 
@@ -5295,7 +5338,7 @@ async def _update_ats_report(
         )
         # ADR-048 / US203: the latest Keyword Ledger annotates each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
-        ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
+        ledger = await _latest_keyword_ledger(db, record.job_analysis_id, user_id=owner)
         # #249 run-4: the vault's own literal text backs the shared-predicate guard —
         # a keyword the Oracle would ground against the vault verbatim must never land
         # in present_unsupported, so the two panels cannot contradict each other.
@@ -5313,14 +5356,16 @@ async def _update_ats_report(
         # be forgotten (SF-PIN.5, rule-against-one-of-N). Fail-safe: a pin
         # load failure audits without pins, never fails the audit.
         audit_pins: list = []
+        # ADR-092 cl. 5(f): the user's own link carries their labels for the posting.
+        label_app = None
         try:
             from applire.services.application import get_application_for_job
-            from applire.services.color_detection import _CE_STUB_USER_ID
             from applire.services.fact_pins import load_pins
 
             pin_app = await get_application_for_job(
-                record.job_analysis_id, _CE_STUB_USER_ID, db
+                record.job_analysis_id, owner, db
             )
+            label_app = pin_app
             if pin_app is not None and pin_app.pinned_facts:
                 audit_pins = load_pins(pin_app)
         except Exception:
@@ -5348,7 +5393,7 @@ async def _update_ats_report(
             document_language=getattr(record, "document_language", None),
             vault_index=grounding_vault_index(profile_json),  # ADR-090 cl. 4
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim.
-            non_claim=non_claim_names_for_job(job),
+            non_claim=non_claim_names_for_job(job, label_app),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for CV %s — ats_report left NULL", record.id)
@@ -5413,6 +5458,9 @@ async def _update_ats_report(
         from applire.services.outcome_critic import run_pass_a
 
         job_row = await db.get(JobAnalysis, record.job_analysis_id)
+        critic_role_title = (
+            (await _posting_labels_for(record, db, owner))[0] if job_row else None
+        )
         assembled = apply_overrides_to_tailored(
             TailoredCVData.model_validate(record.tailored_data),
             record.content_snapshot,
@@ -5424,7 +5472,7 @@ async def _update_ats_report(
         _set_llm_log_stage("outcome_critic")
         critic_report = await run_pass_a(
             cv_tailored=assembled.model_dump(mode="json"),
-            job_role_title=job_row.role_title if job_row else None,
+            job_role_title=critic_role_title,
             jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
             provider=get_provider(),
         )
@@ -5489,7 +5537,9 @@ async def _update_ats_report(
         # ADR-048 / US203: same Keyword Ledger bucketing as the PDF audit —
         # recomputed here rather than reused from the ats_report block above,
         # deliberately (see the paragraph comment).
-        docx_ledger = await _latest_keyword_ledger(db, record.job_analysis_id)
+        docx_ledger = await _latest_keyword_ledger(
+            db, record.job_analysis_id, user_id=owner
+        )
         from applire.services.keyword_ledger import profile_literal_corpus
 
         docx_profile_row = await db.get(MasterProfile, record.profile_id)
@@ -5501,14 +5551,15 @@ async def _update_ats_report(
         # same fail-safe way the ats_report block loads them — a pin load
         # failure audits without pins, never fails the docx audit.
         docx_audit_pins: list = []
+        docx_label_app = None
         try:
             from applire.services.application import get_application_for_job
-            from applire.services.color_detection import _CE_STUB_USER_ID
             from applire.services.fact_pins import load_pins
 
             docx_pin_app = await get_application_for_job(
-                record.job_analysis_id, _CE_STUB_USER_ID, db
+                record.job_analysis_id, owner, db
             )
+            docx_label_app = docx_pin_app
             if docx_pin_app is not None and docx_pin_app.pinned_facts:
                 docx_audit_pins = load_pins(docx_pin_app)
         except Exception:
@@ -5528,7 +5579,7 @@ async def _update_ats_report(
             terminal_review=terminal_review,
             previous_report=previous_docx_report,
             vault_index=grounding_vault_index(docx_profile_json),  # ADR-090 cl. 4
-            non_claim=non_claim_names_for_job(docx_job),  # WP-R, same names as the PDF report
+            non_claim=non_claim_names_for_job(docx_job, docx_label_app),  # WP-R, same names as the PDF report
         ).model_dump()
     except Exception:
         logger.exception(
@@ -5546,10 +5597,16 @@ async def _update_ats_report_by_id(cv_id: uuid.UUID, *, user_id: uuid.UUID | Non
     strictly audit-only and never condenses (ADR-051 amendment §1)."""
     from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
 
-    async with document_lock("cv", cv_id), AsyncSessionLocal() as db:
-        record = await db.get(GeneratedCV, cv_id)
-        if record is not None:
-            await _update_ats_report(record, db)
+    # ADR-092 cl. 14: the task carries its user and sets the owner context itself.
+    owner = resolve_owner(user_id, site="cv._update_ats_report_by_id")
+    with ownership.owner_context(owner):
+        async with document_lock("cv", cv_id), AsyncSessionLocal() as db:
+            try:
+                record = await owned_cv(db, cv_id, owner, include_deleted=True)
+            except LookupError:
+                record = None
+            if record is not None:
+                await _update_ats_report(record, db)
 
 
 async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
@@ -5559,7 +5616,7 @@ async def get_cv_ats_report(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid
     """
     from applire.schemas.ats import ATSReport, ATSReportResponse
 
-    record = await _load_cv(cv_id, db)   # raises LookupError → 404 in the router
+    record = await _load_cv(cv_id, db, user_id=user_id)   # LookupError → 404 (missing or foreign)
     # E037 PQ #2 hardening: a non-conforming stored report must degrade to report:null,
     # never raise (which would surface as an HTTP 500 the frontend can't recover from).
     report = None
@@ -5594,7 +5651,7 @@ async def get_cv_truthfulness_report(
     """
     from applire.schemas.oracle import TruthfulnessReport, TruthfulnessReportResponse
 
-    record = await _load_cv(cv_id, db)
+    record = await _load_cv(cv_id, db, user_id=user_id)
     report = None
     if record.truthfulness_report:
         try:
@@ -5628,7 +5685,7 @@ async def get_cv_critic_report(
         OutcomeCriticReportResponse,
     )
 
-    record = await _load_cv(cv_id, db)
+    record = await _load_cv(cv_id, db, user_id=user_id)
     report = None
     if record.critic_report:
         try:
@@ -5677,18 +5734,12 @@ async def render_agent_cv(
     persisted in the same commit ("ready implies reports available").
     """
     from applire.schemas.strict import find_unknown_fields
+    from applire.services.profile import get_profile_for_user
 
-    job = await db.get(JobAnalysis, job_id)
-    if job is None:
-        raise LookupError(f"Job analysis {job_id} not found")
+    owner = resolve_owner(user_id, site="cv.render_agent_cv")
+    job = await job_for_user(db, job_id, owner)
 
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    profile = await get_profile_for_user(db, owner)
     if profile is None:
         raise LookupError("No profile found — import a CV first")
 
@@ -5709,26 +5760,20 @@ async def render_agent_cv(
         })
     })
 
-    from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
     from applire.services.cv_section_editor import build_content_snapshot
 
-    settings_result = await db.execute(
-        select(UserSettings.target_cv_pages).where(
-            UserSettings.user_id == _CE_STUB_USER_ID
-        )
-    )
-    user_setting = settings_result.scalar_one_or_none()
+    user_setting = await _user_target_cv_pages(db, owner)
 
     # E054 clause 3b: agent-door documents pin their language too — the
     # override applies to every employer-facing artifact (clause 2).
     from applire.services.application import get_application_for_job
 
-    _application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
-    job_row = await db.get(JobAnalysis, job_id)
+    _application = await get_application_for_job(job_id, owner, db)
+    job_row = job
     record = GeneratedCV(
         job_analysis_id=job_id,
         profile_id=profile.id,
+        user_id=owner,
         tailored_data=tailored.model_dump(mode="json"),
         template=template,
         status=CVGenerationStatus.ready.value,

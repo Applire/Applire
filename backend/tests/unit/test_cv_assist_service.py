@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.support.owners import HARNESS_USER_ID
+
 _CV_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 _SECTION_ID = "introduction"
 _GAP_ID = "Python"
@@ -94,14 +96,17 @@ async def test_submit_assist_answer_returns_suggestion(mock_db, mock_provider):
         "section_label": "Introduction",
         "section_content": "Erfahrener Entwickler",
         "question": "Wie lange?",
+        "user_id": str(HARNESS_USER_ID),  # ADR-092: the session carries its owner
     }
     mock_provider.acomplete = AsyncMock(
         return_value="Erfahrener Python-Entwickler mit 5 Jahren Erfahrung."
     )
 
-    result = await submit_assist_answer(
-        _CV_ID, _SECTION_ID, session_id, "5 Jahre", mock_provider, mock_db
-    )
+    # ADR-092: the CV is looked up owner-keyed first; the (mock) row is owned.
+    with patch("applire.services.cv_assist.owned_cv", new_callable=AsyncMock):
+        result = await submit_assist_answer(
+            _CV_ID, _SECTION_ID, session_id, "5 Jahre", mock_provider, mock_db
+        )
 
     assert "Python" in result.suggestion
     _sessions.clear()
@@ -112,7 +117,8 @@ async def test_submit_assist_answer_raises_on_invalid_session(mock_db, mock_prov
     from applire.services.cv_assist import _sessions, submit_assist_answer
     _sessions.clear()
 
-    with pytest.raises(ValueError, match="session_id"):
+    with patch("applire.services.cv_assist.owned_cv", new_callable=AsyncMock), \
+            pytest.raises(ValueError, match="session_id"):
         await submit_assist_answer(
             _CV_ID, _SECTION_ID, "nonexistent-id", "answer", mock_provider, mock_db
         )

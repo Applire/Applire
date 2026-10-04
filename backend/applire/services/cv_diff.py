@@ -45,7 +45,6 @@ Reads only the two persisted artifacts — never the source upload
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.models.cv import GeneratedCV
 from applire.models.profile import MasterProfile
 from applire.schemas.cv import CVProfileDiffResponse
 from applire.schemas.profile import FieldChange
@@ -91,9 +90,15 @@ async def get_cv_profile_diff(cv_id, db: AsyncSession, *, user_id: uuid.UUID | N
     Reads only the persisted `tailored_data` and `profile_json` — never the source
     upload (retention-safe, ADR-005). Raises ValueError if the CV is unknown.
     """
-    cv = await db.get(GeneratedCV, cv_id)
-    if cv is None:
-        raise ValueError("CV not found")
+    from applire.services.cv_owner import owned_cv, resolve_owner
+
+    owner = resolve_owner(user_id, site="cv_diff.get_cv_profile_diff")
+    # ADR-092 cl. 6: a foreign id reads exactly like a missing one (S-10). The
+    # pre-Strawberry read did not filter soft-deleted rows; kept as it was.
+    try:
+        cv = await owned_cv(db, cv_id, owner, include_deleted=True)
+    except LookupError:
+        raise ValueError("CV not found") from None
     profile = await db.get(MasterProfile, cv.profile_id)
     if profile is None:
         return CVProfileDiffResponse(items=[], grounded=True)

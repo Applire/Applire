@@ -668,8 +668,15 @@ async def record_turn_outcome(
     member_facts: dict[str, MemberFact],
     session_id: str,
     charge: bool = True,
+    user_id: uuid.UUID | None = None,
 ) -> dict[str, Any] | None:
     """Persist one answered turn's outcome (ADR-089 clause 3).
+
+    ADR-092 (Strawberry W2, 3c catch-all): the posting is shared, the gap
+    analyses are per user — the target is the OWNER's row only (explicit
+    ``user_id``, else the user owner context, ruling 3d-1). Another user's
+    analysis of the same posting carries the same cluster ids and must never
+    receive this turn.
 
     Target row: the job's latest non-deleted ``GapAnalysis`` whose
     ``gap_clusters`` carries ``cluster_id``; else the row
@@ -682,11 +689,14 @@ async def record_turn_outcome(
     The coverage is derived against the TARGET row's own ledger.
     """
     from applire.models.gap import GapAnalysis  # local: models import nothing from here
+    from applire.services.owner_resolution import resolve_user_id
 
+    owner = resolve_user_id(user_id, "gap_coverage.record_turn_outcome")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == owner,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(desc(GapAnalysis.created_at))
@@ -700,6 +710,7 @@ async def record_turn_outcome(
         fallback = await db.get(GapAnalysis, fallback_gap_analysis_id)
         if (
             fallback is not None
+            and fallback.user_id == owner
             and fallback.deleted_at is None
             and cluster_by_id(fallback.gap_clusters, cluster_id) is not None
         ):

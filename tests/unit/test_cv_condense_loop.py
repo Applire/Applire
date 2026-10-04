@@ -333,7 +333,7 @@ async def test_second_render_sees_condensed_tailored_data(db):
     cv = await _seed_cv(db, n_bullets=5, target_pages=2)
     from applire.services.cv import CondenseContext
 
-    async def echo_html(cv_id, session):
+    async def echo_html(cv_id, session, **kwargs):
         n = len(cv.tailored_data["work_history"][0]["bullets"])
         return f"<html>{n}</html>"
 

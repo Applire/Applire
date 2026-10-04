@@ -93,7 +93,7 @@ async def test_render_cv_background_threads_a_real_budget_into_the_fallback_call
     }[id_]
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_gap
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
     captured: dict = {}
 
@@ -152,7 +152,7 @@ async def test_render_cv_background_falls_back_to_region_standard_when_target_pa
     }[id_]
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None  # no GapAnalysis row
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
     captured: dict = {}
 
@@ -223,7 +223,7 @@ async def test_render_cv_background_threads_the_real_budget_into_the_tailoring_c
     }[id_]
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_gap
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
     coverage_budgets_seen: list = []
 
@@ -309,3 +309,29 @@ async def test_review_cv_language_threads_the_budget_into_its_own_coverage_gate(
     assert len(seen) == 1
     assert isinstance(seen[0], CoverageBudget)
     assert seen[0].capacity == 6
+
+
+def _execute_by_entity(mock_cv, default_result, job_id):
+    """ADR-092: the background render loads the CV via an owner-keyed SELECT
+    (not ``db.get``), so route ``execute`` by the selected entity. The CV row
+    is owned by the harness user, the acting owner."""
+    from applire.models.application import Application
+    from applire.models.cv import GeneratedCV
+    from tests.support.owners import HARNESS_USER_ID
+
+    mock_cv.user_id = HARNESS_USER_ID
+    mock_cv.job_analysis_id = job_id
+
+    def _execute(stmt, *args, **kwargs):
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is GeneratedCV:
+            row = mock_cv
+        elif entity is Application:
+            row = None
+        else:
+            return default_result
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = row
+        return result
+
+    return _execute
