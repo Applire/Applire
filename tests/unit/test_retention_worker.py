@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS flow_sessions (
     job_id TEXT NOT NULL,
     current_step TEXT NOT NULL DEFAULT 'jd_analysis',
     application_id TEXT,
+    interview_session_id TEXT,
     generated_cv_id TEXT,
     generated_cover_letter_id TEXT,
     created_at TEXT NOT NULL,
