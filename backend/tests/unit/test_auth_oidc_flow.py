@@ -358,7 +358,7 @@ async def test_reauth_then_account_delete_consumes_the_grant_once(env):
 @pytest.mark.parametrize(
     "claims",
     [{"auth_time": None},                                  # IdP sent no auth_time → fail closed
-     {"auth_time": int(time.time()) - 120},                # a login before the grant started
+     {"auth_time": 1_000_000_000},                         # a login long before the grant started
      {"auth_time": "9999999999"},                          # not an integer
      {"sub": "someone-else"}],                             # not the account's own identity
 )

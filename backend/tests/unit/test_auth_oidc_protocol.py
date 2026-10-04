@@ -141,8 +141,14 @@ async def test_authorize_url_carries_pkce_s256_nonce_and_reauth_prompt(fake):
 
 # --- ID-token claims -----------------------------------------------------------------
 
+class REL(int):
+    """A time offset resolved when the test RUNS (parametrize values are built at
+    collection time — a full-suite run starts this test minutes later)."""
+
+
 def _claims(**over):
     now = int(time.time())
+    over = {k: (now + int(v) if isinstance(v, REL) else v) for k, v in over.items()}
     body = {"iss": ISSUER, "aud": CLIENT_ID, "sub": "s", "iat": now, "exp": now + 300, "nonce": "N"}
     for k, v in over.items():
         if v is None:
@@ -163,9 +169,9 @@ def _claims(**over):
         {"aud": [CLIENT_ID, "other"], "azp": "other"},
         {"azp": "other"},
         {"aud": None},
-        {"exp": int(time.time()) - 400},
-        {"iat": int(time.time()) - 400},
-        {"iat": int(time.time()) + 400},
+        {"exp": REL(-400)},
+        {"iat": REL(-400)},
+        {"iat": REL(+400)},
         {"exp": True},
         {"nonce": "wrong"},
         {"nonce": None},
