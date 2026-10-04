@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.exceptions import LLMTruncatedError
 from applire.models.gap import GapAnalysis
-from applire.models.job import JobAnalysis
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.claims import (
     ClaimResult,
@@ -83,11 +82,14 @@ def _derive_status(
 
 
 async def _latest_gap_analysis(
-    job_id: uuid.UUID, db: AsyncSession
+    job_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID
 ) -> GapAnalysis | None:
+    """The OWNER's newest live gap analysis for a posting (ADR-092 cl. 3, S-17:
+    the posting is shared — another user's ledger must never gate these claims)."""
     result = await db.execute(
         select(GapAnalysis)
         .where(
+            GapAnalysis.user_id == user_id,
             GapAnalysis.job_analysis_id == job_id,
             GapAnalysis.deleted_at.is_(None),
         )
@@ -98,7 +100,10 @@ async def _latest_gap_analysis(
 
 
 async def _validate_gap_claims(
-    submission: ClaimsSubmission, job_id: uuid.UUID | None, db: AsyncSession
+    submission: ClaimsSubmission,
+    job_id: uuid.UUID | None,
+    db: AsyncSession,
+    user_id: uuid.UUID,
 ) -> GapAnalysis | None:
     """Up-front, before ANY LLM spend: every `gap` must be an exact (normalized
     EQUALITY, never substring — the "Go"/"R"/"AI" over-flip trap) member of the
@@ -112,7 +117,7 @@ async def _validate_gap_claims(
             "claims with `gap` set require job_id (the gap must be an exact "
             "concept from that job's keyword ledger — see analyze_gaps)"
         )
-    gap_row = await _latest_gap_analysis(job_id, db)
+    gap_row = await _latest_gap_analysis(job_id, db, user_id)
     members = {
         _norm(e.get("concept", ""))
         for e in (gap_row.keyword_ledger if gap_row else None) or []
@@ -149,22 +154,27 @@ async def submit_agent_claims(
     own claim.
     """
     # Lazy imports: applire.services.profile imports this package's siblings.
-    from applire.services.profile import _get_latest
+    from applire.ownership import OwnedNotFound
+    from applire.services.job import get_job_for_user
+    from applire.services.owner_resolution import resolve_user_id
+    from applire.services.profile import get_profile_for_user
     from applire.services.session import get_ui_language
 
-    record = await _get_latest(db)
+    uid = resolve_user_id(user_id, "agent_bridge.submit_agent_claims")
+    record = await get_profile_for_user(db, uid)
     if record is None:
         raise LookupError("No profile found — import a CV or create a profile first")
     if job_id is not None:
-        job = (
-            await db.execute(select(JobAnalysis).where(JobAnalysis.id == job_id))
-        ).scalar_one_or_none()
-        if job is None:
-            raise LookupError(f"Job {job_id} not found")
+        # ADR-092 cl. 5c: only a posting the caller is linked to (S-10: a foreign
+        # id is the same "not found" as a missing one).
+        try:
+            await get_job_for_user(db, job_id, uid)
+        except OwnedNotFound:
+            raise LookupError(f"Job {job_id} not found") from None
 
-    gap_row = await _validate_gap_claims(submission, job_id, db)
+    gap_row = await _validate_gap_claims(submission, job_id, db, uid)
 
-    lang = await get_ui_language(db)
+    lang = await get_ui_language(db, user_id=uid)
     submission_id = str(uuid.uuid4())
     current = MasterProfileData.model_validate(record.profile_json)
     if current.metadata is None:

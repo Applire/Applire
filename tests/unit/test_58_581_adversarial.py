@@ -192,7 +192,7 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     from applire.models.cv import GeneratedCV
     from applire.models.job import JobAnalysis
 
-    await _seed_user(db)
+    uid = await _seed_user(db)
     job = JobAnalysis(
         id=uuid.uuid4(), raw_text_hash=f"h-{uuid.uuid4()}", raw_text="JD",
         role_title="Software Engineer", seniority_level="mid",
@@ -201,13 +201,20 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     profile = make_master_profile(profile_json=_profile_json())
     db.add_all([job, profile])
     await db.flush()
+    # ADR-092 cl. 5c: the door's user reaches the posting through their link.
+    from tests.support.posting_links import link_posting
+
+    await link_posting(db, job, uid)
     cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={})
     db.add(cv)
     await db.commit()
     await db.refresh(cv)
 
+    from applire.ownership import owner_context
+
     p_db, p_prov = _patched(db)
-    with p_db, p_prov:
+    # ADR-092 cl. 10: the MCP identity acts for its user (package 4b sets this per call).
+    with p_db, p_prov, owner_context(uid):
         flow = await start_flow(job_id=str(job.id))
         flow_id = flow["flow_id"]
         with pytest.raises(McpError) as exc:

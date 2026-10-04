@@ -181,6 +181,11 @@ async def test_non_member_gap_rejects_whole_call_naming_value(seeded):
     )
     seeded.add(job)
     await seeded.flush()
+    # ADR-092 cl. 5c: the harness owner (the door's user here) is linked to the posting.
+    from tests.support.owners import HARNESS_USER_ID
+    from tests.support.posting_links import link_posting
+
+    await link_posting(seeded, job, HARNESS_USER_ID)
     seeded.add(
         GapAnalysis(
             job_analysis_id=job.id,

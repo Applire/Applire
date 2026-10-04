@@ -330,6 +330,10 @@ def _mock_httpx_client(html: str):
     response.raise_for_status = MagicMock()
     client = AsyncMock()
     client.get = AsyncMock(return_value=response)
+    # Strawberry RD-7: tier 1 goes through safe_fetch.safe_get (client.send).
+    client.send = client.get
+    response.status_code = 200
+    response.headers = {}
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
     return client
@@ -371,3 +375,12 @@ def test_tier2_waits_for_the_same_containers_tier1_extracts_from():
     assert "_TIER2_WAIT_SELECTOR" in source
     for hint in ("description__text", "show-more-less-html__markup", "main"):
         assert hint in scraper_module._TIER2_WAIT_SELECTOR
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_resolver(monkeypatch):
+    """No DNS in unit tests: every host resolves to one public address (RD-7)."""
+    async def _public(host, port):  # noqa: ANN001
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("applire.services.safe_fetch._resolve", _public)

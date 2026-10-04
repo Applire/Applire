@@ -69,6 +69,11 @@ def _mock_httpx_client(html: str):
 
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
+    # Strawberry RD-7: tier 1 goes through services.safe_fetch.safe_get, which
+    # builds a pinned request and calls client.send.
+    mock_client.send = mock_client.get
+    mock_response.status_code = 200
+    mock_response.headers = {}
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
     return mock_client
@@ -398,3 +403,14 @@ async def test_scrape_rejects_ftp_scheme():
 
     with pytest.raises(ValueError):
         await scrape_job_url("ftp://jobs.example.com/job.txt")
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_resolver(monkeypatch):
+    """No DNS in unit tests: every host resolves to one public address (RD-7's
+    safe fetcher resolves before it connects; tests/unit/test_safe_fetch.py
+    covers the refusal side)."""
+    async def _public(host, port):  # noqa: ANN001
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr("applire.services.safe_fetch._resolve", _public)

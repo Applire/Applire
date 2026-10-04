@@ -513,7 +513,10 @@ async def test_resolve_gap_inherits_completion_recompute(db):
         select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
     )).scalar_one()
 
-    user_id = uuid.uuid4()
+    # ADR-092: the flow owner is the owner of the gap rows (harness user).
+    from tests.support.owners import HARNESS_USER_ID
+
+    user_id = HARNESS_USER_ID
     db.add(User(id=user_id, email="local@applire.community"))
     flow = FlowSession(
         user_id=user_id, job_id=job_id, current_step="interview",

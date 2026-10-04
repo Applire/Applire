@@ -35,6 +35,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.schemas.application import (
     CreateApplicationRequest,
     PatchApplicationRequest,
@@ -134,6 +135,7 @@ async def app_with_cv(db):
     job = _make_job()
     cv = _make_cv(job.id)
     db.add_all([user, job, cv])
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
 
     app = await create_application(

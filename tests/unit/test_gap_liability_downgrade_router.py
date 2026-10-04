@@ -27,7 +27,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-TEST_USER_ID = uuid.uuid4()
+# ADR-092: rows are owner-keyed to the ambient (harness) owner; the caller is that user.
+from tests.support.owners import HARNESS_USER_ID  # noqa: E402
+from tests.support.posting_links import link_posting  # noqa: E402
+
+TEST_USER_ID = HARNESS_USER_ID
 
 
 @pytest_asyncio.fixture
@@ -70,6 +74,8 @@ async def db_session():
         )
         profile = make_master_profile(id=uuid.uuid4(), profile_json={"skills": [{"name": "RAG"}]})
         session.add_all([job, profile])
+        await session.flush()
+        await link_posting(session, job, TEST_USER_ID)  # ADR-092: the caller's link
         await session.commit()
 
         gap_analysis = GapAnalysis(

@@ -28,6 +28,7 @@ Alembic 0069 falls back to the whole-profile fingerprint.
 
 import copy
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
@@ -48,9 +49,14 @@ from applire.services.gap import (
     analyze_gaps,
     gap_relevant_profile,
 )
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile
 
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
+# ADR-092: vault / gap rows are owner-keyed to the ambient (harness) owner.
+_STUB_USER_ID = HARNESS_USER_ID
+
+_CALLER = SimpleNamespace(id=_STUB_USER_ID)  # the router only reads .id
 
 
 def _profile_json() -> dict:
@@ -247,6 +253,8 @@ async def seeded(db):
     job = _job()
     profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json())
     db.add_all([user, job, profile])
+    await db.flush()
+    await link_posting(db, job, user.id)  # ADR-092: the reader's link to the posting
     await db.commit()
     return job, profile
 
@@ -292,7 +300,7 @@ async def test_the_read_route_says_stale_and_never_re_runs(db, seeded):
     first = await analyze_gaps(job.id, db, MockLLMProvider())
     await db.commit()
 
-    fresh = await get_latest_gap_analysis(job_id=job.id, db=db, _auth=None)
+    fresh = await get_latest_gap_analysis(job_id=job.id, db=db, current_user=_CALLER)
     assert fresh.id == first.id
     assert fresh.inputs_changed is False
 
@@ -300,13 +308,13 @@ async def test_the_read_route_says_stale_and_never_re_runs(db, seeded):
     with authorized_profile_write():
         profile.profile_json = _with(profile.profile_json, NOISE["email"])
     await db.commit()
-    contact = await get_latest_gap_analysis(job_id=job.id, db=db, _auth=None)
+    contact = await get_latest_gap_analysis(job_id=job.id, db=db, current_user=_CALLER)
     assert contact.inputs_changed is False, "a contact edit is not a reason to re-check"
 
     with authorized_profile_write():
         profile.profile_json = _with(profile.profile_json, RELEVANT["skill"])
     await db.commit()
-    stale = await get_latest_gap_analysis(job_id=job.id, db=db, _auth=None)
+    stale = await get_latest_gap_analysis(job_id=job.id, db=db, current_user=_CALLER)
     assert stale.id == first.id
     assert stale.inputs_changed is True
     assert await _row_count(db, job.id) == 1, "the read never re-ran the analysis"

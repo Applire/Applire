@@ -38,8 +38,9 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-import httpx
 from bs4 import BeautifulSoup
+
+from applire.services.safe_fetch import UnsafeFetchRefused, resolve_checked, safe_get
 
 _MIN_TEXT_LENGTH = 200
 
@@ -285,28 +286,79 @@ def _extract_text(html: str) -> str | None:
     return None
 
 
+_USER_AGENT = "Mozilla/5.0 (compatible; Applire/1.0)"
+
+# SSRF (RD-7, ADR-092 cl. 15): the reason a refused URL is reported with. The
+# code stays `jd_fetch_failed`, so the UI shows its existing "paste it instead"
+# path — no new screen, and the message names no internal detail.
+_REFUSED_REASON = (
+    "This address cannot be fetched by Applire. "
+    "Please paste the job description manually."
+)
+
+# Tier 2 never needs these to read a posting's text — not fetched at all.
+_TIER2_SKIPPED_RESOURCES = frozenset({"image", "media", "font"})
+
+# Response headers that describe the ORIGINAL bytes; httpx hands back decoded
+# content, so passing them through to Chromium would corrupt the body.
+_HOP_HEADERS = frozenset({"content-encoding", "content-length", "transfer-encoding", "connection"})
+
+
 async def _fetch_tier1(url: str) -> str | None:
-    """Fetch *url* with httpx and extract text. Returns None on failure or thin content."""
+    """Fetch *url* through the safe fetcher and extract text.
+
+    Returns None on failure or thin content; re-raises ``UnsafeFetchRefused`` —
+    a refused address must END the scrape, never fall through to tier 2.
+    """
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=15.0,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; Applire/1.0)"},
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+        response = await safe_get(url, timeout=15.0, headers={"User-Agent": _USER_AGENT})
+        response.raise_for_status()
         return _extract_text(response.text)
+    except UnsafeFetchRefused:
+        raise
     except Exception:
         return None
 
 
+async def _tier2_route(route) -> None:  # noqa: ANN001 — playwright Route
+    """Chromium's every request goes through the safe fetcher (RD-7, tier 2).
+
+    GET requests are fetched by ``safe_get`` (resolved, checked, pinned, every
+    redirect re-checked) and FULFILLED from its response — Chromium never
+    resolves or connects to anything itself, so a DNS-rebinding answer cannot
+    reach it. Other methods are aborted: a posting's text never needs a POST,
+    and an aborted XHR leaves the server-rendered text in place. Images, media
+    and fonts are aborted unfetched.
+    """
+    request = route.request
+    if request.resource_type in _TIER2_SKIPPED_RESOURCES or request.method != "GET":
+        await route.abort()
+        return
+    try:
+        response = await safe_get(
+            request.url, timeout=15.0, headers={"User-Agent": _USER_AGENT}
+        )
+    except Exception:  # noqa: BLE001 — refused, unreachable, timed out: never let it through
+        await route.abort()
+        return
+    headers = {k: v for k, v in response.headers.items() if k.lower() not in _HOP_HEADERS}
+    await route.fulfill(status=response.status_code, headers=headers, body=response.content)
+
+
 async def _fetch_tier2(url: str) -> str | None:
-    """Render *url* with Playwright Chromium and extract text."""
+    """Render *url* with Playwright Chromium and extract text.
+
+    The URL is checked before Chromium starts; every request the page makes is
+    routed through :func:`_tier2_route` (the safe fetcher).
+    """
     from playwright.async_api import async_playwright
+
+    await resolve_checked(url)  # raises UnsafeFetchRefused before any browser work
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
         page = await browser.new_page()
+        await page.route("**/*", _tier2_route)
         await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         try:
             await page.wait_for_selector(
@@ -332,19 +384,22 @@ async def scrape_job_url(url: str) -> str:
 
     Raises:
         ValueError: if *url* is not a valid http(s) URL.
-        ScraperError: if all tiers fail to extract usable text.
+        ScraperError: if all tiers fail to extract usable text, or the URL (or
+            a redirect hop) resolves to a refused address (RD-7, SF-SCRAPER.2).
     """
     _validate_url(url)
 
-    if not _requires_js(url):
-        text = await _fetch_tier1(url)
-        if text:
-            return text
-
     try:
+        if not _requires_js(url):
+            text = await _fetch_tier1(url)
+            if text:
+                return text
         text = await _fetch_tier2(url)
         if text:
             return text
+    except UnsafeFetchRefused as exc:
+        # RD-7: an internal / refused address ends here, on both tiers.
+        raise ScraperError(url, _REFUSED_REASON) from exc
     except ScraperError:
         raise
     except Exception as exc:

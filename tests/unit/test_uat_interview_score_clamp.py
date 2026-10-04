@@ -43,9 +43,13 @@ from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
 from applire.services.gap_coverage import AnswerScope
 
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile, set_profile_json
 
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000077")
+# ADR-092: flow / vault / gap rows are owner-keyed; the owner is the harness user
+# (the ambient owner context), so the seeded flow is reachable by (user, job).
+_STUB_USER_ID = HARNESS_USER_ID
 
 _DENIAL = {
     "concept": "Docker",
@@ -149,6 +153,8 @@ async def _seed(db):
     )
     profile = make_master_profile(id=uuid.uuid4(), profile_json=_profile_json())
     db.add_all([user, job, profile])
+    await db.flush()
+    await link_posting(db, job, user.id)  # ADR-092: the user's link to the posting
     await db.commit()
     return user, job, profile
 
@@ -184,7 +190,7 @@ async def test_seam_gaps_refresh_router_publishes_the_denial_lowered_score(db):
 
     # The real router function, called the way FastAPI calls it (explicit
     # arguments — a Depends default leaks into a direct call otherwise).
-    after = await refresh_gap_analysis(job.id, db=db, provider=provider, _auth=None)
+    after = await refresh_gap_analysis(job.id, db=db, provider=provider, current_user=user)
 
     assert after.match_score == pytest.approx(0.5), (
         "/gaps/refresh must publish the denial-lowered score (a fresh denial "

@@ -37,6 +37,8 @@ from applire.schemas.claims import ClaimItem, ClaimsSubmission
 from applire.schemas.profile import MasterProfileData
 from applire.services.keyword_ledger import DENIED_EVIDENCE
 from applire.services.profile.reconcile.agent_bridge import submit_agent_claims
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile, set_profile_json
 
 
@@ -96,6 +98,7 @@ async def _seed_job_with_ledger(db, concepts: list[str]) -> uuid.UUID:
     )
     db.add(job)
     await db.flush()
+    await link_posting(db, job, HARNESS_USER_ID)  # ADR-092: the claims door needs the link
     gap = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=(

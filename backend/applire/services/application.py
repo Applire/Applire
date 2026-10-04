@@ -47,7 +47,6 @@ from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
-from applire.models.profile import MasterProfile
 from applire.schemas.application import (
     ApplicationListResponse,
     ApplicationResponse,
@@ -64,6 +63,7 @@ from applire.schemas.profile import MasterProfileData
 # The orchestrator imports sync_workflow_status lazily (inside advance_flow body)
 # to avoid a circular import at module level.
 from applire.services.flow.orchestrator import _compute_actions, _resolve_user_type
+from applire.services.owner_resolution import resolve_user_id as _resolve_user_id
 
 
 class ConflictError(Exception):
@@ -115,9 +115,17 @@ async def create_application(
     soft-deleted. This makes the natural retry after a failed build resume
     cleanly instead of dead-ending the user.
     """
-    job = await db.get(JobAnalysis, request.job_analysis_id)
-    if job is None:
-        raise LookupError(f"JobAnalysis {request.job_analysis_id} not found")
+    # ADR-092 cl. 5c (S-17, RD-2): the shared posting is reachable only through
+    # the caller's own link, which analyze creates — a posting id the caller never
+    # analysed answers like a missing one (S-10), so an id learnt elsewhere cannot
+    # attach someone else's pasted posting to this pipeline.
+    from applire.ownership import OwnedNotFound
+    from applire.services.job import get_job_for_user
+
+    try:
+        job = await get_job_for_user(db, request.job_analysis_id, user_id)
+    except OwnedNotFound:
+        raise LookupError(f"JobAnalysis {request.job_analysis_id} not found") from None
 
     # Idempotent reuse: an Application for this (user, job) may already exist —
     # including a soft-deleted one, which still occupies the unique slot.
@@ -137,6 +145,14 @@ async def create_application(
             # "continue" path) — restore, or the application would silently
             # vanish when the cancelled grace window ends (US222).
             app.user_status = UserStatus.tracking.value
+        # Strawberry RD-2: analyze already created this row (the caller's link to
+        # the shared posting), so "create" is now the NORMAL path onto an existing
+        # row — the values the caller sends here (the pasted posting's source URL,
+        # a corrected title) must land, not be dropped as on a mere retry.
+        for field in ("company_name", "role_title", "notes", "deadline", "source_url"):
+            value = getattr(request, field)
+            if value is not None and (not isinstance(value, str) or value.strip()):
+                setattr(app, field, value)
         _touch(app)
     else:
         app = Application(
@@ -196,7 +212,9 @@ async def list_applications(
     flow_ids = [app.flow_session_id for app in apps if app.flow_session_id is not None]
     if flow_ids:
         flow_result = await db.execute(
-            select(FlowSession).where(FlowSession.id.in_(flow_ids))
+            select(FlowSession).where(
+                FlowSession.id.in_(flow_ids), FlowSession.user_id == user_id
+            )
         )
         flow_map: dict[uuid.UUID, FlowSession] = {
             f.id: f for f in flow_result.scalars().all()
@@ -212,8 +230,8 @@ async def list_applications(
             if flow is not None:
                 data.flow_current_step = flow.current_step
         items.append(data)
-    await _enrich_submitted_cv_meta(items, db)
-    await _enrich_stale_cv(items, db)
+    await _enrich_submitted_cv_meta(items, db, user_id)
+    await _enrich_stale_cv(items, db, user_id)
     return ApplicationListResponse(items=items, total=len(items))
 
 
@@ -224,10 +242,10 @@ async def get_application(
     data = ApplicationResponse.model_validate(app)
     if app.flow_session_id is not None:
         flow = await db.get(FlowSession, app.flow_session_id)
-        if flow is not None:
+        if flow is not None and flow.user_id == user_id:
             data.flow_current_step = flow.current_step
-    await _enrich_submitted_cv_meta([data], db)
-    await _enrich_stale_cv([data], db)
+    await _enrich_submitted_cv_meta([data], db, user_id)
+    await _enrich_stale_cv([data], db, user_id)
     return data
 
 
@@ -301,8 +319,8 @@ async def patch_application(
     await db.commit()
     await db.refresh(app)
     data = ApplicationResponse.model_validate(app)
-    await _enrich_submitted_cv_meta([data], db)
-    await _enrich_stale_cv([data], db)
+    await _enrich_submitted_cv_meta([data], db, user_id)
+    await _enrich_stale_cv([data], db, user_id)
     return data
 
 
@@ -316,7 +334,7 @@ async def delete_application(
 
     if app.flow_session_id is not None:
         flow = await db.get(FlowSession, app.flow_session_id)
-        if flow is not None:
+        if flow is not None and flow.user_id == user_id:
             flow.deleted_at = now
 
     await db.commit()
@@ -362,13 +380,19 @@ async def sync_workflow_status(
     """Called by advance_flow() after a successful step transition.
 
     Maps the FlowSession step to a WorkflowStatus and updates the Application.
-    The caller (orchestrator) is responsible for the db.commit().
+    The caller (orchestrator) is responsible for the db.commit(). Keyed on the
+    owner too (ADR-092 cl. 6; ``None`` → the user owner context, ruling 3d-1).
     """
+    uid = _resolve_user_id(user_id, "application.sync_workflow_status")
     new_ws = STEP_TO_WORKFLOW_STATUS.get(new_step, WorkflowStatus.analyzing)
     now = datetime.now(timezone.utc)
     await db.execute(
         update(Application)
-        .where(Application.id == application_id, Application.deleted_at.is_(None))
+        .where(
+            Application.id == application_id,
+            Application.user_id == uid,
+            Application.deleted_at.is_(None),
+        )
         .values(
             workflow_status=new_ws.value,
             updated_at=now,
@@ -521,7 +545,9 @@ async def _validate_pin(
     """A submitted pin must reference an existing, non-deleted artifact generated
     for the application's job (E039/US219)."""
     artifact = await db.get(model, artifact_id)
-    if artifact is None or artifact.deleted_at is not None:
+    # ADR-092 cl. 6: another user's document is "not an existing document" —
+    # the same answer as a missing id (S-10), never a pin across owners.
+    if artifact is None or artifact.deleted_at is not None or artifact.user_id != app.user_id:
         raise ValueError(f"{field} does not reference an existing generated document.")
     if artifact.job_analysis_id != app.job_analysis_id:
         raise ValueError(
@@ -530,7 +556,7 @@ async def _validate_pin(
 
 
 async def _enrich_submitted_cv_meta(
-    items: list[ApplicationResponse], db: AsyncSession
+    items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
 ) -> None:
     """Fill submitted_cv_created_at for pinned items (E039/US219 read model).
 
@@ -543,7 +569,7 @@ async def _enrich_submitted_cv_meta(
         return
     result = await db.execute(
         select(GeneratedCV.id, GeneratedCV.created_at).where(
-            GeneratedCV.id.in_(pinned_ids)
+            GeneratedCV.id.in_(pinned_ids), GeneratedCV.user_id == user_id
         )
     )
     created_map = {row.id: row.created_at for row in result}
@@ -579,7 +605,9 @@ def _parse_trail_timestamp(value) -> datetime | None:
     return None
 
 
-async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -> None:
+async def _enrich_stale_cv(
+    items: list[ApplicationResponse], db: AsyncSession, user_id: uuid.UUID
+) -> None:
     """Fill the stale_cv read model (E039/US221, journey Branch H).
 
     An application is stale when its newest READY generated CV predates the
@@ -595,13 +623,11 @@ async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -
     if not candidates:
         return
 
-    profile_result = await db.execute(
-        select(MasterProfile.profile_json)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile_json = profile_result.scalar_one_or_none()
+    # ADR-092 cl. 2: the OWNER's vault (F6 read path), not "the newest live row".
+    from applire.services.profile import get_profile_for_user  # lazy: import cycle
+
+    profile_row = await get_profile_for_user(db, user_id)
+    profile_json = profile_row.profile_json if profile_row is not None else None
     if not profile_json:
         return
     trail = (profile_json.get("metadata") or {}).get("enrichment_history") or []
@@ -624,6 +650,8 @@ async def _enrich_stale_cv(items: list[ApplicationResponse], db: AsyncSession) -
             GeneratedCV.target_pages,
         )
         .where(
+            # The posting is shared (S-17): only the CALLER's CVs for it count.
+            GeneratedCV.user_id == user_id,
             GeneratedCV.job_analysis_id.in_(job_ids),
             GeneratedCV.status == "ready",
             GeneratedCV.deleted_at.is_(None),
@@ -716,7 +744,7 @@ async def _start_workflow(
         existing.updated_at = datetime.now(timezone.utc)
         flow = existing
     else:
-        user_type = await _resolve_user_type(db)
+        user_type = await _resolve_user_type(db, user_id)
         available_actions = _compute_actions("jd_analysis", user_type)
         flow = FlowSession(
             user_id=user_id,

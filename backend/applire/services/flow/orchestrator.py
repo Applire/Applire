@@ -59,6 +59,7 @@ from applire.schemas.flow import (
     JobAnalysisSummary,
 )
 from applire.schemas.profile import MasterProfileData
+from applire.services.owner_resolution import resolve_user_id
 
 # ---------------------------------------------------------------------------
 # Step graph
@@ -193,7 +194,7 @@ class ArtifactNotFoundError(Exception):
 
 
 async def _check_artifact_exists(
-    step: str, artifact_id: uuid.UUID, db: AsyncSession
+    step: str, artifact_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID
 ) -> None:
     """Look the artifact_id up in its step's model before it is written to the FK.
 
@@ -210,10 +211,19 @@ async def _check_artifact_exists(
     like a live one — same class of silent wrong-referent write #676 line 1
     already closed for an id from another table. A ``SELECT … WHERE id = :id
     AND deleted_at IS NULL`` on the same session keeps the no-TOCTOU property.
+
+    Strawberry (ADR-092 cl. 6, S-10): the artifact must also be the flow
+    owner's — another user's CV/gap/interview id answers exactly like a missing
+    one, so it can never be recorded into this flow and read back through
+    ``_build_state_response``.
     """
     model = _ARTIFACT_MODEL[step]
     row = await db.scalar(
-        select(model).where(model.id == artifact_id, model.deleted_at.is_(None))
+        select(model).where(
+            model.id == artifact_id,
+            model.user_id == user_id,
+            model.deleted_at.is_(None),
+        )
     )
     if row is None:
         raise ArtifactNotFoundError(step=step, artifact_id=artifact_id)
@@ -236,10 +246,19 @@ async def create_flow(
     Idempotent when job_id is provided: returns the existing flow for (user_id, job_id).
     """
     job = None
+    job_summary = None
     if request.job_id is not None:
-        job = await db.get(JobAnalysis, request.job_id)
-        if job is None:
-            raise LookupError(f"Job {request.job_id} not found")
+        # ADR-092 cl. 5c: the shared posting is reachable only through the
+        # caller's link (their application row) — 404 otherwise.
+        from applire.ownership import OwnedNotFound
+        from applire.services.job import get_job_for_user
+
+        try:
+            job = await get_job_for_user(db, request.job_id, user_id)
+        except OwnedNotFound:
+            # Same error both doors already map to 404 / not_found (S-10).
+            raise LookupError(f"Job {request.job_id} not found") from None
+        job_summary = await _job_summary(job, user_id, db)
 
         existing = await _get_existing_flow(user_id, request.job_id, db)
         if existing is not None:
@@ -248,12 +267,12 @@ async def create_flow(
                 user_type=existing.user_type,
                 current_step=existing.current_step,
                 available_actions=existing.available_actions,
-                job_summary=JobAnalysisSummary(job_id=job.id, role_title=job.role_title),
+                job_summary=job_summary,
             )
 
-    user_type = await _resolve_user_type(db)
+    user_type = await _resolve_user_type(db, user_id)
     available_actions = _compute_actions(
-        "jd_analysis", user_type, await _has_open_gate(db)
+        "jd_analysis", user_type, await _has_open_gate(db, user_id)
     )
 
     flow = FlowSession(
@@ -277,9 +296,6 @@ async def create_flow(
         flow = existing
 
     await db.refresh(flow)
-    job_summary = (
-        JobAnalysisSummary(job_id=job.id, role_title=job.role_title) if job else None
-    )
     return CreateFlowResponse(
         flow_id=flow.id,
         user_type=flow.user_type,
@@ -300,13 +316,12 @@ async def get_flow_state(
     ``user_id`` scopes the lookup to its owner (IDOR guard — same shape as
     ``services/gap_jobs.get_gap_job`` and ``services/profile/import_jobs.get_import_job``):
     a flow_id belonging to another user answers exactly like an unknown one, never
-    a distinguishing error. ``None`` (the default) keeps the lookup unscoped for
-    the MCP channel and the interview-completion hook, which resolve their own flow
-    trust boundary rather than a per-caller identity.
+    a distinguishing error. Strawberry (ruling 3d-1): ``None`` no longer means
+    "unscoped" — it falls back to the user owner context (the MCP identity sets
+    it) and raises ``OwnerContextMissing`` without one.
     """
-    flow = await db.get(FlowSession, flow_id)
-    if flow is None or (user_id is not None and flow.user_id != user_id):
-        raise LookupError(f"Flow {flow_id} not found")
+    uid = resolve_user_id(user_id, "flow.get_flow_state")
+    flow = await _owned_flow(flow_id, uid, db)
     return await _build_state_response(flow, db, base_url)
 
 
@@ -322,10 +337,10 @@ async def advance_flow(
     ``user_id`` scopes the lookup to its owner (IDOR guard, same shape as
     ``get_flow_state`` above) — checked before any transition validation so a
     foreign flow_id never leaks its current_step or allowed transitions.
+    ``None`` falls back to the user owner context (ruling 3d-1).
     """
-    flow = await db.get(FlowSession, flow_id)
-    if flow is None or (user_id is not None and flow.user_id != user_id):
-        raise LookupError(f"Flow {flow_id} not found")
+    uid = resolve_user_id(user_id, "flow.advance_flow")
+    flow = await _owned_flow(flow_id, uid, db)
 
     target = request.step
 
@@ -342,7 +357,7 @@ async def advance_flow(
     # a re-generated artifact (e.g. a new CV) refresh the recorded FK.
     if target == flow.current_step:
         if target in _ARTIFACT_FIELD and request.artifact_id is not None:
-            await _check_artifact_exists(target, request.artifact_id, db)
+            await _check_artifact_exists(target, request.artifact_id, db, flow.user_id)
             setattr(flow, _ARTIFACT_FIELD[target], request.artifact_id)
             flow.updated_at = datetime.now(timezone.utc)
             await db.commit()
@@ -363,16 +378,16 @@ async def advance_flow(
             if target in _ARTIFACT_REQUIRED:
                 raise ArtifactRequiredError(step=target, field=field)
         else:
-            await _check_artifact_exists(target, request.artifact_id, db)
+            await _check_artifact_exists(target, request.artifact_id, db, flow.user_id)
             setattr(flow, field, request.artifact_id)
 
     flow.current_step = target
     flow.available_actions = _compute_actions(
         target,
         flow.user_type,
-        await _has_open_gate(db),
+        await _has_open_gate(db, flow.user_id),
         has_gaps=(
-            await _gap_items_present(db, flow.gap_analysis_id)
+            await _gap_items_present(db, flow.gap_analysis_id, flow.user_id)
             if target == "gap_analysis"
             else None
         ),
@@ -396,7 +411,7 @@ async def advance_flow(
     # warrant the abstraction.
     if flow.application_id is not None:
         from applire.services.application import sync_workflow_status
-        await sync_workflow_status(flow.application_id, target, db)
+        await sync_workflow_status(flow.application_id, target, db, user_id=flow.user_id)
 
     await db.commit()
     await db.refresh(flow)
@@ -420,16 +435,23 @@ async def repoint_flow_gap_analysis(
     (UAT 2026-06-26: CV page showed 40% and re-listed answered gaps after the
     interview reached 90%).
 
-    Scope: a flow is uniquely (user_id, job_id) — for a given job_id there is at
-    most one non-deleted owning flow in single-user Community mode, so resolving by
-    job_id cannot move a different job's FK. Null-safe: no job_id or no owning flow
-    is a no-op. Only the FK is touched — current_step and the step machine are left
-    untouched (this is NOT a transition).
+    Scope: a flow is uniquely (user_id, job_id) — keyed on BOTH (ADR-092 cl. 3,
+    S-17: the posting is shared, so job_id alone can name several users' flows).
+    ``user_id`` None: the owner is the gap analysis row's own ``user_id`` (the
+    data names it — no context needed), else the user owner context (ruling 3d-1).
+    Null-safe: no job_id or no owning flow is a no-op. Only the FK is touched —
+    current_step and the step machine are left untouched (this is NOT a transition).
     """
     if job_id is None:
         return
+    if user_id is None:
+        user_id = await db.scalar(
+            select(GapAnalysis.user_id).where(GapAnalysis.id == gap_analysis_id)
+        )
+    uid = resolve_user_id(user_id, "flow.repoint_flow_gap_analysis")
     result = await db.execute(
         select(FlowSession).where(
+            FlowSession.user_id == uid,
             FlowSession.job_id == job_id,
             FlowSession.deleted_at.is_(None),
         )
@@ -459,9 +481,15 @@ async def advance_flow_on_interview_complete(
     or the flow is not on the interview step. advance_flow is idempotent, so a
     later 'Generate CV' re-advance to cv_generation is harmless.
     """
+    if user_id is None:  # the session row names its owner (ADR-092 cl. 1)
+        user_id = await db.scalar(
+            select(InterviewSession.user_id).where(InterviewSession.id == interview_session_id)
+        )
+    uid = resolve_user_id(user_id, "flow.advance_flow_on_interview_complete")
     result = await db.execute(
         select(FlowSession).where(
-            FlowSession.interview_session_id == interview_session_id
+            FlowSession.user_id == uid,
+            FlowSession.interview_session_id == interview_session_id,
         )
     )
     flow = result.scalar_one_or_none()
@@ -471,6 +499,7 @@ async def advance_flow_on_interview_complete(
         flow.id,
         AdvanceFlowRequest(step="cv_generation"),
         db,
+        user_id=uid,
     )
 
 
@@ -491,10 +520,45 @@ async def _get_existing_flow(
     return result.scalar_one_or_none()
 
 
-async def _resolve_user_type(db: AsyncSession) -> str:
-    """Return 'returning' if profile completeness >= MODE_B_COMPLETENESS_THRESHOLD."""
-    result = await db.execute(select(MasterProfile).limit(1))
-    profile_record = result.scalar_one_or_none()
+async def _owned_flow(flow_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession) -> FlowSession:
+    """The flow ``flow_id`` owned by ``user_id`` — missing and foreign are one LookupError (S-10)."""
+    flow = (
+        await db.execute(
+            select(FlowSession).where(FlowSession.id == flow_id, FlowSession.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if flow is None:
+        raise LookupError(f"Flow {flow_id} not found")
+    return flow
+
+
+async def _job_summary(
+    job: JobAnalysis, user_id: uuid.UUID, db: AsyncSession
+) -> JobAnalysisSummary:
+    """The posting as THIS user labels it (ADR-092 cl. 5f, ``effective_posting_labels``)."""
+    from applire.services.application import get_application_for_job
+    from applire.services.posting_labels import effective_posting_labels
+
+    app = await get_application_for_job(job.id, user_id, db)
+    role_title, _company = effective_posting_labels(job, app)
+    return JobAnalysisSummary(job_id=job.id, role_title=role_title)
+
+
+async def _owner_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfile | None:
+    """The owner's live vault row (F6 read path; 3b fills its owner-keyed body).
+
+    Replaces ``select(MasterProfile).limit(1)`` — which returned ANY row, even a
+    soft-deleted one or another user's (ADR-092 context 2, ``orchestrator.py:492,585``).
+    """
+    from applire.services.profile import get_profile_for_user  # lazy: import cycle
+
+    return await get_profile_for_user(db, user_id)
+
+
+async def _resolve_user_type(db: AsyncSession, user_id: uuid.UUID | None = None) -> str:
+    """Return 'returning' if the owner's profile completeness >= MODE_B_COMPLETENESS_THRESHOLD."""
+    uid = resolve_user_id(user_id, "flow._resolve_user_type")
+    profile_record = await _owner_profile(db, uid)
     if profile_record is None:
         return "new"
     try:
@@ -505,7 +569,7 @@ async def _resolve_user_type(db: AsyncSession) -> str:
     return "returning" if score >= MODE_B_COMPLETENESS_THRESHOLD else "new"
 
 
-async def _has_open_gate(db: AsyncSession) -> bool:
+async def _has_open_gate(db: AsyncSession, user_id: uuid.UUID | None = None) -> bool:
     """True if a deferred Tier-1 integrity gate is parked (US167 / US163).
 
     While one is open a returning user must not be allowed to skip the interview
@@ -513,7 +577,8 @@ async def _has_open_gate(db: AsyncSession) -> bool:
     """
     from applire.services.profile import list_open_gates  # lazy: avoid import cycle
 
-    return bool(await list_open_gates(db))
+    uid = resolve_user_id(user_id, "flow._has_open_gate")
+    return bool(await list_open_gates(db, user_id=uid))
 
 
 def _compute_actions(
@@ -551,7 +616,7 @@ def _compute_actions(
 
 
 async def _gap_items_present(
-    db: AsyncSession, gap_analysis_id: uuid.UUID | None
+    db: AsyncSession, gap_analysis_id: uuid.UUID | None, user_id: uuid.UUID
 ) -> bool | None:
     """Whether the analysis found anything to address (partials OR gaps).
 
@@ -561,7 +626,7 @@ async def _gap_items_present(
     if gap_analysis_id is None:
         return None
     gap = await db.get(GapAnalysis, gap_analysis_id)
-    if gap is None:
+    if gap is None or gap.user_id != user_id:
         return None
     return bool(gap.category_b or []) or bool(gap.category_c or [])
 
@@ -579,15 +644,17 @@ async def _build_state_response(
     the list empty rather than echoing a stale notice off the record.
     """
     # Job summary
+    # Every child is read for the FLOW'S OWNER only (ADR-092 cl. 6): a recorded
+    # id that is not the owner's row is treated as absent, never rendered.
+    owner = flow.user_id
     job_summary: JobAnalysisSummary | None = None
-    job = await db.get(JobAnalysis, flow.job_id)
+    job = await db.get(JobAnalysis, flow.job_id) if flow.job_id is not None else None
     if job:
-        job_summary = JobAnalysisSummary(job_id=job.id, role_title=job.role_title)
+        job_summary = await _job_summary(job, owner, db)
 
     # Profile completeness
     profile_completeness: float | None = None
-    result = await db.execute(select(MasterProfile).limit(1))
-    profile_record = result.scalar_one_or_none()
+    profile_record = await _owner_profile(db, owner)
     if profile_record:
         try:
             profile_data = MasterProfileData.model_validate(profile_record.profile_json)
@@ -599,7 +666,7 @@ async def _build_state_response(
     gap_summary: GapAnalysisSummary | None = None
     if flow.gap_analysis_id:
         gap = await db.get(GapAnalysis, flow.gap_analysis_id)
-        if gap:
+        if gap and gap.user_id == owner:
             gap_summary = GapAnalysisSummary(
                 gap_analysis_id=gap.id,
                 match_score=gap.match_score,
@@ -611,7 +678,7 @@ async def _build_state_response(
     interview_summary: InterviewSummary | None = None
     if flow.interview_session_id:
         session = await db.get(InterviewSession, flow.interview_session_id)
-        if session:
+        if session and session.user_id == owner:
             interview_summary = InterviewSummary(
                 session_id=session.id,
                 mode=session.mode,
@@ -624,7 +691,7 @@ async def _build_state_response(
     cv_summary: CVSummary | None = None
     if flow.generated_cv_id:
         cv = await db.get(GeneratedCV, flow.generated_cv_id)
-        if cv:
+        if cv and cv.user_id == owner:
             cv_summary = CVSummary(
                 cv_id=cv.id,
                 pdf_url=f"{base_url}/api/cv/{cv.id}/pdf",
@@ -636,7 +703,8 @@ async def _build_state_response(
     if flow.generated_cover_letter_id is not None:
         cl_result = await db.execute(
             select(GeneratedCoverLetter).where(
-                GeneratedCoverLetter.id == flow.generated_cover_letter_id
+                GeneratedCoverLetter.id == flow.generated_cover_letter_id,
+                GeneratedCoverLetter.user_id == owner,
             )
         )
         cl = cl_result.scalar_one_or_none()
