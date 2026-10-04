@@ -83,8 +83,13 @@ async def _make_user(db) -> uuid.UUID:
     touching `user_settings` (which is keyed to the CE stub user regardless
     of which user_id was passed — ADR-022, single user in CE)."""
     from applire.models.user import User
+    from tests.support.owners import HARNESS_USER_ID
 
-    user_id = uuid.uuid4()
+    # ADR-092 / D-10 (Strawberry W2): user_settings is keyed to the CALLER now,
+    # not "the CE stub regardless of which user_id was passed" — the test user
+    # is the harness user the owner context acts as, so `_settings_row` (stub
+    # id) and the services read the same row.
+    user_id = HARNESS_USER_ID
     db.add(User(id=user_id, email=f"{user_id}@example.de"))
     await db.commit()
     return user_id

@@ -50,7 +50,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Iterator
 
 from applire.providers.llm.base import LLMProvider
@@ -101,6 +101,9 @@ class UsageAttribution:
     document_kind: str = ""
     document_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
+    #: The account the call was made for (S-8: one shared operator key,
+    #: per-user visibility; ADR-092 table — ``llm_usage.user_id``).
+    user_id: uuid.UUID | None = None
 
 
 _last_usage: ContextVar[Usage | None] = ContextVar("llm_last_usage", default=None)
@@ -218,6 +221,7 @@ def llm_usage_context(
     document_kind: str = "",
     document_id: uuid.UUID | str | None = None,
     application_id: uuid.UUID | str | None = None,
+    user_id: uuid.UUID | str | None = None,
 ) -> Iterator[None]:
     """Attribute every provider call made inside this block.
 
@@ -240,6 +244,7 @@ def llm_usage_context(
             document_kind=document_kind,
             document_id=_uuid(document_id),
             application_id=_uuid(application_id),
+            user_id=_uuid(user_id),
         )
     )
     try:
@@ -248,10 +253,31 @@ def llm_usage_context(
         _attribution.reset(token)
 
 
+def _context_user() -> uuid.UUID | None:
+    """The USER owner context of this call (ADR-092 cl. 8) — the auth dependency,
+    the MCP identity and every background task set it — else ``None``
+    (unscoped / tooling calls stay unattributed, never guessed)."""
+    try:
+        from applire import ownership
+
+        ctx = ownership.current_owner()
+    except Exception:  # pragma: no cover - defensive: accounting never raises
+        return None
+    return ctx.user_id if ctx is not None and not ctx.is_unscoped else None
+
+
 def current_attribution() -> UsageAttribution:
-    """The open attribution, falling back to the debug log's stage label."""
+    """The open attribution, falling back to the debug log's stage label.
+
+    ``user_id``: an explicit ``llm_usage_context(user_id=…)`` wins, else the
+    user owner context of the call (S-8 per-user visibility).
+    """
     attribution = _attribution.get()
     if attribution is not None and attribution.stage:
+        if attribution.user_id is None:
+            uid = _context_user()
+            if uid is not None:
+                attribution = replace(attribution, user_id=uid)
         return attribution
     fallback_stage = ""
     try:
@@ -261,12 +287,13 @@ def current_attribution() -> UsageAttribution:
     except Exception:  # pragma: no cover - defensive
         fallback_stage = ""
     if attribution is None:
-        return UsageAttribution(stage=fallback_stage)
+        return UsageAttribution(stage=fallback_stage, user_id=_context_user())
     return UsageAttribution(
         stage=fallback_stage,
         document_kind=attribution.document_kind,
         document_id=attribution.document_id,
         application_id=attribution.application_id,
+        user_id=attribution.user_id or _context_user(),
     )
 
 
@@ -404,6 +431,7 @@ class UsageRecordingProvider(LLMProvider):
             "document_kind": attribution.document_kind[:16],
             "document_id": attribution.document_id,
             "application_id": attribution.application_id,
+            "user_id": attribution.user_id,
             "duration_ms": duration_ms,
             "ok": ok,
         }

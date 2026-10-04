@@ -278,20 +278,49 @@ async def create_profile_record(
     in this module: the caller owns the transaction, and needs the flush for the
     generated id.
 
-    ``user_id`` (Strawberry W0, frozen interface F6): accepted and ignored for
-    now; W2 (package 3b) sets ``MasterProfile.user_id`` from it once the column
-    exists (ADR-092 cl. 2).
+    **The owner (ADR-092 cl. 2, Strawberry W2):** the row is born owned by
+    ``user_id`` (else the user owner context; neither → ``OwnerContextMissing``).
+    ``uq_master_profiles_user_live`` allows one live row per owner, and two
+    check-then-insert doors (the first import, the Mode-B stub) can race to
+    create it: the INSERT runs in a **savepoint**, and on the unique violation
+    the loser rolls back only the savepoint and re-reads the winner's row — so
+    both requests end up on the same vault instead of one failing.
     """
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    from applire.services.profile.owner import resolve_owner
+
+    owner = resolve_owner(user_id)
     # The flush stays INSIDE the token span. Today the construction alone is
     # enough — the setter records its verdict on the instance and `before_flush`
     # pops it at flush time — so this is behaviour-identical. It is written this
     # way because a write site whose flush lands outside its own authorisation
     # only works by accident, and the next mechanism added to this guard has no
     # reason to keep the accident working.
-    with authorized_profile_write():
-        record = MasterProfile(profile_json={})
-        db.add(record)
-        await db.flush()
+    try:
+        async with db.begin_nested():
+            with authorized_profile_write():
+                record = MasterProfile(profile_json={}, user_id=owner)
+                db.add(record)
+                await db.flush()
+    except IntegrityError:
+        winner = (
+            await db.execute(
+                select(MasterProfile).where(
+                    MasterProfile.user_id == owner, MasterProfile.deleted_at.is_(None)
+                )
+            )
+        ).scalar_one_or_none()
+        if winner is None:
+            raise
+        logger.info(
+            "create_profile_record: a concurrent request created %s's live profile "
+            "first (id=%s) — re-read the winner (ADR-092 cl. 2)",
+            owner,
+            winner.id,
+        )
+        return winner
     logger.info(
         "commit_ops: created the first MasterProfile row (id=%s) — empty until "
         "the ops that accompany it land (ADR-063 clause 6 / #480 PR 8)",
@@ -474,6 +503,7 @@ async def commit_ops(
     empty_reason: str | None = None,
     llm_provider: "LLMProvider | None" = None,
     embedding_provider: "EmbeddingProvider | None" = None,
+    user_id: uuid.UUID | None = None,
 ) -> CommitResult:
     """Apply `ops` to the Master Profile and persist the result. One write path.
 
@@ -561,7 +591,7 @@ async def commit_ops(
         )
 
     if record is None:
-        record = await _get_latest(db)
+        record = await _get_latest(db, user_id)
     if record is not None:
         _refuse_stale_basis(ops, record)
     if record is None:
@@ -574,7 +604,7 @@ async def commit_ops(
         # write token — instead of a hand-rolled one that happened to look
         # similar. Doors that must REFUSE an empty vault keep their own check
         # before calling; none of them reaches this line.
-        record = await create_profile_record(db)
+        record = await create_profile_record(db, user_id)
 
     # The exact bytes an ADR-042 undo restores: the profile as it stands BEFORE
     # any op is applied. Bound here, at the top, so nothing downstream can
@@ -740,8 +770,8 @@ async def commit_ops(
     # pins immediately, whatever door it came through. A pin whose quote no
     # longer resolves (or whose entry lost claimability) is marked stale on
     # the application row IN THIS TRANSACTION — excluded and surfaced, never
-    # deleted. Single-user CE: all applications with pins are the user's.
-    await _sweep_fact_pins(db, final)
+    # deleted. Only the vault owner's applications (ADR-092 cl. 1).
+    await _sweep_fact_pins(db, final, owner_id=record.user_id)
 
     logger.debug(
         "commit_ops: %d op(s) via %s/%s (grounded=%s) → %d change(s), %d denial(s), "
@@ -829,7 +859,9 @@ async def backfill_entry_ids(db: AsyncSession) -> int:
     return rewritten
 
 
-async def _sweep_fact_pins(db: AsyncSession, profile: MasterProfileData) -> None:
+async def _sweep_fact_pins(
+    db: AsyncSession, profile: MasterProfileData, *, owner_id: uuid.UUID | None = None
+) -> None:
     """Re-verify every application's fact pins against the just-written vault.
 
     Fail-safe: the vault write is this transaction's purpose — a sweep failure
@@ -850,6 +882,10 @@ async def _sweep_fact_pins(db: AsyncSession, profile: MasterProfileData) -> None
         async with db.begin_nested():
             result = await db.execute(
                 select(Application).where(
+                    # ADR-092 cl. 1 / ADR-063: only the vault OWNER's pins are
+                    # re-verified against this vault — another user's pins
+                    # point at another vault.
+                    Application.user_id == owner_id,
                     Application.deleted_at.is_(None),
                     Application.pinned_facts.isnot(None),
                 )

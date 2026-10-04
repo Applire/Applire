@@ -108,7 +108,7 @@ async def submit_testimony(
     from applire.services.profile import _get_latest
     from applire.services.session import get_ui_language
 
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if record is None:
         raise LookupError("No profile found — import a CV or create a profile first")
 

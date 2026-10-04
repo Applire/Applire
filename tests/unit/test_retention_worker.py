@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    deleted_at TEXT
+    deleted_at TEXT,
+    -- ADR-091 0071: the D-4 rule reads both (ADR-092 cl. 12a)
+    role TEXT NOT NULL DEFAULT 'user',
+    last_active_at TEXT
 );
 CREATE TABLE IF NOT EXISTS master_profiles (
     id TEXT PRIMARY KEY,

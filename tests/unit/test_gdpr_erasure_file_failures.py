@@ -68,20 +68,11 @@ async def db_session():
     from applire.models.user_settings import UserSettings
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    tables = [
-        User.__table__,
-        UploadRecord.__table__,
-        MasterProfile.__table__,
-        GeneratedCV.__table__,
-        InterviewSession.__table__,
-        GapAnalysis.__table__,
-        GeneratedCoverLetter.__table__,
-        Application.__table__,
-        FlowSession.__table__,
-        UserSettings.__table__,  # #359: the erasure path reads the signature path from user_settings
-    ]
+    # ADR-092 cl. 11 (Strawberry W2): the erasure covers every owned table plus
+    # the shared-posting refcount and (account scope) the identity tables — the
+    # full schema, not a hand-picked subset that hides a missing table.
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=tables))
+        await conn.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -111,6 +102,7 @@ async def seeded(db_session):
     )
     db_session.add(
         make_master_profile(
+            user_id=USER_ID,
             profile_json={
                 "personal_info": {"name": "Emma Fischer", "photo_url": PHOTO_PATH}
             }

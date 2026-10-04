@@ -224,8 +224,8 @@ async def test_same_user_jobs_are_serialized_in_creation_order(factory):
     assert events == [("start", b"1"), ("end", b"1"), ("start", b"2"), ("end", b"2")]
 
     async with factory() as db:
-        assert (await get_import_job(db, j1.id)).status == CVImportStatus.ready.value
-        assert (await get_import_job(db, j2.id)).status == CVImportStatus.ready.value
+        assert (await get_import_job(db, j1.id, user_id=UID)).status == CVImportStatus.ready.value
+        assert (await get_import_job(db, j2.id, user_id=UID)).status == CVImportStatus.ready.value
 
 
 @pytest.mark.asyncio
@@ -276,8 +276,8 @@ async def test_failed_job_releases_the_queue(factory):
         )
 
     async with factory() as db:
-        assert (await get_import_job(db, j1.id)).status == CVImportStatus.failed.value
-        assert (await get_import_job(db, j2.id)).status == CVImportStatus.ready.value
+        assert (await get_import_job(db, j1.id, user_id=UID)).status == CVImportStatus.failed.value
+        assert (await get_import_job(db, j2.id, user_id=UID)).status == CVImportStatus.ready.value
 
 
 # ---------------------------------------------------------------------------

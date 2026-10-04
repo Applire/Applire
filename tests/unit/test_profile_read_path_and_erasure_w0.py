@@ -16,12 +16,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-"""F6 + F9 — the profile read path and the erasure service, Strawberry W0 form.
+"""F6 + F9 — the profile read path and the erasure service (W0 contract, W2 bodies).
 
-F6: ``get_profile_for_user`` delegates to ``_get_latest`` (newest live row),
-``create_profile_record`` accepts ``user_id``. F9: ``erase(db, user_id,
-"vault")`` delegates to today's ``DELETE /api/profile`` handler body (no
-router code moved) and returns its per-table counts; ``"account"`` is 3b's.
+F6: ``get_profile_for_user(db, user_id)`` is the OWNER's live row (3b, W2 —
+was "the newest live row of anyone" in W0); ``create_profile_record`` sets the
+owner. F9: ``erase(db, user_id, scope)`` is the one erasure implementation
+(``services/erasure.py``) — per-table counts; ``"account"`` built in W2.
+Deeper coverage: ``test_erasure_per_user.py``, ``test_vault_owner_scoping.py``.
 """
 
 import uuid
@@ -54,28 +55,25 @@ async def db():
 
 
 @pytest.mark.asyncio
-async def test_get_profile_for_user_returns_the_newest_live_row(db):
+async def test_get_profile_for_user_returns_the_owners_live_row(db):
     from applire.services.profile import _get_latest, get_profile_for_user
     from tests.support.profile_factory import make_master_profile
 
     now = datetime.now(timezone.utc)
-    # One live vault per owner (ADR-092 cl. 2): the older live row is another
-    # owner's — `_get_latest` (W0 body) still picks the newest live row overall.
-    older = make_master_profile(
-        profile_json={"personal_info": {"name": "Older"}}, user_id=uuid.uuid4()
-    )
-    older.created_at = now - timedelta(days=2)
-    newer = make_master_profile(profile_json={"personal_info": {"name": "Newer"}})
-    newer.created_at = now - timedelta(days=1)
-    gone = make_master_profile(profile_json={"personal_info": {"name": "Deleted"}})
+    mine = make_master_profile(profile_json={"personal_info": {"name": "Mine"}}, user_id=USER_ID)
+    mine.created_at = now - timedelta(days=2)
+    # Another owner's NEWER live row — the W0 body returned it to everyone.
+    theirs = make_master_profile(profile_json={"personal_info": {"name": "Theirs"}}, user_id=uuid.uuid4())
+    theirs.created_at = now - timedelta(days=1)
+    gone = make_master_profile(profile_json={"personal_info": {"name": "Deleted"}}, user_id=USER_ID)
     gone.created_at = now
     gone.deleted_at = now
-    db.add_all([older, newer, gone])
+    db.add_all([mine, theirs, gone])
     await db.commit()
 
     row = await get_profile_for_user(db, USER_ID)
-    assert row is not None and row.id == newer.id
-    assert (await get_profile_for_user(db)).id == (await _get_latest(db)).id
+    assert row is not None and row.id == mine.id
+    assert (await _get_latest(db, USER_ID)).id == mine.id
 
 
 @pytest.mark.asyncio
@@ -93,14 +91,10 @@ async def test_create_profile_record_accepts_user_id(db):
     await db.commit()
     assert record.id is not None
     assert record.profile_json == {}
-    # a second owner: the row's owner comes from the acting user's context
-    # until 3b makes `create_profile_record` set it (ADR-092 cl. 2)
-    from applire.ownership import owner_context
-
+    assert record.user_id == USER_ID  # the constructor sets the owner (3b, W2)
     other = uuid.uuid4()
-    with owner_context(other):
-        positional = await create_profile_record(db, other)
-    assert positional.id != record.id
+    positional = await create_profile_record(db, other)
+    assert positional.id != record.id and positional.user_id == other
 
 
 # --- F9 -------------------------------------------------------------------
@@ -138,7 +132,7 @@ async def _seed_vault(db):
             byte_size=10,
         )
     )
-    db.add(make_master_profile(profile_json={"personal_info": {"name": "Emma"}}))
+    db.add(make_master_profile(profile_json={"personal_info": {"name": "Emma"}}, user_id=USER_ID))
     job = JobAnalysis(
         raw_text_hash="w0a2-hash",
         raw_text="x",
@@ -153,12 +147,11 @@ async def _seed_vault(db):
 
 
 @pytest.mark.asyncio
-async def test_erase_vault_delegates_to_todays_erasure_path(db, monkeypatch):
-    from applire.routers import profile as profile_router
+async def test_erase_vault_deletes_the_owners_vault(db, monkeypatch):
     from applire.services.erasure import erase
 
     storage = _RecordingStorage()
-    monkeypatch.setattr(profile_router, "_get_storage", lambda: storage)
+    monkeypatch.setattr("applire.storage.get_storage", lambda: storage)
     await _seed_vault(db)
 
     counts = await erase(db, USER_ID, "vault")
@@ -166,22 +159,22 @@ async def test_erase_vault_delegates_to_todays_erasure_path(db, monkeypatch):
     assert counts["uploads"] == 1
     assert counts["applications"] == 1
     assert counts["master_profiles"] == 1
-    assert counts["users"] == 0  # today: the user row is kept
+    assert counts["users"] == 0  # the vault scope keeps the user row
     for table in ("uploads", "applications", "master_profiles"):
         left = (await db.execute(text(f"SELECT COUNT(*) FROM {table}"))).scalar_one()
         assert left == 0, table
-    # today's semantics: the shared posting and the user row stay
-    assert (await db.execute(text("SELECT COUNT(*) FROM job_analyses"))).scalar_one() == 1
+    # ADR-092 cl. 11: a posting nobody else references goes with the vault
+    assert counts["job_analyses"] == 1
+    assert (await db.execute(text("SELECT COUNT(*) FROM job_analyses"))).scalar_one() == 0
     assert (await db.execute(text("SELECT COUNT(*) FROM users"))).scalar_one() == 1
     assert storage.deleted == [UPLOAD_PATH]
 
 
 @pytest.mark.asyncio
 async def test_erase_failure_surfaces_as_erasure_failed(db, monkeypatch):
-    from applire.routers import profile as profile_router
     from applire.services.erasure import ErasureFailed, erase
 
-    monkeypatch.setattr(profile_router, "_get_storage", lambda: _RecordingStorage())
+    monkeypatch.setattr("applire.storage.get_storage", lambda: _RecordingStorage())
 
     await _seed_vault(db)
     real_execute = db.execute
@@ -199,11 +192,19 @@ async def test_erase_failure_surfaces_as_erasure_failed(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_erase_account_scope_is_not_built_in_w0(db):
+async def test_erase_account_scope_deletes_the_settings_row_and_keeps_the_user_row(db, monkeypatch):
+    """W2 (3b): the account scope is built; the user row's tombstone is the
+    account door's step 3 (1b), not the erasure's."""
+    from applire.models.user_settings import UserSettings
     from applire.services.erasure import erase
 
-    with pytest.raises(NotImplementedError):
-        await erase(db, USER_ID, "account")
+    monkeypatch.setattr("applire.storage.get_storage", lambda: _RecordingStorage())
+    await _seed_vault(db)
+    db.add(UserSettings(user_id=USER_ID))
+    await db.commit()
+    counts = await erase(db, USER_ID, "account")
+    assert counts["user_settings"] == 1 and counts["master_profiles"] == 1
+    assert (await db.execute(text("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL"))).scalar_one() == 1
 
 
 @pytest.mark.asyncio
