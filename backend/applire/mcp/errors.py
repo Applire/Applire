@@ -25,6 +25,8 @@ from mcp.types import ErrorData
 _NOT_FOUND = -32001
 _INVALID_INPUT = -32602
 _INTERNAL = -32603
+# Applire: the agent identity no longer holds (ADR-091 cl. 17, MD-3).
+_UNAUTHORIZED = -32003
 
 
 def not_found(msg: str) -> McpError:
@@ -37,3 +39,7 @@ def invalid_input(msg: str) -> McpError:
 
 def internal(msg: str) -> McpError:
     return McpError(ErrorData(code=_INTERNAL, message=msg))
+
+
+def unauthorized(msg: str) -> McpError:
+    return McpError(ErrorData(code=_UNAUTHORIZED, message=msg))

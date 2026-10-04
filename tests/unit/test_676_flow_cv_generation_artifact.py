@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.support.owners import HARNESS_USER_ID
 from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 
 @pytest_asyncio.fixture

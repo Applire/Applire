@@ -47,6 +47,8 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
+
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -253,3 +255,13 @@ async def test_cover_letter_docx_door_parity(client, seeded):
     assert mcp_text == rest_text
     assert "Petra Lindqvist" in mcp_text
     assert "Ich bewerbe mich hiermit." in mcp_text
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

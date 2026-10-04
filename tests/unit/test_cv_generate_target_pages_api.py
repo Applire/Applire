@@ -40,6 +40,7 @@ from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 
 from tests.support.profile_factory import make_master_profile
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 
 # ---------------------------------------------------------------------------
