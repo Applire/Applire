@@ -659,10 +659,29 @@ async def record() -> dict:
     }
 
 
+def _tooling_context():
+    """Declare this in-process script's database access (ADR-092 cl. 7/8).
+
+    Scripts run without a request, so no owner context exists; with the owner
+    guard on, owned-table SQL without one raises ``OwnerContextMissing``. A
+    script declares the closed-list reason ``tooling`` instead (never a request
+    path). An ``applire`` tree from before the ownership model has no
+    ``applire.ownership`` — then there is nothing to declare.
+    """
+    import contextlib
+
+    try:
+        from applire.ownership import unscoped
+    except ImportError:
+        return contextlib.nullcontext()
+    return unscoped("tooling")
+
+
 def main() -> None:
     os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
     os.environ.setdefault("LLM_PROVIDER", "mock")
-    fixture = asyncio.run(record())
+    with _tooling_context():
+        fixture = asyncio.run(record())
     FIXTURE_PATH.write_text(json.dumps(fixture, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     accepted = sum(1 for c in fixture["cases"].values() if c["status"] == 200)
     refused = {cid: c["status"] for cid, c in fixture["cases"].items() if c["status"] != 200}

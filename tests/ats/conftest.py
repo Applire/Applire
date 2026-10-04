@@ -34,7 +34,9 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 # config.py needs a DATABASE_URL to import; no DB is touched by these tests.
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+# The name ends in `_test` like every test URL (the NoAuth harness fence,
+# ADR-091 cl. 3 (c), refuses any other Postgres name; test.yml sets the same).
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/ats_test")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -47,6 +49,22 @@ def docker_environment():
     backend-unit-tests job) fail with "API did not become ready within 120s".
     """
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def tooling_owner_context():
+    """Declare the lane's database access (ADR-092 cl. 7/8: ``unscoped("tooling")``).
+
+    The ATS lane renders in-process with no request and no owner context. With
+    the owner guard on, owned-table SQL without a context raises; this lane is
+    one of the declared non-request entry points, so it says so once, for the
+    whole session. A SYNC fixture: pytest-asyncio tasks inherit the context it
+    sets (a variable set inside an async fixture would not reach the test).
+    """
+    from applire.ownership import unscoped
+
+    with unscoped("tooling"):
+        yield
 
 
 def pytest_collection_modifyitems(config, items):

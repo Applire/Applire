@@ -991,6 +991,24 @@ async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[
     return {"records": records}
 
 
+def _tooling_context():
+    """Declare this in-process script's database access (ADR-092 cl. 7/8).
+
+    Scripts run without a request, so no owner context exists; with the owner
+    guard on, owned-table SQL without one raises ``OwnerContextMissing``. A
+    script declares the closed-list reason ``tooling`` instead (never a request
+    path). An ``applire`` tree from before the ownership model has no
+    ``applire.ownership`` — then there is nothing to declare.
+    """
+    import contextlib
+
+    try:
+        from applire.ownership import unscoped
+    except ImportError:
+        return contextlib.nullcontext()
+    return unscoped("tooling")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_env(args.provider, args.model, args.timeout, args.reasoning)
@@ -1015,7 +1033,8 @@ def main(argv: list[str] | None = None) -> int:
         else openrouter_credits()
     )
     started = time.time()
-    outcome = asyncio.run(run_matrix(args, fixtures, shapes))
+    with _tooling_context():
+        outcome = asyncio.run(run_matrix(args, fixtures, shapes))
     records = outcome["records"]
     records.sort(key=lambda r: (r["shape"], r["run"]))
     summary = summarise(records, shapes)
