@@ -34,6 +34,8 @@ from applire import ownership
 from applire.auth import get_auth_provider
 from applire.db.session import Base, get_db
 from applire.main import app
+from applire.models.cv import GeneratedCV
+from applire.models.profile import MasterProfile
 from applire.models.user import User
 from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse; the door signs links
 from tests.support.isolation import (
@@ -126,10 +128,7 @@ def _mcp_surface() -> tuple[dict[str, list[str]], list[str]]:
 #: this suite on the W1 tree (2026-10-03: 40 of 59; the other 19 already answer 404, the GETs among them
 #: backed by the owner positive control).
 #: Owner package (W2) in the comment.
-PENDING_REST: set[tuple[str, str]] = {
-    # exposed by the positive control (they 404'd for B only because A's own
-    # rows were not reachable either — the first run's false greens):
-}
+PENDING_REST: set[tuple[str, str]] = set()  # empty since the W2 integration
 
 #: MCP calls not yet scoped — empty since 4b (W2): every owned id and every
 #: shared-posting ``job_id`` is resolved at the door (ADR-092 cl. 5c/10, MD-23).
@@ -592,10 +591,7 @@ MCP_SELF_READS: dict[str, Any] = {
     "resource profile://current": lambda r: r["id"],
     "list_applications": lambda r: sorted(item["id"] for item in r),
 }
-PENDING_MCP_SELF: dict[str, str] = {
-    "get_profile": "3b",
-    "resource profile://current": "3b",
-}
+PENDING_MCP_SELF: dict[str, str] = {}  # empty since the W2 integration (3b's owner-keyed read path)
 
 
 @pytest.mark.asyncio
@@ -702,7 +698,6 @@ async def test_mcp_door_resolves_owned_ids_itself(world, name, monkeypatch, mcp_
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, reason="W2: 3b/3c — render_agent_cv reads the newest profile (F6 W0 body), not the caller's")
 async def test_mcp_render_on_own_posting_never_writes_into_another_vault(world, monkeypatch, mcp_signing_secret):
     """Real stdio smoke 2026-10-04: B's ``render_document`` on B's OWN posting link
     produced a CV built from A's profile and owned by A. The caller here is A (the
@@ -723,6 +718,7 @@ async def test_mcp_render_on_own_posting_never_writes_into_another_vault(world, 
     monkeypatch.setattr(server, "get_provider", lambda *a, **k: _NO_PROVIDER)
     _neutralise_side_effects(monkeypatch)
     before_b = await _snapshot(factory, b.id)
+    before_a = await _snapshot(factory, a.id)
     previous = await _bind_agent(factory, a)
     try:
         try:
@@ -732,3 +728,19 @@ async def test_mcp_render_on_own_posting_never_writes_into_another_vault(world, 
     finally:
         identity.bind(previous)
     assert await _snapshot(factory, b.id) == before_b, "A's render wrote into B's rows"
+    # Positive control (W2 integration): the render really ran and wrote A's CV
+    # from A's vault — a render that fails before any write would pass the
+    # assertion above vacuously.
+    after_a = await _snapshot(factory, a.id)
+    assert len(after_a["generated_cvs"]) == len(before_a["generated_cvs"]) + 1, "the render wrote no CV"
+    with ownership.unscoped("tooling"):
+        async with factory() as s:
+            new_cv = (
+                await s.execute(
+                    select(GeneratedCV).where(GeneratedCV.user_id == a.id).order_by(GeneratedCV.created_at.desc())
+                )
+            ).scalars().first()
+            a_profile = (
+                await s.execute(select(MasterProfile.id).where(MasterProfile.user_id == a.id))
+            ).scalar_one()
+    assert new_cv.profile_id == a_profile, "A's CV was not built from A's vault"

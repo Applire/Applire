@@ -24,8 +24,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2] / "backend" / "applire"
 
 #: (file, target) of add_task sites that do not yet pass the user — W2 owner in the comment.
-PENDING: set[tuple[str, str]] = {
-}
+#: Empty since the W2 integration: every add_task site passes the user.
+PENDING: set[tuple[str, str]] = set()
 
 #: add_task sites on ANONYMOUS routes: there is no user to pass — the task resolves
 #: the person itself and scopes every owned read with ``owner_context`` (W1
@@ -92,12 +92,16 @@ def test_every_add_task_passes_the_user_or_is_pending():
     assert missing == [], "a background task must receive user_id (ADR-092 cl. 14)"
 
 
-@pytest.mark.parametrize("site", sorted(PENDING), ids=lambda s: f"{s[0]}::{s[1]}")
-def test_pending_sites_still_exist_and_still_lack_the_user(site):
-    """The ratchet: when W2 threads a site, this fails until the entry is removed."""
-    found = [(f, t, ok) for f, t, ok, _ in _sites("add_task") if (f, t) == site]
-    assert found, f"{site} no longer exists — remove it from PENDING"
-    assert not any(ok for *_, ok in found), f"{site} now passes the user — remove it from PENDING"
+def test_pending_sites_still_exist_and_still_lack_the_user():
+    """The ratchet: when W2 threads a site, this fails until the entry is removed.
+
+    Not parametrized: an empty ``PENDING`` (the W2 end state) must still collect.
+    """
+    sites = _sites("add_task")
+    for site in sorted(PENDING):
+        found = [(f, t, ok) for f, t, ok, _ in sites if (f, t) == site]
+        assert found, f"{site} no longer exists — remove it from PENDING"
+        assert not any(ok for *_, ok in found), f"{site} now passes the user — remove it from PENDING"
 
 
 def test_every_create_task_is_a_declared_entry_point():
