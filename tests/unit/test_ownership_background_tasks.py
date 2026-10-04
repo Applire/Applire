@@ -25,8 +25,6 @@ ROOT = Path(__file__).resolve().parents[2] / "backend" / "applire"
 
 #: (file, target) of add_task sites that do not yet pass the user — W2 owner in the comment.
 PENDING: set[tuple[str, str]] = {
-    ("services/cover_letter.py", "_render_cover_letter_background"),  # 3d
-    ("services/cover_letter.py", "_update_ats_report_letter_by_id"),  # 3d
 }
 
 #: add_task sites on ANONYMOUS routes: there is no user to pass — the task resolves

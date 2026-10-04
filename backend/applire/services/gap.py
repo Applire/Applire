@@ -42,6 +42,8 @@ from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
+from applire.services.owner_resolution import resolve_user_id
+from applire.services.owner_scope import owned_row
 from applire.models.session import InterviewSession
 from applire.prompts.gap_analysis import SYSTEM_PROMPT, build_user_prompt
 from applire.prompts.gap_clustering import CLUSTERING_SYSTEM_PROMPT, build_clustering_prompt
@@ -270,19 +272,25 @@ def analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, profile: MasterP
 async def stored_analysis_inputs_changed(row: GapAnalysis, job: JobAnalysis, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bool:
     """The read route's ``inputs_changed`` (ADR-090 clause 8). No profile →
     nothing to compare → False."""
+    uid = resolve_user_id(user_id, site="gap.stored_analysis_inputs_changed")
     try:
-        profile = await _resolve_profile(db)
+        profile = await _resolve_profile(db, uid)
     except LookupError:
         return False
     return analysis_inputs_changed(row, job, profile)
 
 
-async def _latest_gap_analysis(job_id: uuid.UUID, db: AsyncSession) -> GapAnalysis | None:
-    """The most recent non-deleted gap analysis for a job (the read-path row)."""
+async def _latest_gap_analysis(
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> GapAnalysis | None:
+    """The owner's most recent non-deleted gap analysis of a job (the read-path
+    row). ADR-092: the posting is shared; the analysis is per user."""
+    user_id = resolve_user_id(user_id, site="gap._latest_gap_analysis")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == user_id,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(desc(GapAnalysis.created_at))
@@ -336,9 +344,12 @@ async def analyze_gaps(
 
     Stores the result in gap_analyses and returns a GapAnalysisResponse.
     """
-    job = await _resolve_job(job_id, db)
-    profile = await _resolve_profile(db)
-    return await _run_analysis(job, profile, db, provider, answer_scope=answer_scope)
+    uid = resolve_user_id(user_id, site="gap.analyze_gaps")
+    job = await _resolve_job(job_id, db, uid)
+    profile = await _resolve_profile(db, uid)
+    return await _run_analysis(
+        job, profile, db, provider, answer_scope=answer_scope, user_id=uid
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -360,17 +371,12 @@ async def analyze_gaps_for_session(
     If a GapAnalysis already exists for this job+profile it creates a new one
     (re-analysis reflects any profile changes since the last run).
     """
-    session_result = await db.execute(
-        select(InterviewSession).where(
-            InterviewSession.id == session_id,
-            InterviewSession.deleted_at.is_(None),
-        )
-    )
-    session = session_result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="gap.analyze_gaps_for_session")
+    session = await owned_row(db, InterviewSession, session_id, uid)
     if session is None:
         raise LookupError(f"Session {session_id} not found")
 
-    return await analyze_gaps(session.job_analysis_id, db, provider)
+    return await analyze_gaps(session.job_analysis_id, db, provider, user_id=uid)
 
 
 async def downgrade_keyword_liability(
@@ -393,7 +399,8 @@ async def downgrade_keyword_liability(
     (unchanged row returned) when the concept doesn't match any claimable
     entry — never invents or removes a ledger row.
     """
-    gap_analysis = await _latest_gap_analysis(job_id, db)
+    uid = resolve_user_id(user_id, site="gap.downgrade_keyword_liability")
+    gap_analysis = await _latest_gap_analysis(job_id, db, user_id=uid)
     if gap_analysis is None:
         raise LookupError(f"No gap analysis found for job {job_id}")
 
@@ -462,7 +469,8 @@ async def set_cluster_left_open(
     repeating a set are no-ops (the row is returned unchanged, nothing
     committed).
     """
-    gap_analysis = await _latest_gap_analysis(job_id, db)
+    uid = resolve_user_id(user_id, site="gap.set_cluster_left_open")
+    gap_analysis = await _latest_gap_analysis(job_id, db, user_id=uid)
     if gap_analysis is None:
         raise LookupError(f"No gap analysis found for job {job_id}")
     cluster = cluster_by_id(gap_analysis.gap_clusters, cluster_id)
@@ -661,7 +669,9 @@ async def _cluster_concepts(
     # else the JD's language (amendment 2026-08-01, #400: job-scoped surface). Local
     # import avoids the session<->gap circular dependency.
     from applire.services.session import get_conversation_language
-    lang = await get_conversation_language(db, job_id=job.id)
+    lang = await get_conversation_language(
+        db, job_id=job.id, user_id=getattr(gap_analysis, "user_id", None)
+    )
     raw = await provider.aparse_json(
         build_clustering_prompt(
             category_b=list(category_b),
@@ -1171,7 +1181,9 @@ async def _run_analysis(
     provider: LLMProvider,
     *,
     answer_scope: AnswerScope | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> GapAnalysisResponse:
+    user_id = resolve_user_id(user_id, site="gap._run_analysis")
     job_dict = _job_inputs(job)
 
     # E037 PQ #3 — idempotency: same (job, profile) → same score, computed once.
@@ -1185,7 +1197,7 @@ async def _run_analysis(
     from applire.services.flow.orchestrator import repoint_flow_gap_analysis
 
     fingerprint = _input_fingerprint(job, profile)
-    previous = await _latest_gap_analysis(job.id, db)
+    previous = await _latest_gap_analysis(job.id, db, user_id=user_id)
     if previous is not None and previous.input_fingerprint == fingerprint:
         # ADR-090 clause 8 — a row from before Alembic 0069 gets its
         # gap-relevant fingerprint the first time its inputs are confirmed
@@ -1194,7 +1206,7 @@ async def _run_analysis(
         if previous.gap_inputs_fingerprint is None:
             previous.gap_inputs_fingerprint = _gap_inputs_fingerprint(job, profile)
             await db.flush()
-        await repoint_flow_gap_analysis(job.id, previous.id, db)
+        await repoint_flow_gap_analysis(job.id, previous.id, db, user_id=user_id)
         return GapAnalysisResponse.model_validate(previous)
 
     # Pass 1: rule-based pre-classification
@@ -1325,6 +1337,7 @@ async def _run_analysis(
     record = GapAnalysis(
         job_analysis_id=job.id,
         profile_id=profile.id,
+        user_id=user_id,
         match_score=scored["match_score"],
         input_fingerprint=fingerprint,
         gap_inputs_fingerprint=_gap_inputs_fingerprint(job, profile),
@@ -1382,6 +1395,7 @@ async def _run_analysis(
             select(GapAnalysis)
             .where(
                 GapAnalysis.job_analysis_id == job_id,
+                GapAnalysis.user_id == user_id,
                 GapAnalysis.input_fingerprint == fingerprint,
                 GapAnalysis.deleted_at.is_(None),
             )
@@ -1391,7 +1405,7 @@ async def _run_analysis(
         winner = winner_result.scalar_one_or_none()
         if winner is None:
             raise
-        await repoint_flow_gap_analysis(job_id, winner.id, db)
+        await repoint_flow_gap_analysis(job_id, winner.id, db, user_id=user_id)
         return GapAnalysisResponse.model_validate(winner)
     await db.refresh(record)
 
@@ -1400,12 +1414,18 @@ async def _run_analysis(
     # pre-interview one. Single seam: every recompute path (/gaps/refresh,
     # interview completion, gap-click) routes through here. repoint_flow_gap_analysis
     # is imported at the top of this function.
-    await repoint_flow_gap_analysis(job.id, record.id, db)
+    await repoint_flow_gap_analysis(job.id, record.id, db, user_id=user_id)
 
     return GapAnalysisResponse.model_validate(record)
 
 
-async def _resolve_job(job_id: uuid.UUID, db: AsyncSession) -> JobAnalysis:
+async def _resolve_job(job_id: uuid.UUID, db: AsyncSession, user_id: uuid.UUID | None = None) -> JobAnalysis:
+    """The shared posting (instance cache, no owner — S-17).
+
+    Posting ACCESS (ADR-092 cl. 5c, ``services.job.get_job_for_user``) is checked
+    at the doors (REST routers, MCP tools) before they reach this service; what
+    the service reads FOR the user — profile, previous analyses — is owner-keyed.
+    """
     result = await db.execute(
         select(JobAnalysis).where(
             JobAnalysis.id == job_id,
@@ -1418,14 +1438,11 @@ async def _resolve_job(job_id: uuid.UUID, db: AsyncSession) -> JobAnalysis:
     return job
 
 
-async def _resolve_profile(db: AsyncSession) -> MasterProfile:
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = result.scalar_one_or_none()
+async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID | None = None) -> MasterProfile:
+    user_id = resolve_user_id(user_id, site="gap._resolve_profile")
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, user_id)
     if profile is None:
         raise LookupError("No profile found — import a CV first")
     return profile

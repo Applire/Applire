@@ -54,7 +54,8 @@ from applire.utils.language_detection import resolve_jd_language
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
 from applire.models.user_settings import UserSettings
-from applire.services.color_detection import _CE_STUB_USER_ID
+from applire.services.owner_resolution import resolve_user_id
+from applire.services.owner_scope import owned_row
 from applire.providers.llm.base import LLMProvider
 # #480 PR 7 — `EnrichmentRecord`, `ProfileMetadata` and `record_denials` are no
 # longer imported here: the interview's last three hand-rolled vault writes (the
@@ -128,9 +129,12 @@ async def get_ui_language(db: AsyncSession, *, user_id: uuid.UUID | None = None)
     means the user never chose). Single seam for the future multi-user (OIDC)
     lookup. Job-scoped conversation should use ``get_conversation_language``
     instead, which adds the JD-language fallback.
+
+    ADR-092 / D-10: the CALLER's settings row (``UNIQUE(user_id)``).
     """
+    uid = resolve_user_id(user_id, site="session.get_ui_language")
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == uid)
     )
     row = result.scalar_one_or_none()
     return (row.ui_language if row else None) or "en"
@@ -151,8 +155,9 @@ async def get_conversation_language(
     journey. 'en' remains the last-resort default only when there is no job
     to route on.
     """
+    uid = resolve_user_id(user_id, site="session.get_conversation_language")
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == uid)
     )
     row = result.scalar_one_or_none()
     if row is not None and row.ui_language:
@@ -185,7 +190,7 @@ def _account_name(profile_record: MasterProfile | None) -> str | None:
 
 
 async def _pending_gate_clusters(
-    db: AsyncSession, lang: str, account_name: str | None
+    db: AsyncSession, lang: str, account_name: str | None, *, user_id: uuid.UUID | None = None
 ) -> tuple[list[str], dict, dict]:
     """Build gate-first pseudo-clusters for every open parked gate (US167).
 
@@ -193,9 +198,10 @@ async def _pending_gate_clusters(
     caller can prepend the gate ids ahead of the JD gaps, mandatory and
     job-irrelevant. Empty when nothing is parked — the no-gate path is unchanged.
     """
+    user_id = resolve_user_id(user_id, site="session._pending_gate_clusters")
     from applire.services.profile import list_open_gates  # lazy: avoid import cycle
 
-    records = await list_open_gates(db)
+    records = await list_open_gates(db, user_id=user_id)
     if not records:
         return [], {}, {}
     inputs = [
@@ -278,12 +284,13 @@ async def _ask_or_complete_at(
     else:
         next_category = (state.get("gap_categories") or {}).get(next_gap)
         job_context = (
-            await _load_job_context(state["job_id"], db)
+            await _load_job_context(state["job_id"], db, user_id=record.user_id)
             if state.get("mode") == "guided"
             else None
         )
         q_data = await _cluster_question(
             state, profile_record.profile_json, provider, db,
+            user_id=record.user_id,
             session_id=str(record.id),
             gap_category=next_category, job_context=job_context, lang=lang,
         )
@@ -348,7 +355,9 @@ async def _handle_gate_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_conversation_language(db, job_id=state.get("job_id"))
+    lang = await get_conversation_language(
+        db, job_id=state.get("job_id"), user_id=record.user_id
+    )
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -473,7 +482,9 @@ async def _handle_confirmation_answer(
             confirmation_entry,
             confirmation_entry["question"],
             options,
-            await get_conversation_language(db, job_id=state.get("job_id")),
+            await get_conversation_language(
+        db, job_id=state.get("job_id"), user_id=record.user_id
+    ),
         )
 
     await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
@@ -483,7 +494,9 @@ async def _handle_confirmation_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_conversation_language(db, job_id=state.get("job_id"))
+    lang = await get_conversation_language(
+        db, job_id=state.get("job_id"), user_id=record.user_id
+    )
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -1163,7 +1176,9 @@ async def _handle_conflict_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    lang = await get_conversation_language(db, job_id=state.get("job_id"))
+    lang = await get_conversation_language(
+        db, job_id=state.get("job_id"), user_id=record.user_id
+    )
     return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
 
 
@@ -1224,7 +1239,9 @@ async def _ask_confirmation(
     # #669 — the parked form is language-independent (`_confirmation_state`);
     # what the candidate SEES is rendered here, against the conversation's
     # language, exactly like every LLM-generated question on this surface.
-    lang = await get_conversation_language(db, job_id=state.get("job_id"))
+    lang = await get_conversation_language(
+        db, job_id=state.get("job_id"), user_id=record.user_id
+    )
     confirmations = [_confirmation_state(c) for c in turn.pending_confirmations]
     confirmation = turn.pending_confirmations[0]
     question, choices = confirmation.rendered(lang)
@@ -1258,6 +1275,8 @@ async def _ask_confirmation(
 
 async def _get_active_profile_review_session(
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> InterviewSession | None:
     """The active standalone profile-review session, if one is in flight.
 
@@ -1266,10 +1285,12 @@ async def _get_active_profile_review_session(
     Mode-C enrichment sessions are ``mode='profile_enrich'``, so
     "guided + job IS NULL" identifies a profile review uniquely (resume-safe,
     ADR-004)."""
+    user_id = resolve_user_id(user_id, site="session._get_active_profile_review_session")
     result = await db.execute(
         select(InterviewSession)
         .where(
             InterviewSession.job_analysis_id.is_(None),
+            InterviewSession.user_id == user_id,
             InterviewSession.mode == "guided",
             InterviewSession.status == "active",
             InterviewSession.deleted_at.is_(None),
@@ -1361,20 +1382,17 @@ async def create_profile_review_session(
     each in place through the ADR-013 merge. Resume-safe — a second call returns
     the in-flight session rather than starting a new one.
     """
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile_record = profile_result.scalar_one_or_none()
+    from applire.services.profile import get_profile_for_user
+
+    uid = resolve_user_id(user_id, site="session.create_profile_review_session")
+    profile_record = await get_profile_for_user(db, uid)
     if profile_record is None:
         raise LookupError("No profile found — upload a CV first")
 
     if lang is None:
-        lang = await get_ui_language(db)
+        lang = await get_ui_language(db, user_id=uid)
 
-    existing = await _get_active_profile_review_session(db)
+    existing = await _get_active_profile_review_session(db, user_id=uid)
     if existing is not None:
         return _resumed_response(existing)
 
@@ -1423,6 +1441,7 @@ async def create_profile_review_session(
             job_id=None,
             gap_analysis_id=None,
             profile_id=profile_record.id,
+            user_id=profile_record.user_id,
             mode="guided",
             status="complete",
             state=state,
@@ -1455,6 +1474,7 @@ async def create_profile_review_session(
         job_id=None,
         gap_analysis_id=None,
         profile_id=profile_record.id,
+        user_id=profile_record.user_id,
         mode="guided",
         status="active",
         state=state,
@@ -1494,10 +1514,12 @@ async def gap_cluster_ids(job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.
     Returns ``None`` when no analysis exists yet (call ``analyze_gaps`` first);
     ``[]`` when an analysis exists but has no gap clusters (near-complete match).
     """
+    uid = resolve_user_id(user_id, site="session.gap_cluster_ids")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == uid,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -1553,7 +1575,8 @@ async def active_full_interview_exists(job_id: uuid.UUID, db: AsyncSession, *, u
     silently let a half-finished targeted interview get stomped too.
     `is_micro_session` is the predicate that actually tells them apart.
     """
-    active = await _get_active_session(job_id, db)
+    uid = resolve_user_id(user_id, site="session.active_full_interview_exists")
+    active = await _get_active_session(job_id, db, user_id=uid)
     return active is not None and not is_micro_session(active)
 
 
@@ -1663,13 +1686,20 @@ def _prior_asked(cluster: dict | None) -> int:
         return 0
 
 
-async def _left_open_cluster_ids(job_id: uuid.UUID, db: AsyncSession) -> set[str]:
+async def _left_open_cluster_ids(
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> set[str]:
     """Ids of the clusters the candidate left open by hand (ruling K-1), read
-    from the job's latest analysis row — the row the gaps page writes."""
+    from the owner's latest analysis row of the job — the row the gaps page writes."""
+    user_id = resolve_user_id(user_id, site="session._left_open_cluster_ids")
     row = (
         await db.execute(
             select(GapAnalysis)
-            .where(GapAnalysis.job_analysis_id == job_id, GapAnalysis.deleted_at.is_(None))
+            .where(
+                GapAnalysis.job_analysis_id == job_id,
+                GapAnalysis.user_id == user_id,
+                GapAnalysis.deleted_at.is_(None),
+            )
             .order_by(GapAnalysis.created_at.desc())
             .limit(1)
         )
@@ -1760,6 +1790,7 @@ async def _prior_exchanges(
     db: AsyncSession,
     cluster: dict | None,
     *,
+    user_id: uuid.UUID | None = None,
     exclude_session_id: str | None = None,
 ) -> list[dict]:
     """Earlier (question, answer) pairs on ``cluster``, oldest first (ADR-089
@@ -1772,6 +1803,7 @@ async def _prior_exchanges(
     ``exclude_session_id`` is the asking session itself, whose own exchanges
     already reach the prompt as its "Recent conversation".
     """
+    user_id = resolve_user_id(user_id, site="session._prior_exchanges")
     if not cluster:
         return []
     cluster_id = str(cluster.get("id") or "")
@@ -1788,6 +1820,7 @@ async def _prior_exchanges(
             await db.execute(
                 select(InterviewSession).where(
                     InterviewSession.id == uid,
+                    InterviewSession.user_id == user_id,
                     InterviewSession.deleted_at.is_(None),
                 )
             )
@@ -1799,16 +1832,18 @@ async def _prior_exchanges(
 
 
 async def _latest_cluster_with_ledger(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> tuple[dict | None, list | None]:
     """The cluster entry as the job's latest analysis row carries it, and that
     row's keyword ledger (a legacy cluster's coverage is derived against it,
     exactly as ``GapAnalysisResponse`` derives it) — ``(None, None)`` when the
     latest row does not carry the cluster."""
+    user_id = resolve_user_id(user_id, site="session._latest_cluster_with_ledger")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == user_id,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -1821,10 +1856,13 @@ async def _latest_cluster_with_ledger(
 
 
 async def _latest_cluster(
-    job_id: uuid.UUID, cluster_id: str, db: AsyncSession
+    job_id: uuid.UUID, cluster_id: str, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> dict | None:
-    """The cluster entry as the job's latest analysis row carries it, or None."""
-    cluster, _ledger = await _latest_cluster_with_ledger(job_id, cluster_id, db)
+    """The cluster entry as the owner's latest analysis row carries it, or None."""
+    user_id = resolve_user_id(user_id, site="session._latest_cluster")
+    cluster, _ledger = await _latest_cluster_with_ledger(
+        job_id, cluster_id, db, user_id=user_id
+    )
     return cluster
 
 
@@ -1839,10 +1877,11 @@ async def last_recorded_answer(
     normalisation) to this one: an agent retrying a call whose turn already
     committed would otherwise be charged a second question for the same words.
     """
-    cluster = await _latest_cluster(job_id, cluster_id, db)
+    uid = resolve_user_id(user_id, site="session.last_recorded_answer")
+    cluster = await _latest_cluster(job_id, cluster_id, db, user_id=uid)
     if cluster is None:
         return None
-    pairs = await _prior_exchanges(db, cluster)
+    pairs = await _prior_exchanges(db, cluster, user_id=uid)
     return pairs[-1]["answer"] if pairs else None
 
 
@@ -1865,7 +1904,10 @@ async def cluster_coverage_for(
 ) -> ClusterCoverage | None:
     """The cluster's coverage as the job's latest analysis row records it — the
     agent door's fallback when a turn wrote no record of its own."""
-    return _coverage_of(*await _latest_cluster_with_ledger(job_id, cluster_id, db))
+    uid = resolve_user_id(user_id, site="session.cluster_coverage_for")
+    return _coverage_of(
+        *await _latest_cluster_with_ledger(job_id, cluster_id, db, user_id=uid)
+    )
 
 
 def _is_pending_micro_on(record: InterviewSession, cluster_id: str) -> bool:
@@ -1926,6 +1968,7 @@ async def _cluster_question(
     provider: LLMProvider,
     db: AsyncSession,
     *,
+    user_id: uuid.UUID | None = None,
     session_id: str | None = None,
     **kwargs,
 ) -> dict:
@@ -1934,10 +1977,13 @@ async def _cluster_question(
     already asked carries those exchanges (read from the referenced
     transcripts, :func:`_prior_exchanges`). ``prior_exchanges`` is passed only
     when there is one, so a first-time cluster's call is unchanged."""
+    user_id = resolve_user_id(user_id, site="session._cluster_question")
     if state.get("mode") == "targeted":
         cluster_id = _current_gap_id(state)
         cluster = (state.get("gap_clusters_by_id") or {}).get(cluster_id) if cluster_id else None
-        prior = await _prior_exchanges(db, cluster, exclude_session_id=session_id)
+        prior = await _prior_exchanges(
+            db, cluster, user_id=user_id, exclude_session_id=session_id
+        )
         if prior:
             kwargs["prior_exchanges"] = prior
     return await question_generator_with_profile(state, profile, provider, **kwargs)
@@ -2119,9 +2165,14 @@ async def create_session(
     *,
     user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
-    job_id = request.job_id
+    from applire.services.profile import get_profile_for_user
 
-    # Resolve job analysis
+    job_id = request.job_id
+    uid = resolve_user_id(user_id, site="session.create_session")
+
+    # Resolve the shared posting. Posting ACCESS (ADR-092 cl. 5c) is the door's
+    # check (routers/session.py, the MCP tools) — everything read for the user
+    # below is owner-keyed.
     job_result = await db.execute(
         select(JobAnalysis).where(
             JobAnalysis.id == job_id,
@@ -2132,14 +2183,8 @@ async def create_session(
     if job is None:
         raise LookupError(f"Job analysis {job_id} not found")
 
-    # Resolve latest profile (may be None for MODE B)
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile_record = profile_result.scalar_one_or_none()
+    # Resolve the caller's profile (may be None for MODE B)
+    profile_record = await get_profile_for_user(db, uid)
 
     # --- Mode resolution ---
     if request.mode is not None:
@@ -2148,7 +2193,7 @@ async def create_session(
         resolved_mode = _auto_detect_mode(profile_record)
 
     # Resolve conversation language once per request (ADR-038, amended 2026-08-01)
-    lang = await get_conversation_language(db, job_id=job.id)
+    lang = await get_conversation_language(db, job_id=job.id, user_id=uid)
 
     # --- Micro-session: target_gap scopes to a single gap (Gap-Click mode, 19.9) ---
     # #627 — target_gap alone is authoritative: a caller naming one specific
@@ -2160,10 +2205,12 @@ async def create_session(
     # remembering an explicit mode="targeted" — silently falling through to
     # the idempotency branch below instead of the requested gap.
     if request.target_gap:
-        return await _create_micro_session(job_id, job, profile_record, request.target_gap, db, provider, lang)
+        return await _create_micro_session(
+            job_id, job, profile_record, request.target_gap, db, provider, lang, user_id=uid
+        )
 
     # --- Idempotency: return existing active session if one exists for this job ---
-    existing = await _get_active_session(job_id, db)
+    existing = await _get_active_session(job_id, db, user_id=uid)
     if existing is not None:
         # #627 — a Gap-Click micro-session that the user opened and then
         # closed WITHOUT answering stays `active` forever: send_message is
@@ -2189,17 +2236,21 @@ async def create_session(
     try:
         # --- MODE A: Targeted Gap-Fill ---
         if resolved_mode == "targeted":
-            return await _create_targeted_session(job_id, job, profile_record, db, provider, lang)
+            return await _create_targeted_session(
+                job_id, job, profile_record, db, provider, lang, user_id=uid
+            )
 
         # --- MODE B: Guided Build ---
-        return await _create_guided_session(job_id, job, profile_record, db, provider, lang)
+        return await _create_guided_session(
+            job_id, job, profile_record, db, provider, lang, user_id=uid
+        )
     except IntegrityError:
         # Lost a create race: a concurrent request (e.g. React StrictMode
         # double-fire) committed its session after our idempotency check but
         # before our insert.  The unique active-per-job index rejected ours —
         # return the winner instead of surfacing a 500.
         await db.rollback()
-        winner = await _get_active_session(job_id, db)
+        winner = await _get_active_session(job_id, db, user_id=uid)
         if winner is None:
             raise
         return _resumed_response(winner)
@@ -2259,17 +2310,21 @@ async def _create_targeted_session(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
+    user_id = resolve_user_id(user_id, site="session._create_targeted_session")
     if profile_record is None:
         raise LookupError(
             "No profile found — upload a CV first, or use mode='guided' to build from scratch"
         )
 
-    # Lazy gap analysis
+    # Lazy gap analysis — the owner's newest analysis of the shared posting
     gap_result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == user_id,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -2277,7 +2332,7 @@ async def _create_targeted_session(
     )
     gap_analysis = gap_result.scalar_one_or_none()
     if gap_analysis is None:
-        gap_response = await analyze_gaps(job_id, db, provider)
+        gap_response = await analyze_gaps(job_id, db, provider, user_id=user_id)
         ga_result2 = await db.execute(
             select(GapAnalysis).where(GapAnalysis.id == gap_response.id)
         )
@@ -2348,7 +2403,7 @@ async def _create_targeted_session(
     # US163: prepend any open deferred Tier-1 gate ahead of the JD gaps —
     # mandatory and job-irrelevant.
     gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
-        db, lang, _account_name(profile_record)
+        db, lang, _account_name(profile_record), user_id=user_id
     )
     critical_gaps = gate_ids + cluster_ids
     gap_categories = {**cluster_categories, **gate_categories}
@@ -2380,6 +2435,7 @@ async def _create_targeted_session(
             job_id=job_id,
             gap_analysis_id=gap_analysis.id,
             profile_id=profile_record.id,
+            user_id=profile_record.user_id,
             mode="targeted",
             status="complete",
             state=state,
@@ -2461,6 +2517,7 @@ async def _create_targeted_session(
         )
         q_data = await _cluster_question(
             state, profile_record.profile_json, provider, db,
+            user_id=user_id,
             gap_category=first_category, lang=lang,
             include_availability=include_availability,
         )
@@ -2475,6 +2532,7 @@ async def _create_targeted_session(
         job_id=job_id,
         gap_analysis_id=gap_analysis.id,
         profile_id=profile_record.id,
+        user_id=profile_record.user_id,
         mode="targeted",
         status="active",
         state=state,
@@ -2506,7 +2564,10 @@ async def _create_guided_session(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
+    user_id = resolve_user_id(user_id, site="session._create_guided_session")
     # MODE B can start without a profile — create an empty stub if needed.
     #
     # #480 PR 8: the row is created by the vault's own write module, inside the
@@ -2523,17 +2584,17 @@ async def _create_guided_session(
     if profile_record is None:
         from applire.services.profile.commit import create_profile_record
 
-        profile_record = await create_profile_record(db)
+        profile_record = await create_profile_record(db, user_id=user_id)
 
     sections = gap_detector_mode_b(job)
     job_context = {
-        "role_title": job.role_title or "",
+        "role_title": await _posting_role_title(db, job, user_id),
         "seniority_level": job.seniority_level or "",
     }
 
     # US163: an open deferred gate blocks even a from-scratch guided build.
     gate_ids, gate_categories, gate_by_id = await _pending_gate_clusters(
-        db, lang, _account_name(profile_record)
+        db, lang, _account_name(profile_record), user_id=user_id
     )
     critical_gaps = gate_ids + sections
 
@@ -2601,6 +2662,7 @@ async def _create_guided_session(
         job_id=job_id,
         gap_analysis_id=None,
         profile_id=profile_record.id,
+        user_id=profile_record.user_id,
         mode="guided",
         status="active",
         state=state,
@@ -2633,6 +2695,8 @@ async def _create_micro_session(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SessionCreateResponse:
     """Create a micro-session scoped to a single cluster (Gap-Click mode).
 
@@ -2648,16 +2712,18 @@ async def _create_micro_session(
     a follow-up RESUMES that session (clauses 7/8): the pending question is the
     one answered, and nothing is generated or charged twice.
     """
+    user_id = resolve_user_id(user_id, site="session._create_micro_session")
     if profile_record is None:
         raise LookupError(
             "No profile found — upload a CV first before using Gap-Click mode"
         )
 
-    # Load latest gap analysis to find the cluster
+    # Load the owner's latest gap analysis to find the cluster
     gap_result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == user_id,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -2689,7 +2755,7 @@ async def _create_micro_session(
         if refusal is not None:
             raise refusal
 
-    existing_active = await _get_active_session(job_id, db)
+    existing_active = await _get_active_session(job_id, db, user_id=user_id)
     if existing_active is not None and _is_pending_micro_on(existing_active, target_cluster_id):
         return _resumed_response(
             existing_active,
@@ -2727,6 +2793,7 @@ async def _create_micro_session(
     )
     q_data = await _cluster_question(
         state, profile_record.profile_json, provider, db,
+        user_id=user_id,
         gap_category=gap_category, lang=lang,
         include_availability=include_availability,
     )
@@ -2746,6 +2813,7 @@ async def _create_micro_session(
         job_id=job_id,
         gap_analysis_id=gap_analysis.id if gap_analysis else None,
         profile_id=profile_record.id,
+        user_id=profile_record.user_id,
         mode="targeted",
         status="active",
         state=state,
@@ -3252,21 +3320,18 @@ async def send_message(
     *,
     user_id: uuid.UUID | None = None,
 ) -> SessionMessageResponse:
-    # Load session
-    session_result = await db.execute(
-        select(InterviewSession).where(
-            InterviewSession.id == session_id,
-            InterviewSession.deleted_at.is_(None),
-        )
-    )
-    record = session_result.scalar_one_or_none()
+    # Load the caller's session (foreign id = missing id, S-10)
+    uid = resolve_user_id(user_id, site="session.send_message")
+    record = await owned_row(db, InterviewSession, session_id, uid)
     if record is None:
         raise LookupError(f"Session {session_id} not found")
     if record.status == "complete":
         raise ValueError("Session is already complete")
 
     # Resolve conversation language once for this turn (ADR-038, amended 2026-08-01)
-    lang = await get_conversation_language(db, job_id=record.job_analysis_id)
+    lang = await get_conversation_language(
+        db, job_id=record.job_analysis_id, user_id=record.user_id
+    )
 
     state: InterviewState = dict(record.state)
     state["messages"].append({"role": "user", "content": message})
@@ -3288,7 +3353,9 @@ async def send_message(
     # answer is recorded, and the advance decision below asks nothing further
     # on it. ---
     if record.job_analysis_id is not None:
-        left_open_ids = await _left_open_cluster_ids(record.job_analysis_id, db)
+        left_open_ids = await _left_open_cluster_ids(
+            record.job_analysis_id, db, user_id=record.user_id
+        )
         skipped_now = list(state.get("skipped_gaps", []))
         newly = sorted(
             g for g in left_open_ids
@@ -3671,13 +3738,14 @@ async def send_message(
         next_category = (state.get("gap_categories") or {}).get(next_gap)
         job_context: dict | None = None
         if state.get("mode") == "guided":
-            job_context = await _load_job_context(state["job_id"], db)
+            job_context = await _load_job_context(state["job_id"], db, user_id=record.user_id)
 
         next_q_data = await _cluster_question(
             state,
             updated_profile,
             provider,
             db,
+            user_id=record.user_id,
             session_id=str(record.id),
             gap_category=next_category,
             job_context=job_context,
@@ -3931,6 +3999,7 @@ async def _ask_partial_coverage_follow_up(
             updated_profile,
             provider,
             db,
+            user_id=record.user_id,
             session_id=str(record.id),
             gap_category=gap_category,
             lang=lang,
@@ -3987,13 +4056,8 @@ async def get_session_state(
     *,
     user_id: uuid.UUID | None = None,
 ) -> SessionStateResponse:
-    session_result = await db.execute(
-        select(InterviewSession).where(
-            InterviewSession.id == session_id,
-            InterviewSession.deleted_at.is_(None),
-        )
-    )
-    record = session_result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="session.get_session_state")
+    record = await owned_row(db, InterviewSession, session_id, uid)
     if record is None:
         raise LookupError(f"Session {session_id} not found")
 
@@ -4075,6 +4139,7 @@ async def _complete_session(
     # capture-ids-before-commit lesson from #122/#207.
     session_id = record.id
     job_analysis_id = record.job_analysis_id
+    record_user_id = record.user_id
     fallback_questions_asked = record.questions_asked
 
     # Also read off profile_record's completeness NOW, before analyze_gaps runs
@@ -4143,7 +4208,10 @@ async def _complete_session(
     answer_scope = _answer_scope(state)
     if job_analysis_id is not None:
         try:
-            await analyze_gaps(job_analysis_id, db, provider, answer_scope=answer_scope)
+            await analyze_gaps(
+                job_analysis_id, db, provider,
+                answer_scope=answer_scope, user_id=record_user_id,
+            )
         except Exception:
             logger.warning(
                 "Post-interview gap recompute failed for session %s (job %s); "
@@ -4162,7 +4230,8 @@ async def _complete_session(
         try:
             refreshed = _coverage_of(
                 *await _latest_cluster_with_ledger(
-                    job_analysis_id, cluster_coverage.cluster_id, db
+                    job_analysis_id, cluster_coverage.cluster_id, db,
+                    user_id=record_user_id,
                 )
             )
             if refreshed is not None:
@@ -4300,6 +4369,7 @@ def _make_session_record(
     job_id: uuid.UUID,
     gap_analysis_id: uuid.UUID | None,
     profile_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     mode: str,
     status: str,
     state: InterviewState,
@@ -4311,6 +4381,7 @@ def _make_session_record(
         job_analysis_id=job_id,
         gap_analysis_id=gap_analysis_id,
         profile_id=profile_id,
+        user_id=user_id,
         mode=mode,
         status=status,
         state=state,
@@ -4321,14 +4392,16 @@ def _make_session_record(
 
 
 async def _get_active_session(
-    job_id: uuid.UUID, db: AsyncSession
+    job_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None
 ) -> InterviewSession | None:
+    user_id = resolve_user_id(user_id, site="session._get_active_session")
     # Newest-first + first(): pre-migration databases may still hold
     # duplicate active sessions; never raise MultipleResultsFound here.
     result = await db.execute(
         select(InterviewSession)
         .where(
             InterviewSession.job_analysis_id == job_id,
+            InterviewSession.user_id == user_id,
             InterviewSession.status == "active",
             InterviewSession.deleted_at.is_(None),
         )
@@ -4347,7 +4420,22 @@ async def _load_profile(profile_id: str, db: AsyncSession) -> MasterProfile:
     return record
 
 
-async def _load_job_context(job_id: str | None, db: AsyncSession) -> dict:
+async def _posting_role_title(
+    db: AsyncSession, job: JobAnalysis, user_id: uuid.UUID | None = None
+) -> str:
+    """The owner's label for the posting (ADR-092 cl. 5f — application wins)."""
+    user_id = resolve_user_id(user_id, site="session._posting_role_title")
+    from applire.services.application import get_application_for_job
+    from applire.services.posting_labels import effective_posting_labels
+
+    application = await get_application_for_job(job.id, user_id, db)
+    return effective_posting_labels(job, application)[0] or ""
+
+
+async def _load_job_context(
+    job_id: str | None, db: AsyncSession, *, user_id: uuid.UUID | None = None
+) -> dict:
+    user_id = resolve_user_id(user_id, site="session._load_job_context")
     if not job_id:
         return {}
     result = await db.execute(
@@ -4357,7 +4445,7 @@ async def _load_job_context(job_id: str | None, db: AsyncSession) -> dict:
     if job is None:
         return {}
     return {
-        "role_title": job.role_title or "",
+        "role_title": await _posting_role_title(db, job, user_id),
         "seniority_level": job.seniority_level or "",
     }
 

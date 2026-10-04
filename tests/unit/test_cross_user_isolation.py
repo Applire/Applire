@@ -128,19 +128,6 @@ def _mcp_surface() -> tuple[dict[str, list[str]], list[str]]:
 PENDING_REST: set[tuple[str, str]] = {
     # exposed by the positive control (they 404'd for B only because A's own
     # rows were not reachable either — the first run's false greens):
-    ("GET", "/api/cover-letter/by-job/{job_id}"),  # 3d
-    ("GET", "/api/session/{session_id}"),  # 3d
-    ("POST", "/api/session/{session_id}/message"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/ats-report"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/critic-report"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/docx"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/html"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/pdf"),  # 3d
-    ("PATCH", "/api/cover-letter/{cl_id}/section"),  # 3d
-    ("PATCH", "/api/cover-letter/{cl_id}/signature"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/status"),  # 3d
-    ("GET", "/api/cover-letter/{cl_id}/truthfulness-report"),  # 3d
-    ("POST", "/api/session/{session_id}/analyze-gaps"),  # 3d
 }
 
 #: MCP read tools / resources not yet scoped (4b, W2). ``get_cv_status`` and
@@ -148,8 +135,6 @@ PENDING_REST: set[tuple[str, str]] = {
 #: resolve the caller's owner context and read owner-keyed, so B gets not_found.
 PENDING_MCP: set[str] = {
     "get_application",
-    "get_cover_letter_ats_report",
-    "get_cover_letter_status",
     "resource cv://",
     "resource job://",
 }

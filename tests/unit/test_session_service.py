@@ -3861,7 +3861,7 @@ class TestSessionEdgePaths:
         # No gap analysis in DB — create_session must call analyze_gaps
 
         # analyze_gaps returns a GapAnalysisResponse; we mock it to create a real DB record
-        async def fake_analyze_gaps(job_id, db, provider):
+        async def fake_analyze_gaps(job_id, db, provider, **kw):
             ga = GapAnalysis(
                 job_analysis_id=job_id,
                 profile_id=profile.id,

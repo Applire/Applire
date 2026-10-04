@@ -42,6 +42,7 @@ from applire.schemas.session import (
     SessionStateResponse,
 )
 from applire.services.gap import analyze_gaps_for_session
+from applire.services.job import get_job_for_user
 from applire.services.session import (
     GapNotAskableError,
     create_profile_review_session,
@@ -85,10 +86,13 @@ async def start_session(
     body: SessionCreateRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> SessionCreateResponse:
+    # ADR-092 cl. 5(c) / S-10: the posting must be one the caller is linked to;
+    # a foreign or missing job id is the same 404.
+    await get_job_for_user(db, body.job_id, user.id)
     try:
-        return await create_session(body, db, provider)
+        return await create_session(body, db, provider, user_id=user.id)
     except GapNotAskableError as exc:
         # ADR-089 clause 1 — a Gap-Click on a cluster whose per-gap budget is
         # spent, or whose coverage is already covered/declined, is refused with
@@ -130,11 +134,11 @@ async def start_session(
 async def start_profile_review_session(
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> SessionCreateResponse:
     """US165 — launch the standalone profile-review interview (no JD)."""
     try:
-        return await create_profile_review_session(db, provider)
+        return await create_profile_review_session(db, provider, user_id=user.id)
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -162,10 +166,10 @@ async def start_profile_review_session(
 async def get_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> SessionStateResponse:
     try:
-        return await get_session_state(session_id, db)
+        return await get_session_state(session_id, db, user_id=user.id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
@@ -182,10 +186,10 @@ async def analyze_session_gaps(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> GapAnalysisResponse:
     try:
-        return await analyze_gaps_for_session(session_id, db, provider)
+        return await analyze_gaps_for_session(session_id, db, provider, user_id=user.id)
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
@@ -220,7 +224,7 @@ async def post_message(
     body: SessionMessageRequest,
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
-    _auth: User = Depends(require_user),
+    user: User = Depends(require_user),
 ) -> SessionMessageResponse:
     if not body.message.strip():
         raise HTTPException(
@@ -228,7 +232,9 @@ async def post_message(
             detail="message must not be empty",
         )
     try:
-        return await send_message(session_id, body.message.strip(), db, provider)
+        return await send_message(
+            session_id, body.message.strip(), db, provider, user_id=user.id
+        )
     except LLMTimeoutError as exc:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc))
     except LLMRateLimitError as exc:
