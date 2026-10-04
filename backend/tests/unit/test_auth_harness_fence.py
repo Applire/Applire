@@ -161,6 +161,58 @@ async def test_startup_refuses_a_test_named_postgres_that_holds_a_vault(
 
 
 @pytest.mark.asyncio
+async def test_stdio_door_starts_on_a_test_postgres_that_holds_a_vault(
+    async_db, seed_profile, monkeypatch
+):
+    """MD-26 (ADR-091 cl. 3 amendment): the MCP stdio process skips ONLY the
+    profile-count boot latch. Same database the HTTP process refuses (arm 1) —
+    the stdio process starts and sets no latch (arm 2)."""
+    from applire.schemas.profile import MasterProfileData
+
+    monkeypatch.setattr(harness.settings, "auth_harness", True)
+    monkeypatch.setattr(harness.settings, "database_url", "postgresql+asyncpg://x@h/applire_ci")
+    await seed_profile(MasterProfileData())
+    harness._set_boot_latch(None)
+    with pytest.raises(HarnessRefused) as http:
+        await enforce_at_startup(async_db)  # the HTTP process (default door)
+    assert "profile" in http.value.reason
+    harness._set_boot_latch(None)
+    await enforce_at_startup(async_db, door="stdio")  # no raise
+    assert harness.boot_latch() is None
+    assert database_fence_reason() is None
+
+
+@pytest.mark.asyncio
+async def test_stdio_door_keeps_the_flag_the_credential_and_the_name_fences(
+    async_db, seed_profile, monkeypatch
+):
+    """MD-26: (a) without the flag nothing is enforced (the factory never builds
+    the harness); (c) a production-named database refuses; (b) once a credential
+    exists the stdio process refuses to start — and per call (mcp/identity)."""
+    from applire.schemas.profile import MasterProfileData
+
+    await seed_profile(MasterProfileData())
+    monkeypatch.setattr(harness.settings, "auth_harness", True)
+    monkeypatch.setattr(harness.settings, "database_url", "postgresql+asyncpg://x@h/applire")
+    with pytest.raises(HarnessRefused) as named:
+        await enforce_at_startup(async_db, door="stdio")
+    assert "_ci or _test" in named.value.reason
+    monkeypatch.setattr(harness.settings, "database_url", "postgresql+asyncpg://x@h/applire_ci")
+    async_db.add(User(id=uuid.uuid4(), email="a@example.org", password_hash="scrypt$x"))
+    await async_db.commit()
+    with pytest.raises(HarnessRefused) as exc:
+        await enforce_at_startup(async_db, door="stdio")
+    assert "password" in exc.value.reason
+
+
+def test_an_unknown_door_is_refused():
+    import asyncio
+
+    with pytest.raises(ValueError, match="door"):
+        asyncio.run(enforce_at_startup(None, door="sse"))  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
 async def test_startup_latches_an_empty_test_postgres(async_db, monkeypatch):
     monkeypatch.setattr(harness.settings, "auth_harness", True)
     monkeypatch.setattr(harness.settings, "database_url", "postgresql+asyncpg://x@h/applire_ci")

@@ -18,6 +18,11 @@ only when ALL fences hold:
     ``master_profiles`` has zero rows. The latch is evaluated once at boot
     (``enforce_at_startup``), so an E2E lane that seeds after boot keeps
     working while any boot against an existing vault refuses (exit 1).
+    **The MCP stdio process skips only this latch** (MD-26, ADR-091 cl. 3
+    amendment): the stdio door is reachable only with host/docker access, which
+    already grants database access — the latch protects the network-reachable
+    door. Fence (a), fence (b) (re-checked on every tool call by
+    ``mcp/identity.revalidate``) and the test-database-name proof still hold.
 (d) It says so: a WARNING block every boot, ``/api/auth/state.harness``, the
     red banner, and an audit row ``harness.boot``.
 
@@ -35,6 +40,7 @@ import time
 import uuid
 import weakref
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import exists, func, or_, select
@@ -228,11 +234,17 @@ _WARNING_BLOCK = (
 )
 
 
-async def enforce_at_startup(db: AsyncSession) -> None:
+async def enforce_at_startup(
+    db: AsyncSession, *, door: Literal["http", "stdio"] = "http"
+) -> None:
     """Check fences (b) and (c) once at boot; set the latch; raise ``HarnessRefused``.
 
     No-op unless ``AUTH_HARNESS`` is on. The caller commits nothing here.
+    ``door="stdio"`` (``mcp/__main__.py`` only, MD-26) skips the profile-count
+    boot latch and nothing else: the database-name proof and fence (b) hold.
     """
+    if door not in ("http", "stdio"):
+        raise ValueError(f"unknown harness door {door!r}")
     if not settings.auth_harness:
         return
     url = settings.database_url
@@ -240,7 +252,7 @@ async def enforce_at_startup(db: AsyncSession) -> None:
         raise HarnessRefused(database_fence_reason(url) or "not a test database")
     if await any_credential(db, use_cache=False):
         raise HarnessRefused("an account already holds a password or a sign-in binding")
-    if is_test_postgres(url):
+    if is_test_postgres(url) and door == "http":
         from applire.models.profile import MasterProfile
         from applire.ownership import unscoped
 
