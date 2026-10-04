@@ -526,7 +526,8 @@ async def bind_pending_invite(db: AsyncSession, claims: Claims) -> uuid.UUID | N
     ).all()
     user_ids = {row[0] for row in claimed}
     if len(user_ids) != 1:
-        await db.rollback()
+        if claimed:
+            await db.rollback()
         return None
     (user_id,) = user_ids
     try:
