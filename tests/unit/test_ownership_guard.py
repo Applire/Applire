@@ -234,6 +234,23 @@ async def test_loader_criteria_filter_orm_select_update_delete_for_the_user(worl
 
 
 @pytest.mark.asyncio
+async def test_loader_criteria_follow_each_context_in_sequence(world, guard_on):
+    """W2 finding: a lambda criterion with an untracked default argument was
+    cached with the FIRST user's id — B then read A's rows. Each context in
+    turn must see only its own row."""
+    factory, ids = world
+    seen = {}
+    for who in (A, B, A):
+        async with factory() as s:
+            with ownership.owner_context(who):
+                seen.setdefault(who, []).append(
+                    (await s.execute(select(Application.id))).scalars().all()
+                )
+    assert seen[A] == [[ids[A]], [ids[A]]]
+    assert seen[B] == [[ids[B]]]
+
+
+@pytest.mark.asyncio
 async def test_loader_criteria_are_off_with_the_guard_off(world):
     factory, ids = world
     async with factory() as s:

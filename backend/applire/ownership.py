@@ -411,10 +411,12 @@ def _do_orm_execute_criteria(orm_execute_state: Any) -> None:
     options = [
         with_loader_criteria(
             Model,
-            lambda cls, _uid=uid: cls.user_id == _uid,
+            # A plain expression, never a lambda: SQLAlchemy caches lambda
+            # criteria by code, and an untracked default argument baked the
+            # FIRST user's id into every later statement (W2 finding).
+            Model.user_id == uid,
             include_aliases=True,
             propagate_to_loaders=True,
-            track_closure_variables=False,
         )
         for Model in _owned_models_with_user_id()
     ]
