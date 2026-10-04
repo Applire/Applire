@@ -147,12 +147,13 @@ async def test_create_profile_record_race_ends_on_one_live_row(world):
     from applire.services.profile.commit import create_profile_record
 
     factory, a, b, c = world
-    async with factory() as s1:
-        first = await create_profile_record(s1, c.id)
-        await s1.commit()
-    async with factory() as s2:
-        second = await create_profile_record(s2, c.id)
-        await s2.commit()
+    with ownership.owner_context(c.id):  # every real door runs under its user's context
+        async with factory() as s1:
+            first = await create_profile_record(s1, c.id)
+            await s1.commit()
+        async with factory() as s2:
+            second = await create_profile_record(s2, c.id)
+            await s2.commit()
     assert second.id == first.id
     with ownership.unscoped("tooling"):
         async with factory() as s:
@@ -176,12 +177,13 @@ async def test_rank_jobs_sees_only_the_callers_linked_postings(world):
             pa = (await s.execute(select(MasterProfile).where(MasterProfile.user_id == a.id))).scalar_one()
             pb = (await s.execute(select(MasterProfile).where(MasterProfile.user_id == b.id))).scalar_one()
             await s.commit()
-    async with factory() as s:
-        res = await rank_jobs(pa.id, s, user_id=a.id)
-        assert [r.job_id for r in res] == [app_a.job_analysis_id]
-        assert res[0].role_title == "A's own title"  # the caller's override (cl. 5f)
-        with pytest.raises(LookupError):
-            await rank_jobs(pb.id, s, user_id=a.id)  # B's profile id is not A's
+    with ownership.owner_context(a.id):
+        async with factory() as s:
+            res = await rank_jobs(pa.id, s, user_id=a.id)
+            assert [r.job_id for r in res] == [app_a.job_analysis_id]
+            assert res[0].role_title == "A's own title"  # the caller's override (cl. 5f)
+            with pytest.raises(LookupError):
+                await rank_jobs(pb.id, s, user_id=a.id)  # B's profile id is not A's
 
 
 @pytest.mark.asyncio
@@ -196,9 +198,11 @@ async def test_signature_settings_row_is_the_callers(world):
             row.signature_path = "/sig/a.png"
             await s.commit()
     async with factory() as s:
-        assert await signature.resolve_signature_available(s, user_id=a.id) is True
-        assert await signature.resolve_signature_available(s, user_id=b.id) is False
-        with ownership.owner_context(b.id):  # fallback: the context, never "the" row
+        with ownership.owner_context(a.id):
+            assert await signature.resolve_signature_available(s, user_id=a.id) is True
+        with ownership.owner_context(b.id):
+            assert await signature.resolve_signature_available(s, user_id=b.id) is False
+            # fallback: the context, never "the" row
             assert await signature.resolve_signature_available(s) is False
 
 

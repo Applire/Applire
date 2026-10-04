@@ -63,6 +63,11 @@ async def factory():
     await engine.dispose()
 
 
+def _as(user_id):
+    """The door's owner context (REST dependency / MCP identity) for a service call."""
+    return ownership.owner_context(user_id)
+
+
 def _held(user_id):
     from applire.models.uploads import UploadRecord
 
@@ -113,7 +118,8 @@ async def test_list_open_gates_lists_the_owners_hold_only(factory, two_holds):
             assert [r.id for r in await list_open_gates(s, user_id=a)] == [ha]
             # no user_id → the owner context, never "everyone's"
             assert [r.id for r in await list_open_gates(s)] == [ha]
-        assert [r.id for r in await list_open_gates(s, user_id=b)] == [hb]
+        with ownership.owner_context(b):
+            assert [r.id for r in await list_open_gates(s, user_id=b)] == [hb]
 
 
 @pytest.mark.asyncio
@@ -121,14 +127,15 @@ async def test_resolve_staged_extraction_refuses_a_foreign_hold_like_a_missing_o
     from applire.services.profile import StagedExtractionNotFound, resolve_staged_extraction
 
     a, b, ha, hb = two_holds
-    async with factory() as s:
-        with pytest.raises(StagedExtractionNotFound) as foreign:
-            await resolve_staged_extraction(s, hb, action="discard", user_id=a)
-        with pytest.raises(StagedExtractionNotFound) as missing:
-            await resolve_staged_extraction(s, uuid.uuid4(), action="discard", user_id=a)
-        assert type(foreign.value) is type(missing.value)
-        res = await resolve_staged_extraction(s, ha, action="discard", user_id=a)
-        assert res.action == "discard"
+    with _as(a):
+        async with factory() as s:
+            with pytest.raises(StagedExtractionNotFound) as foreign:
+                await resolve_staged_extraction(s, hb, action="discard", user_id=a)
+            with pytest.raises(StagedExtractionNotFound) as missing:
+                await resolve_staged_extraction(s, uuid.uuid4(), action="discard", user_id=a)
+            assert type(foreign.value) is type(missing.value)
+            res = await resolve_staged_extraction(s, ha, action="discard", user_id=a)
+            assert res.action == "discard"
 
 
 @pytest.mark.asyncio

@@ -1134,6 +1134,10 @@ async def ingest_cv(
     nothing about the merge.
     """
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
+    # The importer, resolved ONCE (ADR-092 cl. 2/4): the gate compares against
+    # their vault, the merge writes it, and the UploadRecord is born theirs —
+    # never left for the ORM owner fill to guess from the context.
+    user_id = resolve_owner(user_id)
 
     if len(raw_text) > _MAX_CV_TEXT_CHARS:
         cut = raw_text.rfind("\n", 0, _MAX_CV_TEXT_CHARS)
