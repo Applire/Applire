@@ -193,7 +193,14 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     from applire.models.cv import GeneratedCV
     from applire.models.job import JobAnalysis
 
-    uid = await _seed_user(db)
+    from applire.auth.harness import STUB_USER_ID
+    from applire.models.user import User
+
+    # The in-process MCP door acts for its identity — unbound in a unit test,
+    # that is the harness stub user (4b) — so the stub user owns the link.
+    db.add(User(id=STUB_USER_ID, email=f"stub-{uuid.uuid4()}@example.org"))
+    await db.flush()
+    uid = STUB_USER_ID
     job = JobAnalysis(
         id=uuid.uuid4(), raw_text_hash=f"h-{uuid.uuid4()}", raw_text="JD",
         role_title="Software Engineer", seniority_level="mid",

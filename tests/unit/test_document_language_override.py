@@ -318,12 +318,9 @@ class TestGenerationPinning:
     async def test_generate_cv_pins_detection_without_an_override(
         self, db, user_and_job, monkeypatch
     ):
-        from tests.support.owners_3c import link_job
-
         user, job = user_and_job
-        # ADR-092: the user reaches the posting through their own link (no override).
-        await link_job(db, job.id, user.id)
-        await db.commit()
+        # ADR-092: the user reaches the posting through their own link (no
+        # override) — the fixture's link_posting (4a) already made it.
         record = await self._generate(db, job, monkeypatch)
         assert record.document_language == "de"
 

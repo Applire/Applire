@@ -81,6 +81,7 @@ class _FakeDB:
 def _record():
     return SimpleNamespace(
         id=uuid.uuid4(),
+        user_id=uuid.uuid4(),  # ADR-092: every generated row names its owner
         profile_id=uuid.uuid4(),
         job_analysis_id=uuid.uuid4(),
         tailored_data=dict(TAILORED),
@@ -93,8 +94,9 @@ async def _audit(monkeypatch, ledger):
 
     seen: dict = {}
 
-    async def _fake_latest(db, job_id, *, profile_json=None):
+    async def _fake_latest(db, job_id, *, profile_json=None, user_id=None):
         seen["job_id"] = job_id
+        seen["user_id"] = user_id
         seen["profile_json"] = profile_json
         return ledger
 
@@ -114,6 +116,7 @@ async def test_agent_door_fresh_audit_grounds_the_ledger_synonym(monkeypatch):
     _out, verdicts, record, db, seen = await _audit(monkeypatch, LEDGER)
     assert verdicts["Werkscontrolling"] == "grounded"
     assert verdicts["Produktionscontrolling"] == "grounded"
+    assert seen["user_id"] == record.user_id  # ADR-092: the CV owner's ledger (W2 integration)
     # The ledger was read for THIS record's job, with the vault already loaded
     # (no second profile query), exactly as the generation path reads it.
     assert seen["job_id"] == record.job_analysis_id
