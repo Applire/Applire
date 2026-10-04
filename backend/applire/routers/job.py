@@ -359,7 +359,7 @@ async def get_gap_job_status_endpoint(
 
     user = current_user
     job = await get_gap_job(db, gap_job_id, user_id=user.id)
-    if job is None:
+    if job is None or job.job_analysis_id != job_id:  # the path names ONE posting
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Gap job not found"
         )

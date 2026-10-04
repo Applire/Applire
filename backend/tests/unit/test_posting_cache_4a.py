@@ -347,3 +347,24 @@ async def test_analyze_retries_once_when_the_link_insert_hits_an_integrity_error
     res = await job_svc.analyze_jd(_JD, async_db, provider, user_id=a.id)
     assert len(calls) == 2
     assert (await get_job_for_user(async_db, res.id, a.id)).id == res.id
+
+
+@pytest.mark.asyncio
+async def test_gaps_door_requires_the_link_even_with_own_gap_rows(async_db, two_users):
+    """MD-23: the gaps routes resolve the posting through get_job_for_user AT THE
+    DOOR — the caller's own gap row on a posting they hold no link to (pre-0076
+    data) is not a way in."""
+    from applire.models.gap import GapAnalysis
+    from tests.support.profile_factory import make_master_profile
+
+    a, _ = two_users
+    job = await _job(async_db)
+    profile = make_master_profile(user_id=a.id, profile_json={"personal_info": {"name": "A"}})
+    async_db.add(profile)
+    await async_db.flush()
+    async_db.add(GapAnalysis(job_analysis_id=job.id, profile_id=profile.id, user_id=a.id, match_score=0.5))
+    await async_db.commit()
+    assert (await _call(async_db, a, "GET", f"/api/job/{job.id}/gaps")).status_code == 404
+    await ensure_application_link(async_db, job, a.id)
+    await async_db.commit()
+    assert (await _call(async_db, a, "GET", f"/api/job/{job.id}/gaps")).status_code == 200
