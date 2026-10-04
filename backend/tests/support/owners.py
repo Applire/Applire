@@ -19,6 +19,7 @@ Other packages add their resource factories in their own
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
@@ -26,6 +27,7 @@ import pytest_asyncio
 
 from applire.auth.no_auth import _STUB_USER_ID
 from applire.models.user import User
+from applire import ownership
 from applire.ownership import reset_owner, set_owner
 
 #: The NoAuth/harness stub user every unit test acts as by default.
@@ -33,6 +35,48 @@ from applire.ownership import reset_owner, set_owner
 HARNESS_USER_ID: uuid.UUID = _STUB_USER_ID
 
 NO_OWNER_CONTEXT_MARKER = "no_owner_context"
+
+
+#: ``APPLIRE_TEST_OWNER_GUARD`` — how the unit suites run the statement guard:
+#: ``on`` (default, MD-24 (1): the guard raises), ``off`` (the isolation suite's
+#: second arm: a 404 must come from an explicit owner predicate), ``report``
+#: (diagnostic: log + ``guard_reports()``, nothing raises).
+GUARD_MODE_ENV = "APPLIRE_TEST_OWNER_GUARD"
+GUARD_MODES = ("on", "off", "report")
+
+
+def guard_mode_from_env() -> str:
+    mode = os.environ.get(GUARD_MODE_ENV, "on").strip().lower() or "on"
+    if mode not in GUARD_MODES:
+        raise pytest.UsageError(f"{GUARD_MODE_ENV}={mode!r} — expected one of {GUARD_MODES}")
+    return mode
+
+
+def _test_engine_guard(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+    """The statement guard for every engine a test builds (test harness only).
+
+    Production registers ``ownership._before_cursor_execute`` on the application
+    engine alone (ADR-092 cl. 8a); tests build their own SQLite engines, so the
+    suites hang this delegate on the ``Engine`` class. An engine that already
+    carries the production listener is skipped (one check per statement).
+    """
+    from sqlalchemy import event
+
+    if event.contains(conn.engine, "before_cursor_execute", ownership._before_cursor_execute):
+        return
+    ownership._before_cursor_execute(conn, cursor, statement, parameters, context, executemany)
+
+
+def configure_test_guard() -> str:
+    """Set the guard flags for this test session and guard every engine (idempotent)."""
+    from sqlalchemy import Engine, event
+
+    mode = guard_mode_from_env()
+    ownership.GUARD_ENABLED = mode != "off"
+    ownership.GUARD_REPORT_ONLY = mode == "report"
+    if not event.contains(Engine, "before_cursor_execute", _test_engine_guard):
+        event.listen(Engine, "before_cursor_execute", _test_engine_guard)
+    return mode
 
 
 def register_markers(config: pytest.Config) -> None:
@@ -54,6 +98,29 @@ def harness_owner_context(request: pytest.FixtureRequest):
         yield HARNESS_USER_ID
     finally:
         reset_owner(token)
+
+
+def act_as(user_id: uuid.UUID, *, autouse: bool = True):
+    """A **sync** fixture acting for ``user_id`` for the whole test (ADR-092 cl. 8).
+
+    For test modules whose services act for a user other than the harness user:
+    a request acts for exactly one user, so the test does too — the loader
+    criteria (cl. 8b) then match what production sees. Bind it at module level::
+
+        _acting_user = act_as(UID)
+
+    A read for a second user runs inside its own ``owner_context(other)``.
+    """
+
+    @pytest.fixture(autouse=autouse)
+    def _act_as():
+        token = set_owner(user_id)
+        try:
+            yield user_id
+        finally:
+            reset_owner(token)
+
+    return _act_as
 
 
 async def make_user(db, *, email: str | None = None, user_id: uuid.UUID | None = None) -> User:

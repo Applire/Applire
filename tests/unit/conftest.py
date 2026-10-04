@@ -24,11 +24,15 @@ os.environ.setdefault("AUTH_HARNESS", "true")
 
 # ADR-092 cl. 8 test bootstrap (Strawberry F12): the sync autouse owner context
 # (harness user) and its opt-out marker ``no_owner_context``.
-from tests.support.owners import harness_owner_context, register_markers  # noqa: E402,F401
+from tests.support.owners import configure_test_guard, harness_owner_context, register_markers  # noqa: E402,F401
 
 
 def pytest_configure(config):
     register_markers(config)
+    # MD-24 (1): the statement guard runs ON in the unit suites, on every engine
+    # (``APPLIRE_TEST_OWNER_GUARD=off|report`` for the isolation suite's second arm
+    # and diagnostics).
+    configure_test_guard()
 
 
 @pytest.fixture(scope="session", autouse=True)

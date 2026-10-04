@@ -53,6 +53,7 @@ from applire.models.profile import MasterProfile
 from applire.models.user import User
 from applire.providers.llm.mock import MockLLMProvider
 from applire.services.gap import analyze_gaps
+from applire.ownership import owner_context
 from applire.services.gap_jobs import create_gap_job
 from tests.support.profile_factory import make_master_profile
 
@@ -203,22 +204,24 @@ async def test_create_gap_job_returns_winner_when_race_lost(db, seeded):
 
     # Rollback (inside the lost race) expires ORM instances — pin the id now.
     job_id = job.id
+    # The kickoff acts for the job's owner, as its request would (ADR-092 cl. 8).
     with patch(
         "applire.services.gap_jobs._find_nonterminal_job", new=racy_find
-    ):
+    ), owner_context(_STUB_USER_ID):
         result = await create_gap_job(
             db, job_analysis_id=job_id, user_id=_STUB_USER_ID
         )
 
     assert result.id == winner_id
-    live = (
-        await db.execute(
-            select(GapAnalysisJob).where(
-                GapAnalysisJob.job_analysis_id == job_id,
-                GapAnalysisJob.deleted_at.is_(None),
+    with owner_context(_STUB_USER_ID):
+        live = (
+            await db.execute(
+                select(GapAnalysisJob).where(
+                    GapAnalysisJob.job_analysis_id == job_id,
+                    GapAnalysisJob.deleted_at.is_(None),
+                )
             )
-        )
-    ).scalars().all()
+        ).scalars().all()
     assert len(live) == 1, "the lost race must not leave a duplicate job behind"
 
 

@@ -95,7 +95,12 @@ async def make_document(db: AsyncSession, kind: str, owner: User):
         fields["user_id"] = owner.id
     row = model(**fields)
     db.add(row)
-    await db.commit()
+    # The seed acts for the document's owner (ADR-092 cl. 8): the guard refuses
+    # an owned-table INSERT with no owner context, as in a no_owner_context test.
+    from applire.ownership import owner_context
+
+    with owner_context(owner.id):
+        await db.commit()
     return row
 
 

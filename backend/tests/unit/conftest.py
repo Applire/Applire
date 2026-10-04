@@ -28,6 +28,7 @@ from applire.schemas.profile import MasterProfileData
 # ADR-092 cl. 8 test bootstrap (Strawberry F12): the sync autouse owner context,
 # the opt-out marker, and the two-user fixture.
 from tests.support.owners import (  # noqa: E402,F401
+    configure_test_guard,
     harness_owner_context,
     register_markers,
     two_users,
@@ -36,6 +37,10 @@ from tests.support.owners import (  # noqa: E402,F401
 
 def pytest_configure(config):
     register_markers(config)
+    # MD-24 (1): the statement guard runs ON in the unit suites, on every engine
+    # (``APPLIRE_TEST_OWNER_GUARD=off|report`` for the isolation suite's second arm
+    # and diagnostics).
+    configure_test_guard()
 
 
 @pytest.fixture(scope="session", autouse=True)

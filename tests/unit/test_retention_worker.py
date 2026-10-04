@@ -395,7 +395,12 @@ async def test_tombstone_inactive_profiles(db):
     inactive_id = await _seed_profile(db, updated_at=_ago(days=731))
     active_id = await _seed_profile(db, updated_at=_ago(days=100))
 
-    tombstoned = await _tombstone_inactive_profiles(db)
+    # The rule runs where production runs it: inside the sweep's declared
+    # cross-user context (ADR-092 cl. 7/8) — not as the harness user.
+    from applire.ownership import unscoped
+
+    with unscoped("retention"):
+        tombstoned = await _tombstone_inactive_profiles(db)
     assert tombstoned == 1
 
     row = (await db.execute(text("SELECT deleted_at FROM master_profiles WHERE id = :id"), {"id": inactive_id})).one()

@@ -242,14 +242,18 @@ class TestResolveStagedExtraction:
             resolve_staged_extraction,
         )
 
+        from applire.ownership import owner_context
+
         owner = uuid.uuid4()
         attacker = uuid.uuid4()
-        await _upload(sqlite_session, storage, "Anna Schmidt", company="BMW", user_id=owner)
-        gated = await _upload(
-            sqlite_session, storage, "Marcus Weber", company="SAP", user_id=owner
-        )
+        # Each call acts for the user it names, as its request would (ADR-092 cl. 8).
+        with owner_context(owner):
+            await _upload(sqlite_session, storage, "Anna Schmidt", company="BMW", user_id=owner)
+            gated = await _upload(
+                sqlite_session, storage, "Marcus Weber", company="SAP", user_id=owner
+            )
 
-        with pytest.raises(StagedExtractionNotFound):
+        with owner_context(attacker), pytest.raises(StagedExtractionNotFound):
             await resolve_staged_extraction(
                 sqlite_session, gated.staged_id, action="merge", user_id=attacker
             )

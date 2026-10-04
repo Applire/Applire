@@ -54,6 +54,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from applire.ownership import owner_context
 import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy import event, insert, update
@@ -308,10 +309,12 @@ async def test_the_photo_service_is_authorised(db_session):
         )
     await db_session.commit()
 
-    storage = _Storage()
-    await delete_photo(user_id=user_id, db=db_session, storage=storage)
+    # Acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(user_id):
+        storage = _Storage()
+        await delete_photo(user_id=user_id, db=db_session, storage=storage)
 
-    assert storage.deleted == ["photos/photo.jpg"]
+        assert storage.deleted == ["photos/photo.jpg"]
 
 
 @pytest.mark.asyncio

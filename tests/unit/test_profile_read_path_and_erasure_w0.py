@@ -29,6 +29,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from applire.ownership import owner_context
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -71,9 +72,11 @@ async def test_get_profile_for_user_returns_the_owners_live_row(db):
     db.add_all([mine, theirs, gone])
     await db.commit()
 
-    row = await get_profile_for_user(db, USER_ID)
-    assert row is not None and row.id == mine.id
-    assert (await _get_latest(db, USER_ID)).id == mine.id
+    # Acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(USER_ID):
+        row = await get_profile_for_user(db, USER_ID)
+        assert row is not None and row.id == mine.id
+        assert (await _get_latest(db, USER_ID)).id == mine.id
 
 
 @pytest.mark.asyncio

@@ -168,15 +168,27 @@ def test_guard_is_registered_on_the_app_engine_only():
     assert not event.contains(Engine, "before_cursor_execute", ownership._before_cursor_execute)
 
 
-def test_guard_is_off_in_w0():
-    assert ownership.GUARD_ENABLED is False
+def test_guard_ships_on_and_raising():
+    """MD-24 (1): the product default is ON and raising (report mode is a test /
+    diagnostic switch). Read in a fresh interpreter — the unit session itself sets
+    the flags from ``APPLIRE_TEST_OWNER_GUARD``."""
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import applire.ownership as o; print(o.GUARD_ENABLED, o.GUARD_REPORT_ONLY)"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert out == ["True", "False"]
 
 
 @pytest_asyncio.fixture
 async def guarded_db():
     eng = create_async_engine("sqlite+aiosqlite://")
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    with ownership.unscoped("tooling"):  # the schema build names every owned table
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     ownership.install_guard(eng)
     async with async_sessionmaker(eng, expire_on_commit=False)() as s:
         yield s
@@ -185,7 +197,8 @@ async def guarded_db():
 
 @pytest.mark.no_owner_context
 @pytest.mark.asyncio
-async def test_guard_off_lets_ownerless_owned_sql_through(guarded_db: AsyncSession):
+async def test_guard_off_lets_ownerless_owned_sql_through(guarded_db: AsyncSession, monkeypatch):
+    monkeypatch.setattr(ownership, "GUARD_ENABLED", False)
     assert ownership.current_owner() is None
     await guarded_db.execute(text("SELECT count(*) FROM applications"))
 
@@ -203,6 +216,7 @@ async def test_guard_off_lets_ownerless_owned_sql_through(guarded_db: AsyncSessi
 )
 async def test_guard_on_refuses_ownerless_owned_sql(guarded_db, monkeypatch, stmt):
     monkeypatch.setattr(ownership, "GUARD_ENABLED", True)
+    monkeypatch.setattr(ownership, "GUARD_REPORT_ONLY", False)
     with pytest.raises(ownership.OwnerContextMissing, match="applications"):
         await guarded_db.execute(stmt())
 
@@ -240,12 +254,15 @@ async def _seed(db, owner):
 async def test_get_owned_returns_own_row_and_hides_foreign_and_missing(guarded_db):
     a, b = uuid.uuid4(), uuid.uuid4()
     row = await _seed(guarded_db, a)
-    assert (await ownership.get_owned(guarded_db, Application, row.id, a)).id == row.id
+    # Each read runs as the user it names (a request acts for exactly one user).
+    with ownership.owner_context(a):
+        assert (await ownership.get_owned(guarded_db, Application, row.id, a)).id == row.id
 
-    with pytest.raises(ownership.OwnedNotFound) as foreign:
-        await ownership.get_owned(guarded_db, Application, row.id, b, kind="application")
-    with pytest.raises(ownership.OwnedNotFound) as missing:
-        await ownership.get_owned(guarded_db, Application, uuid.uuid4(), b, kind="application")
+    with ownership.owner_context(b):
+        with pytest.raises(ownership.OwnedNotFound) as foreign:
+            await ownership.get_owned(guarded_db, Application, row.id, b, kind="application")
+        with pytest.raises(ownership.OwnedNotFound) as missing:
+            await ownership.get_owned(guarded_db, Application, uuid.uuid4(), b, kind="application")
     assert (foreign.value.status_code, foreign.value.detail) == (missing.value.status_code, missing.value.detail)
     assert foreign.value.detail == "application not found"
 
