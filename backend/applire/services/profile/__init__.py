@@ -1416,7 +1416,7 @@ async def _apply_merge(
         existing_data = MasterProfileData.model_validate(existing.profile_json)
         from applire.services.session import get_ui_language
 
-        lang = await get_ui_language(db)
+        lang = await get_ui_language(db, user_id=user_id)
         merge_result = await reconcile_import(
             existing_data, incoming, source=source, provider=provider, lang=lang,
         )

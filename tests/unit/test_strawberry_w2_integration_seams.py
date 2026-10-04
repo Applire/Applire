@@ -96,3 +96,122 @@ async def test_agent_door_audit_reads_the_ledger_of_the_cv_owner():
 
     assert out["document_id"] == str(record.id)
     assert ledger.await_args.kwargs.get("user_id") == owner
+
+
+# ---------------------------------------------------------------------------
+# get_ui_language(user_id=…) — found by the W2-integration report-mode run:
+# the only owner fallbacks reached over a real door (HTTP / MCP wrapper) were
+# these five ``get_ui_language(db)`` calls. Each test runs under a DIFFERENT
+# ambient owner and stops the path right after the language read (a sentinel),
+# so a dropped kwarg would read the ambient user's language.
+# ---------------------------------------------------------------------------
+
+
+class _Stop(Exception):
+    pass
+
+
+def _lang_spy():
+    seen: dict = {}
+
+    async def _spy(db, *, user_id=None):
+        seen["user_id"] = user_id
+        raise _Stop
+
+    return seen, _spy
+
+
+@pytest.mark.asyncio
+async def test_enrich_next_question_reads_the_session_owners_language():
+    from applire.routers import profile_enrich as r
+
+    owner = uuid.uuid4()
+    session = SimpleNamespace(
+        user_id=owner, status="active",
+        state={"critical_gaps": ["a", "b"], "addressed_gaps": [], "na_gaps": [], "skipped_gaps": [], "current_gap_index": 0},
+    )
+    seen, spy = _lang_spy()
+    with patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+        with pytest.raises(_Stop):
+            await r._next_question_or_done(session, {}, MagicMock(), MagicMock())
+    assert seen["user_id"] == owner
+
+
+@pytest.mark.asyncio
+async def test_enrich_start_reads_the_profile_owners_language():
+    from applire.routers import profile_enrich as r
+    from applire.schemas.enrich import EnrichStartRequest
+
+    owner = uuid.uuid4()
+    record = SimpleNamespace(id=uuid.uuid4(), user_id=owner, profile_json={})
+    seen, spy = _lang_spy()
+    with patch.object(r, "_load_profile", new=AsyncMock(return_value=record)), \
+         patch.object(r, "_active_enrich_session", new=AsyncMock(return_value=None)), \
+         patch.object(r, "gap_detector_mode_c", return_value=["Zertifikate"]), \
+         patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+        with pytest.raises(_Stop):
+            await r.start_enrich_session(
+                EnrichStartRequest(), db=MagicMock(), provider=MagicMock(),
+                current_user=SimpleNamespace(id=owner),
+            )
+    assert seen["user_id"] == owner
+
+
+@pytest.mark.asyncio
+async def test_enrich_respond_reads_the_profile_owners_language():
+    from applire.routers import profile_enrich as r
+    from applire.schemas.enrich import EnrichRespondRequest
+
+    owner = uuid.uuid4()
+    session = SimpleNamespace(
+        user_id=owner,
+        state={"critical_gaps": ["a"], "current_gap_index": 0, "current_question": "q?", "messages": [], "addressed_gaps": []},
+    )
+    record = SimpleNamespace(id=uuid.uuid4(), user_id=owner, profile_json={})
+    seen, spy = _lang_spy()
+    with patch.object(r, "_load_session", new=AsyncMock(return_value=session)), \
+         patch.object(r, "_load_profile", new=AsyncMock(return_value=record)), \
+         patch.object(r, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+        with pytest.raises(_Stop):
+            await r.respond_to_enrich(
+                uuid.uuid4(), EnrichRespondRequest(answer="Ich habe ein PMP-Zertifikat."),
+                db=MagicMock(), provider=MagicMock(), current_user=SimpleNamespace(id=owner),
+            )
+    assert seen["user_id"] == owner
+
+
+@pytest.mark.asyncio
+async def test_apply_merge_reads_the_vault_owners_language():
+    import applire.services.profile as profile_svc
+    from applire.schemas.profile import MasterProfileData
+    from applire.services import session as session_svc
+
+    owner = uuid.uuid4()
+    existing = SimpleNamespace(id=uuid.uuid4(), user_id=owner, profile_json={})
+    seen, spy = _lang_spy()
+    with patch.object(profile_svc, "_get_latest", new=AsyncMock(return_value=existing)), \
+         patch.object(session_svc, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+        with pytest.raises(_Stop):
+            await profile_svc._apply_merge(
+                MagicMock(), MasterProfileData(), source="cv_upload", emb_provider=MagicMock(),
+                provider=MagicMock(), user_id=owner,
+            )
+    assert seen["user_id"] == owner
+
+
+@pytest.mark.asyncio
+async def test_testimony_reads_the_vault_owners_language():
+    import applire.services.profile as profile_svc
+    from applire.services import session as session_svc
+    from applire.services.profile.reconcile import testimony_bridge
+
+    owner = uuid.uuid4()
+    record = SimpleNamespace(id=uuid.uuid4(), user_id=owner, profile_json={})
+    seen, spy = _lang_spy()
+    with patch.object(profile_svc, "_get_latest", new=AsyncMock(return_value=record)), \
+         patch.object(session_svc, "get_ui_language", new=spy), ownership.owner_context(uuid.uuid4()):
+        with pytest.raises(_Stop):
+            await testimony_bridge.submit_testimony(
+                "Ich leite seit 2021 ein Team.", MagicMock(), MagicMock(), user_id=owner,
+            )
+    assert seen["user_id"] == owner

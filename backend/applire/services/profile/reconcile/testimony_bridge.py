@@ -112,7 +112,7 @@ async def submit_testimony(
     if record is None:
         raise LookupError("No profile found — import a CV or create a profile first")
 
-    lang = await get_ui_language(db)
+    lang = await get_ui_language(db, user_id=record.user_id)
     submission_id = str(uuid.uuid4())
     current = MasterProfileData.model_validate(record.profile_json)
     if current.metadata is None:
