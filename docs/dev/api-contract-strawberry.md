@@ -68,7 +68,8 @@ validation errors (422 from FastAPI, `detail` = list) and resource-not-found
 | `origin_mismatch` | 403 | unsafe requests | Origin/Referer/Host check failed. `message` names **both remedies**: "your reverse proxy must forward the Host header, or set APPLIRE_BASE_URL to the address you open"; login and setup pages render it. |
 | `email_taken` | 409 | `POST /api/admin/users` | An account with that email (case-insensitive) exists. |
 | `password_policy` | 422 | setup, redeem, password change | Length or equals-email rule failed (length is also enforced by the schema → plain 422). |
-| `reauth_required` | 403 | `DELETE /api/me/account`, OIDC unlink | A password-less account must complete `POST /api/me/reauth/start` first. |
+| `reauth_required` | 403 | `DELETE /api/me/account`, `DELETE /api/me/oidc` | A password-less account (account delete) or any account (unlink) must complete `POST /api/me/reauth/start` first. |
+| `last_credential` | 409 | `DELETE /api/me/oidc` | The account has no password — the OIDC binding is its only way to sign in, so unlinking is refused (ruling on CONTRACT-CHANGE 1d-1). |
 | `user_not_pending` | 409 | `POST /api/admin/users/{id}/reinvite` | The person already has a credential — use a reset link. |
 | `user_not_active` | 409 | `POST /api/admin/users/{id}/reset-link` | Pending (use reinvite) or disabled. |
 | `oidc_failed` | — (redirect) | `GET /api/auth/oidc/callback` → `302 /login?error=oidc_failed` | Any IdP/state/claim check failed. |
@@ -122,11 +123,18 @@ revokes the older one; redemption is one atomic `UPDATE … RETURNING`.
 | Method · path | Dep | Request | Response | Owner |
 |---|---|---|---|---|
 | `GET /api/auth/oidc/start?next=<relative path>` | public | — | 302 to the IdP; signed 10-min httpOnly state cookie (state, nonce, PKCE verifier, `intent=login`) | 1d |
-| `GET /api/auth/oidc/callback?code&state` | public | — | success: session cookie + 302 to `next` (default `/`), or `/settings?oidc=linked` for `intent=link`; failure: 302 `/login?error=oidc_failed\|oidc_no_account` | 1d |
+| `GET /api/auth/oidc/callback?code&state` | public | — | success: session cookie + 302 to `next` (default `/`), or `/settings?oidc=linked` for `intent=link`, or `/settings?reauth=<action>` for `intent=reauth` (grant verified); failure: 302 `/login?error=oidc_failed\|oidc_no_account\|account_disabled` for `intent=login`, `/settings?oidc=failed` for `intent=link\|reauth` (CONTRACT-CHANGE 1d-1) | 1d |
 | `POST /api/me/oidc/link` | `require_session_user` | — | 200 `me.AuthorizeRedirectResponse` `{authorize_url}` + state cookie with `intent=link` and the session's `uid` | 1d |
-| `POST /api/me/reauth/start` | `require_session_user` | `me.ReauthStartRequest` `{action: account.delete\|oidc.unlink, target_id}` | 200 `me.AuthorizeRedirectResponse` (IdP with `prompt=login&max_age=0`) | 1d |
+| `POST /api/me/reauth/start` | `require_session_user` | `me.ReauthStartRequest` `{action: account.delete\|oidc.unlink, target_id}` | 200 `me.AuthorizeRedirectResponse` (IdP with `prompt=login&max_age=0`); 403 `forbidden` when `target_id` is not the caller's own id or the account has no OIDC binding; 503 `oidc_failed` when the IdP's discovery fails | 1d |
+| `DELETE /api/me/oidc` | `require_session_user` | — | 204, binding cleared, audited `oidc.unlinked`; 204 no-op when not linked. Errors: 409 `last_credential` (no password), 403 `reauth_required` (no verified `oidc.unlink` grant for this session) | 1d |
 
 `next` must be a same-origin relative path (`/…`, not `//…`); anything else → `/`.
+
+`POST /api/me/oidc/link` also answers 503 `oidc_failed` when discovery fails. The
+state cookie `applire_oidc_state` has `Path=/api/auth/oidc`, `HttpOnly`,
+`SameSite=Lax`, 10 minutes; each state is accepted once. Re-auth: the IdP must
+send `auth_time` (an IdP that omits it cannot confirm destructive actions — fail
+closed).
 
 ### 3.5 My tokens and my account (session only — an `api` bearer gets 403 `forbidden`)
 
