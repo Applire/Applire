@@ -746,3 +746,36 @@ async def test_mcp_door_resolves_owned_ids_itself(world, name, monkeypatch, mcp_
         identity.bind(previous)
     assert _is_not_found(result), f"{name}: {result!r}"[:300]
     assert leaked.await_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(strict=True, reason="W2: 3b/3c — render_agent_cv reads the newest profile (F6 W0 body), not the caller's")
+async def test_mcp_render_on_own_posting_never_writes_into_another_vault(world, monkeypatch, mcp_signing_secret):
+    """Real stdio smoke 2026-10-04: B's ``render_document`` on B's OWN posting link
+    produced a CV built from A's profile and owned by A. The caller here is A (the
+    older rows), so a "newest profile" read lands on B's vault."""
+    import contextlib
+
+    import applire.mcp.server as server
+    from applire.mcp import identity
+
+    factory, a, b, ids = world
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        async with factory() as s:
+            yield s
+
+    monkeypatch.setattr(server, "get_db", _db)
+    monkeypatch.setattr(server, "get_provider", lambda *a, **k: _NO_PROVIDER)
+    _neutralise_side_effects(monkeypatch)
+    before_b = await _snapshot(factory, b.id)
+    previous = await _bind_agent(factory, a)
+    try:
+        try:
+            await server.render_document(**MCP_WRITE_CALLS["render_document"](ids, {}))
+        except Exception:  # noqa: BLE001 — the write, not the answer, is under test
+            pass
+    finally:
+        identity.bind(previous)
+    assert await _snapshot(factory, b.id) == before_b, "A's render wrote into B's rows"
