@@ -21,9 +21,18 @@
 #
 # THIS FILE IS THE DEV TOPOLOGY, and Compose applies it automatically whenever it
 # sits beside docker-compose.yml — i.e. in every source clone. It publishes the API
-# on :8001 without authentication and PostgreSQL on :5433 with the compose default
-# credentials, and runs the backend with hot reload. That is a debugging topology,
-# not an install. For a real install: `docker compose -f docker-compose.yml up -d`.
+# on :8001 (bypassing nginx; login still applies) and PostgreSQL on :5433 with the
+# compose default credentials, and runs the backend with hot reload. That is a
+# debugging topology, not an install. For a real install:
+# `docker compose -f docker-compose.yml up -d`.
+#
+# Login is on here too (ADR-091): a fresh dev database prints a setup code in
+# `docker compose logs backend`; or claim it with
+# `docker compose exec backend python -m applire.admin create-admin --email you@example.org`.
+# Use the app through nginx on :80 — the origin check compares the browser's
+# Origin with the Host nginx forwards. The NoAuth test harness (AUTH_HARNESS) is
+# NOT for this stack: it serves only a `_ci`/`_test` database that held no
+# profile at boot, and the dev volume holds your vault under `applire`.
 # The backend therefore reports APPLIRE_TOPOLOGY=dev — a startup WARNING and
 # GET /health.topology — so "which topology am I running?" has an answer that does
 # not depend on remembering which files are on disk (ADR-087 cl. 9, JF-O-1.2).
