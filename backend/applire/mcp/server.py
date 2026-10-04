@@ -1305,20 +1305,6 @@ async def get_cv_ats_report(cv_id: str) -> dict:
     return _marked(result.model_dump(mode="json"), "ats_report")
 
 
-def _ledger_owner_kwargs(user_id) -> dict:
-    """``user_id=`` for ``cv._latest_keyword_ledger`` once 3c's signature has it.
-
-    INTEGRATION (W2): 3c adds the keyword; delete this shim and pass
-    ``user_id=`` directly when the branches meet.
-    """
-    import inspect
-
-    if user_id is None:
-        return {}
-    params = inspect.signature(cv_svc._latest_keyword_ledger).parameters
-    return {"user_id": user_id} if "user_id" in params else {}
-
-
 async def _audit_stored_document(record, kind: str, db) -> dict:
     """Persisted-or-fresh truthfulness report for a generated CV/letter row.
 
@@ -1351,7 +1337,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
         try:
             keyword_ledger = await cv_svc._latest_keyword_ledger(
                 db, record.job_analysis_id, profile_json=profile_json or None,
-                **_ledger_owner_kwargs(getattr(record, "user_id", None)),
+                user_id=record.user_id,
             )
         except Exception:
             logger.exception(

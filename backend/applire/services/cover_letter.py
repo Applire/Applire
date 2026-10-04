@@ -2415,7 +2415,7 @@ async def _persist_and_measure(
     try:
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True, user_id=cl.user_id)
     except Exception as pdf_err:
         logger.warning("PDF render failed for CL %s: %s", cl.id, pdf_err)
     if pdf_bytes is not None:
@@ -3388,6 +3388,21 @@ async def _latest_keyword_ledger(
     )
 
 
+async def _label_application(db: AsyncSession, cl: GeneratedCoverLetter):
+    """The letter owner's application on the letter's posting — the carrier of
+    THEIR role/company labels for the audit's non-claim names (ADR-092 cl. 5f).
+
+    Fail-safe like the pin load: a lookup error audits with the posting's own
+    names only (``non_claim_names_for_job(job, None)``)."""
+    try:
+        from applire.services.application import get_application_for_job
+
+        return await get_application_for_job(cl.job_analysis_id, cl.user_id, db)
+    except Exception:
+        logger.exception("label application lookup failed for cover letter %s", cl.id)
+        return None
+
+
 async def _update_ats_report_letter(
     cl: GeneratedCoverLetter,
     db: AsyncSession,
@@ -3445,7 +3460,7 @@ async def _update_ats_report_letter(
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf = pdf if pdf is not None else await render_pdf(cl.id)
+        pdf = pdf if pdf is not None else await render_pdf(cl.id, user_id=cl.user_id)
         job = await db.get(JobAnalysis, cl.job_analysis_id)
         letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
         # ADR-048 / US203: the latest Keyword Ledger buckets each MISSING keyword as
@@ -3494,7 +3509,7 @@ async def _update_ats_report_letter(
             vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
             # (the audit adds the letter's own recipient.company).
-            non_claim=non_claim_names_for_job(job),
+            non_claim=non_claim_names_for_job(job, await _label_application(db, cl)),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -3749,7 +3764,9 @@ async def _update_ats_report_letter(
             vault_index=grounding_vault_index(
                 docx_profile_row.profile_json if docx_profile_row else None
             ),
-            non_claim=non_claim_names_for_job(docx_job),  # WP-R, same names as the PDF report
+            non_claim=non_claim_names_for_job(  # WP-R, same names as the PDF report
+                docx_job, await _label_application(db, cl)
+            ),
         ).model_dump()
     except Exception:
         logger.exception(
@@ -3962,7 +3979,7 @@ async def render_agent_letter(
     try:
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True, user_id=uid)
     except Exception as pdf_err:
         # Fail-open like the pipeline: HTML preview still works; the audit
         # below degrades to a NULL ATS report (truthfulness needs no PDF).

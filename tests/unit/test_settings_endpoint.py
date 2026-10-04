@@ -32,7 +32,7 @@ async def db():
     import applire.models.cover_letter
     import applire.models.user_settings
     from applire.models.user import User
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -380,7 +380,7 @@ class TestReviewModeSetting:
         # not try (and fail) to persist a NULL.
         from applire.routers.settings import get_settings, update_settings
         from applire.models.user_settings import UserSettings
-        from applire.services.color_detection import _CE_STUB_USER_ID
+        from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
         from sqlalchemy import select
 
         await update_settings(db, ui_language="de")
@@ -512,7 +512,7 @@ class TestDismissedExplainers:
         # not leave a freshly-created row behind.
         from applire.models.user_settings import UserSettings
         from applire.routers.settings import update_settings
-        from applire.services.color_detection import _CE_STUB_USER_ID
+        from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
         from sqlalchemy import select
 
         with pytest.raises(ValueError):
@@ -573,7 +573,7 @@ class TestDismissedExplainers:
         # __dict__ so SQLAlchemy's autoflush does not try to persist a NULL.
         from applire.models.user_settings import UserSettings
         from applire.routers.settings import get_settings, update_settings
-        from applire.services.color_detection import _CE_STUB_USER_ID
+        from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
         from sqlalchemy import select
 
         await update_settings(db, ui_language="de")
@@ -591,7 +591,7 @@ class TestDismissedExplainers:
     async def test_dismissing_on_a_legacy_null_row_starts_a_fresh_list(self, db):
         from applire.models.user_settings import UserSettings
         from applire.routers.settings import get_settings, update_settings
-        from applire.services.color_detection import _CE_STUB_USER_ID
+        from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
         from sqlalchemy import select
 
         await update_settings(db, ui_language="de")

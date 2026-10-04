@@ -198,7 +198,7 @@ async def get_pdf(
         # id is a 404 without launching Chromium; render_pdf opens its own
         # session and inherits this request's owner context.
         filename = await get_cover_letter_pdf_filename(cl_id, db, user_id=user.id)
-        pdf_bytes = await render_pdf(cl_id)
+        pdf_bytes = await render_pdf(cl_id, user_id=user.id)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",

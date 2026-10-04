@@ -183,7 +183,8 @@ class TestResolveColorContext:
 
     @pytest.mark.asyncio
     async def test_step3_user_default_when_no_company(self, db):
-        from applire.services.color_detection import resolve_color_context, _CE_STUB_USER_ID
+        from applire.services.color_detection import resolve_color_context
+        from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
         from applire.models.user_settings import UserSettings
         from applire.models.user import User
         user = User(id=_CE_STUB_USER_ID, email="local@applire.community")

@@ -2110,6 +2110,7 @@ async def _record_cluster_turn(
         member_facts=facts,
         session_id=str(record.id),
         charge=True,
+        user_id=record.user_id,
     )
     # The follow-up's focus (ruling B-4, ADR-089 clause 2 amended 2026-09-23):
     # the OPEN members this answer does NOT name. The #188 seam never moves an

@@ -97,7 +97,7 @@ async def _make_user(db) -> uuid.UUID:
 
 async def _settings_row(db):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
 
     result = await db.execute(
         select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)

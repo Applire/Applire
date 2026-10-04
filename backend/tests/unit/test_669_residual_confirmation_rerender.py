@@ -63,7 +63,7 @@ from applire.models.user_settings import UserSettings
 from applire.providers.llm.mock import MockLLMProvider
 from applire.schemas.enrich import EnrichRespondRequest
 from applire.schemas.profile import MasterProfileData
-from applire.services.color_detection import _CE_STUB_USER_ID
+from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
 from applire.services.profile.reconcile.confirmations import skill_containment_confirmation
 from applire.services.session import (
     _ask_queued_confirmation,

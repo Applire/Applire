@@ -615,3 +615,88 @@ async def test_letter_docx_audit_engine_error_via_generation_path_leaves_status_
     )
     assert cl.docx_ats_report is None
     assert cl.ats_report is not None and cl.ats_report["passed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Strawberry W2 integration (3c x 3d): every letter render_pdf call site names
+# the letter's owner — render_pdf opens its OWN session and reads the row
+# owner-keyed (3c catch-all), so a site that drops ``user_id`` falls back to
+# the ambient context (counted in OWNER_FALLBACK_STATS) instead of the row's
+# owner. One seam test per call site.
+# ---------------------------------------------------------------------------
+
+
+def _render_pdf_owner_kwargs(spy: AsyncMock) -> list:
+    return [c.kwargs.get("user_id") for c in spy.await_args_list]
+
+
+@pytest.mark.asyncio
+async def test_generation_render_pdf_names_the_letter_owner(db_with_cover_letter):
+    """``_persist_and_measure`` (generation path) -> render_pdf(user_id=cl.user_id)."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    mock_provider = AsyncMock()
+    mock_provider.aparse_json.return_value = _stub_letter_data()
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    spy = AsyncMock(return_value=b"%PDF-fake")
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=spy), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_pdf_ats_report()), \
+         patch("applire.services.office_export.extract._audit_letter_text", return_value=_make_docx_ats_report()):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(ctx["cl_id"], None, ctx["job_id"])
+
+    owner = (await session.get(GeneratedCoverLetter, ctx["cl_id"])).user_id
+    assert owner is not None
+    seen = _render_pdf_owner_kwargs(spy)
+    assert seen and all(u == owner for u in seen), seen
+
+
+@pytest.mark.asyncio
+async def test_reaudit_render_pdf_names_the_letter_owner(db_with_cover_letter):
+    """``_update_ats_report_letter`` (section re-audit) -> render_pdf(user_id=cl.user_id)."""
+    from fastapi import BackgroundTasks
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services.cover_letter import patch_cover_letter_section
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    bg = BackgroundTasks()
+    spy = AsyncMock(return_value=b"%PDF-patched")
+    with patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_pdf_ats_report()), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF")), \
+         patch("applire.services.office_export.extract._audit_letter_text", return_value=_make_docx_ats_report()):
+        await patch_cover_letter_section(ctx["cl_id"], "body", "Neuer Absatz", session, bg)
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_pdf_ats_report()), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=spy), \
+         patch("applire.services.office_export.extract._audit_letter_text", return_value=_make_docx_ats_report()):
+        mock_session_local.return_value.__aenter__.return_value = session
+        await bg.tasks[0]()
+
+    owner = (await session.get(GeneratedCoverLetter, ctx["cl_id"])).user_id
+    seen = _render_pdf_owner_kwargs(spy)
+    assert seen and all(u == owner for u in seen), seen
+
+
+@pytest.mark.asyncio
+async def test_agent_letter_render_pdf_names_the_caller(seeded):
+    """``render_agent_letter`` -> render_pdf(user_id=<the resolved caller>)."""
+    from applire.services.cover_letter import render_agent_letter
+
+    spy = AsyncMock(return_value=b"%PDF")
+    with patch("applire.services.cover_letter_pdf.render_pdf", new=spy), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=_make_pdf_ats_report()), \
+         patch("applire.services.office_export.extract._audit_letter_text", return_value=_make_docx_ats_report()):
+        cl = await render_agent_letter(dict(AGENT_LETTER_CONTENT), seeded["job_id"], seeded["db"])
+
+    seen = _render_pdf_owner_kwargs(spy)
+    assert seen and all(u == cl.user_id for u in seen) and cl.user_id is not None, seen

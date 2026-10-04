@@ -56,13 +56,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ACCENT = "#2b5fa8"
 _SCRAPE_TTL_DAYS = 30
-# CE stub user id. Strawberry W2 (ADR-092 cl. 14): no 3d code path reads it any
-# more — kept DEFINED only because other packages' files still import it until
-# integration (main ruling on CONTRACT-CHANGE 3d-1 (b)); deletion is an
-# integration step.
-_CE_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
-
 @dataclass
 class ColorContext:
     primary: str        # hex — main brand color

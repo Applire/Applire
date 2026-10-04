@@ -362,7 +362,7 @@ async def _seed_job_and_profile(db):
 
 async def _seed_user_settings(db, target_cv_pages: int | None):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
     from applire.models.user import User
 
     db.add(User(id=_CE_STUB_USER_ID, email="local@applire.community"))
