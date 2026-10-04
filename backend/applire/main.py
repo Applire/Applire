@@ -50,6 +50,7 @@ from applire.routers.admin import color_schemes as admin_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
 from applire.routers import auth_links, me_account, me_tokens  # Strawberry W1 (1b, 1c)
+from applire.routers import auth_oidc, me_oidc, me_reauth  # Strawberry W3 (1d, US323)
 from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
 from applire.routers.admin import users as admin_users  # 1b
 from applire.auth.deps import require_user
@@ -213,6 +214,11 @@ async def _prepare_accounts() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_startup_posture()
+    # US323 (1d): an OIDC configuration that cannot work stops the boot (no-op
+    # while OIDC_ISSUER is empty), before any migration or account work runs.
+    from applire.auth.oidc import validate_config as validate_oidc_config
+
+    validate_oidc_config()
     subprocess.run(["alembic", "upgrade", "head"], check=True)
     await _enforce_harness_fences()
     await _publish_upgrade_notice()
@@ -300,3 +306,6 @@ app.include_router(me_account.router)
 app.include_router(me_tokens.router)
 app.include_router(admin_users.router)
 app.include_router(admin_probe_tokens.router)
+app.include_router(auth_oidc.router)  # 1d: 404 while OIDC_ISSUER is empty
+app.include_router(me_oidc.router)
+app.include_router(me_reauth.router)

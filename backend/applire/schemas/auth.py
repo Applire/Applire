@@ -54,6 +54,8 @@ ErrorCode = Literal[
     "user_not_active",
     "oidc_failed",
     "oidc_no_account",
+    # MD-25: DELETE /api/me/oidc on an account without a password (409).
+    "last_credential",
     # RULING W0B-3: only after a CORRECT password on a disabled account (403);
     # a wrong password keeps invalid_credentials with identical body and timing.
     "account_disabled",

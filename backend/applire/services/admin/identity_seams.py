@@ -15,20 +15,19 @@ fallback, no second copy):
 * 1a ``applire.auth.roles``: ``assert_not_last_admin`` — the one last-admin
   predicate (ADR-091 cl. 7; MD-18: an active admin holds a credential).
 * 1a ``applire.auth.csrf``: ``require_origin`` (cl. 12).
-* 1d ``applire.auth.reauth``: ``consume_grant`` — **still resolved at call time and
-  fail-closed** until 1d ships in W3 (a password-less account then gets
-  ``reauth_required``).
+* 1d ``applire.auth.reauth``: ``consume_grant`` (as ``consume_reauth_grant``; a
+  password-less account without a fresh verified grant gets ``reauth_required``).
 """
 
 from __future__ import annotations
 
-import importlib
 import uuid
 
 from fastapi import Request
 
 from applire.auth.csrf import require_origin
 from applire.auth.passwords import check_password_policy, hash_password, verify_password
+from applire.auth.reauth import consume_grant
 from applire.auth.roles import assert_not_last_admin
 from applire.auth.sessions import clear_session_cookie, issue_session, revoke_user_sessions
 from applire.auth.tokens import revoke_all_for_user as revoke_all_tokens
@@ -59,13 +58,7 @@ def require_origin_dependency():
 async def consume_reauth_grant(
     db, *, request: Request, user: User, action: str, target_id: uuid.UUID
 ) -> bool:
-    """Consume a verified fresh-OIDC grant; ``False`` while 1d has not shipped
-    (a password-less account then gets ``reauth_required`` — fail closed)."""
-    try:
-        mod = importlib.import_module("applire.auth.reauth")
-    except ImportError:
-        return False
-    fn = getattr(mod, "consume_grant", None)
-    if fn is None:
-        return False
-    return bool(await fn(db, request=request, user=user, action=action, target_id=target_id))
+    """Consume a verified fresh-OIDC grant (1d); ``False`` → ``reauth_required``."""
+    return bool(
+        await consume_grant(db, request=request, user=user, action=action, target_id=target_id)
+    )
