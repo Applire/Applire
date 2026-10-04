@@ -478,3 +478,35 @@ async def test_api_bearer_cannot_use_the_session_routes(env):
     r = await client.post("/api/me/oidc/link", headers={**ORIGIN, "Authorization": "Bearer apl_x_y"})
     assert r.status_code == 401
     assert (await db.execute(select(AuthSession))).first() is not None
+
+
+# --- consume_grant as an API (1b's caller always passes its own id; the bind must hold anyway)
+
+class _Req:
+    def __init__(self, sid, via="session"):
+        self.state = type("S", (), {"auth_via": via, "auth_session_id": sid})()
+
+
+@pytest.mark.asyncio
+async def test_consume_grant_is_bound_to_the_target_and_needs_a_session(env):
+    import uuid as _uuid
+
+    from applire.auth import reauth
+
+    db, client, fake, _ = env
+    me = await _oidc_only(db, client)
+    url = await _reauth_url(client, me)
+    await _callback(client, *fake.code_for(url))
+    (grant,) = (await db.execute(select(ReauthGrant))).scalars()
+    sid, uid = grant.session_id, sa_inspect(me).identity[0]
+    user = await db.get(User, uid)
+    assert not await reauth.consume_grant(db, request=_Req(sid), user=user,
+                                          action="account.delete", target_id=_uuid.uuid4())
+    assert not await reauth.consume_grant(db, request=_Req(sid, via="bearer"), user=user,
+                                          action="account.delete", target_id=uid)
+    assert not await reauth.consume_grant(db, request=_Req(None), user=user,
+                                          action="account.delete", target_id=uid)
+    assert await reauth.consume_grant(db, request=_Req(sid), user=user,
+                                      action="account.delete", target_id=uid)
+    assert not await reauth.consume_grant(db, request=_Req(sid), user=user,
+                                          action="account.delete", target_id=uid)
