@@ -74,7 +74,7 @@ export function UserMenu({ children, triggerClassName }: UserMenuProps) {
         <div
           role="menu"
           data-testid="user-menu"
-          className="absolute right-0 top-[calc(100%+8px)] z-[70] w-[232px] rounded-xl border border-gray-100 bg-white py-1.5 shadow-card"
+          className="absolute right-0 top-[calc(100%+8px)] z-[70] w-max min-w-[232px] max-w-[min(340px,calc(100vw-24px))] rounded-xl border border-gray-100 bg-white py-1.5 shadow-card"
         >
           {user ? (
             <div className="border-b border-gray-100 px-3.5 pb-2.5 pt-1.5">

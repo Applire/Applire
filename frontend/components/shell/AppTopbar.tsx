@@ -89,7 +89,7 @@ export function AppTopbar(props: AppTopbarProps) {
 
   return (
     <>
-      <header className="h-[52px] bg-white/90 backdrop-blur border-b border-gray-200 flex items-center px-6 gap-4 flex-shrink-0">
+      <header className="relative z-40 h-[52px] bg-white/90 backdrop-blur border-b border-gray-200 flex items-center px-6 gap-4 flex-shrink-0">
         {/* US223: below md the persistent AppSidebar is hidden — this hamburger
             opens the equivalent drawer navigation (MobileNavDrawer). */}
         <button
