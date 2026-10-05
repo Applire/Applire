@@ -27,6 +27,8 @@ import { useLocale } from "@/lib/providers/locale-provider";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { getSettings, setTargetCvPages } from "@/lib/api/settings";
+import { AccountCard } from "@/components/account/AccountCard";
+import { TokensCard } from "@/components/account/TokensCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -59,8 +61,8 @@ function DefaultColorPicker() {
 
   return (
     <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 bg-surface-container border border-neutral-medium rounded px-2 py-1.5">
-        <div className="w-5 h-5 rounded border border-neutral-medium" style={{ background: hex }} />
+      <div className="flex items-center gap-2 bg-surface-container border border-outline-variant rounded px-2 py-1.5">
+        <div className="w-5 h-5 rounded border border-outline-variant" style={{ background: hex }} />
         <input
           type="text"
           value={hex}
@@ -143,9 +145,9 @@ function LanguageSwitcher() {
   }
 
   return (
-    <section className="rounded-lg border border-neutral-medium p-4">
+    <section className="rounded-lg border border-outline-variant p-4">
       <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("language")}</h2>
-      <p className="text-sm text-neutral-medium mb-4">{t("languageHint")}</p>
+      <p className="text-sm text-on-surface-variant mb-4">{t("languageHint")}</p>
       <div className="flex gap-2" aria-disabled={saving}>
         {(["de", "en"] as const).map((lang) => (
           <button
@@ -156,7 +158,7 @@ function LanguageSwitcher() {
             className={`px-4 py-1.5 text-sm font-medium rounded border transition-colors ${
               locale === lang
                 ? "bg-teal text-white border-teal"
-                : "bg-white text-neutral-dark border-neutral-medium hover:border-teal"
+                : "bg-white text-neutral-dark border-outline-variant hover:border-teal"
             }`}
             data-testid={`lang-switch-${lang}`}
           >
@@ -241,6 +243,10 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* Strawberry (US326/US327, G-2): Konto + Tokens on top, existing cards below. */}
+          <AccountCard />
+          <TokensCard />
+
           {/* Language switcher */}
           <LanguageSwitcher />
 
@@ -275,16 +281,16 @@ export default function SettingsPage() {
           </Card>
 
           {/* Default CV Color */}
-          <section className="rounded-lg border border-neutral-medium p-4">
+          <section className="rounded-lg border border-outline-variant p-4">
             <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("defaultCVColor")}</h2>
-            <p className="text-sm text-neutral-medium mb-4">{t("defaultCVColorHint")}</p>
+            <p className="text-sm text-on-surface-variant mb-4">{t("defaultCVColorHint")}</p>
             <DefaultColorPicker />
           </section>
 
           {/* Default CV Length (E042/US239, ADR-051) */}
-          <section className="rounded-lg border border-neutral-medium p-4">
+          <section className="rounded-lg border border-outline-variant p-4">
             <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("defaultCVLength")}</h2>
-            <p className="text-sm text-neutral-medium mb-4">{t("defaultCVLengthHint")}</p>
+            <p className="text-sm text-on-surface-variant mb-4">{t("defaultCVLengthHint")}</p>
             <DefaultCVLengthPicker />
           </section>
 
