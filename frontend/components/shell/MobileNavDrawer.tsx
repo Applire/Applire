@@ -21,7 +21,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { NAV_ITEMS } from "./nav-items";
+import { useCurrentUser } from "@/lib/auth/current-user";
+import { avatarInitials } from "./avatar";
+import { isNavItemActive, navItemsFor } from "./nav-items";
 import { useShellUser } from "./ShellUserContext";
 
 interface MobileNavDrawerProps {
@@ -44,10 +46,11 @@ export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
   const router = useRouter();
   const t = useTranslations("shell");
   const { userName } = useShellUser();
+  const { user, isAdmin } = useCurrentUser();
+  const email = user?.email ?? null;
 
-  const initials = userName
-    ? userName.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase()
-    : "";
+  const initials = avatarInitials(userName, email);
+  const items = navItemsFor(isAdmin);
 
   function navigate(href: string) {
     onOpenChange(false);
@@ -73,7 +76,7 @@ export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
         </div>
         <SheetDescription className="sr-only">{t("navDrawerDescription")}</SheetDescription>
 
-        {userName ? (
+        {userName || email ? (
           <div
             data-testid="drawer-user-strip"
             className="flex items-center gap-2.5 px-5 py-3 border-b border-gray-100"
@@ -82,20 +85,23 @@ export function MobileNavDrawer({ open, onOpenChange }: MobileNavDrawerProps) {
               {initials}
             </div>
             <div className="min-w-0">
-              <p className="text-[13px] font-bold text-gray-900 truncate">{userName}</p>
+              {userName ? <p className="text-[13px] font-bold text-gray-900 truncate">{userName}</p> : null}
+              {email ? (
+                <p
+                  data-testid="drawer-user-email"
+                  className={cn("truncate", userName ? "text-[11px] text-gray-500" : "text-[12px] text-gray-700")}
+                >
+                  {email}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
 
         <nav className="flex-1 px-3 py-2.5 flex flex-col gap-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ key, href, icon }) => {
-            const active =
-              pathname === href ||
-              (pathname.startsWith(href + "/") &&
-                !NAV_ITEMS.some(
-                  ({ href: h }) =>
-                    h !== href && (pathname === h || pathname.startsWith(h + "/"))
-                ));
+          {items.map((item) => {
+            const { key, href, icon } = item;
+            const active = isNavItemActive(pathname, item);
             return (
               <button
                 key={key}

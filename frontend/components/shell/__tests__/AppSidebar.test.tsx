@@ -27,6 +27,15 @@ vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
 }));
 
+// US330: the sidebar reads the signed-in person (role → Administration entry, e-mail strip).
+let mockAuth: { user: { email: string; role: string } | null; isAdmin: boolean } = {
+  user: { email: "anna.bauer@example.org", role: "admin" },
+  isAdmin: true,
+};
+vi.mock("@/lib/auth/current-user", () => ({
+  useCurrentUser: () => mockAuth,
+}));
+
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
@@ -35,6 +44,45 @@ describe("AppSidebar", () => {
   beforeEach(() => {
     mockPush.mockReset();
     mockPathname = "/dashboard";
+    mockAuth = { user: { email: "anna.bauer@example.org", role: "admin" }, isAdmin: true };
+  });
+
+  describe("US330 — account in the shell", () => {
+    it("Administration is admin-only and goes to /admin/users (G-2)", () => {
+      render(<AppSidebar />);
+      fireEvent.click(screen.getByTestId("sidebar-nav-admin"));
+      expect(mockPush).toHaveBeenCalledWith("/admin/users");
+    });
+
+    it("a plain user sees no Administration entry — neither full nor rail", () => {
+      mockAuth = { user: { email: "jonas.keller@example.org", role: "user" }, isAdmin: false };
+      const { unmount } = render(<AppSidebar />);
+      expect(screen.queryByRole("button", { name: /admin/i })).toBeNull();
+      unmount();
+      mockPathname = "/flow/abc-123/cv";
+      render(<AppSidebar />);
+      expect(screen.queryByRole("button", { name: /admin/i })).toBeNull();
+    });
+
+    it("Administration stays highlighted on every /admin/* page", () => {
+      mockPathname = "/admin/appearance";
+      render(<AppSidebar />);
+      expect(screen.getByTestId("sidebar-nav-admin").className).toContain("bg-primary-container");
+    });
+
+    it("shows the e-mail under the profile name", () => {
+      render(<AppSidebar userName="Anna Bauer" />);
+      expect(screen.getByText("Anna Bauer")).toBeInTheDocument();
+      expect(screen.getByTestId("sidebar-user-email").textContent).toBe("anna.bauer@example.org");
+      expect(screen.getByText("AB")).toBeInTheDocument();
+    });
+
+    it("no profile yet: the e-mail alone, initial from the e-mail", () => {
+      mockAuth = { user: { email: "mira.santos@example.org", role: "user" }, isAdmin: false };
+      render(<AppSidebar />);
+      expect(screen.getByTestId("sidebar-user-email").textContent).toBe("mira.santos@example.org");
+      expect(screen.getByText("M")).toBeInTheDocument();
+    });
   });
 
   it("renders Applire logo image", () => {
@@ -120,7 +168,8 @@ describe("AppSidebar", () => {
     expect(screen.getByText("F")).toBeInTheDocument();
   });
 
-  it("hides the user strip when no userName is provided", () => {
+  it("hides the user strip when no userName and no signed-in person", () => {
+    mockAuth = { user: null, isAdmin: false };
     render(<AppSidebar />);
     expect(screen.queryByTestId("sidebar-user-strip")).toBeNull();
   });
@@ -130,7 +179,8 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Tobias Rosenbaum")).toBeInTheDocument();
   });
 
-  it("hides the user strip when userName is null", () => {
+  it("hides the user strip when userName is null and nobody is known", () => {
+    mockAuth = { user: null, isAdmin: false };
     render(<AppSidebar userName={null} />);
     expect(screen.queryByTestId("sidebar-user-strip")).toBeNull();
   });

@@ -28,6 +28,15 @@ vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
 }));
 
+// US330: the sidebar reads the signed-in person (role → Administration entry, e-mail strip).
+let mockAuth: { user: { email: string; role: string } | null; isAdmin: boolean } = {
+  user: { email: "anna.bauer@example.org", role: "admin" },
+  isAdmin: true,
+};
+vi.mock("@/lib/auth/current-user", () => ({
+  useCurrentUser: () => mockAuth,
+}));
+
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
@@ -44,6 +53,7 @@ describe("MobileNavDrawer", () => {
   beforeEach(() => {
     mockPush.mockReset();
     mockPathname = "/dashboard";
+    mockAuth = { user: { email: "anna.bauer@example.org", role: "admin" }, isAdmin: true };
   });
 
   it("renders nothing in the DOM when closed", () => {
@@ -85,9 +95,17 @@ describe("MobileNavDrawer", () => {
     expect(btn.className).toContain("bg-primary-container");
   });
 
-  it("hides the user strip when no userName is provided", () => {
+  it("hides the user strip when no userName and nobody is known", () => {
+    mockAuth = { user: null, isAdmin: false };
     renderDrawer(true, vi.fn(), null);
     expect(screen.queryByTestId("drawer-user-strip")).toBeNull();
+  });
+
+  it("US330: e-mail under the name; Administration hidden for a plain user", () => {
+    mockAuth = { user: { email: "jonas.keller@example.org", role: "user" }, isAdmin: false };
+    renderDrawer(true, vi.fn(), "Jonas Keller");
+    expect(screen.getByTestId("drawer-user-email").textContent).toBe("jonas.keller@example.org");
+    expect(screen.queryByRole("button", { name: /admin/i })).toBeNull();
   });
 
   it("shows the user strip with computed initials when userName is provided", () => {
