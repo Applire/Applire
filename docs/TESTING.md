@@ -14,6 +14,8 @@ Applire uses a V-model-aligned test structure with five tiers:
 
 **LLM boundary rule:** IQ and OQ tests never call an LLM. OQ backend routes are intercepted with `page.route()` and return deterministic fixtures. PQ tests in CI use `LLM_PROVIDER=mock`. **There is no real-LLM PQ lane.** The `pq.yml` workflow is named after this tier but runs `INTEGRATION_LLM=1 pytest tests/integration/` — the backend integration tier — so no Playwright spec has ever met a real model. See *Real-LLM lanes* below.
 
+**Two auth postures (ADR-091).** The IQ/OQ/PQ lanes and most integration tests run on the **fenced NoAuth test harness** (`.env.ci`: `AUTH_HARNESS=true` on database `applire_ci`) — every request is the stub administrator, so these tests need no login. OQ specs that stub the API with `page.route()` import `tests/support/auth-fixture.ts`, which also stubs `/api/auth/me` and `/api/auth/state` (signed in as admin, as a plain user, or signed out). **One real-auth lane** (`docker-compose.ci-auth.yml`, `.env.ci-auth`, nginx on `:8091`, the production topology with login on) claims the instance with the setup code from the backend log, signs in through the real endpoints and runs `tests/test_auth_e2e.py` (the `auth_session` fixture in `tests/conftest.py`); it **blocks merges**. A separate `postgres-only-tests` job proves what SQLite cannot — races, the audit-log trigger, constraints, migration 0076, the erasure race — against a throwaway `*_test` database per file, and a skipped test fails the job.
+
 **CI pipeline order (as `test.yml` actually runs it):** the `backend-unit-tests`, `frontend-unit-tests`, `frontend-lint`, `frontend-build-check` and `module-system-check` jobs run in parallel; the `integration-and-e2e-tests` job brings up the Docker stack, migrates, then runs **Integration → MCP stdio → IQ → OQ (desktop) → OQ (mobile) → PQ** in that order. Note that **Integration runs before IQ**, not alongside OQ — an earlier version of this line said otherwise.
 
 ---
@@ -36,7 +38,7 @@ The IQ/OQ/PQ names are borrowed from pharmaceutical validation, where they are a
 
 | Abbrev. | Stands for | What it means **in this repo** |
 |---|---|---|
-| **IQ** | *Installation Qualification* | Is the system installed and reachable? The Docker stack is already up when IQ runs — IQ **verifies** the installation, it does not perform it. Backend `/health` is 200, the frontend root loads, the upload input is attached. |
+| **IQ** | *Installation Qualification* | Is the system installed and reachable? The Docker stack is already up when IQ runs — IQ **verifies** the installation, it does not perform it. Backend `/health` is 200 (liveness only: `status`, `edition`, `version`), the frontend root loads, the upload input is attached. |
 | **OQ** | *Operational Qualification* | Does each **page** behave correctly against a deterministic backend? Playwright with `page.route()` intercepting the API. **Not** module- or interface-level testing — that is what `tests/unit/` and `tests/integration/` are for. This narrower meaning is deliberate and is the one in force. |
 | **PQ** | *Performance Qualification* | Does a **persona's journey** work end to end through the real UI and a real backend? One directory per persona. |
 
@@ -269,6 +271,9 @@ Ensure the Docker stack is fully running and `LLM_PROVIDER=mock` is set in the e
 curl http://localhost:8001/health
 curl http://localhost:3000
 ```
+If every page redirects to `/login`, the stack is not running the harness: start the CI stack
+(`cp .env.ci .env && docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build`).
+A developer's own `.env` (database `applire`, login on) is not a harness stack.
 
 ---
 

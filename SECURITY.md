@@ -30,7 +30,9 @@ Public disclosure is coordinated after a fix is available (coordinated disclosur
 In scope:
 - `Applire-Core` backend (FastAPI, Python)
 - `Applire-Core` frontend (Next.js)
-- Authentication and session handling
+- Authentication and session handling (local accounts, OIDC sign-in, sessions, personal tokens, invite and reset links, the first-run setup code)
+- **Per-user isolation:** reading or changing another person's data through any door (REST, MCP, signed document links, background work), or an administrator reaching account content. A foreign id must answer exactly like a missing one (404) — a report that shows a difference, or any cross-user read or write, is in scope and valued
+- The SSRF guard on job-posting URL fetches
 - File upload and processing paths
 - LLM prompt injection vectors
 
@@ -71,5 +73,15 @@ ours is the channel: never hand a stranger's text to an agent dressed as trusted
 output.
 
 **Uploaded CV text** is a different trust class: it is the user's own document,
-in a single-user self-hosted product. We do not currently treat it as adversarial
-input, and we say so rather than implying coverage we do not have.
+written by the person whose account it is uploaded to. We do not currently treat it as
+adversarial input, and we say so rather than implying coverage we do not have.
+
+## Accounts, tokens and the test harness
+
+Sign-in is always on. Passwords are stored hashed (scrypt); sessions, personal tokens and
+invite/reset links are stored as hashes and shown once. A state-changing request that carries a
+cookie is origin-checked; a bearer token is not cookie-borne and is exempt. The legacy
+no-login mode survives only as a **test harness** (`AUTH_HARNESS`) that the backend refuses to
+start unless the database is a throwaway test database — a report showing the harness reachable
+on a real install is in scope. The operator of an instance is whoever runs the server; the
+one-time setup code in the backend log is how that person claims it.

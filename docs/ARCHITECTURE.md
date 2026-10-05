@@ -12,9 +12,9 @@ Applire is a JD-driven CV tailoring platform with three first-class consumers:
 
 | Consumer | Entry Point | Auth |
 |---|---|---|
-| Human (browser) | Next.js frontend → nginx → FastAPI | `NoAuthProvider` in Community (single-user) |
-| AI Agent (local) | MCP stdio server (`python -m applire.mcp`) | `NoAuthProvider` in Community |
-| Developer | REST API via nginx (`/api/*`); Swagger `/docs` in standalone dev | `NoAuthProvider` in Community |
+| Human (browser) | Next.js frontend → nginx → FastAPI | Built-in account sign-in (session cookie), optionally OIDC (ADR-091) |
+| AI Agent (local) | MCP stdio server (`python -m applire.mcp`) | Per-user agent token, `APPLIRE_AGENT_TOKEN` (ADR-091) |
+| Developer | REST API via nginx (`/api/*`); Swagger `/docs` (needs a sign-in) | Session cookie or a personal API token (`Authorization: Bearer apl_…`) |
 
 The core workflow is always: **JD analysis → CV import → Gap analysis → Interview → CV generation**.
 
@@ -61,7 +61,7 @@ Every architecture decision traces back to one or more of these principles. If a
 
 **Why JSONB:** The profile schema evolves rapidly (new sections, sub-fields, metadata). JSONB avoids migration churn for schema additions while enabling structured queries via JSON operators. PostgreSQL 16 is required; SQLite is used only in unit tests (via `JSONB().with_variant(JSON(), "sqlite")`).
 
-**Why 1:1:** Multi-user tenancy is Cloud-only (ADR-011). The Community Edition is single-user by design, and the data model reflects this cleanly.
+**Why 1:1:** one person has exactly one profile. Since Strawberry (ADR-091/092) a Community instance holds **several users**, each with their own profile and their own data, so the 1:1 now holds *per user* rather than per instance. Organisation-style multi-tenancy for companies (ADR-011) is a separate, later concern.
 
 **Conflict handling:** True conflicts (e.g., contradicting `start_date` for the same job) are stored in `profile_json.metadata.pending_conflicts` and must be resolved via `POST /api/profile/conflicts/{id}/resolve`. They are never auto-resolved.
 
@@ -151,6 +151,8 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 ---
 
+**Amended (Strawberry, ADR-092):** the worker works per owner. An **account** is tombstoned after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity — measured on the last sign-in or write, never on the account's creation date — and an administrator is never tombstoned. Job postings are a shared cache (ADR-092) and are deleted only when no user references them any more. The administration audit log is kept `AUDIT_LOG_RETENTION_DAYS` (730 by default, `0` = forever). The worker runs under a declared `unscoped("retention")` reason (see the ownership guard below).
+
 ### ADR-006 — CSS-Based Themes for PDF Generation
 
 **Decision:** CVs are rendered via Jinja2 HTML + embedded CSS, with Playwright/Chromium producing the final PDF. The **same HTML is served to the frontend for live browser preview** (via `GET /api/cv/{id}/html`, injected into an `<iframe srcDoc=...>`).
@@ -180,13 +182,10 @@ All TTL values are configurable via environment variables in `applire/constants.
 
 | `AUTH_PROVIDER` | Implementation | When to use |
 |---|---|---|
-| `none` (default) | `NoAuthProvider` — returns a fixed stub user | Community Edition, local single-user |
-| `zitadel` | `ZitadelProvider` (Cloud only) | Cloud Edition, OIDC via self-hosted Zitadel |
-| `oidc` | Generic OIDC (Cloud only) | Keycloak, Authentik, etc. |
+| `local` (default; the old value `none` also means `local`, with a startup warning) | Built-in accounts: email + password, server-side sessions; optional OIDC next to it | Community Edition |
+| other values | An external provider wired in through `dependency_overrides` | Hosted editions |
 
-**Router convention:** All routers declare `_auth: AuthProvider = Depends(get_auth_provider)`. The `_` prefix signals "infrastructure present, enforcement deferred" — the dependency is wired but unused in Community handlers. This allows Cloud backends to override without touching router code.
-
-**Community stub:** `NoAuthProvider` returns a constant `User(id=<fixed UUID>, email="local@applire.community")`. There is one user, no login required.
+**Amended (Strawberry, ADR-091):** the provider contract is `get_current_user(request, db)`. Every router depends on one of five dependencies in `applire/auth/deps.py` and `deps_links.py` — `require_user`, `require_admin`, `require_session_user`, `user_or_signed_link`, `admin_or_probe` — and an inventory test fails any route that has none and is not on a closed allowlist (health, setup, login, link redemption). The old "wired but unenforced" `_auth` parameter is gone. `NoAuthProvider` is retired as a product mode: it survives only as a **test harness** (`AUTH_HARNESS`) that the backend refuses to start unless the database is a throwaway test database.
 
 ---
 
@@ -461,7 +460,7 @@ Question generation returns `{ question, choices }` — optional multiple-choice
 
 **Decision:** Authentication happens **up-front**, before any CV upload or LLM processing. There are **no anonymous/guest sessions** and no "claim anonymous work on login" migration — a deliberate non-feature. First successful login provisions the `User` plus an empty Master Profile in one shot (create-on-first-login, ADR-008; 1:1 User↔Profile, ADR-022 rejected the alternative).
 
-**Why:** The first user action is a CV upload — sensitive PII immediately processed by an LLM. Gating up-front means no anonymous PII is ever stored or processed pre-consent (cleanest GDPR / EU AI Act posture, ADR-015) and avoids an anonymous-session + claim-migration engine that would also collide with the 1-User→1-Profile invariant. In Community with `NoAuthProvider` the gate is transparent (the stub user auto-resolves); it is enforced where an OIDC provider is configured.
+**Why:** The first user action is a CV upload — sensitive PII immediately processed by an LLM. Gating up-front means no anonymous PII is ever stored or processed pre-consent (cleanest GDPR / EU AI Act posture, ADR-015) and avoids an anonymous-session + claim-migration engine that would also collide with the 1-User→1-Profile invariant. Since Strawberry the gate is on in every install: a first-run setup claims the instance, and every other person is created or invited by an administrator (ADR-091).
 
 ---
 
@@ -1295,9 +1294,9 @@ This is Article 50(2) of the EU AI Act, and it lands on Applire rather than on t
 
 **The instance now says what an upgrade changed.** A small key/value table, `instance_state`, records what this *installation* knows about itself — the last release that ran, the version whose notice was dismissed, and the timestamp of the last successful backup. At startup, after migrations, the backend compares the last-seen release with the running one and reports two lists: settings introduced since then that this environment does **not** set (the new default now applies), and settings it **does** set whose meaning changed (its value now does something else). A re-meant variable that is unset appears in neither — an unset variable carries no operator intent to break. The result goes to three places: a WARNING block on the log, `upgrade_notice` on `GET /health`, and a dismissable notice on the dashboard. Dismissing is what records the running version as seen; merely starting is not, or a message about a silent change would itself be visible for exactly one boot.
 
-**`/health`'s first four fields are frozen.** `status`, `edition`, `version` and `llm_provider` are read by the compose healthcheck, by the pre-release install gate and by whatever uptime probe you point at your instance. They keep their names, types and values; everything added since is a new key with a default a client that does not know it can ignore. Three exist now: `upgrade_notice` (null when there is nothing to report), `debug_log_on`, and `topology`.
+**`/health`'s fields are frozen.** `status`, `edition` and `version` are read by the compose healthcheck, by the pre-release install gate and by whatever uptime probe you point at your instance. They keep their names, types and values. **Amended (Strawberry, ADR-091 cl. 19):** `/health` is liveness only and public; `llm_provider`, `upgrade_notice`, `debug_log_on` and `topology` moved to `GET /api/ops/health`, which needs an administrator session or a probe token. This broke the 0.42 four-field freeze once, recorded in the release's upgrade notes.
 
-**Two postures are now declared rather than inferred.** `APPLIRE_TOPOLOGY` is `production` by default in code and is set to `dev` only by `docker-compose.override.yml` — which Compose applies automatically whenever it sits beside the compose file, i.e. in every source clone. So a plain `docker compose up -d` in a clone yields a debugging topology with an unauthenticated API on `:8001` and PostgreSQL on `:5433`, and until now it said so nowhere; it now logs a startup WARNING and reports `topology` on `/health`. `LLM_DEBUG_LOG` is reported the same way while it is on, because that log records CV text and interview answers. It deliberately has **no size or age cap**: a cap on a diagnostic tool truncates evidence silently, so the operator is told instead.
+**Two postures are now declared rather than inferred.** `APPLIRE_TOPOLOGY` is `production` by default in code and is set to `dev` only by `docker-compose.override.yml` — which Compose applies automatically whenever it sits beside the compose file, i.e. in every source clone. So a plain `docker compose up -d` in a clone yields a debugging topology with the API published on `:8001` (bypassing nginx) and PostgreSQL on `:5433`, and until now it said so nowhere; it now logs a startup WARNING and reports `topology` on `/api/ops/health`. `LLM_DEBUG_LOG` is reported the same way while it is on, because that log records CV text and interview answers. It deliberately has **no size or age cap**: a cap on a diagnostic tool truncates evidence silently, so the operator is told instead.
 
 **Deployment credentials became variables, with today's values as defaults.** `docker-compose.yml` reads `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-applire}` / `${POSTGRES_DB:-applire}` and builds `DATABASE_URL` from them, so an existing install that changes nothing behaves identically, and changing them is a three-line `.env` edit rather than a compose-file edit. One caveat that the runbook states loudly: PostgreSQL reads those only when the data directory is first initialised.
 
@@ -1313,9 +1312,9 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 **Why in-app rather than a monitoring stack.** Half of those facts exist only inside Applire — no exporter can see the Alembic head comparison, the retention report's deletion counts, "was there ever a backup", or what an application cost in tokens. And the person this is for runs `docker compose up` on a home server; a four-container observability stack is a larger operational surface than the product it watches.
 
-**Pointing your own uptime probe at this URL is a supported path, not a hack.** Applire has no notification transport and does not acquire one here, so the honest answer to *"tell me before my user does"* is that the JSON is a contract: fields are only ever **added**, and a rename or removal is a breaking change that gets an *Upgrade notes* entry in the release. `GET /health` is untouched — its four fields are what the compose healthcheck depends on — and gains only a cached one-line `ops` summary, because a health endpoint the container restarts on must never depend on the database.
+**Pointing your own uptime probe at this URL is a supported path, not a hack.** Applire has no notification transport and does not acquire one here, so the honest answer to *"tell me before my user does"* is that the JSON is a contract: fields are only ever **added**, and a rename or removal is a breaking change that gets an *Upgrade notes* entry in the release. `GET /health` stays a pure liveness endpoint — what the compose healthcheck depends on — because a health endpoint the container restarts on must never depend on the database. (Amended, Strawberry: the cached `ops` summary it briefly carried moved to `/api/ops/health` with the other detail fields.)
 
-**What an unauthenticated endpoint on your LAN may say.** The Community edition ships without authentication, so there is nothing to hide behind and the boundary is what the payload contains: versions, edition, your provider family **and configured model id**, per-component status, and the numeric gauges. Never an API key, a filesystem path, a hostname, or anything from a candidate's documents. A test populates the settings with recognisable sentinels and searches the whole response for them, and a second one rejects any string in the payload shaped like a path or a URL — so a probe added later that returns its diagnostic verbatim fails a named test instead of shipping. The model id is deliberately *in* (it is what lets you check your instance against the recommended-models list), which is the opposite of ADR-085's rule for the PDF mark — because that artefact is handed to a third party and this one is your own instance.
+**What the endpoint may say.** *(Amended, Strawberry: it is no longer open — it needs an administrator session, or a read-only probe token an administrator creates; a probe token works for this URL only and only while its creator is an active administrator. The payload boundary below stands regardless.)* The boundary is what the payload contains: versions, edition, your provider family **and configured model id**, per-component status, and the numeric gauges. Never an API key, a filesystem path, a hostname, or anything from a candidate's documents. A test populates the settings with recognisable sentinels and searches the whole response for them, and a second one rejects any string in the payload shaped like a path or a URL — so a probe added later that returns its diagnostic verbatim fails a named test instead of shipping. The model id is deliberately *in* (it is what lets you check your instance against the recommended-models list), which is the opposite of ADR-085's rule for the PDF mark — because that artefact is handed to a third party and this one is your own instance.
 
 **The one check that costs money is yours to configure.** `OPS_PROVIDER_PROBE` takes `off`, `reachability` (one tiny call of at most 16 tokens, roughly 96 a day — against 89–105 for a single application; a model that stops on that budget has still answered and counts as reachable — until 2026-09-17 the probe misread that stop as "provider did not answer" and reported a working provider down), `credit` (reads your balance where the provider publishes one; costs nothing), or `both` (the default). Providers with no balance to read — Ollama, any OpenAI-compatible endpoint — report credit as *not applicable* rather than *unknown*, because "unknown" would read as a fault worth chasing. The endpoint only ever serves a cached result, so nobody can spend your credit by curling it.
 
@@ -1355,6 +1354,28 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 ---
 ---
+### ADR-091 — Identity: Accounts, Sessions, Roles, Tokens (accepted + built 2026-10, Strawberry)
+
+**Decision:** sign-in is always on, and an instance can hold any number of people. There is no user cap in Community.
+
+- **Accounts.** Local email + password (scrypt from the standard library; 12–256 characters), plus optional generic OIDC (code flow with PKCE; the issuer must be `https`, `localhost` excepted; the ID token is trusted from the TLS token endpoint). Identity is `(issuer, sub)`; an unknown OIDC identity binds only to a pending, invited account with a verified email. Two roles, `admin` and `user`; the last administrator cannot be removed.
+- **Sessions.** Server-side rows, an `HttpOnly`, `SameSite=Lax` cookie (`Secure` when `COOKIE_SECURE`), 14 days idle / 90 days absolute. Every state-changing request carrying a cookie is origin-checked against the `Host` nginx forwards (or `APPLIRE_BASE_URL`); a bearer token is exempt. Login attempts are delayed, never locked, keyed on (email, client).
+- **First run.** An unclaimed instance prints a per-boot setup code in the backend log. Claiming converts the existing stub user in place (same row id, so an upgraded vault becomes the administrator's) — through `/setup`, or `python -m applire.admin create-admin`. This is done by the setup action, not by a migration.
+- **Invitations and resets.** Single-use, expiring links (invite 7 days, reset 1 hour), hashed at rest, carried in the URL fragment and POST bodies. Optional SMTP; without it the administrator hands the link over.
+- **Tokens.** `apl_…` bearer tokens, hashed at rest, re-validated on every call, with three scopes that never widen: *agent* (MCP stdio only), *api* (REST), *probe* (`/api/ops/health` only). Document links handed to an agent are HMAC-signed with a key derived from an instance secret held in `instance_state`, expire after 60 minutes and die with the token.
+- **Audit.** Every administrative action writes one append-only row (who, what, when, target; no IP address).
+- **Test harness.** The legacy no-login mode exists only behind `AUTH_HARNESS`, re-checked on every request and refused outside a throwaway test database.
+
+### ADR-092 — Ownership: Every Row Has an Owner, Every Door Is Scoped (accepted + built 2026-10, Strawberry)
+
+**Decision:** every table that holds a person's data carries a `user_id` (chain tables take it from their profile), and no door — REST route, MCP tool, background task, retention worker, export, signed document link — reads or writes an owned row without naming the owner.
+
+- **A foreign id is a 404.** An id that belongs to someone else answers exactly like a missing one; there is no existence oracle. Administrators see metadata through their own endpoints (counts, status, storage, usage), never content.
+- **The guard.** A `before_cursor_execute` hook on the engine refuses any statement that touches an owned table outside an owner context (`owner_context(user_id)`) or a declared `unscoped(reason)` block. SQLAlchemy loader criteria add the owner predicate as defence in depth; the engine guard is the fail-closed control.
+- **Shared postings.** `job_analyses` is one immutable, instance-wide cache per posting. A person reaches a posting only through their own application card (`get_job_for_user`); title and company overrides live on the application; everything derived (gap analysis, interview, CV, letter, flow) is per person. An instant cache hit therefore reveals that someone analysed the same posting before. Deleting a posting is reference-counted.
+- **Erasure.** One implementation (`erase(db, user_id, scope)`), leaf to root by owner, shared postings only when no one references them; self-service account deletion and administrator deletion use it.
+- **Outbound fetches.** Job-posting URLs go through one safe fetcher: host resolution, refusal of private, loopback, link-local, metadata, CGNAT and multicast addresses, connection pinned to the checked address, every redirect re-checked, environment proxies ignored.
+
 ## 4. Data Model Highlights
 
 **Built (2026-09-01):** `GET /api/cv/{id}/docx` and `GET /api/cover-letter/{id}/docx` render the file on demand — no document bytes are stored, exactly as for the PDF — and the same export is reachable over the agent channel through `render_document(format="docx")`, which calls the identical service function rather than a parallel one. The produced file is audited by the existing ATS engine through a `.docx` text extractor, and its report is kept separately from the PDF's so the two can differ without overwriting each other.
@@ -1419,10 +1440,13 @@ The review tab used to report what a generated document says that the profile do
 
 | Table | Purpose | GDPR TTL |
 |---|---|---|
-| `users` | Identity record | Soft-delete after 730d inactivity |
-| `master_profiles` | JSONB career data | Soft-delete after 730d inactivity |
-| `job_analyses` | Parsed JD data | No TTL (not PII) |
-| `gap_analyses` | Gap detection results | No TTL (linked to job) |
+| `users` | Identity record: email, role, password hash or OIDC identity, status | Soft-delete after 730d inactivity (never an administrator) |
+| `auth_sessions`, `personal_tokens`, `auth_links`, `reauth_grants` | Sign-in sessions, personal tokens, invite/reset links (hashes only) | Expire on their own; purged when dead |
+| `audit_events` | Append-only administration audit log | `AUDIT_LOG_RETENTION_DAYS` (730) |
+| `master_profiles` | JSONB career data (owner `user_id`) | Soft-delete after 730d inactivity |
+| `job_analyses` | Parsed JD data — one shared, immutable posting cache, no owner | Deleted when no user references it |
+| `applications` | A person's link to a posting, plus their title/company overrides | 730d inactivity |
+| `gap_analyses` | Gap detection results (per owner) | No TTL (linked to job) |
 | `interview_sessions` | Interview state (JSONB) | 30-day hard delete |
 | `flow_sessions` | Journey routing record | No TTL (no PII) |
 | `generated_cvs` | PDF + snapshot + overrides | 90d (uniform, origin-blind) |
@@ -1449,8 +1473,9 @@ This repository is the Community Edition. The table below documents what is and 
 | MCP Server (stdio) | ✅ | ✅ |
 | Flow Orchestrator | ✅ | ✅ |
 | GDPR Retention Worker | ✅ (configurable; user-artifact auto-delete off by default) | ✅ (strict, mandatory) |
-| Right to erasure (`DELETE /api/profile`) | ✅ | ✅ |
-| Auth provider abstraction | Interface + `NoAuthProvider`; OIDC self-host opt-in (Keycloak/Authentik) | ✅ |
+| Right to erasure (`DELETE /api/profile`, `DELETE /api/me/account`) | ✅ | ✅ |
+| Accounts, roles, per-user data isolation (ADR-091/092) | ✅ built in, no user cap | ✅ |
+| Auth provider abstraction | Built-in accounts + generic OIDC opt-in (Keycloak/Authentik/…) | ✅ |
 | Auth enforcement (managed Zitadel OIDC) | ❌ | ✅ |
 | Recruiter features (ranking, matching, scoring — EU AI Act high-risk) | ❌ (candidate-side only, minimal risk) | ✅ (regulated module) |
 | Managed hosting | ❌ | ✅ |
@@ -1521,6 +1546,9 @@ established by `backend/tests/unit/services/test_jd_excerpt_hermetic.py`).
 | `backend/applire/services/flow/orchestrator.py` | Flow state machine — `VALID_TRANSITIONS` |
 | `backend/applire/services/interview/signals.py` | Done-signal detection (deterministic, no LLM) |
 | `backend/applire/auth/base.py` | `AuthProvider` ABC |
+| `backend/applire/auth/deps.py`, `deps_links.py` | The five route dependencies (`require_user`, `require_admin`, …) |
+| `backend/applire/ownership.py` | Owner context, `unscoped(reason)`, the engine-level owner guard, `get_owned` |
+| `backend/applire/admin/` | `python -m applire.admin` — `create-admin`, `reset-password` |
 | `backend/applire/providers/` | LLM, OCR, Storage factories |
 | `backend/applire/routers/cv.py` | CV HTML + PDF endpoints |
 | `backend/applire/edition.py` | `HAS_CLOUD_EDITION` import-based detection |
