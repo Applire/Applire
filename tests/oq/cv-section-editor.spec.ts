@@ -1,5 +1,5 @@
 // tests/e2e/oq/cv-section-editor.spec.ts
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * CV Section Editor — OQ Tests (Sprint 22 layout)

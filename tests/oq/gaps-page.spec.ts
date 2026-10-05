@@ -1,5 +1,5 @@
 // tests/e2e/oq/gaps-page.spec.ts
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * Gaps Page — OQ Tests

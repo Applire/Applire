@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * #704 (founder UAT on the Nougat RC, 2026-09-15) — a first-time user with no

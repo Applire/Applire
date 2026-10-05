@@ -254,3 +254,45 @@ describe("OperatorPanel", () => {
     expect(screen.getByTestId("operator-panel-row-provider")).toBeInTheDocument();
   });
 });
+
+describe("OperatorPanel — Strawberry access statuses (S-16)", () => {
+  function statusRes(status: number, body: unknown): Response {
+    return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
+  }
+
+  it.each([401, 403])("%i renders nothing at all (not an 'unavailable' fact)", async (status) => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(statusRes(status, { detail: { error_code: "forbidden" } }));
+    const { container } = render(<OperatorPanel />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // Let the state update land.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("unavailable")).toBeNull();
+    expect(screen.queryByTestId("operator-panel")).toBeNull();
+  });
+
+  it("503 with a down report renders the expanded panel, not 'unavailable'", async () => {
+    const down = {
+      ...HEALTHY,
+      status: "down",
+      components: {
+        ...HEALTHY.components,
+        database: { status: "down", message: "cannot connect", detail: {} },
+      },
+    };
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(statusRes(503, down));
+    render(<OperatorPanel />);
+
+    await waitFor(() => expect(screen.getByTestId("operator-panel-row-database")).toBeInTheDocument());
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("/api/ops/health"), expect.anything());
+    expect(screen.getByText("summaryDown:1")).toBeInTheDocument();
+    expect(screen.getByTestId("operator-panel-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("unavailable")).toBeNull();
+  });
+
+  it("another failing status (500) is still the unavailable line", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(statusRes(500, {}));
+    render(<OperatorPanel />);
+    expect(await screen.findByText("unavailable")).toBeInTheDocument();
+  });
+});

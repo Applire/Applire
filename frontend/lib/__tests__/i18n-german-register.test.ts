@@ -115,6 +115,15 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "shell.userMenuAdmin",
   "shell.roleAdmin",
   "auth.setupCodePlaceholder",
+  // Strawberry 2b (MD-29): approved COPY.md / copy-additions values that are
+  // the ordinary German word ("Name", "Admin", "Status", "Administration",
+  // "Monitoring") or a symbol ("—" for a value not measured).
+  "account.colName",
+  "account.roleAdmin",
+  "adminUsers.colStatus",
+  "adminUsers.notMeasured",
+  "adminNav.ariaLabel",
+  "adminNav.monitoring",
   // Symbols, separators and pure ICU patterns
   "coverLetter.separator",
   "coverLetter.emDash",

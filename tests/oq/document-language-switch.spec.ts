@@ -5,7 +5,7 @@
 // shows an explicit notice that NAMES the section-override loss (JF-F-G2.1)
 // BEFORE persisting `language_override` and handing off to the existing
 // regeneration path (same template, new GeneratedCV).
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/auth-fixture';
 
 const TEST_FLOW_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1';
 const TEST_CV_ID = 'cccccccc-cccc-cccc-cccc-ccccccccccc1';

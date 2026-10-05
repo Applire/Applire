@@ -1,5 +1,6 @@
 // tests/e2e/oq/upload-flow.spec.ts
-import { test, expect, Page } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
+import { type Page } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 

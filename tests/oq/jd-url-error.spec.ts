@@ -10,7 +10,7 @@
  * Run: npx playwright test tests/oq/jd-url-error.spec.ts
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 const FLOW_ID = "mock-flow-sprint26";
 

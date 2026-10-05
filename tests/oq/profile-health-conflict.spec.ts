@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * #604 — E2E coverage for the Health hub's conflict card.

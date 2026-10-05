@@ -25,7 +25,7 @@
 //  * D-3 — the result names only the changed sentence, the rest elided.
 //  * D-1 — a CV position change is labelled with the section's label, not
 //    `position::<uuid>`.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/auth-fixture';
 import { FLOW_ID, CV_ID, JOB_ID, TRUTH, SETTINGS, json, atsReport, stubLetter } from './review-letter-stub';
 
 test.describe('ADR-090 delivery fixes — the letter (D-2, D-3)', () => {

@@ -381,3 +381,47 @@ async def test_the_payload_never_carries_the_auth_secrets(client, monkeypatch):
         await db.commit()
     body = json.dumps((await client.get("/api/ops/health")).json())
     assert not [v for v in sentinels.values() if v in body]
+
+
+# --- RD-9 / MD-27: retired duplicate profiles, count only -------------------
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_is_zero_when_nothing_was_retired(client):
+    body = (await client.get("/api/ops/health")).json()
+    assert body["retired_profiles"] == 0
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_counts_the_0074_record_and_never_carries_its_ids(client):
+    """The admin's post-upgrade notice names HOW MANY older profiles were set aside
+    (upgradeNotice.retiredProfile); the ids themselves never leave the instance."""
+    from datetime import datetime, timezone
+
+    ids = ["SENTINEL-RETIRED-ID-1", "SENTINEL-RETIRED-ID-2"]
+    maker = client._transport.app.state.engine_maker
+    async with maker() as db:
+        db.add(
+            InstanceState(
+                key="upgrade.retired_profiles",
+                value={"profile_ids": ids, "retired_at": "2026-10-05T10:00:00+00:00"},
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    payload = (await client.get("/api/ops/health")).json()
+    assert payload["retired_profiles"] == 2
+    body = json.dumps(payload)
+    assert not [i for i in ids if i in body]
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_reads_a_malformed_record_as_zero(client):
+    from datetime import datetime, timezone
+
+    maker = client._transport.app.state.engine_maker
+    async with maker() as db:
+        db.add(InstanceState(key="upgrade.retired_profiles", value="garbage",
+                             updated_at=datetime.now(timezone.utc)))
+        await db.commit()
+    assert (await client.get("/api/ops/health")).json()["retired_profiles"] == 0

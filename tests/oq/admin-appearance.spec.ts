@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 test.describe("Admin appearance page", () => {
   test("loads the appearance page with scheme editor and preview", async ({ page }) => {
@@ -35,13 +35,25 @@ test.describe("Admin appearance page", () => {
     await expect(page.getByText("EU Blue")).toBeVisible();
   });
 
-  test("sidebar Admin entry navigates to appearance", async ({ page }) => {
+  test("sidebar Admin entry opens the admin area; the sub-nav reaches appearance", async ({ page }) => {
+    // Strawberry (G-2/G-3): the sidebar item leads into the admin area (its first
+    // section, /admin/users — 2a's nav item); "Appearance" is one tab of the
+    // registry-driven sub-nav.
+    await page.route("**/api/admin/users", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ users: [] }) })
+    );
+    await page.route("**/api/admin/color-schemes", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+    );
     await page.goto("/settings");
     // Admin moved from a footer link to a persistent sidebar nav button.
     const adminNav = page.getByRole("button", { name: /admin/i });
     await expect(adminNav).toBeVisible();
     await adminNav.click();
+    await expect(page).toHaveURL(/\/admin\//);
+    await page.getByTestId("admin-nav-appearance").click();
     await expect(page).toHaveURL(/\/admin\/appearance/);
+    await expect(page.getByTestId("admin-nav-appearance")).toHaveAttribute("aria-current", "page");
   });
 
   test("opening the editor keeps the active palette (no neutral-placeholder flash)", async ({ page }) => {

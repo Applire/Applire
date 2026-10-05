@@ -87,7 +87,7 @@ package that implements the route. Schemas are in `backend/applire/schemas/`.
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
 | `GET /health` | public | — | `admin.LivenessResponse` `{status, edition, version}` | — | 1c |
-| `GET /api/ops/health` | `admin_or_probe` | — | `admin.OpsHealthResponse` = today's ops report (`status`, `edition`, `version`, `llm_provider`, `checked_at`, `components`, …) **+** `upgrade_notice`, `debug_log_on`, `topology` (moved off `/health`) | 401, 403; 503 when `status=down` (unchanged) | 1c |
+| `GET /api/ops/health` | `admin_or_probe` | — | `admin.OpsHealthResponse` = today's ops report (`status`, `edition`, `version`, `llm_provider`, `checked_at`, `components`, …) **+** `upgrade_notice`, `debug_log_on`, `topology` (moved off `/health`) **+** `retired_profiles: int` (RD-9: count of older duplicate profiles migration 0074 set aside, 0 when none — never ids; MD-27) | 401, 403; 503 when `status=down` (unchanged) | 1c |
 
 `/health` **loses** `llm_provider`, `upgrade_notice`, `debug_log_on`, `topology`,
 `ops` (ADR-086/087 freeze break, recorded; CHANGELOG upgrade note). W0 still serves
@@ -153,7 +153,7 @@ the 8 characters after `apl_`.
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
 | `GET /api/admin/users` | `require_admin` | — | `admin.AdminUserListResponse` `{users: [AdminUserItem]}` (tombstoned accounts not listed) | 401, 403 | 1b |
-| `POST /api/admin/users` | `require_admin` | `admin.AdminUserCreateRequest` `{email, role=user}` | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
+| `POST /api/admin/users` | `require_admin` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
 | `PATCH /api/admin/users/{user_id}` | `require_admin` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
 | `DELETE /api/admin/users/{user_id}` | `require_admin` | — | 204 (erasure + tombstone) | 404, 409 `last_admin` | 1b |
 | `POST /api/admin/users/{user_id}/reinvite` | `require_admin` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |

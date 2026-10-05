@@ -18,34 +18,18 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 
-import { useTranslations } from "next-intl";
-import { OperatorPanel } from "@/components/admin/operator-panel";
+// Strawberry 2b (G-3): the frame — topbar, sub-nav, admin-only guard — is
+// `../layout.tsx`; the instance-health panel moved to Monitoring (ruling w4-2b-1).
+// Erscheinungsbild keeps only the colour schemes.
+
 import { SchemeEditor } from "@/components/admin/scheme-editor";
 import { ThemePreview } from "@/components/admin/theme-preview";
-import { AppTopbar } from "@/components/shell/AppTopbar";
 
 export default function AppearancePage() {
-  const t = useTranslations("admin");
   return (
-    <div className="flex flex-col flex-1 overflow-hidden" style={{ background: "var(--color-surface-dim)" }}>
-      <AppTopbar
-        mode="detail"
-        backHref="/dashboard"
-        backLabelKey="shell.dashboard"
-        pageTitle={t("appearanceTitle")}
-      />
-      <main className="flex-1 px-6 py-6 overflow-y-auto">
-        {/* E060/US312 — the operator's instance facts (founder ruling O1-4:
-            the admin page, not the dashboard). One quiet line while the
-            instance is fine; expanded the moment anything is not. */}
-        <div className="max-w-6xl mx-auto mb-5">
-          <OperatorPanel />
-        </div>
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-5">
-          <SchemeEditor />
-          <ThemePreview />
-        </div>
-      </main>
+    <div className="flex flex-col gap-5 md:flex-row">
+      <SchemeEditor />
+      <ThemePreview />
     </div>
   );
 }
