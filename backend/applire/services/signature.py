@@ -214,7 +214,12 @@ async def get_signature_bytes(
     path = row.signature_path if row is not None else None
     if not path:
         raise LookupError("No signature on file")
-    raw = await storage.read(path)
+    try:
+        raw = await storage.read(path)
+    except FileNotFoundError as exc:
+        # A deleted file, or a path the provider refuses as outside its
+        # storage: both are "no signature on file" (404), never a 500 or a read.
+        raise LookupError("No signature on file") from exc
     content_type = mimetypes.guess_type(path)[0] or "image/png"
     return raw, content_type
 

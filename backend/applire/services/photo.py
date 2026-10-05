@@ -147,6 +147,11 @@ async def get_photo_bytes(
     path = profile_data.personal_info.photo_url
     if not path:
         raise LookupError("No profile photo on file")
-    raw = await storage.read(path)
+    try:
+        raw = await storage.read(path)
+    except FileNotFoundError as exc:
+        # A deleted file, or a path the provider refuses as outside its
+        # storage: both are "no photo on file" (404), never a 500 or a read.
+        raise LookupError("No profile photo on file") from exc
     content_type = mimetypes.guess_type(path)[0] or "image/jpeg"
     return raw, content_type

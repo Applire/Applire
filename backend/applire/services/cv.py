@@ -5645,8 +5645,9 @@ async def render_agent_cv(
     The caller is the author: content is persisted VERBATIM — no condense loop,
     no deterministic mutators, no language pass (ADR-054 §4). The only change
     Applire makes is the photo strip: ``contact.photo_url`` is never taken from
-    the caller (``storage.read`` has no traversal guard — an arbitrary path
-    would be read off disk and embedded into the PDF); when ``show_photo`` is
+    the caller (a caller-chosen path would name a stored file that is not the
+    profile's photo; ``storage.read`` is confined to the upload directory, not
+    to the caller's own files); when ``show_photo`` is
     true the profile's own ``personal_info.photo_url`` is backfilled instead.
 
     Page-target norms (ADR-051) are applied as ADVISORY only: the resolved

@@ -18,16 +18,41 @@
 """Local filesystem StorageProvider — Community Edition default (ADR 014)."""
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from applire.storage.base import StorageProvider
+from applire.storage.base import PathOutsideStorageError, StorageProvider
+
+logger = logging.getLogger(__name__)
 
 
 class LocalStorageProvider(StorageProvider):
     def __init__(self, upload_dir: str) -> None:
         self._base = Path(upload_dir)
+
+    def _confined(self, file_path: str) -> Path | None:
+        """The resolved path when it lies inside the upload dir, else ``None``.
+
+        Every path this provider reads or deletes comes from a database
+        row (the vault JSON's ``photo_url``, ``signature_path``, ``uploads``), and
+        a row is data, not a capability. Both sides are ``resolve()``d — ``..``
+        segments and symlinks are followed BEFORE the containment test, so
+        ``<upload>/../x`` and a link pointing out of the directory are refused
+        just like an absolute foreign path. A relative stored path resolves
+        against the process cwd exactly as ``open()`` would have, so a row
+        written by ``save()`` under a relative ``UPLOAD_DIR`` still matches.
+        The base directory itself is not a file and is refused too.
+        """
+        try:
+            base = self._base.resolve()
+            target = Path(file_path).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if target == base or not target.is_relative_to(base):
+            return None
+        return target
 
     async def save(self, file_bytes: bytes, filename: str) -> str:
         """Write *file_bytes* under a UUID-prefixed name; return the relative path."""
@@ -46,7 +71,13 @@ class LocalStorageProvider(StorageProvider):
         return str(dest)
 
     async def delete(self, file_path: str) -> None:
-        path = Path(file_path)
+        path = self._confined(file_path)
+        if path is None:
+            logger.warning(
+                "storage: refused to delete %r — not inside the upload directory",
+                file_path,
+            )
+            return
 
         def _delete() -> None:
             try:
@@ -76,7 +107,13 @@ class LocalStorageProvider(StorageProvider):
         return await asyncio.get_running_loop().run_in_executor(None, _list)
 
     async def read(self, file_path: str) -> bytes:
-        path = Path(file_path)
+        path = self._confined(file_path)
+        if path is None:
+            logger.warning(
+                "storage: refused to read %r — not inside the upload directory",
+                file_path,
+            )
+            raise PathOutsideStorageError(f"Path is outside the upload directory: {file_path}")
 
         def _read() -> bytes:
             if not path.exists():
