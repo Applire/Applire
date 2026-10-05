@@ -114,7 +114,6 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "shell.admin",
   "shell.userMenuAdmin",
   "shell.roleAdmin",
-  "shell.adminNavMonitoring",
   "auth.setupCodePlaceholder",
   // Symbols, separators and pure ICU patterns
   "coverLetter.separator",

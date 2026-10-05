@@ -129,10 +129,16 @@ describe("/login (US330)", () => {
     expect(screen.queryByText(de.auth.loginSubtitle)).toBeNull();
   });
 
-  it("a share deep link in ?next= → share-again notice", () => {
-    search = "next=" + encodeURIComponent("/dashboard?jd_url=https://jobs.example/1");
+  it("ruling w4-2a-1: a share deep link in ?next= shows NO notice, and sign-in lands on the prefilled dashboard", async () => {
+    const next = "/dashboard?jd_url=" + encodeURIComponent("https://jobs.example/1");
+    search = "next=" + encodeURIComponent(next);
+    respond(204);
     renderLogin();
-    expect(screen.getByText(de.auth.shareAgain)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText(de.auth.loginSubtitle)).toBeInTheDocument();
+    await signIn();
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(next));
   });
 
   it("?signed_out=1 → signed-out notice", () => {

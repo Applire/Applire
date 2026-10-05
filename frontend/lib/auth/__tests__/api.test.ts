@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isAuthPage, isSharePrefillNext, loginPathFor, readErrorCode, safeNextPath } from "../api";
+import { isAuthPage, loginPathFor, readErrorCode, safeNextPath } from "../api";
 
 describe("safeNextPath — open-redirect guard for ?next=", () => {
   it.each([
@@ -40,16 +40,6 @@ describe("isAuthPage", () => {
     for (const p of ["/login", "/setup", "/invite", "/reset", "/forgot"]) expect(isAuthPage(p)).toBe(true);
     expect(isAuthPage("/loginx")).toBe(false);
     expect(isAuthPage("/dashboard")).toBe(false);
-  });
-});
-
-describe("isSharePrefillNext", () => {
-  it("recognises the share-target deep link", () => {
-    expect(isSharePrefillNext("/dashboard?jd_url=https%3A%2F%2Fx")).toBe(true);
-    expect(isSharePrefillNext("/dashboard?jd_text=hello")).toBe(true);
-    expect(isSharePrefillNext("/share-target?url=x")).toBe(true);
-    expect(isSharePrefillNext("/dashboard")).toBe(false);
-    expect(isSharePrefillNext("/flow/1/cv")).toBe(false);
   });
 });
 

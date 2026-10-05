@@ -68,10 +68,28 @@ test.describe("/login", () => {
     await expect(page.getByText(serverText)).toBeVisible();
   });
 
-  test("share target while signed out: the link survives sign-in, the notice says so", async ({ page }) => {
+  test("ruling w4-2a-1: share while signed out → /login with NO notice → sign-in lands on the prefilled dashboard", async ({ page }) => {
+    let signedIn = false;
+    await page.route("**/api/auth/me", (r) =>
+      signedIn ? r.fulfill(json(ADMIN_USER)) : r.fulfill(json(UNAUTHENTICATED_BODY, 401)),
+    );
+    await page.route("**/api/auth/login", (r) => {
+      signedIn = true;
+      return r.fulfill({ status: 204 });
+    });
+    await page.route("**/api/profile", (r) => r.fulfill(json({ profile: null })));
+    await page.route("**/api/applications**", (r) => r.fulfill(json([])));
     await page.goto("/share-target?text=Senior%20QA%20https%3A%2F%2Fjobs.example.org%2F42");
     await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%3Fjd_url%3Dhttps/);
-    await expect(page.getByText("You shared something with Applire before you were signed in.")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByText("You shared something")).toHaveCount(0);
+    await expect(page.locator('[data-testid^="auth-notice"], [data-testid="auth-error"]')).toHaveCount(0);
+    await page.getByLabel("Email address").fill(ADMIN_USER.email);
+    await page.getByLabel("Password").fill("a long passphrase");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard\?jd_url=https/);
+    await expect(page.getByTestId("quick-tailor-url-input")).toHaveValue("https://jobs.example.org/42");
   });
 
   test.describe("OIDC configured", () => {

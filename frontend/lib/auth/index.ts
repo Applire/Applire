@@ -9,7 +9,6 @@ export {
   fetchAuthState,
   fetchMe,
   isAuthPage,
-  isSharePrefillNext,
   loginPathFor,
   postJson,
   readErrorCode,

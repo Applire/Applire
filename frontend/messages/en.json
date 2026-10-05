@@ -1211,10 +1211,7 @@
     "roleAdmin": "Admin",
     "roleUser": "User",
     "signingOut": "Signing out …",
-    "harnessBanner": "TEST MODE — sign-in is switched off (AUTH_HARNESS). For development and tests only, never with real data.",
-    "adminNavUsers": "People",
-    "adminNavAppearance": "Appearance",
-    "adminNavMonitoring": "Monitoring"
+    "harnessBanner": "TEST MODE — sign-in is switched off (AUTH_HARNESS). For development and tests only, never with real data."
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1760,7 +1757,6 @@
     "errorNetwork": "Applire cannot be reached right now. Try again in a moment.",
     "sessionExpired": "Your session has ended. Sign in again — you will continue where you left off.",
     "signedOut": "You are signed out.",
-    "shareAgain": "You shared something with Applire before you were signed in. A link comes along, a file does not — please share the file again after signing in.",
     "setupTitle": "Set up Applire",
     "setupIntro": "Create the account you will manage this instance with. You will find the setup code in the server's log — so only whoever runs the server can take over the instance.",
     "setupUpgradeNote": "Was this instance in use before? Then everything in it — profile, documents, applications — belongs to this account afterwards. Nothing is lost.",

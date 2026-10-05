@@ -100,19 +100,6 @@ export function loginPathFor(
   return q ? `/login?${q}` : "/login";
 }
 
-/** A `next` that carries a share-target prefill (US229) — the link survives sign-in. */
-export function isSharePrefillNext(next: string): boolean {
-  try {
-    const u = new URL(next, "http://x");
-    return (
-      u.pathname === "/share-target" ||
-      (u.pathname === "/dashboard" && (u.searchParams.has("jd_url") || u.searchParams.has("jd_text")))
-    );
-  } catch {
-    return false;
-  }
-}
-
 export async function fetchAuthState(): Promise<AuthState | null> {
   try {
     const res = await fetch(`${API_BASE}/api/auth/state`, { credentials: "same-origin" });

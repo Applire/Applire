@@ -4,7 +4,7 @@
 
 /**
  * US330 (ADR-091) — /login. Mocks: w0b/login.html (screens 1–8),
- * redirect-401.html (expired session, shared before sign-in), user-menu.html
+ * redirect-401.html (expired session; the share screen was dropped — ruling w4-2a-1), user-menu.html
  * screen 4 (signed out). Strings: `auth.*` (COPY.md, founder gate G-1).
  *
  * Query parameters it reads:
@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   API_BASE,
-  isSharePrefillNext,
   postJson,
   readErrorCode,
   readErrorMessage,
@@ -67,7 +66,6 @@ function LoginInner() {
   const next = safeNextPath(params.get("next"));
   const expired = params.get("expired") === "1";
   const signedOut = params.get("signed_out") === "1";
-  const shared = isSharePrefillNext(next);
   const oidcError = params.get("error") ?? (params.get("oidc") === "failed" ? "oidc_failed" : null);
 
   const [email, setEmail] = useState("");
@@ -120,10 +118,11 @@ function LoginInner() {
     window.location.assign(`${API_BASE}/api/auth/oidc/start?next=${encodeURIComponent(next)}`);
   }
 
-  // A context banner (expired / shared) replaces the subtitle and the
-  // "no account yet" line (redirect-401 mock); signed-out keeps the subtitle
-  // and drops the links (user-menu mock screen 4).
-  const contextBanner = expired || shared;
+  // The expired-session notice replaces the subtitle and the "no account yet"
+  // line (redirect-401 mock); signed-out keeps the subtitle and drops the links
+  // (user-menu mock screen 4). A share deep link in ?next= shows NO notice —
+  // the link survives sign-in and is prefilled (ruling w4-2a-1).
+  const contextBanner = expired;
 
   return (
     <AuthCard testId="login-card">
@@ -166,11 +165,6 @@ function LoginInner() {
       {!error && expired && (
         <AuthAlert tone="info" icon="schedule" testId="auth-notice-expired">
           {t("sessionExpired")}
-        </AuthAlert>
-      )}
-      {!error && shared && (
-        <AuthAlert tone="warning" icon="share" testId="auth-notice-shared">
-          {t("shareAgain")}
         </AuthAlert>
       )}
       {!error && signedOut && !contextBanner && (

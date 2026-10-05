@@ -1211,10 +1211,7 @@
     "roleAdmin": "Admin",
     "roleUser": "Nutzer",
     "signingOut": "Wird abgemeldet …",
-    "harnessBanner": "TESTMODUS — Anmeldung ist abgeschaltet (AUTH_HARNESS). Nur für Entwicklung und Tests, nie mit echten Daten.",
-    "adminNavUsers": "Personen",
-    "adminNavAppearance": "Erscheinungsbild",
-    "adminNavMonitoring": "Monitoring"
+    "harnessBanner": "TESTMODUS — Anmeldung ist abgeschaltet (AUTH_HARNESS). Nur für Entwicklung und Tests, nie mit echten Daten."
   },
   "quickTailor": {
     "title": "Quick Tailor",
@@ -1760,7 +1757,6 @@
     "errorNetwork": "Applire ist gerade nicht erreichbar. Versuch es in einem Moment erneut.",
     "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an — danach geht es dort weiter, wo du warst.",
     "signedOut": "Du bist abgemeldet.",
-    "shareAgain": "Du hast etwas mit Applire geteilt, bevor du angemeldet warst. Ein Link kommt mit, eine Datei leider nicht — teile die Datei nach der Anmeldung bitte noch einmal.",
     "setupTitle": "Applire einrichten",
     "setupIntro": "Lege das Konto an, mit dem du diese Instanz verwaltest. Den Einrichtungscode findest du im Log des Servers — so kann nur, wer den Server betreibt, die Instanz übernehmen.",
     "setupUpgradeNote": "War diese Instanz schon in Benutzung? Dann gehört alles, was darin liegt — Profil, Dokumente, Bewerbungen —, danach diesem Konto. Es geht nichts verloren.",
