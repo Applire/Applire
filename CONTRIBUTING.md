@@ -32,6 +32,21 @@ Open an issue with the label `enhancement`. Describe the use case and why it mat
    cp .env.example .env           # fill in your values
    docker compose up -d           # docker-compose.override.yml is picked up automatically
    ```
+   Sign-in is always on, also in development. A fresh dev database prints a one-time setup code
+   in `docker compose logs backend` (`grep "SETUP REQUIRED"`); open **http://localhost** (nginx on
+   port 80, not `:8001` or `:3000` — the origin check compares the browser's address with the
+   `Host` nginx forwards) and enter it, or claim the instance from the shell:
+   ```bash
+   docker compose exec backend python -m applire.admin create-admin --email you@example.org
+   ```
+   A development database that predates 0.43 needs one of those, or a reset with
+   `docker compose down -v` (deletes the dev volumes — development only, never an install).
+   The old no-login mode is **not** a dev mode any more: `AUTH_HARNESS=true` exists only for the
+   CI lanes (`.env.ci`, database `applire_ci`) and the backend refuses it on any database that is not a
+   throwaway test database (SQLite in memory, or a name ending in `_ci`/`_test` with no profile at boot).
+   Running the frontend outside Docker (`npm run dev`): set `NEXT_PUBLIC_API_URL=` (empty) so API
+   calls stay on the page's own origin and go through the Next.js rewrite to `BACKEND_URL`
+   (default `http://localhost:8001`).
 3. **Write tests** for any new functionality (coverage gate: ≥75%)
 4. **Run the test suite** before opening a PR:
    ```bash
@@ -69,6 +84,7 @@ Changes that affect the open-core boundary (`applire` vs `applire.cloud`), data 
 - **TypeScript**: strict mode, no `any`
 - **Database**: all schema changes via Alembic migrations — never raw DDL
 - **MCP tools**: always async, short-lived `AsyncSession` per tool call
+- **Ownership (ADR-092):** every table that holds a person's data carries `user_id`; a new route or tool depends on one of the auth dependencies in `applire/auth/deps.py`, reads owned rows through `get_owned(...)` (a foreign id is a 404, never a 403) and a job posting through `get_job_for_user(...)`. A statement on an owned table outside an owner context is refused by an engine-level guard; code that legitimately has no user (the retention worker, a script) declares `unscoped("<reason>")`. A route-inventory test fails a route that has no auth dependency and is not on its allowlist
 
 ## Development Guidelines
 

@@ -51,7 +51,9 @@ applire-core/
 │       ├── main.py              # FastAPI app entry point
 │       ├── constants.py         # All TTLs, thresholds, edition flags
 │       ├── edition.py           # HAS_CLOUD_EDITION detection
-│       ├── auth/                # AuthProvider ABC + NoAuthProvider
+│       ├── auth/                # AuthProvider ABC, local accounts, sessions, OIDC, tokens, links, harness
+│       ├── ownership.py         # owner context, unscoped(reason), engine-level owner guard, get_owned
+│       ├── admin/               # python -m applire.admin (create-admin, reset-password)
 │       ├── providers/           # LLM, OCR, Storage factories
 │       ├── routers/             # FastAPI route handlers
 │       ├── services/
@@ -114,7 +116,10 @@ These are hard constraints. Do not work around them.
 | One `flow_session` per `(user_id, job_id)` — unique constraint enforced at DB level | Flow orchestrator |
 | Steps that produce artifacts record `artifact_id` from `AdvanceFlowRequest`; all but `cv_generation` also require it | Flow transitions |
 | LLM calls go through the `LLMProvider` abstraction — never instantiate a provider SDK directly | Any LLM usage |
-| Auth goes through the `AuthProvider` abstraction | Any auth check |
+| Auth goes through the `AuthProvider` abstraction and the five dependencies in `auth/deps.py` / `deps_links.py` (`require_user`, `require_admin`, `require_session_user`, `user_or_signed_link`, `admin_or_probe`) — a route-inventory test fails any route without one | Any new route |
+| Every owned table carries `user_id`; reads go through `get_owned` / `get_job_for_user`; a foreign id is a **404**; a statement on an owned table without an owner context is refused by an engine guard (`unscoped("<reason>")` is declared, never improvised); a public service function takes `user_id` | Any query, service, task, MCP tool |
+| `AUTH_HARNESS` is a test fixture, not a mode: never set it in a real `.env`; unit tests run on it through the W0 fixtures — never weaken its fence to make a test pass | Tests, CI lanes |
+| Agent-returned document URLs are signed (60 min); the MCP server needs `APPLIRE_AGENT_TOKEN` | MCP work |
 | `applire.cloud.*` is never imported here | Everywhere |
 | Edition-gated features return HTTP 402 in Community | Cloud-only endpoints |
 
@@ -133,7 +138,9 @@ These are hard constraints. Do not work around them.
 ## Key Commands
 
 ```bash
-# Start full stack
+# Start full stack (login is on: read the setup code with
+#   docker compose logs backend | grep "SETUP REQUIRED"  — or run
+#   docker compose exec backend python -m applire.admin create-admin --email you@example.org)
 docker compose up -d
 
 # Run database migrations
@@ -166,8 +173,8 @@ cd frontend && npm run dev      # http://localhost:3000
 # Backend dev server (standalone, requires DB)
 cd backend && uvicorn applire.main:app --reload --port 8001
 
-# Run MCP server (stdio transport)
-python -m applire.mcp
+# Run MCP server (stdio transport) — needs a personal agent token (Settings → Tokens)
+APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ```
 
 ---
@@ -191,7 +198,8 @@ The range on offer: `ollama` runs fully offline (`docker compose --profile ollam
 
 - **Coverage gate:** ≥75% backend unit coverage — enforced by CI (`--cov-fail-under=75`).
 - **Mock all LLM providers in tests** — unit and integration tests must never call real APIs.
-- Unit tests run without Docker (`tests/unit/conftest.py` sets up an in-memory SQLite DB).
+- Unit tests run without Docker (`tests/unit/conftest.py` sets up an in-memory SQLite DB) as an owner on the NoAuth test harness; the owner guard is on.
+- **Two E2E lanes.** The default CI stack (`.env.ci`, database `applire_ci`) runs the fenced NoAuth harness: every request is the stub administrator. A second **real-auth lane** (`docker-compose.ci-auth.yml` + `.env.ci-auth`, nginx on `:8091`, login on) claims the instance with the setup code from the backend log and signs in through the real endpoints; it blocks merges (job `real-auth-lane`). Postgres-only behaviour (races, the audit trigger, constraints, migrations) has its own job, `postgres-only-tests`, one throwaway `*_test` database per file.
 - Integration tests use a real Docker Compose stack — they spin it up automatically.
 - E2E runs Chromium only (`chromium` + `mobile-chromium` projects). Firefox is installed in CI but no suite targets it, so there is no cross-browser gate.
 - All JavaScript/TypeScript uses ES modules (`"type": "module"`). Never `require()` in tests.
