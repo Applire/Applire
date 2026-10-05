@@ -17,7 +17,7 @@ export default defineConfig({
   expect: { timeout: 15 * 1000 },
   reporter: [['html'], ['github']],
   use: {
-    baseURL: 'http://localhost',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -20,6 +20,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { SectionEditor, type SectionEditorHandle } from "../SectionEditor";
+import { saveScopeStorageKey } from "../SaveScopePrompt";
 
 const MOCK_SECTION = {
   section_id: "introduction",
@@ -99,7 +100,7 @@ describe("SectionEditor", () => {
       ok: true,
       json: async () => ({ html: "<html/>", overrides_applied: [], resolved_gaps: [] }),
     } as Response);
-    sessionStorage.setItem("finetune_save_scope", "cv");
+    sessionStorage.setItem(saveScopeStorageKey(), "cv");
     const ref = createRef<SectionEditorHandle>();
     render(withIntl(<SectionEditor {...BASE_PROPS} ref={ref} />));
     act(() => ref.current!.injectSuggestion("Applied text", true));
@@ -144,7 +145,7 @@ describe("SectionEditor", () => {
 
   it("shows error message when PATCH fails", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
-    sessionStorage.setItem("finetune_save_scope", "cv");
+    sessionStorage.setItem(saveScopeStorageKey(), "cv");
 
     render(withIntl(<SectionEditor {...BASE_PROPS} />));
     fireEvent.change(screen.getByTestId("section-textarea"), {
@@ -184,7 +185,7 @@ describe("SectionEditor", () => {
       }),
     } as Response);
 
-    sessionStorage.setItem("finetune_save_scope", "cv");
+    sessionStorage.setItem(saveScopeStorageKey(), "cv");
 
     render(withIntl(<SectionEditor {...BASE_PROPS} onSaved={onSaved} />));
     fireEvent.change(screen.getByTestId("section-textarea"), {
@@ -206,7 +207,7 @@ describe("SectionEditor", () => {
         resolved_gaps: ["Python"],
       }),
     } as Response);
-    sessionStorage.setItem("finetune_save_scope", "cv");
+    sessionStorage.setItem(saveScopeStorageKey(), "cv");
 
     render(withIntl(<SectionEditor {...BASE_PROPS} />));
     expect(screen.queryAllByTestId("write-myself-btn").length).toBeGreaterThan(0);

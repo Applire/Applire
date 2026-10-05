@@ -19,6 +19,10 @@ export interface NavItem {
   key: "dashboard" | "profile" | "import" | "documents" | "settings" | "admin";
   href: string;
   icon: string;
+  /** US330: shown to admins only (Administration → /admin/users, G-2). */
+  adminOnly?: boolean;
+  /** Path prefix that marks the item active (default: `href`). */
+  activePrefix?: string;
 }
 
 /**
@@ -33,5 +37,27 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "import",    href: "/profile/upload",   icon: "upload_file"  },
   { key: "documents", href: "/documents",        icon: "description"  },
   { key: "settings",  href: "/settings",         icon: "settings"     },
-  { key: "admin",     href: "/admin/appearance", icon: "shield_person" },
+  { key: "admin",     href: "/admin/users",      icon: "shield_person", adminOnly: true, activePrefix: "/admin" },
 ];
+
+/** The entries this person sees — Administration only for admins (G-2). */
+export function navItemsFor(isAdmin: boolean): NavItem[] {
+  return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+}
+
+/**
+ * Exact match, or a sub-path of the item's prefix that no OTHER item claims
+ * more specifically (/profile/upload belongs to "import", not "profile").
+ */
+export function isNavItemActive(pathname: string | null | undefined, item: NavItem): boolean {
+  const path = pathname ?? "";
+  const prefixOf = (i: NavItem) => i.activePrefix ?? i.href;
+  const own = prefixOf(item);
+  if (path === item.href || path === own) return true;
+  if (!path.startsWith(own + "/")) return false;
+  return !NAV_ITEMS.some((other) => {
+    if (other === item) return false;
+    const p = prefixOf(other);
+    return p.length > own.length && (path === p || path.startsWith(p + "/"));
+  });
+}

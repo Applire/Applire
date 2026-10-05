@@ -29,6 +29,8 @@ import { FileChip } from "@/components/ui/file-chip";
 import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { cn } from "@/lib/utils";
 import { ProcessingOverlay } from "@/components/processing-overlay";
+import { HarnessBanner } from "@/components/shell/HarnessBanner";
+import { loginPathFor, useCurrentUser } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -49,10 +51,24 @@ export default function Home() {
   const [isReturningUser, setIsReturningUser] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // US330 (ADR-091): the first screen is for a signed-in person too.
+  const { status: authStatus, authState } = useCurrentUser();
+  const authReady = authStatus === "authenticated" || authStatus === "error";
+
   const hasFiles = files.length > 0;
   const canSubmit = hasFiles && !showOverlay;
 
   useEffect(() => {
+    if (authStatus !== "unauthenticated") return;
+    router.replace(
+      authState?.setup_required
+        ? "/setup"
+        : loginPathFor({ pathname: "/", search: window.location.search }),
+    );
+  }, [authStatus, authState?.setup_required, router]);
+
+  useEffect(() => {
+    if (!authReady) return;
     async function checkProfile() {
       try {
         const res = await fetch(`${API_BASE}/api/profile/exists`);
@@ -69,7 +85,7 @@ export default function Home() {
       }
     }
     checkProfile();
-  }, []);
+  }, [authReady]);
 
   // Returning user → Dashboard. Navigation must happen in an effect, not during
   // render — calling router.replace() in the render body updates the Router's
@@ -124,6 +140,7 @@ export default function Home() {
   // New user → Screen 1 (CV upload + JD input)
   return (
     <div className="min-h-screen flex flex-col bg-surface-dim">
+      <HarnessBanner />
       {showOverlay && (
         <ProcessingOverlay
           files={guided ? [] : files.map(({ file }) => file)}
