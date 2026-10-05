@@ -22,6 +22,13 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineBanner } from "@/components/offline-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { LocaleProvider } from "@/lib/providers/locale-provider";
+import { CurrentUserProvider } from "@/lib/auth/current-user";
+import { installAuthFetch } from "@/lib/auth/fetch-patch";
+
+// US330 (ADR-091): patch window.fetch at module load — BEFORE any component
+// effect fires its first API call — so a 401 `unauthenticated` anywhere in the
+// app sends the person to /login?next=… without an edit in the calling files.
+installAuthFetch();
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -30,12 +37,14 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
   return (
     <ThemeProvider>
-      <LocaleProvider>
-        <ErrorBoundary>
-          <OfflineBanner />
-          {children}
-        </ErrorBoundary>
-      </LocaleProvider>
+      <CurrentUserProvider>
+        <LocaleProvider>
+          <ErrorBoundary>
+            <OfflineBanner />
+            {children}
+          </ErrorBoundary>
+        </LocaleProvider>
+      </CurrentUserProvider>
     </ThemeProvider>
   );
 }
