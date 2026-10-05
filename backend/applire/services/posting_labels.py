@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["effective_posting_labels"]
+__all__ = ["effective_posting_labels", "posting_response"]
 
 
 def _present(value: Any) -> bool:
@@ -58,3 +58,24 @@ def effective_posting_labels(job: Any, application: Any | None) -> tuple[str, st
         if _present(app_company):
             company_name = app_company
     return role_title, company_name
+
+
+def posting_response(job: Any, application: Any | None):
+    """The shared posting as ONE caller sees it — the only builder of a
+    ``JobAnalysisResponse`` (REST ``POST /api/job/analyze`` + ``GET
+    /api/job/{id}``, MCP ``analyze_jd`` + ``job://``).
+
+    ``job_analyses`` is a shared cache (S-17): its ``source_url`` is the FIRST
+    analyser's URL and may carry their recruiter/tracking token. MD-31
+    (adv-own-101/102, 2026-10-05): the response's ``source_url`` comes from the
+    caller's own ``applications`` row, or is ``None`` — never the shared row's
+    value. The labels are the caller's too (:func:`effective_posting_labels`,
+    ADR-092 cl. 5f). ``application`` is the caller's link row (a soft-deleted
+    hidden repost link included) or ``None``.
+    """
+    from applire.schemas.job import JobAnalysisResponse
+
+    response = JobAnalysisResponse.model_validate(job)
+    response.role_title, response.company_name = effective_posting_labels(job, application)
+    response.source_url = getattr(application, "source_url", None) if application is not None else None
+    return response

@@ -210,10 +210,10 @@ async def test_delete_photo_clears_url_and_consent(photo_db):
 # ---------------------------------------------------------------------------
 # Task 6 — photo_url gap-fill (US184: via the ADR-046 engine import path)
 #
-# photo_url is user-managed (gap-fill only, never overwritten). The retired
-# lexical merge_profiles enforced this via a _GAP_FILL_ONLY set; the engine's
-# set_personal_info op is gap-fill by default (only writes when the field is
-# empty), so these tests now drive reconcile_import with a stubbed reconcile op.
+# photo_url is user-managed: an import never writes it — neither over a stored
+# value nor into an empty slot (the earlier gap-fill rule was withdrawn: the
+# value is a storage path, written only by the photo endpoints). These tests
+# drive reconcile_import with a stubbed reconcile op.
 # ---------------------------------------------------------------------------
 
 
@@ -228,8 +228,10 @@ class _ReconcileStub:
 
 
 @pytest.mark.asyncio
-async def test_merge_gap_fills_photo_url():
-    """Import fills photo_url if existing is empty but incoming has a value."""
+async def test_merge_never_fills_an_empty_photo_url():
+    """An import never writes photo_url, not even into an empty slot: the photo
+    endpoints are its one writer (they store the file and record consent), and
+    the value is a storage path the CV render reads."""
     from applire.schemas.profile import MasterProfileData, PersonalInfo
     from applire.services.profile.reconcile.import_bridge import reconcile_import
 
@@ -245,7 +247,7 @@ async def test_merge_gap_fills_photo_url():
         "ambiguities": [],
     })
     result = await reconcile_import(existing, incoming, "test", stub)
-    assert result.merged_profile.personal_info.photo_url == "/uploads/photo.jpg"
+    assert result.merged_profile.personal_info.photo_url is None
 
 
 @pytest.mark.asyncio

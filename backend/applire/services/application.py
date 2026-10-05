@@ -162,7 +162,9 @@ async def create_application(
             role_title=request.role_title or job.role_title,
             notes=request.notes,
             deadline=request.deadline,
-            source_url=request.source_url or job.source_url,
+            # MD-31: the caller's own URL or none — never the shared posting's
+            # (the first analyser's URL, which may carry their tracking token).
+            source_url=request.source_url,
         )
         db.add(app)
         await db.flush()  # get app.id before potential workflow creation

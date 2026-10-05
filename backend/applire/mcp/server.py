@@ -112,7 +112,6 @@ from applire.schemas.application import (
 )
 from applire.schemas.cover_letter import CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
-from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
@@ -123,6 +122,7 @@ from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
+from applire.services import posting_labels
 from applire.services import oracle as oracle_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
@@ -2053,11 +2053,17 @@ async def resource_job(job_id: str) -> str:
             record = await _owned_job(db, jid)
         except ownership.OwnedNotFound:
             record = None
+        link = (
+            await job_svc.caller_link(db, record.id, _acting_user().id)
+            if record is not None else None
+        )
     if record is None or record.deleted_at is not None:
         raise not_found(f"Job analysis {job_id} not found")
-    # ADR-084 cl. 4: the resource form of `analyze_jd` — same payload, same marking.
+    # ADR-084 cl. 4: the resource form of `analyze_jd` — same payload, same
+    # marking, and (MD-31) the same per-caller builder: labels and source_url
+    # from the caller's own row, never the shared posting's.
     return json.dumps(
-        _marked(JobAnalysisResponse.model_validate(record).model_dump(mode="json"), "analyze_jd")
+        _marked(posting_labels.posting_response(record, link).model_dump(mode="json"), "analyze_jd")
     )
 
 

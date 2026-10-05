@@ -227,6 +227,21 @@ async def get_job_for_user(
     return job
 
 
+async def caller_link(db: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID):
+    """The caller's ``applications`` row for ``job_id`` — soft-deleted included
+    (a hidden repost link, 4a-1, is still the caller's link) — or ``None``."""
+    from applire.models.application import Application
+
+    return (
+        await db.execute(
+            select(Application).where(
+                Application.user_id == user_id,
+                Application.job_analysis_id == job_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def ensure_application_link(
     db: AsyncSession,
     job: JobAnalysis,
@@ -296,6 +311,11 @@ async def ensure_application_link(
         app.role_title = role
     if company is not None:
         app.company_name = company
+    if source_url and not (app.source_url or "").strip():
+        # MD-31: the caller's own URL fills their own empty slot, so the response
+        # (`posting_response`, which reads only this row) still carries the URL
+        # the caller just analysed from.
+        app.source_url = source_url
     await db.flush()
     return app
 
@@ -667,7 +687,6 @@ async def _link_and_respond(
 ) -> JobAnalysisResponse:
     """Repost hint (before the link), link, commit, answer with the caller's labels."""
     from applire.services.application import find_duplicate_application
-    from applire.services.posting_labels import effective_posting_labels
 
     duplicate_of = None
     try:
@@ -695,7 +714,9 @@ async def _link_and_respond(
     )
     await db.commit()
     await db.refresh(job)
-    response = JobAnalysisResponse.model_validate(job)
-    response.role_title, response.company_name = effective_posting_labels(job, app)
+    await db.refresh(app)
+    from applire.services.posting_labels import posting_response
+
+    response = posting_response(job, app)
     response.duplicate_of = duplicate_of
     return response
