@@ -21,7 +21,7 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useTranslations } from "next-intl";
 import { GapHint } from "./GapHint";
-import { SaveScopePrompt } from "./SaveScopePrompt";
+import { SaveScopePrompt, saveScopeStorageKey } from "./SaveScopePrompt";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -93,7 +93,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
   }
 
   function handleSaveClick() {
-    const remembered = sessionStorage.getItem("finetune_save_scope");
+    const remembered = sessionStorage.getItem(saveScopeStorageKey());
     if (remembered !== null) {
       void executeSave(remembered === "profile");
     } else {
@@ -110,7 +110,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     onUnsavedChange(text !== savedContent);
     setSaveError(null);
     if (autoSave) {
-      const remembered = sessionStorage.getItem("finetune_save_scope");
+      const remembered = sessionStorage.getItem(saveScopeStorageKey());
       if (remembered !== null) {
         void executeSave(remembered === "profile", text);
       } else {

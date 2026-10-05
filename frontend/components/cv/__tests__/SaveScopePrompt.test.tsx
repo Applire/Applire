@@ -18,7 +18,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
-import { SaveScopePrompt } from "../SaveScopePrompt";
+import { SaveScopePrompt, saveScopeStorageKey } from "../SaveScopePrompt";
 
 describe("SaveScopePrompt", () => {
   afterEach(() => {
@@ -50,14 +50,14 @@ describe("SaveScopePrompt", () => {
     render(withIntl(<SaveScopePrompt onConfirm={vi.fn()} onCancel={vi.fn()} />));
     fireEvent.click(screen.getByTestId("remember-choice-checkbox"));
     fireEvent.click(screen.getByTestId("save-cv-only-btn"));
-    expect(sessionStorage.getItem("finetune_save_scope")).toBe("cv");
+    expect(sessionStorage.getItem(saveScopeStorageKey())).toBe("cv");
   });
 
   it("when remember-choice is checked and profile selected, stores 'profile' in sessionStorage", () => {
     render(withIntl(<SaveScopePrompt onConfirm={vi.fn()} onCancel={vi.fn()} />));
     fireEvent.click(screen.getByTestId("remember-choice-checkbox"));
     fireEvent.click(screen.getByTestId("save-to-profile-btn"));
-    expect(sessionStorage.getItem("finetune_save_scope")).toBe("profile");
+    expect(sessionStorage.getItem(saveScopeStorageKey())).toBe("profile");
   });
 
   it("Cancel calls onCancel", () => {

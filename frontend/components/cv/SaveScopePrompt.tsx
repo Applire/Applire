@@ -20,6 +20,15 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { userScopedKey } from "@/lib/auth/storage";
+
+/**
+ * The remembered fine-tune save scope ("profile" | "cv") for THIS browser tab —
+ * keyed by the signed-in user (Strawberry D-9), cleared on sign-out.
+ */
+export function saveScopeStorageKey(): string {
+  return userScopedKey("applire.finetune.saveScope");
+}
 
 interface SaveScopePromptProps {
   onConfirm: (saveToProfile: boolean) => void;
@@ -32,7 +41,7 @@ export function SaveScopePrompt({ onConfirm, onCancel }: SaveScopePromptProps) {
 
   function handleChoice(saveToProfile: boolean) {
     if (remember) {
-      sessionStorage.setItem("finetune_save_scope", saveToProfile ? "profile" : "cv");
+      sessionStorage.setItem(saveScopeStorageKey(), saveToProfile ? "profile" : "cv");
     }
     onConfirm(saveToProfile);
   }

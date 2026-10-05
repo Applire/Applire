@@ -17,10 +17,16 @@
 // and a benign default when storage is unavailable (private mode, storage
 // disabled) — which for this surface is "still show it".
 
+import { userScopedKey } from "@/lib/auth/storage";
+
 const KEY_PREFIX = "applire.gaps.decisionsDismissed.";
 
+/**
+ * Strawberry D-9: keyed by the signed-in user as well, so two people sharing a
+ * browser never inherit each other's dismissals (`lib/auth/storage.ts`).
+ */
 export function decisionsDismissedKey(flowId: string): string {
-  return `${KEY_PREFIX}${flowId}`;
+  return userScopedKey(`${KEY_PREFIX}${flowId}`);
 }
 
 /** The issue ids dismissed for THIS flow in THIS browser. */

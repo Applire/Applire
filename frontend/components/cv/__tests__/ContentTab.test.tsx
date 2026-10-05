@@ -19,6 +19,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import { ContentTab } from "../ContentTab";
+import { saveScopeStorageKey } from "../SaveScopePrompt";
 
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
@@ -155,7 +156,7 @@ describe("ContentTab", () => {
   });
 
   it("Edit mode: 'Apply' on a Kaile suggestion saves it into the section (Task 11)", async () => {
-    sessionStorage.setItem("finetune_save_scope", "cv");
+    sessionStorage.setItem(saveScopeStorageKey(), "cv");
     const patchBodies: string[] = [];
     vi.spyOn(global, "fetch").mockImplementation((async (url: string, init?: RequestInit) => {
       const u = String(url);

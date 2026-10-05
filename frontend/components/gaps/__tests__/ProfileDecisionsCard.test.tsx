@@ -33,6 +33,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { ProfileDecisionsCard, MAX_POPUPS } from "../ProfileDecisionsCard";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import type { HealthIssue, ProfileHealth } from "@/components/profile/HealthPanel";
+import { setStorageUserId } from "@/lib/auth/storage";
 import {
   decisionsDismissedKey,
   dismissedDecisions,
@@ -393,8 +394,18 @@ describe("gap-decisions-dismissed", () => {
   });
 
   it("keys the storage entry per flow id", () => {
-    expect(decisionsDismissedKey("flow-1")).toBe("applire.gaps.decisionsDismissed.flow-1");
+    expect(decisionsDismissedKey("flow-1")).toBe("applire.gaps.decisionsDismissed.flow-1.u.anonymous");
     expect(decisionsDismissedKey("flow-1")).not.toBe(decisionsDismissedKey("flow-2"));
+  });
+
+  it("keys the storage entry per signed-in user too (Strawberry D-9)", () => {
+    setStorageUserId("user-a");
+    const a = decisionsDismissedKey("flow-1");
+    setStorageUserId("user-b");
+    const b = decisionsDismissedKey("flow-1");
+    setStorageUserId(null);
+    expect(a).toBe("applire.gaps.decisionsDismissed.flow-1.u.user-a");
+    expect(a).not.toBe(b);
   });
 
   it("returns an empty Set when nothing has been stored for this flow", () => {

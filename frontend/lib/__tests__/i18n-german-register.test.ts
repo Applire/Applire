@@ -108,6 +108,14 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   "health.fieldLabel.url",
   "health.fieldLabel.position",
   "health.fieldLabel.name",
+  // Strawberry W0-B COPY.md (founder gate G-1): "Administration", "Admin" and
+  // "Monitoring" are the approved German words; the setup-code placeholder is
+  // the code's shape, not language.
+  "shell.admin",
+  "shell.userMenuAdmin",
+  "shell.roleAdmin",
+  "shell.adminNavMonitoring",
+  "auth.setupCodePlaceholder",
   // Symbols, separators and pure ICU patterns
   "coverLetter.separator",
   "coverLetter.emDash",
