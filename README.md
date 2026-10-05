@@ -507,7 +507,7 @@ running Applire, over stdio:
       "command": "docker",
       "args": [
         "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
-        "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"
+        "run", "--rm", "-T", "-e", "APPLIRE_AGENT_TOKEN", "mcp"
       ],
       "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
     }

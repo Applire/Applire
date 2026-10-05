@@ -277,7 +277,11 @@ def test_readme_mcp_client_config_is_valid_json_and_names_the_shipped_service(re
     assert cfg["command"] == "docker"
     args = cfg["args"]
     assert args[0] == "compose" and "-f" in args
-    assert args[-4:] == ["run", "--rm", "-T", "mcp"]
+    # ADR-091 cl. 17: the stdio door needs the user's agent token, passed through
+    # from the client's env — same argument order as the in-app snippet
+    # (frontend/components/account/tokens.tsx).
+    assert args[-6:] == ["run", "--rm", "-T", "-e", "APPLIRE_AGENT_TOKEN", "mcp"]
+    assert "APPLIRE_AGENT_TOKEN" in cfg.get("env", {})
     svc = compose["services"]["mcp"]
     assert svc["command"] == "python -m applire.mcp"
     assert svc.get("stdin_open") is True
