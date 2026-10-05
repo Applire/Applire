@@ -5,7 +5,8 @@
  * OperatorPanel on the admin page (E060 / US312, ADR-086 clause 11).
  *
  * Founder ruling O1-4 (2026-09-09): the operator panel lives on the existing
- * admin surface, not on the dashboard — the dashboard is the candidate's
+ * admin surface, not on the dashboard (since Strawberry: the Monitoring tab of the
+ * admin area, ruling w4-2b-1) — the dashboard is the candidate's
  * pipeline, and in the Strawberry admin release access to /admin is tied to a
  * user right.
  *
@@ -14,7 +15,7 @@
  * tests.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 const HEALTHY = {
   status: "ok",
@@ -115,10 +116,10 @@ async function mount(page: import("@playwright/test").Page, body: unknown) {
   await page.route("**/api/ops/health", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
   );
-  await page.route("**/api/admin/color-schemes**", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+  await page.route("**/api/admin/probe-tokens", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ tokens: [] }) })
   );
-  await page.goto("/admin/appearance");
+  await page.goto("/admin/monitoring");
 }
 
 test.describe("Operator panel", () => {
@@ -192,12 +193,31 @@ test.describe("Operator panel", () => {
 
   test("an unreachable endpoint degrades to one honest line", async ({ page }) => {
     await page.route("**/api/ops/health", (route) => route.abort());
-    await page.route("**/api/admin/color-schemes**", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+    await page.route("**/api/admin/probe-tokens", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ tokens: [] }) })
     );
-    await page.goto("/admin/appearance");
+    await page.goto("/admin/monitoring");
     await expect(page.getByTestId("operator-panel")).toContainText(
       "The instance status cannot be read right now."
     );
+  });
+
+  test("a 'down' verdict (HTTP 503) still renders its report, expanded", async ({ page }) => {
+    // Contract §3.1: 503 is the verdict, the body is still the report — the
+    // state an operator most needs to read, not "cannot be read".
+    const body = JSON.parse(JSON.stringify(HEALTHY));
+    body.status = "down";
+    body.components.database.status = "down";
+    body.components.database.message = "database unreachable";
+    await page.route("**/api/ops/health", (route) =>
+      route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(body) })
+    );
+    await page.route("**/api/admin/probe-tokens", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ tokens: [] }) })
+    );
+    await page.goto("/admin/monitoring");
+    await expect(page.getByTestId("operator-panel-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("operator-panel-row-database")).toBeVisible();
+    await expect(page.getByTestId("operator-panel")).not.toContainText("cannot be read");
   });
 });

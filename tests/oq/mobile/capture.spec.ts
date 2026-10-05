@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../../support/auth-fixture";
 
 /**
  * Mobile capture stage — OQ Tests (US227, 390x844)

@@ -6,7 +6,7 @@
 // This file is part of Applire. See <https://www.gnu.org/licenses/> for the
 // GNU Affero General Public License this file is distributed under.
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * In-flow CV import with a job → gap step — OQ (Frontend collector #677)

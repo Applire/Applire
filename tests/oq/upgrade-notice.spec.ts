@@ -18,15 +18,16 @@
 
 // The operator's version-jump notice on the dashboard (US310 / #687, ADR-087).
 //
-// Everything here is stubbed at `/health`, because that is the component's only
-// input: the comparison itself runs once in the backend lifespan and the frontend
+// Everything here is stubbed at `/api/ops/health` (Strawberry RD-1/S-16: the notice
+// fields left the public `/health` for the admin-or-probe ops report, so the notice
+// is admin-only), because that is the component's only input: the comparison itself runs once in the backend lifespan and the frontend
 // renders what it reports. The four properties worth pinning are the four the
 // story argues about — a quiet day renders NOTHING, an upgrade renders both
 // lists, dismissing calls the endpoint that records the running version as seen,
 // and the debug-log warning is NOT dismissable because it is a live posture
 // rather than an event.
 
-import { test, expect } from "@playwright/test";
+import { test, expect, REGULAR_USER } from "../support/auth-fixture";
 
 const QUIET_HEALTH = {
   status: "ok",
@@ -63,12 +64,40 @@ const NOTICE_HEALTH = {
 };
 
 /** Stub everything the dashboard fetches, with `/health` under the test's control. */
+/** The 0.42 → 0.43 upgrade the W0-B upgrade mock §3 draws (MD-2, RD-9). */
+const MULTI_USER_HEALTH = {
+  ...QUIET_HEALTH,
+  version: "0.43.0-beta",
+  retired_profiles: 1,
+  upgrade_notice: {
+    from: "0.42.0-beta",
+    to: "0.43.0-beta",
+    unset: [],
+    re_meant: [
+      {
+        env_var: "AUTH_PROVIDER",
+        semantics_changed_in: "0.43.0",
+        default: "local",
+        description: "Sign-in provider.",
+      },
+    ],
+  },
+};
+
 async function stubDashboard(page: import("@playwright/test").Page, health: unknown) {
-  await page.route("**/health", (route) =>
+  await page.route("**/api/ops/health", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(health),
+    })
+  );
+  // The public liveness answer carries none of the notice fields any more.
+  await page.route((url) => url.pathname === "/health", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "ok", edition: "community", version: "0.43.0-beta" }),
     })
   );
   await page.route("**/api/applications", (route) =>
@@ -93,7 +122,7 @@ async function stubDashboard(page: import("@playwright/test").Page, health: unkn
 test.describe("Version-jump notice (US310)", () => {
   test("renders nothing when there is nothing to report", async ({ page }) => {
     await stubDashboard(page, QUIET_HEALTH);
-    const healthAnswered = page.waitForResponse((r) => r.url().includes("/health"));
+    const healthAnswered = page.waitForResponse((r) => r.url().includes("/api/ops/health"));
     await page.goto("/dashboard");
     // Two things make this assertion non-vacuous: the dashboard's own <h1> is on
     // screen (so the page really rendered), and /health has answered (so the
@@ -152,5 +181,40 @@ test.describe("Version-jump notice (US310)", () => {
 
     await expect(page.getByTestId("upgrade-notice-debug-log")).toBeVisible();
     await expect(page.getByTestId("upgrade-notice-dismiss")).toHaveCount(0);
+  });
+
+  test("crossing into accounts: AUTH_PROVIDER paragraph, the to-do list and the set-aside profile", async ({
+    page,
+  }) => {
+    await stubDashboard(page, MULTI_USER_HEALTH);
+    await page.goto("/dashboard");
+
+    const notice = page.getByTestId("upgrade-notice");
+    await expect(notice).toBeVisible();
+    await expect(page.getByTestId("upgrade-notice-auth")).toContainText("AUTH_PROVIDER=none");
+    // The paragraph replaces the generic re-meant line — AUTH_PROVIDER is named once.
+    await expect(notice.getByText("You set these, and their meaning has changed", { exact: false })).toHaveCount(0);
+    const steps = page.getByTestId("upgrade-notice-next-steps");
+    await expect(steps).toContainText("agent token");
+    await expect(steps).toContainText("monitoring token");
+    await expect(steps).toContainText("Administration");
+    await expect(page.getByTestId("upgrade-notice-retired")).toContainText("an older one was");
+  });
+});
+
+test.describe("Version-jump notice — not an admin", () => {
+  test.use({ authUser: REGULAR_USER });
+
+  test("a non-admin never asks for the ops report and sees no notice", async ({ page }) => {
+    let opsCalls = 0;
+    await stubDashboard(page, NOTICE_HEALTH);
+    await page.route("**/api/ops/health", (route) => {
+      opsCalls += 1;
+      return route.fulfill({ status: 403, contentType: "application/json", body: "{}" });
+    });
+    await page.goto("/dashboard");
+    await expect(page.locator("main h1")).toBeVisible();
+    await expect(page.getByTestId("upgrade-notice")).toHaveCount(0);
+    expect(opsCalls).toBe(0);
   });
 });
