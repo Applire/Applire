@@ -114,12 +114,16 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        const lang = data.ui_language as Locale;
-        if (lang === "de" || lang === "en") {
-          apply(lang);
+        const served = data.ui_language as Locale;
+        if (served === "de" || served === "en") {
           // ADR-038 (amended 2026-08-01, #400): the UI is an explicit language
           // context — persist the active locale once so "no explicit choice"
           // reliably means a headless/agent-channel journey.
+          // US330 (FQ w4-2a-2, option A): a never-chosen language is NOT the
+          // served "en" default but the language the person already used on
+          // the signed-out pages (the browser's) — no flip at sign-in.
+          const lang = data.ui_language_explicit === false ? browserLocale() : served;
+          apply(lang);
           if (data.ui_language_explicit === false) {
             fetch(`${API_BASE}/api/settings`, {
               method: "PATCH",
