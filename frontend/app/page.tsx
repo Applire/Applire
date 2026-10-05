@@ -30,6 +30,9 @@ import { useFileUpload } from "@/lib/hooks/use-file-upload";
 import { cn } from "@/lib/utils";
 import { ProcessingOverlay } from "@/components/processing-overlay";
 import { HarnessBanner } from "@/components/shell/HarnessBanner";
+import { AppSidebar } from "@/components/shell/AppSidebar";
+import { AppTopbar } from "@/components/shell/AppTopbar";
+import { ShellUserProvider } from "@/components/shell/ShellUserContext";
 import { loginPathFor, useCurrentUser } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -137,11 +140,7 @@ export default function Home() {
     );
   }
 
-  // New user → Screen 1 (CV upload + JD input)
-  return (
-    <div className="min-h-screen flex flex-col bg-surface-dim">
-      <HarnessBanner />
-      {showOverlay && (
+  const overlay = showOverlay && (
         <ProcessingOverlay
           files={guided ? [] : files.map(({ file }) => file)}
           jdMode={jdMode}
@@ -150,19 +149,9 @@ export default function Home() {
           guided={guided}
           onCancel={() => setShowOverlay(false)}
         />
-      )}
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-          <h1 className="font-heading text-2xl font-bold text-neutral-dark">Applire</h1>
-          <p className="text-sm text-gray-500 hidden sm:block">
-            {t("tagline")}
-          </p>
-        </div>
-      </header>
+  );
 
-      {/* Main Content */}
+  const main = (
       <main className="flex-1 px-4 py-8 md:py-12">
         <div className="max-w-[900px] mx-auto">
           {/* Two-column grid */}
@@ -322,6 +311,47 @@ export default function Home() {
           </div>
         </div>
       </main>
+  );
+
+  // Strawberry int-1 (approved mock user-menu screen 3): a signed-in account
+  // without a profile sees the onboarding INSIDE the shell — e-mail in the
+  // sidebar, the nav, the account menu with sign-out, Administration for
+  // admins. The harness (single-user) first run keeps its standalone page.
+  if (authStatus === "authenticated" && authState?.harness !== true) {
+    return (
+      <ShellUserProvider userName={null}>
+        <div className="flex h-screen flex-col overflow-hidden bg-surface-dim" data-testid="onboarding-in-shell">
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <AppSidebar userName={null} />
+            <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
+              <AppTopbar mode="section" titleKey="shell.dashboard" />
+              {overlay}
+              {main}
+            </div>
+          </div>
+        </div>
+      </ShellUserProvider>
+    );
+  }
+
+  // New user → Screen 1 (CV upload + JD input)
+  return (
+    <div className="min-h-screen flex flex-col bg-surface-dim">
+      <HarnessBanner />
+      {overlay}
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-4 py-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+          <h1 className="font-heading text-2xl font-bold text-neutral-dark">Applire</h1>
+          <p className="text-sm text-gray-500 hidden sm:block">
+            {t("tagline")}
+          </p>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      {main}
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 px-4 py-4">
