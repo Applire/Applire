@@ -10,7 +10,10 @@
  *
  * The row menu is portalled and `fixed` at the kebab button: the table scrolls
  * horizontally at 390 px, and an absolutely positioned menu inside that scroll
- * container would be clipped.
+ * container would be clipped. The scroll wrapper is `relative` so the header's
+ * `sr-only` cell stays inside it — without it the absolutely positioned span
+ * escaped to the page and widened the 390 px layout to 841 px (screenshot,
+ * 2026-10-05; pinned by tests/oq/mobile/admin-account.spec.ts).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -101,7 +104,7 @@ export function UsersTable({
   const now = new Date();
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-white p-2 shadow-soft">
+    <div className="relative overflow-x-auto rounded-xl bg-white p-2 shadow-soft">
       <table data-testid="admin-users-table" className="w-full min-w-[860px] text-left text-[13px]">
         <thead>
           <tr className="border-b border-outline-variant text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
@@ -185,8 +188,10 @@ function RowMenu({ user, onAction }: { user: AdminUser; onAction: (a: UserAction
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const open = pos !== null;
+
   useEffect(() => {
-    if (!pos) return;
+    if (!open) return;
     function onDown(e: MouseEvent) {
       const target = e.target as Node;
       if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
@@ -195,19 +200,23 @@ function RowMenu({ user, onAction }: { user: AdminUser; onAction: (a: UserAction
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setPos(null);
     }
+    // Follow the kebab button when anything scrolls (the table scrolls sideways at
+    // 390 px, the page vertically) instead of closing: a touch scroll that settles
+    // right after the tap would otherwise swallow the menu.
     function onScroll() {
-      setPos(null);
+      const r = buttonRef.current?.getBoundingClientRect();
+      if (r) setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScroll, true);
-    menuRef.current?.querySelector<HTMLElement>("button")?.focus();
+    menuRef.current?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [pos]);
+  }, [open]);
 
   const actions = actionsFor(user);
 
