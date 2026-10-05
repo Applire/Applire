@@ -87,9 +87,11 @@ def test_concurrent_claim_has_exactly_one_winner():
     assert losers and all(code == "setup_done" for code in losers), (
         f"{lane.RACERS} racers REST POST /api/setup: losers answered {losers} (want 409 setup_done)"
     )
-    holders = lane.psql("SELECT lower(email) FROM users WHERE password_hash IS NOT NULL ORDER BY 1").split()
+    # Other tests may have added accounts since; look only at the racers' emails.
+    racers = ", ".join(f"'{lane._racer_email(i).lower()}'" for i in range(lane.RACERS))
+    holders = lane.psql(f"SELECT lower(email) FROM users WHERE lower(email) IN ({racers}) ORDER BY 1").split()
     assert holders == [c.winner_email.lower()], (
-        f"database after the claim race: credential holders {holders}, winner {c.winner_email}"
+        f"database after the claim race: racer accounts {holders}, winner {c.winner_email}"
     )
     for i in range(lane.RACERS):
         email = lane._racer_email(i)
