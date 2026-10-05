@@ -62,7 +62,18 @@ LINK_EXPIRED = (410, "link_expired", "This link has expired.")
 # --- forgot ---------------------------------------------------------------------
 
 async def _send_forgot_mail(email: str, origin: str, session_factory=None) -> None:
-    """Background: look up, throttle, issue, mail. Never raises, never logs the email."""
+    """Background: look up, throttle, issue, mail. Never raises, never logs the email.
+
+    ``origin`` is :func:`links.mail_origin` (``APPLIRE_BASE_URL``) or ``""`` when the
+    operator left it at the default — then nothing is sent (MD-32): a mailed link
+    must never point at a host the anonymous requester chose.
+    """
+    if not origin:
+        logger.warning(
+            "forgot-password: no mail sent — SMTP is configured but APPLIRE_BASE_URL is "
+            "not set, so Applire has no trustworthy address to put in the link"
+        )
+        return
     factory = session_factory or AsyncSessionLocal
     try:
         async with factory() as db:
@@ -87,7 +98,9 @@ async def _send_forgot_mail(email: str, origin: str, session_factory=None) -> No
 @router.post("/forgot", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_origin)])
 async def forgot(body: ForgotRequest, request: Request, background: BackgroundTasks) -> Response:
     if mail.smtp_enabled():
-        background.add_task(_send_forgot_mail, body.email, links.request_origin(request))
+        # Scheduled either way (same answer, same timing); the task sends nothing
+        # without APPLIRE_BASE_URL. Never the request's Host/Origin (MD-32).
+        background.add_task(_send_forgot_mail, body.email, links.mail_origin() or "")
     return Response(status_code=status.HTTP_202_ACCEPTED, headers=NO_REFERRER)
 
 

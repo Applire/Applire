@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import io
 
 import pytest
@@ -72,14 +73,14 @@ def test_run_exit_codes(monkeypatch, capsys):
     monkeypatch.setattr(reset, "_run_async", ok)
     monkeypatch.setattr("sys.stdin", io.StringIO(PW + "\n"))
     args = _parser().parse_args(["reset-password", "--email", "a@example.org", "--password-stdin"])
-    assert reset.run(args) == 0 and "password set" in capsys.readouterr().out
+    assert asyncio.run(reset.run(args)) == 0 and "password set" in capsys.readouterr().out
 
     async def refused(email, password):
         raise reset.ResetRefused("no account with this email address")
 
     monkeypatch.setattr(reset, "_run_async", refused)
     monkeypatch.setattr("sys.stdin", io.StringIO(PW + "\n"))
-    assert reset.run(args) == 1 and "refused" in capsys.readouterr().err
+    assert asyncio.run(reset.run(args)) == 1 and "refused" in capsys.readouterr().err
 
 
 def test_prompt_mismatch_is_refused():

@@ -15,7 +15,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth.deps import require_admin
+from applire.auth.deps import require_admin_session
 from applire.auth.tokens import (
     audit_token_event,
     create_token,
@@ -49,7 +49,7 @@ def _item(row) -> ProbeTokenItem:
 @router.get("", response_model=ProbeTokenListResponse)
 async def get_probe_tokens(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_admin_session),
 ) -> ProbeTokenListResponse:
     rows = await list_tokens(db, user_id=None, scopes=_PROBE)
     return ProbeTokenListResponse(tokens=[_item(r) for r in rows])
@@ -59,7 +59,7 @@ async def get_probe_tokens(
 async def create_probe_token(
     body: ProbeTokenCreateRequest,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_session),
 ) -> ProbeTokenCreatedResponse:
     row, raw = await create_token(
         db, user_id=admin.id, scope="probe", name=body.name.strip() or body.name
@@ -80,7 +80,7 @@ async def create_probe_token(
 async def revoke_probe_token(
     token_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_session),
 ) -> Response:
     row = await revoke_token(db, token_id=token_id, scopes=_PROBE, user_id=None)
     if row is None:

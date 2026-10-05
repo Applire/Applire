@@ -14,6 +14,9 @@ Routes never take the provider. They depend on exactly one of:
 ``admin_or_probe``          ``GET /api/ops/health`` — admin, or a ``probe`` token
 ==========================  =======================================================
 
+``require_admin_session`` (MD-34) wraps ``require_admin`` for the admin routes that
+create or reset credentials: session only, like ``require_session_user``.
+
 Each one **raises itself** and **sets the ADR-092 owner context** to the resolved
 user, and each is ``async def``: a sync dependency runs in a threadpool copy of
 the context, so the owner it set would never reach the endpoint (adversarial
@@ -108,6 +111,30 @@ async def require_session_user(
             },
         )
     return user
+
+
+async def require_admin_session(
+    request: Request,
+    admin: User = Depends(require_admin),
+) -> User:
+    """``require_admin`` **and** a session — the admin credential routes (MD-34).
+
+    ADR-091 cl. 17 extended to admin routes: whatever creates or resets a
+    credential (an invite or reset link, an account that gets an invite, a role
+    change, probe-token management, revoking someone's tokens) is refused to a
+    bearer with 403 ``forbidden`` — a leaked admin ``api`` token must not mint a
+    reset link for its own account or a permanent second admin (adv-id-2).
+    ``require_admin`` is nested, so the route inventory sees one of the five.
+    """
+    if getattr(request.state, "auth_via", None) == "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "forbidden",
+                "message": "Managing credentials needs a signed-in session, not an API token.",
+            },
+        )
+    return admin
 
 
 # 1c's two dependencies live in ``auth/deps_links.py`` (work-packages §3); re-exported
