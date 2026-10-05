@@ -120,6 +120,9 @@ async def test_create_mails_when_smtp_is_on(env, monkeypatch):
         sent.append((purpose, kw))
         return True
 
+    from applire.config import settings
+    # MD-32: a mailed link is built from APPLIRE_BASE_URL only — without it no mail.
+    monkeypatch.setattr(settings, "applire_base_url", "http://applire.test")
     monkeypatch.setattr(mail, "smtp_enabled", lambda: True)
     monkeypatch.setattr(mail, "send_link_mail", fake_send)
     r = await client.post("/api/admin/users", json={"email": "m@example.org", "role": "admin"},
@@ -164,6 +167,9 @@ async def test_send_mail_true_explicit_still_mails(env, monkeypatch):
         sent.append(purpose)
         return True
 
+    from applire.config import settings
+    # MD-32: a mailed link is built from APPLIRE_BASE_URL only — without it no mail.
+    monkeypatch.setattr(settings, "applire_base_url", "http://applire.test")
     monkeypatch.setattr(mail, "smtp_enabled", lambda: True)
     monkeypatch.setattr(mail, "send_link_mail", fake_send)
     r = await client.post("/api/admin/users",
@@ -180,11 +186,15 @@ async def test_mail_failure_tells_admin_to_hand_over(env, monkeypatch):
     async def failing(purpose, **kw):
         return False
 
+    from applire.config import settings
+    # MD-32: a mailed link is built from APPLIRE_BASE_URL only — without it no mail.
+    monkeypatch.setattr(settings, "applire_base_url", "http://applire.test")
     monkeypatch.setattr(mail, "smtp_enabled", lambda: True)
     monkeypatch.setattr(mail, "send_link_mail", failing)
     r = await client.post("/api/admin/users", json={"email": "f@example.org"}, headers=ORIGIN_HEADERS)
     assert r.status_code == 201
     assert r.json()["link"]["mailed"] is False and r.json()["link"]["mail_failed"] is True
+    assert r.json()["link"]["mail_failed_reason"] == "send_failed"
 
 
 @pytest.mark.asyncio

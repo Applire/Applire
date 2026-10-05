@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at TEXT,
     -- ADR-091 0071: the D-4 rule reads both (ADR-092 cl. 12a)
     role TEXT NOT NULL DEFAULT 'user',
-    last_active_at TEXT
+    last_active_at TEXT,
+    -- w4-fix-id (MD-39): the stub exception reads the credential columns
+    password_hash TEXT,
+    oidc_subject TEXT
 );
 CREATE TABLE IF NOT EXISTS master_profiles (
     id TEXT PRIMARY KEY,

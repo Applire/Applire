@@ -72,7 +72,7 @@ async def _deliver(
     db: AsyncSession, request: Request, admin: User, issued: accounts.IssuedLinkResult, *, send: bool
 ) -> IssuedLink:
     # Shown to the signed-in admin: may use that admin's browser origin (MD-32).
-    url = build_link_url(request_origin(request), issued.purpose, issued.raw_token)
+    url = build_link_url(request_origin(request, signed_in=True), issued.purpose, issued.raw_token)
     mailed = mail_failed = False
     reason = None
     if send:

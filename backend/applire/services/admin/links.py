@@ -100,23 +100,20 @@ def mail_without_base_url_warning() -> str | None:
     return None
 
 
-#: Request authentications whose browser origin may be SHOWN back to the person
-#: (a signed-in session; the fenced test harness). Never a bearer, never anonymous.
-_SHOWN_ORIGIN_VIA = frozenset({"session", "harness"})
-
-
-def request_origin(request: Request) -> str:
+def request_origin(request: Request, *, signed_in: bool = False) -> str:
     """Origin for a link SHOWN to the signed-in admin (no trailing slash).
 
-    ``APPLIRE_BASE_URL`` when set; otherwise the origin of the admin's own browser
-    session (Origin == Host, the same rule the CSRF check enforces). An
-    unauthenticated or bearer request never gets a header-derived origin (MD-32):
-    the answer is then ``""`` and the link is relative (``/invite#…``).
+    ``APPLIRE_BASE_URL`` when set. Otherwise, only when the caller vouches that
+    the request is a signed-in admin's (``signed_in=True``, after
+    ``require_admin_session``) and it is not a bearer request: that browser's own
+    origin (Origin == Host, the rule the CSRF check enforces), else its ``Host``.
+    Anyone else — an unauthenticated or bearer request — never gets a
+    header-derived origin (MD-32): the answer is ``""`` and the link is relative.
     """
     configured = mail_origin()
     if configured is not None:
         return configured
-    if getattr(request.state, "auth_via", None) not in _SHOWN_ORIGIN_VIA:
+    if not signed_in or getattr(request.state, "auth_via", None) == "bearer":
         return ""
     origin = (request.headers.get("origin") or "").strip()
     host = (request.headers.get("host") or "").strip()
@@ -124,7 +121,7 @@ def request_origin(request: Request) -> str:
         parts = urlsplit(origin)
         if parts.scheme in ("http", "https") and parts.netloc and parts.netloc == host:
             return f"{parts.scheme}://{parts.netloc}"
-    return ""
+    return str(request.base_url).rstrip("/")
 
 
 def build_link_url(origin: str, purpose: LinkPurpose, raw: str) -> str:

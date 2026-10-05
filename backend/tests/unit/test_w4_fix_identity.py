@@ -183,16 +183,17 @@ def _request(headers: dict[str, str], auth_via: str | None):
     return req
 
 
-@pytest.mark.parametrize("via,expected", [
-    ("session", "http://nas:8080"),
-    ("harness", "http://nas:8080"),
-    ("bearer", ""),
-    (None, ""),
+@pytest.mark.parametrize("signed_in,via,expected", [
+    (True, "session", "http://nas:8080"),
+    (True, "harness", "http://nas:8080"),
+    (True, "bearer", ""),
+    (False, "session", ""),
+    (False, None, ""),
 ])
-def test_md32_shown_origin_only_for_a_signed_in_browser(via, expected, monkeypatch):
+def test_md32_shown_origin_only_for_a_signed_in_browser(signed_in, via, expected, monkeypatch):
     monkeypatch.setattr(settings, "applire_base_url", links.SHIPPED_DEFAULT_BASE_URL)
     req = _request({"Host": "nas:8080", "Origin": "http://nas:8080"}, via)
-    assert links.request_origin(req) == expected
+    assert links.request_origin(req, signed_in=signed_in) == expected
 
 
 def test_md32_mail_origin_is_only_the_configured_base_url(monkeypatch):
