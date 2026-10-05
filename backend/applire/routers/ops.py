@@ -43,10 +43,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.auth.deps_links import admin_or_probe
 from applire.config import settings
 from applire.db.session import get_db
+from applire.models.instance_state import KEY_UPGRADE_RETIRED_PROFILES
 from applire.models.user import User
 from applire.ownership import unscoped
 from applire.routers.health import get_upgrade_notice
 from applire.services.ops.aggregate import cached_summary, collect
+from applire.services.instance_state import read_state
 from applire.services.ops.probes import DOWN
 
 router = APIRouter(prefix="/api/ops", tags=["ops"])
@@ -61,6 +63,7 @@ async def ops_health(
     """Aggregated instance health. 503 only when the verdict is ``down``."""
     with unscoped("ops-aggregate"):
         report = await collect(db)
+        retired = await read_state(db, KEY_UPGRADE_RETIRED_PROFILES)
     if report.get("status") == DOWN:
         response.status_code = 503
     # Moved off the public /health (RD-1). Additive keys on the report.
@@ -70,4 +73,14 @@ async def ops_health(
         "debug_log_on": bool(settings.llm_debug_log),
         "topology": settings.applire_topology,
         "ops": cached_summary(),
+        # RD-9 / MD-27: how many older duplicate profiles migration 0074 set aside —
+        # a COUNT for the admin's post-upgrade notice, never the ids.
+        "retired_profiles": _retired_count(retired),
     }
+
+
+def _retired_count(value: Any) -> int:
+    """``len(profile_ids)`` of the 0074 record; 0 when absent or malformed."""
+    if isinstance(value, dict) and isinstance(value.get("profile_ids"), list):
+        return len(value["profile_ids"])
+    return 0

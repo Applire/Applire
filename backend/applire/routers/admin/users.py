@@ -103,7 +103,7 @@ async def create_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AdminUserCreatedResponse:
-    send = mail.smtp_enabled()
+    send = mail.smtp_enabled() and body.send_mail
     try:
         issued = await accounts.create_user(db, actor=admin, email=body.email, role=body.role, mailed=send)
     except accounts.AccountError as exc:

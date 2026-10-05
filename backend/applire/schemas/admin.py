@@ -70,6 +70,10 @@ class AdminUserListResponse(BaseModel):
 class AdminUserCreateRequest(_Strict):
     email: str = Field(max_length=EMAIL_MAX_LENGTH)
     role: Role = "user"
+    #: MD-28: the add-person dialog's "send the invitation by email" checkbox. Only
+    #: decides about the mail (SMTP configured AND this flag); the link is always
+    #: returned (ADR-091 cl. 22). Default true keeps every earlier caller unchanged.
+    send_mail: bool = True
 
     _email = field_validator("email")(_normalise_email)
 
@@ -168,3 +172,6 @@ class OpsHealthResponse(BaseModel):
     upgrade_notice: dict[str, Any] | None = None
     debug_log_on: bool = False
     topology: str = "production"
+    #: RD-9 / MD-27: number of older duplicate master profiles migration 0074 set
+    #: aside on upgrade (count only — never ids); 0 when nothing was retired.
+    retired_profiles: int = 0

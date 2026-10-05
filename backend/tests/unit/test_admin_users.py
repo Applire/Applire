@@ -130,6 +130,49 @@ async def test_create_mails_when_smtp_is_on(env, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_send_mail_false_with_smtp_on_sends_nothing_but_returns_the_link(env, monkeypatch):
+    """MD-28: the add-person checkbox decides about the mail — unchecked, nothing is
+    sent even with SMTP configured; the link is returned all the same (ADR-091 cl. 22)."""
+    _, client, _, _ = env
+    from applire.services import mail
+    sent = []
+
+    async def fake_send(purpose, **kw):
+        sent.append((purpose, kw))
+        return True
+
+    monkeypatch.setattr(mail, "smtp_enabled", lambda: True)
+    monkeypatch.setattr(mail, "send_link_mail", fake_send)
+    r = await client.post("/api/admin/users",
+                          json={"email": "nomail@example.org", "send_mail": False},
+                          headers=ORIGIN_HEADERS)
+    assert r.status_code == 201
+    link = r.json()["link"]
+    assert sent == []
+    assert link["mailed"] is False and link["mail_failed"] is False
+    assert link["url"].startswith("http://") and "/invite#" in link["url"]
+
+
+@pytest.mark.asyncio
+async def test_send_mail_true_explicit_still_mails(env, monkeypatch):
+    """MD-28: an explicit true behaves like the default (test_create_mails_when_smtp_is_on)."""
+    _, client, _, _ = env
+    from applire.services import mail
+    sent = []
+
+    async def fake_send(purpose, **kw):
+        sent.append(purpose)
+        return True
+
+    monkeypatch.setattr(mail, "smtp_enabled", lambda: True)
+    monkeypatch.setattr(mail, "send_link_mail", fake_send)
+    r = await client.post("/api/admin/users",
+                          json={"email": "yesmail@example.org", "send_mail": True},
+                          headers=ORIGIN_HEADERS)
+    assert r.json()["link"]["mailed"] is True and sent == ["invite"]
+
+
+@pytest.mark.asyncio
 async def test_mail_failure_tells_admin_to_hand_over(env, monkeypatch):
     _, client, _, _ = env
     from applire.services import mail
