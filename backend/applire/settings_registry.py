@@ -1008,7 +1008,9 @@ _register_all(
             example="smtp.example.org",
             description=(
                 "Optional outgoing mail for invitations and \"forgot password\". Empty =\n"
-                "no mail: the administrator hands over invite and reset links instead."
+                "no mail: the administrator hands over invite and reset links instead.\n"
+                "Mail REQUIRES APPLIRE_BASE_URL: mailed links are built only from it, so\n"
+                "with SMTP set and APPLIRE_BASE_URL left unset no mail is sent (MD-32)."
             ),
         ),
         SettingEntry(
@@ -1081,6 +1083,19 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="APPLIRE_TRUSTED_PROXY",
+            source="compose",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description=(
+                "Only behind your own TLS proxy: its address (IP or CIDR, comma-separated),\n"
+                "so Applire's nginx takes the client address for the login throttle from\n"
+                "that proxy's X-Forwarded-For. Empty = trust nobody (the default; a direct\n"
+                "install needs nothing here). An invalid value stops nginx at start (MD-33)."
+            ),
+        ),
+        SettingEntry(
             env_var="APPLIRE_BASE_URL",
             source="config",
             default="http://localhost:8001",
@@ -1092,7 +1107,8 @@ _register_all(
                 "The default is correct only for a local, unproxied dev setup. Set this to\n"
                 "the externally reachable scheme://host:port of your reverse proxy for any\n"
                 "other deployment, or agent-fetched artifact links silently point at\n"
-                "localhost:8001 instead of your real host."
+                "localhost:8001 instead of your real host. Links in invitation and reset\n"
+                "mails are built ONLY from this value; left at the default, no mail is sent."
             ),
         ),
         SettingEntry(

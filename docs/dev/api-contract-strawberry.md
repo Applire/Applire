@@ -150,25 +150,27 @@ the 8 characters after `apl_`.
 
 ### 3.6 Admin (metadata only — never content)
 
+`require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
+
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
 | `GET /api/admin/users` | `require_admin` | — | `admin.AdminUserListResponse` `{users: [AdminUserItem]}` (tombstoned accounts not listed) | 401, 403 | 1b |
-| `POST /api/admin/users` | `require_admin` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
-| `PATCH /api/admin/users/{user_id}` | `require_admin` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
+| `POST /api/admin/users` | `require_admin_session` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
+| `PATCH /api/admin/users/{user_id}` | `require_admin_session` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
 | `DELETE /api/admin/users/{user_id}` | `require_admin` | — | 204 (erasure + tombstone) | 404, 409 `last_admin` | 1b |
-| `POST /api/admin/users/{user_id}/reinvite` | `require_admin` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |
-| `POST /api/admin/users/{user_id}/reset-link` | `require_admin` | — | `admin.IssuedLink` (purpose `reset`) | 404, 409 `user_not_active` | 1b |
-| `POST /api/admin/users/{user_id}/revoke-tokens` | `require_admin` | — | `admin.RevokeTokensResponse` `{revoked}`; bumps `link_epoch` | 404 | 1b |
-| `GET /api/admin/probe-tokens` | `require_admin` | — | `admin.ProbeTokenListResponse` | 401, 403 | 1c |
-| `POST /api/admin/probe-tokens` | `require_admin` | `admin.ProbeTokenCreateRequest` `{name}` | **201** `admin.ProbeTokenCreatedResponse` (token shown once) | 422 | 1c |
-| `DELETE /api/admin/probe-tokens/{token_id}` | `require_admin` | — | 204 | 404 | 1c |
+| `POST /api/admin/users/{user_id}/reinvite` | `require_admin_session` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |
+| `POST /api/admin/users/{user_id}/reset-link` | `require_admin_session` | — | `admin.IssuedLink` (purpose `reset`) | 404, 409 `user_not_active` | 1b |
+| `POST /api/admin/users/{user_id}/revoke-tokens` | `require_admin_session` | — | `admin.RevokeTokensResponse` `{revoked}`; bumps `link_epoch` | 404 | 1b |
+| `GET /api/admin/probe-tokens` | `require_admin_session` | — | `admin.ProbeTokenListResponse` | 401, 403 | 1c |
+| `POST /api/admin/probe-tokens` | `require_admin_session` | `admin.ProbeTokenCreateRequest` `{name}` | **201** `admin.ProbeTokenCreatedResponse` (token shown once) | 422 | 1c |
+| `DELETE /api/admin/probe-tokens/{token_id}` | `require_admin_session` | — | 204 | 404 | 1c |
 
 `AdminUserItem` = `{id, email, role, status: pending|active|disabled, created_at,
 last_login_at, last_active_at, invite_expires_at, metadata: {application_count,
 document_count, storage_bytes, ai_tokens_30d}}` — `invite_expires_at` = expiry of
 the newest unused invite link of a pending account, else `null` (CONTRACT-CHANGE
 1b-4); `ai_tokens_30d` = `llm_usage.total_tokens` of the last 30 days, `null` while
-unattributable (CONTRACT-CHANGE 1b-1). `IssuedLink` = `{purpose, url, expires_at, mailed, mail_failed}`
+unattributable (CONTRACT-CHANGE 1b-1). `IssuedLink` = `{purpose, url, expires_at, mailed, mail_failed, mail_failed_reason}` (MD-38: `mail_failed_reason` = `base_url_unset` | `send_failed` | `null`; a mailed link is built from `APPLIRE_BASE_URL` only, MD-32 — the `url` shown here may use the admin's own browser origin)
 with `url` = `<origin>/invite#<token>` or `<origin>/reset#<token>`. Every admin
 action writes an audit row (user ids only, no IP). Adding a field to the users
 list is a contract change.

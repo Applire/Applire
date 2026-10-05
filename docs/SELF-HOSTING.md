@@ -190,9 +190,17 @@ If you go the second route, **two things are mandatory**:
 1. **Your proxy must forward the `Host` header unchanged** (including a non-default port) — **or** you set `APPLIRE_BASE_URL` in `.env` to your proxy's externally reachable `scheme://host` (or `scheme://host:port`). Every sign-in, setup and other state-changing request is checked: the browser's `Origin` must match the `Host` Applire receives (or the host of `APPLIRE_BASE_URL`). If it does not, the request is refused with 403 `origin_mismatch`, and the message names both remedies. Applire's own nginx already forwards `Host $http_host`; a bind-mounted config of your own must do the same (the shipped default is `nginx/self-hosted.conf`).
 2. **Set `COOKIE_SECURE=true`** as soon as people reach Applire over https. It marks the sign-in cookie `Secure`. The default is `false` so plain-http LAN installs keep working — browsers drop `Secure` cookies on http, so setting it on a plain-http install locks everybody out.
 
-`APPLIRE_BASE_URL` is also what builds the `html_url`/`pdf_url` links the MCP/agent channel returns and the links in invitation mails — left unset, those links point at `http://localhost:8001`, which is only correct on an unproxied local dev box. OIDC (Section 14) requires it.
+`APPLIRE_BASE_URL` is also what builds the `html_url`/`pdf_url` links the MCP/agent channel returns — left unset, those links point at `http://localhost:8001`, which is only correct on an unproxied local dev box. Links in invitation and reset **mails** are built from `APPLIRE_BASE_URL` only, so mail needs it (Section 15). OIDC (Section 14) requires it.
 
-Applire's nginx takes the real client address from `X-Forwarded-For` when the request comes from a private or loopback address (a proxy on the same host or LAN), so the login throttle is keyed per client rather than on your proxy's address. A proxy outside those ranges is not trusted for that header.
+**The login throttle and your proxy.** The login throttle is keyed on the email and the client address that Applire's nginx sees. By default nginx trusts **no** `X-Forwarded-For` header from anyone, because a device on your network could otherwise give itself a fresh address on every attempt and never be slowed down. Without a proxy you need nothing. Behind your own TLS proxy, every request arrives from the proxy's address and everyone shares one throttle key. To fix that, name the proxy with one line in `.env`:
+
+```env
+APPLIRE_TRUSTED_PROXY=172.18.0.1        # your proxy's address as nginx sees it (IP or CIDR, comma-separated)
+```
+
+Then run `docker compose up -d`. To find the address, look at the first field of `docker compose logs nginx` while you open Applire through the proxy. nginx refuses to start on a value that is not an IP address or CIDR range, and `docker compose logs nginx` names the entry. A bind-mounted config of your own trusts nobody unless it contains `include /etc/nginx/applire/*.conf;` (the shipped default does).
+
+What nginx sees without a proxy: Docker's port publishing keeps the real IPv4 address of a client on your network. Requests to `localhost`, over IPv6, or from another container on the same host arrive from the Docker bridge gateway (for example `172.17.0.1`), so those clients share one throttle key. That is harmless for a household. Under an active attack from the same path, though, the owner's sign-in on that path waits behind the attacker's attempts.
 
 ## 9. Disk and pruning
 
@@ -444,7 +452,9 @@ SMTP_HOST=smtp.example.org
 SMTP_FROM=applire@example.org
 ```
 
-With `SMTP_HOST` set, invitations (unless the administrator unticks the mail box when adding the person) and "forgot password" requests are mailed. The invite or reset link is always shown to the administrator as well. Mail is sent with Python's standard library; no extra service is needed. The forgot-password endpoint always answers the same way whether or not the address is known, and sends at most three mails per hour per account.
+**Mail requires `APPLIRE_BASE_URL`** (Section 8), set to the address people open Applire on. A link in a mail is built only from that value, never from the address a request claims to come from. Otherwise anyone could ask for a password-reset mail whose link points at their own server. With `SMTP_HOST` set and `APPLIRE_BASE_URL` unset, Applire sends **no** mail and logs a WARNING at every start. "Forgot password" then answers as usual but sends nothing. When the administrator adds a person, the dialog shows the link with the "could not be sent" notice (`mail_failed_reason: base_url_unset`).
+
+With `SMTP_HOST` and `APPLIRE_BASE_URL` set, invitations (unless the administrator unticks the mail box when adding the person) and "forgot password" requests are mailed. The invite or reset link is always shown to the administrator as well. Mail is sent with Python's standard library; no extra service is needed. The forgot-password endpoint always answers the same way whether or not the address is known, and sends at most three mails per hour per account.
 
 ## 16. Tokens: agents and scripts
 
