@@ -35,9 +35,10 @@ from applire.auth.sessions import (
     revoke_user_sessions,
 )
 from applire.auth.setup import setup_required
-from applire.auth.throttle import login_key, login_throttle
+from applire.auth.throttle import ThrottleSaturated, login_key, login_throttle
 from applire.config import settings
 from applire.db.session import get_db
+from applire.services.admin.links import revoke_open_links
 from applire.models.user import User
 from applire.models.user_settings import UserSettings
 from applire.schemas.auth import (
@@ -109,8 +110,27 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    key = login_key(body.email, request)
-    delayed = await login_throttle.wait(key)
+    # One normalisation (w4-fix-id): the SQL lower() lookup decides the identity,
+    # and a known account is throttled on its id — every spelling that lookup maps
+    # to the account shares one bucket. Release the connection before queueing so
+    # a waiting attempt never holds a pool connection.
+    found = await find_user_by_email(db, body.email)
+    key = login_key(body.email, request, account_id=found.id if found else None)
+    await db.commit()
+    # MD-35: attempts on one key run one at a time (wait → verify → record).
+    try:
+        async with login_throttle.attempt(key):
+            delayed = await login_throttle.wait(key)
+            await _verify_and_sign_in(body, request, response, db, key, delayed)
+    except ThrottleSaturated:  # queue bound reached: refused, no password check
+        raise auth_error(401, "invalid_credentials", INVALID_CREDENTIALS_MESSAGE,
+                         headers={THROTTLED_HEADER: "1"}) from None
+
+
+async def _verify_and_sign_in(
+    body: LoginRequest, request: Request, response: Response, db: AsyncSession,
+    key: tuple[str, str], delayed: float,
+) -> None:
     user = await find_user_by_email(db, body.email)
     ok = await verify_password(body.password, user.password_hash if user else None)
     if not ok or user is None:
@@ -187,6 +207,8 @@ async def change_password(
     except ValueError as exc:
         raise auth_error(422, "password_policy", str(exc)) from exc
     user.password_hash = await hash_password(body.new)
+    # MD-36: an outstanding invite/reset link must not set the password straight back.
+    await revoke_open_links(db, user.id)
     await revoke_user_sessions(
         db, user.id, except_session_id=getattr(request.state, "auth_session_id", None)
     )

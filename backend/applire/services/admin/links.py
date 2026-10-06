@@ -12,9 +12,13 @@
 * Redemption is one statement — ``UPDATE auth_links SET used_at=now() WHERE
   token_hash=:h AND used_at IS NULL AND expires_at>now() RETURNING …`` — so two
   concurrent redeems cannot both succeed (adversarial-security §S "links").
-* Links are built on the **requesting origin** unless ``APPLIRE_BASE_URL`` is set to
-  something other than the shipped default (W0-B note): the address the admin
-  opened Applire on is the address the invited person can reach.
+* **Where a link points (MD-32, adv-id-1).** A link that LEAVES the browser — every
+  mail — is built from ``APPLIRE_BASE_URL`` only (:func:`mail_origin`); with the
+  shipped default no mail is sent at all, because a request's ``Host``/``Origin``
+  is chosen by whoever sends it (an unauthenticated ``/forgot`` with ``Host:
+  evil.example`` would otherwise mail the victim a genuine link to the attacker).
+  A link SHOWN to a signed-in admin (:func:`request_origin`) may use the origin of
+  that admin's own browser session — the CSRF check already tied it to ``Host``.
 """
 
 from __future__ import annotations
@@ -44,6 +48,8 @@ __all__ = [
     "hash_link_token",
     "inspect_link",
     "issue_link",
+    "mail_origin",
+    "mail_without_base_url_warning",
     "request_origin",
     "revoke_open_links",
 ]
@@ -68,17 +74,51 @@ def hash_link_token(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def request_origin(request: Request) -> str:
-    """Scheme + host + port the person opened Applire on (no trailing slash)."""
+def mail_origin() -> str | None:
+    """The origin for a link that leaves the browser (MD-32): ``APPLIRE_BASE_URL``
+    when the operator set it, else ``None`` — the caller then sends no mail."""
     base = (getattr(settings, "applire_base_url", "") or "").strip().rstrip("/")
     if base and base != SHIPPED_DEFAULT_BASE_URL:
         return base
+    return None
+
+
+MAIL_WITHOUT_BASE_URL_WARNING = (
+    "SMTP is configured but APPLIRE_BASE_URL is not set: Applire sends NO invitation "
+    "or password-reset mail (a mailed link must point at your real address, never at "
+    "one taken from a request). Set APPLIRE_BASE_URL in .env to the address people "
+    "open Applire on — SELF-HOSTING §15."
+)
+
+
+def mail_without_base_url_warning() -> str | None:
+    """The startup WARNING of MD-32, or ``None`` when mail and base URL agree."""
+    from applire.services import mail
+
+    if mail.smtp_enabled() and mail_origin() is None:
+        return MAIL_WITHOUT_BASE_URL_WARNING
+    return None
+
+
+def request_origin(request: Request, *, signed_in: bool = False) -> str:
+    """Origin for a link SHOWN to the signed-in admin (no trailing slash).
+
+    ``APPLIRE_BASE_URL`` when set. Otherwise, only when the caller vouches that
+    the request is a signed-in admin's (``signed_in=True``, after
+    ``require_admin_session``) and it is not a bearer request: that browser's own
+    origin (Origin == Host, the rule the CSRF check enforces), else its ``Host``.
+    Anyone else — an unauthenticated or bearer request — never gets a
+    header-derived origin (MD-32): the answer is ``""`` and the link is relative.
+    """
+    configured = mail_origin()
+    if configured is not None:
+        return configured
+    if not signed_in or getattr(request.state, "auth_via", None) == "bearer":
+        return ""
     origin = (request.headers.get("origin") or "").strip()
     host = (request.headers.get("host") or "").strip()
     if origin and origin != "null":
         parts = urlsplit(origin)
-        # The CSRF check (1a) already demands Origin netloc == Host; re-check so a
-        # forged header can never point a link somewhere else.
         if parts.scheme in ("http", "https") and parts.netloc and parts.netloc == host:
             return f"{parts.scheme}://{parts.netloc}"
     return str(request.base_url).rstrip("/")

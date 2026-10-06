@@ -100,6 +100,10 @@ class IssuedLink(BaseModel):
     mailed: bool
     #: True when SMTP is configured but sending failed ("hand over the link instead").
     mail_failed: bool = False
+    #: MD-32/MD-38: why ``mail_failed`` — ``base_url_unset`` (SMTP on, no
+    #: APPLIRE_BASE_URL: no mail is ever built from a request header) or
+    #: ``send_failed`` (the SMTP server refused or was unreachable); else null.
+    mail_failed_reason: Literal["base_url_unset", "send_failed"] | None = None
 
 
 class AdminUserCreatedResponse(BaseModel):

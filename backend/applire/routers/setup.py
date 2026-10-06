@@ -21,7 +21,7 @@ from applire.auth.harness import STUB_USER_ID, forget_credential_cache
 from applire.auth.passwords import check_password_policy, hash_password
 from applire.auth.sessions import issue_session
 from applire.auth.setup import claim_stub, setup_code_matches, setup_required
-from applire.auth.throttle import setup_key, setup_throttle
+from applire.auth.throttle import ThrottleSaturated, setup_key, setup_throttle
 from applire.config import settings
 from applire.db.session import get_db
 from applire.models.user import User
@@ -50,42 +50,48 @@ async def claim_instance(
             409, "harness_active", "The test harness is serving this instance; setup is off."
         )
     key = setup_key(request)
-    await setup_throttle.wait(key)
-    if not await setup_required(db):
-        raise auth_error(409, "setup_done", "This instance is already set up.")
-    stored = await read_state(db, KEY_AUTH_SETUP_TOKEN_HASH)
-    if not setup_code_matches(body.setup_token, stored):
-        setup_throttle.record_failure(key)
-        raise auth_error(
-            403,
-            "invalid_setup_token",
-            "This setup code does not match. After a restart only the most recently "
-            "printed code works — check the log for the latest one.",
+    async with setup_throttle.attempt(key):  # MD-35: one attempt per key at a time
+        try:
+            await setup_throttle.wait(key)
+        except ThrottleSaturated:  # queue bound reached: refused unchecked
+            raise auth_error(403, "invalid_setup_token",
+                             "This setup code does not match. After a restart only the most "
+                             "recently printed code works — check the log for the latest one.") from None
+        if not await setup_required(db):
+            raise auth_error(409, "setup_done", "This instance is already set up.")
+        stored = await read_state(db, KEY_AUTH_SETUP_TOKEN_HASH)
+        if not setup_code_matches(body.setup_token, stored):
+            setup_throttle.record_failure(key)
+            raise auth_error(
+                403,
+                "invalid_setup_token",
+                "This setup code does not match. After a restart only the most recently "
+                "printed code works — check the log for the latest one.",
+            )
+        try:
+            check_password_policy(body.password, body.email)
+        except ValueError as exc:
+            raise auth_error(422, "password_policy", str(exc)) from exc
+        password_hash = await hash_password(body.password)
+        try:
+            claimed = await claim_stub(db, email=body.email, password_hash=password_hash)
+        except IntegrityError:
+            await db.rollback()
+            raise auth_error(409, "email_taken", "An account with this email already exists.")
+        if not claimed:
+            await db.rollback()
+            raise auth_error(409, "setup_done", "This instance is already set up.")
+        setup_throttle.record_success(key)
+        user = await db.get(User, STUB_USER_ID)
+        await db.refresh(user)
+        await audit_record(
+            db,
+            actor_id=user.id,
+            action="setup.claimed",
+            target_type="user",
+            target_id=user.id,
+            details={"via": "web"},
         )
-    try:
-        check_password_policy(body.password, body.email)
-    except ValueError as exc:
-        raise auth_error(422, "password_policy", str(exc)) from exc
-    password_hash = await hash_password(body.password)
-    try:
-        claimed = await claim_stub(db, email=body.email, password_hash=password_hash)
-    except IntegrityError:
-        await db.rollback()
-        raise auth_error(409, "email_taken", "An account with this email already exists.")
-    if not claimed:
-        await db.rollback()
-        raise auth_error(409, "setup_done", "This instance is already set up.")
-    setup_throttle.record_success(key)
-    user = await db.get(User, STUB_USER_ID)
-    await db.refresh(user)
-    await audit_record(
-        db,
-        actor_id=user.id,
-        action="setup.claimed",
-        target_type="user",
-        target_id=user.id,
-        details={"via": "web"},
-    )
-    await issue_session(db, user, response)
-    await db.commit()
-    forget_credential_cache()
+        await issue_session(db, user, response)
+        await db.commit()
+        forget_credential_cache()

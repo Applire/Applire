@@ -13,13 +13,12 @@ account or change a role.
 
 Dispatched by ``applire/admin/__main__.py`` (package 1a) through
 ``SUBCOMMAND_MODULES``: :func:`register` adds the subparser and sets
-``func=run`` — ``run(args) -> int`` is the process exit code.
+``func=run`` — ``await run(args) -> int`` is the process exit code.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import getpass
 import sys
 from typing import Callable
@@ -40,6 +39,15 @@ async def reset_password(db: AsyncSession, email: str, password: str) -> str:
     from applire.services.admin import users as accounts
     from applire.services.admin.links import revoke_open_links
 
+    from applire.auth.setup import setup_required
+
+    if await setup_required(db):
+        # Unclaimed: a password here would give the stub a credential with role
+        # user — setup would count as done with no admin, and create-admin refuses.
+        raise ResetRefused(
+            "this instance is not set up yet — open /setup with the code from the log, "
+            "or run: python -m applire.admin create-admin --email you@example.org"
+        )
     user = await accounts.find_by_email(db, email)
     if user is None:
         raise ResetRefused("no account with this email address")
@@ -74,10 +82,12 @@ async def _run_async(email: str, password: str) -> str:
         return await reset_password(db, email, password)
 
 
-def run(args: argparse.Namespace) -> int:
+async def run(args: argparse.Namespace) -> int:
+    """The subcommand (a coroutine function, like every ``func`` the dispatcher
+    in ``admin/__main__.py`` runs with ``asyncio.run`` — adv-id-6)."""
     try:
         password = _read_password(args)
-        line = asyncio.run(_run_async(args.email, password))
+        line = await _run_async(args.email, password)
     except ResetRefused as exc:
         print(f"reset-password refused: {exc}", file=sys.stderr)
         return 1

@@ -219,6 +219,11 @@ async def lifespan(app: FastAPI):
     from applire.auth.oidc import validate_config as validate_oidc_config
 
     validate_oidc_config()
+    # MD-32: SMTP without APPLIRE_BASE_URL sends no mail — say so at every start.
+    from applire.services.admin.links import mail_without_base_url_warning
+
+    if (mail_warning := mail_without_base_url_warning()) is not None:
+        _applire_logger.warning(mail_warning)
     subprocess.run(["alembic", "upgrade", "head"], check=True)
     await _enforce_harness_fences()
     await _publish_upgrade_notice()

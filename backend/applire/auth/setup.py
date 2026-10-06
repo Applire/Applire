@@ -147,6 +147,9 @@ async def claim_stub(db: AsyncSession, *, email: str, password_hash: str) -> boo
             User.id == STUB_USER_ID,
             User.password_hash.is_(None),
             User.oidc_subject.is_(None),
+            # A tombstoned stub is never resurrected as the admin: the claimed
+            # account would be invisible to every lookup (deleted_at filters).
+            User.deleted_at.is_(None),
         )
         .values(
             email=email,

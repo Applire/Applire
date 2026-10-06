@@ -78,6 +78,7 @@ from applire.models.application import Application
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
+from applire.auth.harness import STUB_USER_ID
 from applire.models.user import ROLE_ADMIN, User
 
 logger = logging.getLogger(__name__)
@@ -401,6 +402,17 @@ async def _tombstone_inactive_users(db: AsyncSession) -> int:
             )
             .where(User.role != ROLE_ADMIN)
             .where(User.deleted_at.is_(None))
+            # The unclaimed setup stub owns an upgraded vault and is what /setup
+            # converts into the admin; a tombstoned stub can never be claimed
+            # (claim_stub refuses deleted rows), so it is never retired here
+            # while it holds no credential (w4-fix-id, MD-39).
+            .where(
+                or_(
+                    User.id != STUB_USER_ID,
+                    User.password_hash.is_not(None),
+                    User.oidc_subject.is_not(None),
+                )
+            )
             .values(deleted_at=now)
             .execution_options(synchronize_session=False)
         )
