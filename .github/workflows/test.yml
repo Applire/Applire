@@ -541,8 +541,14 @@ jobs:
           APPLIRE_API_BASE: http://localhost:8091
           APPLIRE_E2E_COMPOSE_ARGS: -p applire-ci-auth -f docker-compose.yml -f docker-compose.ci-auth.yml
         run: |
+          # The smoke step above claimed the instance; the concurrent-claim race
+          # (tests/integration/test_auth_races.py) needs an UNCLAIMED stack, and a
+          # claimed one fails it under CI (MD-37) — so start from a fresh volume.
+          $CI_AUTH_COMPOSE down -v
+          $CI_AUTH_COMPOSE up -d --no-build
+          timeout 300 bash -c "until curl -sf $CI_AUTH_BASE/health >/dev/null; do sleep 3; done"
           pip install pytest requests
-          pytest tests/test_auth_e2e.py -v --tb=short
+          pytest tests/test_auth_e2e.py tests/integration/test_auth_races.py -v --tb=short
 
       - name: Show logs on failure
         if: failure()
