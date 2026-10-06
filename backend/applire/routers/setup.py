@@ -60,6 +60,10 @@ async def claim_instance(
         if not await setup_required(db):
             raise auth_error(409, "setup_done", "This instance is already set up.")
         stored = await read_state(db, KEY_AUTH_SETUP_TOKEN_HASH)
+        if not isinstance(stored, str) or not stored:
+            # MD-40: the hash is gone because a concurrent claim already committed
+            # (claim_stub deletes it) — the instance is set up, the code was not wrong.
+            raise auth_error(409, "setup_done", "This instance is already set up.")
         if not setup_code_matches(body.setup_token, stored):
             setup_throttle.record_failure(key)
             raise auth_error(

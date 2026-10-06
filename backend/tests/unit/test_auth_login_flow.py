@@ -393,6 +393,27 @@ async def test_setup_claims_the_stub_in_place_and_signs_in(async_client, async_d
 
 
 @pytest.mark.asyncio
+async def test_setup_without_a_stored_code_hash_answers_setup_done(async_client, async_db, monkeypatch):
+    """MD-40 (5b-1): a concurrent claimer passes ``setup_required`` while the winner's
+    ``claim_stub`` deletes the code hash. A missing stored hash means the claim is
+    already committed — 409 ``setup_done``, not "your code is wrong", and no
+    throttle failure is recorded against the operator's client."""
+    from applire.services.instance_state import delete_state
+
+    monkeypatch.setattr("applire.routers.setup.settings.auth_harness", False)
+    code = await _boot(async_db)
+    await delete_state(async_db, KEY_AUTH_SETUP_TOKEN_HASH)  # the winner's claim removed it
+    await async_db.commit()
+    resp = await async_client.post(
+        "/api/setup", json={"setup_token": code, "email": "o@example.org", "password": PASSWORD},
+        headers=ORIGIN,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error_code"] == "setup_done"
+    assert not setup_throttle._entries, "a lost race is not a failed guess"
+
+
+@pytest.mark.asyncio
 async def test_setup_refuses_a_wrong_or_stale_code(async_client, async_db, monkeypatch):
     monkeypatch.setattr("applire.routers.setup.settings.auth_harness", False)
     first = await _boot(async_db)
