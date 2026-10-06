@@ -364,15 +364,18 @@ async def test_md35_login_route_holds_the_key_lock_across_wait_verify_record(asy
 
 @pytest.mark.asyncio
 async def test_md35_bound_refuses_unchecked_beyond_the_queue_bound():
-    """Option B of founder question w4-fix-id-1 (``MAX_QUEUE_SECONDS``): with a
-    bound, an attempt that would queue past it is held for the bound and refused."""
+    """Ruling fix-id-1 = B (``MAX_QUEUE_SECONDS = 30.0``): an attempt that would
+    queue past the bound is held for the bound and refused. The throttle runs on
+    the MODULE value (no per-instance override), so the shipped constant is what
+    this test pins."""
     slept: list[float] = []
 
     async def fake_sleep(seconds):
         slept.append(seconds)
         await asyncio.sleep(0)
 
-    t = Throttle(sleep=fake_sleep, max_queue=30.0)
+    assert login_throttle._bound() == 30.0 and setup_throttle._bound() == 30.0
+    t = Throttle(sleep=fake_sleep)
     key = ("victim@example.org", "203.0.113.9")
     for _ in range(10):
         t.record_failure(key)  # hot: 30 s

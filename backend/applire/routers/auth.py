@@ -3,7 +3,8 @@
 """Sign-in routes (ADR-091 cl. 5, 11–13; contract §3.2): state, login, logout, me, password.
 
 ``POST /api/auth/login`` is public, origin-checked and throttled (RD-8): every
-attempt on a hot ``(email, client)`` key is delayed, never refused; unknown
+attempt on a hot ``(email, client)`` key is delayed, never refused (except past the
+30 s queue bound on a shared client key, ruling fix-id-1); unknown
 emails and credential-less accounts hash against a dummy so body and timing
 match a wrong password (SF-IAM.6). A correct password on a disabled account is
 the only path to 403 ``account_disabled`` (founder ruling W0B-3).

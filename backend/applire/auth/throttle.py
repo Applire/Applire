@@ -6,7 +6,11 @@ One tier, keyed on ``(casefolded email, client)`` for known **and** unknown
 emails alike: after ``FREE_FAILURES`` (5) failures within ``WINDOW`` (15 min),
 every further attempt on that key is **delayed** — 1 s, doubling, capped at
 30 s. There is no hard lockout: a correct password is never refused, only
-delayed while the key is hot, and a success clears the key. Because the key
+delayed while the key is hot, and a success clears the key — except while an
+attack holds a SHARED client key (loopback / IPv6 behind docker-proxy, an
+un-configured outer proxy): an attempt that cannot start within
+``MAX_QUEUE_SECONDS`` is refused unchecked (ruling fix-id-1; the fix for the
+operator is ``APPLIRE_TRUSTED_PROXY``). Because the key
 contains the client, an attacker on another machine cannot slow the owner down.
 
 The setup claim has its **own** bucket keyed on the client alone (cl. 14), so
@@ -56,11 +60,11 @@ WINDOW_SECONDS = 15 * 60
 BASE_DELAY_SECONDS = 1.0
 MAX_DELAY_SECONDS = 30.0
 MAX_KEYS = 10_000
-#: MD-35 queue bound (founder question w4-fix-id-1). ``None`` = unbounded: every
-#: attempt waits for its slot. A number = an attempt whose slot lies further out
-#: than this is held this long and then refused WITHOUT a password check
-#: (:class:`ThrottleSaturated`), so the guess rate stays bounded with no pile-up.
-MAX_QUEUE_SECONDS: float | None = None
+#: MD-35 queue bound (founder ruling fix-id-1 = B, bounded). An attempt whose slot
+#: lies further out than this is held this long and then refused WITHOUT a password
+#: check (:class:`ThrottleSaturated` → the existing throttled 401 / setup 403), so the
+#: guess rate stays bounded with no pile-up. ``None`` would be unbounded (option A).
+MAX_QUEUE_SECONDS: float | None = 30.0
 
 
 class ThrottleSaturated(Exception):

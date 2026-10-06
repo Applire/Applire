@@ -169,10 +169,13 @@ async def test_adv_identity_3_hot_key_concurrent_attempts_are_serialised():
     then all run — the delay bounds latency, not the guess rate. With 30 s and
     1 000 concurrent requests an attacker keeps ~33 guesses/s on one key.
 
-    Secure behaviour: on a hot key, K concurrent attempts cost at least the sum of
-    their delays (i.e. they are spaced, not batched).
+    Secure behaviour: on a hot key, K concurrent attempts are spaced, not batched —
+    at most one guess per delay window reaches the password check. Under ruling
+    fix-id-1 = B (``MAX_QUEUE_SECONDS = 30.0``) an attempt whose slot lies past the
+    bound is refused unchecked (``ThrottleSaturated``) instead of queueing; the
+    option-A expectation "the last of 20 waits longer than one window" is retired.
     """
-    from applire.auth.throttle import Throttle
+    from applire.auth.throttle import Throttle, ThrottleSaturated
 
     slept: list[float] = []
     clock = [1000.0]
@@ -186,14 +189,17 @@ async def test_adv_identity_3_hot_key_concurrent_attempts_are_serialised():
     for _ in range(10):
         t.record_failure(key)  # key hot: 10 failures -> 30 s cap
     # 20 attempts launched together — what an attacker with 20 connections does.
-    await asyncio.gather(*(t.wait(key) for _ in range(20)))
-    # Every one of them is released after a single 30 s wait: 20 guesses in 30 s.
-    # Spaced attempts: the last of 20 concurrent ones waits longer than one window.
-    assert len(slept) == 20
-    assert max(slept) > 30.0, (
-        f"20 parallel attempts each waited {sorted(set(slept))} s once — "
-        "they all run after one delay window"
+    results = await asyncio.gather(*(t.wait(key) for _ in range(20)), return_exceptions=True)
+    # Unspaced, every one is released after a single 30 s wait: 20 guesses in 30 s.
+    released = sorted(r for r in results if not isinstance(r, BaseException))
+    refused = [r for r in results if isinstance(r, ThrottleSaturated)]
+    assert len(released) + len(refused) == 20, results
+    assert sum(1 for w in released if w <= 30.0) <= 1, (
+        f"{len(released)} of 20 parallel attempts were released after one delay "
+        f"window ({released}) — they run batched, not spaced"
     )
+    assert all(b - a >= 30.0 for a, b in zip(released, released[1:])), released
+    assert max(slept) <= 30.0, "a refused attempt is held at most the queue bound"
 
 
 # ---------------------------------------------------------------------------
