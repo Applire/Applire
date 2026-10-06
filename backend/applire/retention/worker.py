@@ -208,6 +208,17 @@ async def _purge_sessions(db: AsyncSession) -> int:
     """Hard-delete interview sessions inactive for more than 30 days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=_SESSION_TTL_DAYS)
     try:
+        # flow_sessions_interview_session_id_fkey: release the flow's pointer to
+        # a session this purge deletes, or Postgres aborts the DELETE (and the
+        # run). Found on the W3 real boot (Postgres); SQLite enforces no FK.
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET interview_session_id = NULL "
+                "WHERE interview_session_id IN ("
+                "  SELECT id FROM interview_sessions WHERE updated_at < :cutoff)"
+            ),
+            {"cutoff": cutoff},
+        )
         result = await db.execute(
             text(
                 "DELETE FROM interview_sessions WHERE updated_at < :cutoff"
@@ -245,6 +256,19 @@ async def _purge_cvs(db: AsyncSession) -> int:
                 "  WHERE c.id = applications.submitted_cv_id "
                 "  AND c.expires_at < :now AND c.deleted_at IS NULL"
                 ")"
+            ),
+            {"now": now},
+        )
+        # flow_sessions_generated_cv_id_fkey: same release for the flow's
+        # pointer, limited to exactly the rows the DELETE below removes.
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cv_id = NULL "
+                "WHERE generated_cv_id IN ("
+                "  SELECT c.id FROM generated_cvs c "
+                "  WHERE c.expires_at < :now AND c.deleted_at IS NULL "
+                "  AND NOT EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.submitted_cv_id = c.id AND a.deleted_at IS NULL))"
             ),
             {"now": now},
         )
@@ -414,6 +438,19 @@ async def _purge_cover_letters(db: AsyncSession) -> int:
                 "  WHERE l.id = applications.submitted_cover_letter_id "
                 "  AND l.expires_at < :now AND l.deleted_at IS NULL"
                 ")"
+            ),
+            {"now": now},
+        )
+        # fk_flow_sessions_cover_letter: release the flow's pointer to exactly
+        # the letters the DELETE below removes (W3 real boot: the run aborted).
+        await db.execute(
+            text(
+                "UPDATE flow_sessions SET generated_cover_letter_id = NULL "
+                "WHERE generated_cover_letter_id IN ("
+                "  SELECT l.id FROM generated_cover_letters l "
+                "  WHERE l.expires_at < :now AND l.deleted_at IS NULL "
+                "  AND NOT EXISTS (SELECT 1 FROM applications a "
+                "    WHERE a.submitted_cover_letter_id = l.id AND a.deleted_at IS NULL))"
             ),
             {"now": now},
         )

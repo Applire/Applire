@@ -735,6 +735,17 @@ def apply_ops(
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
 
+    # The class guard behind the per-op one in `_apply_set_personal_info`: NO op in this vocabulary may change a field
+    # another writer owns. `photo_url` is a storage path the CV render reads and
+    # erasure unlinks; its only writers are the photo endpoints
+    # (`services/photo.py`), which do not go through `apply_ops`. An import's
+    # wholesale `ApplyImportMerge` (the parsed CV IS the merged profile on a
+    # first import), a section replace and a dispute resolution are all
+    # op-shaped doors the per-op check never sees — so the stored value is
+    # carried over here whatever the batch did, and any receipt claiming
+    # otherwise is dropped with it.
+    new_profile, changes = _restore_user_managed_fields(profile, new_profile, changes)
+
     # #328 (option 4) / #382 — the quantified role facts are DERIVED
     # PROJECTIONS of the entry's own bullets, so they are recomputed HERE, on
     # the single committer (ADR-063), after every op has landed: the write path
@@ -2927,6 +2938,38 @@ def _apply_set_field(op, resolve, changes):
 _USER_MANAGED_PERSONAL_INFO_FIELDS = USER_MANAGED_PERSONAL_INFO_FIELDS
 
 
+def _restore_user_managed_fields(before, after, changes):
+    """Carry every user-managed ``personal_info`` field over from ``before``.
+
+    Returns ``(after, changes)`` — ``after`` with each owned field set back to
+    its stored value, and ``changes`` without receipts for those fields. A
+    WARNING names the field and the op batch's attempt (never the value: it is
+    the attempted path, and the log is not the place to repeat it).
+    """
+    restored = []
+    for field_name in sorted(_USER_MANAGED_PERSONAL_INFO_FIELDS):
+        old = getattr(before.personal_info, field_name, None)
+        new = getattr(after.personal_info, field_name, None)
+        if old != new:
+            setattr(after.personal_info, field_name, old)
+            restored.append(field_name)
+    if not restored:
+        return after, changes
+    logger.warning(
+        "apply_ops: refused a write to user-managed personal_info field(s) %s "
+        "(owned by the upload endpoints) — stored value kept",
+        ", ".join(restored),
+    )
+    kept = [
+        c for c in changes
+        if not (
+            getattr(c, "section", None) == "personal_info"
+            and getattr(c, "field", None) in restored
+        )
+    ]
+    return after, kept
+
+
 def _apply_set_personal_info(op, profile, source, changes, conflicts):
     # #602/#620 — mirrors _apply_set_summary's exact mechanism (ADR-066: one
     # implementation per capability): an already-populated field that a
@@ -2937,10 +2980,12 @@ def _apply_set_personal_info(op, profile, source, changes, conflicts):
     pi = profile.personal_info
     if not hasattr(pi, op.field):
         return
+    # The owned-field check runs BEFORE the empty-slot branch: a field another
+    # writer owns is not this door's to write, whether the slot is empty or not.
+    if op.field in _USER_MANAGED_PERSONAL_INFO_FIELDS:
+        return  # not ours to write and not ours to dispute — see the constant
     current = getattr(pi, op.field)
     if not _is_empty(current):
-        if op.field in _USER_MANAGED_PERSONAL_INFO_FIELDS:
-            return  # not ours to write and not ours to dispute — see the constant
         if _is_empty(op.value):
             return  # absence is not an update, and not a conflict either
         if _norm(current) == _norm(op.value):
