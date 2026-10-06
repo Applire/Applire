@@ -193,6 +193,53 @@ async def _collect_files(db: AsyncSession, uid: uuid.UUID) -> list[str]:
     return paths
 
 
+async def _unreferenced(db: AsyncSession, paths: list[str]) -> list[str]:
+    """The departing user's file paths that NO surviving row references (MD-30).
+
+    Runs after the erasure commit, so the user's own rows are gone and the
+    census (``retention.worker.referenced_file_paths``, the orphan scan's own
+    definition) names only other users' references. A path is data in the vault
+    JSON: two profiles can name the same file, and A's Art. 17 request does not
+    reach the file B's profile still renders (adv-own-203). Compared raw and
+    resolved, as the orphan scan does. An untrustworthy census unlinks nothing
+    — the erasure's rows are already committed; the orphan scan reclaims what
+    is truly unreferenced within 24 h.
+    """
+    from pathlib import Path
+
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    from applire.retention.worker import referenced_file_paths
+
+    if not paths:
+        return []
+    try:
+        with ownership.unscoped("orphan-scan"):
+            still = await referenced_file_paths(db)
+    except (ProgrammingError, OperationalError):
+        await db.rollback()
+        logger.error(
+            "GDPR erasure: file census failed — %d file(s) left for the "
+            "retention orphan scan", len(paths),
+        )
+        return []
+
+    def _resolved(p: str) -> str:
+        try:
+            return str(Path(p).resolve())
+        except (OSError, RuntimeError, ValueError):
+            return p
+
+    still_resolved = {_resolved(p) for p in still}
+    out: list[str] = []
+    for path in dict.fromkeys(paths):  # de-duplicated, order kept
+        if path in still or _resolved(path) in still_resolved:
+            logger.info("GDPR erasure: kept %s — another row still references it", path)
+            continue
+        out.append(path)
+    return out
+
+
 async def _candidate_postings(db: AsyncSession, uid: uuid.UUID) -> set[uuid.UUID]:
     out: set[uuid.UUID] = set()
     for model in _posting_reference_models():
@@ -357,6 +404,7 @@ async def erase(
         from applire.storage import get_storage
 
         storage = get_storage()
+    files = await _unreferenced(db, files)
     for path in files:
         try:
             await storage.delete(path)

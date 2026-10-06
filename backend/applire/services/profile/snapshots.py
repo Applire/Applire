@@ -94,6 +94,35 @@ def _head_enrichment_id(profile_json: dict) -> str | None:
     return history[-1].get("id") if history else None
 
 
+def _keep_user_managed_fields(restored: dict | None, current: dict | None) -> dict:
+    """The snapshot, with the CURRENT value of every upload-owned field (MD-30).
+
+    ``personal_info.photo_url`` belongs to the photo endpoints, not to a merge:
+    an undo that rolled it back would point the vault at the file a later photo
+    upload already deleted (the render then drops the photo) and orphan the new
+    file for the retention scan to reclaim. An undo reverts what the MERGE
+    wrote; the photo was never the merge's to write (``apply_ops`` keeps it).
+    """
+    from applire.schemas.profile import USER_MANAGED_PERSONAL_INFO_FIELDS
+
+    out = dict(restored or {})
+    current_pi = (current or {}).get("personal_info") or {}
+    pi = dict(out.get("personal_info") or {})
+    changed = False
+    for field_name in USER_MANAGED_PERSONAL_INFO_FIELDS:
+        keep = current_pi.get(field_name)
+        if (pi.get(field_name) or None) == (keep or None):
+            continue  # already equal — the snapshot is restored byte-for-byte
+        if keep is None:
+            pi.pop(field_name, None)
+        else:
+            pi[field_name] = keep
+        changed = True
+    if changed:
+        out["personal_info"] = pi
+    return out
+
+
 async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> UndoResult:
     """Restore the most recent pre-merge snapshot.
 
@@ -122,7 +151,7 @@ async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None)
         _head_enrichment_id(profile.profile_json) != snapshot.enrichment_record_id
     )
 
-    profile.profile_json = snapshot.profile_json
+    profile.profile_json = _keep_user_managed_fields(snapshot.profile_json, profile.profile_json)
     # Consume the whole snapshot chain so a retry is a no-op (idempotent) and no
     # accidental multi-level peel-back occurs (MVP = undo the last merge only).
     await db.execute(

@@ -21,6 +21,19 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 
+class PathOutsideStorageError(FileNotFoundError):
+    """A path handed to a provider names no file this provider stores.
+
+    MD-30 (adversarial ownership review w4, 2026-10-05): a stored path is data
+    (``personal_info.photo_url`` in the vault JSON, ``user_settings.signature_path``,
+    ``uploads.file_path``), so a provider never trusts it to stay inside its own
+    storage. A subclass of ``FileNotFoundError`` on purpose: every caller already
+    treats "absent" as the safe outcome (the render omits the photo, the signature
+    is not drawn), so a refused path fails CLOSED at every existing call site
+    without each one having to learn a new exception.
+    """
+
+
 class StorageProvider(ABC):
     @abstractmethod
     async def save(self, file_bytes: bytes, filename: str) -> str:
@@ -28,11 +41,16 @@ class StorageProvider(ABC):
 
     @abstractmethod
     async def delete(self, file_path: str) -> None:
-        """Remove the file at *file_path*. No-op if not found."""
+        """Remove the file at *file_path*. No-op if not found.
+
+        A path outside the provider's storage is refused (no-op, WARNING log) —
+        never unlinked (MD-30)."""
 
     @abstractmethod
     async def read(self, file_path: str) -> bytes:
-        """Return the raw bytes at *file_path*. Raises FileNotFoundError if absent."""
+        """Return the raw bytes at *file_path*. Raises FileNotFoundError if absent,
+        and :class:`PathOutsideStorageError` (a ``FileNotFoundError``) for a path
+        outside the provider's storage (MD-30)."""
 
     async def list_files(self) -> list[tuple[str, datetime]] | None:
         """Enumerate stored files as ``(path, last_modified_utc)`` pairs.

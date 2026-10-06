@@ -37,12 +37,11 @@ from applire.schemas.gap import (
     KeywordLiabilityDowngradeRequest,
 )
 from applire.schemas.job import JobAnalyzeRequest, JobAnalysisResponse
-from applire.services.application import get_application_for_job
 from applire.services.gap import analyze_gaps, downgrade_keyword_liability, set_cluster_left_open
 from applire.services.gap_coverage import AnswerScope, LeftOpenRefused
 from applire.services.gap_jobs import create_gap_job, get_gap_job, run_gap_job_background
-from applire.services.job import analyze_jd, get_job_for_user
-from applire.services.posting_labels import effective_posting_labels
+from applire.services.job import analyze_jd, caller_link, get_job_for_user
+from applire.services.posting_labels import posting_response
 from applire.services.scraper import ScraperError, scrape_job_url
 
 logger = logging.getLogger(__name__)
@@ -135,10 +134,10 @@ async def get_job_analysis(
     are the caller's own (``effective_posting_labels``, cl. 5f).
     """
     job = await get_job_for_user(db, job_id, current_user.id)
-    app = await get_application_for_job(job.id, current_user.id, db)
-    response = JobAnalysisResponse.model_validate(job)
-    response.role_title, response.company_name = effective_posting_labels(job, app)
-    return response
+    # The caller's own row — a hidden repost link (soft-deleted, 4a-1) included.
+    app = await caller_link(db, job.id, current_user.id)
+    # MD-31: labels AND source_url from the caller's own row, never the shared one.
+    return posting_response(job, app)
 
 
 @router.post(

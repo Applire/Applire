@@ -124,6 +124,45 @@ async def _purge_uploads(db: AsyncSession) -> int:
     return result.rowcount  # type: ignore[return-value]
 
 
+async def referenced_file_paths(db: AsyncSession) -> set[str]:
+    """Every stored-file path some row still references — the file census.
+
+    ONE definition of "referenced" for both deleters of stored files (MD-30):
+    the orphan scan below keeps what is in this set, and GDPR erasure
+    (``services/erasure.py``) unlinks a departing user's file only when it is
+    NOT in this set after the user's rows are gone — a path is data in the
+    vault JSON, so two users' rows can name the same file. Cross-user by
+    construction: callers run it under ``ownership.unscoped("orphan-scan")``
+    or inside the retention sweep. Raises the DB error to the caller, whose
+    rule is the same in both places: an untrustworthy census deletes nothing.
+    """
+    referenced: set[str] = set()
+    rows = await db.execute(text("SELECT file_path FROM uploads"))
+    referenced.update(row[0] for row in rows.fetchall())
+
+    prof_rows = await db.execute(text("SELECT profile_json FROM master_profiles"))
+    for (profile_json,) in prof_rows.fetchall():
+        if isinstance(profile_json, str):  # SQLite test harness stores TEXT
+            try:
+                profile_json = json.loads(profile_json)
+            except ValueError:
+                continue
+        if not isinstance(profile_json, dict):
+            continue
+        photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
+        if photo_url:
+            referenced.add(photo_url)
+
+    # #359 / ADR-088: the signature image's path lives on user_settings, not
+    # in the profile JSONB, so it needs its own read. Same failure mode as
+    # the photo if omitted — the file is deleted, not merely unprotected.
+    sig_rows = await db.execute(
+        text("SELECT signature_path FROM user_settings WHERE signature_path IS NOT NULL")
+    )
+    referenced.update(row[0] for row in sig_rows.fetchall() if row[0])
+    return referenced
+
+
 async def _scan_orphan_files(db: AsyncSession) -> int:
     """Delete upload-volume files that no DB row references any more.
 
@@ -167,31 +206,8 @@ async def _scan_orphan_files(db: AsyncSession) -> int:
         )
         return 0
 
-    referenced: set[str] = set()
     try:
-        rows = await db.execute(text("SELECT file_path FROM uploads"))
-        referenced.update(row[0] for row in rows.fetchall())
-
-        prof_rows = await db.execute(text("SELECT profile_json FROM master_profiles"))
-        for (profile_json,) in prof_rows.fetchall():
-            if isinstance(profile_json, str):  # SQLite test harness stores TEXT
-                try:
-                    profile_json = json.loads(profile_json)
-                except ValueError:
-                    continue
-            if not isinstance(profile_json, dict):
-                continue
-            photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
-            if photo_url:
-                referenced.add(photo_url)
-
-        # #359 / ADR-088: the signature image's path lives on user_settings, not
-        # in the profile JSONB, so it needs its own read. Same failure mode as
-        # the photo if omitted — the file is deleted, not merely unprotected.
-        sig_rows = await db.execute(
-            text("SELECT signature_path FROM user_settings WHERE signature_path IS NOT NULL")
-        )
-        referenced.update(row[0] for row in sig_rows.fetchall() if row[0])
+        referenced = await referenced_file_paths(db)
     except (ProgrammingError, OperationalError):
         # Can't trust the referenced set → delete nothing this run.
         await db.rollback()
