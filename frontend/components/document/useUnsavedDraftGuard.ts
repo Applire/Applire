@@ -100,7 +100,10 @@ export function useUnsavedDraftGuard(dirty: boolean, onAttempt: (nav: GuardedNav
   useEffect(() => {
     if (dirty || !armed.current) return;
     armed.current = false;
-    if ((window.history.state as Record<string, unknown> | null)?.[GUARD_MARK]) window.history.back();
+    // Not keyed on our mark in history.state: Next's router replaces the
+    // current entry's state on its own updates, so the mark does not survive.
+    // `armed` is the record that our entry is on top (popstate clears it).
+    window.history.back();
   }, [dirty]);
 
   return {
