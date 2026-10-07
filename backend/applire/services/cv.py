@@ -949,6 +949,14 @@ async def _review_cv_language(
 logger = logging.getLogger(__name__)
 
 
+def _critic_report_for_door(raw):
+    """#702 — see ``outcome_critic.critic_report_for_door`` (local import: the
+    critic module imports the provider layer)."""
+    from applire.services.outcome_critic import critic_report_for_door
+
+    return critic_report_for_door(raw)
+
+
 def _project_bullets(source_project: dict) -> list[str]:
     """Collapse a source ProjectEntry into the flat bullet list
     TailoredProjectEntry renders. Order is stable and deduped.
@@ -3096,7 +3104,7 @@ async def get_cv_status(
         origin=record.origin,
         # ADR-060 clause 6: the Pass A verdict is data on the status surface,
         # both doors (REST poller and MCP get_cv_status serialize this model).
-        critic_report=record.critic_report,
+        critic_report=_critic_report_for_door(record.critic_report),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=record.document_language,
         # F-4b: the stored per-document override (None/True/False) and the

@@ -101,6 +101,14 @@ from applire.utils.recipient_extraction import extract_recipient_from_jd
 
 logger = logging.getLogger(__name__)
 
+
+def _critic_report_for_door(raw):
+    """#702 — see ``outcome_critic.critic_report_for_door`` (local import: the
+    critic module imports the provider layer)."""
+    from applire.services.outcome_critic import critic_report_for_door
+
+    return critic_report_for_door(raw)
+
 # M5.4.2 (3) (founder, 2026-09-11): how many absent claimable terms the LETTER's
 # reviewer may be shown — and therefore demand — in one round. The number is the
 # one `prompts/review_cover_letter.py` used to ASK for in prose ("DEMAND AT MOST
@@ -317,7 +325,9 @@ async def get_cover_letter_status(
         letter_data=letter_data,
         section_overrides=section_overrides,
         origin=cl.origin,
-        critic_report=cl.critic_report,
+        # #702: through the schema, so `cross_document` reaches the agent door
+        # on legacy rows too (derived, never stored-and-trusted).
+        critic_report=_critic_report_for_door(cl.critic_report),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=cl.document_language,
         # F-4b: the stored per-document override (None/True/False) and the

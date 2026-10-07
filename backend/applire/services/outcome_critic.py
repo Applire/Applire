@@ -73,8 +73,9 @@ could make is not persisting the (read-only) report at all.
 """
 
 import logging
+import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from applire.constants import (
     CRITIC_ENABLED,
@@ -88,6 +89,9 @@ from applire.prompts.outcome_critic import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.schemas.outcome_critic import CriticAdvisory, OutcomeCriticReport
+
+if TYPE_CHECKING:  # pragma: no cover
+    from applire.schemas.outcome_critic import CrossDocumentItem
 from applire.services.ats_audit import _norm as ats_norm
 from applire.services.ats_audit import surface_present
 from applire.services.citation import citation_present as _citation_present
@@ -473,6 +477,148 @@ def _advisories_from_judgement(
             )
         )
     return advisories, dropped
+
+
+# ── #702: cross-document items (ADR-060 amended 2026-10-07) ────────────────
+# The critic's FACTS were right on every recorded run; what the candidate was
+# shown was not: one uncorroborated letter sentence split into N benign rows.
+# This groups and weights the persisted advisories — deterministic, no LLM,
+# no prompt change (applire-prompt-first triage: a surface defect, not a
+# classification defect). Read by the schema's computed ``cross_document``.
+
+_CROSS_DOCUMENT_KINDS = ("letter_only", "letter_richer")
+_DIGIT_RUN_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+_STANDARD_PREFIX_RE = re.compile(r"\b[A-ZÄÖÜ]{2,}[\s\-/]?$")
+
+
+def _is_identifier_digits(text: str, start: int, end: int) -> bool:
+    """A digit run that is part of a NAME, not a figure: a standard number
+    ("ISO 9001", "DIN 5008", "ISO-9001-Audit-Praxis"), a digit glued to letters
+    ("S4HANA", "5S"), or a version ("Industrie 4.0"). Measured on the 09-13
+    report: without this, the keyword-list sentence "… ISO 9001, ISO 45001 …"
+    read as carrying two figures."""
+    if _STANDARD_PREFIX_RE.search(text[max(0, start - 6):start]):
+        return True
+    before = text[start - 1] if start > 0 else " "
+    after = text[end] if end < len(text) else " "
+    if before.isalpha() or after.isalpha():
+        return True
+    if after == "-" and end + 1 < len(text) and text[end + 1].isalpha():
+        return True
+    return text[start:end].endswith(".0")
+
+
+def _specific_tokens(letter_state: str, cv_state: str | None) -> list[str]:
+    """The figures, years and durations the letter sentence states that the CV's
+    own mention of the concept does not — a FACT settled by string containment
+    (ADR-062 clause 1). ``_TENURE_RE`` is the tenure detector this module's fact
+    half already uses; a bare digit run covers years ("seit 2021"), counts and
+    percentages. A letter-richer sentence whose every figure is already in the
+    CV span is NOT specific (09-13's MES-Einführung: 14 / 61 % / 73 % are in
+    both documents)."""
+    cv_fold = (cv_state or "").casefold()
+    out: list[str] = []
+    for m in _TENURE_RE.finditer(letter_state):
+        token = m.group(0).strip()
+        if token.casefold() not in cv_fold:
+            out.append(token)
+    for m in _DIGIT_RUN_RE.finditer(letter_state):
+        token = m.group(0)
+        if token in cv_fold or _is_identifier_digits(letter_state, m.start(), m.end()):
+            continue
+        if any(token in t for t in out):
+            continue  # already named inside a tenure phrase
+        out.append(token)
+    return list(dict.fromkeys(out))
+
+
+def group_cross_document(advisories: list[CriticAdvisory]) -> list["CrossDocumentItem"]:
+    """#702 — fold ``letter_only`` / ``letter_richer`` advisories that quote the
+    SAME letter sentence into one weighted item.
+
+    Two advisories belong together when their ``letter_state`` quotes fold equal
+    under the ADR-077 quote fold, or one contains the other (the critic may quote
+    a clause of the sentence another advisory quotes whole). The item quotes the
+    longest span. ``numeric_inconsistency`` / ``internal_inconsistency`` are not
+    asymmetries and keep their own rows (group 4).
+
+    Weight (a fact, never a judgement): ``high`` when a ``letter_only``
+    advisory's sentence carries a figure, year or duration (a fact the CV never
+    mentions, stated with a number); ``normal`` otherwise. Order: high first,
+    then the advisories' own order. Pure; never raises on a malformed advisory
+    (it is skipped).
+    """
+    from applire.schemas.outcome_critic import CrossDocumentItem
+    from applire.services.scope_requirements import _norm_quote
+
+    groups: list[dict[str, Any]] = []
+    for adv in advisories or []:
+        try:
+            if adv.kind not in _CROSS_DOCUMENT_KINDS or not (adv.letter_state or "").strip():
+                continue
+            quote = adv.letter_state.strip()
+            norm = _norm_quote(quote)
+            if not norm:
+                continue
+        except Exception:  # pragma: no cover - defensive: a report reader never raises
+            continue
+        target = None
+        for g in groups:
+            if any(norm == n or norm in n or n in norm for n in g["norms"]):
+                target = g
+                break
+        if target is None:
+            target = {"norms": [], "quotes": [], "advisories": []}
+            groups.append(target)
+        target["norms"].append(norm)
+        target["quotes"].append(quote)
+        target["advisories"].append(adv)
+
+    items: list[CrossDocumentItem] = []
+    for g in groups:
+        letter_state = max(g["quotes"], key=len)
+        advs: list[CriticAdvisory] = g["advisories"]
+        # Weight reads the LETTER-ONLY advisories only. Measured against the
+        # blind-panel hit table over 8 captured runs with a panel (WP-R report,
+        # `runs/weight_vs_panel.py`): "a letter-only fact stated with a figure,
+        # year or duration" marked 5 items of which the panel named 3, and left
+        # 16 normal of which it named 3; counting letter-richer figures too
+        # (09-10's "zehn Jahren", 09-24's "three years") doubled the high set
+        # without adding a hit.
+        figures: list[str] = []
+        for adv in advs:
+            if adv.kind == "letter_only":
+                figures.extend(_specific_tokens(adv.letter_state or "", adv.cv_state))
+        figures = list(dict.fromkeys(figures))
+        high = bool(figures)
+        items.append(
+            CrossDocumentItem(
+                key=f"critic:{_norm_quote(letter_state)}",
+                letter_state=letter_state,
+                concepts=list(dict.fromkeys(a.concept for a in advs)),
+                kinds=list(dict.fromkeys(a.kind for a in advs)),
+                weight="high" if high else "normal",
+                figures=figures,
+            )
+        )
+    # Stable: high first, then first-seen order.
+    return [i for i in items if i.weight == "high"] + [i for i in items if i.weight != "high"]
+
+
+def critic_report_for_door(raw: Any) -> dict | None:
+    """The stored critic report as every door returns it: validated through
+    :class:`OutcomeCriticReport`, so the derived ``cross_document`` (#702) is
+    present on legacy rows too and recomputed from the advisories, never read
+    from the blob. A malformed blob is returned unchanged (the status door's
+    pre-#702 behaviour) — a report reader never raises."""
+    if not isinstance(raw, dict):
+        return raw if raw else None
+    try:
+        return OutcomeCriticReport.model_validate(raw).model_dump(mode="json")
+    except Exception:
+        return raw
 
 
 def _anchor_dict(fact: ConceptPresenceFact) -> dict[str, str]:

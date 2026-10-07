@@ -1,0 +1,97 @@
+{
+  "document_id": "3bd8a3d5-9ea3-4068-ba0a-b71c77158e1f",
+  "status": "ready",
+  "report": {
+    "ran": true,
+    "reason": null,
+    "mount": "letter",
+    "advisories": [
+      {
+        "concept": "Kosmetik-Verpackungen",
+        "kind": "letter_only",
+        "cv_state": null,
+        "cv_detail": null,
+        "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu Kosmetik-Verpackungen); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about Kosmetik-Verpackungen); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "Sauberraumbereich seit 2021",
+        "kind": "letter_only",
+        "cv_state": null,
+        "cv_detail": null,
+        "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu Sauberraumbereich seit 2021); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about Sauberraumbereich seit 2021); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "ISO-9001-Audit-Praxis",
+        "kind": "letter_only",
+        "cv_state": null,
+        "cv_detail": null,
+        "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu ISO-9001-Audit-Praxis); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about ISO-9001-Audit-Praxis); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "Feinplanung",
+        "kind": "letter_only",
+        "cv_state": null,
+        "cv_detail": null,
+        "letter_state": "SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt \"SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.\" (zu Feinplanung); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.\" (about Feinplanung); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "Quartalspräsentationen",
+        "kind": "letter_only",
+        "cv_state": null,
+        "cv_detail": null,
+        "letter_state": "Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt \"Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.\" (zu Quartalspräsentationen); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.\" (about Quartalspräsentationen); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "MES-Einführung",
+        "kind": "letter_richer",
+        "cv_state": "Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.",
+        "cv_detail": null,
+        "letter_state": "Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt zu MES-Einführung \"Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.\"; dein Lebenslauf nennt MES-Einführung nur ohne diese Angabe (\"Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.\"). Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.\" about MES-Einführung; your CV mentions MES-Einführung without that detail (\"Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.\"). Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      },
+      {
+        "concept": "Kunststofftechnik-Erfahrung",
+        "kind": "letter_richer",
+        "cv_state": "Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung",
+        "cv_detail": null,
+        "letter_state": "neun Jahre Kunststofftechnik mit Spritzguss und Montage",
+        "changed": false,
+        "message": {
+          "de": "Dein Anschreiben nennt zu Kunststofftechnik-Erfahrung \"neun Jahre Kunststofftechnik mit Spritzguss und Montage\"; dein Lebenslauf nennt Kunststofftechnik-Erfahrung nur ohne diese Angabe (\"Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung\"). Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+          "en": "Your cover letter states \"neun Jahre Kunststofftechnik mit Spritzguss und Montage\" about Kunststofftechnik-Erfahrung; your CV mentions Kunststofftechnik-Erfahrung without that detail (\"Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung\"). Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+        }
+      }
+    ],
+    "dropped_citations": 0
+  },
+  "_http_status": 200
+}
