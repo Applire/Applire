@@ -78,3 +78,35 @@ async def keep(
         await db.commit()
         await db.refresh(record)
         return ActionOutcome(record=record)
+
+
+def cross_document_target(record, key: str) -> tuple[str, list[str]]:
+    """#702 RULING R-2 = A — what *Aus dem Anschreiben nehmen* removes for a
+    cross-document item: the item's concepts that literally stand in its letter
+    sentence (``ats_audit.surface_present``, the shared presence predicate), letter-
+    only concepts first — so the rewrite keeps the sentence and drops the facts the
+    CV does not carry ("Applire schreibt den Satz ohne diese Angaben neu"). When no
+    concept label is literally in the sentence (a paraphrased label), the whole
+    sentence is the wording. Returns ``(label, wording)``; FindingNotListed when the
+    live critic report does not list the item."""
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+    from applire.services.ats_audit import _norm, surface_present
+
+    _, norm = rs.split_key(key)
+    raw = getattr(record, "critic_report", None)
+    report = None
+    if isinstance(raw, dict):
+        try:
+            report = OutcomeCriticReport.model_validate(raw)
+        except Exception:
+            report = None
+    item = None
+    if report is not None:
+        item = next((i for i in report.cross_document if rs.split_key(i.key)[1] == norm), None)
+    if item is None:
+        raise FindingNotListed(f"{key!r} is not listed on this document's critic report")
+    sentence = _norm(item.letter_state)
+    kinds = {a.concept: a.kind for a in report.advisories}
+    ordered = sorted(item.concepts, key=lambda c: 0 if kinds.get(c) == "letter_only" else 1)
+    wording = [c for c in ordered if surface_present(c, sentence)]
+    return item.letter_state, (wording or [item.letter_state])

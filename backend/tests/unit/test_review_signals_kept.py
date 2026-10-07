@@ -178,3 +178,108 @@ def test_a_critic_key_never_names_a_group_one_finding():
     finding = rs.GroupOneFinding(key="ats:supply chain", producer="ats", norm="supply chain", label="Supply Chain")
     assert rs.find_listed([finding], "critic:supply chain") is None
     assert rs.find_listed([finding], "ats:supply chain") is finding
+
+
+# ── RULING R-2 = A: take-out on a cross-document item ───────────────────────
+
+TRANSFER = (
+    "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem "
+    "Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun "
+    "Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare "
+    "Grundlagen."
+)
+
+
+class _Rewrite:
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, kind, record, section_id, section_text, forms, provider, *, language,
+                       figures_only=False):
+        from types import SimpleNamespace
+
+        self.calls.append({"section_id": section_id, "forms": list(forms), "figures_only": figures_only})
+        after = section_text
+        for f in forms:
+            after = after.replace(f, "").replace("  ", " ")
+        return SimpleNamespace(section_id=section_id, before=section_text, after=after,
+                               changed=after != section_text, llm_calls=1)
+
+
+async def _noop_reaudit(kind, record, db, **kw):
+    await db.commit()
+    await db.refresh(record)
+
+
+async def _seed_transfer_letter(db):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", TRANSFER]}}
+    await db.commit()
+    return cl_id
+
+
+@pytest.mark.asyncio
+async def test_take_out_on_a_cross_document_item_removes_its_literal_concepts(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_transfer_letter(db)
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    (call,) = rewrite.calls
+    # letter-only concepts that literally stand in the sentence — never the
+    # paraphrased label "Kunststofftechnik-Erfahrung", never the whole sentence
+    assert call["forms"] == ["Kosmetik-Verpackungen", "Sauberraumbereich seit 2021", "ISO-9001-Audit-Praxis"]
+    assert call["figures_only"] is False
+    body = resp.json()
+    assert body["changes"] and body["still_listed"] is False
+    (decision,) = body["review_state"]["decisions"]
+    assert decision["action"] == "taken_out" and decision["finding_key"] == _transfer_key()
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_cross_document_take_out_restores_and_reports_it_present(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_transfer_letter(db)
+    with patch.object(ra, "_rewriter", return_value=_Rewrite()), patch.object(ra, "reaudit", _noop_reaudit):
+        client = _client(db)
+        client.post(f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()})
+        out = await ra.undo("cover_letter", cl_id, _transfer_key(), db)
+    assert out.still_listed is True
+    assert rs.load_state(out.record.review_state)["decisions"] == []
+
+
+@pytest.mark.asyncio
+async def test_take_out_on_an_unlisted_cross_document_key_is_409(db):
+    cl_id = await _seed_transfer_letter(db)
+    resp = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": "critic:not a sentence of this letter"}
+    )
+    assert resp.status_code == 409
+
+
+def test_a_paraphrased_label_falls_back_to_the_whole_sentence():
+    from types import SimpleNamespace
+
+    from applire.services.review_signals import cross_document_target
+
+    report = {"ran": True, "mount": "letter", "advisories": [
+        {"kind": "letter_only", "concept": "Englische Werksbesuche",
+         "letter_state": "Ich begleite Werksbesuche auf Englisch."},
+    ]}
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+
+    key = OutcomeCriticReport.model_validate(report).cross_document[0].key
+    label, wording = cross_document_target(SimpleNamespace(critic_report=report), key)
+    assert wording == ["Ich begleite Werksbesuche auf Englisch."]
