@@ -44,7 +44,9 @@ export function internalNavTarget(anchor: HTMLAnchorElement, event: MouseEvent, 
 
 export function useUnsavedDraftGuard(dirty: boolean, onAttempt: (nav: GuardedNav) => void) {
   const attemptRef = useRef(onAttempt);
-  attemptRef.current = onAttempt;
+  useEffect(() => {
+    attemptRef.current = onAttempt;
+  });
   const armed = useRef(false);
 
   // Page unload: reload, tab close, typed URL, external link.
