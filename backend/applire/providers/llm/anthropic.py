@@ -49,7 +49,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated
+from applire.providers.llm.base import LLMProvider, raise_if_truncated, unclassified_provider_error
 from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
 
@@ -103,7 +103,17 @@ class AnthropicProvider(LLMProvider):
                     f"Anthropic is temporarily unavailable (HTTP {exc.status_code}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Anthropic")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Anthropic")
+            if wrapped is None:
+                raise
+            raise wrapped from None
 
     async def aparse_json(
         self,
@@ -139,7 +149,17 @@ class AnthropicProvider(LLMProvider):
                     f"Anthropic is temporarily unavailable (HTTP {exc.status_code}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Anthropic")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Anthropic")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         raw = ("{" + text).strip()
         # Drop any trailing prose / code fence after the JSON object.
         end = raw.rfind("}")

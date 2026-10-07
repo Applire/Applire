@@ -26,7 +26,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
-from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation
+from applire.providers.llm.base import LLMProvider, raise_if_truncated, retry_on_truncation, unclassified_provider_error
 from applire.providers.llm.reasoning import finalise_completion, note_trace
 from applire.providers.llm.usage import note_usage
 
@@ -113,7 +113,17 @@ class OllamaProvider(LLMProvider):
                     f"Ollama is temporarily unavailable (HTTP {exc.response.status_code}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Ollama")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Ollama")
+            if wrapped is None:
+                raise
+            raise wrapped from None
 
     async def aparse_json(
         self,
@@ -145,7 +155,17 @@ class OllamaProvider(LLMProvider):
                     f"Ollama is temporarily unavailable (HTTP {exc.response.status_code}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Ollama")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Ollama")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         return json.loads(raw)
 
     @_retry
