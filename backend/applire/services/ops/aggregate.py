@@ -176,6 +176,11 @@ async def _refresh_loop() -> None:
 
     while True:
         try:
+            # ADR-093 cl. 6: an idle web worker sees no request, so the loop
+            # refreshes the admin overrides itself before probing the provider.
+            from applire.services.instance_settings import refresh as _refresh_settings
+
+            await _refresh_settings(max_age=2.0)
             # ADR-092 cl. 7: the refresher is created in the lifespan and has no
             # owner; it reads instance tables only (adversarial re-check §1 (c)).
             with unscoped("ops-aggregate"):
