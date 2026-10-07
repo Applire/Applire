@@ -23,6 +23,7 @@ from applire.services.oracle.matchers.figures import (
     extract_figures,
     extract_range_bare_numbers,
     extract_spelled_figures,
+    extract_tenure_claims,
 )
 from applire.utils.language_detection import detect_language
 
@@ -94,6 +95,18 @@ class VaultIndex:
     # error, and that stays removed — this is a different predicate against a
     # different corpus, checked in ``audit._tenure_ceiling_flag``.
     derivable_tenure_years: float | None = None
+    # #747 (ADR-052 amended 2026-10-07) — per-skill evidenced span: skill name
+    # -> (fractional years of the dated experiences whose OWN text names it,
+    # their org labels). The shared instrument
+    # ``skill_enrichment.evidenced_span_years`` (the fact a ``computed``
+    # duration is rounded from); a skill no dated role names is absent.
+    skill_spans: dict[str, tuple[float, list[str]]] = field(default_factory=dict)
+    # #747 — a skill duration the candidate's own text states
+    # (``source == "transcribed"``): skill name -> years.
+    transcribed_skill_years: dict[str, int] = field(default_factory=dict)
+    # #747 — every duration (in years) a vault evidence unit's own text states
+    # ("Controllerin mit 9 Jahren Erfahrung"): the candidate's own words.
+    stated_tenure_years: frozenset[float] = frozenset()
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -258,6 +271,9 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         denial_units=list(index.denial_units),
         dominant_language=index.dominant_language,
         derivable_tenure_years=index.derivable_tenure_years,
+        skill_spans=dict(index.skill_spans),
+        transcribed_skill_years=dict(index.transcribed_skill_years),
+        stated_tenure_years=index.stated_tenure_years,
     )
 
 
@@ -519,4 +535,43 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         dominant_language=detect_language(all_text_norm),
         # #469 — once per audit, from the typed profile's date fields.
         derivable_tenure_years=derive_tenure_ceiling_years(p),
+        **_skill_duration_facts(p, units),
     )
+
+
+def _skill_duration_facts(
+    p: MasterProfileData, units: list[EvidenceUnit]
+) -> dict[str, Any]:
+    """#747 — the vault-side facts of the per-subject duration check.
+
+    Computed once per audit. ADR-062: FACTS only — whole-token presence and
+    date arithmetic (via the shared enrichment instrument), a provenance
+    label, and the durations the candidate's own text states.
+    """
+    from applire.services.skill_enrichment import evidenced_span_years
+
+    spans: dict[str, tuple[float, list[str]]] = {}
+    transcribed: dict[str, int] = {}
+    for s in p.skills:
+        if s.category == "language" or not s.name:
+            continue
+        span = evidenced_span_years(p, s.name)
+        if span is not None:
+            spans[s.name] = span
+        if s.source == "transcribed" and s.years_experience is not None:
+            transcribed[s.name] = s.years_experience
+    stated = set(
+        t.years for u in units for t in extract_tenure_claims(u.text)
+    )
+    # The candidate's own denial statements count too (ADR-064 STATED LIMITS
+    # name adjacent STRENGTHS: "keine IFS/BRC-Erfahrung, aber zehn Jahre
+    # ISO-9001-Audit-Praxis") — the letter restates them by design (#422).
+    for d in p.metadata.denied_concepts if p.metadata else []:
+        statement = getattr(d, "statement", None)
+        if isinstance(statement, str):
+            stated |= {t.years for t in extract_tenure_claims(statement)}
+    return {
+        "skill_spans": spans,
+        "transcribed_skill_years": transcribed,
+        "stated_tenure_years": frozenset(stated),
+    }
