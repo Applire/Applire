@@ -35,9 +35,11 @@ export function failedKindKey(kind: FailedJobKind | string): string {
 /**
  * `adminDashboard.*` reason for a stable job error code (classify_gap_error /
  * classify_import_error / classify_generation_error). Unknown codes are shown
- * verbatim inside `reasonOther` — a code, never message text.
+ * verbatim inside `reasonOther` — a code, never message text. No code at all
+ * (contract §5.1: always null for a cover letter) → null: the cell shows a dash.
  */
-export function failedReason(code: string | null | undefined): MsgRef {
+export function failedReason(code: string | null | undefined): MsgRef | null {
+  if (!code) return null;
   switch (code) {
     case "llm_timeout":
       return { key: "reasonTimeout" };
@@ -46,7 +48,7 @@ export function failedReason(code: string | null | undefined): MsgRef {
     case "rate_limited":
       return { key: "reasonRateLimited" };
     default:
-      return { key: "reasonOther", params: { code: code || "unknown" } };
+      return { key: "reasonOther", params: { code } };
   }
 }
 
@@ -75,9 +77,9 @@ export const KNOWN_AUDIT_ACTIONS = [
   "retention.skipped",
 ] as const;
 
-/** `adminAudit.*` label of an audit row. A secret change gets its own label (no values). */
+/** `adminAudit.*` label of an audit row. A write-only (key) change gets its own label (no values; detail key `write_only`, contract §3.2). */
 export function auditActionLabel(action: string, detail: Record<string, unknown>): MsgRef {
-  if (action === "settings.changed" && detail.secret === true) return { key: "action.settings_secretChanged" };
+  if (action === "settings.changed" && detail.write_only === true) return { key: "action.settings_secretChanged" };
   if ((KNOWN_AUDIT_ACTIONS as readonly string[]).includes(action)) {
     return { key: `action.${action.replace(/\./g, "_")}` };
   }
@@ -105,7 +107,7 @@ export function auditDetailParts(action: string, detail: Record<string, unknown>
     out.push({ key: "detail.role", params: { value: detail.role } });
   }
   if (action.startsWith("settings.") && typeof detail.key === "string") {
-    if (detail.secret === true) {
+    if (detail.write_only === true) {
       out.push({ key: "detail.secret", params: { setting: detail.key } });
     } else if ("to_value" in detail || "from_value" in detail) {
       out.push({

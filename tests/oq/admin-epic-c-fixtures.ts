@@ -106,7 +106,7 @@ export function dashboardBody(o: { status?: "ok" | "degraded" | "down"; retentio
       items: [
         { kind: "import", id: "10000000-0000-0000-0000-000000000001", user_id: PEOPLE.jonas.id, user_email: PEOPLE.jonas.email, failed_at: ago(140), error_code: "llm_timeout" },
         { kind: "gap", id: "10000000-0000-0000-0000-000000000002", user_id: PEOPLE.jonas.id, user_email: PEOPLE.jonas.email, failed_at: ago(60 * 26), error_code: "llm_timeout" },
-        { kind: "cover_letter", id: "10000000-0000-0000-0000-000000000003", user_id: PEOPLE.mira.id, user_email: PEOPLE.mira.email, failed_at: ago(60 * 50), error_code: "llm_truncated" },
+        { kind: "cover_letter", id: "10000000-0000-0000-0000-000000000003", user_id: PEOPLE.mira.id, user_email: PEOPLE.mira.email, failed_at: ago(60 * 50), error_code: null },
       ],
     },
     upgrade_notice: null,
@@ -157,8 +157,8 @@ const ev = (id: string, minutes: number, action: string, actor: { id: string; em
 
 export const AUDIT_PAGE_1 = [
   ev("01", 13, "user.role_changed", PEOPLE.anna, PEOPLE.jonas, { from_role: "user", to_role: "admin" }),
-  ev("02", 165, "settings.changed", PEOPLE.anna, null, { key: "LLM_PROVIDER", secret: false, from_source: "env", to_source: "panel", from_value: "openrouter", to_value: "requesty" }),
-  ev("03", 166, "settings.changed", PEOPLE.anna, null, { key: "REQUESTY_API_KEY", secret: true, from_source: "env", to_source: "panel" }),
+  ev("02", 165, "settings.changed", PEOPLE.anna, null, { key: "LLM_PROVIDER", write_only: false, from_source: "env", to_source: "panel", from_value: "openrouter", to_value: "requesty" }),
+  ev("03", 166, "settings.changed", PEOPLE.anna, null, { key: "REQUESTY_API_KEY", write_only: true, from_source: "env", to_source: "panel" }),
   ev("04", 60 * 19, "invite.redeemed", PEOPLE.mira, PEOPLE.mira, { link_id: "x" }),
   ev("05", 60 * 19 + 24, "user.created", PEOPLE.anna, PEOPLE.mira, { role: "user", mailed: false }),
   ev("06", 60 * 38, "token.created", PEOPLE.jonas, PEOPLE.jonas, { token_id: "t", scope: "agent" }),

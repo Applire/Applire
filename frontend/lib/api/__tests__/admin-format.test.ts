@@ -12,7 +12,7 @@ describe("failed jobs", () => {
     expect(failedReason("llm_truncated")).toEqual({ key: "reasonTruncated" });
     expect(failedReason("rate_limited")).toEqual({ key: "reasonRateLimited" });
     expect(failedReason("gap_failed")).toEqual({ key: "reasonOther", params: { code: "gap_failed" } });
-    expect(failedReason(null)).toEqual({ key: "reasonOther", params: { code: "unknown" } });
+    expect(failedReason(null)).toBeNull(); // cover letters carry no code (contract §5.1)
   });
 
   it("names every job kind the contract defines", () => {
@@ -27,7 +27,7 @@ describe("audit labels", () => {
   });
 
   it("a secret change gets the key label, an unknown action shows its code", () => {
-    expect(auditActionLabel("settings.changed", { key: "OPENROUTER_API_KEY", secret: true })).toEqual({ key: "action.settings_secretChanged" });
+    expect(auditActionLabel("settings.changed", { key: "OPENROUTER_API_KEY", write_only: true })).toEqual({ key: "action.settings_secretChanged" });
     expect(auditActionLabel("foo.bar", {})).toEqual({ key: "action.unknown", params: { action: "foo.bar" } });
   });
 
@@ -42,16 +42,16 @@ describe("audit labels", () => {
 
 describe("audit detail", () => {
   it("never renders a secret's value — even if one slipped into detail", () => {
-    const parts = auditDetailParts("settings.changed", { key: "REQUESTY_API_KEY", secret: true, to_value: "sk-LEAK", from_value: "sk-OLD" });
+    const parts = auditDetailParts("settings.changed", { key: "REQUESTY_API_KEY", write_only: true, to_value: "sk-LEAK", from_value: "sk-OLD" });
     expect(parts).toEqual([{ key: "detail.secret", params: { setting: "REQUESTY_API_KEY" } }]);
     expect(JSON.stringify(parts)).not.toContain("sk-");
   });
 
   it("shows a non-secret setting change as from → to", () => {
-    expect(auditDetailParts("settings.changed", { key: "LLM_PROVIDER", secret: false, from_value: "openrouter", to_value: "requesty" })).toEqual([
+    expect(auditDetailParts("settings.changed", { key: "LLM_PROVIDER", write_only: false, from_value: "openrouter", to_value: "requesty" })).toEqual([
       { key: "detail.setting", params: { setting: "LLM_PROVIDER", from: "openrouter", to: "requesty" } },
     ]);
-    expect(auditDetailParts("settings.changed", { key: "RETENTION_ENABLED", secret: false, from_value: true, to_value: false })[0].params).toEqual({
+    expect(auditDetailParts("settings.changed", { key: "RETENTION_ENABLED", write_only: false, from_value: true, to_value: false })[0].params).toEqual({
       setting: "RETENTION_ENABLED",
       from: "true",
       to: "false",

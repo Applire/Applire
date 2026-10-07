@@ -78,7 +78,7 @@ function FailedJobs({ data }: { data: AdminDashboardResponse }) {
   const when = (iso: string | null) => (iso ? formatWhen(iso, locale, ta) : NONE);
   const reason = (code: string | null) => {
     const r = failedReason(code);
-    return t(r.key, r.params);
+    return r ? t(r.key, r.params) : NONE;
   };
   return (
     <AdminCard testId="admin-overview-failed" title={t("failedJobsTitle")}>
@@ -181,7 +181,7 @@ export function AdminOverview() {
   const d = dash.data;
   const others = Math.max(0, d.users.total - 1);
   const retentionOff = !d.retention.enabled && others > 0;
-  const newestFailed = d.failed_jobs.items[0];
+  const newestReason = d.failed_jobs.items.map((j) => failedReason(j.error_code)).find((r) => r !== null) ?? null;
 
   return (
     <div data-testid="admin-overview" className="flex flex-col gap-4">
@@ -214,7 +214,7 @@ export function AdminOverview() {
           label={t("failedTitle")}
           big={t("failedCount", { count: d.failed_jobs.count })}
           tone={d.failed_jobs.count > 0 ? "warning" : undefined}
-          small={newestFailed ? t(failedReason(newestFailed.error_code).key, failedReason(newestFailed.error_code).params) : undefined}
+          small={newestReason ? t(newestReason.key, newestReason.params) : undefined}
         />
         <Tile
           testId="admin-overview-tile-version"
