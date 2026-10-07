@@ -46,6 +46,19 @@ interface SectionEditorProps {
   onUnsavedChange: (hasUnsaved: boolean) => void;
   onAddressGap?: (gapId: string) => void;
   onEnrichProfile?: (gapId: string) => void;
+  /**
+   * #737 (Strawberry build 2, WP-E): the document pages render the gap
+   * clusters as review groups 2 and 3 on *Prüfung* — the editor showing them a
+   * second time as "Verwandte Lücken" cards is the Inhalt/Prüfung duplication
+   * ADR-081 cl. 2 dissolved. `false` hides them; default `true` keeps every
+   * other caller unchanged.
+   */
+  showGapHints?: boolean;
+  /**
+   * #737: the section heading is rendered by the caller (translated, once).
+   * `true` keeps the editor's own heading for callers that do not render one.
+   */
+  showHeading?: boolean;
 }
 
 /** Imperative handle so a sibling (KaileChat) can push a suggestion into the editor. */
@@ -57,11 +70,23 @@ export interface SectionEditorHandle {
    * tweak it before saving. (ADR-040-adjacent; completes the Task 11 TODO.)
    */
   injectSuggestion: (text: string, autoSave: boolean) => void;
+  /**
+   * #737 — save the current text without asking for a scope: the remembered
+   * scope of this session when there is one, else "only this CV" (Finetuner
+   * design principle 8: a free-text edit defaults to the document, never a
+   * silent vault write). Used by the unsaved-change dialog's *Speichern und
+   * wechseln*. Resolves `true` when the save landed (or nothing was unsaved).
+   */
+  saveWithDefaultScope: () => Promise<boolean>;
 }
 
 export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>(
-  function SectionEditor({ cvId, section, onSaved, onUnsavedChange, onAddressGap, onEnrichProfile }, ref) {
+  function SectionEditor(
+    { cvId, section, onSaved, onUnsavedChange, onAddressGap, onEnrichProfile, showGapHints = true, showHeading = true },
+    ref,
+  ) {
   const t = useTranslations("cv");
+  const tEdit = useTranslations("editTab");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [content, setContent] = useState(section.content);
   const [savedContent, setSavedContent] = useState(section.content);
@@ -121,9 +146,15 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
     }
   }
 
-  useImperativeHandle(ref, () => ({ injectSuggestion }));
+  async function saveWithDefaultScope(): Promise<boolean> {
+    if (content === savedContent) return true;
+    const remembered = sessionStorage.getItem(saveScopeStorageKey());
+    return executeSave(remembered === "profile");
+  }
 
-  async function executeSave(saveToProfile: boolean, contentToSave: string = content) {
+  useImperativeHandle(ref, () => ({ injectSuggestion, saveWithDefaultScope }));
+
+  async function executeSave(saveToProfile: boolean, contentToSave: string = content): Promise<boolean> {
     setShowScopePrompt(false);
     setSaving(true);
     setSaveError(null);
@@ -153,9 +184,11 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
         setVisibleGaps((prev) => prev.filter((g) => !resolvedSet.has(g.id)));
       }
       onSaved(data.html, contentToSave, data.resolved_gaps ?? []);
+      return true;
     } catch {
-      setSaveError("Speichern fehlgeschlagen. Bitte erneut versuchen.");
+      setSaveError(tEdit("saveFailed"));
       setShowPreviewStale(true);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -176,7 +209,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
         />
       )}
 
-      <p className="text-xs font-semibold text-neutral-dark">{section.label}</p>
+      {showHeading && <p className="text-xs font-semibold text-neutral-dark">{section.label}</p>}
 
       <textarea
         ref={textareaRef}
@@ -216,7 +249,7 @@ export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>
         </button>
       </div>
 
-      {visibleGaps.length > 0 && (
+      {showGapHints && visibleGaps.length > 0 && (
         <div className="mt-1">
           <p className="text-xs text-gray-500 mb-1">{t("gapHints")}</p>
           {visibleGaps.map((gap) => (

@@ -41,6 +41,15 @@ export interface CrossDocumentSectionProps {
   onRefresh?: (refresh: ReviewRefresh, opts: { documentChanged: boolean }) => void;
 }
 
+/**
+ * The facts the CV never mentions; an older backend without `letter_only`
+ * falls back to every concept. Shared with the CV page's Edit-tab context
+ * strip (#737), so both surfaces name the same facts.
+ */
+export function letterOnlyFacts(item: { letter_only?: string[] | null; concepts: string[] }): string[] {
+  return item.letter_only && item.letter_only.length > 0 ? item.letter_only : item.concepts;
+}
+
 /** Split a sentence into plain and marked runs, marking every concept that stands in it literally. */
 function markRuns(sentence: string, concepts: string[]): { text: string; mark: boolean }[] {
   const hits: [number, number][] = [];
@@ -136,7 +145,7 @@ export function CrossDocumentSection({
     const high = row.item.weight === "high";
     // The facts the CV never mentions; an older backend without the field
     // falls back to every concept.
-    const shown = row.item.letter_only && row.item.letter_only.length > 0 ? row.item.letter_only : row.item.concepts;
+    const shown = letterOnlyFacts(row.item);
     return (
       <div
         data-testid="review-xdoc-card"
@@ -206,7 +215,10 @@ export function CrossDocumentSection({
           <div className="flex flex-col gap-2">
             {cvEditHref && (
               <Link
-                href={cvEditHref}
+                // #737: the item key rides along so the CV's Edit tab can keep
+                // the letter-only facts in view (it re-reads them from the
+                // letter's own critic report — no document text in the URL).
+                href={`${cvEditHref}${cvEditHref.includes("?") ? "&" : "?"}xdoc=${encodeURIComponent(row.item.key)}`}
                 data-testid="review-xdoc-add-to-cv"
                 className="block min-h-11 rounded-xl bg-primary px-3 py-2 text-left text-[13px] font-semibold text-white"
               >

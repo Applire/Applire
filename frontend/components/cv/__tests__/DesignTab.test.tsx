@@ -126,3 +126,15 @@ describe("DesignTab", () => {
     expect(onRegenerateSame).toHaveBeenCalled();
   });
 });
+
+describe("DesignTab — #737 colour only on the Edit tab", () => {
+  it("renders no template block when the caller offers no template actions", () => {
+    render(
+      withIntl(
+        <DesignTab cvId="c" templateLabel={null} detectedCompany={null} currentAccentHex="#003399" onColorApplied={vi.fn()} />,
+      ),
+    );
+    expect(screen.queryByTestId("regenerate-current-template-btn")).toBeNull();
+    expect(screen.queryByTestId("change-template-btn")).toBeNull();
+  });
+});

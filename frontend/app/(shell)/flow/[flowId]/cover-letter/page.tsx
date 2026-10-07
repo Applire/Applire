@@ -23,7 +23,10 @@ import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CoverLetterDocument } from "@/components/cover-letter/CoverLetterDocument";
 import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterContentTab";
-import { CoverLetterDesignTab } from "@/components/cover-letter/CoverLetterDesignTab";
+import { LetterLookLine } from "@/components/document/LetterLookLine";
+import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
+import { NewVersionDialog } from "@/components/document/NewVersionDialog";
+import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
@@ -140,6 +143,15 @@ export default function CoverLetterPage({
   const [fineTuneNonce, setFineTuneNonce] = useState<number | undefined>(undefined);
   const [mobileLocating, setMobileLocating] = useState(false);
   const editFindingKey = useRef<string | null>(null);
+  // #737 (WP-E): why the user is on *Bearbeiten*, and what the save did.
+  const editFindingLabel = useRef<string | null>(null);
+  const [editContext, setEditContext] = useState<EditContext | null>(null);
+  const [saveReceipt, setSaveReceipt] = useState<SaveReceipt | null>(null);
+  // #737: one confirmation before a new letter version when the body carries an edit.
+  const [confirmNewVersion, setConfirmNewVersion] = useState(false);
+  // #737: an unsaved body draft holds back a tab switch (Finetuner Branch B).
+  const [bodyDirty, setBodyDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
   const [contentVersion, setContentVersion] = useState(0);
@@ -458,8 +470,11 @@ export default function CoverLetterPage({
     setDownloadNotice({ canSuppress: true, format });
   }
 
-  function handleTemplateChange(_template: CLTemplate) {
-    setShowModal(true);
+  // #737: a new letter version drops a body edit (the regenerate modal is a new
+  // letter row). Ask once, naming it, when the body carries one.
+  function requestRegenerate() {
+    if (clState?.sectionOverrides && Object.keys(clState.sectionOverrides).length > 0) setConfirmNewVersion(true);
+    else setShowModal(true);
   }
 
   function handleSectionSaved() {
@@ -472,10 +487,37 @@ export default function CoverLetterPage({
     const findingKey = editFindingKey.current;
     if (findingKey && clState?.coverLetterId) {
       editFindingKey.current = null;
+      const label = editFindingLabel.current ?? findingKey;
       markEdited("cover-letter", clState.coverLetterId, findingKey)
-        .then((r) => applyReviewRefresh(r, { documentChanged: false }))
-        .catch(() => {});
+        .then((r) => {
+          applyReviewRefresh(r, { documentChanged: false });
+          // #737: read from the refreshed report through the review tab's own grouping.
+          const rep = refreshedReport(r);
+          const g1 = buildReviewGroups({
+            // `undefined` = the action did not carry it (keep ours); `null` = no report.
+            atsReport: rep === undefined ? atsReport : rep,
+            truthReport: r.truthfulness === undefined ? truthReport : r.truthfulness,
+            criticReport,
+            gapClusters: [],
+            hasClusterProducer: false,
+          }).find((g) => g.id === 1)!;
+          // ADR-081 cl. 9: a group-1 producer that did not answer makes the
+          // count partial — never turn that into "nichts mehr offen".
+          if (g1.unknownProducers.length > 0) {
+            setSaveReceipt({ kind: "plain" });
+            return;
+          }
+          setSaveReceipt({
+            kind: "finding",
+            label,
+            stillListed: g1.items.some((it) => it.findingKey === findingKey),
+            openCount: g1.items.length,
+          });
+        })
+        .catch(() => setSaveReceipt({ kind: "plain" }));
+      return;
     }
+    setSaveReceipt({ kind: "plain" });
   }
 
   // The letter text after a review action rewrote it — the body editor reads it.
@@ -515,6 +557,9 @@ export default function CoverLetterPage({
 
   function handleEditFinding(req: EditFindingRequest) {
     editFindingKey.current = req.findingKey;
+    editFindingLabel.current = req.label;
+    setEditContext({ kind: "finding", label: req.label, form: req.targets?.[0]?.form ?? req.label });
+    setSaveReceipt(null);
     setActiveSidebarTab("edit");
     setOpenBodyNonce((n) => (n ?? 0) + 1);
     setFineTuneNonce((n) => (n ?? 0) + 1);
@@ -626,7 +671,34 @@ export default function CoverLetterPage({
 
   // The letter's section editor — the Edit tab on desktop, the Fine-tune
   // sheet on the phone (D-4). Both start from the EFFECTIVE body (D-2).
+  function switchTab(id: string) {
+    setActiveSidebarTab(id);
+    if (id !== "edit") {
+      setOpenBodyNonce(undefined);
+      setEditContext(null);
+      setSaveReceipt(null);
+    }
+  }
+
+  const editContextStrip = (
+    <EditContextStrip
+      context={editContext}
+      receipt={saveReceipt}
+      onBack={
+        editContext
+          ? () => {
+              if (bodyDirty) setPendingTab("review");
+              else switchTab("review");
+            }
+          : undefined
+      }
+      onDismiss={editContext ? () => setEditContext(null) : undefined}
+    />
+  );
+
   const renderContentTab = (where: "panel" | "sheet") => (
+    <>
+    {editContextStrip}
     <CoverLetterContentTab
       key={`cl-content-${where}-${contentVersion}`}
       openBodyNonce={openBodyNonce}
@@ -637,7 +709,9 @@ export default function CoverLetterPage({
         clState!.sectionOverrides,
       )}
       onSectionSaved={handleSectionSaved}
+      onDirtyChange={setBodyDirty}
     />
+    </>
   );
 
   const group1Count = buildReviewGroups({
@@ -671,14 +745,9 @@ export default function CoverLetterPage({
       body: (
         <div className="flex flex-col gap-3">
           {renderContentTab("panel")}
-          {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
-              finding groups, application-scoped (ADR-077 cl. 1). */}
-          <ATSChecksPanel report={atsReport} variant="pins" />
-          <CoverLetterDesignTab
-            flowId={flowId}
-            currentTemplate={clState!.template}
-            onTemplateChange={handleTemplateChange}
-          />
+          {/* #737: the letter takes template + colour from the CV — said
+              honestly instead of seven buttons that discarded the choice. */}
+          <LetterLookLine template={clState!.template} cvEditHref={`/flow/${flowId}/cv?tab=edit`} />
         </div>
       ),
     },
@@ -688,7 +757,10 @@ export default function CoverLetterPage({
       icon: <Zap className="w-4 h-4" aria-hidden="true" />,
       body: (
         <CoverLetterActionsTab
-          onRegenerateCoverLetter={() => setShowModal(true)}
+          onRegenerateCoverLetter={requestRegenerate}
+          // ADR-081 cl. 3 (amended, #737 / RULING E-1 = A): pin fates live on
+          // Aktionen beside the regeneration they feed, outside the finding groups.
+          pins={<ATSChecksPanel report={atsReport} variant="pins" />}
           languageSwitch={
             clState?.applicationId ? (
               <DocumentLanguageSwitch
@@ -728,8 +800,11 @@ export default function CoverLetterPage({
             initialTabId="review"
             activeTabId={activeSidebarTab}
             onTabChange={(id) => {
-              setActiveSidebarTab(id);
-              if (id !== "edit") setOpenBodyNonce(undefined);
+              if (activeSidebarTab === "edit" && id !== "edit" && bodyDirty) {
+                setPendingTab(id);
+                return;
+              }
+              switchTab(id);
             }}
             identityBar={
               <DocumentIdentityBar
@@ -793,6 +868,28 @@ export default function CoverLetterPage({
         </div>
       )}
 
+      <UnsavedEditDialog
+        open={pendingTab !== null}
+        sectionLabel={t("bodySection")}
+        onStay={() => setPendingTab(null)}
+        onDiscard={() => {
+          // Remounting the editor returns it to the effective body (D-2).
+          setContentVersion((v) => v + 1);
+          setBodyDirty(false);
+          const id = pendingTab;
+          setPendingTab(null);
+          if (id) switchTab(id);
+        }}
+      />
+      <NewVersionDialog
+        open={confirmNewVersion}
+        editedSections={[t("bodySection")]}
+        onCancel={() => setConfirmNewVersion(false)}
+        onConfirm={() => {
+          setConfirmNewVersion(false);
+          setShowModal(true);
+        }}
+      />
       {showModal && clState?.jobId && (
         <GenerateCoverLetterModal
           jobId={clState.jobId}

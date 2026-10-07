@@ -48,6 +48,9 @@ export function KaileChat({
   onCancel,
 }: KaileChatProps) {
   const t = useTranslations("cv");
+  // #737 (MD2-12, copy only): the rewriter is named by its job, not as "Kaile"
+  // — Kaile is the agent channel, and the review panel already says "Applire".
+  const tEdit = useTranslations("editTab");
   const [directions, setDirections] = useState("");
   const [selectedGaps, setSelectedGaps] = useState<Set<string>>(
     new Set(preSelectedGapIds),
@@ -97,7 +100,7 @@ export function KaileChat({
     return (
       <div className="border border-neutral-medium rounded-lg p-3 bg-white">
         <h4 className="text-sm font-medium text-neutral-dark mb-2">
-          {t("kaileSuggestionHeading")}
+          {tEdit("suggestionTitle")}
         </h4>
         <p
           className="text-sm text-neutral-darker bg-neutral-light p-3 rounded whitespace-pre-wrap"
@@ -146,12 +149,12 @@ export function KaileChat({
   return (
     <div className="border border-neutral-medium rounded-lg p-3 bg-white">
       <h4 className="text-sm font-medium text-neutral-dark mb-2">
-        {t("kaileInstructionsHeading")}
+        {tEdit("rewriteTitle")}
       </h4>
       {gaps.length > 0 && (
         <>
           <p className="text-xs text-neutral-dark mb-2">
-            {t("kaileGapsConsider")}
+            {tEdit("rewriteInclude")}
           </p>
           <div className="flex flex-wrap gap-1.5 mb-3">
             {gaps.map((gap) => (
@@ -174,7 +177,7 @@ export function KaileChat({
         onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
           setDirections(e.target.value)
         }
-        placeholder={t("directionPlaceholder")}
+        placeholder={tEdit("rewritePlaceholder")}
         className="w-full text-sm border border-neutral-medium rounded p-2 resize-none focus:outline-none focus:ring-2 focus:ring-teal/50"
         rows={3}
         data-testid="kaile-directions-input"
@@ -193,11 +196,14 @@ export function KaileChat({
             <span className="flex items-center gap-1">
               {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
               <span aria-hidden="true">↻</span>
-              {t("rewriteSection")}
+              {tEdit("rewriteSubmit")}
             </span>
           )}
         </button>
       </div>
+      <p className="mt-2 text-xs text-on-surface-variant" data-testid="kaile-rewrite-hint">
+        {tEdit("rewriteHint")}
+      </p>
     </div>
   );
 }

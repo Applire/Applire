@@ -41,9 +41,6 @@ vi.mock("@/components/cover-letter/CoverLetterDocument", () => ({
 vi.mock("@/components/cover-letter/CoverLetterContentTab", () => ({
   CoverLetterContentTab: () => <div data-testid="cl-content-tab" />,
 }));
-vi.mock("@/components/cover-letter/CoverLetterDesignTab", () => ({
-  CoverLetterDesignTab: () => <div data-testid="cl-design-tab" />,
-}));
 vi.mock("@/components/cover-letter/CoverLetterActionsTab", () => ({
   CoverLetterActionsTab: () => <div data-testid="cl-actions-tab" />,
 }));
