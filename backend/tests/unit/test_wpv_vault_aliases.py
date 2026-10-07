@@ -440,3 +440,73 @@ def test_every_alias_traces_to_a_matched_receipt_or_a_targeted_upsert_change():
     assert next(s for s in applied.profile.skills if s.id == "sb1").aliases == ["Computervalidierung"]
     lims = next(w for w in applied.profile.work_experience if w.id == "w-lims")
     assert lims.company_aliases == ["Labvantage"]
+
+
+# ── adversarial fixes 2026-10-07 (MD2-15 = adv-vault-1 B): guard-specific pins ─
+
+
+def _tum_undated() -> MasterProfileData:
+    # Undated on BOTH sides, so the years rule allows the alias: only the
+    # empty-key rule keeps an unstated degree from reaching the M.Sc.
+    return MasterProfileData(education=[EducationEntry(
+        id="e1", institution="Technische Universität München", degree="M.Sc. Informatik",
+        institution_aliases=["TU München"],
+    )])
+
+
+def test_empty_degree_never_reaches_an_entry_through_the_institution_alias_applier():
+    applied = apply_ops(_tum_undated(), [UpsertEducation(institution="TU München", degree="")], "cv_upload")
+    assert len(applied.profile.education) == 2
+    assert not applied.matched
+
+
+def test_empty_degree_never_carried_through_the_institution_alias_witness():
+    incoming = MasterProfileData(education=[EducationEntry(institution="TU München", degree="")])
+    assert [i.label for i in compute_import_not_applied(incoming, _tum_undated(), [])] == ["TU München"]
+
+
+def test_two_document_lines_reading_as_one_vault_entry_are_not_alias_carried():
+    """Incoming-side exactly-one: the document lists the entry under its own
+    name AND under the alias — two lines, so the alias line is not carried."""
+    vault = MasterProfileData(skills=[Skill(id="s1", name="Testautomatisierung", aliases=["Testing"])])
+    incoming = MasterProfileData(skills=[Skill(name="Testautomatisierung"), Skill(name="Testing")])
+    assert [i.label for i in compute_import_not_applied(incoming, vault, [])] == ["Testing"]
+
+
+def test_engagement_alias_match_in_the_applier_leaves_an_alias_receipt():
+    """Finding 2 (ADR-046 am. cl. 7): the applier's own engagement alias match
+    is receipted, independent of the import bridge."""
+    vault = MasterProfileData(work_experience=[WorkEntry(
+        id="w1", company="Roche Diagnostics GmbH", role="Data Scientist", start_date="2019-03",
+        company_aliases=["Roche"],
+    )])
+    applied = apply_ops(vault, [UpsertWork(ref="w", company="Roche", role="Data Scientist",
+                                           start_date="2019-03")], "cv_upload")
+    assert [(m.basis, m.entity_id) for m in applied.matched] == [("alias", "w1")]
+
+
+def test_a_table_language_pair_is_never_recorded_as_an_alias():
+    """Finding 5 (ADR-046 am. cl. 5): the table MATCHES, it does not alias."""
+    entry = Language(id="l1", language="Englisch")
+    assert A.add_alias(entry, "language", "languages", "English") is False
+    assert entry.aliases == []
+
+
+def test_a_model_matched_table_pair_is_receipted_as_name_table():
+    vault = MasterProfileData(languages=[Language(id="l1", language="Englisch", level="C1")])
+    incoming = MasterProfileData(languages=[Language(language="English", level="C1")])
+    ops = [MatchExisting(target="l1", incoming="English")]
+    applied = apply_ops(vault, ops, "cv_upload")
+    record_bound_aliases(incoming, applied.profile, ops, applied.matched, applied.changes)
+    assert [m.basis for m in applied.matched] == ["name_table"]
+    assert applied.profile.languages[0].aliases == []
+
+
+def test_volunteer_alias_match_in_the_applier_leaves_an_alias_receipt():
+    vault = MasterProfileData(volunteer_activities=[VolunteerActivity(
+        id="v1", organization="Deutsches Rotes Kreuz e.V.", role="Sanitäter", start_date="2015-01",
+        organization_aliases=["DRK"],
+    )])
+    applied = apply_ops(vault, [UpsertVolunteer(ref="v", organization="DRK", role="Sanitäter",
+                                                start_date="2015-01")], "cv_upload")
+    assert [(m.basis, m.entity_id) for m in applied.matched] == [("alias", "v1")]

@@ -185,7 +185,8 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   import recognised it (`import_cv` reports those pairs in `matched`, jobs
   included). Use the name that fits the document's language; never invent one.
   When you send an entry back through `update_profile`, keep its alias lists —
-  an entry sent without them loses them.
+  an entry sent without them loses them. You may remove an alternate name;
+  a new one you add there is dropped (only an import records them).
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
   raw material for your positioning. If `analyze_jd(url=…)` is refused with
   `data.reason = "linkedin_guest_fetch_disabled"`, the operator has switched off
