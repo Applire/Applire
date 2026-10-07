@@ -118,7 +118,9 @@ describe("#703 repeated-demand signal (RULING R-3 = A)", () => {
       inputs({ atsReport: ats(["OEE", "Maschinendatenerfassung"], [signal("Maschinendatenerfassung", "open")]) }),
       2,
     );
-    expect(g2.items[0].label).toBe("Maschinendatenerfassung");
+    // one row per term: the annotation lands ON the ATS row, never beside it
+    expect(g2.items.map((i) => i.label)).toEqual(["Maschinendatenerfassung", "OEE"]);
+    expect(g2.items[0].key.startsWith("mc-term-")).toBe(true);
     expect(g2.items[0].signal?.rounds).toBe(2);
     expect(g2.items[1].signal).toBeUndefined();
   });

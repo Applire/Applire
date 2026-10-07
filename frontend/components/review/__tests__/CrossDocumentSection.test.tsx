@@ -91,6 +91,19 @@ describe("CrossDocumentSection", () => {
     expect(screen.getByTestId("review-xdoc-sub")).toHaveTextContent("0 of 2 decided");
   });
 
+  it("counts and marks only the letter-only facts when a letter-richer clause shares the sentence", () => {
+    const item = {
+      ...REPORT!.cross_document![0],
+      concepts: [...REPORT!.cross_document![0].concepts, "Kunststofftechnik"],
+      letter_only: ["Kosmetik-Verpackungen", "Sauberraumbereich seit 2021", "ISO-9001-Audit-Praxis"],
+      kinds: ["letter_only" as const, "letter_richer" as const],
+    };
+    renderSection({ criticReport: { ...REPORT!, cross_document: [item] } });
+    expect(screen.getByTestId("review-xdoc-card")).toHaveTextContent("states 3 things");
+    expect(screen.getByTestId("review-xdoc-concepts")).not.toHaveTextContent("Kunststofftechnik");
+    expect(screen.getByTestId("review-xdoc-quote").querySelectorAll("mark")).toHaveLength(3);
+  });
+
   it("speaks German with the real translations", () => {
     renderSection({}, "de");
     expect(screen.getByText("Gegengelesen: Anschreiben und Lebenslauf")).toBeInTheDocument();
