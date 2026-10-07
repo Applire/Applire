@@ -195,6 +195,10 @@ async def test_adv_admin_3_reset_can_leave_the_active_provider_without_a_key(env
         f"reset accepted ({r.status_code}); active provider now {active and active['id']} "
         f"ready={active and active['ready']}"
     )
+    detail = r.json()["detail"]
+    # Ruling adv-admin-1 = A (MD2-17): the refusal names the missing key.
+    assert detail["error_code"] == "provider_not_ready" and detail.get("provider") == "anthropic"
+    assert "ANTHROPIC_API_KEY" in str(detail)
 
 
 @pytest.mark.asyncio
