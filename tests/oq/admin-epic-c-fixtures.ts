@@ -177,7 +177,9 @@ export interface EpicCStubOptions {
 /** Stub every route the Epic C pages and the dashboard read. Returns the request log. */
 export async function stubEpicC(page: Page, o: EpicCStubOptions = {}) {
   const log: { method: string; url: string; body: string | null }[] = [];
-  let settings = settingsBody({ retention: o.retention });
+  // The instance's current state — every PUT applies to it (atomic, contract §2.5).
+  const state: Parameters<typeof settingsBody>[0] = { retention: o.retention };
+  let settings = settingsBody(state);
   await page.route("**/api/**", (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -194,17 +196,22 @@ export async function stubEpicC(page: Page, o: EpicCStubOptions = {}) {
       if (changes.LLM_PROVIDER === "openrouter" && !changes.OPENROUTER_API_KEY) {
         return json(route, { detail: { error_code: "provider_not_ready", provider: "openrouter", message: "x" } }, 409);
       }
-      settings = settingsBody({
-        provider: (changes.LLM_PROVIDER as "openrouter" | undefined) ?? "requesty",
-        panel: "LLM_PROVIDER" in changes,
-        openrouterKey: "OPENROUTER_API_KEY" in changes,
-        retention: "RETENTION_ENABLED" in changes ? (changes.RETENTION_ENABLED as boolean) : o.retention,
-        linkedin: "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES" in changes ? (changes.SCRAPER_FETCH_LINKEDIN_GUEST_PAGES as boolean) : undefined,
-      });
+      if ("LLM_PROVIDER" in changes) {
+        state.provider = changes.LLM_PROVIDER as "requesty" | "openrouter";
+        state.panel = true;
+      }
+      if ("OPENROUTER_API_KEY" in changes) state.openrouterKey = true;
+      if ("RETENTION_ENABLED" in changes) state.retention = changes.RETENTION_ENABLED as boolean;
+      if ("SCRAPER_FETCH_LINKEDIN_GUEST_PAGES" in changes) state.linkedin = changes.SCRAPER_FETCH_LINKEDIN_GUEST_PAGES as boolean;
+      settings = settingsBody(state);
       return json(route, settings);
     }
     if (path.startsWith("/api/admin/settings/") && req.method() === "DELETE") {
-      settings = settingsBody({ retention: o.retention });
+      if (path.endsWith("/LLM_PROVIDER")) {
+        state.provider = "requesty";
+        state.panel = false;
+      }
+      settings = settingsBody(state);
       return json(route, settings);
     }
     if (path === "/api/admin/usage") return json(route, usageBody(Number(url.searchParams.get("days") ?? 30)));
