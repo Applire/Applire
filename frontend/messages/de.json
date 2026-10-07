@@ -1989,7 +1989,7 @@
     "kickerHigh": "Fällt beim Gegenlesen auf",
     "cardTitleOnly": "Im Anschreiben, nicht im Lebenslauf",
     "cardTitleRicher": "Im Anschreiben genauer als im Lebenslauf",
-    "cardBodyOnly": "{count, plural, one {Dein Anschreiben nennt hier eine Angabe, die Dein Lebenslauf nirgends erwähnt.} other {Dein Anschreiben nennt hier # Angaben, die Dein Lebenslauf nirgends erwähnt.}} Sie stammen aus Deinem Profil — aber ohne Beleg im Lebenslauf lesen sie sich wie nachgeschoben{high, select, true {, besonders mit Jahreszahlen und Dauern} other {}}.",
+    "cardBodyOnly": "{count, plural, one {Dein Anschreiben nennt hier eine Angabe, die Dein Lebenslauf nirgends erwähnt.} other {Dein Anschreiben nennt hier # Angaben, die Dein Lebenslauf nirgends erwähnt.}} Das stammt aus Deinem Profil — aber ohne Beleg im Lebenslauf liest es sich wie nachgeschoben{high, select, true {, besonders mit Jahreszahlen und Dauern} other {}}.",
     "cardBodyRicher": "Beide Dokumente nennen das, aber nur Dein Anschreiben sagt, wie lange, wie viel oder in welchem Umfang. Wer gegenliest, findet den Beleg im Lebenslauf nicht.",
     "quoteLabel": "Im Anschreiben:",
     "actionAddToCv": "In den Lebenslauf übernehmen",
