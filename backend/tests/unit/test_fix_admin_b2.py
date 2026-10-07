@@ -350,3 +350,38 @@ async def test_a_second_first_write_of_a_key_updates_the_row(env):
     await db.commit()
     rows = await svc.load_rows(db)
     assert [(r.key, r.value) for r in rows] == [("MISTRAL_MODEL", "second")]
+
+
+@pytest.mark.asyncio
+async def test_the_dashboard_never_waits_on_a_provider_ping_even_with_a_cold_cache(env, monkeypatch):
+    """ADM-5: with the REAL provider probe installed and an empty cache, the
+    dashboard answers while the (blocked) provider check is still pending."""
+    _, client, _, _ = env
+    from applire.services.ops import config as ops_config
+
+    monkeypatch.setitem(probes.PLAIN_PROBES, "provider", probes.probe_provider)
+    monkeypatch.setattr(ops_config, "provider_probe_enabled", lambda: True)
+    monkeypatch.setattr(ops_config, "reachability_probe_enabled", lambda: True)
+    monkeypatch.setattr(ops_config, "credit_probe_enabled", lambda: False)
+    monkeypatch.setattr(probes, "_kick_task", None)
+    probes.reset_provider_cache()
+    release = asyncio.Event()
+    calls: list[int] = []
+
+    async def slow_reachability() -> tuple[str, str]:
+        calls.append(1)
+        await release.wait()
+        return "ok", ""
+
+    monkeypatch.setattr(probes, "_probe_reachability", slow_reachability)
+    try:
+        r = await asyncio.wait_for(client.get("/api/admin/dashboard"), timeout=5)
+        assert r.status_code == 200
+        provider = next(c for c in r.json()["health"]["components"] if c["name"] == "provider")
+        assert provider["status"] == "unknown" and provider["checked_at"] is None
+    finally:
+        release.set()
+        if probes._kick_task is not None:
+            await probes._kick_task
+        probes.reset_provider_cache()
+    assert len(calls) <= 1  # at most the one background check
