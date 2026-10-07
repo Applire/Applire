@@ -36,7 +36,7 @@ them larger than an interview turn, so an application costs many times this figu
 | Model | Measured through | What went wrong | Measured |
 |---|---|---|---|
 | `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it is too slow: 10–20 % of profile updates got no answer within 180 seconds (2026-10-07), and a whole application could not finish — gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-10-07 |
-| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server OpenRouter routes this model to refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), and Applire does not yet fall back on its own, so each interview answer is lost ([#756](https://github.com/Applire/Applire/issues/756), fix in progress). With `LLM_STRUCTURED_OUTPUT=off` it passes the profile step's bars, but when an answer opens with a denial it records the three employers' facts only as one skill, not under each employer. | 2026-10-07 |
+| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Thins your profile.** Every server OpenRouter routes this model to refuses the answer format Applire sends with the profile step; from 0.43.0 Applire falls back to its plain format on its own ([#756](https://github.com/Applire/Applire/issues/756); before that, every interview answer was lost). On the plain format it passes the profile step's bars, but when an answer opens with a denial it records the three employers' facts only as one skill, not under each employer. | 2026-10-07 |
 | `llama-3.2-3b` (Meta) | OpenRouter | Lost half of the answers that name three employers in one sentence (it asked a question back instead), and filed other employers' facts under the current job in every single-job profile. | 2026-10-07 |
 | `command-r7b` (Cohere) | OpenRouter | Recorded nothing for every interview answer. | 2026-09-14 |
 | `gpt-5-nano` (OpenAI) | OpenRouter | Lost up to 44 % of interview answers. | 2026-09-14 |
@@ -67,7 +67,7 @@ their own (1.0 = all of them) — reported, not a bar.
 |---|---|---|---|---|---|---|---|
 | `openai/gpt-5.6-luna` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.003 |
 | `mistralai/mistral-medium-3-5` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.012 |
-| `anthropic/claude-haiku-4.5`, **shipped settings** | — | — | — | **100 %** — every call refused (stopped after 75 turns) | — | **sub-par** ([#756](https://github.com/Applire/Applire/issues/756)) | — |
+| `anthropic/claude-haiku-4.5`, **shipped settings** | — | — | — | **100 %** — every call refused (stopped after 75 turns) | — | **sub-par** before the [#756](https://github.com/Applire/Applire/issues/756) fix; from 0.43.0 Applire falls back to the row below | — |
 | `anthropic/claude-haiku-4.5`, `LLM_STRUCTURED_OUTPUT=off` | 0 % | 0 % | 0 % | 0 % | **0.0** (S6, S7) | passes the bars, see below | ≈ $0.009 |
 | `z-ai/glm-5.3-flash` | 0 % | up to 11 % (S3, 1 of 9) | 0 % | **10–20 %** | 0.9 | **sub-par** (no answer) | ≈ $0.005 |
 | `meta-llama/llama-3.2-3b-instruct` | **50 %** (S4) | 0 % | **100 %** (S7) | 0 % | 0.65 | **sub-par** | ≈ $0.0006 |
@@ -77,8 +77,9 @@ their own (1.0 = all of them) — reported, not a bar.
 - **`claude-haiku-4.5` is refused, not weak.** With the shipped settings, every server OpenRouter
   routes it to rejected the answer format Applire sends with this step (first because of how one
   field is declared, then because the format as a whole is too large for their checker), and
-  Applire did not fall back to its plain format, so every answer was lost. That is a defect on
-  Applire's side ([#756](https://github.com/Applire/Applire/issues/756)). Only
+  Applire did not fall back to its plain format, so every answer was lost. That was a defect on
+  Applire's side, fixed in 0.43.0 ([#756](https://github.com/Applire/Applire/issues/756)): Applire
+  now retries without the format and keeps using the plain format for that process. Only
   `claude-haiku-4.5` was measured; other Claude models on the same hosts are likely to be refused
   the same way.
 - **With the format switched off, `claude-haiku-4.5` passes every bar and still thins the
