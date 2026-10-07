@@ -161,8 +161,8 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   from 3 extra rows per run to 3/1/0. The model also matches word-for-word
   restatements the paragraph exempts (a receipt line, no write). Records:
   ``Documents/Runs/Nougat/uat-fixes-2/``; $0.32 for the arm.
-* **20,320 (#715, 2026-10-07).** PROVISIONAL — ruling V-4/MD2-10: wave-2 M
-  measures it at n=10 before the build-2 PR merges. ``match_existing`` now
+* **20,320 (#715, 2026-10-07).** Shipped after ruling V-4/MD2-10's n=10
+  measurement (WP-M, below). ``match_existing`` now
   also names jobs ("Company / Role") and volunteering ("Organization / Role"),
   and projects by title — for an engagement only when the employer is named
   differently and the title is the same (a different TITLE stays rule 7). The
@@ -182,7 +182,15 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   (ops without an ``op`` key, union_tag_not_found ×10; one ``upsert_publication``
   without a title) — n too small to separate from noise (≈p 0.15), and it is
   the precedent-M5.1.1(2) question M answers. Records:
-  ``Documents/Runs/Strawberry/build-2/v/runs/``.
+  ``Documents/Runs/Strawberry/build-2/v/runs/``. *V-4, measured (WP-M,
+  2026-10-07):* the B arm is this tree with the three prompt hunks AND the
+  ``MatchExisting`` schema description reverted (``schema_out`` sends op
+  docstrings to the model, so the commit changed both). ``glm-5.3-flash`` n=10:
+  malformed 0/15 valid S6 (120 s + 180 s timeout arms) and 0/10 S9 on this
+  prompt, 0/14 and 0/10 on the old one; ``gpt-5.6-luna`` 0.00 on every rate in
+  both arms. No threshold crossed, so the wording stays. Pooled with V's arms:
+  5/44 vs 0/33 turns (one-sided Fisher p≈0.055), and the op-less-op shape did
+  not recur in 49 valid glm turns. Records: ``Documents/Runs/Strawberry/build-2/m/runs/v4/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
