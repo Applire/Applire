@@ -66,6 +66,38 @@ def months_agree(a: object, b: object) -> bool:
     return ma is not None and ma == mb
 
 
+def _year(value: object) -> str | None:
+    text = norm(value)
+    return text[:4] if len(text) >= 4 and text[:4].isdigit() else None
+
+
+def education_years_agree(incoming: Any, existing: Any) -> bool:
+    """Ruling adv-vault-1 = B (MD2-15, 2026-10-07): an education alias counts
+    only when every year BOTH sides state (start, end) is the same and at least
+    one is stated on both sides — or when neither side states any year. A side
+    stating years the other does not falls back to the model (listed, never
+    silently merged). Precedent: V-1's same-start-month rule for engagements."""
+    pairs = [
+        (_year(getattr(incoming, f, None)), _year(getattr(existing, f, None)))
+        for f in ("start_date", "end_date")
+    ]
+    if all(a is None and b is None for a, b in pairs):
+        return True
+    both = [(a, b) for a, b in pairs if a is not None and b is not None]
+    return bool(both) and all(a == b for a, b in both)
+
+
+def dates_allow(section: str, incoming: Any, existing: Any) -> bool:
+    """The date evidence an alias needs before it may name ``existing``:
+    engagements the same stated start month (V-1), education the same stated
+    years (adv-vault-1 = B); the other sections carry no date in their identity."""
+    if section in ENGAGEMENT_SECTIONS:
+        return months_agree(getattr(incoming, "start_date", None), getattr(existing, "start_date", None))
+    if section == "education":
+        return education_years_agree(incoming, existing)
+    return True
+
+
 def months_contradict(a: object, b: object) -> bool:
     """Both sides state a month and they differ."""
     ma, mb = month(a), month(b)
@@ -99,9 +131,11 @@ def unique_entry_by_names(
     """The ONE entry of ``section`` whose names cover every non-empty value in
     ``values`` (field -> incoming value), with at least one field matched
     through a recorded alias when ``require_alias``. Two or more such entries
-    -> ``None`` (the exactly-one rule)."""
-    wanted = {f: norm(v) for f, v in values.items() if norm(v)}
-    if not wanted:
+    -> ``None`` (the exactly-one rule). An EMPTY value is not a wildcard
+    (adv-vault-1 = B): an incoming entry missing any natural-key value never
+    reaches an entry through an alias."""
+    wanted = {f: norm(v) for f, v in values.items()}
+    if not wanted or any(not w for w in wanted.values()):
         return None
     hits = []
     for entry in entries:
@@ -113,16 +147,32 @@ def unique_entry_by_names(
     return hits[0] if len(hits) == 1 else None
 
 
-def add_alias(entry: Any, field: str, section: str, value: str) -> bool:
+def add_alias(
+    entry: Any, field: str, section: str, value: str, siblings: Sequence[Any] = ()
+) -> bool:
     """Append ``value`` to ``entry``'s alias list for ``field`` when it is a NEW
-    name for it: non-empty, not its own value, not already recorded, and not the
+    name for it: non-empty, not its own value, not already recorded, not the
     value of the entry's OTHER natural-key field (positional sanity — a role
-    never lands in the company list). Returns whether it was written."""
+    never lands in the company list), and not a name ANOTHER entry of the
+    section already carries for ``field`` (adversarial finding 4, 2026-10-07:
+    "Java" never becomes JavaScript's alias while "Java" is an entry of its own
+    — two carriers disable the alias anyway, so it would only be noise, and an
+    undo would duplicate the other entry). Language names the DE/EN table
+    already pairs are never recorded (ADR-046 am. cl. 5 — the table matches, it
+    does not alias; finding 5). Returns whether it was written."""
     alias_field = ALIAS_FIELDS.get(section, {}).get(field)
     if not alias_field or not isinstance(value, str) or not value.strip():
         return False
     if norm(value) in names_of(entry, field, section):
         return False
+    if section == "languages" and field == "language":
+        from applire.services.profile.language_names import same_language
+
+        if same_language(value, getattr(entry, "language", None)):
+            return False
+    for other_entry in siblings:
+        if other_entry is not entry and norm(value) in names_of(other_entry, field, section):
+            return False
     for other in ALIAS_FIELDS.get(section, {}):
         if other != field and norm(value) in names_of(entry, other, section):
             return False

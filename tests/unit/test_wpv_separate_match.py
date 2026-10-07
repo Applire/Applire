@@ -113,7 +113,11 @@ def test_engagement_without_an_incoming_entry_is_rebuilt_from_the_pair():
         ("Roche Diagnostics GmbH", "System Analyst"), ("Roche", "Systemanalytiker"),
     ]
     assert work[0].company_aliases == []
-    assert work[0].role_aliases == ["Systemanalytiker"]  # not recorded by this binding
+    # Adversarial finding 3 (2026-10-07): the undo takes names back BY VALUE —
+    # every alternate name the separated entry carries comes off the target,
+    # whichever binding recorded it; otherwise the next import carries the
+    # same pair again through the name left behind.
+    assert work[0].role_aliases == []
 
 
 def test_separate_match_is_not_model_emittable():

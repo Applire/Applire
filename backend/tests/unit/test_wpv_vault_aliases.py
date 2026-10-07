@@ -122,10 +122,19 @@ def _vault_b() -> MasterProfileData:
 
 
 def test_targeted_upsert_work_records_the_other_employer_name():
-    applied = apply_ops(_vault_b(), [UpsertWork(
+    """Writer (b) runs on the IMPORT door only, and records the DOCUMENT's name
+    (adversarial finding 6, 2026-10-07) — the shared applier writes none."""
+    ops = [UpsertWork(
         ref="w1", target="w-nov", company="Novartis", role="Systemanalytiker",
         start_date="2011-06",
-    )], "linkedin_import")
+    )]
+    alone = apply_ops(_vault_b(), ops, "linkedin_import")
+    assert next(w for w in alone.profile.work_experience if w.id == "w-nov").company_aliases == []
+    incoming = MasterProfileData(work_experience=[WorkEntry(
+        company="Novartis", role="Systemanalytiker", start_date="2011-06",
+    )])
+    applied = apply_ops(_vault_b(), ops, "linkedin_import")
+    record_bound_aliases(incoming, applied.profile, ops, applied.matched, applied.changes)
     entry = next(w for w in applied.profile.work_experience if w.id == "w-nov")
     assert entry.company == "Novartis Diagnostics GmbH"
     assert entry.company_aliases == ["Novartis"]
@@ -186,10 +195,15 @@ def test_targeted_upsert_volunteer_records_organization_alias():
     vault = MasterProfileData(volunteer_activities=[VolunteerActivity(
         id="v1", organization="Deutsches Rotes Kreuz e.V.", role="Sanitäter", start_date="2015-01",
     )])
-    applied = apply_ops(vault, [UpsertVolunteer(
-        ref="v", target="v1", organization="German Red Cross", role="Sanitäter",
-    )], "cv_upload")
-    assert applied.profile.volunteer_activities[0].organization_aliases == ["German Red Cross"]
+    ops = [UpsertVolunteer(ref="v", target="v1", organization="German Red Cross", role="Sanitäter")]
+    incoming = MasterProfileData(volunteer_activities=[VolunteerActivity(
+        organization="DRK Kreisverband", role="Sanitäter", start_date="2015-01",
+    )])
+    applied = apply_ops(vault, ops, "cv_upload")
+    assert applied.profile.volunteer_activities[0].organization_aliases == []  # not in the applier
+    record_bound_aliases(incoming, applied.profile, ops, applied.matched, applied.changes)
+    # the document's name, never the model's translation (finding 6)
+    assert applied.profile.volunteer_activities[0].organization_aliases == ["DRK Kreisverband"]
 
 
 def test_skill_on_a_recorded_alias_merges_with_an_alias_receipt():
@@ -231,12 +245,15 @@ def test_education_on_recorded_aliases_merges():
         id="e1", institution="Universität Leipzig", degree="German Diploma",
         degree_aliases=["Diplom"],
     )])
+    # Ruling adv-vault-1 = B (MD2-15): the alias never overrides the guard's
+    # question. Here the guard ASKS (same institution, other degree name), so
+    # the upsert path asks; the witness still carries a no-op re-import.
     applied = apply_ops(vault, [UpsertEducation(
         institution="Universität Leipzig", degree="Diplom", grade="1,3",
     )], "linkedin_import")
     assert len(applied.profile.education) == 1
-    assert applied.profile.education[0].grade == "1,3"
-    assert applied.matched and applied.matched[0].basis == "alias"
+    assert len(applied.pending_confirmations) == 1
+    assert not applied.matched
 
 
 # ── witness: #715 match_existing on engagements ───────────────────────────────
