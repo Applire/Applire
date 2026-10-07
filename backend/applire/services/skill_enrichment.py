@@ -151,6 +151,30 @@ def _max_plausible_years(profile: MasterProfileData) -> int:
     return max(0, round(span_days / 365.25))
 
 
+def _union_years(ranges: list[tuple[date, date]]) -> float:
+    """Total non-overlapping span of ``ranges`` in (fractional) years (#747).
+
+    The unrounded quantity behind every ``computed`` duration. Kept separate so
+    a consumer that must not round UP — the letter's hedge view and the
+    Oracle's duration check (ADR-052/ADR-078 amended 2026-10-07, ruling T-1:
+    7.6 years is "über sieben" or "knapp acht", never "acht") — reads the same
+    arithmetic the stored value was rounded from.
+    """
+    sorted_ranges = sorted(((s, e) for s, e in ranges if e > s), key=lambda r: r[0])
+    if not sorted_ranges:
+        return 0.0
+    merged: list[tuple[date, date]] = []
+    cur_start, cur_end = sorted_ranges[0]
+    for start, end in sorted_ranges[1:]:
+        if start <= cur_end:
+            cur_end = max(cur_end, end)
+        else:
+            merged.append((cur_start, cur_end))
+            cur_start, cur_end = start, end
+    merged.append((cur_start, cur_end))
+    return sum((end - start).days for start, end in merged) / 365.25
+
+
 def _calculate_years(ranges: list[tuple[date, date]]) -> int:
     """Return total non-overlapping experience in years (rounded integer).
 
@@ -162,25 +186,7 @@ def _calculate_years(ranges: list[tuple[date, date]]) -> int:
     """
     if not ranges:
         return 0
-
-    sorted_ranges = sorted(ranges, key=lambda r: r[0])
-    sorted_ranges = [(s, e) for s, e in sorted_ranges if e > s]
-    if not sorted_ranges:
-        return 1  # ranges existed but all were zero-duration: treat as minimum 1
-    merged: list[tuple[date, date]] = []
-    cur_start, cur_end = sorted_ranges[0]
-
-    for start, end in sorted_ranges[1:]:
-        if start <= cur_end:
-            cur_end = max(cur_end, end)
-        else:
-            merged.append((cur_start, cur_end))
-            cur_start, cur_end = start, end
-    merged.append((cur_start, cur_end))
-
-    total_days = sum((end - start).days for start, end in merged)
-    years = total_days / 365.25
-    return max(1, round(years))
+    return max(1, round(_union_years(ranges)))
 
 
 def _years_to_proficiency(years: int) -> str:
@@ -259,6 +265,62 @@ def _demonstrates(skill_name: str, evidence_norm: str) -> bool:
     return surface_present(skill_name, evidence_norm)
 
 
+def _evidencing_ranges(
+    profile: MasterProfileData, skill_name: str, today: date
+) -> tuple[list[tuple[date, date]], list[str]]:
+    """Dated ranges + org labels of every experience whose own text names the skill.
+
+    THE single implementation of phase 1's join (ADR-066) — shared by
+    enrichment and :func:`evidenced_span_years`, so the Oracle's duration check
+    and the letter's hedge view can never disagree with the stored
+    ``computed`` duration about which roles count.
+    """
+    ranges: list[tuple[date, date]] = []
+    orgs: list[str] = []
+    for entry in profile.all_experiences:
+        if not _demonstrates(skill_name, experience_evidence_text(entry)):
+            continue
+        # Parse start date — skip entry if absent or unparseable
+        if not entry.start_date:
+            continue
+        try:
+            start = _parse_partial_date(entry.start_date)
+        except (ValueError, AttributeError):
+            continue
+        # Parse end date — null means current role/engagement → today
+        if entry.end_date is None:
+            end = today
+        else:
+            try:
+                end = _parse_partial_date(entry.end_date)
+            except (ValueError, AttributeError):
+                end = today
+        ranges.append((start, end))
+        label = entry.org_label()
+        if label and label not in orgs:
+            orgs.append(label)
+    return ranges, orgs
+
+
+def evidenced_span_years(
+    profile: MasterProfileData, skill_name: str
+) -> tuple[float, list[str]] | None:
+    """How long the dated experiences that NAME this skill span (#747).
+
+    Returns ``(years, org_labels)`` — fractional, de-overlapped years and the
+    roles they come from — or ``None`` when no dated experience's own text
+    names the skill. ADR-062: a FACT (whole-token presence + date arithmetic),
+    the same one phase 1 stores, rounded, as a ``computed`` duration.
+
+    Readers (ADR-052 / ADR-078 amended 2026-10-07): the Oracle's per-subject
+    duration check and the letter view's ``derived_spans="hedge"`` rendering.
+    """
+    ranges, orgs = _evidencing_ranges(profile, skill_name, date.today())
+    if not ranges:
+        return None
+    return _union_years(ranges), orgs
+
+
 def _match_and_enrich(
     profile: MasterProfileData,
 ) -> tuple[list[Skill], list[Skill]]:
@@ -281,34 +343,7 @@ def _match_and_enrich(
             enriched.append(skill.model_copy(update={"source": _TRANSCRIBED}))
             continue
 
-        matched_ranges: list[tuple[date, date]] = []
-        matched_orgs: list[str] = []
-
-        for entry in profile.all_experiences:
-            if not _demonstrates(skill.name, experience_evidence_text(entry)):
-                continue
-
-            # Parse start date — skip entry if absent or unparseable
-            if not entry.start_date:
-                continue
-            try:
-                start = _parse_partial_date(entry.start_date)
-            except (ValueError, AttributeError):
-                continue
-
-            # Parse end date — null means current role/engagement → today
-            if entry.end_date is None:
-                end = today
-            else:
-                try:
-                    end = _parse_partial_date(entry.end_date)
-                except (ValueError, AttributeError):
-                    end = today
-
-            matched_ranges.append((start, end))
-            label = entry.org_label()
-            if label and label not in matched_orgs:
-                matched_orgs.append(label)
+        matched_ranges, matched_orgs = _evidencing_ranges(profile, skill.name, today)
 
         # Never REMOVE provenance. The reconciler records evidence as entity ids
         # on the same field (``UpsertSkill.evidence`` → apply.py), so replacing
@@ -332,9 +367,17 @@ def _match_and_enrich(
             # field to the left, and the inflation direction clause 5 exists to
             # forbid. `experience_refs` still updates: that is evidence, not the
             # span, and more evidence is never worse.
-            if skill.source == _TRANSCRIBED and skill.years_experience is not None:
+            #
+            # ADR-061 cl. 7 amended 2026-10-07 (#747): a span that arrives with
+            # NO source is the extractor's reading of the document (only the
+            # extraction emits a bare ``years_experience``; every later writer
+            # stamps a source) — the same thing the unmatched path below has
+            # always labelled it. It outranks a computed span exactly like a
+            # transcribed one, and is labelled so.
+            if skill.source in (_TRANSCRIBED, None) and skill.years_experience is not None:
                 enriched.append(skill.model_copy(update={
                     "experience_refs": matched_orgs,
+                    "source": _TRANSCRIBED,
                 }))
                 continue
             years = _calculate_years(matched_ranges)

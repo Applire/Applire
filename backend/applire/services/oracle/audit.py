@@ -75,7 +75,12 @@ from applire.prompts.oracle_triage import (
     build_triage_user_prompt,
     triage_call_max_tokens,
 )
-from applire.services.ats_audit import _norm, skill_tokens, surface_present
+from applire.services.ats_audit import (
+    _norm,
+    skill_tokens,
+    surface_present,
+    surface_present_whole_token,
+)
 from applire.services.citation import citation_present
 from applire.schemas.oracle import (
     Claim,
@@ -694,6 +699,118 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     return None
 
 
+# ── #747 — a stated duration vs the dated roles that name its subject ─────────
+# ADR-052 amended 2026-10-07 (founder ruling T-1): a derived duration may be
+# stated only hedged and rounded down — "über sieben Jahre" / "knapp acht
+# Jahre" for 7.6 years, never "seit acht Jahren". The hedge word immediately
+# before the number sets how much span the claim needs (closed DE/EN table —
+# FACT, two adjacent tokens). The over-direction only, like #469.
+_HEDGE_AT_LEAST = ("mehr als", "more than", "über", "ueber", "over")
+_HEDGE_ALMOST = ("knapp", "fast", "beinahe", "nahezu", "almost", "nearly")
+_HEDGE_ABOUT = (
+    "rund", "etwa", "ca.", "circa", "ungefähr", "about", "around", "roughly",
+    "approximately",
+)
+# Month-granular dates: "02/2019" is stored as the first of the month.
+_SUBJECT_TENURE_TOLERANCE_YEARS = 1 / 12
+# Characters around the duration in which its subject skill must be named.
+_SUBJECT_WINDOW_BEFORE = 40
+_SUBJECT_WINDOW_AFTER = 60
+
+
+def _required_span(text: str, raw: str, years: float) -> float:
+    """Span (years) a stated duration needs, read off its hedge word."""
+    lower = text.lower()
+    pos = lower.find(raw.lower())
+    before = lower[:pos].rstrip() if pos >= 0 else ""
+    for hedges, need in (
+        (_HEDGE_ALMOST, years - 0.5),
+        (_HEDGE_ABOUT, years - 0.5),
+        (_HEDGE_AT_LEAST, years),
+    ):
+        for h in hedges:
+            if before.endswith(" " + h) or before == h:
+                return need
+    return years
+
+
+def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
+    """A stated duration above the dated span of the skill it is about (#747).
+
+    The blind Kaile probe's delivered letter said "Seit acht Jahren arbeite ich
+    mit SAP CO/FI"; the only role naming SAP starts 02/2019 (7.6 years). The
+    #469 ceiling (whole-career envelope, 12.7 years) could not see it, and the
+    role-union grounded the sentence.
+
+    **Predicate.** For every duration the claim states (#469's
+    ``extract_tenure_claims``): the subjects are the vault skills the claim
+    names as whole tokens; their evidenced span is the de-overlapped union of
+    the dated experiences whose own text names them
+    (``VaultIndex.skill_spans`` ← ``skill_enrichment.evidenced_span_years``,
+    the fact a ``computed`` duration is rounded from). Flag when the LARGEST
+    such span is below what the claim's hedge requires (none/"seit"/"über" →
+    N; "knapp"/"fast" and "rund"/"etwa" → N − 0.5), less a one-month
+    tolerance.
+
+    **Escapes — the candidate's own words win.** The same duration stated in
+    any vault evidence unit ("Controllerin mit 9 Jahren Erfahrung"), or a
+    subject skill whose ``transcribed`` duration is ≥ N; and no subject skill
+    with a dated span at all (the #469 envelope still applies).
+
+    **Judgement not attempted (ADR-062 clause 1):** which roles "count" toward
+    a skill is never inferred — only roles whose own text names it, the same
+    rule the stored ``computed`` duration already uses. A candidate whose
+    earlier role used the skill without its text naming it is told the vault
+    does not show it — the SF-ORACLE.1 cost of this rule, measured on the
+    harvested corpus before it shipped (WP-T report).
+    """
+    claims = extract_tenure_claims(text)
+    if not claims or not index.skill_spans:
+        return None
+    lower = text.lower()
+    for tenure in claims:
+        if tenure.years in index.stated_tenure_years:
+            continue
+        # Subject = a vault skill named NEAR the duration (≈ 8 words), never
+        # anywhere in the sentence: "meets the requested three years of ICU
+        # experience, while I also bring … shift coordination" is not a claim
+        # of three years of shift coordination (corpus false positive).
+        pos = lower.find(tenure.raw.strip().lower())
+        start = max(0, pos) if pos >= 0 else 0
+        window = _norm(
+            text[max(0, start - _SUBJECT_WINDOW_BEFORE) : start + len(tenure.raw) + _SUBJECT_WINDOW_AFTER]
+        )
+        subjects = [
+            name for name in index.skill_spans
+            if surface_present_whole_token(name, window)
+        ]
+        if not subjects:
+            continue
+        if any(
+            index.transcribed_skill_years.get(name, -1) >= tenure.years
+            for name in subjects
+        ):
+            continue
+        required = _required_span(text, tenure.raw.strip(), tenure.years)
+        best = max(subjects, key=lambda n: index.skill_spans[n][0])
+        span, orgs = index.skill_spans[best]
+        if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
+            continue
+        where = ", ".join(orgs) if orgs else "its dated roles"
+        return ClaimVerdict(
+            verdict="unbacked",
+            checker="numbers",
+            figures=[tenure.raw.strip()],
+            detail=(
+                f'Claimed duration "{tenure.raw.strip()}" exceeds the '
+                f"{span:.1f} years of the dated roles whose own text names "
+                f'"{best}" ({where}). A span derived from dates may be stated '
+                f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'
+            ),
+        )
+    return None
+
+
 def _attribution_red_flag(
     source_id: str | None,
     units: list[EvidenceUnit],
@@ -1282,6 +1399,10 @@ async def verify_claim(
     tenure_flag = _tenure_ceiling_flag(claim.text, idx)
     if tenure_flag is not None:
         return tenure_flag
+    # ── 1a2. per-subject duration (#747, ADR-052 amended 2026-10-07) ─────────
+    subject_flag = _subject_tenure_flag(claim.text, idx)
+    if subject_flag is not None:
+        return subject_flag
 
     # ── 1. number/date provenance (deterministic red flag) ──────────────────
     figures = extract_figures(claim.text)
