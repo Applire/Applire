@@ -55,9 +55,11 @@ from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse
 from tests.support.owners_1b import add_user, client_for
 
 #: A configured secret value for the duration of a test (never a real key).
-SENTINEL = "sk-test-HARDENSENTINEL0123456789"
+#: Deliberately NOT credential-shaped (no ``sk-``/``Bearer``), so only the
+#: configured-value scrub can remove it.
+SENTINEL = "Mx7HARDENSENTINELq9Zt4uV0"
 #: The same marker inside a value no header can carry.
-CTRL_SENTINEL = "sk-test-HARDENSENTINEL\x0b0123"
+CTRL_SENTINEL = "Mx7HARDENSENTINEL\x0bq9Zt"
 
 
 @pytest.fixture
@@ -353,6 +355,13 @@ REST_SITES = [
 ]
 
 
+def _without_log_filter(monkeypatch) -> None:
+    """Detach the process-wide log filter for one test (restored afterwards)."""
+    for handler in logging.getLogger("applire").handlers:
+        kept = [f for f in handler.filters if not isinstance(f, SecretRedactionFilter)]
+        monkeypatch.setattr(handler, "filters", kept)
+
+
 class _AsUser:
     def __init__(self, user):
         self.user = user
@@ -410,6 +419,7 @@ async def test_rest_catch_all_answers_a_static_body_with_an_error_id(
         monkeypatch.setattr(router_mod, "get_profile_for_user", AsyncMock(return_value=SimpleNamespace(id=U)))
     app = _rest_app(_plain_user())
     caplog.set_level(logging.ERROR)
+    _without_log_filter(monkeypatch)  # prove the helper's own scrub, not the filter's
     async with client_for(app) as client:
         res = await client.request(method, path, json=body, headers={"Origin": "http://applire.test"})
     assert res.status_code == 500, res.text
@@ -539,6 +549,7 @@ async def test_mcp_catch_all_answers_a_static_message_with_an_error_id(
     owner = getattr(server, owner_name) if owner_name else server
     monkeypatch.setattr(owner, attr, AsyncMock(side_effect=RuntimeError(f"db said {SENTINEL}")))
     caplog.set_level(logging.ERROR)
+    _without_log_filter(monkeypatch)
     with pytest.raises(McpError) as exc:
         await getattr(server, tool)(**kwargs)
     message = exc.value.error.message
