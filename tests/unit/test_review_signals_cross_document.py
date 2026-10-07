@@ -55,6 +55,9 @@ def test_0913_fragment_quote_folds_into_the_sentence_it_belongs_to():
     sentence; containment groups it there instead of a second row."""
     items = _report_0913().cross_document
     assert "Kunststofftechnik-Erfahrung" in items[0].concepts
+    # …but it is letter-RICHER: the CV mentions Kunststofftechnik, so the card's
+    # "N things your CV never mentions" counts only the three letter-only ones.
+    assert items[0].letter_only == ["Kosmetik-Verpackungen", "Sauberraumbereich seit 2021", "ISO-9001-Audit-Praxis"]
     assert len(items) == 4
 
 

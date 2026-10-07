@@ -100,6 +100,9 @@ class CrossDocumentItem(BaseModel):
     key: str
     letter_state: str
     concepts: list[str] = Field(default_factory=list)
+    #: The subset of ``concepts`` the CV never mentions (kind ``letter_only``) —
+    #: what the card counts and marks; the rest are ``letter_richer``.
+    letter_only: list[str] = Field(default_factory=list)
     kinds: list[str] = Field(default_factory=list)
     weight: Literal["high", "normal"] = "normal"
     figures: list[str] = Field(default_factory=list)

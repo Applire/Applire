@@ -134,6 +134,9 @@ export function CrossDocumentSection({
   const card = (row: CrossDocumentRow) => {
     const onlyLetter = row.item.kinds.includes("letter_only");
     const high = row.item.weight === "high";
+    // The facts the CV never mentions; an older backend without the field
+    // falls back to every concept.
+    const shown = row.item.letter_only && row.item.letter_only.length > 0 ? row.item.letter_only : row.item.concepts;
     return (
       <div
         data-testid="review-xdoc-card"
@@ -152,11 +155,11 @@ export function CrossDocumentSection({
         </p>
         <p className="text-[13px] leading-snug text-on-surface">
           {onlyLetter
-            ? t("cardBodyOnly", { count: row.item.concepts.length, high: high ? "true" : "false" })
+            ? t("cardBodyOnly", { count: shown.length, high: high ? "true" : "false" })
             : t("cardBodyRicher")}
         </p>
         <ul className="flex flex-wrap gap-1" data-testid="review-xdoc-concepts">
-          {row.item.concepts.map((c) => (
+          {shown.map((c) => (
             <li key={c} className="rounded-full border border-outline-variant bg-white px-2 py-0.5 text-xs text-on-surface">
               {c}
             </li>
@@ -167,7 +170,7 @@ export function CrossDocumentSection({
           className="rounded-xl border border-outline-variant bg-white px-3 py-2 text-[13px] leading-snug text-on-surface"
         >
           <span className="block text-xs text-on-surface-variant">{t("quoteLabel")}</span>
-          {markRuns(row.item.letter_state, row.item.concepts).map((r, i) =>
+          {markRuns(row.item.letter_state, shown).map((r, i) =>
             r.mark ? (
               <mark key={i} className="rounded bg-gold-container px-0.5 text-on-surface">
                 {r.text}

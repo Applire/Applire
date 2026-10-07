@@ -68,6 +68,8 @@ export type CrossDocumentItem = {
   key: string;
   letter_state: string;
   concepts: string[];
+  /** The concepts the CV never mentions (letter_only) — counted and marked on the card. */
+  letter_only?: string[];
   kinds: CriticAdvisoryKind[];
   weight: "high" | "normal";
   figures: string[];

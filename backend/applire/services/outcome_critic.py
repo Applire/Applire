@@ -598,6 +598,7 @@ def group_cross_document(advisories: list[CriticAdvisory]) -> list["CrossDocumen
                 key=f"critic:{_norm_quote(letter_state)}",
                 letter_state=letter_state,
                 concepts=list(dict.fromkeys(a.concept for a in advs)),
+                letter_only=list(dict.fromkeys(a.concept for a in advs if a.kind == "letter_only")),
                 kinds=list(dict.fromkeys(a.kind for a in advs)),
                 weight="high" if high else "normal",
                 figures=figures,
