@@ -110,6 +110,10 @@ from applire.services.oracle.matchers import (
     match_figures,
     skills_near_duration,
 )
+from applire.services.oracle.matchers.vault import (
+    RESTATEMENT_MIN_SHARED,
+    duration_window_tokens,
+)
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
 
@@ -815,6 +819,19 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         if index.stated_skill_tenures.get(best, -1.0) >= tenure.years:
             continue
         if index.transcribed_skill_years.get(best, -1) >= tenure.years:
+            continue
+        # …or the claim RESTATES a sentence of the candidate's own that states
+        # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
+        # common around it). Not subject-scoped by skill name: "Controllerin
+        # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
+        # candidate's statement behind "neun Jahre Controlling-Erfahrung im
+        # industriellen Mittelstand", although "Controllerin" is not the
+        # token "Controlling". A bare number elsewhere never qualifies (4a).
+        claim_words = duration_window_tokens(text, raw)
+        if any(
+            years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
+            for years, words in index.stated_tenure_windows
+        ):
             continue
         required = _required_span(text, raw, tenure.years)
         span, orgs = index.skill_spans[best]

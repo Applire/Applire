@@ -112,6 +112,14 @@ class VaultIndex:
     # total "9 Jahren Erfahrung" launder "seit neun Jahren … SAP CO" — the
     # #214 digit-coincidence error in the escape direction.
     stated_skill_tenures: dict[str, float] = field(default_factory=dict)
+    # #747 — every duration the candidate's own text states, with the content
+    # words around it: ``(years, window tokens)``. Read by the RESTATEMENT
+    # escape — the claim restates the candidate's own sentence (same N, ≥ 2
+    # shared content words) — which keeps "neun Jahre Controlling-Erfahrung im
+    # industriellen Mittelstand" honest against "Controllerin mit 9 Jahren
+    # Erfahrung im industriellen Mittelstand" without the vault-wide bare
+    # number finding 4a removed.
+    stated_tenure_windows: list[tuple[float, frozenset[str]]] = field(default_factory=list)
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -279,6 +287,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         skill_spans=dict(index.skill_spans),
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
+        stated_tenure_windows=list(index.stated_tenure_windows),
     )
 
 
@@ -607,6 +616,39 @@ def skills_near_duration(
     return out
 
 
+def duration_window_tokens(text: str, raw: str) -> frozenset[str]:
+    """Content words in the ~8-word window around a stated duration (#747).
+
+    ``skill_tokens`` minus the narrative function words, minus numbers and the
+    year unit itself, at least 4 characters — what a restatement of the same
+    sentence would share. ADR-062: a FACT (token presence).
+    """
+    from applire.services.ats_audit import skill_tokens
+    from applire.services.oracle.matchers.grounding import _NARRATIVE_STOPWORDS
+
+    pos = text.lower().find(raw.strip().lower())
+    if pos < 0:
+        return frozenset()
+    w = text[max(0, pos - SUBJECT_WINDOW_BEFORE): pos + len(raw.strip()) + SUBJECT_WINDOW_AFTER]
+    return frozenset(
+        t for t in skill_tokens(w) - _NARRATIVE_STOPWORDS
+        if len(t) >= 4
+        and not any(c.isdigit() for c in t)
+        and not t.startswith(("jahr", "year", "jähr", "jaehr"))
+        and t not in _NUMBER_WORDS
+    )
+
+
+_NUMBER_WORDS = frozenset({
+    "zwei", "drei", "vier", "fünf", "fuenf", "sechs", "sieben", "acht", "neun", "zehn",
+    "elf", "zwölf", "zwoelf", "three", "four", "five", "seven", "eight", "nine",
+    "eleven", "twelve", "twenty", "zwanzig",
+})
+# Shared content words a claim window needs with a stated-duration window to
+# count as restating it (adversarial finding 4 corpus re-measure, 2026-10-07).
+RESTATEMENT_MIN_SHARED = 2
+
+
 def _skill_duration_facts(
     p: MasterProfileData, units: list[EvidenceUnit]
 ) -> dict[str, Any]:
@@ -646,4 +688,9 @@ def _skill_duration_facts(
         "skill_spans": spans,
         "transcribed_skill_years": transcribed,
         "stated_skill_tenures": stated,
+        "stated_tenure_windows": [
+            (t.years, duration_window_tokens(text, t.raw))
+            for text in texts
+            for t in extract_tenure_claims(text)
+        ],
     }

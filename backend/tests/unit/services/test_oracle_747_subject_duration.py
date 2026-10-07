@@ -166,3 +166,37 @@ def test_a_statement_about_the_same_skill_escapes_a_career_total_does_not():
     assert _v("Seit neun Jahren arbeite ich mit SAP CO.", stated).verdict != "unbacked"
     total = _profile(professional_summary={"de": "Controllerin mit 9 Jahren Erfahrung."})
     assert _v("Seit neun Jahren arbeite ich mit SAP CO.", total).verdict == "unbacked"
+
+
+def test_a_restatement_of_the_candidates_own_career_sentence_escapes():
+    # Corpus re-measure of adversarial finding 4 (2026-10-07): the Kaile-probe
+    # letter restated the CV summary; "Controllerin" is not the token
+    # "Controlling", so only the restatement escape keeps it honest.
+    profile = _profile(professional_summary={
+        "de": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand."})
+    profile["work_experience"][1]["responsibilities"] = ["Controlling der Werke"]
+    profile["skills"].append({"name": "Controlling", "category": "domain",
+                              "years_experience": 2, "source": "computed"})
+    text = "Dazu bringe ich neun Jahre Controlling-Erfahrung im industriellen Mittelstand mit."
+    assert _v(text, profile).verdict != "unbacked", _v(text, profile).detail
+    # The same number without the restated words stays flagged.
+    assert _v("Seit neun Jahren Controlling der Werke.", profile).verdict == "unbacked"
+
+
+def test_a_count_is_never_attributed_across_a_list_boundary():
+    # Corpus shape (2026-10-07): the nearest skill BEFORE "nine years" is
+    # Django, across "and" — the count belongs to PostgreSQL after it.
+    profile = {
+        "work_experience": [
+            {"id": "w1", "company": "Cargo GmbH", "role": "Backend", "start_date": "2020-01",
+             "is_current": True, "technologies": ["Django", "PostgreSQL"]},
+            {"id": "w2", "company": "Fin GmbH", "role": "Backend", "start_date": "2015-01",
+             "end_date": "2019-12", "technologies": ["PostgreSQL"]},
+        ],
+        "skills": [
+            {"name": "Django", "category": "technical", "source": "computed", "years_experience": 6},
+            {"name": "PostgreSQL", "category": "technical", "source": "computed", "years_experience": 11},
+        ],
+    }
+    text = "Five years with Django and eleven years with PostgreSQL."
+    assert _v(text, profile).verdict != "unbacked", _v(text, profile).detail
