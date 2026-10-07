@@ -1938,7 +1938,7 @@
     "addDialogTitle": "Add person",
     "roleLabel": "Role",
     "roleUserOption": "User — own profile, own applications",
-    "roleAdminOption": "Admin — can also manage people and change the appearance",
+    "roleAdminOption": "Admin — can also manage people, change the instance settings and see the activity log",
     "sendMail": "Send the invitation by email",
     "sendMailNoSmtp": "Email is not set up (SMTP_HOST). You pass the link on yourself.",
     "controllerNote": "If you hold accounts for other people here, you are responsible for their data (GDPR: controller). How long Applire keeps data is set in .env — see docs/SELF-HOSTING.md, section on retention.",

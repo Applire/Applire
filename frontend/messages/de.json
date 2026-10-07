@@ -1938,7 +1938,7 @@
     "addDialogTitle": "Person hinzufügen",
     "roleLabel": "Rolle",
     "roleUserOption": "Nutzer — eigenes Profil, eigene Bewerbungen",
-    "roleAdminOption": "Admin — kann zusätzlich Personen verwalten und das Erscheinungsbild ändern",
+    "roleAdminOption": "Admin — kann zusätzlich Personen verwalten, die Einstellungen der Instanz ändern und das Protokoll sehen",
     "sendMail": "Einladung per E-Mail schicken",
     "sendMailNoSmtp": "E-Mail-Versand ist nicht eingerichtet (SMTP_HOST). Du gibst den Link selbst weiter.",
     "controllerNote": "Führst du hier Konten für andere Menschen, bist du für deren Daten verantwortlich (DSGVO: Verantwortlicher). Wie lange Applire Daten aufbewahrt, legst du in der .env fest — siehe docs/SELF-HOSTING.md, Abschnitt Aufbewahrung.",
