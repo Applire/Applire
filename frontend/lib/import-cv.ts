@@ -38,6 +38,23 @@ export interface ImportNotAppliedItem {
   reason: "no_op_carried_entry" | "op_rejected";
 }
 
+/**
+ * One entry the import recognised as already in the profile under another name
+ * (#707 receipt; #717 shows it on the import summary). `basis`: who
+ * recognised it — the model, a recorded alternate name, or the closed DE/EN
+ * language-name table (a `name_table` pair is a fact and has no undo).
+ */
+export interface MatchReceiptItem {
+  section: string;
+  entity_id: string;
+  incoming: string;
+  existing: string;
+  basis?: "model" | "alias" | "name_table";
+  aliases_added?: Record<string, string>;
+  incoming_entry?: Record<string, unknown> | null;
+  undone_at?: string | null;
+}
+
 /** Subset of the backend CVUploadResponse that callers read; extra fields pass through. */
 export interface CVUploadResult {
   profile_id: string | null;
@@ -54,6 +71,8 @@ export interface CVUploadResult {
    * ran but the carried-predicate names entries it did not carry". */
   merge_status?: "applied" | "partial";
   not_applied?: ImportNotAppliedItem[];
+  /** #717 — the merge's recognised pairs (same receipt the history shows). */
+  matched?: MatchReceiptItem[];
   [key: string]: unknown;
 }
 
