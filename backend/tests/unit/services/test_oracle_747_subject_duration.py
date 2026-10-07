@@ -200,3 +200,15 @@ def test_a_count_is_never_attributed_across_a_list_boundary():
     }
     text = "Five years with Django and eleven years with PostgreSQL."
     assert _v(text, profile).verdict != "unbacked", _v(text, profile).detail
+
+
+def test_only_the_nearest_subjects_transcribed_span_escapes():
+    # No list boundary between the two skills here, so both are near the
+    # duration; Excel's transcribed 10 years must not vouch for SAP CO
+    # (adversarial finding 4b, the shape the barrier alone does not cover).
+    profile = _profile()
+    profile["work_experience"][1]["technologies"] = ["Excel"]
+    profile["skills"].append({"name": "Excel", "category": "technical",
+                              "years_experience": 10, "source": "transcribed"})
+    text = "Seit neun Jahren arbeite ich mit SAP CO in Excel."
+    assert _v(text, profile).verdict == "unbacked", _v(text, profile)
