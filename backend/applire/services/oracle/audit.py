@@ -100,7 +100,6 @@ from applire.services.oracle.matchers import (
     EvidenceUnit,
     VaultIndex,
     build_vault_index,
-    coverage_by_units,
     extract_figures,
     extract_tenure_claims,
     find_foreign_owner,
@@ -1496,40 +1495,6 @@ async def verify_claim(
             evidence_units = evidence_units + [
                 u for u in denial_backing if u not in evidence_units
             ]
-        # ── 2d. a matched figure grounds only what its evidence carries (#701)
-        # Until 2026-10-07 every claim reaching this point was graded
-        # ``grounded``/``numbers`` — "All figures trace to vault evidence" —
-        # however much NON-figure content it carried. Adversarial probe A2
-        # (Nougat build 3): "Zwei Fertigungsbereiche mit 38 Mitarbeitenden
-        # gefuehrt und dabei den ISO-45001-Lead-Auditor-Zertifikat erworben"
-        # was graded grounded because "38" matched; the fabricated
-        # certification was never checked. The figure's evidence units are
-        # the vault text that HOLDS the figure; when they carry less than the
-        # grounding floor of the claim's own content, the remainder is
-        # unchecked prose, and the claim takes the figure-free chain (step 3)
-        # exactly as a figure-less claim would — role union, skill union,
-        # bounded entailment, else ``unverifiable``. Never an accusation:
-        # this can only withdraw a ``grounded`` the figures alone could not
-        # earn. ADR-062: a FACT (token presence in stored text).
-        if coverage_by_units(claim.text, evidence_units) < GROUNDED_MIN_COVERAGE:
-            rest = await _figure_free_verdict(
-                claim, idx, provider, budget, source_id, attribution_id,
-                letter_named_ids, judgement_sink,
-            )
-            if isinstance(rest, ClaimVerdict) and rest.verdict == "grounded":
-                figure_refs = _evidence_refs(evidence_units)
-                return ClaimVerdict(
-                    verdict="grounded",
-                    checker=rest.checker,
-                    evidence=figure_refs
-                    + [r for r in rest.evidence if r not in figure_refs],
-                    detail=(
-                        "Figures trace to vault evidence; the rest of the claim "
-                        "is grounded separately"
-                        + (f" ({rest.detail})" if rest.detail else ".")
-                    ),
-                )
-            return rest
         if claim_stance is None and not any(unit_stances):
             fallback = ClaimVerdict(
                 verdict="grounded",
@@ -1556,29 +1521,6 @@ async def verify_claim(
         )
 
     # ── 3. figure-free claims: shared-predicate grounding ───────────────────
-    return await _figure_free_verdict(
-        claim, idx, provider, budget, source_id, attribution_id,
-        letter_named_ids, judgement_sink,
-    )
-
-
-async def _figure_free_verdict(
-    claim: Claim,
-    idx: VaultIndex,
-    provider: Any,
-    budget: _EntailmentBudget,
-    source_id: str | None,
-    attribution_id: str | None,
-    letter_named_ids: frozenset[str] | None,
-    judgement_sink: "list[_SeamCandidate] | None",
-) -> ClaimVerdict:
-    """The figure-free grounding chain of :func:`verify_claim` (step 3).
-
-    Extracted unchanged (#701) so the numbers path can route a claim whose
-    figures matched but whose NON-figure content the figures' evidence does
-    not carry through the very same chain a figure-free claim takes — one
-    implementation of "ground this prose", never a second (ADR-066).
-    """
     grounding = ground_text_claim(claim.text, idx)
     if grounding.content_tokens == 0:
         return ClaimVerdict(
