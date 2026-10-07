@@ -691,8 +691,9 @@ _register_all(
                 "Developer-only: log every LLM call's full input/output to\n"
                 "<LLM_DEBUG_LOG_DIR>/<date>.jsonl (one JSON line per call: stage, model,\n"
                 "system, prompt, params, response, latency).\n"
-                "RECORDS CV PII — keep OFF in production. While it is on, the backend logs\n"
-                "a WARNING at every startup and GET /health reports debug_log_on: true.\n"
+                "RECORDS CV PII — keep OFF in production; since 0.43 that includes every\n"
+                "person on this instance, not only you. While it is on, the backend logs\n"
+                "a WARNING at every startup and GET /api/ops/health reports debug_log_on: true.\n"
                 "There is deliberately no size or age cap: a cap on a diagnostic tool\n"
                 "truncates evidence silently. Turn it off, and delete the files."
             ),
@@ -768,7 +769,7 @@ _register_all(
                 "published port) or 'dev' (docker-compose.override.yml is also applied — "
                 "builds from source, hot-reload backend, and 3000/8001/5433 published).\n"
                 "The override file sets it; leaving it unset is what makes 'production' "
-                "true. A 'dev' value logs a WARNING at startup and appears at GET /health "
+                "true. A 'dev' value logs a WARNING at startup and appears at GET /api/ops/health "
                 "— running a clone with a plain `docker compose up` silently applies the "
                 "override, which is a debugging topology."
             ),
