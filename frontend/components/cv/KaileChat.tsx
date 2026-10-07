@@ -100,7 +100,7 @@ export function KaileChat({
     return (
       <div className="border border-neutral-medium rounded-lg p-3 bg-white">
         <h4 className="text-sm font-medium text-neutral-dark mb-2">
-          {t("kaileSuggestionHeading")}
+          {tEdit("suggestionTitle")}
         </h4>
         <p
           className="text-sm text-neutral-darker bg-neutral-light p-3 rounded whitespace-pre-wrap"
