@@ -1554,6 +1554,9 @@ class CVUploadResponse(BaseModel):
     # a GATED response (nothing committed) honestly "applied, []".
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #717 (ADR-063 amended 2026-10-07) — the merge's recognised pairs, the
+    # same receipt `ProfileImportResponse.matched` carries (2026-09-18).
+    matched: list[MatchReceipt] = Field(default_factory=list)
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`. Optional
     #: for the same reason: this class is persisted verbatim as a background
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
@@ -1624,8 +1627,21 @@ class StagedResolveResponse(BaseModel):
     # "discard" resolves nothing, so "applied, []" (the defaults) is honest.
     merge_status: ImportMergeStatus = "applied"
     not_applied: list[ImportNotApplied] = Field(default_factory=list)
+    # #717 (ADR-063 amended 2026-10-07) — the merge's recognised pairs, the
+    # same receipt `ProfileImportResponse.matched` carries (2026-09-18).
+    matched: list[MatchReceipt] = Field(default_factory=list)
     #: F-7 (#674) — see `ProfileImportResponse.not_applied_loss_count`.
     not_applied_loss_count: int | None = None
+
+
+class SeparateMatchRequest(BaseModel):
+    """#717 — "Nicht dasselbe": the recognised pair to undo, named as the
+    import summary shows it (ADR-063 amended 2026-10-07, ruling V-2 = A)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: str = Field(min_length=1)
+    incoming: str = Field(min_length=1)
 
 
 class UndoLastMergeResponse(BaseModel):

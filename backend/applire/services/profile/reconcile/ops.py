@@ -448,6 +448,30 @@ class RequestConfirmation(BaseModel):
         )
 
 
+class SeparateMatch(BaseModel):
+    """The candidate says a recognised match is wrong — ADAPTER-ONLY (#717).
+
+    ADR-063 amended 2026-10-07, clause 4; founder ruling V-2 = A ("Nicht
+    dasselbe" on the import summary). Names ONE `MatchReceipt` by the pair it
+    recorded (``entity_id`` + the ``incoming`` name, compared with ``_norm``);
+    the applier takes the NEWEST such receipt that is not undone and not a
+    language-name-table pair, removes every alternate name THAT binding
+    recorded (``aliases_added``, where still present), and appends the incoming
+    entry (the receipt's ``incoming_entry``, else a minimal one built from
+    ``incoming``) as its own entry with a fresh id — WITHOUT the identity
+    instruments, because the candidate has just ruled the two different.
+    Both steps are receipted on this batch's ``changes`` (one history record),
+    and the receipt is stamped ``undone_at``.
+
+    Never model-emittable: a hallucinated separation would split one real entry
+    into two on the strength of nothing.
+    """
+
+    op: Literal["separate_match"] = "separate_match"
+    entity_id: str
+    incoming: str
+
+
 class ReplaceSection(BaseModel):
     """A human replaces one whole section of the vault — ADAPTER-ONLY.
 
@@ -1053,6 +1077,7 @@ _ADAPTER_ONLY = (
     SetProfileMeta,
     MarkProbeAsked,
     EscalateDenialLevel,
+    SeparateMatch,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]

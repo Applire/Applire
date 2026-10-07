@@ -98,6 +98,7 @@ from applire.services.profile.reconcile.ops import (
     MarkProbeAsked,
     MatchExisting,
     ReplaceSection,
+    SeparateMatch,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -682,6 +683,10 @@ def apply_ops(
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
             _apply_flag_conflict(op, resolve_any, source, conflicts)
+        elif isinstance(op, SeparateMatch):
+            # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
+            # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
+            _apply_separate_match(op, new_profile, changes)
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
@@ -3008,6 +3013,109 @@ def _apply_match_existing(op, resolve, matched):
     receipt = _match_receipt(_section_for(entity), entity, op.incoming)
     receipt.entity_id = str(op.target)
     matched.append(receipt)
+
+
+_SECTION_MODEL: dict[str, type] = {
+    "skills": Skill,
+    "languages": Language,
+    "certifications": Certification,
+    "education": EducationEntry,
+    "publications": Publication,
+    "signature_stories": SignatureStory,
+    "work_experience": WorkEntry,
+    "projects": ProjectEntry,
+    "volunteer_activities": VolunteerActivity,
+}
+
+
+class MatchNotSeparableError(ValueError):
+    """`SeparateMatch` named no receipt it may undo (#717). ``code`` is the
+    door's machine-readable reason: ``unknown`` (no such pair, or the record was
+    rolled back by ADR-042), ``already_undone``, ``name_table`` (a fact)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def find_separable_receipt(profile: MasterProfileData, entity_id: str, incoming: str) -> MatchReceipt:
+    """The NEWEST receipt for this pair that `SeparateMatch` may undo, or raise
+    :class:`MatchNotSeparableError`. Shared by the service's pre-check and the
+    applier (one predicate, ADR-066)."""
+    history = profile.metadata.enrichment_history if profile.metadata else []
+    wanted = _norm(incoming)
+    seen_code = "unknown"
+    for record in reversed(history):
+        for receipt in reversed(record.matched):
+            if receipt.entity_id != entity_id or _norm(receipt.incoming) != wanted:
+                continue
+            if receipt.basis == "name_table":
+                seen_code = "name_table"
+                continue
+            if receipt.undone_at is not None:
+                seen_code = "already_undone"
+                continue
+            return receipt
+    raise MatchNotSeparableError(seen_code)
+
+
+def _minimal_entry(section: str, incoming: str) -> dict[str, Any]:
+    """An entry built from the receipt's `incoming` name alone — for a receipt
+    with no `incoming_entry` (persisted before 2026-10-07, or written by a turn
+    door). Two-key sections split on the ONE " / " the op format prescribes;
+    anything else puts the whole name on the first key field."""
+    fields = _ENTRY_NATURAL_KEYS.get(section, ())
+    parts = incoming.split(" / ")
+    if len(fields) == 2 and len(parts) == 2:
+        return {fields[0]: parts[0].strip(), fields[1]: parts[1].strip()}
+    entry: dict[str, Any] = {fields[0]: incoming.strip()} if fields else {}
+    if section == "education":
+        entry.setdefault("degree", "")
+    return entry
+
+
+def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """#717 / ADR-063 amended 2026-10-07 cl. 4 — see :class:`SeparateMatch`."""
+    from datetime import datetime, timezone
+
+    receipt = find_separable_receipt(profile, op.entity_id, op.incoming)
+    section = receipt.section
+    entries = getattr(profile, section, None)
+    model = _SECTION_MODEL.get(section)
+    if entries is None or model is None:
+        raise MatchNotSeparableError("unknown")
+    target = next((e for e in entries if getattr(e, "id", None) == receipt.entity_id), None)
+    # (ii) take back exactly the names THIS binding recorded, where still there
+    if target is not None:
+        for alias_field, value in receipt.aliases_added.items():
+            current = list(getattr(target, alias_field, None) or [])
+            kept = [a for a in current if _norm(a) != _norm(value)]
+            if len(kept) != len(current):
+                setattr(target, alias_field, kept)
+                changes.append(FieldChange(
+                    section=section, field=alias_field, action="removed",
+                    old_value=value, new_value=None,
+                    rationale=f"Removed {value!r} as another name: the candidate said it is not the same entry.",
+                    rationale_key="match_separated",
+                ))
+    # (iii) the incoming entry, as its own entry — no identity instrument runs
+    payload = dict(receipt.incoming_entry or _minimal_entry(section, receipt.incoming))
+    payload.pop("id", None)
+    entry = model.model_validate(payload)
+    entries.append(entry)
+    label = " / ".join(
+        str(getattr(entry, f, "") or "").strip()
+        for f in _ENTRY_NATURAL_KEYS.get(section, ())
+        if str(getattr(entry, f, "") or "").strip()
+    ) or receipt.incoming
+    changes.append(FieldChange(
+        section=section, field=(_ENTRY_NATURAL_KEYS.get(section) or ("name",))[0],
+        action="added", old_value=None, new_value=label,
+        rationale=f"Added {label!r} as its own entry: the candidate said it is not {receipt.existing!r}.",
+        rationale_key="match_separated",
+    ))
+    # (iv)
+    receipt.undone_at = datetime.now(timezone.utc)
 
 
 def _apply_set_field(op, resolve, changes):
