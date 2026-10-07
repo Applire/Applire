@@ -268,7 +268,10 @@ async def test_a_validation_error_never_echoes_a_secret(env):
     too_many = {f"K{i}": SENTINEL for i in range(21)}
     for body in ({"changes": too_many}, {"changes": {"OPENROUTER_API_KEY": [SENTINEL]}},
                  {"changes": {"OPENROUTER_API_KEY": SENTINEL}, "extra": SENTINEL},
-                 {"changes": {"OPENROUTER_API_KEY": SENTINEL * 20}}):
+                 {"changes": {"OPENROUTER_API_KEY": SENTINEL * 20}},
+                 {"changes": {"NOT_A_PANEL_KEY": SENTINEL}},
+                 {"changes": {"LLM_PROVIDER": SENTINEL}},
+                 {"changes": {"OPENROUTER_API_KEY": SENTINEL, "RETENTION_ENABLED": "no"}}):
         r = await client.put("/api/admin/settings", json=body, headers=ORIGIN)
         assert r.status_code == 422, r.text
         assert SENTINEL not in r.text
