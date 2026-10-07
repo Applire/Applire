@@ -258,6 +258,8 @@ NOT_RESOURCE_PARAMS: dict[str, str] = {
     # instance probe tokens are not ADR-092 owned resources.
     "user_id@/api/admin/users": "an account, admin-only account management (ADR-091 cl. 22)",
     "token_id@/api/admin/probe-tokens": "an instance probe token, admin-only (ADR-091 cl. 17)",
+    # Strawberry build 2, Epic C (ADR-093): a registry setting name, admin-only.
+    "key@/api/admin/settings": "an instance setting key, admin-only (ADR-093) — not owned",
 }
 
 

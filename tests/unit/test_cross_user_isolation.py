@@ -60,6 +60,7 @@ SUB_KEY_VALUES = {
     "conflict_id": "conflict-1",
     "pin_id": "pin-1",
     "scheme_id": str(uuid.UUID(int=7)),
+    "key": "LLM_PROVIDER",  # ADR-093 instance setting (admin-only)
 }
 
 
