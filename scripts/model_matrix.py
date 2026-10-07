@@ -214,6 +214,116 @@ def render_prompts(fixtures: Fixtures, shape: str) -> tuple[str, str]:
     return RECONCILE_SYSTEM_PROMPT, user
 
 
+def current_schema_param() -> dict[str, Any] | None:
+    """The ``json_schema`` block the engine would hand the provider right now."""
+    from applire.services.profile.reconcile.schema_out import reconcile_json_schema_param
+
+    return reconcile_json_schema_param()
+
+
+def _sha(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def prompt_identity(system_prompt: str, schema: dict[str, Any] | None) -> dict[str, Any]:
+    """What a row was measured AGAINST — the prompt and the schema, by hash.
+
+    #688 step 2 asks for a before/after row per prompt change; a row that does
+    not name the prompt it measured cannot be one half of that pair. The schema
+    is part of the prompt here: ``schema_out`` carries every op's docstring as
+    its description, so an op docstring edit changes what the model reads even
+    when ``prompts/reconcile.py`` is untouched (found 2026-10-07, #715).
+    """
+    schema_text = json.dumps(schema, sort_keys=True, ensure_ascii=False) if schema else ""
+    return {
+        "system_prompt_sha256": _sha(system_prompt),
+        "system_prompt_chars": len(system_prompt),
+        "schema_sha256": _sha(schema_text) if schema_text else None,
+        "schema_chars": len(schema_text),
+    }
+
+
+def dump_prompt(directory: Path) -> dict[str, Any]:
+    """Write the live system prompt and response schema — the A arm of an A/B pair."""
+    from applire.prompts.reconcile import RECONCILE_SYSTEM_PROMPT
+
+    directory.mkdir(parents=True, exist_ok=True)
+    schema = current_schema_param()
+    (directory / "system_prompt.txt").write_text(RECONCILE_SYSTEM_PROMPT, encoding="utf-8")
+    (directory / "schema.json").write_text(
+        json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return prompt_identity(RECONCILE_SYSTEM_PROMPT, schema)
+
+
+def apply_prompt_overrides(
+    system_prompt_path: str | None, schema_path: str | None
+) -> tuple[dict[str, Any], Any]:
+    """Point the engine at a prompt / schema read from disk, for an A/B arm.
+
+    The engine reads ``RECONCILE_SYSTEM_PROMPT`` as a module global and builds
+    its schema through ``_structured_output_schema()`` at call time, so both are
+    swapped on the engine module itself — the production call path stays the
+    one measured, only its two inputs change. The schema override still honours
+    ``LLM_STRUCTURED_OUTPUT``: with the setting off, no schema is sent in either
+    arm. Returns the identity of what the run will actually send, and a
+    ``restore`` callable that puts the engine back (an in-process caller — the
+    smoke test — must not leak one arm's prompt into the next).
+    """
+    from applire.services.profile.reconcile import engine
+
+    saved = (engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema)
+
+    def restore() -> None:
+        engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema = saved
+
+    if system_prompt_path:
+        engine.RECONCILE_SYSTEM_PROMPT = Path(system_prompt_path).read_text(encoding="utf-8")
+    if schema_path:
+        override = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        original = engine._structured_output_schema
+
+        def _overridden() -> dict[str, Any] | None:
+            return override if original() is not None else None
+
+        engine._structured_output_schema = _overridden
+    identity = prompt_identity(engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema())
+    identity["system_prompt_override"] = system_prompt_path
+    identity["schema_override"] = schema_path
+    return identity, restore
+
+
+def llm_log_calls(directory: Path) -> dict[str, Any]:
+    """Count the provider calls the run made, from the debug log it wrote.
+
+    The budget unit (Strawberry ruling B2-3) is a provider call, and the
+    reconcile seam makes more than one per turn: the stance guard adjudicates a
+    denied token with its OWN call on the same provider (ADR-061 cl. 2). One
+    record per ``aparse_json``/``acomplete`` — the count a budget is read from.
+    """
+    calls = 0
+    errors = 0
+    by_stage: dict[str, int] = {}
+    for path in sorted(directory.glob("*.jsonl")):
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                calls += 1
+                stage = str(record.get("stage"))
+                by_stage[stage] = by_stage.get(stage, 0) + 1
+                if record.get("error"):
+                    errors += 1
+    return {"calls": calls, "errors": errors, "by_stage": by_stage}
+
+
 def canonical_prompt(text: str) -> str:
     """Replace every UUID with a positional placeholder.
 
@@ -637,6 +747,9 @@ def print_summary(summary: dict[str, Any], header: str) -> None:
             + f"{rates['latency_p50_s'] or 0:>8.1f}"
         )
     usage = summary["usage"]
+    logged = (summary.get("meta") or {}).get("llm_log")
+    if logged:
+        print(f"\nprovider calls (debug log): {logged['calls']}  by stage: {logged['by_stage']}")
     print(
         f"\nprovider calls: {usage['calls']}  "
         f"prompt tokens: {usage['prompt_tokens']}  "
@@ -699,7 +812,11 @@ def openrouter_credits() -> float | None:
 # CLI
 # --------------------------------------------------------------------------- #
 def configure_env(
-    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+    provider: str,
+    model: str | None,
+    timeout: int | None,
+    reasoning: str = "default",
+    llm_log_dir: str | None = None,
 ) -> None:
     """Point the ADR-009 factory at the requested provider BEFORE applire imports.
 
@@ -723,13 +840,20 @@ def configure_env(
                 f"(supported: {', '.join(sorted(REASONING_ENV))})"
             )
         os.environ[env_var] = "false" if reasoning == "on" else "true"
+    if llm_log_dir:
+        os.environ["LLM_DEBUG_LOG"] = "true"
+        os.environ["LLM_DEBUG_LOG_DIR"] = str(Path(llm_log_dir).resolve())
     backend = str(REPO_ROOT / "backend")
     if backend not in sys.path:
         sys.path.insert(0, backend)
 
 
 def force_settings(
-    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+    provider: str,
+    model: str | None,
+    timeout: int | None,
+    reasoning: str = "default",
+    llm_log_dir: str | None = None,
 ) -> None:
     """Make the settings singleton agree with the CLI, and refuse to run if it can't.
 
@@ -754,6 +878,11 @@ def force_settings(
         setattr(settings, field, model)
     if timeout:
         settings.llm_timeout = timeout
+    if llm_log_dir:
+        # The call count a budget is read from — it must not depend on whether
+        # the singleton was built before configure_env ran.
+        settings.llm_debug_log = True
+        settings.llm_debug_log_dir = str(Path(llm_log_dir).resolve())
 
     if reasoning != "default":
         field = REASONING_FIELD.get(provider)
@@ -869,6 +998,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
+    parser.add_argument(
+        "--system-prompt",
+        default=None,
+        metavar="FILE",
+        help=(
+            "measure this reconcile system prompt instead of the tree's (an A/B arm; "
+            "write the tree's own with --dump-prompt, edit, pass it back)"
+        ),
+    )
+    parser.add_argument(
+        "--schema",
+        default=None,
+        metavar="FILE",
+        help="measure this response json_schema block instead of the tree's (A/B arm)",
+    )
+    parser.add_argument(
+        "--dump-prompt",
+        default=None,
+        metavar="DIR",
+        help="write the tree's system prompt + response schema to DIR and exit — no provider call",
+    )
+    parser.add_argument(
+        "--llm-log-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "turn on the LLM debug log into DIR (one record per provider call, "
+            "secondary calls included) and count the run's calls from it. Use a "
+            "fresh DIR per run: every *.jsonl in it is counted. The log holds full "
+            "prompts — keep it out of the repository"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1011,9 +1172,14 @@ def _tooling_context():
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    configure_env(args.provider, args.model, args.timeout, args.reasoning)
+    configure_env(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
     fixtures = Fixtures(Path(args.fixtures))
     shapes = resolve_shapes(fixtures, args.shapes)
+
+    if args.dump_prompt:
+        identity = dump_prompt(Path(args.dump_prompt))
+        print(json.dumps(identity, indent=2))
+        return 0
 
     if args.dry_run:
         return do_dry_run(fixtures, shapes)
@@ -1025,7 +1191,38 @@ def main(argv: list[str] | None = None) -> int:
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
         return 0
 
-    force_settings(args.provider, args.model, args.timeout, args.reasoning)
+    from applire.config import settings as _settings
+
+    # The debug-log switch is process-wide; an in-process caller (the smoke test)
+    # must get it back as it was, or every later test writes prompts to disk.
+    saved_log = (_settings.llm_debug_log, _settings.llm_debug_log_dir)
+    try:
+        return _run_arm(args, fixtures, shapes)
+    finally:
+        _settings.llm_debug_log, _settings.llm_debug_log_dir = saved_log
+
+
+def _run_arm(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> int:
+    force_settings(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
+    if args.llm_log_dir:
+        log_dir = Path(args.llm_log_dir)
+        if log_dir.exists() and any(log_dir.glob("*.jsonl")):
+            # A reused directory would fold an earlier run's calls into this
+            # run's count, and the budget is read from that count.
+            raise SystemExit(f"--llm-log-dir {log_dir} already holds a log; use a fresh directory")
+    prompt_meta, restore_prompt = apply_prompt_overrides(args.system_prompt, args.schema)
+    try:
+        return _measure(args, fixtures, shapes, prompt_meta)
+    finally:
+        restore_prompt()
+
+
+def _measure(
+    args: argparse.Namespace,
+    fixtures: Fixtures,
+    shapes: list[str],
+    prompt_meta: dict[str, Any],
+) -> int:
     install_log_readers()
     credits_before = (
         None
@@ -1055,7 +1252,11 @@ def main(argv: list[str] | None = None) -> int:
         # cannot claim a schema arm it silently fell out of.
         "schema_rejected": bool(_schema_rejections),
         "schema_rejection_note": _schema_rejections[0] if _schema_rejections else None,
+        # Which prompt + schema this row describes (#688: before/after rows).
+        "prompt": prompt_meta,
     }
+    if args.llm_log_dir:
+        summary["meta"]["llm_log"] = llm_log_calls(Path(args.llm_log_dir))
     cost = token_cost(summary["usage"], args.price_in, args.price_out) or {}
     credits_after = (
         None
