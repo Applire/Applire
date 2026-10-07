@@ -486,8 +486,17 @@ def kick_provider_probe() -> bool:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return False
-    _kick_task = loop.create_task(probe_provider(), context=contextvars.Context())
+    _kick_task = loop.create_task(_kicked_provider_probe(), context=contextvars.Context())
     return True
+
+
+async def _kicked_provider_probe() -> ProbeResult:
+    """The background check: instance work, declared unscoped like the refresher
+    (ADR-092 cl. 8, the same reason as ``aggregate._refresh_loop``)."""
+    from applire.ownership import unscoped
+
+    with unscoped("ops-aggregate"):
+        return await probe_provider()
 
 
 async def provider_result_without_probing() -> ProbeResult:
