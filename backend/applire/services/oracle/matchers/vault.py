@@ -549,6 +549,10 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
 # side (``audit._subject_tenure_flag``), so both read "about which skill" alike.
 SUBJECT_WINDOW_BEFORE = 40
 SUBJECT_WINDOW_AFTER = 60
+# Boundaries a duration's subject is never read across (normalised text).
+_SUBJECT_BARRIER_RE = __import__("re").compile(
+    r"[,;.!?]|\b(?:und|and|sowie|oder|or|plus|as well as|while|während)\b"
+)
 
 
 def skills_near_duration(
@@ -579,16 +583,27 @@ def skills_near_duration(
         if not surface_present_whole_token(name, window):
             continue
         n = _norm(name)
-        best = len(window)
+        best: int | None = None
         for m in re.finditer(r"(?<![0-9a-zäöüß])" + re.escape(n) + r"(?![0-9a-zäöüß])", window):
             if m.end() <= dur_start:
+                gap = window[m.end():dur_start]
                 d = dur_start - m.end()
             elif m.start() >= dur_end:
+                gap = window[dur_end:m.start()]
                 d = m.start() - dur_end
             else:
-                d = 0
-            best = min(best, d)
-        out.append((name, best))
+                gap, d = "", 0
+            # A list or clause boundary between the duration and the skill
+            # means the skill is another item, not the duration's subject:
+            # "five years with Django and nine years with PostgreSQL",
+            # "eight years of experience, I have worked with Django",
+            # "SAP CO (knapp acht Jahre) und SAP FI" (corpus re-measure of
+            # adversarial finding 4, 2026-10-07).
+            if _SUBJECT_BARRIER_RE.search(gap):
+                continue
+            best = d if best is None else min(best, d)
+        if best is not None:
+            out.append((name, best))
     return out
 
 
