@@ -37,6 +37,7 @@ _EXPECTED_LABEL_ORDER = [
     "19,007 (M5.1.1 (3),",
     "NOT SHIPPED",
     "20,106 (#707,",
+    "20,320 (#715,",
 ]
 
 
@@ -63,7 +64,7 @@ def test_the_final_shipped_entry_matches_the_actual_prompt_length():
     measured arm and the shipped text have drifted apart (evidence no longer
     describes the code it was measured against)."""
     prompt_len = len(reconcile_module.RECONCILE_SYSTEM_PROMPT)
-    assert prompt_len == 20106, (
+    assert prompt_len == 20320, (
         f"RECONCILE_SYSTEM_PROMPT is {prompt_len} chars; the version header's "
-        "last shipped entry claims 20,106 -- update whichever one drifted"
+        "last shipped entry claims 20,320 -- update whichever one drifted"
     )

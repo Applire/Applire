@@ -161,6 +161,28 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   from 3 extra rows per run to 3/1/0. The model also matches word-for-word
   restatements the paragraph exempts (a receipt line, no write). Records:
   ``Documents/Runs/Nougat/uat-fixes-2/``; $0.32 for the arm.
+* **20,320 (#715, 2026-10-07).** PROVISIONAL — ruling V-4/MD2-10: wave-2 M
+  measures it at n=10 before the build-2 PR merges. ``match_existing`` now
+  also names jobs ("Company / Role") and volunteering ("Organization / Role"),
+  and projects by title — for an engagement only when the employer is named
+  differently and the title is the same (a different TITLE stays rule 7). The
+  ALREADY THERE paragraph names "project or job" and "a shorter or older
+  employer name". Why: the #715 shape (same title, the employer written
+  "Labvantage" for "Labvantage Solutions GmbH") had no way to say "already
+  there" except silence, and the witness listed it. The engagement binding is
+  deterministic (same stated start month), and alternate names are recorded
+  only from that binding (ADR-046/063 amended 2026-10-07). *Measured:* use, on
+  the synthetic Strawberry-V replays (luna, n=5 per arm): the #715 shape was
+  listed in 4/5 runs before and 0/5 after; the C arm (one Kolping entry fewer)
+  2/5 → 0/5; the #707 case unchanged at 0/5. The negative case (Novartis Pharma
+  AG / Data Scientist, other start month) was created as its own job 5/5 in
+  both arms. Matrix S6–S10 n=5: ``gpt-5.6-luna`` 0.00 on every rate (S10
+  zero-op 100 % — correct). ``glm-5.3-flash`` S6/S9 malformed 3/9 and 2/10
+  valid turns over two arms against 0/4 and 0/5 on the old prompt the same day
+  (ops without an ``op`` key, union_tag_not_found ×10; one ``upsert_publication``
+  without a title) — n too small to separate from noise (≈p 0.15), and it is
+  the precedent-M5.1.1(2) question M answers. Records:
+  ``Documents/Runs/Strawberry/build-2/v/runs/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -310,11 +332,13 @@ Operations:
   under another surface form — a translation ("English" for "Englisch"), a
   synonym, an abbreviation — and adds nothing new about it. Fields: target (that
   existing entity's id), incoming (the name EXACTLY as the new information
-  writes it: the skill / certification / language name, the publication or
-  story title, "Institution / Degree" for education). REQUIRED: target,
+  writes it: the skill / certification / language name, the publication,
+  story or project title, "Institution / Degree" for education, "Company /
+  Role" for a job, "Organization / Role" for volunteering). REQUIRED: target,
   incoming. Writes nothing — it records that you SAW the entry and where it
-  already lives. Not for jobs, projects or volunteering (rule 7). A
-  WORD-FOR-WORD restatement needs no op.
+  already lives. For a job or volunteering role only when the employer is
+  named differently and the title is the same; a different TITLE is rule 7.
+  A WORD-FOR-WORD restatement needs no op.
 
 - request_confirmation — a targeted yes/no (or short-choice) question for the
   user. Fields: question, options (list of short answers), context (a dict with
@@ -375,8 +399,9 @@ Operations:
    genuinely new field(s). Never a second entry under the new source's
    alternate phrasing.
    ALREADY THERE, NOTHING NEW (#707): when the new information names a skill,
-   language, certification, degree, publication or story the profile already
-   has under a different name — a translation, a synonym, an abbreviation —
+   language, certification, degree, publication, story, project or job the
+   profile already has under a different name — a translation, a synonym, an
+   abbreviation, a shorter or older employer name —
    and adds no new field, emit match_existing with "target" = that entry's
    `id` and "incoming" = the name as written. Never an upsert for it (that
    creates a second entry) and never silence (silence reads as dropped).
