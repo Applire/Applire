@@ -223,6 +223,12 @@ class InstanceSettingItem(BaseModel):
     #: ``source == "panel"`` only.
     updated_at: datetime | None = None
     updated_by_user_id: uuid.UUID | None = None
+    #: CONTRACT-CHANGE MD2-6 (4): the author's CURRENT email, resolved live;
+    #: ``None`` when the source is not ``panel`` or the account was erased.
+    updated_by_email: str | None = None
+
+
+Qualification = Literal["qualified", "not_qualified", "unmeasured"]
 
 
 class ProviderStatus(BaseModel):
@@ -238,6 +244,13 @@ class ProviderStatus(BaseModel):
     #: ``has_key or not key_required`` — the provider can be made active.
     ready: bool
     active: bool
+    #: CONTRACT-CHANGE MD2-6 (1): what the published matrix (docs/llm-models.md,
+    #: #688) says about THIS provider's effective model. Data:
+    #: ``backend/applire/data/model_qualification.json``.
+    qualification: Qualification = "unmeasured"
+    qualification_reason: str | None = None
+    #: The date the qualification data describes (ISO date), e.g. "2026-09-16".
+    qualification_as_of: str | None = None
 
 
 class SettingDependency(BaseModel):
@@ -336,6 +349,9 @@ class AdminUsageResponse(BaseModel):
     users: list[UsageUserRow]
     unattributed: UsageTotals
     by_provider: list[UsageProviderRow]
+    #: CONTRACT-CHANGE MD2-6 (2): ``llm_usage.document_kind`` buckets — ``cv``,
+    #: ``cover_letter``, and ``other`` (every call not attributed to a document).
+    by_document_kind: dict[Literal["cv", "cover_letter", "other"], UsageTotals]
 
 
 AdminNoticeCode = Literal[
@@ -412,6 +428,18 @@ class DashboardFailedJobs(BaseModel):
     items: list[FailedJobItem]
 
 
+class RetentionTtlDays(BaseModel):
+    """CONTRACT-CHANGE MD2-8: the effective TTLs (env, ``constants.py``), in days;
+    0 = that rule never expires anything."""
+
+    uploads: int
+    interview_sessions: int
+    generated_documents: int
+    cancelled_applications: int
+    profile_inactivity: int
+    audit_log: int
+
+
 class DashboardRetention(BaseModel):
     """#738: is the GDPR retention sweep on, and did it run."""
 
@@ -421,6 +449,15 @@ class DashboardRetention(BaseModel):
     last_run_ok: bool | None = None
     #: The last run found retention disabled and skipped the personal-data TTLs.
     last_run_skipped: bool | None = None
+    #: CONTRACT-CHANGE MD2-6 (3): while ON, the start of the current uninterrupted
+    #: ON period — the newest audit row that turned it on (``settings.changed`` /
+    #: ``settings.reset`` / ``settings.env_observed``), else the instance claim
+    #: time (``setup.claimed``), else ``None``. ``None`` while OFF.
+    enabled_since: datetime | None = None
+    #: While OFF: the current email of the admin whose panel change turned it
+    #: off; ``None`` when ON, or when it was turned off through the environment.
+    changed_by_email: str | None = None
+    ttl_days: RetentionTtlDays
 
 
 class AdminDashboardResponse(BaseModel):

@@ -366,8 +366,23 @@ def _parse_backup_stamp(raw: Any) -> datetime | None:
 
 # ── provider ──────────────────────────────────────────────────────────────────
 
-# (expires_at_monotonic, ProbeResult)
-_provider_cache: tuple[float, ProbeResult] | None = None
+# (expires_at_monotonic, ProbeResult, provider fingerprint)
+_provider_cache: tuple[float, ProbeResult, str] | None = None
+
+
+def _provider_fingerprint() -> str:
+    """Which provider/model/key a cached result is about (ADR-093: a runtime
+    switch must not be answered from the previous provider's cache for 15 min).
+    A hash of the key, never the key."""
+    import hashlib
+
+    from applire.config import settings
+
+    family = (settings.llm_provider or "").strip().lower()
+    model = str(getattr(settings, f"{family}_model", "") or "")
+    key = str(getattr(settings, f"{family}_api_key", "") or "")
+    digest = hashlib.sha256(key.encode()).hexdigest()[:12]
+    return f"{family}|{model}|{digest}"
 
 
 def reset_provider_cache() -> None:
@@ -387,7 +402,13 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     """
     global _provider_cache
     now = time.monotonic()
-    if not force and _provider_cache is not None and _provider_cache[0] > now:
+    fingerprint = _provider_fingerprint()
+    if (
+        not force
+        and _provider_cache is not None
+        and _provider_cache[0] > now
+        and _provider_cache[2] == fingerprint
+    ):
         return _provider_cache[1]
 
     from applire.config import settings
@@ -438,6 +459,7 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     _provider_cache = (
         now + ops_config.OPS_PROVIDER_PROBE_INTERVAL_MINUTES * 60,
         result,
+        fingerprint,
     )
     return result
 

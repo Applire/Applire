@@ -85,7 +85,7 @@ async def analyze_job_description(
         except ScraperError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"error_code": "jd_fetch_failed", "message": exc.reason},
+                detail={"error_code": exc.code, "message": exc.reason},
             )
         source_url = body.url
         origin = "scraped"

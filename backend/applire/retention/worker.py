@@ -59,6 +59,7 @@ Technical debt note: Retention Worker is architecturally isolated but co-located
 import json
 import logging
 import time
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, or_, select, text, update
@@ -519,20 +520,26 @@ async def _purge_audit_events(db: AsyncSession) -> int:
         return 0
 
 
-async def _tombstone_inactive_applications(db: AsyncSession) -> int:
+async def _tombstone_inactive_applications(db: AsyncSession, *, cancelled_only: bool = False) -> int:
     """Soft-delete applications whose inactivity timer has expired (730 days).
 
     The expires_at column is reset on every update (status change, notes, workflow
     advancement). This is an inactivity timer, not a creation timer (ADR 005 v2).
+
+    ``cancelled_only`` (retention toggle OFF, #738 / ADR-005 amended 2026-10-07):
+    only the US222 short clock of a CANCELLED application still runs — the user's
+    own discard decision is never suspended; the 730-day inactivity rule is.
     """
     now = datetime.now(timezone.utc)
     try:
-        result = await db.execute(
+        stmt = (
             update(Application)
             .where(Application.expires_at < now)
             .where(Application.deleted_at.is_(None))
-            .values(deleted_at=now)
         )
+        if cancelled_only:
+            stmt = stmt.where(Application.user_status == "cancelled")
+        result = await db.execute(stmt.values(deleted_at=now))
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
@@ -918,6 +925,30 @@ async def record_run(report: dict, *, duration_ms: int, ok: bool, error: str | N
         )
 
 
+async def _retention_toggle() -> tuple[bool, str]:
+    """``RETENTION_ENABLED`` as in force for THIS run (ADR-093 cl. 6: the worker
+    refreshes the admin overrides at the start of each run). Cloud: always on."""
+    from applire.services import instance_settings
+
+    await instance_settings.refresh()
+    return instance_settings.retention_state()
+
+
+async def _record_skip(source: str) -> None:
+    """#738: a run that suspended the personal-data TTLs leaves an audit row."""
+    from applire.services import audit
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await audit.record(
+                db, actor_id=None, action="retention.skipped", target_type="instance",
+                target_id=None, details={"source": source},
+            )
+            await db.commit()
+    except Exception as exc:  # the audit trace must not stop the housekeeping
+        logger.warning("retention.skipped audit row not written: %s", type(exc).__name__)
+
+
 async def run() -> None:
     """Execute all TTL rules, emit a JSON report to stdout AND persist it."""
     started = time.monotonic()
@@ -949,23 +980,61 @@ async def _sweep() -> dict:
     """Run every TTL rule and build the report. Raises on an unhandled failure.
 
     A declared cross-user entry point (ADR-092 cl. 8): ``unscoped("retention")``.
+    With ``RETENTION_ENABLED`` off (#738) the rules in :data:`SUSPENDABLE_RULES`
+    are skipped, an audit row says so, and the report records what was in force.
     """
-    with ownership.unscoped("retention"):
-        return await _sweep_unscoped()
+    enabled, source = await _retention_toggle()
+    if not enabled:
+        await _record_skip(source)
+    token = _RUN_ENABLED.set(enabled)
+    try:
+        with ownership.unscoped("retention"):
+            report = await _sweep_unscoped()
+    finally:
+        _RUN_ENABLED.reset(token)
+    report["retention_enabled"] = enabled
+    report["retention_source"] = source
+    return report
+
+
+#: Whether this run applies the suspendable rules (set by :func:`_sweep`).
+_RUN_ENABLED: ContextVar[bool] = ContextVar("applire_retention_enabled", default=True)
+
+
+#: The calendar personal-data TTLs the retention toggle suspends (ADR-005 amended
+#: 2026-10-07, ruling C1-3). Everything else in the sweep ALWAYS runs: erasure is
+#: not here at all, and the cancelled-application path, fact-pin release, auth
+#: housekeeping, job handles, stale-job reaping, the orphan-file scan and the
+#: audit / usage / run-record age rules stay on.
+SUSPENDABLE_RULES: tuple[str, ...] = (
+    "uploads",
+    "interview_sessions",
+    "generated_cvs",
+    "generated_cover_letters",
+    "master_profiles_inactivity",
+    "users_inactivity",
+    "applications_inactivity",
+    "orphan_postings",
+)
+
+
+async def _zero(_db: AsyncSession) -> int:
+    return 0
 
 
 async def _sweep_unscoped() -> dict:
+    on = _RUN_ENABLED.get()
     async with AsyncSessionLocal() as db:
-        uploads_deleted = await _purge_uploads(db)
-        sessions_deleted = await _purge_sessions(db)
+        uploads_deleted = await (_purge_uploads if on else _zero)(db)
+        sessions_deleted = await (_purge_sessions if on else _zero)(db)
         # Counted before the purges: the exempt rows are exactly the ones the
         # guarded DELETEs skip, so ordering doesn't change the number — but
         # counting first keeps the report honest if a later purge errors.
         submitted_exempt = await _count_submitted_exempt(db)
-        cvs_deleted = await _purge_cvs(db)
-        profiles_tombstoned = await _tombstone_inactive_profiles(db)
-        users_tombstoned = await _tombstone_inactive_users(db)
-        applications_tombstoned = await _tombstone_inactive_applications(db)
+        cvs_deleted = await (_purge_cvs if on else _zero)(db)
+        profiles_tombstoned = await (_tombstone_inactive_profiles if on else _zero)(db)
+        users_tombstoned = await (_tombstone_inactive_users if on else _zero)(db)
+        applications_tombstoned = await _tombstone_inactive_applications(db, cancelled_only=not on)
         # After the tombstone sweep: an application tombstoned TODAY releases
         # its fact-pin quotes in the same run (ADR-077 clause 7).
         fact_pins_released = await _release_fact_pins(db)
@@ -977,7 +1046,7 @@ async def _sweep_unscoped() -> dict:
             cancelled_flows_tombstoned,
         ) = await _purge_cancelled_documents(db)
         stale_cv_jobs_failed = await _reap_stale_cv_jobs(db)
-        cover_letters_deleted = await _purge_cover_letters(db)
+        cover_letters_deleted = await (_purge_cover_letters if on else _zero)(db)
         stale_cl_jobs_failed = await _reap_stale_cl_jobs(db)
         import_jobs_deleted = await _purge_import_jobs(db)
         gap_jobs_deleted = await _purge_gap_jobs(db)
@@ -989,7 +1058,7 @@ async def _sweep_unscoped() -> dict:
         llm_usage_deleted = await _purge_llm_usage(db)
         # After every owned-row purge above: a posting whose last referencing
         # session/document went today is an orphan in the same run.
-        orphan_postings_deleted = await _purge_orphan_postings(db)
+        orphan_postings_deleted = await (_purge_orphan_postings if on else _zero)(db)
         auth_housekeeping = await _purge_auth_housekeeping(db)
         audit_events_deleted = await _purge_audit_events(db)
 
