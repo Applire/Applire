@@ -26,44 +26,53 @@ interface CoverLetterActionsTabProps {
   /** E054/US289: the post-generation language switch (DocumentLanguageSwitch),
    *  slotted by the page — mirrors CVActionsTab's slot. */
   languageSwitch?: ReactNode;
+  /**
+   * #737 (RULING E-1 = A): what feeds the next version — the pin fates of this
+   * letter. Slotted by the page; rendered inside "Neue Fassung erstellen".
+   */
+  pins?: ReactNode;
 }
 
-// PDF download is owned by the workspace panel's pinned export footer
-// (E038; relocated there by E058/US299, ADR-081 cl. 1); the Aktionen tab
-// only carries regenerate — mirroring CVActionsTab so both documents' Aktionen
-// tabs are structurally consistent.
+/**
+ * Letter "Aktionen" (#737, RULING E-1 = A): one block, "Neue Fassung erstellen",
+ * holding everything that makes a NEW letter (regenerate, language switch) and
+ * what feeds it (pins). The page puts its one confirmation in front of the
+ * regenerate when the body carries an edit.
+ */
 export function CoverLetterActionsTab({
   onRegenerateCoverLetter,
   languageSwitch,
+  pins,
 }: CoverLetterActionsTabProps) {
   const t = useTranslations("coverLetter");
+  const tEdit = useTranslations("editTab");
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-3 p-3" data-testid="cl-new-version">
+      <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+        {tEdit("newVersionTitle")}
+      </p>
+      <p className="text-xs text-on-surface-variant">{tEdit("newVersionIntro")}</p>
+      <button
+        type="button"
+        onClick={onRegenerateCoverLetter}
+        className="btn-glass w-full justify-center inline-flex items-center gap-2"
+        data-testid="cl-regenerate-btn"
+      >
+        {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
+        <span aria-hidden="true">↻</span>
+        {t("regenerate")}
+      </button>
       {languageSwitch && (
         <div className="rounded-lg border border-outline-variant bg-surface-container/50 px-3 py-2">
           {languageSwitch}
         </div>
       )}
-      <div className="border-t border-neutral-200 pt-3">
-        <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
-          {t("regenerateHeading")}
-        </p>
-        <p className="text-xs text-neutral-400 mb-3">
-          {t("regenerateHint")}
-        </p>
-        <button
-          type="button"
-          onClick={onRegenerateCoverLetter}
-          className="w-full border border-neutral-300 text-sm py-2.5 rounded hover:border-neutral-500 transition-colors"
-          data-testid="cl-regenerate-btn"
-        >
-          <span className="flex items-center justify-center gap-1">
-            {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx */}
-            <span aria-hidden="true">↻</span>
-            {t("regenerate")}
-          </span>
-        </button>
-      </div>
+      {pins && (
+        <div className="flex flex-col gap-2" data-testid="cl-new-version-pins">
+          <p className="text-xs text-on-surface-variant">{tEdit("pinsLead")}</p>
+          {pins}
+        </div>
+      )}
     </div>
   );
 }
