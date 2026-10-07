@@ -122,6 +122,28 @@ def _parse_partial_date(s: str) -> date:
     return date(year, month, day)
 
 
+def _parse_partial_date_end(s: str) -> date:
+    """The EXCLUSIVE end of a partial date — the day after the last day it covers.
+
+    "2023" → 2024-01-01, "2023-12" → 2024-01-01, "2023-12-15" → 2023-12-16.
+    An end month or end year is inclusive in a CV ("01/2016 – 12/2023" is
+    eight years). Reading it as its first day (``_parse_partial_date``) loses a
+    month per role boundary — adversarial finding 3, 2026-10-07: four
+    back-to-back roles over 96 months read as 7.77 years and a TRUE "seit acht
+    Jahren" was accused. Used only by the ``bound="upper"`` reading.
+    """
+    from datetime import timedelta
+
+    parts = s.strip().split("-")
+    year = int(parts[0])
+    if len(parts) == 1 or not parts[1]:
+        return date(year + 1, 1, 1)
+    month = int(parts[1])
+    if len(parts) == 2 or not parts[2]:
+        return date(year + (month // 12), month % 12 + 1, 1)
+    return date(year, month, int(parts[2])) + timedelta(days=1)
+
+
 def _max_plausible_years(profile: MasterProfileData) -> int:
     """Deterministic plausibility ceiling for an LLM-estimated skill duration (#264).
 
@@ -266,7 +288,7 @@ def _demonstrates(skill_name: str, evidence_norm: str) -> bool:
 
 
 def _evidencing_ranges(
-    profile: MasterProfileData, skill_name: str, today: date
+    profile: MasterProfileData, skill_name: str, today: date, bound: str = "stored"
 ) -> tuple[list[tuple[date, date]], list[str]]:
     """Dated ranges + org labels of every experience whose own text names the skill.
 
@@ -274,6 +296,20 @@ def _evidencing_ranges(
     enrichment and :func:`evidenced_span_years`, so the Oracle's duration check
     and the letter's hedge view can never disagree with the stored
     ``computed`` duration about which roles count.
+
+    ``bound`` picks how a partial date is READ (adversarial findings 3 + 5,
+    2026-10-07 — one instrument, calibrated per consumer):
+
+    * ``"stored"`` — the arithmetic the stored ``computed`` value has always
+      used (start and end read as their first day; a missing end = today).
+    * ``"upper"`` — the Oracle's permissive reading: an end month/year is
+      inclusive (exclusive end = first day after it); a missing end = today.
+      Used to ACCUSE, so every choice resolves toward the larger span.
+    * ``"floor"`` — the letter view's reading: ``"stored"`` arithmetic, and a
+      range whose end is missing while the role is not marked current is
+      dropped — it has no checkable floor (ruling T-1b's rule for estimates,
+      applied to an unknown end). Used to OFFER a number, so every choice
+      resolves toward the smaller span.
     """
     ranges: list[tuple[date, date]] = []
     orgs: list[str] = []
@@ -289,11 +325,19 @@ def _evidencing_ranges(
             continue
         # Parse end date — null means current role/engagement → today
         if entry.end_date is None:
+            if bound == "floor" and getattr(entry, "is_current", None) is not True:
+                continue
             end = today
         else:
             try:
-                end = _parse_partial_date(entry.end_date)
+                end = (
+                    _parse_partial_date_end(entry.end_date)
+                    if bound == "upper"
+                    else _parse_partial_date(entry.end_date)
+                )
             except (ValueError, AttributeError):
+                if bound == "floor":
+                    continue
                 end = today
         ranges.append((start, end))
         label = entry.org_label()
@@ -303,7 +347,7 @@ def _evidencing_ranges(
 
 
 def evidenced_span_years(
-    profile: MasterProfileData, skill_name: str
+    profile: MasterProfileData, skill_name: str, *, bound: str
 ) -> tuple[float, list[str]] | None:
     """How long the dated experiences that NAME this skill span (#747).
 
@@ -312,10 +356,15 @@ def evidenced_span_years(
     names the skill. ADR-062: a FACT (whole-token presence + date arithmetic),
     the same one phase 1 stores, rounded, as a ``computed`` duration.
 
-    Readers (ADR-052 / ADR-078 amended 2026-10-07): the Oracle's per-subject
-    duration check and the letter view's ``derived_spans="hedge"`` rendering.
+    ``bound`` is REQUIRED (adversarial finding 3): ``"upper"`` for the
+    Oracle's duration check (it accuses, so it must not under-read an
+    inclusive end month), ``"floor"`` for the letter view's hedge (it offers
+    a number, so it must not over-read an unknown end — finding 5). See
+    :func:`_evidencing_ranges`.
     """
-    ranges, orgs = _evidencing_ranges(profile, skill_name, date.today())
+    if bound not in ("upper", "floor"):
+        raise ValueError(f"bound must be 'upper' or 'floor', not {bound!r}")
+    ranges, orgs = _evidencing_ranges(profile, skill_name, date.today(), bound)
     if not ranges:
         return None
     return _union_years(ranges), orgs

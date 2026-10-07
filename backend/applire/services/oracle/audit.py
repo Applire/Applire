@@ -108,6 +108,11 @@ from applire.services.oracle.matchers import (
     ground_via_role_union,
     ground_via_skill_union,
     match_figures,
+    skills_near_duration,
+)
+from applire.services.oracle.matchers.vault import (
+    RESTATEMENT_MIN_SHARED,
+    duration_window_tokens,
 )
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
@@ -706,20 +711,35 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
 # before the number sets how much span the claim needs (closed DE/EN table —
 # FACT, two adjacent tokens). The over-direction only, like #469.
 _HEDGE_AT_LEAST = ("mehr als", "more than", "über", "ueber", "over")
-_HEDGE_ALMOST = ("knapp", "fast", "beinahe", "nahezu", "almost", "nearly")
-_HEDGE_ABOUT = (
-    "rund", "etwa", "ca.", "circa", "ungefähr", "about", "around", "roughly",
-    "approximately",
+# Downward hedges: the claim says LESS than N. Adversarial finding 2
+# (2026-10-07) added "nicht ganz", "annähernd", "just under", "close to",
+# "a little under", "knapp unter" — each says less than N and was read as a
+# flat N. Longest forms first so "knapp unter" is not cut to "unter".
+_HEDGE_ALMOST = (
+    "knapp unter", "nicht ganz", "a little under", "just under", "close to",
+    "knapp", "fast", "beinahe", "nahezu", "annähernd", "annaehernd",
+    "almost", "nearly",
 )
-# Month-granular dates: "02/2019" is stored as the first of the month.
+_HEDGE_ABOUT = (
+    "rund", "etwa", "ca.", "ca", "circa", "zirka", "ungefähr", "ungefaehr",
+    "about", "around", "roughly", "approximately", "approx.", "approx",
+)
+# One month: a single rounding slack on top of the UPPER span reading (end
+# months/years inclusive since adversarial finding 3).
 _SUBJECT_TENURE_TOLERANCE_YEARS = 1 / 12
-# Characters around the duration in which its subject skill must be named.
-_SUBJECT_WINDOW_BEFORE = 40
-_SUBJECT_WINDOW_AFTER = 60
+# Punctuation that may sit between a hedge and its number: "SAP CO (knapp
+# acht Jahre)" — the CV skills-line shape (adversarial finding 1) — or
+# "SAP CO: knapp acht Jahre", "SAP CO – knapp acht Jahre". Stripped from the
+# text BEFORE the number, never from the hedge itself.
+_HEDGE_TRAILING_PUNCT = "([{„“\"'‚‘–—-:,"
 
 
 def _required_span(text: str, raw: str, years: float) -> float:
-    """Span (years) a stated duration needs, read off its hedge word."""
+    """Span (years) a stated duration needs, read off its hedge word.
+
+    The hedge must END the text before the number, as a whole word
+    ("(knapp", ": knapp" and "knapp" all count; "Knappschaft" does not).
+    """
     lower = text.lower()
     pos = lower.find(raw.lower())
     before = lower[:pos].rstrip() if pos >= 0 else ""
@@ -729,8 +749,20 @@ def _required_span(text: str, raw: str, years: float) -> float:
         (_HEDGE_AT_LEAST, years),
     ):
         for h in hedges:
-            if before.endswith(" " + h) or before == h:
+            if re.search(r"(?:^|[^\wäöüß])" + re.escape(h) + r"$", before):
                 return need
+    # A hedge separated from the number by punctuation only — "(knapp acht"
+    # has none, but "knapp: acht" / "knapp – acht" would.
+    stripped = before.rstrip(_HEDGE_TRAILING_PUNCT + " ")
+    if stripped != before:
+        for hedges, need in (
+            (_HEDGE_ALMOST, years - 0.5),
+            (_HEDGE_ABOUT, years - 0.5),
+            (_HEDGE_AT_LEAST, years),
+        ):
+            for h in hedges:
+                if re.search(r"(?:^|[^\wäöüß])" + re.escape(h) + r"$", stripped):
+                    return need
     return years
 
 
@@ -767,32 +799,41 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     claims = extract_tenure_claims(text)
     if not claims or not index.skill_spans:
         return None
-    lower = text.lower()
     for tenure in claims:
-        if tenure.years in index.stated_tenure_years:
+        raw = tenure.raw.strip()
+        # Subject = the vault skill named NEAREST the duration within ~8 words
+        # (never anywhere in the sentence: "meets the requested three years of
+        # ICU experience, while I also bring … shift coordination" is not a
+        # claim of three years of shift coordination). Nearest, not "any" —
+        # adversarial finding 4b: "neun Jahre … SAP CO und Excel" is about SAP
+        # CO, and Excel's own span or stated years must not vouch for it.
+        near = skills_near_duration(text, raw, list(index.skill_spans))
+        if not near:
             continue
-        # Subject = a vault skill named NEAR the duration (≈ 8 words), never
-        # anywhere in the sentence: "meets the requested three years of ICU
-        # experience, while I also bring … shift coordination" is not a claim
-        # of three years of shift coordination (corpus false positive).
-        pos = lower.find(tenure.raw.strip().lower())
-        start = max(0, pos) if pos >= 0 else 0
-        window = _norm(
-            text[max(0, start - _SUBJECT_WINDOW_BEFORE) : start + len(tenure.raw) + _SUBJECT_WINDOW_AFTER]
-        )
-        subjects = [
-            name for name in index.skill_spans
-            if surface_present_whole_token(name, window)
-        ]
-        if not subjects:
+        closest = min(d for _, d in near)
+        tied = [n for n, d in near if d == closest]
+        best = max(tied, key=lambda n: index.skill_spans[n][0])
+        # Escapes — the candidate's own words win, for THIS subject only
+        # (adversarial finding 4a: a career total stated anywhere in the
+        # vault is not a statement about SAP CO).
+        if index.stated_skill_tenures.get(best, -1.0) >= tenure.years:
             continue
+        if index.transcribed_skill_years.get(best, -1) >= tenure.years:
+            continue
+        # …or the claim RESTATES a sentence of the candidate's own that states
+        # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
+        # common around it). Not subject-scoped by skill name: "Controllerin
+        # mit 9 Jahren Erfahrung im industriellen Mittelstand" is the
+        # candidate's statement behind "neun Jahre Controlling-Erfahrung im
+        # industriellen Mittelstand", although "Controllerin" is not the
+        # token "Controlling". A bare number elsewhere never qualifies (4a).
+        claim_words = duration_window_tokens(text, raw)
         if any(
-            index.transcribed_skill_years.get(name, -1) >= tenure.years
-            for name in subjects
+            years == tenure.years and len(claim_words & words) >= RESTATEMENT_MIN_SHARED
+            for years, words in index.stated_tenure_windows
         ):
             continue
-        required = _required_span(text, tenure.raw.strip(), tenure.years)
-        best = max(subjects, key=lambda n: index.skill_spans[n][0])
+        required = _required_span(text, raw, tenure.years)
         span, orgs = index.skill_spans[best]
         if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
             continue
@@ -800,9 +841,9 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         return ClaimVerdict(
             verdict="unbacked",
             checker="numbers",
-            figures=[tenure.raw.strip()],
+            figures=[raw],
             detail=(
-                f'Claimed duration "{tenure.raw.strip()}" exceeds the '
+                f'Claimed duration "{raw}" exceeds the '
                 f"{span:.1f} years of the dated roles whose own text names "
                 f'"{best}" ({where}). A span derived from dates may be stated '
                 f'only hedged and rounded down (e.g. "über {int(span)} Jahre").'

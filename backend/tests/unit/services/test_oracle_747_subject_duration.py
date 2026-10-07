@@ -132,3 +132,83 @@ def test_seam_cv_path():
     report = asyncio.run(audit_document("cv", _profile(), tailored_data=tailored))
     hits = [cr for cr in report.claims if "cht Jahre" in cr.claim.text]
     assert len(hits) == 2 and all(cr.verdict.verdict == "unbacked" for cr in hits), hits
+
+
+# ── adversarial findings 1, 2, 4 (2026-10-07) — companions to the adv tests ──
+@pytest.mark.parametrize("text", [
+    "SAP CO: knapp acht Jahre.",
+    "SAP CO – knapp acht Jahre.",
+    "SAP CO (über sieben Jahre).",
+    "Seit knapp unter acht Jahren arbeite ich mit SAP CO.",
+    "A little under eight years of SAP CO.",
+    "Approx. eight years of SAP CO.",
+])
+def test_hedge_after_punctuation_and_new_downward_forms_are_read(text):
+    assert _v(text).verdict != "unbacked", (text, _v(text).detail)
+
+
+def test_a_hedge_word_inside_another_word_is_not_a_hedge():
+    # "Knappschaft" ends with no hedge; "acht Jahre" stays a flat count.
+    assert _v("Für die Knappschaft acht Jahre SAP CO betreut.").verdict == "unbacked"
+
+
+def test_the_nearest_skills_own_stated_years_still_escape():
+    profile = _profile()
+    profile["work_experience"][1]["technologies"] = ["Excel"]
+    profile["skills"].append({"name": "Excel", "category": "technical",
+                              "years_experience": 10, "source": "transcribed"})
+    assert _v("Zehn Jahre Excel und SAP CO.", profile).verdict != "unbacked"
+
+
+def test_a_statement_about_the_same_skill_escapes_a_career_total_does_not():
+    stated = _profile()
+    stated["work_experience"][0]["achievements"] = ["Neun Jahre SAP CO im Konzernumfeld."]
+    assert _v("Seit neun Jahren arbeite ich mit SAP CO.", stated).verdict != "unbacked"
+    total = _profile(professional_summary={"de": "Controllerin mit 9 Jahren Erfahrung."})
+    assert _v("Seit neun Jahren arbeite ich mit SAP CO.", total).verdict == "unbacked"
+
+
+def test_a_restatement_of_the_candidates_own_career_sentence_escapes():
+    # Corpus re-measure of adversarial finding 4 (2026-10-07): the Kaile-probe
+    # letter restated the CV summary; "Controllerin" is not the token
+    # "Controlling", so only the restatement escape keeps it honest.
+    profile = _profile(professional_summary={
+        "de": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand."})
+    profile["work_experience"][1]["responsibilities"] = ["Controlling der Werke"]
+    profile["skills"].append({"name": "Controlling", "category": "domain",
+                              "years_experience": 2, "source": "computed"})
+    text = "Dazu bringe ich neun Jahre Controlling-Erfahrung im industriellen Mittelstand mit."
+    assert _v(text, profile).verdict != "unbacked", _v(text, profile).detail
+    # The same number without the restated words stays flagged.
+    assert _v("Seit neun Jahren Controlling der Werke.", profile).verdict == "unbacked"
+
+
+def test_a_count_is_never_attributed_across_a_list_boundary():
+    # Corpus shape (2026-10-07): the nearest skill BEFORE "nine years" is
+    # Django, across "and" — the count belongs to PostgreSQL after it.
+    profile = {
+        "work_experience": [
+            {"id": "w1", "company": "Cargo GmbH", "role": "Backend", "start_date": "2020-01",
+             "is_current": True, "technologies": ["Django", "PostgreSQL"]},
+            {"id": "w2", "company": "Fin GmbH", "role": "Backend", "start_date": "2015-01",
+             "end_date": "2019-12", "technologies": ["PostgreSQL"]},
+        ],
+        "skills": [
+            {"name": "Django", "category": "technical", "source": "computed", "years_experience": 6},
+            {"name": "PostgreSQL", "category": "technical", "source": "computed", "years_experience": 11},
+        ],
+    }
+    text = "Five years with Django and eleven years with PostgreSQL."
+    assert _v(text, profile).verdict != "unbacked", _v(text, profile).detail
+
+
+def test_only_the_nearest_subjects_transcribed_span_escapes():
+    # No list boundary between the two skills here, so both are near the
+    # duration; Excel's transcribed 10 years must not vouch for SAP CO
+    # (adversarial finding 4b, the shape the barrier alone does not cover).
+    profile = _profile()
+    profile["work_experience"][1]["technologies"] = ["Excel"]
+    profile["skills"].append({"name": "Excel", "category": "technical",
+                              "years_experience": 10, "source": "transcribed"})
+    text = "Seit neun Jahren arbeite ich mit SAP CO in Excel."
+    assert _v(text, profile).verdict == "unbacked", _v(text, profile)
