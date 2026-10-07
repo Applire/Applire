@@ -199,3 +199,28 @@ describe("Einstellungen → LinkedIn (#726) und automatisches Löschen (#738)", 
     expect(await screen.findByTestId("admin-forbidden")).toBeInTheDocument();
   });
 });
+
+describe("Einstellungen → Automatisches Löschen: a skipped worker run (adv-admin ADM-1)", () => {
+  function routeDash(retention: Record<string, unknown>) {
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/api/admin/dashboard") return res(200, { ...DASH, retention: { ...DASH.retention, ...retention } });
+      if (url === "/api/admin/settings" && method === "GET") return res(200, settings());
+      return res(404, {});
+    });
+  }
+
+  it("names the skipped run even while the panel reads on", async () => {
+    routeDash({ last_run_skipped: true, last_run_at: "2026-10-04T03:00:00Z", enabled_since: "2026-10-05T03:00:00Z" });
+    render(withIntl(<InstanceSettings />));
+    const line = await screen.findByTestId("admin-settings-retention-last-run-skipped");
+    expect(line).toHaveTextContent(T.retentionLastRunSkipped.split("{date}")[0].trim());
+  });
+
+  it("shows nothing extra when the last run did not skip", async () => {
+    routeDash({ last_run_skipped: false, last_run_at: "2026-10-04T03:00:00Z" });
+    render(withIntl(<InstanceSettings />));
+    await screen.findByTestId("admin-settings-retention-on");
+    expect(screen.queryByTestId("admin-settings-retention-last-run-skipped")).toBeNull();
+  });
+});

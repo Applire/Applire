@@ -38,6 +38,7 @@ const DASH = {
       { name: "database", status: "ok" },
       { name: "retention", status: "degraded" },
       { name: "backup", status: "degraded" },
+      { name: "provider", status: "ok", checked_at: "2026-10-07T11:50:00Z" },
     ],
   },
   users: { total: 3, active: 2, pending: 1, disabled: 0, admins: 1 },
@@ -132,6 +133,10 @@ describe("Administration → Übersicht", () => {
     expect(screen.getByTestId("admin-health-verdict")).toHaveTextContent("2 notices");
     expect(screen.getByTestId("admin-health-chip-retention")).toBeInTheDocument();
     expect(screen.queryByTestId("admin-health-chip-database")).toBeNull();
+    // ADM-5: the provider state is the last background check, with its time.
+    expect(screen.getByTestId("admin-health-provider-checked")).toHaveTextContent(
+      en.adminDashboard.providerCheckedAt.split("{time}")[0].trim(),
+    );
     expect(screen.getByTestId("admin-overview-tile-people")).toHaveTextContent("3");
     expect(screen.getByTestId("admin-overview-failed-row")).toHaveTextContent(en.adminDashboard.reasonTimeout);
     expect(screen.getByTestId("admin-overview-failed-row")).toHaveTextContent(en.adminDashboard.kindImport);

@@ -36,6 +36,12 @@ export function HealthStrip({ health }: { health: DashboardHealth }) {
   const time = health.checked_at
     ? new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(health.checked_at))
     : null;
+  // ADM-5: the provider's state is the last background check, never a ping made
+  // for this page — show when that check ran.
+  const providerAt = health.components.find((c) => c.name === "provider")?.checked_at ?? null;
+  const providerTime = providerAt
+    ? new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(providerAt))
+    : null;
   const label = (name: string) => (KNOWN_COMPONENTS.has(name) ? tOps(`component.${name}`) : name);
   const status = (s: string) => (KNOWN_STATUS.has(s) ? tOps(`status.${s}`) : s);
 
@@ -45,6 +51,11 @@ export function HealthStrip({ health }: { health: DashboardHealth }) {
       <b className="font-bold text-on-surface">{t("healthTitle")}</b>
       <span data-testid="admin-health-verdict">{verdict}</span>
       {time && <span className="text-[12px] text-on-surface-variant">{t("checkedAt", { time })}</span>}
+      {providerTime && (
+        <span data-testid="admin-health-provider-checked" className="text-[12px] text-on-surface-variant">
+          {t("providerCheckedAt", { time: providerTime })}
+        </span>
+      )}
       <span className="ml-auto">
         <CardLink href="/admin/monitoring" testId="admin-health-details">
           {t("healthDetails")}
