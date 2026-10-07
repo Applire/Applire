@@ -102,10 +102,10 @@ def test_seam_reconcile_prompt_never_shows_the_computed_span():
 
 
 def test_evidenced_span_is_fractional_and_names_its_roles():
-    years, orgs = evidenced_span_years(_enriched_incoming(), "SAP CO")
+    years, orgs = evidenced_span_years(_enriched_incoming(), "SAP CO", bound="floor")
     assert 7.4 < years < 7.8
     assert orgs == ["Schwarzwald Präzision GmbH"]
-    assert evidenced_span_years(_enriched_incoming(), "Kubernetes") is None
+    assert evidenced_span_years(_enriched_incoming(), "Kubernetes", bound="upper") is None
 
 
 def test_letter_view_hedges_a_computed_span_never_rounding_up():
@@ -135,7 +135,7 @@ def test_letter_view_drops_estimated_keeps_transcribed_and_default_is_unchanged(
 def test_letter_view_offers_no_almost_hedge_below_half_a_year():
     profile = {
         "work_experience": [{"id": "w", "company": "A", "role": "R",
-                             "start_date": _start_years_ago(7.1),
+                             "start_date": _start_years_ago(7.1), "is_current": True,
                              "technologies": ["SAP CO"]}],
         "skills": [{"name": "SAP CO", "years_experience": 7, "source": "computed"}],
     }
@@ -143,3 +143,41 @@ def test_letter_view_offers_no_almost_hedge_below_half_a_year():
         "years_experience_derived"]
     assert derived["at_least"] == 7 and "below" not in derived
     assert "knapp" not in derived["say"]
+
+
+# ── adversarial findings 3 + 5 (2026-10-07): one instrument, two bounds ──────
+def _closed_role_profile(start: str, end: str | None, is_current: bool | None) -> MasterProfileData:
+    return MasterProfileData.model_validate({
+        "work_experience": [{"id": "w", "company": "A GmbH", "role": "R", "start_date": start,
+                             "end_date": end, "is_current": is_current,
+                             "technologies": ["SAP CO"]}],
+        "skills": [{"name": "SAP CO", "category": "technical"}],
+    })
+
+
+def test_upper_bound_reads_an_end_month_and_an_end_year_inclusively():
+    month = _closed_role_profile("2016-01", "2023-12", False)
+    year = _closed_role_profile("2016", "2023", False)
+    assert evidenced_span_years(month, "SAP CO", bound="upper")[0] >= 8.0
+    assert evidenced_span_years(year, "SAP CO", bound="upper")[0] >= 8.0
+    # The floor keeps the stored arithmetic: an end read as its first day.
+    assert evidenced_span_years(month, "SAP CO", bound="floor")[0] < 8.0
+    assert evidenced_span_years(year, "SAP CO", bound="floor")[0] < 7.1
+
+
+def test_floor_drops_an_open_end_that_is_not_current_upper_keeps_it():
+    p = _closed_role_profile("2010-01", None, False)
+    assert evidenced_span_years(p, "SAP CO", bound="floor") is None
+    assert evidenced_span_years(p, "SAP CO", bound="upper")[0] > 15
+    assert evidenced_span_years(_closed_role_profile("2010-01", None, None), "SAP CO",
+                                bound="floor") is None
+    assert evidenced_span_years(_closed_role_profile("2019-01", None, True), "SAP CO",
+                                bound="floor") is not None
+
+
+def test_bound_is_required_and_closed():
+    import pytest as _pt
+    with _pt.raises(TypeError):
+        evidenced_span_years(_enriched_incoming(), "SAP CO")  # type: ignore[call-arg]
+    with _pt.raises(ValueError):
+        evidenced_span_years(_enriched_incoming(), "SAP CO", bound="today")

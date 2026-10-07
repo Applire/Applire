@@ -132,3 +132,37 @@ def test_seam_cv_path():
     report = asyncio.run(audit_document("cv", _profile(), tailored_data=tailored))
     hits = [cr for cr in report.claims if "cht Jahre" in cr.claim.text]
     assert len(hits) == 2 and all(cr.verdict.verdict == "unbacked" for cr in hits), hits
+
+
+# ── adversarial findings 1, 2, 4 (2026-10-07) — companions to the adv tests ──
+@pytest.mark.parametrize("text", [
+    "SAP CO: knapp acht Jahre.",
+    "SAP CO – knapp acht Jahre.",
+    "SAP CO (über sieben Jahre).",
+    "Seit knapp unter acht Jahren arbeite ich mit SAP CO.",
+    "A little under eight years of SAP CO.",
+    "Approx. eight years of SAP CO.",
+])
+def test_hedge_after_punctuation_and_new_downward_forms_are_read(text):
+    assert _v(text).verdict != "unbacked", (text, _v(text).detail)
+
+
+def test_a_hedge_word_inside_another_word_is_not_a_hedge():
+    # "Knappschaft" ends with no hedge; "acht Jahre" stays a flat count.
+    assert _v("Für die Knappschaft acht Jahre SAP CO betreut.").verdict == "unbacked"
+
+
+def test_the_nearest_skills_own_stated_years_still_escape():
+    profile = _profile()
+    profile["work_experience"][1]["technologies"] = ["Excel"]
+    profile["skills"].append({"name": "Excel", "category": "technical",
+                              "years_experience": 10, "source": "transcribed"})
+    assert _v("Zehn Jahre Excel und SAP CO.", profile).verdict != "unbacked"
+
+
+def test_a_statement_about_the_same_skill_escapes_a_career_total_does_not():
+    stated = _profile()
+    stated["work_experience"][0]["achievements"] = ["Neun Jahre SAP CO im Konzernumfeld."]
+    assert _v("Seit neun Jahren arbeite ich mit SAP CO.", stated).verdict != "unbacked"
+    total = _profile(professional_summary={"de": "Controllerin mit 9 Jahren Erfahrung."})
+    assert _v("Seit neun Jahren arbeite ich mit SAP CO.", total).verdict == "unbacked"

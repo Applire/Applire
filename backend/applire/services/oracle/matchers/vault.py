@@ -104,9 +104,14 @@ class VaultIndex:
     # #747 — a skill duration the candidate's own text states
     # (``source == "transcribed"``): skill name -> years.
     transcribed_skill_years: dict[str, int] = field(default_factory=dict)
-    # #747 — every duration (in years) a vault evidence unit's own text states
-    # ("Controllerin mit 9 Jahren Erfahrung"): the candidate's own words.
-    stated_tenure_years: frozenset[float] = frozenset()
+    # #747 — the durations the candidate's own text states ABOUT A SKILL:
+    # skill name -> the largest duration (years) any vault evidence unit or
+    # denial statement states with that skill named next to it (the same
+    # ~8-word window the claim side uses). Subject-scoped since adversarial
+    # finding 4 (2026-10-07): a vault-wide set of bare numbers let the career
+    # total "9 Jahren Erfahrung" launder "seit neun Jahren … SAP CO" — the
+    # #214 digit-coincidence error in the escape direction.
+    stated_skill_tenures: dict[str, float] = field(default_factory=dict)
 
 
 def _coerce_profile(profile: MasterProfileData | dict[str, Any]) -> MasterProfileData:
@@ -273,7 +278,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         derivable_tenure_years=index.derivable_tenure_years,
         skill_spans=dict(index.skill_spans),
         transcribed_skill_years=dict(index.transcribed_skill_years),
-        stated_tenure_years=index.stated_tenure_years,
+        stated_skill_tenures=dict(index.stated_skill_tenures),
     )
 
 
@@ -539,6 +544,54 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
     )
 
 
+# Characters around a stated duration in which its subject skill must be
+# named — shared by the vault side (what the candidate stated) and the claim
+# side (``audit._subject_tenure_flag``), so both read "about which skill" alike.
+SUBJECT_WINDOW_BEFORE = 40
+SUBJECT_WINDOW_AFTER = 60
+
+
+def skills_near_duration(
+    text: str, raw: str, names: Sequence[str]
+) -> list[tuple[str, int]]:
+    """Skills named within ~8 words of the duration ``raw`` in ``text``.
+
+    Returns ``(name, distance)`` pairs, ``distance`` in normalised characters
+    between the duration and the skill's nearest whole-token occurrence (a
+    match the shared predicate grants only through a fold gets the window
+    width). ADR-062: a FACT — whole-token presence and character positions.
+    """
+    import re
+
+    from applire.services.ats_audit import surface_present_whole_token
+
+    lower = text.lower()
+    pos = lower.find(raw.strip().lower())
+    if pos < 0:
+        return []
+    ws = max(0, pos - SUBJECT_WINDOW_BEFORE)
+    we = pos + len(raw.strip()) + SUBJECT_WINDOW_AFTER
+    window = _norm(text[ws:we])
+    dur_start = len(_norm(text[ws:pos]))
+    dur_end = dur_start + len(_norm(raw.strip()))
+    out: list[tuple[str, int]] = []
+    for name in names:
+        if not surface_present_whole_token(name, window):
+            continue
+        n = _norm(name)
+        best = len(window)
+        for m in re.finditer(r"(?<![0-9a-zäöüß])" + re.escape(n) + r"(?![0-9a-zäöüß])", window):
+            if m.end() <= dur_start:
+                d = dur_start - m.end()
+            elif m.start() >= dur_end:
+                d = m.start() - dur_end
+            else:
+                d = 0
+            best = min(best, d)
+        out.append((name, best))
+    return out
+
+
 def _skill_duration_facts(
     p: MasterProfileData, units: list[EvidenceUnit]
 ) -> dict[str, Any]:
@@ -555,23 +608,27 @@ def _skill_duration_facts(
     for s in p.skills:
         if s.category == "language" or not s.name:
             continue
-        span = evidenced_span_years(p, s.name)
+        span = evidenced_span_years(p, s.name, bound="upper")
         if span is not None:
             spans[s.name] = span
         if s.source == "transcribed" and s.years_experience is not None:
             transcribed[s.name] = s.years_experience
-    stated = set(
-        t.years for u in units for t in extract_tenure_claims(u.text)
-    )
+    names = [s.name for s in p.skills if s.category != "language" and s.name]
+    texts = [u.text for u in units]
     # The candidate's own denial statements count too (ADR-064 STATED LIMITS
     # name adjacent STRENGTHS: "keine IFS/BRC-Erfahrung, aber zehn Jahre
     # ISO-9001-Audit-Praxis") — the letter restates them by design (#422).
     for d in p.metadata.denied_concepts if p.metadata else []:
         statement = getattr(d, "statement", None)
         if isinstance(statement, str):
-            stated |= {t.years for t in extract_tenure_claims(statement)}
+            texts.append(statement)
+    stated: dict[str, float] = {}
+    for text in texts:
+        for t in extract_tenure_claims(text):
+            for name, _dist in skills_near_duration(text, t.raw, names):
+                stated[name] = max(stated.get(name, 0.0), t.years)
     return {
         "skill_spans": spans,
         "transcribed_skill_years": transcribed,
-        "stated_tenure_years": frozenset(stated),
+        "stated_skill_tenures": stated,
     }

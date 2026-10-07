@@ -266,7 +266,7 @@ def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
         rendered = {k: v for k, v in skill.items() if k != "years_experience"}
         span = None
         if skill.get("source") == "computed" and model is not None and skill.get("name"):
-            span = evidenced_span_years(model, str(skill["name"]))
+            span = evidenced_span_years(model, str(skill["name"]), bound="floor")
         if span is not None:
             years, _orgs = span
             at_least = int(years)
