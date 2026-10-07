@@ -26,6 +26,7 @@ import { CoverLetterContentTab } from "@/components/cover-letter/CoverLetterCont
 import { LetterLookLine } from "@/components/document/LetterLookLine";
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
+import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
@@ -148,6 +149,9 @@ export default function CoverLetterPage({
   const [saveReceipt, setSaveReceipt] = useState<SaveReceipt | null>(null);
   // #737: one confirmation before a new letter version when the body carries an edit.
   const [confirmNewVersion, setConfirmNewVersion] = useState(false);
+  // #737: an unsaved body draft holds back a tab switch (Finetuner Branch B).
+  const [bodyDirty, setBodyDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
   const [contentVersion, setContentVersion] = useState(0);
@@ -667,6 +671,15 @@ export default function CoverLetterPage({
 
   // The letter's section editor — the Edit tab on desktop, the Fine-tune
   // sheet on the phone (D-4). Both start from the EFFECTIVE body (D-2).
+  function switchTab(id: string) {
+    setActiveSidebarTab(id);
+    if (id !== "edit") {
+      setOpenBodyNonce(undefined);
+      setEditContext(null);
+      setSaveReceipt(null);
+    }
+  }
+
   const editContextStrip = (
     <EditContextStrip
       context={editContext}
@@ -674,10 +687,8 @@ export default function CoverLetterPage({
       onBack={
         editContext
           ? () => {
-              setActiveSidebarTab("review");
-              setOpenBodyNonce(undefined);
-              setEditContext(null);
-              setSaveReceipt(null);
+              if (bodyDirty) setPendingTab("review");
+              else switchTab("review");
             }
           : undefined
       }
@@ -698,6 +709,7 @@ export default function CoverLetterPage({
         clState!.sectionOverrides,
       )}
       onSectionSaved={handleSectionSaved}
+      onDirtyChange={setBodyDirty}
     />
     </>
   );
@@ -733,9 +745,6 @@ export default function CoverLetterPage({
       body: (
         <div className="flex flex-col gap-3">
           {renderContentTab("panel")}
-          {/* ADR-081 cl. 3: fact pins live on the editing tab, outside the
-              finding groups, application-scoped (ADR-077 cl. 1). */}
-          <ATSChecksPanel report={atsReport} variant="pins" />
           {/* #737: the letter takes template + colour from the CV — said
               honestly instead of seven buttons that discarded the choice. */}
           <LetterLookLine template={clState!.template} cvEditHref={`/flow/${flowId}/cv?tab=edit`} />
@@ -749,6 +758,9 @@ export default function CoverLetterPage({
       body: (
         <CoverLetterActionsTab
           onRegenerateCoverLetter={requestRegenerate}
+          // ADR-081 cl. 3 (amended, #737 / RULING E-1 = A): pin fates live on
+          // Aktionen beside the regeneration they feed, outside the finding groups.
+          pins={<ATSChecksPanel report={atsReport} variant="pins" />}
           languageSwitch={
             clState?.applicationId ? (
               <DocumentLanguageSwitch
@@ -788,12 +800,11 @@ export default function CoverLetterPage({
             initialTabId="review"
             activeTabId={activeSidebarTab}
             onTabChange={(id) => {
-              setActiveSidebarTab(id);
-              if (id !== "edit") {
-                setOpenBodyNonce(undefined);
-                setEditContext(null);
-                setSaveReceipt(null);
+              if (activeSidebarTab === "edit" && id !== "edit" && bodyDirty) {
+                setPendingTab(id);
+                return;
               }
+              switchTab(id);
             }}
             identityBar={
               <DocumentIdentityBar
@@ -857,6 +868,19 @@ export default function CoverLetterPage({
         </div>
       )}
 
+      <UnsavedEditDialog
+        open={pendingTab !== null}
+        sectionLabel={t("bodySection")}
+        onStay={() => setPendingTab(null)}
+        onDiscard={() => {
+          // Remounting the editor returns it to the effective body (D-2).
+          setContentVersion((v) => v + 1);
+          setBodyDirty(false);
+          const id = pendingTab;
+          setPendingTab(null);
+          if (id) switchTab(id);
+        }}
+      />
       <NewVersionDialog
         open={confirmNewVersion}
         editedSections={[t("bodySection")]}

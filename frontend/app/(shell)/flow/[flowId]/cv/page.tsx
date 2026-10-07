@@ -104,6 +104,7 @@ export default function CVPage({
   const t = useTranslations("cv");
   const tDoc = useTranslations("document");
   const tProfile = useTranslations("profile");
+  const tEdit = useTranslations("editTab");
 
   const [phase, setPhase] = useState<Phase | null>(null); // null = initializing
   const [cvId, setCvId] = useState<string | null>(null);
@@ -854,18 +855,9 @@ export default function CVPage({
               onPendingGapConsumed={() => setEditorGapRequest(null)}
               pendingFinding={findingEditRequest}
             />
-            {/* ADR-081 cl. 3: fact pins live HERE, outside the finding groups,
-                application-scoped. No finding row links one as its remedy and
-                no finding's rendering branches on pinned-ness (ADR-077 cl. 2). */}
-            <ATSChecksPanel report={atsReport} variant="pins" />
-            {flowState?.application_id && (
-              <PinnedFactsPanel
-                applicationId={flowState.application_id}
-                apiBase={API_BASE}
-                cvId={cvId}
-                coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
-              />
-            )}
+            {/* #737 (RULING E-1 = A): Bearbeiten changes THIS document — the
+                sections and the accent colour. Pins, template and every
+                regenerate make a NEW version and live on Aktionen. */}
             <DesignTab
             cvId={cvId}
             templateLabel={template === "classic_german" ? t("templateClassic") : t("templateModern")}
@@ -876,9 +868,10 @@ export default function CVPage({
               cvDocRef.current?.refresh();
               setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
             }}
-            onChangeTemplate={() => requestNewVersion(() => setPhase("template_select"))}
-            onRegenerateSame={() => requestNewVersion(() => void handleGenerate(template))}
             />
+            <p className="px-3 pb-3 text-xs text-on-surface-variant" data-testid="edit-new-version-pointer">
+              {tEdit("newVersionPointer")}
+            </p>
           </div>
         ),
       },
@@ -894,6 +887,26 @@ export default function CVPage({
             cvId={cvId}
             onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
             onRegenerateSame={() => requestNewVersion(() => void handleGenerate(template))}
+            onChooseTemplate={() => requestNewVersion(() => setPhase("template_select"))}
+            editedSections={editedSectionLabels}
+            pins={
+              <>
+                {/* ADR-081 cl. 3 (amended, #737 / RULING E-1 = A): fact pins
+                    live on Aktionen beside the regeneration they feed — still
+                    outside the finding groups, application-scoped. No finding
+                    row links one as its remedy and no finding's rendering
+                    branches on pinned-ness (ADR-077 cl. 2). */}
+                {flowState?.application_id && (
+                  <PinnedFactsPanel
+                    applicationId={flowState.application_id}
+                    apiBase={API_BASE}
+                    cvId={cvId}
+                    coverLetterId={flowState.cover_letter_summary?.cover_letter_id ?? null}
+                  />
+                )}
+                <ATSChecksPanel report={atsReport} variant="pins" />
+              </>
+            }
             onNext={() => setPhase("complete")}
             languageSwitch={
               flowState?.application_id ? (

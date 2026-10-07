@@ -1639,7 +1639,7 @@
     "group2TradeBody": "Your profile covers this — it simply did not fit into the document. The length trade decided it, not the truthfulness check: Applire tried to place these terms while writing, and the page target won. What you see here is what was left over.",
     "group2HandlesTitle": "Four handles that already exist:",
     "group2HandlePages": "Raise the page target — in Settings as your default length, or before generating.",
-    "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Edit tab.",
+    "group2HandlePin": "Pin the fact behind it — a pinned fact is never cut, even if the document gets longer. You will find it on the Actions tab.",
     "group2HandleRegenerate": "Regenerate — the selection is made afresh each time.",
     "group2HandleEditor": "Edit the section yourself — click an item above and you land on the Edit tab with that section open. What goes in is written by you.",
     "verdictSub": "Check each one. Keep it if it is true, take it out if it is not.",
@@ -2299,6 +2299,20 @@
     "templateName_tech_developer": "Tech",
     "templateName_creative_sidebar": "Creative with sidebar",
     "templateName_academic": "Academic",
-    "templateName_compact_pro": "Compact"
+    "templateName_compact_pro": "Compact",
+    "letterFixedLine": "Header, recipient and closing come from your profile and the job posting.",
+    "newVersionTitle": "Create a new version",
+    "newVersionPointer": "Change the template, language or pinned facts? That makes a new version — under Actions.",
+    "pinsLead": "What you pin here goes into every new version — it does not change this one.",
+    "applicationTitle": "This application",
+    "regenerateSame": "Recreate with the same template",
+    "regenerateOther": "Choose another template",
+    "rewriteTitle": "Ask for a rewrite",
+    "rewritePlaceholder": "Say what should change — e.g. “shorter” or “stress the results”.",
+    "rewriteInclude": "Include from your profile:",
+    "rewriteSubmit": "Get a suggestion",
+    "rewriteHint": "You get a suggestion. Nothing is saved until you apply it.",
+    "letterBodyTitle": "Letter text",
+    "suggestionTitle": "Suggestion"
   }
 }

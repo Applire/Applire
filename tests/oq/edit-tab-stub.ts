@@ -104,6 +104,13 @@ const LETTER_DATA = {
   signature: { closing: 'Mit freundlichen Grüßen', name: 'Marcus Beispiel' },
 };
 
+/** The letter body after a take-out removed "in der diskreten Fertigung" (D2 fixture). */
+export const EDITED_LETTER_BODY = [
+  'mit 14 Jahren Erfahrung bewerbe ich mich als Leiter Operations.',
+  LETTER_DATA.body.paragraphs[1],
+  LETTER_DATA.body.paragraphs[2],
+].join('\n\n');
+
 const CV_HTML = `<html><body style="font-family:serif;padding:32px">
 <h1>Marcus Beispiel</h1><p>${SECTIONS[0].content}</p>
 <h2>Berufserfahrung</h2><h3>Produktionsleiter — Weberit Kunststofftechnik GmbH</h3>
@@ -192,7 +199,7 @@ export async function stubDocuments(
       cover_letter_id: CL_ID,
       status: 'ready',
       letter_data: LETTER_DATA,
-      section_overrides: opts.letterBodyEdited ? { body: LETTER_DATA.body.paragraphs.join('\n\n') } : {},
+      section_overrides: opts.letterBodyEdited ? { body: EDITED_LETTER_BODY } : {},
       critic_report: LETTER_CRITIC,
       template: 'classic_german',
       document_language: 'de',

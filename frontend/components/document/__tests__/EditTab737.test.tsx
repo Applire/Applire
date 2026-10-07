@@ -201,3 +201,11 @@ describe("EditContextStrip — one way back", () => {
     expect(screen.getByTestId("edit-receipt-back")).toBeTruthy();
   });
 });
+
+describe("UnsavedEditDialog — without a save handle", () => {
+  it("offers discard / stay only", () => {
+    render(withIntl(<UnsavedEditDialog open sectionLabel="Anschreiben-Text" onDiscard={() => {}} onStay={() => {}} />, "de"));
+    expect(screen.queryByTestId("edit-unsaved-save")).toBeNull();
+    expect(screen.getByTestId("edit-unsaved-discard")).toBeTruthy();
+  });
+});

@@ -18,7 +18,8 @@ interface UnsavedEditDialogProps {
   sectionLabel: string | null;
   busy?: boolean;
   failed?: boolean;
-  onSave: () => void;
+  /** Absent → no "save and switch" (the letter body editor has no save handle). */
+  onSave?: () => void;
   onDiscard: () => void;
   onStay: () => void;
 }
@@ -41,6 +42,7 @@ export function UnsavedEditDialog({ open, sectionLabel, busy, failed, onSave, on
         </p>
         {failed && <p className="mb-3 text-[13px] font-semibold text-critical">{t("saveFailed")}</p>}
         <div className="flex flex-col gap-2">
+          {onSave && (
           <button
             type="button"
             onClick={onSave}
@@ -50,6 +52,7 @@ export function UnsavedEditDialog({ open, sectionLabel, busy, failed, onSave, on
           >
             {t("unsavedSave")}
           </button>
+          )}
           <div className="flex gap-2">
             <button
               type="button"

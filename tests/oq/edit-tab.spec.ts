@@ -10,7 +10,7 @@
 // Every backend call is a `page.route` (tests/oq/edit-tab-stub.ts) — no
 // provider call.
 import { test, expect } from '../support/auth-fixture';
-import { stubDocuments, FLOW_ID } from './edit-tab-stub';
+import { stubDocuments, FLOW_ID, EDITED_LETTER_BODY } from './edit-tab-stub';
 import type { Page } from '@playwright/test';
 
 // The desktop panel. On the CV page a phone sheet with a second editor is
@@ -135,6 +135,37 @@ test.describe('#737 — CV Edit tab', () => {
   });
 });
 
+test.describe('#737 — RULING E-1 = A: Bearbeiten edits this CV, Aktionen makes a new one', () => {
+  test('Bearbeiten holds sections and colour only, and points to Aktionen', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(CV);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await expect(panel(page).getByTestId('design-tab')).toBeVisible();
+    await expect(panel(page).getByTestId('regenerate-current-template-btn')).toHaveCount(0);
+    await expect(panel(page).getByTestId('change-template-btn')).toHaveCount(0);
+    await expect(panel(page).getByText('Fakt aus dem Profil auswählen')).toHaveCount(0);
+    await expect(panel(page).getByTestId('edit-new-version-pointer')).toContainText('unter Aktionen');
+  });
+
+  test('Aktionen: "Neue Fassung erstellen" holds regenerate, other template, language and pins', async ({ page }) => {
+    const server = await stubDocuments(page);
+    await page.goto(CV);
+    await page.getByTestId('sidebar-tab-actions').click();
+    const block = panel(page).getByTestId('cv-new-version');
+    await expect(block).toContainText('Neue Fassung erstellen');
+    await expect(block.getByTestId('cv-actions-regenerate')).toBeVisible();
+    await expect(block.getByTestId('doc-language-switch')).toBeVisible();
+    await expect(block.getByTestId('cv-new-version-pins')).toContainText('kommt in jede neue Fassung');
+    await expect(block.getByText('Fakt aus dem Profil auswählen')).toBeVisible();
+    await expect(block.getByTestId('cv-new-version-loss')).toContainText('Produktionsleiter — Weberit Kunststofftechnik GmbH');
+    // Other template: asks first, then opens the template picker — no generate yet.
+    await block.getByTestId('cv-actions-other-template').click();
+    await page.getByTestId('edit-new-version-confirm').click();
+    await expect(page.getByTestId('template-option').first()).toBeVisible();
+    expect(server.generates).toHaveLength(0);
+  });
+});
+
 test.describe('#737 — cover letter', () => {
   test('Edit tab states the inherited look instead of seven template buttons', async ({ page }) => {
     await stubDocuments(page);
@@ -142,6 +173,48 @@ test.describe('#737 — cover letter', () => {
     await page.getByTestId('sidebar-tab-edit').click();
     await expect(page.getByTestId('letter-look')).toContainText('übernimmt das Anschreiben von Deinem Lebenslauf: Klassisch.');
     await expect(page.locator('[data-testid^="cl-template-"]')).toHaveCount(0);
+  });
+
+  test('letter Aktionen: one new-version block; Bearbeiten has no pin list', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(LETTER);
+    await page.getByTestId('sidebar-tab-actions').click();
+    await expect(panel(page).getByTestId('cl-new-version')).toContainText('Neue Fassung erstellen');
+    await page.getByTestId('sidebar-tab-edit').click();
+    await expect(panel(page).getByTestId('cl-fixed-line')).toBeVisible();
+    await expect(panel(page).getByTestId('cl-new-version')).toHaveCount(0);
+  });
+
+  test('letter Abbrechen returns to the edited body, never the generated one (D2)', async ({ page }) => {
+    const server = await stubDocuments(page, 'de', { letterBodyEdited: true });
+    await page.goto(LETTER);
+    await page.getByTestId('sidebar-tab-edit').click();
+    const body = panel(page).getByTestId('cl-body-textarea');
+    await expect(body).toHaveValue(EDITED_LETTER_BODY);
+    await body.fill('Entwurf');
+    await panel(page).getByTestId('cl-cancel-body-btn').click();
+    await expect(body).toHaveValue(EDITED_LETTER_BODY);
+    await body.fill(`${EDITED_LETTER_BODY}!`);
+    await panel(page).getByTestId('cl-save-body-btn').click();
+    await expect.poll(() => server.patches.length).toBe(1);
+    expect(JSON.stringify(server.patches[0].body)).not.toContain('in der diskreten Fertigung');
+  });
+
+  test('leaving the letter Edit tab with a body draft asks; discard returns to the saved body', async ({ page }) => {
+    await stubDocuments(page, 'de', { letterBodyEdited: true });
+    await page.goto(LETTER);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
+    await page.getByTestId('sidebar-tab-review').click();
+    await expect(page.getByTestId('edit-unsaved-dialog')).toContainText('Anschreiben-Text');
+    await expect(page.getByTestId('edit-unsaved-save')).toHaveCount(0);
+    await page.getByTestId('edit-unsaved-stay').click();
+    await expect(panel(page).getByTestId('cl-body-textarea')).toHaveValue('Entwurf');
+    await page.getByTestId('sidebar-tab-review').click();
+    await page.getByTestId('edit-unsaved-discard').click();
+    await expect(page.getByTestId('sidebar-tab-review')).toHaveAttribute('aria-selected', 'true');
+    await page.getByTestId('sidebar-tab-edit').click();
+    await expect(panel(page).getByTestId('cl-body-textarea')).toHaveValue(EDITED_LETTER_BODY);
   });
 
   test('regenerating a letter with an edited body asks first', async ({ page }) => {
