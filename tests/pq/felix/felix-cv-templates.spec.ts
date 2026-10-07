@@ -62,10 +62,13 @@ async function generateCvAndNavigateToView(page: Page): Promise<void> {
 }
 
 test.describe("Felix — CV Template selection (PQ)", () => {
-  test("Design tab opens the template picker with at least 7 options", async ({ page }) => {
+  test("Aktionen opens the template picker with at least 7 options", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-edit").click();
-    await page.getByTestId("change-template-btn").click();
+    // #737 (RULING E-1 = A): another template is a NEW version — on Aktionen,
+    // behind the one new-version confirmation.
+    await page.getByTestId("sidebar-tab-actions").click();
+    await page.getByTestId("cv-actions-other-template").click();
+    await page.getByTestId("edit-new-version-confirm").click();
     // Template picker should list all 7 registered templates
     const templateOptions = page.getByTestId("template-option");
     await expect(templateOptions.first()).toBeVisible({ timeout: 5000 });
@@ -74,8 +77,11 @@ test.describe("Felix — CV Template selection (PQ)", () => {
 
   test("selecting executive template and regenerating succeeds", async ({ page }) => {
     await generateCvAndNavigateToView(page);
-    await page.getByTestId("sidebar-tab-edit").click();
-    await page.getByTestId("change-template-btn").click();
+    // #737 (RULING E-1 = A): another template is a NEW version — on Aktionen,
+    // behind the one new-version confirmation.
+    await page.getByTestId("sidebar-tab-actions").click();
+    await page.getByTestId("cv-actions-other-template").click();
+    await page.getByTestId("edit-new-version-confirm").click();
 
     // Select the executive template
     await page.getByTestId("template-option-executive").click();
