@@ -200,18 +200,15 @@ class RepeatedDemand:
 #: until the reviewer ANSWERS it. ``on_demand`` fires while the prompt is built,
 #: before the provider call; a call that then times out, truncates or returns
 #: malformed JSON ships the draft un-reviewed, and that round was never answered —
-#: it must not count toward "N× nachgefordert". ``review_and_refine`` brackets each
-#: reviewer call with the three hooks below; outside a bracket they are no-ops.
+#: it must not count toward "N× nachgefordert". ``review_and_refine`` opens each
+#: reviewer call with ``reviewer_round_begins`` and calls ``reviewer_round_unanswered``
+#: on its un-reviewed exits; a parsed verdict needs no hook (the next call's
+#: ``begins`` clears the mark). Outside a reviewer call both are no-ops.
 _OPEN_ROUND: ContextVar["DemandRecord | None"] = ContextVar("demand_record_open_round", default=None)
 
 
 def reviewer_round_begins() -> None:
     """A reviewer call is about to build its prompt: nothing is open yet."""
-    _OPEN_ROUND.set(None)
-
-
-def reviewer_round_answered() -> None:
-    """The reviewer returned a parsed verdict: the round it was shown stands."""
     _OPEN_ROUND.set(None)
 
 
