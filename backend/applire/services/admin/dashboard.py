@@ -13,6 +13,7 @@ the user dashboard: it never runs a probe, it reads the ops layer's LAST report.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -20,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.config import HAS_CLOUD, settings
+from applire.models.audit import AuditEvent
 from applire.models.retention_run import RetentionRun
 from applire.models.user import ROLE_ADMIN
 from applire.ownership import unscoped
@@ -63,17 +65,84 @@ async def _last_retention_run(db: AsyncSession) -> RetentionRun | None:
         return None
 
 
+_RETENTION_ACTIONS = ("settings.changed", "settings.reset", "settings.env_observed")
+
+
+async def _retention_history(db: AsyncSession) -> tuple[datetime | None, uuid.UUID | None]:
+    """``(enabled_since, off_by_actor)`` from the audit log (CONTRACT-CHANGE MD2-6 (3)).
+
+    ``enabled_since``: the newest OFF→ON transition row of ``RETENTION_ENABLED``,
+    else the instance claim time. ``off_by_actor``: the actor of the newest panel
+    change that set it to false.
+    """
+    rows = (
+        await db.execute(
+            select(AuditEvent)
+            .where(AuditEvent.action.in_(_RETENTION_ACTIONS))
+            .order_by(AuditEvent.at.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+    since: datetime | None = None
+    off_by: uuid.UUID | None = None
+    off_by_seen = False
+    for row in rows:
+        detail = row.detail or {}
+        if detail.get("key") != "RETENTION_ENABLED":
+            continue
+        turned_on = detail.get("from_value") is False and (
+            row.action == "settings.reset" or detail.get("to_value") is True
+        )
+        if since is None and turned_on:
+            since = row.at
+        if not off_by_seen and row.action == "settings.changed" and detail.get("to_value") is False:
+            off_by, off_by_seen = row.actor_user_id, True
+    if since is None:
+        claimed = (
+            await db.execute(
+                select(AuditEvent.at)
+                .where(AuditEvent.action == "setup.claimed")
+                .order_by(AuditEvent.at.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        since = claimed
+    return _aware(since), off_by
+
+
 async def retention_block(db: AsyncSession) -> dict[str, Any]:
     enabled, source = instance_settings.retention_state()
     run = await _last_retention_run(db)
     report = (run.report or {}) if run is not None else {}
     skipped = report.get("retention_enabled") is False if run is not None else None
+    since, off_by = await _retention_history(db)
+    changed_by_email = None
+    if not enabled and source == "panel" and off_by is not None:
+        changed_by_email = (await instance_settings._emails(db, {off_by})).get(off_by)
     return {
         "enabled": enabled,
         "source": source,
         "last_run_at": _aware(run.run_at) if run is not None else None,
         "last_run_ok": run.ok if run is not None else None,
         "last_run_skipped": skipped,
+        "enabled_since": since if enabled else None,
+        "changed_by_email": changed_by_email,
+        "ttl_days": ttl_days(),
+    }
+
+
+def ttl_days() -> dict[str, int]:
+    """The effective TTLs (CONTRACT-CHANGE MD2-8). Read from ``constants`` at call
+    time so a test's monkeypatch is honoured."""
+    from applire import constants
+
+    return {
+        "uploads": int(constants.UPLOAD_TTL_DAYS),
+        "interview_sessions": int(constants.INTERVIEW_SESSION_TTL_DAYS),
+        "generated_documents": int(constants.GENERATED_DOCUMENTS_TTL_DAYS),
+        "cancelled_applications": int(constants.CANCELLED_APPLICATION_TTL_DAYS),
+        "profile_inactivity": int(constants.PROFILE_INACTIVITY_TTL_DAYS),
+        "audit_log": int(getattr(settings, "audit_log_retention_days", 730) or 0),
     }
 
 

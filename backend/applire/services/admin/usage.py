@@ -106,6 +106,17 @@ async def usage_report(db: AsyncSession, *, days: int, now: datetime | None = No
     ]
     by_provider.sort(key=lambda p: (-p["totals"]["total_tokens"], p["provider"], p["model"]))
 
+    by_kind = {"cv": _totals(None), "cover_letter": _totals(None), "other": _totals(None)}
+    kind_rows = (
+        await db.execute(
+            select(LlmUsage.document_kind, *_aggregates()).where(window).group_by(LlmUsage.document_kind)
+        )
+    ).all()
+    for r in kind_rows:
+        bucket = r.document_kind if r.document_kind in ("cv", "cover_letter") else "other"
+        for f, v in _totals(r).items():
+            by_kind[bucket][f] += v
+
     return {
         "window_days": days,
         "since": since,
@@ -113,6 +124,7 @@ async def usage_report(db: AsyncSession, *, days: int, now: datetime | None = No
         "users": users_out,
         "unattributed": _totals(unattributed),
         "by_provider": by_provider,
+        "by_document_kind": by_kind,
     }
 
 

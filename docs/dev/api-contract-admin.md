@@ -57,11 +57,13 @@ Base URLs, timeouts, reasoning knobs and every other setting stay **env-only**. 
 - `value` is the **effective** value. **For `kind: "secret"` it is always `null`.** A secret is never echoed: not masked, not truncated, not "last 4". The UI shows `is_set` ("Schlüssel hinterlegt" / "kein Schlüssel") and offers "replace".
 - `source`: `panel` (an admin override in the database; **it wins over env**, ruling C1-2), `env` (the operator's environment / `.env`), `default` (neither; the code default).
 - `env_value` / `env_is_set`: what `DELETE /api/admin/settings/{key}` ("reset to environment value") falls back to.
-- `updated_at`, `updated_by_user_id`: only when `source == "panel"`.
+- `updated_at`, `updated_by_user_id`, `updated_by_email` (resolved live; `null` for an erased account): only when `source == "panel"`.
 
 ### 2.3 `providers` (`ProviderStatus[]`)
 
 One row per selectable provider: the effective `model`, plus `key_required`, `has_key`, `ready` (= `has_key or not key_required`) and `active`. The provider select should disable or warn for rows with `ready == false`.
+
+**Qualification (CONTRACT-CHANGE MD2-6 (1)):** `qualification` ∈ `qualified` | `not_qualified` | `unmeasured`, plus `qualification_reason` (English, one sentence, or `null`) and `qualification_as_of` (an ISO date, e.g. `"2026-09-16"`). These describe the row's **effective model** according to the published matrix (`docs/llm-models.md`, #688). The data lives in `backend/applire/data/model_qualification.json`, which wave-2 #688 maintains. A model that is not listed reads as `unmeasured`, which does not mean "bad".
 
 ### 2.4 `dependencies` (`SettingDependency[]`)
 
@@ -69,6 +71,7 @@ One row per selectable provider: the effective `model`, plus `key_required`, `ha
 
 ### 2.5 Writes
 
+- `PUT` reads the body as raw JSON `{"changes": {KEY: value}}` with 1–20 keys and no other top-level key. It is deliberately **not** validated by FastAPI: its default 422 echoes the failing `input`, which for this body would be the secrets. Every refusal is `invalid_setting_value` / `unknown_setting` with `detail.key` only.
 - `PUT` applies all `changes` atomically. It validates every key against §2.1. Enums are checked against `choices`, bools must be JSON booleans, and strings are trimmed with a 1–200 char limit. A secret cannot be `""`; to remove an override, use `DELETE`.
 - Setting `LLM_PROVIDER` to a provider whose key is required and not effective (after this request's own changes) is refused with **409 `provider_not_ready`** and `detail.provider`. To switch and enter the key in one step, send both in one `PUT`.
 - Every changed key writes one audit row (`settings.changed`, §3.2) in the same transaction.
@@ -95,8 +98,8 @@ Newest first, keyset paging (stable under concurrent inserts). The response carr
 
 | Action | `detail` keys | Written when |
 |---|---|---|
-| `settings.changed` | `key`, `secret` (bool), `from_source`, `to_source`, `from_value`, `to_value` (both **absent for secrets**) | an admin `PUT` changes a setting |
-| `settings.reset` | `key`, `secret`, `from_value` (absent for secrets), `to_source` | an admin `DELETE` removes an override |
+| `settings.changed` | `key`, `write_only` (bool: a secret), `from_source`, `to_source`, `from_value`, `to_value` (both **absent for secrets**; `null` if email-shaped) | an admin `PUT` changes a setting |
+| `settings.reset` | `key`, `write_only`, `from_value` (absent for secrets), `to_source` | an admin `DELETE` removes an override |
 | `settings.env_observed` | `key`, `to_value`, `to_source`, `from_value` | at boot, an env/default-sourced tracked setting (`LLM_PROVIDER`, `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES`, `RETENTION_ENABLED`) differs from the value the last boot saw. An `.env` edit leaves a trace too. |
 | `retention.skipped` | `source` | a retention run found `RETENTION_ENABLED=false` and skipped the personal-data TTLs (§5.3) |
 
@@ -109,6 +112,8 @@ Newest first, keyset paging (stable under concurrent inserts). The response carr
 - `totals`: all calls in the window.
 - `users`: **every** account that is not erased, zero rows included, sorted by `totals.total_tokens` descending. Fields: `email`, `role` and `status` (`pending`/`active`/`disabled`, same derivation as `/api/admin/users`), plus `last_call_at`.
 - `unattributed`: calls with `user_id` NULL (system work, rows written before 0075, erased accounts).
+- `by_document_kind` (CONTRACT-CHANGE MD2-6 (2)): `{cv, cover_letter, other}` → `UsageTotals`. `other` = every call not attributed to a document.
+- The UI's 7/30/90-day choice maps to `days=7|30|90`.
 - `by_provider`: grouped by (`provider`, `model`), sorted by `total_tokens` descending. The exact model id is shown here because this is the admin surface; ADR-086 cl. 4 keeps it off the unauthenticated surface.
 
 ## 5. Dashboard and notices
@@ -120,9 +125,9 @@ Newest first, keyset paging (stable under concurrent inserts). The response carr
 | `health` | `status` (`ok`/`degraded`/`down`), `version`, `edition`, `topology`, `debug_log_on`, effective `llm_provider` + `llm_model`, `checked_at`, `components[] {name, status}`, from the ops layer's `collect()` (ADR-086) without its usage block |
 | `users` | counts: `total` (not erased), `active`, `pending`, `disabled`, `admins` |
 | `usage_30d` | `UsageTotals` for the last 30 days |
-| `failed_jobs` | `window_days: 7`, `count`, newest 20 `items {kind: cv\|cover_letter\|import\|gap, id, user_id, user_email, failed_at, error_code}`. **Never the error message text** (it can quote document content). |
+| `failed_jobs` | `window_days: 7`, `count`, newest 20 `items {kind: cv\|cover_letter\|import\|gap, id, user_id, user_email, failed_at, error_code}`. `failed_at` is the job's **creation** time, because the tables keep no failure timestamp. `error_code` is always `null` for `cover_letter` (that table has no code column). **Never the error message text** (it can quote document content). |
 | `upgrade_notice` | same object as `/api/ops/health.upgrade_notice` (US310), or null |
-| `retention` | `enabled`, `source`, `last_run_at`, `last_run_ok`, `last_run_skipped` (#738) |
+| `retention` | `enabled`, `source`, `last_run_at`, `last_run_ok`, `last_run_skipped` (#738). CONTRACT-CHANGE MD2-6 (3): `enabled_since` (while ON: the newest OFF→ON audit row of `RETENTION_ENABLED`, else the instance claim time (`setup.claimed`), else `null`; `null` while OFF), and `changed_by_email` (while OFF through the panel: the current email of the admin who switched it off; `null` otherwise, including OFF through the environment). CONTRACT-CHANGE MD2-8: `ttl_days {uploads, interview_sessions, generated_documents, cancelled_applications, profile_inactivity, audit_log}`, the effective TTLs as ints in days (`0` = that rule never expires anything) |
 | `notices` | `AdminNotice[]`, same as §5.2 |
 
 ### 5.2 `GET /api/admin/notices` (`AdminNoticesResponse`)
@@ -170,6 +175,11 @@ The UI translates `linkedin_guest_fetch_disabled` like the other `jd_*` codes.
 | `invalid_cursor` | 422 | `GET /api/admin/audit` | tampered or foreign cursor |
 | `linkedin_guest_fetch_disabled` | 422 | `POST /api/job/analyze` | §6 |
 
-## 8. Assumed rulings
+## 8. Rulings this contract rests on
 
-This contract was published with founder questions C1-1…C1-4 open (`Blocked: no`). It implements the recommendations: C1-1 (the key is stored in the DB, encrypted with the instance secret), C1-2 (a panel override wins, with a source badge and a reset action), C1-3 (scope as in §5.3; OFF is allowed with more than one user, audited, with a banner) and C1-4 (in-flight work keeps its provider). A different ruling arrives as a CONTRACT-CHANGE.
+C1-2 **ruled A** (MD2-1): a panel override wins, with a source badge and a reset via `DELETE`. C1-4 **ruled A** (MD2-2): in-flight work keeps its provider. C1-1 **ruled A** (founder): the key is stored in the DB, Fernet-encrypted with the instance secret. C1-3 **ruled A** (founder): scope as in §5.3; OFF is allowed with more than one user, audited, with a banner.
+
+## 9. Change log
+
+- 2026-10-07 `d7cb97c5`: first SEAM-READY.
+- 2026-10-07 (second SEAM-READY): CONTRACT-CHANGE MD2-6 from C2 added `qualification*`, `by_document_kind`, `enabled_since`, `changed_by_email` and `updated_by_email`. Audit detail key `secret` → `write_only`, because the audit suite forbids "secret" as a detail key name. The `PUT` body is validated raw (no FastAPI 422 echo). The `failed_at` semantics are clarified. CONTRACT-CHANGE MD2-8 added `retention.ttl_days`.
