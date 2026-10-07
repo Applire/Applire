@@ -1989,7 +1989,8 @@
     "audit": "Activity log",
     "forbiddenTitle": "This area is for admins",
     "forbiddenBody": "Your account has the role User. If you need something from Administration, ask the person who runs this Applire instance.",
-    "forbiddenBack": "Go to the dashboard"
+    "forbiddenBack": "Go to the dashboard",
+    "loadFailed": "This could not be loaded right now."
   },
   "adminDashboard": {
     "intro": "How the instance is doing, who uses it and what happened lately.",
@@ -2111,7 +2112,12 @@
     "retentionOthers": "{count, plural, one {# other person has} other {# other people have}} an account on this instance. You are responsible for their data (GDPR) — without automatic deletion you keep the periods yourself.",
     "retentionOffTitle": "Switch off automatic deletion?",
     "retentionOffBody": "From tonight Applire no longer deletes anything on its own. Switching it off is recorded in the activity log and visible to every admin.",
-    "retentionOffConfirm": "Switch off"
+    "retentionOffConfirm": "Switch off",
+    "providerNoKey": "{provider} — no key",
+    "errorSecretUnavailable": "The key could not be stored securely — the instance secret is missing. Nothing was changed.",
+    "errorInvalidValue": "This value is not accepted: {key}",
+    "errorGeneric": "That did not work. Nothing was changed.",
+    "dependencyGeneric": "Dependency {code}"
   },
   "adminAudit": {
     "intro": "Who changed what about accounts, tokens and settings, and when. Entries cannot be changed.",
@@ -2133,9 +2139,9 @@
     "actorSystem": "System",
     "deletedPerson": "deleted person",
     "loadMore": "Load older entries",
-    "showing": "{shown} of {total} entries",
+    "showing": "{shown} entries shown",
     "empty": "No entries for this selection.",
-    "retentionNote": "Entries are deleted after {days} days (AUDIT_LOG_RETENTION_DAYS).",
+    "retentionNote": "Entries are deleted after the period set in AUDIT_LOG_RETENTION_DAYS (default: 730 days).",
     "action": {
       "setup_claimed": "Instance set up",
       "harness_boot": "Test mode started",

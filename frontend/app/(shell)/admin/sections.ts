@@ -19,7 +19,12 @@ export interface AdminSection {
 }
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
+  // Epic C (#694): the overview is the landing — first entry = `/admin` target.
+  { key: "overview", href: "/admin/overview", labelKey: "overview" },
   { key: "users", href: "/admin/users", labelKey: "users" },
+  { key: "usage", href: "/admin/usage", labelKey: "usage" },
+  { key: "settings", href: "/admin/settings", labelKey: "settings" },
+  { key: "audit", href: "/admin/audit", labelKey: "audit" },
   { key: "appearance", href: "/admin/appearance", labelKey: "appearance" },
   { key: "monitoring", href: "/admin/monitoring", labelKey: "monitoring" },
 ];

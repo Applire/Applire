@@ -6,16 +6,18 @@
 /**
  * The admin area frame (G-2/G-3): topbar titled with the active section, the
  * sub-nav built from `ADMIN_SECTIONS`, then the section page. Admin-only — a
- * signed-in non-admin is sent to the dashboard (the backend answers 403 on every
- * admin route regardless; this only spares them an empty page). A signed-out
- * visitor never gets here: the shell's 401 handling (2a) redirects to /login.
+ * signed-in non-admin sees the "for admins" card (c2 mock user-dashboard-signal
+ * §4; Epic C) and no sub-nav, and no section page mounts, so no admin endpoint
+ * is called (the backend answers 403 on every admin route regardless). A
+ * signed-out visitor never gets here: the shell's 401 handling (2a) redirects
+ * to /login.
  */
 
 import Link from "next/link";
-import { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 
+import { AdminForbidden } from "@/components/admin/common";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { useCurrentUser } from "@/lib/auth";
 import { ADMIN_SECTIONS, activeSection } from "./sections";
@@ -23,16 +25,22 @@ import { ADMIN_SECTIONS, activeSection } from "./sections";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const t = useTranslations("adminNav");
   const pathname = usePathname();
-  const router = useRouter();
   const { status, isAdmin } = useCurrentUser();
   const active = activeSection(pathname);
 
-  useEffect(() => {
-    if (status === "authenticated" && !isAdmin) router.replace("/dashboard");
-  }, [status, isAdmin, router]);
-
-  if (status !== "authenticated" || !isAdmin) {
+  if (status !== "authenticated") {
     return <div className="flex-1 bg-surface-dim" />;
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden bg-surface-dim">
+        <AppTopbar mode="detail" backHref="/dashboard" backLabelKey="shell.dashboard" pageTitle={t("ariaLabel")} />
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+          <AdminForbidden />
+        </main>
+      </div>
+    );
   }
 
   return (

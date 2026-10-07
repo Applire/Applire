@@ -1989,7 +1989,8 @@
     "audit": "Protokoll",
     "forbiddenTitle": "Dieser Bereich ist für Admins",
     "forbiddenBody": "Dein Konto hat die Rolle Nutzer. Brauchst du etwas aus der Administration, frag die Person, die diese Applire-Instanz betreibt.",
-    "forbiddenBack": "Zum Dashboard"
+    "forbiddenBack": "Zum Dashboard",
+    "loadFailed": "Das konnte gerade nicht geladen werden."
   },
   "adminDashboard": {
     "intro": "Wie es der Instanz geht, wer sie nutzt und was zuletzt passiert ist.",
@@ -2111,7 +2112,12 @@
     "retentionOthers": "Auf dieser Instanz haben {count, plural, one {# weitere Person} other {# weitere Personen}} ein Konto. Für ihre Daten bist du verantwortlich (DSGVO) — ohne automatisches Löschen hältst du die Fristen selbst ein.",
     "retentionOffTitle": "Automatisches Löschen ausschalten?",
     "retentionOffBody": "Ab heute Nacht löscht Applire nichts mehr von selbst. Das Ausschalten steht im Protokoll und ist für alle Admins sichtbar.",
-    "retentionOffConfirm": "Ausschalten"
+    "retentionOffConfirm": "Ausschalten",
+    "providerNoKey": "{provider} — kein Schlüssel",
+    "errorSecretUnavailable": "Der Schlüssel konnte nicht sicher gespeichert werden — das Instanz-Geheimnis fehlt. Es wurde nichts geändert.",
+    "errorInvalidValue": "Dieser Wert wird nicht angenommen: {key}",
+    "errorGeneric": "Das hat nicht geklappt. Es wurde nichts geändert.",
+    "dependencyGeneric": "Abhängigkeit {code}"
   },
   "adminAudit": {
     "intro": "Wer wann was an Konten, Tokens und Einstellungen geändert hat. Einträge lassen sich nicht ändern.",
@@ -2133,9 +2139,9 @@
     "actorSystem": "System",
     "deletedPerson": "gelöschte Person",
     "loadMore": "Ältere Einträge laden",
-    "showing": "{shown} von {total} Einträgen",
+    "showing": "{shown} Einträge angezeigt",
     "empty": "Für diese Auswahl gibt es keine Einträge.",
-    "retentionNote": "Einträge werden nach {days} Tagen gelöscht (AUDIT_LOG_RETENTION_DAYS).",
+    "retentionNote": "Einträge werden nach der Frist in AUDIT_LOG_RETENTION_DAYS gelöscht (Standard: 730 Tage).",
     "action": {
       "setup_claimed": "Instanz eingerichtet",
       "harness_boot": "Testmodus gestartet",

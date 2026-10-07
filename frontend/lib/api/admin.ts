@@ -336,6 +336,17 @@ export interface DashboardRetention {
   /** Requested additively from C1 (C2 contract request #3) — may be absent. */
   enabled_since?: string | null;
   changed_by_email?: string | null;
+  /** Requested additively from C1 (C2 contract request #5) — the periods from `.env`; may be absent. */
+  ttl_days?: RetentionTtlDays;
+}
+
+export interface RetentionTtlDays {
+  uploads: number;
+  interview_sessions: number;
+  generated_documents: number;
+  cancelled_applications: number;
+  profile_inactivity: number;
+  audit_log: number;
 }
 
 export interface AdminDashboardResponse {
