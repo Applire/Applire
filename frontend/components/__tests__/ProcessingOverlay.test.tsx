@@ -968,3 +968,34 @@ describe("ProcessingOverlay — per-file CV parse status (US153 / FMEA 2.2)", ()
     expect(mockPush).not.toHaveBeenCalled();
   });
 });
+
+describe("ProcessingOverlay — LinkedIn fetch switched off by the admin (#726)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mockPush.mockClear();
+  });
+
+  it("pauses on the paste path with its own copy for linkedin_guest_fetch_disabled", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/job/analyze")) {
+        return {
+          ok: false,
+          status: 422,
+          statusText: "Unprocessable Entity",
+          json: async () => ({ detail: { error_code: "linkedin_guest_fetch_disabled", message: "disabled" } }),
+        } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+
+    render(withIntl(<ProcessingOverlay {...DEFAULT_PROPS} jdUrl="https://www.linkedin.com/jobs/view/1" />));
+
+    await waitFor(() => expect(screen.getByTestId("jd-paste-textarea")).toBeInTheDocument(), { timeout: 5000 });
+    expect(
+      screen.getByText("This instance does not fetch LinkedIn pages. Paste the job description below to continue."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("processing-error")).toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});

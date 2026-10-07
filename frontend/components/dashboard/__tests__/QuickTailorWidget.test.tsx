@@ -74,6 +74,35 @@ describe("QuickTailorWidget", () => {
     await waitFor(() => expect(screen.getByText("Bad URL")).toBeInTheDocument());
   });
 
+  // #726 — the instance does not fetch LinkedIn pages: the structured 422 is
+  // translated, never rendered raw (an object detail would crash the render).
+  it("shows the LinkedIn-off copy for linkedin_guest_fetch_disabled", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ detail: { error_code: "linkedin_guest_fetch_disabled", message: "LinkedIn fetch disabled" } }),
+    });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://www.linkedin.com/jobs/view/1" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(screen.getByText("errorLinkedinOff")).toBeInTheDocument());
+    expect(screen.queryByText("LinkedIn fetch disabled")).toBeNull();
+  });
+
+  it("falls back to the generic copy for any other structured 422", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ detail: { error_code: "jd_fetch_failed", message: "blocked" } }),
+    });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://example.de/job" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(screen.getByText("errorAnalysisFailed")).toBeInTheDocument());
+  });
+
   // US224 — mobile Quick Tailor capture: the input+button row must stack
   // (not squash) below sm so both tabs stay usable at 390px.
   describe("mobile capture row (US224)", () => {

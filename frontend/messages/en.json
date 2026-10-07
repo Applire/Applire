@@ -82,7 +82,9 @@
     "profileUpdated": "{count, plural, one {Updated master profile with 1 new CV} other {Updated master profile with # new CVs}}",
     "uploadTryAgain": "We couldn't finish reading this CV in time — nothing was changed. Please try again.",
     "notAppliedNote": "{count, plural, one {1 entry from your CV did not merge automatically} other {# entries from your CV did not merge automatically}}: {labels}",
-    "notAppliedMore": "+{count} more"
+    "notAppliedMore": "+{count} more",
+    "jdLinkedinOff": "This instance does not fetch LinkedIn pages — you can paste the text later",
+    "jdLinkedinOffPaste": "This instance does not fetch LinkedIn pages. Paste the job description below to continue."
   },
   "flow": {
     "stepProfile": "1 Profile",
@@ -673,7 +675,8 @@
     "statusCancelled": "Cancelled",
     "cancelledSection": "Cancelled applications ({count})",
     "cancelledRemovalDate": "Will be removed on {date}",
-    "cancelledRestore": "Restore"
+    "cancelledRestore": "Restore",
+    "errorLinkedinOff": "This instance does not fetch LinkedIn pages. Paste the job posting text instead."
   },
   "profile": {
     "title": "My Profile",
