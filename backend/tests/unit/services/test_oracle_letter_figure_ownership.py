@@ -57,8 +57,14 @@ PROFILE = {
             "name": "Agentic GenAI System",
             "associated_experience": "w-nordpharm",
             "achievements": [
-                "Backed by full LLM exchange observability logging and "
-                "over 2,600 tests gating CI.",
+                # #701 (2026-10-07): the vault unit carries the WHOLE claim the
+                # letter fixtures below restate — not only the figure's tail.
+                # Before #701 a matched "2,600" grounded the letter sentence's
+                # unbacked first half too; this file pins attribution, so its
+                # vault must actually hold what the letter says.
+                "Built a deterministic verification layer auditing every LLM "
+                "output against source data, backed by full LLM exchange "
+                "observability logging and over 2,600 tests gating CI.",
             ],
         }
     ],

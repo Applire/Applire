@@ -133,6 +133,26 @@ def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
     )
 
 
+def coverage_by_units(text: str, units: list[EvidenceUnit]) -> float:
+    """Fraction of ``text``'s content tokens present in ANY of ``units`` (#701).
+
+    The same tokenisation and the same presence predicate as
+    :func:`ground_text_claim` (``skill_tokens`` minus the narrative function
+    words, ``surface_present``) — so "how much of this claim do these units
+    carry" can never mean one thing here and another on the grounding path.
+    A claim with no content tokens is fully covered (nothing to carry).
+
+    ADR-062 classification: **FACT** — token presence in stored text.
+    """
+    tokens = sorted(skill_tokens(text) - _NARRATIVE_STOPWORDS)
+    if not tokens:
+        return 1.0
+    hits = sum(
+        1 for t in tokens if any(surface_present(t, u.text_norm) for u in units)
+    )
+    return hits / len(tokens)
+
+
 # ── skill-union fallback for enumeration clauses (adversarial-pass residual,
 # 2026-07-23) ─────────────────────────────────────────────────────────────
 #

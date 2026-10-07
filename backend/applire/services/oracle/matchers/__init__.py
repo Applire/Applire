@@ -22,6 +22,7 @@ from applire.services.oracle.matchers.vault import (
 )
 from applire.services.oracle.matchers.grounding import (
     GroundingResult,
+    coverage_by_units,
     ground_skill_claim,
     ground_text_claim,
     ground_via_role_union,
@@ -42,6 +43,7 @@ __all__ = [
     "extend_vault_index",
     "derive_tenure_ceiling_years",
     "GroundingResult",
+    "coverage_by_units",
     "ground_skill_claim",
     "ground_text_claim",
     "ground_via_role_union",
