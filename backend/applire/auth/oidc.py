@@ -47,9 +47,8 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth.csrf import SHIPPED_DEFAULT_BASE_URL
 from applire.auth.links import derive_key
-from applire.config import settings
+from applire.config import configured_base_url, settings
 from applire.models.auth import AuthLink
 from applire.models.user import User
 
@@ -126,8 +125,7 @@ def validate_config() -> None:
         raise OidcConfigError("OIDC_ISSUER is set but OIDC_CLIENT_ID is empty.")
     if not (settings.oidc_client_secret or "").strip():
         raise OidcConfigError("OIDC_ISSUER is set but OIDC_CLIENT_SECRET is empty.")
-    base = (settings.applire_base_url or "").strip().rstrip("/")
-    if not base or base == SHIPPED_DEFAULT_BASE_URL:
+    if configured_base_url() is None:  # S-1: unset = absent or empty, never a value compare
         raise OidcConfigError(
             "OIDC needs APPLIRE_BASE_URL set to the address people open Applire on "
             "(the redirect URI is <APPLIRE_BASE_URL>/api/auth/oidc/callback)."

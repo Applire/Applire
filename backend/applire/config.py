@@ -21,6 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from applire.constants import (
@@ -109,6 +110,40 @@ def active_overlay() -> Mapping[str, Any]:
     """The snapshot a read in this context resolves through."""
     pinned = _overlay_pin.get()
     return overlay_latest() if pinned is None else pinned
+
+
+class ShippedDefaultBaseUrl(str):
+    """Marks the code default of ``APPLIRE_BASE_URL`` (founder ruling S-1, 2026-10-07).
+
+    "The operator left APPLIRE_BASE_URL unset" is decided by whether the
+    environment or ``.env`` supplied the field, never by comparing strings: a
+    value read from a source is a plain ``str``, the code default is this marker
+    (the field skips default validation, so pydantic keeps the object). An
+    operator who sets exactly ``http://localhost`` has therefore configured it.
+    """
+
+    __slots__ = ()
+
+
+#: The shipped default: the stock install's nginx on port 80 (S-1; was
+#: ``http://localhost:8001``, a port only the dev override publishes). Links built
+#: from it are right when the agent or browser runs on the server itself.
+SHIPPED_DEFAULT_BASE_URL = ShippedDefaultBaseUrl("http://localhost")
+
+
+def configured_base_url(value: object = None) -> str | None:
+    """The operator's ``APPLIRE_BASE_URL`` (stripped, no trailing slash), or ``None``
+    when it is unset: no source supplied it, or it is empty.
+
+    The ONE predicate behind MD-32 (no mail without an explicit base URL), the
+    origin check's Host allow-list and OIDC's redirect-URI check. ``value``
+    defaults to the live setting; tests pass a value to probe the rule.
+    """
+    raw = settings.applire_base_url if value is None else value
+    if not isinstance(raw, str) or isinstance(raw, ShippedDefaultBaseUrl):
+        return None
+    base = raw.strip().rstrip("/")
+    return base or None
 
 
 class Settings(BaseSettings):
@@ -213,7 +248,10 @@ class Settings(BaseSettings):
     audit_log_retention_days: int = 730     # 0 = keep forever
     applire_agent_token: str = ""           # MCP stdio process only (S-5)
     mcp_transport: str = "stdio"
-    applire_base_url: str = "http://localhost:8001"
+    # S-1: unset is decided by presence, see ShippedDefaultBaseUrl. validate_default
+    # must stay False, or pydantic turns the marker into a plain str and every
+    # install reads as "configured" (mail on with localhost links, MD-32 broken).
+    applire_base_url: str = Field(default=SHIPPED_DEFAULT_BASE_URL, validate_default=False)
     upload_dir: str = "./data/uploads"
     storage_backend: str = "local"
     ocr_backend: str = "mistral_vision"

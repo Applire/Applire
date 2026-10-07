@@ -691,8 +691,9 @@ _register_all(
                 "Developer-only: log every LLM call's full input/output to\n"
                 "<LLM_DEBUG_LOG_DIR>/<date>.jsonl (one JSON line per call: stage, model,\n"
                 "system, prompt, params, response, latency).\n"
-                "RECORDS CV PII — keep OFF in production. While it is on, the backend logs\n"
-                "a WARNING at every startup and GET /health reports debug_log_on: true.\n"
+                "RECORDS CV PII — keep OFF in production; since 0.43 that includes every\n"
+                "person on this instance, not only you. While it is on, the backend logs\n"
+                "a WARNING at every startup and GET /api/ops/health reports debug_log_on: true.\n"
                 "There is deliberately no size or age cap: a cap on a diagnostic tool\n"
                 "truncates evidence silently. Turn it off, and delete the files."
             ),
@@ -768,7 +769,7 @@ _register_all(
                 "published port) or 'dev' (docker-compose.override.yml is also applied — "
                 "builds from source, hot-reload backend, and 3000/8001/5433 published).\n"
                 "The override file sets it; leaving it unset is what makes 'production' "
-                "true. A 'dev' value logs a WARNING at startup and appears at GET /health "
+                "true. A 'dev' value logs a WARNING at startup and appears at GET /api/ops/health "
                 "— running a clone with a plain `docker compose up` silently applies the "
                 "override, which is a debugging topology."
             ),
@@ -1114,17 +1115,22 @@ _register_all(
         SettingEntry(
             env_var="APPLIRE_BASE_URL",
             source="config",
-            default="http://localhost:8001",
+            default="http://localhost",
             section="Network and access",
             introduced_in="0.31.0",
+            semantics_changed_in="0.43.0",
             description=(
-                "MCP / agent channel — the base URL used to build html_url / pdf_url in\n"
-                "tool responses (generate_cv, get_cv_status, generate_cover_letter, ...).\n"
-                "The default is correct only for a local, unproxied dev setup. Set this to\n"
-                "the externally reachable scheme://host:port of your reverse proxy for any\n"
-                "other deployment, or agent-fetched artifact links silently point at\n"
-                "localhost:8001 instead of your real host. Links in invitation and reset\n"
-                "mails are built ONLY from this value; left at the default, no mail is sent."
+                "The address people open Applire on, as scheme://host[:port] — e.g.\n"
+                "http://192.168.1.5 or https://applire.example.org. Unset, document links\n"
+                "for agents (html_url / pdf_url) point at http://localhost, which is right\n"
+                "only when the agent runs on this server. Set it, and:\n"
+                "- invitation and reset mails can be sent (with SMTP_HOST). They are built\n"
+                "  ONLY from this value, so unset = no mail, even with SMTP configured;\n"
+                "- sign-ins are accepted only for this host name and localhost, so set it\n"
+                "  to the one address everyone uses;\n"
+                "- OIDC can be turned on (it requires it).\n"
+                "\"Unset\" means the line is absent or empty. Writing the default out\n"
+                "(APPLIRE_BASE_URL=http://localhost) counts as set."
             ),
         ),
         SettingEntry(

@@ -523,9 +523,12 @@ variable: `APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp`.
 
 `-T` matters: it gives the server a plain pipe instead of a terminal, which is
 what the stdio transport needs. Start Applire first (`docker compose up -d`);
-the MCP container shares its database and your `.env`. Set
-`APPLIRE_BASE_URL=http://localhost` (or your public address) in that `.env`, so
-the document links your agent gets back open in your browser.
+the MCP container shares its database and your `.env`. The document links your
+agent gets back point at `http://localhost` by default, which works when the
+agent runs on the same machine as Applire. Otherwise set `APPLIRE_BASE_URL` in
+that `.env` to the address people open Applire on (for example
+`http://192.168.1.5` or `https://applire.example.org`). Once set, it is also the
+only host name, besides `localhost`, that Applire accepts sign-ins on.
 
 For a source checkout, run the server directly instead:
 
@@ -534,12 +537,12 @@ For a source checkout, run the server directly instead:
 python -m applire.mcp
 ```
 
-Set `APPLIRE_BASE_URL` to the externally-reachable `scheme://host:port` of your
-reverse proxy for any deployment other than local/unproxied dev — it's what
-`generate_cv`/`get_cv_status`/`generate_cover_letter` use to build `html_url`/
-`pdf_url`. It defaults to `http://localhost:8001`, which is wrong behind
-nginx/Caddy; the server logs a startup warning when it's unset. See
-`.env.example`.
+`APPLIRE_BASE_URL` is what `generate_cv`/`get_cv_status`/`generate_cover_letter`
+use to build `html_url`/`pdf_url`. It defaults to `http://localhost` (Applire's
+own nginx on port 80), which is right only when the agent runs on the server
+itself; the server logs a startup warning when it's unset. A source checkout
+that runs the backend outside Docker on port 8001 sets
+`APPLIRE_BASE_URL=http://localhost:8001`. See `.env.example`.
 
 > **First call:** after connecting, have your agent call `get_guide` — it returns
 > the agent-usage guide and Applire's honesty contract (tool flow, à-la-carte

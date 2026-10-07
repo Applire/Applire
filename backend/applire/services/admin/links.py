@@ -13,8 +13,9 @@
   token_hash=:h AND used_at IS NULL AND expires_at>now() RETURNING …`` — so two
   concurrent redeems cannot both succeed (adversarial-security §S "links").
 * **Where a link points (MD-32, adv-id-1).** A link that LEAVES the browser — every
-  mail — is built from ``APPLIRE_BASE_URL`` only (:func:`mail_origin`); with the
-  shipped default no mail is sent at all, because a request's ``Host``/``Origin``
+  mail — is built from ``APPLIRE_BASE_URL`` only (:func:`mail_origin`); with it
+  unset (absent or empty — presence, not a value compare, ruling S-1) no mail is
+  sent at all, because a request's ``Host``/``Origin``
   is chosen by whoever sends it (an unauthenticated ``/forgot`` with ``Host:
   evil.example`` would otherwise mail the victim a genuine link to the attacker).
   A link SHOWN to a signed-in admin (:func:`request_origin`) may use the origin of
@@ -35,6 +36,7 @@ from fastapi import Request
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire import config as _config
 from applire.config import settings
 from applire.models.auth import AuthLink
 from applire.models.user import User
@@ -58,7 +60,8 @@ LinkPurpose = Literal["invite", "reset"]
 LinkState = Literal["valid", "expired", "used"]
 
 LINK_TTL: dict[str, timedelta] = {"invite": timedelta(days=7), "reset": timedelta(hours=1)}
-SHIPPED_DEFAULT_BASE_URL = "http://localhost:8001"
+# Re-exported for callers and tests; the rule itself is config.configured_base_url.
+SHIPPED_DEFAULT_BASE_URL = _config.SHIPPED_DEFAULT_BASE_URL
 
 
 def _now() -> datetime:
@@ -76,11 +79,10 @@ def hash_link_token(raw: str) -> str:
 
 def mail_origin() -> str | None:
     """The origin for a link that leaves the browser (MD-32): ``APPLIRE_BASE_URL``
-    when the operator set it, else ``None`` — the caller then sends no mail."""
-    base = (getattr(settings, "applire_base_url", "") or "").strip().rstrip("/")
-    if base and base != SHIPPED_DEFAULT_BASE_URL:
-        return base
-    return None
+    when the operator set it, else ``None`` — the caller then sends no mail.
+    "Set" means a source supplied it (S-1), so an explicit ``http://localhost``
+    counts and the shipped default never does."""
+    return _config.configured_base_url(getattr(settings, "applire_base_url", None) or "")
 
 
 MAIL_WITHOUT_BASE_URL_WARNING = (

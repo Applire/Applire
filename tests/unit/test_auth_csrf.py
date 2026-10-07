@@ -20,7 +20,9 @@ def base(monkeypatch):
     def set_base(value):
         monkeypatch.setattr(csrf.settings, "applire_base_url", value)
 
-    set_base("http://localhost:8001")  # the shipped default = "not set"
+    # The shipped default = "not set". Presence, not value (ruling S-1): the marker
+    # object, never a string that merely equals it.
+    set_base(csrf.SHIPPED_DEFAULT_BASE_URL)
     return set_base
 
 

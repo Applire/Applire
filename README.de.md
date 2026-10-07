@@ -539,9 +539,12 @@ Quellcode-Checkout nimmt dieselbe Variable:
 `-T` ist wichtig: Der Server bekommt eine einfache Pipe statt eines Terminals,
 und genau die braucht der stdio-Transport. Starte Applire vorher
 (`docker compose up -d`); der MCP-Container nutzt dieselbe Datenbank und deine
-`.env`. Setze dort `APPLIRE_BASE_URL=http://localhost` (oder deine öffentliche
-Adresse), damit sich die Dokument-Links, die dein Agent zurückbekommt, in deinem
-Browser öffnen.
+`.env`. Die Dokument-Links, die dein Agent zurückbekommt, zeigen standardmäßig auf
+`http://localhost`; das passt, wenn der Agent auf demselben Rechner läuft wie
+Applire. Sonst setze dort `APPLIRE_BASE_URL` auf die Adresse, unter der Applire
+aufgerufen wird (zum Beispiel `http://192.168.1.5` oder
+`https://applire.example.org`). Ist sie gesetzt, nimmt Applire Anmeldungen nur
+noch für diesen Hostnamen und für `localhost` an.
 
 Aus einem Quellcode-Checkout startest du den Server stattdessen direkt:
 
@@ -550,11 +553,12 @@ Aus einem Quellcode-Checkout startest du den Server stattdessen direkt:
 python -m applire.mcp
 ```
 
-Setze `APPLIRE_BASE_URL` auf die von außen erreichbare `scheme://host:port`-Adresse
-deines Reverse Proxys für jedes Deployment außer lokalem, ungeproxtem Dev-Betrieb —
-`generate_cv`/`get_cv_status`/`generate_cover_letter` bauen damit `html_url`/`pdf_url`
-auf. Standard ist `http://localhost:8001`, was hinter nginx/Caddy falsch ist; der
-Server loggt beim Start eine Warnung, wenn die Variable fehlt. Siehe `.env.example`.
+Aus `APPLIRE_BASE_URL` bauen `generate_cv`/`get_cv_status`/`generate_cover_letter`
+die `html_url`/`pdf_url`. Standard ist `http://localhost` (Applires eigener nginx
+auf Port 80); das stimmt nur, wenn der Agent auf dem Server selbst läuft. Der
+Server loggt beim Start eine Warnung, wenn die Variable fehlt. Ein
+Quellcode-Checkout, dessen Backend außerhalb von Docker auf Port 8001 läuft, setzt
+`APPLIRE_BASE_URL=http://localhost:8001`. Siehe `.env.example`.
 
 > **Erster Aufruf:** Lass deinen Agenten nach dem Verbinden zuerst `get_guide`
 > aufrufen — es liefert den Agent-Nutzungsleitfaden und Applires
