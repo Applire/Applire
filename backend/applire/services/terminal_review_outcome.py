@@ -72,6 +72,8 @@ Never an LLM call. Reads a settle report and returns a report row; changes no dr
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import logging
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Sequence
@@ -194,6 +196,33 @@ class RepeatedDemand:
         }
 
 
+#: Adv-review finding 12 (2026-10-07): the round a reviewer prompt just recorded,
+#: until the reviewer ANSWERS it. ``on_demand`` fires while the prompt is built,
+#: before the provider call; a call that then times out, truncates or returns
+#: malformed JSON ships the draft un-reviewed, and that round was never answered —
+#: it must not count toward "N× nachgefordert". ``review_and_refine`` brackets each
+#: reviewer call with the three hooks below; outside a bracket they are no-ops.
+_OPEN_ROUND: ContextVar["DemandRecord | None"] = ContextVar("demand_record_open_round", default=None)
+
+
+def reviewer_round_begins() -> None:
+    """A reviewer call is about to build its prompt: nothing is open yet."""
+    _OPEN_ROUND.set(None)
+
+
+def reviewer_round_answered() -> None:
+    """The reviewer returned a parsed verdict: the round it was shown stands."""
+    _OPEN_ROUND.set(None)
+
+
+def reviewer_round_unanswered() -> None:
+    """The reviewer call failed: drop the round its prompt recorded, if any."""
+    record = _OPEN_ROUND.get()
+    _OPEN_ROUND.set(None)
+    if record is not None:
+        record.drop_last_round()
+
+
 class DemandRecord:
     """#703 — the per-delivery record of what each reviewer round DEMANDED.
 
@@ -226,6 +255,12 @@ class DemandRecord:
             forms = [f for f in (entry.get("surface_forms") or []) if f]
             self._forms.setdefault(concept, tuple(dict.fromkeys([*forms, concept])))
         self._rounds.append(tuple(dict.fromkeys(concepts)))
+        _OPEN_ROUND.set(self)
+
+    def drop_last_round(self) -> None:
+        """Forget the most recent round (its reviewer never answered it)."""
+        if self._rounds:
+            self._rounds.pop()
 
     @property
     def rounds(self) -> tuple[tuple[str, ...], ...]:
