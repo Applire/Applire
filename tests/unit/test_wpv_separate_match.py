@@ -113,7 +113,11 @@ def test_engagement_without_an_incoming_entry_is_rebuilt_from_the_pair():
         ("Roche Diagnostics GmbH", "System Analyst"), ("Roche", "Systemanalytiker"),
     ]
     assert work[0].company_aliases == []
-    assert work[0].role_aliases == ["Systemanalytiker"]  # not recorded by this binding
+    # Adversarial finding 3 (2026-10-07): the undo takes names back BY VALUE —
+    # every alternate name the separated entry carries comes off the target,
+    # whichever binding recorded it; otherwise the next import carries the
+    # same pair again through the name left behind.
+    assert work[0].role_aliases == []
 
 
 def test_separate_match_is_not_model_emittable():
@@ -163,3 +167,41 @@ async def test_door_writes_both_steps_into_one_history_record(sqlite_session):
     with pytest.raises(MatchNotSeparable) as exc:
         await separate_match(sqlite_session, entity_id="s1", incoming="Machine Learning")
     assert exc.value.code == "already_undone"
+
+
+# ── adversarial fixes 2026-10-07: guard-specific pins (findings 3, 5) ─────────
+
+
+def test_a_model_basis_receipt_on_a_table_pair_is_refused_by_the_fact():
+    """Finding 5: the refusal reads the DE/EN table, not the receipt's basis —
+    a receipt persisted with basis "model" for English -> Englisch is still a
+    fact and never undoable."""
+    vault = MasterProfileData(
+        languages=[{"id": "l1", "language": "Englisch"}],
+        metadata=ProfileMetadata(enrichment_history=[EnrichmentRecord(
+            timestamp=datetime.now(timezone.utc), source="cv_upload",
+            matched=[MatchReceipt(section="languages", entity_id="l1", incoming="English",
+                                  existing="Englisch", basis="model")],
+        )]),
+    )
+    with pytest.raises(MatchNotSeparableError) as exc:
+        apply_ops(vault, [SeparateMatch(entity_id="l1", incoming="English")], "manual_edit")
+    assert exc.value.code == "name_table"
+
+
+def test_separate_stamps_every_receipt_of_the_pair():
+    """Finding 3: both steps of the history read as undone — the older receipt
+    of the same pair is stamped in the same commit as the newest."""
+    def receipt():
+        return MatchReceipt(section="skills", entity_id="s1", incoming="Testing",
+                            existing="Testautomatisierung", basis="model")
+    vault = MasterProfileData(
+        skills=[Skill(id="s1", name="Testautomatisierung", aliases=["Testing"])],
+        metadata=ProfileMetadata(enrichment_history=[
+            EnrichmentRecord(timestamp=datetime.now(timezone.utc), source="cv_upload", matched=[receipt()]),
+            EnrichmentRecord(timestamp=datetime.now(timezone.utc), source="cv_upload", matched=[receipt()]),
+        ]),
+    )
+    after = apply_ops(vault, [SeparateMatch(entity_id="s1", incoming="Testing")], "manual_edit").profile
+    stamps = [r.undone_at for rec in after.metadata.enrichment_history for r in rec.matched]
+    assert len(stamps) == 2 and all(stamps)

@@ -482,29 +482,74 @@ def _match_existing_bound_keys(
     }
 
 
-def _carried_by_recorded_name(section: str, entry: Any, merged_entries: Sequence[Any]) -> bool:
-    """Arm (a), alternate-name reading (ADR-063 amended 2026-10-07, #716;
-    founder question V-1). An incoming entry whose every non-empty natural-key
-    value is a RECORDED name of exactly one merged entry (its own value or one of
-    that field's aliases — at least one of them an alias) is carried. For an
-    engagement both start dates must state a month and the months must agree:
-    a year-only or missing date never carries through an alias (adversarial
-    finding 3 — a wildcard would carry ``Roche 2019`` and ``Roche 2023`` alike).
-
-    A fact, not a judgement (ADR-062 cl. 1): the alias is already in the vault,
-    written from a binding the candidate was shown on an import summary (#717),
-    and this compares strings. Named residual: a WRONG alias carries a later
-    genuinely different entry of exactly that name (System-FMEA, new row).
-    """
+def _resolves_to(section: str, entry: Any, merged_entries: Sequence[Any]) -> list[Any]:
+    """Every merged entry whose recorded names (own value or alias) cover ALL of
+    ``entry``'s natural-key values, with the date evidence an alias needs
+    (``aliases.dates_allow``). Empty values never match (not a wildcard)."""
     fields = _ENTRY_NATURAL_KEYS[section]
-    values = {f: getattr(entry, f, None) for f in fields}
-    candidates = merged_entries
-    if section in _ENGAGEMENT_SECTION_NAMES:
-        candidates = [
-            e for e in merged_entries
-            if _aliases.months_agree(getattr(entry, "start_date", None), getattr(e, "start_date", None))
-        ]
-    return _aliases.unique_entry_by_names(candidates, section, values) is not None
+    wanted = {f: _norm(getattr(entry, f, "") or "") for f in fields}
+    if any(not w for w in wanted.values()):
+        return []
+    return [
+        e for e in merged_entries
+        if _aliases.dates_allow(section, entry, e)
+        and all(w in _aliases.names_of(e, f, section) for f, w in wanted.items())
+    ]
+
+
+def _dedupe_key(section: str, entry: Any) -> tuple[str, ...]:
+    """The witness's per-entry dedupe key: the witness key, plus the stated
+    dates for education (two degrees of one name at one institution are two
+    CV lines — adv-vault-1, 2026-10-07)."""
+    key = _entry_key(entry, WITNESS_KEYS[section])
+    if section == "education":
+        key += _entry_key(entry, ("start_date", "end_date"))
+    return key
+
+
+def alias_carries(
+    section: str, incoming_entries: Sequence[Any], merged_entries: Sequence[Any]
+) -> list[tuple[Any, Any]]:
+    """Arm (a), alternate-name reading (ADR-063 amended 2026-10-07, #716; V-1;
+    adv-vault-1 = B, MD2-15) — ``(incoming_entry, carrier)`` for every incoming
+    entry carried THROUGH a recorded alias.
+
+    An entry is carried when its every natural-key value is a recorded name of
+    exactly ONE merged entry (at least one of them an alias), the dates allow it
+    (engagements: the same stated start month; education: the same stated
+    years, or none on either side), and — the incoming-side exactly-one rule —
+    no OTHER distinct incoming entry resolves to that same merged entry. Two
+    document lines that both read as one vault entry are two things; neither
+    is carried by a name alone.
+
+    A fact, not a judgement (ADR-062 cl. 1): the alias is already in the vault
+    and this compares strings. Every carry it returns is receipted on the
+    import's ``matched`` (``alias_writer.record_alias_carries``, finding 2), so
+    the summary shows it and "Nicht dasselbe" can take it back. Named
+    residual: a WRONG alias carries a later genuinely different entry of
+    exactly that name (System-FMEA, new row) — visible, and undoable.
+
+    Shared by the witness and the receipt writer (ADR-066).
+    """
+    if section not in _aliases.ALIAS_FIELDS and section not in _ENGAGEMENT_SECTION_NAMES:
+        return []
+    distinct: dict[tuple[str, ...], Any] = {}
+    for entry in incoming_entries:
+        distinct.setdefault(_dedupe_key(section, entry), entry)
+    resolved: list[tuple[Any, Any]] = []
+    per_target: dict[int, int] = {}
+    for entry in distinct.values():
+        hits = _resolves_to(section, entry, merged_entries)
+        if len(hits) != 1:
+            continue
+        resolved.append((entry, hits[0]))
+        per_target[id(hits[0])] = per_target.get(id(hits[0]), 0) + 1
+    fields = _ENTRY_NATURAL_KEYS[section]
+    return [
+        (entry, target) for entry, target in resolved
+        if per_target[id(target)] == 1
+        and any(_aliases.alias_hit(target, f, section, getattr(entry, f, None)) for f in fields)
+    ]
 
 
 def _flat_section_not_applied(
@@ -525,16 +570,18 @@ def _flat_section_not_applied(
     getters = _getters_for(fields)
     containment_is_same = _FLAT_CONTAINMENT_IS_SAME.get(section, False)
 
+    carried_by_alias = {id(e) for e, _t in alias_carries(section, incoming_entries, merged_entries)}
+
     items: list[ImportNotApplied] = []
     seen: set[tuple[str, ...]] = set()
     for entry in incoming_entries:
         key = _entry_key(entry, fields)
-        if key in seen:
+        if _dedupe_key(section, entry) in seen:
             continue
-        seen.add(key)
+        seen.add(_dedupe_key(section, entry))
         if key in merged_keys:  # arm (a)
             continue
-        if _carried_by_recorded_name(section, entry, merged_entries):  # arm (a), alternate names
+        if id(entry) in carried_by_alias:  # arm (a), alternate names
             continue
         if key in bound_keys:
             # arm (c), sub-clause 3 (#707, `match_existing`) — the model said so
@@ -739,6 +786,10 @@ def _engagement_section_not_applied(
     # #715 (ADR-063 amended 2026-10-07) — arm (c) sub-clause 3 on engagements.
     bound_keys = _match_existing_bound_keys(section.name, incoming_entries, merged_entries, ops)
 
+    carried_by_alias = {
+        id(e) for e, _t in alias_carries(section.name, incoming_entries, merged_entries)
+    }
+
     items: list[ImportNotApplied] = []
     seen: set[tuple[str, ...]] = set()
     for entry in incoming_entries:
@@ -748,7 +799,7 @@ def _engagement_section_not_applied(
         seen.add(key)
         if key in merged_keys:  # arm (a)
             continue
-        if _carried_by_recorded_name(section.name, entry, merged_entries):  # arm (a), alternate names
+        if id(entry) in carried_by_alias:  # arm (a), alternate names
             continue
         if key in bound_keys:  # arm (c), sub-clause 3 — the model said so (#715)
             continue
