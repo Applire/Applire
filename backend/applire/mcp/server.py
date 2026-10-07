@@ -80,6 +80,7 @@ from importlib import resources as importlib_resources
 
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 from sqlalchemy import select
 
 from applire.config import settings
@@ -88,6 +89,7 @@ from applire.exceptions import LLMTruncatedError
 from applire import ownership
 from applire.mcp import identity as mcp_identity
 from applire.mcp.deps import get_db
+from applire.mcp.errors import _INVALID_INPUT as _INVALID_INPUT_CODE
 from applire.mcp.errors import internal, invalid_input, not_found, unauthorized
 from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.models.application import UserStatus
@@ -102,6 +104,7 @@ from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
+from applire.services import instance_settings
 from applire.storage import get_storage
 from applire.schemas.application import (
     AddFactPinRequest,
@@ -252,26 +255,35 @@ def _agent_call(fn):
 
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
-        try:
-            if mcp_identity.bound() is None:
-                user = await mcp_identity.revalidate(None)
-            else:
-                async with get_db() as db:
-                    user = await mcp_identity.revalidate(db)
-        except mcp_identity.AgentCallRefused as exc:
-            raise unauthorized(str(exc))
-        owner_token = ownership.set_owner(user.id)
-        user_token = mcp_identity.set_call_user(user)
-        try:
-            result = await fn(*args, **kwargs)
-        except ownership.OwnedNotFound as exc:
-            raise not_found(str(exc.detail))
-        finally:
-            mcp_identity.reset_call_user(user_token)
-            ownership.reset_owner(owner_token)
-        return _sign_document_urls(result, user)
+        # ADR-093 cl. 5/6: refresh the admin overrides and pin them for this whole
+        # call, BEFORE the body (analyze_jd resolves its provider before it opens
+        # a session) — the agent door uses a switched provider on its next call.
+        async with instance_settings.pinned_call():
+            return await _agent_call_body(fn, args, kwargs)
 
     return wrapper
+
+
+async def _agent_call_body(fn, args, kwargs):
+    """The identity-checked body of :func:`_agent_call` (unchanged by ADR-093)."""
+    try:
+        if mcp_identity.bound() is None:
+            user = await mcp_identity.revalidate(None)
+        else:
+            async with get_db() as db:
+                user = await mcp_identity.revalidate(db)
+    except mcp_identity.AgentCallRefused as exc:
+        raise unauthorized(str(exc))
+    owner_token = ownership.set_owner(user.id)
+    user_token = mcp_identity.set_call_user(user)
+    try:
+        result = await fn(*args, **kwargs)
+    except ownership.OwnedNotFound as exc:
+        raise not_found(str(exc.detail))
+    finally:
+        mcp_identity.reset_call_user(user_token)
+        ownership.reset_owner(owner_token)
+    return _sign_document_urls(result, user)
 
 
 def agent_resource(*args, **kwargs):
@@ -665,7 +677,14 @@ async def analyze_jd(
         try:
             jd_text = await scrape_job_url(url)
         except ScraperError as exc:
-            raise invalid_input(f"Could not scrape {url}: {exc}")
+            # #726 / ADR-058 door parity: a machine-readable reason beside the text.
+            raise McpError(
+                ErrorData(
+                    code=_INVALID_INPUT_CODE,
+                    message=f"Could not scrape {url}: {exc}",
+                    data={"reason": exc.code},
+                )
+            )
         source_url = url
     else:
         jd_text = text.strip()

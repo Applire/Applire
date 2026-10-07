@@ -16,7 +16,10 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import os
+from contextvars import ContextVar, Token
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -46,8 +49,84 @@ def resolve_static_dir() -> Path:
     return _BACKEND_ROOT / "data" / "static"
 
 
+# --- ADR-093: runtime instance settings (the admin override overlay) ---------
+#
+# A closed set of settings an admin may override at runtime (the registry's
+# ``panel=True`` entries; ``settings_registry.PANEL_KEYS``). Their FIELD names
+# are resolved by ``Settings.__getattribute__`` through an overlay snapshot, so
+# every existing reader (``settings.openrouter_model`` in a provider constructor,
+# the OCR factory, the ops probes) sees the effective value without being
+# edited. Two sources, in order:
+#
+# 1. the PIN — a ContextVar set per web request (middleware) and per MCP tool
+#    call (``_agent_call``). Background tasks inherit the context they were
+#    created in, so work already running keeps the settings it started with
+#    (ADR-093 cl. 5, ruling C1-4);
+# 2. the process-wide LATEST snapshot, refreshed from ``instance_settings``.
+#
+# Only names in ``PANEL_FIELDS`` take the slow path; every other attribute is a
+# plain lookup. The overlay never holds a key that is not a panel field.
+
+_EMPTY: Mapping[str, Any] = MappingProxyType({})
+_overlay_pin: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "applire_settings_pin", default=None
+)
+_overlay_latest: list[Mapping[str, Any]] = [_EMPTY]
+
+
+def _panel_fields() -> frozenset[str]:
+    from applire.settings_registry import PANEL_KEYS
+
+    return frozenset(k.lower() for k in PANEL_KEYS)
+
+
+PANEL_FIELDS: frozenset[str] = _panel_fields()
+
+
+def overlay_latest() -> Mapping[str, Any]:
+    """The process-wide latest override snapshot (field name -> value)."""
+    return _overlay_latest[0]
+
+
+def set_overlay_latest(snapshot: Mapping[str, Any]) -> None:
+    """Replace the process-wide snapshot (atomic: one list-slot assignment)."""
+    unknown = set(snapshot) - PANEL_FIELDS
+    if unknown:
+        raise ValueError(f"not panel fields: {sorted(unknown)}")
+    _overlay_latest[0] = MappingProxyType(dict(snapshot))
+
+
+def pin_overlay(snapshot: Mapping[str, Any] | None = None) -> Token:
+    """Pin ``snapshot`` (default: the latest) for the current context."""
+    return _overlay_pin.set(overlay_latest() if snapshot is None else snapshot)
+
+
+def unpin_overlay(token: Token) -> None:
+    _overlay_pin.reset(token)
+
+
+def active_overlay() -> Mapping[str, Any]:
+    """The snapshot a read in this context resolves through."""
+    pinned = _overlay_pin.get()
+    return overlay_latest() if pinned is None else pinned
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in PANEL_FIELDS:
+            snapshot = _overlay_pin.get()
+            if snapshot is None:
+                snapshot = _overlay_latest[0]
+            if name in snapshot:
+                return snapshot[name]
+        return super().__getattribute__(name)
+
+    def env_value(self, name: str) -> Any:
+        """The value from the environment / ``.env`` / code default — never the
+        admin override (ADR-093 cl. 3: what "reset to environment value" restores)."""
+        return super().__getattribute__(name)
 
     database_url: str
     llm_provider: str = "mistral"
@@ -166,6 +245,14 @@ class Settings(BaseSettings):
     # fixes) rather than editing constants.py.
     interview_max_questions_targeted: int = INTERVIEW_HARD_CEILING_TARGETED  # MODE A
     interview_max_questions_guided: int = INTERVIEW_HARD_CEILING_GUIDED     # MODE B
+    # ADR-093 / ADR-001 amended 2026-10-07 (#726, ruling E-3): fetch LinkedIn's
+    # guest posting pages. Off -> both doors refuse a LinkedIn URL with the
+    # manual-paste message. Panel-editable.
+    scraper_fetch_linkedin_guest_pages: bool = True
+    # ADR-093 / ADR-005 amended 2026-10-07 (#738): the GDPR retention sweep of
+    # personal-data TTLs. Off suspends the calendar TTLs only, never erasure,
+    # the cancelled-application path or housekeeping. Cloud ignores False.
+    retention_enabled: bool = True
 
 
 settings = Settings()

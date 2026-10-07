@@ -22,8 +22,9 @@ Everything here talks about the **production** topology (`docker-compose.yml` al
 14. [Single sign-on (OIDC)](#14-single-sign-on-oidc)
 15. [Outgoing mail (SMTP)](#15-outgoing-mail-smtp)
 16. [Tokens: agents and scripts](#16-tokens-agents-and-scripts)
-17. [You are the controller of other people's data](#17-you-are-the-controller-of-other-peoples-data)
-18. [What Applire does not do for you](#18-what-applire-does-not-do-for-you)
+17. [Settings an administrator can change without a restart](#17-settings-an-administrator-can-change-without-a-restart)
+18. [You are the controller of other people's data](#18-you-are-the-controller-of-other-peoples-data)
+19. [What Applire does not do for you](#19-what-applire-does-not-do-for-you)
 
 ---
 
@@ -166,7 +167,7 @@ Database credentials are `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-app
 Other secrets to mind:
 
 - **`chmod 600 .env`** — it holds your database credentials and your LLM provider's API key.
-- The provider API key lives only in `.env` and is never written to a log.
+- The provider API key lives in `.env`, or, if an administrator entered one in the settings panel, encrypted in the database (Section 17). It is never written to a log and never shown again.
 - **The session secret** (it signs document links for agents) is generated on first start and stored in the database (`instance_state`) — there is nothing to configure, and it travels with your backup. Passwords are stored hashed (scrypt); tokens are stored hashed and shown once.
 - **The setup code** is printed in the backend log until the instance is claimed (Section 13). Treat the log as sensitive until then.
 - **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /api/ops/health` reports `"debug_log_on": true`. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging.
@@ -491,11 +492,43 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
 
 Without a valid token (missing, malformed, revoked, wrong scope, or the owner is disabled or deleted) `python -m applire.mcp` prints one line naming Settings → Tokens and exits. A revoked token is refused on its next call, and the document links it handed out stop working. Those `html_url` / `pdf_url` links are signed and expire after 60 minutes.
 
-## 17. You are the controller of other people's data
+## 17. Settings an administrator can change without a restart
 
-If other people keep their CV data on your instance, you are the one who decides how long it is kept and who can reach it. The retention worker deletes data on a schedule — the five TTLs in `.env.example` (`GENERATED_DOCUMENTS_TTL_DAYS`, `CANCELLED_APPLICATION_TTL_DAYS`, `INTERVIEW_SESSION_TTL_DAYS`, `UPLOAD_TTL_DAYS`, `PROFILE_INACTIVITY_TTL_DAYS`) — and tombstones an account after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity (last sign-in or write; never an administrator). The defaults did not change in 0.43. Read them, decide whether they fit the people you invited, and tell those people. Applire does not encrypt the database for you; run it on an encrypted volume if your context requires it.
+Administration → Settings lets an administrator change a short, fixed list of settings while the instance runs. There is no file to edit and no container to recreate:
 
-## 18. What Applire does not do for you
+| Setting | What it does |
+|---|---|
+| `LLM_PROVIDER`, `<PROVIDER>_MODEL`, `<PROVIDER>_API_KEY` | Which provider and model every LLM call uses, and that provider's key. Use it when a provider is slow or down. |
+| `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` | Whether a LinkedIn job URL is fetched (default **on**). Off means a LinkedIn URL is refused at the web page and at the agent door with "paste the job description", and the message names this setting. Whether fetching LinkedIn's public guest pages is acceptable is your decision. |
+| `RETENTION_ENABLED` | Whether the nightly GDPR clean-up deletes personal data on its schedule (default **on**). See below. |
+
+Everything else, including provider base URLs, timeouts and the retention periods themselves, stays in `.env`.
+
+**Which value wins.** A value set in the panel wins over `.env`. Each field shows where its value comes from ("from the environment" or "set by an administrator"), and *Reset to environment value* removes the panel value. If you edit `.env` and restart and nothing changes, check that badge first.
+
+**When it takes effect.** The next request uses the new value. The agent (MCP) door uses it from its next tool call, and the nightly clean-up uses it from its next run. Work already running keeps the settings it started with: a CV or letter generation that started before a provider switch finishes, including its review rounds, on the provider it started with. One document is never written by one model and checked by another.
+
+**API keys entered in the panel** are never shown again, not even partly. The panel only says whether a key is stored. The key is stored encrypted in the database, under a key derived from the instance secret. **That secret is in the same database**, so anyone who has a full database dump or a `scripts/backup.sh` archive can recover the key. Treat backups like the `.env` file, because they hold the same secrets. Database encryption is planned and not built yet. If you rotate the instance secret (Section 7), panel-entered keys can no longer be read. The dashboard then shows a critical notice, and you enter the key again.
+
+**Dependencies.** Image uploads use Mistral for OCR (`OCR_BACKEND=mistral_vision`) whatever the LLM provider is. The panel warns when no Mistral key is available. Switching the LLM provider never removes the Mistral key.
+
+**Every change is on the audit log** (Administration → Audit log): who, what, when, and the old and new value. Keys appear only as "changed", never with a value. A change made through `.env` is recorded at the next start.
+
+**GDPR retention switch (`RETENTION_ENABLED`).** If the instance holds only your own data, you may not want it deleted automatically. Switching retention off suspends **only** the scheduled deletion of personal data: uploads, interview sessions, generated CVs and cover letters, unused job postings, and the inactivity clean-up of profiles, applications and accounts. It **never** suspends:
+- account deletion, by the person or by an administrator;
+- the deletion of a cancelled application's documents;
+- the clean-up of expired sign-in links and sessions;
+- background-job housekeeping;
+- the orphan-file scan;
+- the audit-log and usage-record age limits.
+
+While it is off, the administration dashboard shows a permanent notice, and every nightly run records that it skipped and why. Switching it back on catches up in the next nightly run: everything past its retention period is then deleted at once. If other people keep their data on your instance, read Section 18 before you switch it off.
+
+## 18. You are the controller of other people's data
+
+If other people keep their CV data on your instance, you are the one who decides how long it is kept and who can reach it. The retention worker deletes data on a schedule — the five TTLs in `.env.example` (`GENERATED_DOCUMENTS_TTL_DAYS`, `CANCELLED_APPLICATION_TTL_DAYS`, `INTERVIEW_SESSION_TTL_DAYS`, `UPLOAD_TTL_DAYS`, `PROFILE_INACTIVITY_TTL_DAYS`) — and tombstones an account after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity (last sign-in or write; never an administrator). The defaults did not change in 0.43. Read them, decide whether they fit the people you invited, and tell those people. Applire does not encrypt the database for you; run it on an encrypted volume if your context requires it. The retention switch in Section 17 is meant for instances that hold only your own data. While it is off, the TTLs above do not run, and the audit log and the nightly run records show for how long they did not.
+
+## 19. What Applire does not do for you
 
 - No automated off-host backup. `scripts/backup.sh` writes an archive; getting it off this machine (a NAS, object storage, another host) is on you.
 - No alerting. `GET /api/ops/health` ([Section 12](#12-monitoring-from-outside)) tells you the state of the database, the disk, the nightly cleanup, your backups and your provider — but nothing pages you; point your own monitoring at it.

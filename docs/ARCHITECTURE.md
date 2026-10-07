@@ -1376,6 +1376,18 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **Erasure.** One implementation (`erase(db, user_id, scope)`), leaf to root by owner, shared postings only when no one references them; self-service account deletion and administrator deletion use it.
 - **Outbound fetches.** Job-posting URLs go through one safe fetcher: host resolution, refusal of private, loopback, link-local, metadata, CGNAT and multicast addresses, connection pinned to the checked address, every redirect re-checked, environment proxies ignored.
 
+### ADR-093 — Runtime Instance Settings: an Admin Override Store over the Settings Registry (accepted 2026-10, Strawberry)
+
+**Decision:** an administrator can override a closed, registry-declared set of settings while the instance runs: `LLM_PROVIDER`, the per-provider `*_MODEL` and `*_API_KEY`, `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` and `RETENTION_ENABLED`. Base URLs, timeouts and every other setting stay environment-only.
+
+- **Store and precedence.** Overrides live in `instance_settings` (one row per key, author and time). A panel value wins over the environment, each value reports its source (`panel` / `env` / `default`), and deleting the override returns to the environment value.
+- **The overlay.** `config.Settings` resolves the panel fields through an override snapshot, so every existing reader (provider constructors, OCR, ops probes) sees the effective value without being changed. The web middleware and the MCP tool wrapper refresh the snapshot and **pin** it per request / tool call. Background work inherits the pin, so a generation and its review loop run on one provider even if an administrator switches mid-way. The retention worker refreshes at the start of each run.
+- **Secrets are write-only.** A panel-entered key is Fernet-encrypted under a key derived from the instance secret, is never returned (the API reports only whether one is set), is never logged, and is never put in audit rows. Because the instance secret is in the same database, a full database dump can recover the key. The self-hosting guide says so.
+- **Audit.** Every change is an audit row (values only for non-secrets). Environment-sourced changes of the provider and the two switches are recorded at the next start, and a retention run that skipped writes its own row.
+- **Retention switch.** Off suspends only the calendar TTLs on personal data. It never suspends account erasure, a cancelled application's purge or housekeeping. The Cloud Edition ignores it.
+- **LinkedIn switch.** Off refuses `linkedin.com` / `lnkd.in` URLs before any fetch, at both doors, with a machine-readable reason (`linkedin_guest_fetch_disabled`).
+- **Admin views.** Admin-only endpoints for the dashboard (health, users, failed jobs without content, usage, retention, notices), per-person usage, and the audit log. All of them are metadata only. Contract: `docs/dev/api-contract-admin.md`.
+
 ## 4. Data Model Highlights
 
 **Built (2026-09-01):** `GET /api/cv/{id}/docx` and `GET /api/cover-letter/{id}/docx` render the file on demand — no document bytes are stored, exactly as for the PDF — and the same export is reachable over the agent channel through `render_document(format="docx")`, which calls the identical service function rather than a parallel one. The produced file is audited by the existing ATS engine through a `.docx` text extractor, and its report is kept separately from the PDF's so the two can differ without overwriting each other.

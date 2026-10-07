@@ -24,6 +24,7 @@ neither does.
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any, Literal
 
@@ -58,7 +59,20 @@ ACTIONS: dict[str, frozenset[str]] = {
     "user.deleted": frozenset({"by", "erased_rows"}),  # by: admin | self
     "reset_link.issued": frozenset({"link_id", "via", "mailed"}),  # via: admin | forgot
     "password.reset": frozenset({"via", "link_id"}),  # via: link | cli
+    # Epic C — runtime instance settings (ADR-093 cl. 7/8) and #738. ``from_value``
+    # / ``to_value`` are written for NON-secret keys only; ``write_only`` says which (a test forbids "secret" as a detail key name).
+    "settings.changed": frozenset(
+        {"key", "write_only", "from_source", "to_source", "from_value", "to_value"}
+    ),
+    "settings.reset": frozenset({"key", "write_only", "from_value", "to_source"}),
+    "settings.env_observed": frozenset({"key", "from_value", "to_value", "to_source"}),
+    "retention.skipped": frozenset({"source"}),
 }
+
+#: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a
+#: gateway model id can carry ``@<region>`` (ADR-093 cl. 7).
+_AT_TOLERANT_KEYS = frozenset({"from_value", "to_value"})
+_EMAIL_SHAPE = re.compile(r"^[^@\s/:]+@[^@\s/:]+\.[A-Za-z]{2,}$")
 
 _SCALARS = (str, int, bool, float, type(None), uuid.UUID)
 
@@ -81,7 +95,8 @@ def _clean(action: str, details: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, _SCALARS):
             raise AuditDetailRejected(f"audit detail {key!r} must be a scalar")
         if isinstance(value, str) and "@" in value:
-            raise AuditDetailRejected(f"audit detail {key!r} looks like an email")
+            if key not in _AT_TOLERANT_KEYS or _EMAIL_SHAPE.match(value.strip()):
+                raise AuditDetailRejected(f"audit detail {key!r} looks like an email")
         out[key] = str(value) if isinstance(value, uuid.UUID) else value
     return out
 

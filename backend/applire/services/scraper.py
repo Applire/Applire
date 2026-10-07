@@ -143,6 +143,23 @@ def _validate_url(url: str) -> None:
         raise ValueError(f"Not a valid URL: {url!r}")
 
 
+#: #726 / ADR-001 amended 2026-10-07: the hosts the LinkedIn guest-page switch
+#: governs — linkedin.com, any subdomain, and its ``lnkd.in`` short link.
+_LINKEDIN_HOSTS: frozenset[str] = frozenset({"linkedin.com", "lnkd.in"})
+LINKEDIN_DISABLED_CODE = "linkedin_guest_fetch_disabled"
+_LINKEDIN_DISABLED_REASON = (
+    "This instance does not fetch LinkedIn pages "
+    "(SCRAPER_FETCH_LINKEDIN_GUEST_PAGES is off). "
+    "Please paste the job description manually."
+)
+
+
+def is_linkedin_url(url: str) -> bool:
+    """True for ``linkedin.com``, ``*.linkedin.com`` and ``lnkd.in`` URLs."""
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in _LINKEDIN_HOSTS)
+
+
 def _requires_js(url: str) -> bool:
     """Return True if *url* belongs to a known JS-rendered job board."""
     host = urlparse(url).hostname or ""
@@ -388,6 +405,12 @@ async def scrape_job_url(url: str) -> str:
             a redirect hop) resolves to a refused address (RD-7, SF-SCRAPER.2).
     """
     _validate_url(url)
+    # #726: the operator's switch is read per call (ADR-093 overlay), BEFORE any
+    # fetch, at the one function both doors share.
+    from applire.config import settings
+
+    if not settings.scraper_fetch_linkedin_guest_pages and is_linkedin_url(url):
+        raise ScraperError(url, _LINKEDIN_DISABLED_REASON, code=LINKEDIN_DISABLED_CODE)
 
     try:
         if not _requires_js(url):
