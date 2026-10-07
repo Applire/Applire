@@ -587,10 +587,17 @@ def group_cross_document(advisories: list[CriticAdvisory]) -> list["CrossDocumen
         # 16 normal of which it named 3; counting letter-richer figures too
         # (09-10's "zehn Jahren", 09-24's "three years") doubled the high set
         # without adding a hit.
+        #
+        # A figure counts only when the CV does not carry it (finding 8, adv-review
+        # 2026-10-07): the CV side is every CV span the item's advisories quote — a
+        # letter_only advisory's own `cv_state` is the literal "not mentioned", so
+        # reading it alone let a number the SAME item's letter_richer advisory
+        # shows in the CV ("38" Mitarbeitende) make the card high.
+        cv_span = "\n".join(a.cv_state for a in advs if a.cv_state)
         figures: list[str] = []
         for adv in advs:
             if adv.kind == "letter_only":
-                figures.extend(_specific_tokens(adv.letter_state or "", adv.cv_state))
+                figures.extend(_specific_tokens(adv.letter_state or "", cv_span))
         figures = list(dict.fromkeys(figures))
         high = bool(figures)
         items.append(
