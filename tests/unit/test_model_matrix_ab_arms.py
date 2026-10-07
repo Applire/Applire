@@ -156,6 +156,7 @@ def test_llm_log_calls_counts_stages_and_errors(tmp_path):
         "calls": 3,
         "errors": 1,
         "by_stage": {"reconcile": 2, "stance_adjudication": 1},
+        "error_kinds": {"LLMTimeoutError: x": 1},
     }
 
 
@@ -256,3 +257,21 @@ def test_max_calls_needs_the_debug_log(tmp_path, monkeypatch):
         monkeypatch.setenv(key, "")
     with pytest.raises(SystemExit):
         mm.main(["--provider", "mock", "--n", "1", "--shapes", "S6", "--max-calls", "3"])
+
+
+def test_error_kinds_name_the_upstream_sentence(tmp_path):
+    wrapped = (
+        "BadRequestError: Error code: 400 - {'error': {'message': 'Provider returned error', "
+        "'code': 400, 'metadata': {'raw': '{\"type\":\"error\",\"error\":{\"type\":"
+        "\"invalid_request_error\",\"message\":\"The compiled grammar is too large, which would "
+        "cause performance issues.\"}}'}}}"
+    )
+    (tmp_path / "x.jsonl").write_text(
+        json.dumps({"stage": "reconcile", "error": wrapped}) + "\n"
+        + json.dumps({"stage": "reconcile", "error": "LLMTimeoutError: OpenRouter call timed out after 180s"})
+        + "\n",
+        encoding="utf-8",
+    )
+    kinds = mm.llm_log_calls(tmp_path)["error_kinds"]
+    assert any(k.startswith("BadRequestError: The compiled grammar is too large") for k in kinds), kinds
+    assert "LLMTimeoutError: OpenRouter call timed out after 180s" in kinds

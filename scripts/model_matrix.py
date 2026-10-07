@@ -306,6 +306,7 @@ def llm_log_calls(directory: Path) -> dict[str, Any]:
     calls = 0
     errors = 0
     by_stage: dict[str, int] = {}
+    error_kinds: dict[str, int] = {}
     for path in sorted(directory.glob("*.jsonl")):
         with path.open(encoding="utf-8") as handle:
             for line in handle:
@@ -321,7 +322,34 @@ def llm_log_calls(directory: Path) -> dict[str, Any]:
                 by_stage[stage] = by_stage.get(stage, 0) + 1
                 if record.get("error"):
                     errors += 1
-    return {"calls": calls, "errors": errors, "by_stage": by_stage}
+                    kind = _error_kind(str(record["error"]))
+                    error_kinds[kind] = error_kinds.get(kind, 0) + 1
+    out: dict[str, Any] = {"calls": calls, "errors": errors, "by_stage": by_stage}
+    if error_kinds:
+        out["error_kinds"] = dict(sorted(error_kinds.items(), key=lambda kv: -kv[1]))
+    return out
+
+
+_PROVIDER_MESSAGE_RE = re.compile(
+    r"""['"]message['"]\s*:\s*['"](?P<msg>(?:[^'"\\]|\\.){8,200})"""
+)
+
+
+def _error_kind(error: str) -> str:
+    """``ErrorType: <the innermost provider message>`` — what a reader acts on.
+
+    A gateway 400 wraps the upstream's own sentence several layers deep; the
+    outer ``Provider returned error`` says nothing. The last quoted
+    ``message`` in the text is the upstream's own (2026-10-07: every Claude
+    host rejected the reconcile schema — "Invalid schema: Enum value …",
+    "The compiled grammar is too large" — while the latch never fired).
+    """
+    kind = error.split(":", 1)[0]
+    messages = [m.group("msg") for m in _PROVIDER_MESSAGE_RE.finditer(error)]
+    detail = next((m for m in reversed(messages) if m != "Provider returned error"), None)
+    if detail is None:
+        detail = error.split(":", 1)[1].strip()[:120] if ":" in error else ""
+    return f"{kind}: {detail[:160]}"
 
 
 def canonical_prompt(text: str) -> str:
