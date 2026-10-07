@@ -1,20 +1,22 @@
 {
-  "_comment": "ADR-093 / CONTRACT-CHANGE MD2-6: the admin panel's per-provider qualification hint. Seeded 2026-10-07 from docs/llm-models.md (state 2026-09-16). Wave-2 #688 owns the contents. match: 'exact' compares the configured model id (case-insensitive); 'contains' matches a short name the docs give without a full id. A model not listed is 'unmeasured'.",
-  "as_of": "2026-09-16",
-  "source": "docs/llm-models.md",
+  "_comment": "ADR-093 / CONTRACT-CHANGE MD2-6: the admin panel's per-provider qualification hint. #688 (WP-M) owns the contents. match: 'exact' compares the configured model id (case-insensitive); 'contains' matches a short name the docs give without a full id. Each entry carries the date it was measured (as_of); the top-level as_of is the newest. 'qualified' includes 'usable, with caveats' (the caveat is in reason). A model not listed is 'unmeasured'.",
+  "as_of": "2026-10-07",
+  "source": "docs/llm-models.md (Model qualification 2026-10-07; records in tests/files/model_matrix/results/2026-10-07/)",
   "entries": [
-    {"provider": "openrouter", "model": "openai/gpt-5.6-luna", "match": "exact", "qualification": "qualified", "reason": "Profile stays correct; a full application got both reviewers to invite. Recommended for price versus performance."},
-    {"provider": "requesty", "model": "openai/gpt-5.6-luna", "match": "exact", "qualification": "qualified", "reason": "Profile step measured clean through Requesty; the full application was measured through OpenRouter."},
-    {"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "match": "exact", "qualification": "qualified", "reason": "Profile stays correct; a full application not measured yet."},
-    {"provider": "openrouter", "model": "mistralai/ministral-8b-2512", "match": "exact", "qualification": "qualified", "reason": "Profile correct with rare slips (1 in 10 in two situations); a full application completed with flaws."},
-    {"provider": "openrouter", "model": "mistralai/mistral-small-2603", "match": "exact", "qualification": "qualified", "reason": "Profile correct with rare slips (1 in 10 facts under the wrong employer in one situation); a full application not measured yet."},
-    {"provider": "openrouter", "model": "z-ai/glm-5.3-flash", "match": "exact", "qualification": "not_qualified", "reason": "Could not finish an application: gap analysis, interview and CV generation timed out or returned broken output."},
-    {"provider": "requesty", "model": "glm-5.3-flash", "match": "contains", "qualification": "not_qualified", "reason": "Recorded nothing for 30-50 % of interview answers that begin with a denial; imports and quality checks ran past its output limit."},
-    {"provider": "openrouter", "model": "command-r7b", "match": "contains", "qualification": "not_qualified", "reason": "Recorded nothing for every interview answer."},
-    {"provider": "openrouter", "model": "gpt-5-nano", "match": "contains", "qualification": "not_qualified", "reason": "Lost up to 44 % of interview answers."},
-    {"provider": "openrouter", "model": "qwen3.8-flash", "match": "contains", "qualification": "not_qualified", "reason": "Lost answers and produced invalid output; very slow."},
-    {"provider": "openrouter", "model": "deepseek-v4-flash", "match": "contains", "qualification": "not_qualified", "reason": "10-30 % of calls failed."},
-    {"provider": "openrouter", "model": "nemotron-3-super-120b", "match": "contains", "qualification": "not_qualified", "reason": "Free tier: 10-20 % of calls failed."},
-    {"provider": "openrouter", "model": "ministral-3b", "match": "contains", "qualification": "not_qualified", "reason": "40 % invalid output in one tested situation."}
+    {"provider": "openrouter", "model": "openai/gpt-5.6-luna", "match": "exact", "qualification": "qualified", "reason": "Profile stays correct; a full application got both reviewers to invite. Recommended for price versus performance.", "as_of": "2026-09-16"},
+    {"provider": "requesty", "model": "openai/gpt-5.6-luna", "match": "exact", "qualification": "qualified", "reason": "Profile step measured clean through Requesty; the full application was measured through OpenRouter.", "as_of": "2026-09-16"},
+    {"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "match": "exact", "qualification": "not_qualified", "reason": "Since 2026-10-07 every Claude host rejects the response format Applire sends with the profile step (LLM_STRUCTURED_OUTPUT=auto, the default), so every interview answer is lost. It was clean on 2026-09-14; the change is on the provider side.", "as_of": "2026-10-07"},
+    {"provider": "openrouter", "model": "mistralai/ministral-8b-2512", "match": "exact", "qualification": "qualified", "reason": "Profile correct with rare slips (1 in 10 in two situations); a full application completed with flaws.", "as_of": "2026-09-16"},
+    {"provider": "openrouter", "model": "mistralai/mistral-small-2603", "match": "exact", "qualification": "qualified", "reason": "Profile correct with rare slips (1 in 10 facts under the wrong employer in one situation); a full application not measured yet.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "z-ai/glm-5.3-flash", "match": "exact", "qualification": "not_qualified", "reason": "Could not finish an application: gap analysis, interview and CV generation timed out or returned broken output.", "as_of": "2026-09-14"},
+    {"provider": "requesty", "model": "glm-5.3-flash", "match": "contains", "qualification": "not_qualified", "reason": "Recorded nothing for 30-50 % of interview answers that begin with a denial; imports and quality checks ran past its output limit.", "as_of": "2026-09-16"},
+    {"provider": "openrouter", "model": "command-r7b", "match": "contains", "qualification": "not_qualified", "reason": "Recorded nothing for every interview answer.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "gpt-5-nano", "match": "contains", "qualification": "not_qualified", "reason": "Lost up to 44 % of interview answers.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "qwen3.8-flash", "match": "contains", "qualification": "not_qualified", "reason": "Lost answers and produced invalid output; very slow.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "deepseek-v4-flash", "match": "contains", "qualification": "not_qualified", "reason": "10-30 % of calls failed.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "nemotron-3-super-120b", "match": "contains", "qualification": "not_qualified", "reason": "Free tier: 10-20 % of calls failed.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "ministral-3b", "match": "contains", "qualification": "not_qualified", "reason": "40 % invalid output in one tested situation.", "as_of": "2026-09-14"},
+    {"provider": "openrouter", "model": "meta-llama/llama-3.2-3b-instruct", "match": "exact", "qualification": "not_qualified", "as_of": "2026-10-07", "reason": "Profile step: lost 50 % of answers naming three employers in one sentence (asked a question back) and filed other employers' facts under the current job in every single-job profile."},
+    {"provider": "ollama", "model": "llama3.2", "match": "contains", "qualification": "not_qualified", "as_of": "2026-10-07", "reason": "Measured through OpenRouter as meta-llama/llama-3.2-3b-instruct (the same 3B model), not through Ollama: the profile step lost answers and filed facts under the wrong employer. Pick a larger model."}
   ]
 }

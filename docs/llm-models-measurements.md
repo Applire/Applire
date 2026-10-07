@@ -319,6 +319,33 @@ switch. Two things were measured on 2026-09-09 that are worth knowing before you
 If the goal is to spend less: the largest saving measured on this seam did not come from
 the reasoning switch at all. It came from fixing the prompt.
 
+### Re-measured on the alternate-names prompt (2026-10-07, #715)
+
+On 2026-10-07 the `match_existing` operation was widened to jobs, projects and volunteering (a
+job whose employer is written differently — "Labvantage" for "Labvantage Solutions GmbH" — can
+now be recognised as already there). The change touched the prompt (+214 characters, to 20,320)
+**and** the response format: each operation's description is sent with the format, so editing the
+operation's documentation changes what the model reads too. A first five-run measurement showed
+`glm-5.3-flash` emitting operations without their type field on two situations, at a sample size
+that could not separate the change from noise. So the change was measured before it shipped,
+against the same tree with both halves reverted, `n=10`, through OpenRouter.
+
+| Model | Prompt | lost turn S6 / S9 | malformed S6 / S9 | wrong-slot S6 / S9 | no response S6 | Tier 1 |
+|---|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | before | 0% / 0% | 0% / 0% | 0% / 0% | 0/10 | qualified |
+| `openai/gpt-5.6-luna` | **after** | 0% / 0% | 0% / 0% | 0% / 0% | 0/10 | **qualified** |
+| `z-ai/glm-5.3-flash` | before | 0% / 0% | 0% / 0% | 0% / 0% | 6/10 at 120 s, 0/10 at 180 s | — |
+| `z-ai/glm-5.3-flash` | **after** | 0% / 0% | 0% / 0% | 0% / 0% | 4/10 at 120 s, 1/10 at 180 s | — |
+
+No threshold was crossed that the old prompt was under, so the change shipped. The malformed
+operations of the first measurement did not recur in 49 answered `glm-5.3-flash` turns; pooled with
+that first measurement the counts are 5 of 44 turns after against 0 of 33 before, which is worth
+watching on the next re-measurement but is not a crossing at `n=10`.
+
+`glm-5.3-flash` did not answer 40–60 % of the three-employer turns within the code's built-in
+timeout of 120 seconds; with the 180 seconds `.env.example` ships, it answered all but one. If you
+run it, keep `LLM_TIMEOUT` at 180 or higher.
+
 ### Reproduce it yourself
 
 The harness is in the repository and opt-in — it never runs in CI, and it needs your own

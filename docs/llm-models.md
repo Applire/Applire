@@ -9,14 +9,14 @@ How we measure, and every individual run, is in the [measurement log](llm-models
 
 ## Models measured to work
 
-State as of **2026-09-16**. Every row was measured on this release's prompts, between 2026-09-14 and
-2026-09-16. One row per model; the route a result was measured through is named, and where a
-gateway changed the result, the row says so.
+State as of **2026-10-07**. The rows were measured between 2026-09-14 and 2026-10-07; the
+[qualification section](#model-qualification-2026-10-07) below has this release's numbers. One row
+per model; the route a result was measured through is named, and where a gateway changed the
+result, the row says so.
 
 | Model | Measured through | Your profile stays correct¹ | A full application gets you invited² | Cost per interview turn³ | Worth knowing |
 |---|---|---|---|---|---|
 | **`gpt-5.6-luna`** (OpenAI) | OpenRouter, Requesty | **yes** | **yes** — both reviewers invited | ≈ $0.002 | **Our recommendation for price versus performance.** The full application was measured through OpenRouter; through Requesty, the profile step was measured and was equally clean. Model id `openai/gpt-5.6-luna` on both. |
-| `claude-haiku-4.5` (Anthropic) | OpenRouter | **yes** | not measured yet | ≈ $0.004 | About twice the cost of `gpt-5.6-luna`. Model id `anthropic/claude-haiku-4.5`. |
 | `ministral-8b` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 on two of the tested situations) | yes, with flaws — the documents left out one required skill and repeated one bullet | ≈ $0.001 | The cheapest model that has completed a full application. Model id `mistralai/ministral-8b-2512`. |
 | `mistral-small` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 facts filed under the wrong employer, in one tested situation) | not measured yet | ≈ $0.001 | Model id `mistralai/mistral-small-2603`. |
 
@@ -35,6 +35,8 @@ them larger than an interview turn, so an application costs many times this figu
 | Model | Measured through | What went wrong | Measured |
 |---|---|---|---|
 | `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it keeps the profile correct, but could not finish an application: gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-09-16 |
+| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server that hosts Claude models refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), so each interview answer is lost. On 2026-09-14 the same model was clean; the change is on the provider side. | 2026-10-07 |
+| `llama-3.2-3b` (Meta) | OpenRouter | Lost half of the answers that name three employers in one sentence (it asked a question back instead), and filed other employers' facts under the current job in every single-job profile. | 2026-10-07 |
 | `command-r7b` (Cohere) | OpenRouter | Recorded nothing for every interview answer. | 2026-09-14 |
 | `gpt-5-nano` (OpenAI) | OpenRouter | Lost up to 44 % of interview answers. | 2026-09-14 |
 | `qwen3.8-flash` (Qwen) | OpenRouter | Lost answers and produced invalid output; very slow. | 2026-09-14 |
@@ -47,6 +49,43 @@ reasons before answering, for example — and may serve the model from a differe
 why `glm-5.3-flash` failed in two different ways above, while `gpt-5.6-luna` measured the same
 through both gateways we tried. If a model behaves differently for you than in this table, the
 gateway is the first thing to suspect.
+
+## Model qualification (2026-10-07)
+
+**Seam:** the profile step — one interview answer is turned into changes to your stored profile
+(the reconciler, ADR-046). **Inputs:** the eight committed test situations S1–S8
+(`tests/files/model_matrix/`: one, two, three or five employers; English and German; answers that
+open with "I have not done X, but…"), **10 runs each**; where a model was measured on fewer
+situations, its row names them. **Route:** OpenRouter, with
+`LLM_TIMEOUT=180` and every other setting at its shipped value (`LLM_STRUCTURED_OUTPUT=auto`).
+**Prompt:** this release's reconcile prompt (20,320 characters) and response format. The bars are
+the ones in [How we measure](#how-we-measure); the worst situation decides.
+
+| Model | Situations measured | Answers lost | Invalid output | Wrong employer | No answer | Verdict | Cost per turn |
+|---|---|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | S6, S9 | 0 % | 0 % | 0 % | 0 % | clean on what was measured | ≈ $0.003 |
+| `z-ai/glm-5.3-flash` | S6, S9 | 0 % | 0 % | 0 % | 40 % at 120 s, 10 % at 180 s (S6) | clean on what was measured, **slow** | ≈ $0.002–0.005 |
+| `meta-llama/llama-3.2-3b-instruct` | S1–S8 | **50 %** (S4), 10 % (S5) | 0 % | **100 %** (S7), 10 % (S2) | 0 % | **sub-par** | ≈ $0.0006 |
+| `anthropic/claude-haiku-4.5` | S1–S8 (stopped after 75 turns) | — | — | — | **100 %** — every call refused | **sub-par with the shipped settings** | — |
+
+**Read this table with three notes.**
+
+- **`claude-haiku-4.5` is not a weak model; it is refused.** Every server that hosts Claude models
+  rejected the answer format Applire sends with this step (first because of how one field is
+  declared, then because the format as a whole is too large for their checker), and Applire did
+  not fall back to its plain format, so every answer was lost. This is a defect on Applire's side
+  of the connection, not a judgement about the model, and it affects every Claude model reached
+  through a gateway with `LLM_STRUCTURED_OUTPUT=auto`.
+- **Two models were measured on two situations only** (S6, the hardest of the eight, and S9, a
+  changed figure). They are clean there; that is not yet a full qualification.
+- **`glm-5.3-flash` is slow through OpenRouter.** At the 120-second timeout built into the code,
+  it did not answer 40 % of the hardest situation; at the 180 seconds `.env.example` ships, 10 %.
+  Its earlier failure to finish a whole application (table above) was the same problem in the
+  longer steps.
+
+Every number above comes from the committed records in
+`tests/files/model_matrix/results/2026-10-07/`, which you can re-score without spending anything
+(`scripts/model_matrix.py --score <file>`).
 
 ## Your model isn't on either list
 
@@ -85,8 +124,11 @@ far, with the flaws noted in the table; luna made no mistakes.
 
 **Nothing leaves your machine.** Run a local model with Ollama (`LLM_PROVIDER=ollama`). Pick a
 larger instruct model, set its context size (`num_ctx`) explicitly because Ollama's default is
-small, and raise `LLM_TIMEOUT` (for example to `600`) if it runs on a CPU. No local model has been
-measured yet.
+small, and raise `LLM_TIMEOUT` (for example to `600`) if it runs on a CPU. The small model
+`.env.example` names for Ollama, `llama3.2` (3B), was measured through OpenRouter as
+`meta-llama/llama-3.2-3b-instruct` and does **not** keep the profile correct (see
+[qualification](#model-qualification-2026-10-07)); pick a larger model. No model has been measured
+through Ollama itself yet.
 
 **Trying several models.** OpenRouter (`LLM_PROVIDER=openrouter`) gives you one key for all the
 models in the tables.
@@ -139,11 +181,19 @@ model yourself:
 # see what the model will be asked, without spending anything
 PYTHONPATH=backend python3 scripts/model_matrix.py --dry-run
 
-# measure one model (spends real credit on your key)
+# measure one model (spends real credit on your key) — the qualification run:
+# eight situations, 10 runs each, and a hard stop at 250 model calls
 PYTHONPATH=backend python3 scripts/model_matrix.py \
-  --provider openrouter --model <model-id> --n 10 --shapes S6,S7,S8 \
-  --out matrix.jsonl
+  --provider openrouter --model <model-id> --n 10 --shapes S1,S2,S3,S4,S5,S6,S7,S8 \
+  --timeout 180 --out matrix.jsonl --llm-log-dir /tmp/matrix-log --max-calls 250
 ```
+
+A run makes **more model calls than turns**: when the model records a skill the answer only
+implies, Applire asks the model a second, short question to confirm it. A strong model triggers
+that about once per turn on the situations with a denial; a weak one more often (`llama-3.2-3b`
+made 250 calls for 90 turns). `--max-calls` stops starting new turns at that count, and
+`--llm-log-dir` writes the log the count is read from — it holds the full test prompts, so keep it
+out of anything you share.
 
 Results describe a model, a route and a prompt version on a date. Providers change models under
 the same name, and Applire's prompts change between releases, so a result can go stale. Every run
