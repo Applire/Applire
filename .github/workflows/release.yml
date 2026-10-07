@@ -48,6 +48,81 @@ env:
   NGINX_IMAGE: ghcr.io/applire/applire-nginx
 
 jobs:
+  # The two files the README's install path downloads from the newest Release
+  # (`releases/latest/download/docker-compose.yml` and `.../env.example`), taken
+  # from the tag's own checkout so compose file, env template and images are one
+  # matching set. Idempotent: an asset identical to the tag's file is kept, a
+  # missing one is attached, a different one is replaced (with a warning naming it,
+  # because a hand-uploaded file from another checkout breaks the matching set).
+  # Runs again, as a no-op, when a pre-release is promoted (`released`).
+  # `contents: write` is the one write grant in this workflow and is scoped to
+  # this job. The upload/verify logic is reproduced against a stubbed `gh` and
+  # `curl` by tests/unit/test_release_attaches_install_assets.py.
+  attach-assets:
+    name: Attach install assets from the tag
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Attach docker-compose.yml and env.example to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+          VERIFY_TRIES: "5"
+          VERIFY_SLEEP: "5"
+        run: |
+          set -euo pipefail
+          staging="$(mktemp -d)"
+          current="$(mktemp -d)"
+          # The asset is named after the file `gh` uploads, so the env template
+          # travels as `env.example` (no leading dot), the name the README fetches.
+          cp docker-compose.yml "$staging/docker-compose.yml"
+          cp .env.example "$staging/env.example"
+          for name in docker-compose.yml env.example; do
+            if gh release download "$TAG" --repo "$REPO" --pattern "$name" --dir "$current" --clobber >/dev/null 2>&1 \
+               && [ -f "$current/$name" ]; then
+              if cmp -s "$current/$name" "$staging/$name"; then
+                echo "$name: already on the Release and identical to $TAG's file. Kept."
+                continue
+              fi
+              echo "::warning::$name on the Release differs from the file at $TAG. Replacing it with the tag's file."
+            else
+              echo "$name: not on the Release yet. Attaching $TAG's file."
+            fi
+            gh release upload "$TAG" "$staging/$name" --repo "$REPO" --clobber
+          done
+
+          listed="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
+          for name in docker-compose.yml env.example; do
+            if ! printf '%s\n' "$listed" | grep -qxF "$name"; then
+              echo "::error::$name is still not listed on Release $TAG after the upload."
+              exit 1
+            fi
+            url="https://github.com/$REPO/releases/download/$TAG/$name"
+            ok=0
+            for _ in $(seq 1 "$VERIFY_TRIES"); do
+              if curl -fsSL "$url" -o "$current/served-$name"; then ok=1; break; fi
+              sleep "$VERIFY_SLEEP"
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "::error::$url does not resolve after the upload."
+              exit 1
+            fi
+            if ! cmp -s "$current/served-$name" "$staging/$name"; then
+              echo "::error::$url serves a file that differs from $TAG's $name."
+              exit 1
+            fi
+            echo "$name: served at $url and identical to $TAG's file."
+          done
+
   build-backend:
     name: Build backend (${{ matrix.platform }})
     strategy:
@@ -132,8 +207,19 @@ jobs:
   # release, and blocking this build on that release's assets would punish the
   # wrong thing. The job still runs and still reports, so it never becomes a
   # skipped dependency that silently un-gates the merge jobs.
+  #
+  # ADR-032 amended 2026-10-07 (Infra collector #739): the gate used to be able only
+  # to REFUSE. Twice a Release went out without its two install assets (v0.40.0-beta,
+  # `gh release create` without the files; v0.42.0-beta, published from the GitHub
+  # web UI, which has no asset step), the gate correctly held `:latest`, and the
+  # README's `releases/latest/download/*` path 404ed until someone uploaded the
+  # files by hand. `attach-assets` below now attaches them from the tagged checkout
+  # first, so the gate checks what this workflow put there. A failed attach skips
+  # the gate only where it enforces (a non-prerelease `release`), so no tag moves.
   assets-gate:
     name: Install assets present (gates :latest)
+    needs: attach-assets
+    if: ${{ !cancelled() && (needs.attach-assets.result != 'failure' || !(github.event_name == 'release' && github.event.release.prerelease == false)) }}
     permissions:
       contents: read
     uses: ./.github/workflows/compose-guard.yml
