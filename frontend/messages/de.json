@@ -2234,6 +2234,7 @@
     "labelFor": "{name} — auch bekannt als"
   },
   "reviewSignals": {
+    "verdictClearCrossReadUnknown": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft — lies beide nebeneinander, bevor Du sendest.",
     "verdictClearCrossRead": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {open, plural, one {Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf — entscheide sie, bevor Du sendest.} other {Neben Deinem Lebenslauf gelesen fallen aber # Stellen auf — entscheide sie, bevor Du sendest.}}",
     "sectionTitle": "Gegengelesen: Anschreiben und Lebenslauf",
     "sectionSub": "Wer beide Dokumente nebeneinander liest, sieht das hier zuerst. {decided} von {total} entschieden.",

@@ -195,3 +195,82 @@ def test_recording_does_not_change_the_reviewer_prompt():
     # the fixture really demands the term every round (a recorder that saw nothing
     # would pass the identity assertion vacuously)
     assert record.rounds == (("Arbeitsvorbereitung",),) * 3
+
+
+# ── adv-review finding 12 (2026-10-07): only ANSWERED rounds count ────────────
+import asyncio as _asyncio
+import json as _json
+
+from applire.exceptions import LLMTimeoutError as _Timeout
+from applire.services.reviewer import review_and_refine as _review_and_refine
+from applire.services.terminal_review_outcome import DemandRecord as _Record
+
+
+class _ScriptedProvider:
+    """Reviewer verdicts by script: a dict, or an exception to raise."""
+
+    def __init__(self, verdicts):
+        self.verdicts = list(verdicts)
+        self.drafts = 0
+
+    async def aparse_json(self, prompt, system=None, **kw):
+        if prompt.startswith("REVIEW"):
+            v = self.verdicts.pop(0)
+            if isinstance(v, BaseException):
+                raise v
+            return v
+        self.drafts += 1  # a distinct draft each round (no cycle exit)
+        return {"body": {"paragraphs": [f"Entwurf Nummer {self.drafts}."]}}
+
+
+_REJECT = {"approved": False, "issues": [{"text": "SAP MM fehlt.", "severity": "blocking"}]}
+
+
+def _run(record, verdicts, max_retries=4):
+    def reviewer_prompt_fn(source, draft):
+        record.record_round([{"concept": "SAP MM", "surface_forms": ["SAP MM"]}])
+        return "REVIEW " + source
+
+    _asyncio.run(_review_and_refine(
+        source="Quelle", draft={"body": {"paragraphs": ["Entwurf."]}},
+        generator_prompt_fn=lambda draft, feedback, source: "CORRECT " + feedback,
+        generator_system="gen", reviewer_prompt_fn=reviewer_prompt_fn, reviewer_system="rev",
+        provider=_ScriptedProvider(verdicts), max_retries=max_retries, chain_id="r_fix_12",
+    ))
+
+
+def test_answered_rounds_all_count():
+    record = _Record()
+    _run(record, [_REJECT, _REJECT, {"approved": True, "issues": []}])
+    assert len(record.rounds) == 3
+
+
+def test_a_timed_out_round_is_dropped():
+    record = _Record()
+    _run(record, [_REJECT, _REJECT, _Timeout("slow")])
+    assert len(record.rounds) == 2
+
+
+def test_a_malformed_verdict_round_is_dropped():
+    record = _Record()
+    _run(record, [_REJECT, _json.JSONDecodeError("bad", "x", 0)])
+    assert len(record.rounds) == 1
+
+
+def test_a_round_recorded_outside_a_reviewer_call_is_never_dropped_by_a_later_failure():
+    """The hooks are bracketed per reviewer call: a round some OTHER caller recorded
+    earlier in the same task is not the failed call's round."""
+    record = _Record()
+    record.record_round([{"concept": "SAP MM"}])
+    other = _Record()
+
+    def reviewer_prompt_fn(source, draft):
+        return "REVIEW " + source  # this chain records nothing
+
+    _asyncio.run(_review_and_refine(
+        source="Quelle", draft={"body": {"paragraphs": ["Entwurf."]}},
+        generator_prompt_fn=lambda draft, feedback, source: "CORRECT",
+        generator_system="gen", reviewer_prompt_fn=reviewer_prompt_fn, reviewer_system="rev",
+        provider=_ScriptedProvider([_Timeout("slow")]), max_retries=2, chain_id="r_fix_12b",
+    ))
+    assert len(record.rounds) == 1 and other.rounds == ()

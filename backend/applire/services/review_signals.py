@@ -85,10 +85,9 @@ async def keep(
 
 def cross_document_target(record, key: str) -> tuple[str, list[str]]:
     """#702 RULING R-2 = A — what *Aus dem Anschreiben nehmen* removes for a
-    cross-document item: the item's concepts that literally stand in its letter
-    sentence (``ats_audit.surface_present``, the shared presence predicate), letter-
-    only concepts first — so the rewrite keeps the sentence and drops the facts the
-    CV does not carry ("Applire schreibt den Satz ohne diese Angaben neu"). When no
+    cross-document item: the item's LETTER-ONLY concepts that literally stand in its
+    letter sentence (``ats_audit.surface_present``, the shared presence predicate) —
+    so the rewrite keeps the sentence and drops the facts the CV does not carry ("Applire schreibt den Satz ohne diese Angaben neu"). When no
     concept label is literally in the sentence (a paraphrased label), the whole
     sentence is the wording. Returns ``(label, wording)``; FindingNotListed when the
     live critic report does not list the item."""
@@ -109,7 +108,34 @@ def cross_document_target(record, key: str) -> tuple[str, list[str]]:
     if item is None:
         raise FindingNotListed(f"{key!r} is not listed on this document's critic report")
     sentence = _norm(item.letter_state)
-    kinds = {a.concept: a.kind for a in report.advisories}
-    ordered = sorted(item.concepts, key=lambda c: 0 if kinds.get(c) == "letter_only" else 1)
-    wording = [c for c in ordered if surface_present(c, sentence)]
+    # Adv-review finding 6 (2026-10-07): ONLY the letter-only facts the card shows
+    # and counts. A letter_richer concept is CV-backed — handing it to the removal
+    # rewrite stripped a true achievement ("… leitete ich die an 14 …").
+    letter_only = item.letter_only or [
+        a.concept for a in report.advisories
+        if a.kind == "letter_only" and a.concept in item.concepts
+    ]
+    wording = [c for c in dict.fromkeys(letter_only) if surface_present(c, sentence)]
     return item.letter_state, (wording or [item.letter_state])
+
+
+def locate_sentence(sections: list[tuple[str, str]], sentence: str) -> tuple[str, str, int, int] | None:
+    """Adv-review finding 7 — where the item's letter sentence stands:
+    ``(section_id, section_text, start, end)``, or None when the document no longer
+    holds it. Exact first, then whitespace-tolerant (the critic quotes across a
+    line break as a space)."""
+    import re
+
+    sentence = (sentence or "").strip()
+    if not sentence:
+        return None
+    for sid, text in sections:
+        i = (text or "").find(sentence)
+        if i >= 0:
+            return sid, text, i, i + len(sentence)
+    pattern = r"\s+".join(re.escape(tok) for tok in sentence.split())
+    for sid, text in sections:
+        m = re.search(pattern, text or "")
+        if m:
+            return sid, text, m.start(), m.end()
+    return None

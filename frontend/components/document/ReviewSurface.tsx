@@ -479,10 +479,11 @@ export function ReviewSurface({
   // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
   // the all-clear headline must not say the rest "does not stand in the way of
   // sending" — the card above "Weitere Hinweise" says otherwise.
-  const openCrossRead = useMemo(
-    () => buildCrossDocument(criticReport, reviewState).rows.filter((r) => r.status === "open").length,
-    [criticReport, reviewState],
-  );
+  const crossRead = useMemo(() => buildCrossDocument(criticReport, reviewState), [criticReport, reviewState]);
+  const openCrossRead = crossRead.rows.filter((r) => r.status === "open").length;
+  // Adv-review finding 10: on the letter, a critic that did not answer leaves the
+  // cross-read UNDECIDED — the all-clear may not call the rest harmless either.
+  const crossReadUnknown = documentKind === "cover-letter" && crossRead.unknown;
   const tSignals = useTranslations("reviewSignals");
   const group1Blind = group1.unknownProducers.length > 0;
   const present = atsReport?.keywords.present.length ?? 0;
@@ -895,9 +896,13 @@ export function ReviewSurface({
           {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && openCrossRead > 0
             ? tSignals("verdictClearCrossRead", { open: openCrossRead })
             : null}
-          {verdict.kind === "clear" && openCrossRead === 0 && t("verdictClear")}
+          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && crossReadUnknown
+            ? tSignals("verdictClearCrossReadUnknown")
+            : null}
+          {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
           {verdict.kind === "clear_with_others" &&
             openCrossRead === 0 &&
+            !crossReadUnknown &&
             t("verdictClearWithOthers", { count: verdict.others })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>

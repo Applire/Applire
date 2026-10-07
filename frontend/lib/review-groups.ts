@@ -166,9 +166,17 @@ export interface ReviewInputs {
 const CROSS_DOCUMENT_KINDS = new Set(["letter_only", "letter_richer"]);
 
 /** ADR-060: the outcome critic is an EXCEPTION surface — absent or `ran: false` both mean it did not run. */
-function criticRan(report: OutcomeCriticReport): boolean {
-  return Boolean(report && report.ran);
+/**
+ * ADR-081 cl. 9 / adv-review finding 10 (2026-10-07): the critic ANSWERED only
+ * when it ran and its judgement call did not error. The backend persists
+ * `ran: true, reason: "judgement_error", advisories: []` on a failed call — read
+ * as "ran", that is "nothing open", the exact silence cl. 9 forbids.
+ */
+export function criticAnswered(report: OutcomeCriticReport): boolean {
+  return Boolean(report && report.ran && report.reason !== "judgement_error");
 }
+
+const criticRan = criticAnswered;
 
 function dedupeClusters(items: GapHintItem[]): GapHintItem[] {
   const seen = new Set<string>();
