@@ -36,6 +36,7 @@ import {
   type Skill,
 } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { AliasChips } from "@/components/profile/AliasChips";
 import { StatusBadge } from "./StatusBadge";
 
 const PROFICIENCY_VALUES = ["basic", "intermediate", "advanced", "expert"] as const;
@@ -309,6 +310,16 @@ export function SkillsEditor({ entries, apiBase, profileUpdatedAt, onProfileUpda
           })}
         </div>
       )}
+      {entries.map((s, i) => (
+        <AliasChips
+          key={`aka-${i}`}
+          section="skills"
+          entries={entries}
+          index={i}
+          prefix={s.name}
+          apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated}
+        />
+      ))}
 
       <button
         type="button"

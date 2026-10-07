@@ -1980,5 +1980,21 @@
     "users": "Personen",
     "appearance": "Erscheinungsbild",
     "monitoring": "Monitoring"
+  },
+  "importSummary": {
+    "recognisedTitle": "Schon in deinem Profil ({count})",
+    "recognisedIntro": "Diese Einträge aus deiner Datei stehen bereits in deinem Profil, nur unter anderem Namen. Den neuen Namen haben wir als weitere Bezeichnung gespeichert. Stimmt eine Zuordnung nicht, tippe auf „Nicht dasselbe“.",
+    "showInProfile": "Im Profil zeigen",
+    "notSame": "Nicht dasselbe",
+    "separatedDone": "Als eigener Eintrag hinzugefügt",
+    "sameLanguage": "gleiche Sprache",
+    "showAll": "Alle {count} anzeigen",
+    "separateFailed": "Das hat nicht geklappt. Bitte versuch es noch einmal."
+  },
+  "profileAliases": {
+    "label": "Auch bekannt als",
+    "remove": "„{alias}“ als weiteren Namen entfernen",
+    "removeFailed": "Entfernen hat nicht geklappt. Bitte versuch es noch einmal.",
+    "labelFor": "{name} — auch bekannt als"
   }
 }

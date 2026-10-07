@@ -36,6 +36,7 @@ import {
 } from "@/lib/profile-entries";
 import { trimStringList } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { AliasChips } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -304,6 +305,7 @@ export function EducationEditor({ entries, apiBase, profileUpdatedAt, onProfileU
                 {nonEmptyText(e.institution) && heading !== "" && (
                   <p className="text-xs text-gray-600">{e.institution}</p>
                 )}
+                <AliasChips section="education" entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} />
                 {nonEmptyText(e.grade) && <p className="text-xs text-gray-500">{e.grade}</p>}
               </div>
             );
