@@ -36,7 +36,11 @@ import { ContentTab, type ContentTabHandle, type GapHintItem, type SectionItem }
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
-import { letterOnlyFacts } from "@/components/review/CrossDocumentSection";
+import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
+
+/** Where a held-back navigation goes once the draft question is answered. */
+type PageNav = { kind: "tab"; id: string } | GuardedNav;
+import { crossDocumentHandle, letterOnlyFacts } from "@/components/review/CrossDocumentSection";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
 import { ClipboardCheck, Palette, Zap } from "lucide-react";
@@ -209,9 +213,16 @@ export default function CVPage({
   // RefinementSidebar renders only the active tab, so leaving *Bearbeiten*
   // unmounts the editor and the draft is lost (Finetuner Branch B).
   const [editDraft, setEditDraft] = useState<{ dirty: boolean; label: string | null }>({ dirty: false, label: null });
-  const [pendingNav, setPendingNav] = useState<{ kind: "tab"; id: string } | { kind: "href"; href: string } | null>(null);
+  const [pendingNav, setPendingNav] = useState<PageNav | null>(null);
   const [pendingNavBusy, setPendingNavBusy] = useState(false);
   const [pendingNavFailed, setPendingNavFailed] = useState(false);
+  // Adversarial finding 11: the draft also holds back a reload / tab close
+  // (beforeunload), every in-app link (shell, stepper) and the browser's back
+  // button — not only the tab strip.
+  const draftGuard = useUnsavedDraftGuard(editDraft.dirty, (nav) => {
+    setPendingNavFailed(false);
+    setPendingNav(nav);
+  });
   const contentTabRef = useRef<ContentTabHandle>(null);
   const contentTabMobileRef = useRef<ContentTabHandle>(null);
   // #737 — the one confirmation in front of every new-version path.
@@ -254,7 +265,8 @@ export default function CVPage({
     fetch(`${API_BASE}/api/cover-letter/${letterIdForContext}/critic-report`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { report: OutcomeCriticReport } | null) => {
-        const item = data?.report?.cross_document?.find((i) => i.key === key);
+        // `xdoc` is an opaque handle (finding 9), resolved against the report.
+        const item = data?.report?.cross_document?.find((i) => crossDocumentHandle(i.key) === key);
         if (!cancelled && item) setEditContext({ kind: "letter", facts: letterOnlyFacts(item) });
       })
       .catch(() => {});
@@ -698,9 +710,16 @@ export default function CVPage({
     };
 
     // #737 — leave *Bearbeiten* only past the unsaved-draft question.
-    const proceedNav = (nav: { kind: "tab"; id: string } | { kind: "href"; href: string }) => {
+    const proceedNav = (nav: PageNav) => {
       if (nav.kind === "href") {
+        draftGuard.release();
         router.push(nav.href);
+        return;
+      }
+      if (nav.kind === "back") {
+        // The guard entry is already popped; one more step leaves the page.
+        draftGuard.release();
+        window.history.back();
         return;
       }
       setActiveSidebarTab(nav.id);
@@ -710,7 +729,7 @@ export default function CVPage({
         setSaveReceipt(null);
       }
     };
-    const guardedNav = (nav: { kind: "tab"; id: string } | { kind: "href"; href: string }) => {
+    const guardedNav = (nav: PageNav) => {
       const leavingEdit = activeSidebarTab === "edit" && !(nav.kind === "tab" && nav.id === "edit");
       if (leavingEdit && editDraft.dirty) {
         setPendingNavFailed(false);
@@ -1038,7 +1057,10 @@ export default function CVPage({
           sectionLabel={editDraft.label}
           busy={pendingNavBusy}
           failed={pendingNavFailed}
-          onStay={() => setPendingNav(null)}
+          onStay={() => {
+            if (pendingNav?.kind === "back") draftGuard.rearmBack();
+            setPendingNav(null);
+          }}
           onDiscard={() => {
             contentTabRef.current?.discardOpenSection();
             contentTabMobileRef.current?.discardOpenSection();

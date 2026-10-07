@@ -89,7 +89,7 @@ describe("#702 cross-document section placement", () => {
     const section = screen.getByTestId("review-xdoc");
     const other = screen.getByTestId("review-other");
     expect(section.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(section).getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toBe("/flow/f/cv?tab=edit&xdoc=critic%3Ax");
+    expect(within(section).getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toMatch(/^\/flow\/f\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
   });
 });
 

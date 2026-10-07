@@ -27,6 +27,8 @@ import { LetterLookLine } from "@/components/document/LetterLookLine";
 import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
 import { NewVersionDialog } from "@/components/document/NewVersionDialog";
 import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
+import { useUnsavedDraftGuard, type GuardedNav } from "@/components/document/useUnsavedDraftGuard";
+import { useRouter } from "next/navigation";
 import { CoverLetterActionsTab } from "@/components/cover-letter/CoverLetterActionsTab";
 import { DocumentWorkspace } from "@/components/document/DocumentWorkspace";
 import { MobileCommandBar } from "@/components/cv/MobileCommandBar";
@@ -151,7 +153,11 @@ export default function CoverLetterPage({
   const [confirmNewVersion, setConfirmNewVersion] = useState(false);
   // #737: an unsaved body draft holds back a tab switch (Finetuner Branch B).
   const [bodyDirty, setBodyDirty] = useState(false);
-  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const [pendingNav, setPendingNav] = useState<{ kind: "tab"; id: string } | GuardedNav | null>(null);
+  // Adversarial finding 11: the body draft also holds back a reload / tab
+  // close, every in-app link and the browser's back button.
+  const draftGuard = useUnsavedDraftGuard(bodyDirty, (nav) => setPendingNav(nav));
+  const router = useRouter();
   // Remounts the body editor after a review action rewrote the letter, so it
   // never saves stale text over the rewrite.
   const [contentVersion, setContentVersion] = useState(0);
@@ -687,7 +693,7 @@ export default function CoverLetterPage({
       onBack={
         editContext
           ? () => {
-              if (bodyDirty) setPendingTab("review");
+              if (bodyDirty) setPendingNav({ kind: "tab", id: "review" });
               else switchTab("review");
             }
           : undefined
@@ -801,7 +807,7 @@ export default function CoverLetterPage({
             activeTabId={activeSidebarTab}
             onTabChange={(id) => {
               if (activeSidebarTab === "edit" && id !== "edit" && bodyDirty) {
-                setPendingTab(id);
+                setPendingNav({ kind: "tab", id });
                 return;
               }
               switchTab(id);
@@ -869,16 +875,28 @@ export default function CoverLetterPage({
       )}
 
       <UnsavedEditDialog
-        open={pendingTab !== null}
+        open={pendingNav !== null}
         sectionLabel={t("bodySection")}
-        onStay={() => setPendingTab(null)}
+        onStay={() => {
+          if (pendingNav?.kind === "back") draftGuard.rearmBack();
+          setPendingNav(null);
+        }}
         onDiscard={() => {
           // Remounting the editor returns it to the effective body (D-2).
           setContentVersion((v) => v + 1);
           setBodyDirty(false);
-          const id = pendingTab;
-          setPendingTab(null);
-          if (id) switchTab(id);
+          const nav = pendingNav;
+          setPendingNav(null);
+          if (!nav) return;
+          if (nav.kind === "tab") switchTab(nav.id);
+          else if (nav.kind === "href") {
+            draftGuard.release();
+            router.push(nav.href);
+          } else {
+            // The guard entry is already popped; one more step leaves the page.
+            draftGuard.release();
+            window.history.back();
+          }
         }}
       />
       <NewVersionDialog

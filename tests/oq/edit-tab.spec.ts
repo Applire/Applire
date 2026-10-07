@@ -231,7 +231,9 @@ test.describe('#737 — cover letter', () => {
     await stubDocuments(page);
     await page.goto(LETTER);
     await page.getByTestId('review-xdoc-add-to-cv').first().click();
-    await expect(page).toHaveURL(/\/cv\?tab=edit&xdoc=/);
+    // Finding 9: an opaque 8-hex handle, never the letter sentence.
+    await expect(page).toHaveURL(/\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
+    expect(decodeURIComponent(page.url())).not.toMatch(/kosmetik|sauberraum|audit/i);
     const strip = panel(page).getByTestId('edit-context-letter');
     await expect(strip).toBeVisible();
     await expect(panel(page).getByTestId('edit-context-facts')).toContainText('Kosmetik-Verpackungen');

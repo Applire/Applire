@@ -46,6 +46,25 @@ export interface CrossDocumentSectionProps {
  * falls back to every concept. Shared with the CV page's Edit-tab context
  * strip (#737), so both surfaces name the same facts.
  */
+/**
+ * Adversarial finding 9 — an OPAQUE handle for a cross-document item, carried
+ * by *In den Lebenslauf übernehmen* as `?xdoc=`. The item key itself is
+ * `critic:<the whole folded letter sentence>` (240 characters on the Marcus
+ * replay), so putting it in the URL put the letter's text into browser
+ * history, access logs and the Referer. The handle is a 32-bit FNV-1a hash of
+ * the key in hex: 8 characters, no content. The CV page resolves it against
+ * the letter's own critic report, fetched through the signed-in user's
+ * owner-scoped endpoint (ADR-092) — the handle grants nothing by itself.
+ */
+export function crossDocumentHandle(key: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 export function letterOnlyFacts(item: { letter_only?: string[] | null; concepts: string[] }): string[] {
   return item.letter_only && item.letter_only.length > 0 ? item.letter_only : item.concepts;
 }
@@ -215,10 +234,11 @@ export function CrossDocumentSection({
           <div className="flex flex-col gap-2">
             {cvEditHref && (
               <Link
-                // #737: the item key rides along so the CV's Edit tab can keep
-                // the letter-only facts in view (it re-reads them from the
-                // letter's own critic report — no document text in the URL).
-                href={`${cvEditHref}${cvEditHref.includes("?") ? "&" : "?"}xdoc=${encodeURIComponent(row.item.key)}`}
+                // #737: an opaque handle of the item rides along so the CV's
+                // Edit tab can keep the letter-only facts in view (it re-reads
+                // them from the letter's own critic report). Never the key —
+                // the key IS the letter sentence (adversarial finding 9).
+                href={`${cvEditHref}${cvEditHref.includes("?") ? "&" : "?"}xdoc=${crossDocumentHandle(row.item.key)}`}
                 data-testid="review-xdoc-add-to-cv"
                 className="block min-h-11 rounded-xl bg-primary px-3 py-2 text-left text-[13px] font-semibold text-white"
               >

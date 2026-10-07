@@ -124,7 +124,7 @@ describe("CrossDocumentSection", () => {
 
   it("add-to-CV links to the CV's Edit tab and is hidden without a target", () => {
     renderSection();
-    expect(screen.getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toBe("/flow/f1/cv?tab=edit&xdoc=critic%3Ahygiene");
+    expect(screen.getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toMatch(/^\/flow\/f1\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
   });
 
   it("hides add-to-CV when no CV edit target exists", () => {
