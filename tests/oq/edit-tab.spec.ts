@@ -231,12 +231,135 @@ test.describe('#737 — cover letter', () => {
     await stubDocuments(page);
     await page.goto(LETTER);
     await page.getByTestId('review-xdoc-add-to-cv').first().click();
-    await expect(page).toHaveURL(/\/cv\?tab=edit&xdoc=/);
+    // Finding 9: an opaque 8-hex handle, never the letter sentence.
+    await expect(page).toHaveURL(/\/cv\?tab=edit&xdoc=[0-9a-f]{8}$/);
+    expect(decodeURIComponent(page.url())).not.toMatch(/kosmetik|sauberraum|audit/i);
     const strip = panel(page).getByTestId('edit-context-letter');
     await expect(strip).toBeVisible();
     await expect(panel(page).getByTestId('edit-context-facts')).toContainText('Kosmetik-Verpackungen');
     await expect(panel(page).getByTestId('edit-context-facts')).toContainText('ISO-9001-Audit-Praxis');
     await panel(page).getByTestId('edit-context-back').click();
     await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+  });
+});
+
+// Adversarial finding 11 — an unsaved draft holds back EVERY way off the page,
+// not only the tab strip: in-app links (shell, stepper, document switch), the
+// browser's back button, and a reload / tab close (beforeunload).
+/** Wait until some unload guard holds the draft (the page hook arms one render after the editor's). */
+async function unloadGuardArmed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const e = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(e);
+        return e.defaultPrevented;
+      }),
+    )
+    .toBe(true);
+}
+
+test.describe('#737 adv-review 11 — leaving the page with a draft', () => {
+  test('CV: an in-app link asks; stay keeps the draft, discard follows the link', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(CV);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByRole('button', { name: /Weberit/ }).click();
+    await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    await page.getByTestId('document-nav-cover-letter').click();
+    await expect(page.getByTestId('edit-unsaved-dialog')).toBeVisible();
+    expect(page.url()).toContain('/cv');
+    await page.getByTestId('edit-unsaved-stay').click();
+    await expect(panel(page).getByTestId('section-textarea')).toHaveValue('- Entwurf');
+    await page.getByTestId('document-nav-cover-letter').click();
+    await page.getByTestId('edit-unsaved-discard').click();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+  });
+
+  test('CV: the browser back button asks; stay keeps the draft and the page', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(LETTER);
+    await page.getByTestId('document-nav-cv').click();
+    await expect(page).toHaveURL(new RegExp(`${CV}$`));
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByRole('button', { name: /Weberit/ }).click();
+    await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    await page.goBack();
+    await expect(page.getByTestId('edit-unsaved-dialog')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${CV}$`));
+    await page.getByTestId('edit-unsaved-stay').click();
+    await expect(panel(page).getByTestId('section-textarea')).toHaveValue('- Entwurf');
+    // Re-armed: a second back press asks again; discard leaves for the letter.
+    await page.goBack();
+    await page.getByTestId('edit-unsaved-discard').click();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+  });
+
+  test('CV: no draft, no question — links and back behave normally', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(LETTER);
+    await page.getByTestId('document-nav-cv').click();
+    await expect(page).toHaveURL(new RegExp(`${CV}$`));
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+    await expect(page.getByTestId('edit-unsaved-dialog')).toHaveCount(0);
+  });
+
+  test('CV: after the draft is saved, one back press leaves the page (the guard entry is gone)', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(LETTER);
+    await page.getByTestId('document-nav-cv').click();
+    await expect(page).toHaveURL(new RegExp(`${CV}$`));
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByRole('button', { name: /Weberit/ }).click();
+    await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    await panel(page).getByTestId('section-save').click();
+    await page.getByRole('button', { name: 'Nur für diesen Lebenslauf' }).click();
+    await expect(panel(page).getByTestId('edit-receipt-plain')).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+    await expect(page.getByTestId('edit-unsaved-dialog')).toHaveCount(0);
+  });
+
+  test('letter: an in-app link and back both ask with the body draft', async ({ page }) => {
+    await stubDocuments(page, 'de', { letterBodyEdited: true });
+    await page.goto(CV);
+    await page.getByTestId('document-nav-cover-letter').click();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
+    await page.getByTestId('document-nav-cv').click();
+    await expect(page.getByTestId('edit-unsaved-dialog')).toContainText('Anschreiben-Text');
+    await page.getByTestId('edit-unsaved-stay').click();
+    await page.goBack();
+    await expect(page.getByTestId('edit-unsaved-dialog')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
+    await page.getByTestId('edit-unsaved-discard').click();
+    await expect(page).toHaveURL(new RegExp(`${CV}$`));
+  });
+
+  test('letter + CV: closing or reloading the tab with a draft raises the browser prompt', async ({ page }) => {
+    await stubDocuments(page, 'de', { letterBodyEdited: true });
+    await page.goto(LETTER);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
+    await unloadGuardArmed(page);
+    const dialog = page.waitForEvent('dialog');
+    await page.close({ runBeforeUnload: true });
+    const d = await dialog;
+    expect(d.type()).toBe('beforeunload');
+    await d.dismiss();
+  });
+
+  test('CV: closing with a section draft raises the browser prompt', async ({ page }) => {
+    await stubDocuments(page);
+    await page.goto(CV);
+    await page.getByTestId('sidebar-tab-edit').click();
+    await panel(page).getByRole('button', { name: /Weberit/ }).click();
+    await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    await unloadGuardArmed(page);
+    const dialog = page.waitForEvent('dialog');
+    await page.close({ runBeforeUnload: true });
+    expect((await dialog).type()).toBe('beforeunload');
   });
 });

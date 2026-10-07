@@ -88,6 +88,19 @@ export function CoverLetterContentTab({
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  // Adversarial finding 11: a reload or tab close with an unsaved body asks,
+  // like the CV section editor does (ContentTab) — the editor guards itself,
+  // whatever page mounts it.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
   async function handleSaveBody() {
     setSaving(true);
     setSaveError(null);
