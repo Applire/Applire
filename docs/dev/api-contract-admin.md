@@ -122,7 +122,7 @@ Newest first, keyset paging (stable under concurrent inserts). The response carr
 
 | Field | Content |
 |---|---|
-| `health` | `status` (`ok`/`degraded`/`down`), `version`, `edition`, `topology`, `debug_log_on`, effective `llm_provider` + `llm_model`, `checked_at`, `components[] {name, status}`, from the ops layer's `collect()` (ADR-086) without its usage block |
+| `health` | `status` (`ok`/`degraded`/`down`), `version`, `edition`, `topology`, `debug_log_on`, effective `llm_provider` + `llm_model`, `checked_at`, `components[] {name, status, checked_at}`, from the ops layer's `collect()` (ADR-086) without its usage block. **The provider component is never measured for this request** (adv-admin ADM-5). It is the last background check, with its own `checked_at`, and `unknown` with `checked_at: null` while no check about the CURRENT provider/model/key exists. A stale or missing one starts a single background check. |
 | `users` | counts: `total` (not erased), `active`, `pending`, `disabled`, `admins` |
 | `usage_30d` | `UsageTotals` for the last 30 days |
 | `failed_jobs` | `window_days: 7`, `count`, newest 20 `items {kind: cv\|cover_letter\|import\|gap, id, user_id, user_email, failed_at, error_code}`. `failed_at` is the job's **creation** time, because the tables keep no failure timestamp. `error_code` is always `null` for `cover_letter` (that table has no code column). **Never the error message text** (it can quote document content). |
@@ -170,7 +170,7 @@ The UI translates `linkedin_guest_fetch_disabled` like the other `jd_*` codes.
 |---|---|---|---|
 | `unknown_setting` | 422 (`PUT`) / 404 (`DELETE`) | settings | key not in §2.1; `detail.key` |
 | `invalid_setting_value` | 422 | `PUT /api/admin/settings` | wrong type, not in `choices`, empty secret, too long; `detail.key` |
-| `provider_not_ready` | 409 | `PUT /api/admin/settings` | `LLM_PROVIDER` → a provider with no effective key; `detail.provider` |
+| `provider_not_ready` | 409 | `PUT /api/admin/settings`, `DELETE /api/admin/settings/{key}` | `PUT`: `LLM_PROVIDER` → a provider with no usable key. `DELETE`: removing the override would leave the active provider without one (ruling MD2-17). `detail.provider` + `detail.key` (the missing key, e.g. `ANTHROPIC_API_KEY`). `openai` needs a key unless `OPENAI_BASE_URL` is set |
 | `settings_secret_unavailable` | 503 | `PUT` with a secret | the instance secret is not loaded (cannot encrypt). Never written in plain text. |
 | `invalid_cursor` | 422 | `GET /api/admin/audit` | tampered or foreign cursor |
 | `linkedin_guest_fetch_disabled` | 422 | `POST /api/job/analyze` | §6 |
@@ -182,4 +182,5 @@ C1-2 **ruled A** (MD2-1): a panel override wins, with a source badge and a reset
 ## 9. Change log
 
 - 2026-10-07 `d7cb97c5`: first SEAM-READY.
+- 2026-10-07 (fix-admin, adversarial findings): `provider_not_ready` also on `DELETE`, with `detail.key`. `openai` needs a key without `OPENAI_BASE_URL`. A secret value must be printable ASCII without spaces (`\x21`-`\x7e`), otherwise 422 `invalid_setting_value` with `detail.key` only. `health.components[].checked_at` is new and the dashboard never pings the provider inline. `retention.enabled_since` never spans a skipped worker run, and `notices` carries `retention_disabled` when the newest run skipped. A write of the same key is an upsert (last write wins, both audited). The LinkedIn refusal also covers redirect hops, tier-2 requests and WHATWG/Python parser differences.
 - 2026-10-07 (second SEAM-READY): CONTRACT-CHANGE MD2-6 from C2 added `qualification*`, `by_document_kind`, `enabled_since`, `changed_by_email` and `updated_by_email`. Audit detail key `secret` → `write_only`, because the audit suite forbids "secret" as a detail key name. The `PUT` body is validated raw (no FastAPI 422 echo). The `failed_at` semantics are clarified. CONTRACT-CHANGE MD2-8 added `retention.ttl_days`.
