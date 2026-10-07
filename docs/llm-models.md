@@ -16,7 +16,8 @@ result, the row says so.
 
 | Model | Measured through | Your profile stays correct¹ | A full application gets you invited² | Cost per interview turn³ | Worth knowing |
 |---|---|---|---|---|---|
-| **`gpt-5.6-luna`** (OpenAI) | OpenRouter, Requesty | **yes** | **yes** — both reviewers invited | ≈ $0.002 | **Our recommendation for price versus performance.** The full application was measured through OpenRouter; through Requesty, the profile step was measured and was equally clean. Model id `openai/gpt-5.6-luna` on both. |
+| **`gpt-5.6-luna`** (OpenAI) | OpenRouter, Requesty | **yes** — clean on all eight test situations (re-measured 2026-10-07) | **yes** — both reviewers invited | ≈ $0.003 | **Our recommendation for price versus performance.** The full application was measured through OpenRouter; through Requesty, the profile step was measured and was equally clean. Model id `openai/gpt-5.6-luna` on both. |
+| `mistral-medium-3.5` (Mistral) | OpenRouter | **yes** — clean on all eight test situations (2026-10-07) | not measured yet | ≈ $0.012 | About four times the cost of `gpt-5.6-luna` per turn. Model id `mistralai/mistral-medium-3-5`. |
 | `ministral-8b` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 on two of the tested situations) | yes, with flaws — the documents left out one required skill and repeated one bullet | ≈ $0.001 | The cheapest model that has completed a full application. Model id `mistralai/ministral-8b-2512`. |
 | `mistral-small` (Mistral) | OpenRouter | yes, with rare slips (1 in 10 facts filed under the wrong employer, in one tested situation) | not measured yet | ≈ $0.001 | Model id `mistralai/mistral-small-2603`. |
 
@@ -34,8 +35,8 @@ them larger than an interview turn, so an application costs many times this figu
 
 | Model | Measured through | What went wrong | Measured |
 |---|---|---|---|
-| `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it keeps the profile correct, but could not finish an application: gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-09-16 |
-| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server OpenRouter routes this model to refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), so each interview answer is lost. On 2026-09-14 the same model was clean; the change is on the provider side. | 2026-10-07 |
+| `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it is too slow: 10–20 % of profile updates got no answer within 180 seconds (2026-10-07), and a whole application could not finish — gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-10-07 |
+| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server OpenRouter routes this model to refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), and Applire does not yet fall back on its own, so each interview answer is lost ([#756](https://github.com/Applire/Applire/issues/756), fix in progress). With `LLM_STRUCTURED_OUTPUT=off` it passes the profile step's bars, but when an answer opens with a denial it records the three employers' facts only as one skill, not under each employer. | 2026-10-07 |
 | `llama-3.2-3b` (Meta) | OpenRouter | Lost half of the answers that name three employers in one sentence (it asked a question back instead), and filed other employers' facts under the current job in every single-job profile. | 2026-10-07 |
 | `command-r7b` (Cohere) | OpenRouter | Recorded nothing for every interview answer. | 2026-09-14 |
 | `gpt-5-nano` (OpenAI) | OpenRouter | Lost up to 44 % of interview answers. | 2026-09-14 |
@@ -55,33 +56,44 @@ gateway is the first thing to suspect.
 **Seam:** the profile step — one interview answer is turned into changes to your stored profile
 (the reconciler, ADR-046). **Inputs:** the eight committed test situations S1–S8
 (`tests/files/model_matrix/`: one, two, three or five employers; English and German; answers that
-open with "I have not done X, but…"), **10 runs each**; where a model was measured on fewer
-situations, its row names them. **Route:** OpenRouter, with
-`LLM_TIMEOUT=180` and every other setting at its shipped value (`LLM_STRUCTURED_OUTPUT=auto`).
-**Prompt:** this release's reconcile prompt (20,320 characters) and response format. The bars are
-the ones in [How we measure](#how-we-measure); the worst situation decides.
+open with "I have not done X, but…"), **10 runs each**. **Route:** OpenRouter, with
+`LLM_TIMEOUT=180` and every other setting at its shipped value (`LLM_STRUCTURED_OUTPUT=auto`)
+unless the row says otherwise. **Prompt:** this release's reconcile prompt (20,320 characters) and
+response format. The bars are the ones in [How we measure](#how-we-measure); the worst situation
+decides. "Facts per employer" is the share of the employers an answer named that got a fact of
+their own (1.0 = all of them) — reported, not a bar.
 
-| Model | Situations measured | Answers lost | Invalid output | Wrong employer | No answer | Verdict | Cost per turn |
+| Model | Answers lost | Invalid output | Wrong employer | No answer | Facts per employer (lowest) | Verdict | Cost per turn |
 |---|---|---|---|---|---|---|---|
-| `openai/gpt-5.6-luna` | S6, S9 | 0 % | 0 % | 0 % | 0 % | clean on what was measured | ≈ $0.003 |
-| `z-ai/glm-5.3-flash` | S6, S9 | 0 % | 0 % | 0 % | 40 % at 120 s, 10 % at 180 s (S6) | clean on what was measured, **slow** | ≈ $0.002–0.005 |
-| `meta-llama/llama-3.2-3b-instruct` | S1–S8 | **50 %** (S4), 10 % (S5) | 0 % | **100 %** (S7), 10 % (S2) | 0 % | **sub-par** | ≈ $0.0006 |
-| `anthropic/claude-haiku-4.5` | S1–S8 (stopped after 75 turns) | — | — | — | **100 %** — every call refused | **sub-par with the shipped settings** | — |
+| `openai/gpt-5.6-luna` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.003 |
+| `mistralai/mistral-medium-3-5` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.012 |
+| `anthropic/claude-haiku-4.5`, **shipped settings** | — | — | — | **100 %** — every call refused (stopped after 75 turns) | — | **sub-par** ([#756](https://github.com/Applire/Applire/issues/756)) | — |
+| `anthropic/claude-haiku-4.5`, `LLM_STRUCTURED_OUTPUT=off` | 0 % | 0 % | 0 % | 0 % | **0.0** (S6, S7) | passes the bars, see below | ≈ $0.009 |
+| `z-ai/glm-5.3-flash` | 0 % | up to 11 % (S3, 1 of 9) | 0 % | **10–20 %** | 0.9 | **sub-par** (no answer) | ≈ $0.005 |
+| `meta-llama/llama-3.2-3b-instruct` | **50 %** (S4) | 0 % | **100 %** (S7) | 0 % | 0.65 | **sub-par** | ≈ $0.0006 |
 
-**Read this table with three notes.**
+**Read this table with four notes.**
 
-- **`claude-haiku-4.5` is not a weak model; it is refused.** Every server that hosts Claude models
-  rejected the answer format Applire sends with this step (first because of how one field is
-  declared, then because the format as a whole is too large for their checker), and Applire did
-  not fall back to its plain format, so every answer was lost. This is a defect on Applire's side
-  of the connection, not a judgement about the model. Only `claude-haiku-4.5` was measured; other
-  Claude models served by the same hosts are likely to be refused the same way.
-- **Two models were measured on two situations only** (S6, the hardest of the eight, and S9, a
-  changed figure). They are clean there; that is not yet a full qualification.
-- **`glm-5.3-flash` is slow through OpenRouter.** At the 120-second timeout built into the code,
-  it did not answer 40 % of the hardest situation; at the 180 seconds `.env.example` ships, 10 %.
-  Its earlier failure to finish a whole application (table above) was the same problem in the
-  longer steps.
+- **`claude-haiku-4.5` is refused, not weak.** With the shipped settings, every server OpenRouter
+  routes it to rejected the answer format Applire sends with this step (first because of how one
+  field is declared, then because the format as a whole is too large for their checker), and
+  Applire did not fall back to its plain format, so every answer was lost. That is a defect on
+  Applire's side ([#756](https://github.com/Applire/Applire/issues/756)). Only
+  `claude-haiku-4.5` was measured; other Claude models on the same hosts are likely to be refused
+  the same way.
+- **With the format switched off, `claude-haiku-4.5` passes every bar and still thins the
+  profile.** On the two situations whose answer opens with a denial, it recorded one skill
+  ("pharmaceutical manufacturing IT", backed by all three jobs) and nothing under any of the
+  three employers — the details of what you did where were not kept.
+- **`glm-5.3-flash` is slow through OpenRouter.** It answered every situation correctly when it
+  answered, but 10–20 % of turns got no answer within 180 seconds (40–60 % at the 120 seconds
+  built into the code), and one German turn out of nine carried an invalid operation (0 of 9 on a
+  repeat). Its earlier failure to finish a whole application (table above) is the same latency in
+  the longer steps.
+- **A weaker model makes more calls, not fewer.** When a model records a skill the answer only
+  implies, Applire checks it with a second short call. Per turn: 1.5 calls for `gpt-5.6-luna`,
+  1.4 for `mistral-medium-3-5`, 1.8 for `claude-haiku-4.5`, 1.9 for `glm-5.3-flash`, 2.8 for
+  `llama-3.2-3b`.
 
 Every number above comes from the committed records in
 `tests/files/model_matrix/results/2026-10-07/`, which you can re-score without spending anything
@@ -116,7 +128,9 @@ Then it is unmeasured, which is not the same as bad. You have three options:
 
 **Your data should stay in the EU.** Use Requesty's EU gateway (`LLM_PROVIDER=requesty`) with an
 EU-region model id — it reaches the large US models through their EU deployments. Mistral's own
-API (`LLM_PROVIDER=mistral`) is EU-hosted, but has not been through the measurement above yet.
+API (`LLM_PROVIDER=mistral`) is EU-hosted, but has not been through the measurement above yet;
+`mistral-medium-3-5` qualified on the profile step through OpenRouter (2026-10-07), which says the
+model can do the job, not that Mistral's own endpoint behaves the same.
 
 **Lowest cost.** `ministral-8b` and `mistral-small` cost about half as much per call as
 `gpt-5.6-luna`. Only ministral-8b has completed a full application so

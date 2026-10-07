@@ -337,6 +337,10 @@ against the same tree with both halves reverted, `n=10`, through OpenRouter.
 | `z-ai/glm-5.3-flash` | before | 0% / 0% | 0% / 0% | 0% / 0% | 6/10 at 120 s, 0/10 at 180 s | — |
 | `z-ai/glm-5.3-flash` | **after** | 0% / 0% | 0% / 0% | 0% / 0% | 4/10 at 120 s, 1/10 at 180 s | — |
 
+The full matrix later showed one `glm-5.3-flash` turn with an invalid operation on S3 (the German
+answer, 1 of 9 answered turns, just over the 10 % bar). S3 was then measured on both prompts,
+`n=10`: 0 of 9 answered turns after, 0 of 8 before — 1 of 18 in all, under the bar.
+
 No threshold was crossed that the old prompt was under, so the change shipped. The malformed
 operations of the first measurement did not recur in 49 answered `glm-5.3-flash` turns; pooled with
 that first measurement the counts are 5 of 44 turns after against 0 of 33 before, which is worth
@@ -345,6 +349,18 @@ watching on the next re-measurement but is not a crossing at `n=10`.
 `glm-5.3-flash` did not answer 40–60 % of the three-employer turns within the code's built-in
 timeout of 120 seconds; with the 180 seconds `.env.example` ships, it answered all but one. If you
 run it, keep `LLM_TIMEOUT` at 180 or higher.
+
+### The five-model qualification matrix (2026-10-07)
+
+All eight situations S1–S8, `n=10`, through OpenRouter at `LLM_TIMEOUT=180`, on this release's
+prompt; the current result per model is in the guide's
+[qualification section](llm-models.md#model-qualification-2026-10-07). Records and summaries:
+`tests/files/model_matrix/results/2026-10-07/`. What moved against the earlier rows in this log:
+`claude-haiku-4.5` went from qualified (2026-09-14) to refused with the shipped settings — every
+host now rejects the response format (#756); `glm-5.3-flash` over OpenRouter went from qualified on
+S6–S8 (2026-09-09) to sub-par on no-answer (10–20 % at 180 s); `mistral-medium-3-5` and
+`llama-3.2-3b` are first measurements. The matrix also counts every model call a turn makes: the
+stance check's second call made a turn cost 1.4–2.8 calls depending on the model.
 
 ### Reproduce it yourself
 
