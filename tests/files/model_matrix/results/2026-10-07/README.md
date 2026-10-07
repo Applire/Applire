@@ -9,7 +9,8 @@ reconciler → the deterministic applier, no database). Every turn is synthetic
 | Folder | What it measured |
 |---|---|
 | `v4/` | Ruling V-4: the #715 reconcile prompt (`*-cur`) against the same tree with the #715 prompt hunks and the `MatchExisting` schema description reverted (`*-pre`, inputs `pre715.*`), on S6 + S9, n=10. `*-t180` re-ran S6 at `LLM_TIMEOUT=180`. |
-| `matrix/` | The five-model matrix on S1–S8, n=10 (S10 turns in the llama file are reported but never decide a verdict). |
+| `v4/glm-S3-*` | The S3 follow-up after the matrix's single glm malformed turn on S3, both prompts, n=10. |
+| `matrix/` | The five-model matrix on S1–S8, n=10: `gpt-5.6-luna` (S1–S5, S7, S8 here; S6 and S9 are the `v4/luna-cur` arm), `z-ai/glm-5.3-flash` (likewise, S6 in `v4/glm-cur*`), `mistralai/mistral-medium-3-5`, `anthropic/claude-haiku-4.5` with the shipped settings (`.schema-auto`, every call refused, #756) and with `LLM_STRUCTURED_OUTPUT=off` (`.schema-off`), `meta-llama/llama-3.2-3b-instruct` (its S10 turns are reported but never decide a verdict). |
 
 Each `*.summary.json` names the prompt and response schema it measured
 (`meta.prompt.*_sha256`), the settings, and the provider calls the run made
