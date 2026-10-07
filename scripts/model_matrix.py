@@ -214,6 +214,146 @@ def render_prompts(fixtures: Fixtures, shape: str) -> tuple[str, str]:
     return RECONCILE_SYSTEM_PROMPT, user
 
 
+def current_schema_param() -> dict[str, Any] | None:
+    """The ``json_schema`` block the engine would hand the provider right now."""
+    from applire.services.profile.reconcile.schema_out import reconcile_json_schema_param
+
+    return reconcile_json_schema_param()
+
+
+def _sha(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def prompt_identity(system_prompt: str, schema: dict[str, Any] | None) -> dict[str, Any]:
+    """What a row was measured AGAINST — the prompt and the schema, by hash.
+
+    #688 step 2 asks for a before/after row per prompt change; a row that does
+    not name the prompt it measured cannot be one half of that pair. The schema
+    is part of the prompt here: ``schema_out`` carries every op's docstring as
+    its description, so an op docstring edit changes what the model reads even
+    when ``prompts/reconcile.py`` is untouched (found 2026-10-07, #715).
+    """
+    schema_text = json.dumps(schema, sort_keys=True, ensure_ascii=False) if schema else ""
+    return {
+        "system_prompt_sha256": _sha(system_prompt),
+        "system_prompt_chars": len(system_prompt),
+        "schema_sha256": _sha(schema_text) if schema_text else None,
+        "schema_chars": len(schema_text),
+    }
+
+
+def dump_prompt(directory: Path) -> dict[str, Any]:
+    """Write the live system prompt and response schema — the A arm of an A/B pair."""
+    from applire.prompts.reconcile import RECONCILE_SYSTEM_PROMPT
+
+    directory.mkdir(parents=True, exist_ok=True)
+    schema = current_schema_param()
+    (directory / "system_prompt.txt").write_text(RECONCILE_SYSTEM_PROMPT, encoding="utf-8")
+    (directory / "schema.json").write_text(
+        json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return prompt_identity(RECONCILE_SYSTEM_PROMPT, schema)
+
+
+def apply_prompt_overrides(
+    system_prompt_path: str | None, schema_path: str | None
+) -> tuple[dict[str, Any], Any]:
+    """Point the engine at a prompt / schema read from disk, for an A/B arm.
+
+    The engine reads ``RECONCILE_SYSTEM_PROMPT`` as a module global and builds
+    its schema through ``_structured_output_schema()`` at call time, so both are
+    swapped on the engine module itself — the production call path stays the
+    one measured, only its two inputs change. The schema override still honours
+    ``LLM_STRUCTURED_OUTPUT``: with the setting off, no schema is sent in either
+    arm. Returns the identity of what the run will actually send, and a
+    ``restore`` callable that puts the engine back (an in-process caller — the
+    smoke test — must not leak one arm's prompt into the next).
+    """
+    from applire.services.profile.reconcile import engine
+
+    saved = (engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema)
+
+    def restore() -> None:
+        engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema = saved
+
+    if system_prompt_path:
+        engine.RECONCILE_SYSTEM_PROMPT = Path(system_prompt_path).read_text(encoding="utf-8")
+    if schema_path:
+        override = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        original = engine._structured_output_schema
+
+        def _overridden() -> dict[str, Any] | None:
+            return override if original() is not None else None
+
+        engine._structured_output_schema = _overridden
+    identity = prompt_identity(engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema())
+    # File NAMES only: summaries get committed as data, and a local absolute
+    # path does not belong in a public record (the hash identifies the content).
+    identity["system_prompt_override"] = Path(system_prompt_path).name if system_prompt_path else None
+    identity["schema_override"] = Path(schema_path).name if schema_path else None
+    return identity, restore
+
+
+def llm_log_calls(directory: Path) -> dict[str, Any]:
+    """Count the provider calls the run made, from the debug log it wrote.
+
+    The budget unit (Strawberry ruling B2-3) is a provider call, and the
+    reconcile seam makes more than one per turn: the stance guard adjudicates a
+    denied token with its OWN call on the same provider (ADR-061 cl. 2). One
+    record per ``aparse_json``/``acomplete`` — the count a budget is read from.
+    """
+    calls = 0
+    errors = 0
+    by_stage: dict[str, int] = {}
+    error_kinds: dict[str, int] = {}
+    for path in sorted(directory.glob("*.jsonl")):
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                calls += 1
+                stage = str(record.get("stage"))
+                by_stage[stage] = by_stage.get(stage, 0) + 1
+                if record.get("error"):
+                    errors += 1
+                    kind = _error_kind(str(record["error"]))
+                    error_kinds[kind] = error_kinds.get(kind, 0) + 1
+    out: dict[str, Any] = {"calls": calls, "errors": errors, "by_stage": by_stage}
+    if error_kinds:
+        out["error_kinds"] = dict(sorted(error_kinds.items(), key=lambda kv: -kv[1]))
+    return out
+
+
+_PROVIDER_MESSAGE_RE = re.compile(
+    r"""['"]message['"]\s*:\s*['"](?P<msg>(?:[^'"\\]|\\.){8,200})"""
+)
+
+
+def _error_kind(error: str) -> str:
+    """``ErrorType: <the innermost provider message>`` — what a reader acts on.
+
+    A gateway 400 wraps the upstream's own sentence several layers deep; the
+    outer ``Provider returned error`` says nothing. The last quoted
+    ``message`` in the text is the upstream's own (2026-10-07: every Claude
+    host rejected the reconcile schema — "Invalid schema: Enum value …",
+    "The compiled grammar is too large" — while the latch never fired).
+    """
+    kind = error.split(":", 1)[0]
+    messages = [m.group("msg") for m in _PROVIDER_MESSAGE_RE.finditer(error)]
+    detail = next((m for m in reversed(messages) if m != "Provider returned error"), None)
+    if detail is None:
+        detail = error.split(":", 1)[1].strip()[:120] if ":" in error else ""
+    return f"{kind}: {detail[:160]}"
+
+
 def canonical_prompt(text: str) -> str:
     """Replace every UUID with a positional placeholder.
 
@@ -421,12 +561,15 @@ async def run_one(
     shape: str,
     index: int,
     semaphore: asyncio.Semaphore,
+    budget: "CallBudget | None" = None,
 ) -> dict[str, Any]:
     """One reconcile turn, measured. Never raises."""
     from applire.services.profile.reconcile.apply import apply_ops
     from applire.services.profile.reconcile.engine import reconcile
 
     async with semaphore:
+        if budget is not None and budget.exhausted():
+            return {"shape": shape, "run": index, "skipped": "call_budget"}
         usage: list[dict[str, Any]] = []
         rejected_detail: list[dict[str, Any]] = []
         _usage_sink.set(usage)
@@ -500,7 +643,18 @@ def is_transport_failure(record: dict[str, Any]) -> bool:
     return not (detail[0].get("completion_tokens") or 0)
 
 
-def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any]:
+def summarise(
+    records: list[dict[str, Any]],
+    shapes: list[str],
+    no_write_expected: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any]:
+    """Per-shape rates and the verdict.
+
+    ``no_write_expected`` names the shapes whose CORRECT outcome is no vault
+    write (S10, ``expected_stations == []``): their lost-turn rate is reported
+    but never read by the verdict — the fixture README's own rule, which the
+    verdict did not enforce until 2026-10-07.
+    """
     per_shape: dict[str, Any] = {}
     for shape in shapes:
         rows = [r for r in records if r["shape"] == shape]
@@ -564,6 +718,8 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
             "years_experience_rate": rate(lambda m: m["skills_with_years_experience"] > 0),
             "latency_p50_s": latencies[len(latencies) // 2] if latencies else None,
         }
+        if shape in no_write_expected:
+            per_shape[shape]["expects_no_write"] = True
 
     # WHY the schema rejected what it rejected — the step-3 prompt review reads
     # this, not the op labels.
@@ -598,6 +754,8 @@ def verdict(per_shape: dict[str, Any]) -> dict[str, Any]:
     lost_a_turn = False
     for shape, rates in per_shape.items():
         for metric, limit in THRESHOLDS.items():
+            if metric == "zero_op" and rates.get("expects_no_write"):
+                continue  # writing nothing IS the correct answer on this shape
             observed = rates.get(f"{metric}_rate", 0.0)
             if observed > limit:
                 crossings.append(f"{shape}: {metric}_rate {observed:.0%} > {limit:.0%}")
@@ -637,6 +795,12 @@ def print_summary(summary: dict[str, Any], header: str) -> None:
             + f"{rates['latency_p50_s'] or 0:>8.1f}"
         )
     usage = summary["usage"]
+    logged = (summary.get("meta") or {}).get("llm_log")
+    if logged:
+        print(
+            f"\nprovider calls (debug log): {logged.get('calls')}  "
+            f"by stage: {logged.get('by_stage')}"
+        )
     print(
         f"\nprovider calls: {usage['calls']}  "
         f"prompt tokens: {usage['prompt_tokens']}  "
@@ -699,7 +863,11 @@ def openrouter_credits() -> float | None:
 # CLI
 # --------------------------------------------------------------------------- #
 def configure_env(
-    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+    provider: str,
+    model: str | None,
+    timeout: int | None,
+    reasoning: str = "default",
+    llm_log_dir: str | None = None,
 ) -> None:
     """Point the ADR-009 factory at the requested provider BEFORE applire imports.
 
@@ -723,13 +891,20 @@ def configure_env(
                 f"(supported: {', '.join(sorted(REASONING_ENV))})"
             )
         os.environ[env_var] = "false" if reasoning == "on" else "true"
+    if llm_log_dir:
+        os.environ["LLM_DEBUG_LOG"] = "true"
+        os.environ["LLM_DEBUG_LOG_DIR"] = str(Path(llm_log_dir).resolve())
     backend = str(REPO_ROOT / "backend")
     if backend not in sys.path:
         sys.path.insert(0, backend)
 
 
 def force_settings(
-    provider: str, model: str | None, timeout: int | None, reasoning: str = "default"
+    provider: str,
+    model: str | None,
+    timeout: int | None,
+    reasoning: str = "default",
+    llm_log_dir: str | None = None,
 ) -> None:
     """Make the settings singleton agree with the CLI, and refuse to run if it can't.
 
@@ -754,6 +929,11 @@ def force_settings(
         setattr(settings, field, model)
     if timeout:
         settings.llm_timeout = timeout
+    if llm_log_dir:
+        # The call count a budget is read from — it must not depend on whether
+        # the singleton was built before configure_env ran.
+        settings.llm_debug_log = True
+        settings.llm_debug_log_dir = str(Path(llm_log_dir).resolve())
 
     if reasoning != "default":
         field = REASONING_FIELD.get(provider)
@@ -834,7 +1014,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="S6,S7,S8",
         help="comma-separated shape names or prefixes; 'all' for every shape",
     )
-    parser.add_argument("--out", default=None, help="JSONL file for the per-run records")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="JSONL file for the per-run records (with --score: the summary JSON to write)",
+    )
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=None, help="LLM_TIMEOUT seconds")
     parser.add_argument(
@@ -869,6 +1053,54 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help=(
+            "stop starting turns once the debug log counts this many provider calls "
+            "(needs --llm-log-dir); skipped turns are recorded and left out of every rate"
+        ),
+    )
+    parser.add_argument(
+        "--table",
+        nargs="+",
+        default=None,
+        metavar="SUMMARY",
+        help="print a markdown table from *.summary.json files and exit — no provider call",
+    )
+    parser.add_argument(
+        "--system-prompt",
+        default=None,
+        metavar="FILE",
+        help=(
+            "measure this reconcile system prompt instead of the tree's (an A/B arm; "
+            "write the tree's own with --dump-prompt, edit, pass it back)"
+        ),
+    )
+    parser.add_argument(
+        "--schema",
+        default=None,
+        metavar="FILE",
+        help="measure this response json_schema block instead of the tree's (A/B arm)",
+    )
+    parser.add_argument(
+        "--dump-prompt",
+        default=None,
+        metavar="DIR",
+        help="write the tree's system prompt + response schema to DIR and exit — no provider call",
+    )
+    parser.add_argument(
+        "--llm-log-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "turn on the LLM debug log into DIR (one record per provider call, "
+            "secondary calls included) and count the run's calls from it. Use a "
+            "fresh DIR per run: every *.jsonl in it is counted. The log holds full "
+            "prompts — keep it out of the repository"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -877,7 +1109,14 @@ def resolve_shapes(fixtures: Fixtures, spec: str) -> list[str]:
         return fixtures.names()
     chosen: list[str] = []
     for token in (part.strip() for part in spec.split(",") if part.strip()):
-        matches = [name for name in fixtures.names() if name == token or name.startswith(token)]
+        # A shape id is the part before the first "_": "S1" is S1 alone, never
+        # S10 too. The bare prefix match spent 10 turns per model on S10 in the
+        # first 2026-10-07 matrix arms ("S1,…,S8" pulled S10 in).
+        matches = [
+            name
+            for name in fixtures.names()
+            if name == token or name.split("_", 1)[0] == token or name.startswith(f"{token}_")
+        ]
         if not matches:
             raise SystemExit(f"unknown shape '{token}'; known: {', '.join(fixtures.names())}")
         for name in matches:
@@ -897,6 +1136,69 @@ def do_dry_run(fixtures: Fixtures, shapes: list[str]) -> int:
             f"{len(system):>9}{len(user):>9}{total:>9}{total // 4:>9}"
         )
     return 0
+
+
+def _short(shape: str) -> str:
+    return shape.split("_", 1)[0]
+
+
+def markdown_table(paths: list[Path]) -> str:
+    """One row per summary file: the per-shape rates the verdict reads, and the price.
+
+    Rates are printed per shape in shape order (``0/0/10/…`` in percent), so a
+    reader sees WHICH shape a model fails on, not only that it fails — the
+    per-prompt review (#688 step 2) reads the shape, not the label.
+    """
+    metrics = (
+        ("zero_op_rate", "lost turn"),
+        ("malformed_op_rate", "malformed"),
+        ("wrong_slot_rate", "wrong-slot"),
+        ("error_rate", "no response"),
+    )
+    lines: list[str] = []
+    header_shapes: list[str] | None = None
+    for path in paths:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        meta = summary.get("meta") or {}
+        per_shape = summary.get("per_shape") or {}
+        shapes = list(per_shape)
+        if header_shapes is None:
+            header_shapes = shapes
+            lines.append(
+                "| Model | n | "
+                + " | ".join(f"{label} {'/'.join(_short(s) for s in shapes)}" for _, label in metrics)
+                + " | Tier 1 | calls | tokens in/out | ≈ cost |"
+            )
+            lines.append("|" + "---|" * (len(metrics) + 6))
+        cells = []
+        for key, _ in metrics:
+            cells.append(
+                "/".join(f"{round(100 * (per_shape[s].get(key) or 0.0))}" for s in shapes) + " %"
+            )
+        usage = summary.get("usage") or {}
+        logged = (meta.get("llm_log") or {}).get("calls")
+        cost = (summary.get("cost") or {}).get("usd_from_tokens")
+        lines.append(
+            f"| `{meta.get('model')}` | {meta.get('n')} | "
+            + " | ".join(cells)
+            + f" | **{(summary.get('verdict') or {}).get('label')}** | "
+            + f"{logged if logged is not None else usage.get('calls')} | "
+            + f"{usage.get('prompt_tokens'):,} / {usage.get('completion_tokens'):,} | "
+            + (f"${cost:.4f}" if cost is not None else "—")
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def _shape_order(shape: str) -> tuple[int, str]:
+    """S1 < S2 < … < S10 — numeric, not the string order that put S10 first."""
+    head = shape.split("_", 1)[0]
+    digits = head[1:]
+    return (int(digits) if digits.isdigit() else 10**6, shape)
+
+
+def _no_write_shapes(fixtures: Fixtures, shapes: list[str]) -> set[str]:
+    return {shape for shape in shapes if not fixtures.expected_stations(shape)}
 
 
 def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -951,7 +1253,29 @@ def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], li
                 if raw.get("apply_error"):
                     record["apply_error"] = raw["apply_error"]
             records.append(record)
-    return records, sorted(shapes)
+    return records, sorted(shapes, key=_shape_order)
+
+
+class CallBudget:
+    """A hard ceiling on the provider calls one run may make (``--max-calls``).
+
+    Read from the debug log the run is writing — one record per call, secondary
+    calls included — because the reconcile seam's call count per turn is not a
+    constant: the stance guard adjudicates every uncertain token the model
+    emits, and `llama-3.2-3b` made 250 calls for 90 turns (2026-10-07, WP-M)
+    where the plan had priced ~110. A turn starts only while the count is under
+    the ceiling, so the overshoot is bounded by the turns already in flight.
+    """
+
+    def __init__(self, log_dir: Path, max_calls: int) -> None:
+        self.log_dir = log_dir
+        self.max_calls = max_calls
+
+    def used(self) -> int:
+        return llm_log_calls(self.log_dir)["calls"]
+
+    def exhausted(self) -> bool:
+        return self.used() >= self.max_calls
 
 
 async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> dict[str, Any]:
@@ -960,16 +1284,31 @@ async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[
     provider = get_provider()
     print(f"provider: {type(provider).__name__} model={args.model or '<env default>'}", flush=True)
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
+    budget = (
+        CallBudget(Path(args.llm_log_dir), args.max_calls)
+        if args.max_calls is not None
+        else None
+    )
+    # Index-major: a run cut short by --max-calls leaves every shape with about
+    # the same n, instead of the last shapes with none.
     tasks = [
-        run_one(provider, fixtures, shape, index, semaphore)
-        for shape in shapes
+        run_one(provider, fixtures, shape, index, semaphore, budget)
         for index in range(1, args.n + 1)
+        for shape in shapes
     ]
     handle = open(args.out, "w", encoding="utf-8") if args.out else None
     records: list[dict[str, Any]] = []
+    skipped = 0
     try:
-        for coro in asyncio.as_completed(tasks):
+        # Scheduled in list order so the semaphore admits turns index-major;
+        # `as_completed` on bare coroutines would start them in set order.
+        futures = [asyncio.ensure_future(task) for task in tasks]
+        for coro in asyncio.as_completed(futures):
             record = await coro
+            if record.get("skipped"):
+                # Never a measurement: not written, not rated, only counted.
+                skipped += 1
+                continue
             records.append(record)
             if handle:
                 handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
@@ -988,7 +1327,9 @@ async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[
     finally:
         if handle:
             handle.close()
-    return {"records": records}
+    if skipped:
+        print(f"call budget reached: {skipped} turn(s) not started", flush=True)
+    return {"records": records, "skipped_for_budget": skipped}
 
 
 def _tooling_context():
@@ -1011,21 +1352,79 @@ def _tooling_context():
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    configure_env(args.provider, args.model, args.timeout, args.reasoning)
+    configure_env(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
     fixtures = Fixtures(Path(args.fixtures))
     shapes = resolve_shapes(fixtures, args.shapes)
+
+    if args.table:
+        print(markdown_table([Path(p) for p in args.table]))
+        return 0
+
+    if args.dump_prompt:
+        identity = dump_prompt(Path(args.dump_prompt))
+        print(json.dumps(identity, indent=2))
+        return 0
 
     if args.dry_run:
         return do_dry_run(fixtures, shapes)
 
     if args.score:
         records, scored_shapes = score_file(fixtures, Path(args.score))
-        summary = summarise(records, scored_shapes)
-        summary["meta"] = {"scored_from": args.score, "turns": len(records)}
+        summary = summarise(records, scored_shapes, _no_write_shapes(fixtures, scored_shapes))
+        # Re-scoring keeps the run's own meta (model, settings, prompt identity,
+        # call count) when its summary sits next to the records — a classifier
+        # change must not cost a row the facts the run recorded about itself.
+        sibling = Path(args.score).with_suffix(".summary.json")
+        meta: dict[str, Any] = {}
+        if sibling.exists():
+            original = json.loads(sibling.read_text(encoding="utf-8"))
+            meta = dict(original.get("meta") or {})
+            if original.get("cost"):
+                summary["cost"] = original["cost"]
+        meta.update({"scored_from": Path(args.score).name, "turns": len(records)})
+        summary["meta"] = meta
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
+        if args.out:
+            with Path(args.out).open("w", encoding="utf-8") as fh:
+                json.dump(summary, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+            print(f"\nsummary: {args.out}")
         return 0
 
-    force_settings(args.provider, args.model, args.timeout, args.reasoning)
+    from applire.config import settings as _settings
+
+    # The debug-log switch is process-wide; an in-process caller (the smoke test)
+    # must get it back as it was, or every later test writes prompts to disk.
+    saved_log = (_settings.llm_debug_log, _settings.llm_debug_log_dir)
+    try:
+        return _run_arm(args, fixtures, shapes)
+    finally:
+        _settings.llm_debug_log, _settings.llm_debug_log_dir = saved_log
+
+
+def _run_arm(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> int:
+    force_settings(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
+    if args.max_calls is not None and not args.llm_log_dir:
+        raise SystemExit("--max-calls counts from the debug log; pass --llm-log-dir too")
+    if args.llm_log_dir:
+        log_dir = Path(args.llm_log_dir)
+        if log_dir.exists() and any(log_dir.glob("*.jsonl")):
+            # A reused directory would fold an earlier run's calls into this
+            # run's count, and the budget is read from that count.
+            raise SystemExit(f"--llm-log-dir {log_dir} already holds a log; use a fresh directory")
+    prompt_meta, restore_prompt = apply_prompt_overrides(args.system_prompt, args.schema)
+    try:
+        return _measure(args, fixtures, shapes, prompt_meta)
+    finally:
+        restore_prompt()
+
+
+def _measure(
+    args: argparse.Namespace,
+    fixtures: Fixtures,
+    shapes: list[str],
+    prompt_meta: dict[str, Any],
+) -> int:
     install_log_readers()
     credits_before = (
         None
@@ -1037,7 +1436,7 @@ def main(argv: list[str] | None = None) -> int:
         outcome = asyncio.run(run_matrix(args, fixtures, shapes))
     records = outcome["records"]
     records.sort(key=lambda r: (r["shape"], r["run"]))
-    summary = summarise(records, shapes)
+    summary = summarise(records, shapes, _no_write_shapes(fixtures, shapes))
     summary["meta"] = {
         "provider": args.provider,
         "model": args.model,
@@ -1055,7 +1454,13 @@ def main(argv: list[str] | None = None) -> int:
         # cannot claim a schema arm it silently fell out of.
         "schema_rejected": bool(_schema_rejections),
         "schema_rejection_note": _schema_rejections[0] if _schema_rejections else None,
+        # Which prompt + schema this row describes (#688: before/after rows).
+        "prompt": prompt_meta,
+        "max_calls": args.max_calls,
+        "skipped_for_budget": outcome.get("skipped_for_budget", 0),
     }
+    if args.llm_log_dir:
+        summary["meta"]["llm_log"] = llm_log_calls(Path(args.llm_log_dir))
     cost = token_cost(summary["usage"], args.price_in, args.price_out) or {}
     credits_after = (
         None
