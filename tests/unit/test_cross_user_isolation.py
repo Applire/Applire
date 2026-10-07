@@ -86,6 +86,11 @@ REST_BODIES: dict[tuple[str, str], dict] = {
         for kind in ("cv", "cover-letter")
         for action in ("take-out", "undo", "edited")
     },
+    # #702: *So lassen* on a cross-document item (a `critic:` key).
+    **{
+        ("POST", f"/api/{kind}/{{doc_id}}/review/kept"): {"finding_key": "critic:python"}
+        for kind in ("cv", "cover-letter")
+    },
     ("PATCH", "/api/cv/{cv_id}/color"): {"accent_hex": "#12233E"},
     ("PATCH", "/api/applications/{application_id}"): {"notes": "Changed by B."},
     ("POST", "/api/applications/{application_id}/pins"): {

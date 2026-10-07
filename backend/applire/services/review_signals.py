@@ -58,6 +58,9 @@ async def keep(
     from applire.services.owner_resolution import resolve_owner
 
     owner = resolve_owner(user_id, site="review_signals.keep")
+    # ADR-092: the ownership check precedes everything else, so a foreign id is a
+    # 404 whatever the key looks like.
+    await load_document(kind, doc_id, db, user_id=owner)
     producer, norm = rs.split_key(key)
     if producer != "critic":
         raise ValueError(f"not a cross-document key: {key!r}")
