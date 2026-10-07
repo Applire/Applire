@@ -35,7 +35,7 @@ them larger than an interview turn, so an application costs many times this figu
 | Model | Measured through | What went wrong | Measured |
 |---|---|---|---|
 | `glm-5.3-flash` (Z.ai) | OpenRouter, Requesty | **Through OpenRouter** (`z-ai/glm-5.3-flash`) it keeps the profile correct, but could not finish an application: gap analysis, interview and CV generation timed out or returned broken output. **Through Requesty** (`glm-5.3-flash`) it recorded nothing for 30–50 % of interview answers that begin with "I have not done X, but…", and on a real install imports and quality checks ran past its output limit and failed. | 2026-09-09 – 2026-09-16 |
-| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server that hosts Claude models refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), so each interview answer is lost. On 2026-09-14 the same model was clean; the change is on the provider side. | 2026-10-07 |
+| `claude-haiku-4.5` (Anthropic) | OpenRouter | **Since 2026-10-07, every profile update fails with the shipped settings.** Every server OpenRouter routes this model to refuses the answer format Applire sends with the profile step (`LLM_STRUCTURED_OUTPUT=auto`, the default), so each interview answer is lost. On 2026-09-14 the same model was clean; the change is on the provider side. | 2026-10-07 |
 | `llama-3.2-3b` (Meta) | OpenRouter | Lost half of the answers that name three employers in one sentence (it asked a question back instead), and filed other employers' facts under the current job in every single-job profile. | 2026-10-07 |
 | `command-r7b` (Cohere) | OpenRouter | Recorded nothing for every interview answer. | 2026-09-14 |
 | `gpt-5-nano` (OpenAI) | OpenRouter | Lost up to 44 % of interview answers. | 2026-09-14 |
@@ -74,8 +74,8 @@ the ones in [How we measure](#how-we-measure); the worst situation decides.
   rejected the answer format Applire sends with this step (first because of how one field is
   declared, then because the format as a whole is too large for their checker), and Applire did
   not fall back to its plain format, so every answer was lost. This is a defect on Applire's side
-  of the connection, not a judgement about the model, and it affects every Claude model reached
-  through a gateway with `LLM_STRUCTURED_OUTPUT=auto`.
+  of the connection, not a judgement about the model. Only `claude-haiku-4.5` was measured; other
+  Claude models served by the same hosts are likely to be refused the same way.
 - **Two models were measured on two situations only** (S6, the hardest of the eight, and S9, a
   changed figure). They are clean there; that is not yet a full qualification.
 - **`glm-5.3-flash` is slow through OpenRouter.** At the 120-second timeout built into the code,
