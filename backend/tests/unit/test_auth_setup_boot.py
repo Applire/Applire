@@ -154,6 +154,9 @@ async def test_the_upgrade_notice_reports_auth_provider_none_as_re_meant_for_a_p
 
     captured = {}
     monkeypatch.setattr(main_mod, "AsyncSessionLocal", session_factory)
+    # Pin the running release: CI installs requirements only, so the package
+    # metadata is absent there and __version__ reads "unknown" (no notice by design).
+    monkeypatch.setattr(main_mod, "__version__", "0.43.0")
     monkeypatch.setattr(
         "applire.settings_registry.current_environment", lambda: {"AUTH_PROVIDER": "none"}
     )
