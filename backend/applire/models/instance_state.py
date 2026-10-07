@@ -80,6 +80,12 @@ KEY_AUTH_CLAIM_NOTICE = "auth.claim_notice"
 # migration, read for the post-claim notice.
 KEY_UPGRADE_RETIRED_PROFILES = "upgrade.retired_profiles"
 
+# ADR-093 cl. 8: the env/default-sourced values of the tracked settings
+# (LLM_PROVIDER, SCRAPER_FETCH_LINKEDIN_GUEST_PAGES, RETENTION_ENABLED) the last
+# boot saw — {env_var: value}. A difference at the next boot is an audit row
+# (``settings.env_observed``). No secret, no personal data.
+KEY_SETTINGS_OBSERVED = "settings.observed"
+
 #: Every key this table is allowed to carry. New key => new constant here.
 KNOWN_KEYS = frozenset(
     {
@@ -90,6 +96,7 @@ KNOWN_KEYS = frozenset(
         KEY_AUTH_SETUP_TOKEN_HASH,
         KEY_AUTH_CLAIM_NOTICE,
         KEY_UPGRADE_RETIRED_PROFILES,
+        KEY_SETTINGS_OBSERVED,
     }
 )
 
