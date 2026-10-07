@@ -26,7 +26,7 @@ test("admin after setup (no profile): onboarding in the shell, Administration re
   const sidebar = page.getByTestId("app-sidebar");
   await expect(sidebar.getByTestId("sidebar-user-email")).toHaveText(ADMIN_USER.email);
   await sidebar.getByTestId("sidebar-nav-admin").click();
-  await expect(page).toHaveURL(/\/admin\/users$/);
+  await expect(page).toHaveURL(/\/admin\/overview$/);
 });
 
 test.describe("invited user after redeem (no profile)", () => {

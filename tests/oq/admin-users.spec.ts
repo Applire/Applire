@@ -306,14 +306,15 @@ test.describe("Administration → Monitoring", () => {
 test.describe("Administration — not an admin", () => {
   test.use({ authUser: REGULAR_USER });
 
-  test("a signed-in non-admin is sent to the dashboard and never sees the tabs", async ({ page }) => {
+  test("a signed-in non-admin gets the 'for admins' card and never sees the tabs", async ({ page }) => {
     let listed = 0;
     await page.route("**/api/admin/users", (route) => {
       listed += 1;
       return json(route, { detail: { error_code: "forbidden", message: "x" } }, 403);
     });
     await page.goto("/admin/users");
-    await expect(page).toHaveURL(/\/dashboard/);
+    // Epic C (c2 mock user-dashboard-signal §4): an explanation instead of a silent redirect.
+    await expect(page.getByTestId("admin-forbidden")).toBeVisible();
     await expect(page.getByTestId("admin-nav-users")).toHaveCount(0);
     expect(listed).toBe(0);
   });

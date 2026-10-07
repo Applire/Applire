@@ -48,9 +48,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ADMIN_SECTIONS", () => {
-  it("registers users, appearance and monitoring with their hrefs", () => {
+  it("registers the Epic C sections in the approved order, the overview first (#694)", () => {
     expect(ADMIN_SECTIONS.map((s) => [s.key, s.href])).toEqual([
+      ["overview", "/admin/overview"],
       ["users", "/admin/users"],
+      ["usage", "/admin/usage"],
+      ["settings", "/admin/settings"],
+      ["audit", "/admin/audit"],
       ["appearance", "/admin/appearance"],
       ["monitoring", "/admin/monitoring"],
     ]);
@@ -112,11 +116,13 @@ describe("AdminLayout", () => {
     },
   );
 
-  it("a non-admin is sent to /dashboard and sees no tabs or page", () => {
+  it("a non-admin sees the 'for admins' card — no tabs, no section page (so no admin call)", () => {
     renderLayout({ ...admin, role: "user" });
-    expect(replace).toHaveBeenCalledWith("/dashboard");
+    expect(screen.getByTestId("admin-forbidden")).toHaveTextContent(nav.forbiddenTitle);
+    expect(screen.getByTestId("admin-forbidden-back")).toHaveAttribute("href", "/dashboard");
     expect(screen.queryAllByTestId(/^admin-nav-/)).toHaveLength(0);
     expect(screen.queryByTestId("page")).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("an admin is not redirected", () => {
