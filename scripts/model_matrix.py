@@ -1045,7 +1045,14 @@ def resolve_shapes(fixtures: Fixtures, spec: str) -> list[str]:
         return fixtures.names()
     chosen: list[str] = []
     for token in (part.strip() for part in spec.split(",") if part.strip()):
-        matches = [name for name in fixtures.names() if name == token or name.startswith(token)]
+        # A shape id is the part before the first "_": "S1" is S1 alone, never
+        # S10 too. The bare prefix match spent 10 turns per model on S10 in the
+        # first 2026-10-07 matrix arms ("S1,…,S8" pulled S10 in).
+        matches = [
+            name
+            for name in fixtures.names()
+            if name == token or name.split("_", 1)[0] == token or name.startswith(f"{token}_")
+        ]
         if not matches:
             raise SystemExit(f"unknown shape '{token}'; known: {', '.join(fixtures.names())}")
         for name in matches:

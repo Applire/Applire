@@ -182,3 +182,14 @@ def test_table_prints_one_row_per_summary_with_per_shape_rates(tmp_path, capsys,
     # per-shape, in shape order; the debug-log count wins over the usage-line count
     assert "| 0/10 % | 20/0 % |" in row  # lost turn, then malformed
     assert "| **sub-par** | 37 |" in row and "$0.0123" in row
+
+
+def test_a_short_shape_id_never_pulls_in_a_longer_one():
+    fixtures = mm.Fixtures(mm.FIXTURE_DIR)
+    assert mm.resolve_shapes(fixtures, "S1") == ["S1_all_present_en"]
+    assert mm.resolve_shapes(fixtures, "S1,S8") == [
+        "S1_all_present_en",
+        "S8_incident_shape_big_profile",
+    ]
+    assert mm.resolve_shapes(fixtures, "S10") == ["S10_restated_fact_nothing_new"]
+    assert mm.resolve_shapes(fixtures, "S1_all_present_en") == ["S1_all_present_en"]
