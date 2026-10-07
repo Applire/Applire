@@ -177,6 +177,25 @@ describe("QuickTailorWidget", () => {
     expect(JSON.parse(createCall[1].body)).not.toHaveProperty("source_url");
   });
 
+  it("shows the catalog copy when creating the application answers a structured 500", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1" }) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({
+          detail: { error_code: "internal_error", message: "An unexpected error occurred.", error_id: "abc123def456" },
+        }),
+      });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://example.de/job" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(screen.getByText("errorCreateAppFailed")).toBeInTheDocument());
+  });
+
   it("routes to the flow index (not a hard-coded step) after creating the application", async () => {
     global.fetch = vi
       .fn()
