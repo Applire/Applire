@@ -193,3 +193,36 @@ def test_a_short_shape_id_never_pulls_in_a_longer_one():
     ]
     assert mm.resolve_shapes(fixtures, "S10") == ["S10_restated_fact_nothing_new"]
     assert mm.resolve_shapes(fixtures, "S1_all_present_en") == ["S1_all_present_en"]
+
+
+def _turn(shape: str, run: int, ops: list) -> dict:
+    return {"shape": shape, "run": run, "ops": ops, "rejected_ops": [], "elapsed_s": 1.0,
+            "usage": {"calls": 1, "prompt_tokens": 10, "completion_tokens": 5,
+                      "detail": [{"completion_tokens": 5}]}}
+
+
+def test_s10_silence_never_decides_the_verdict(tmp_path, monkeypatch):
+    """S10's correct outcome is no write; the verdict must not read it as a loss."""
+    fixtures = mm.Fixtures(mm.FIXTURE_DIR)
+    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["NovaRNA systems"]}]
+    rows = [_turn("S6_incident_shape_all_present", i, good) for i in range(1, 4)]
+    rows += [_turn("S10_restated_fact_nothing_new", i, []) for i in range(1, 4)]
+    path = tmp_path / "arm.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    (tmp_path / "arm.summary.json").write_text(
+        json.dumps({"meta": {"model": "vendor/x", "llm_log": {"calls": 6}}}), encoding="utf-8"
+    )
+    monkeypatch.setenv("LLM_PROVIDER", "")
+    out = tmp_path / "rescored.json"
+    assert mm.main(["--score", str(path), "--out", str(out)]) == 0
+    summary = json.loads(out.read_text(encoding="utf-8"))
+    s10 = summary["per_shape"]["S10_restated_fact_nothing_new"]
+    assert s10["zero_op_rate"] == 1.0 and s10["expects_no_write"] is True
+    assert summary["verdict"]["label"] == "qualified", summary["verdict"]
+    # the run's own facts survive the re-score
+    assert summary["meta"]["model"] == "vendor/x" and summary["meta"]["llm_log"]["calls"] == 6
+    # and a shape that DOES expect a write still fails the bar on silence
+    lost = [_turn("S6_incident_shape_all_present", i, []) for i in range(1, 4)]
+    path.write_text("\n".join(json.dumps(r) for r in lost) + "\n", encoding="utf-8")
+    records, shapes = mm.score_file(fixtures, path)
+    assert mm.summarise(records, shapes, mm._no_write_shapes(fixtures, shapes))["verdict"]["label"] == "sub-par"

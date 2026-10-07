@@ -610,7 +610,18 @@ def is_transport_failure(record: dict[str, Any]) -> bool:
     return not (detail[0].get("completion_tokens") or 0)
 
 
-def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any]:
+def summarise(
+    records: list[dict[str, Any]],
+    shapes: list[str],
+    no_write_expected: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any]:
+    """Per-shape rates and the verdict.
+
+    ``no_write_expected`` names the shapes whose CORRECT outcome is no vault
+    write (S10, ``expected_stations == []``): their lost-turn rate is reported
+    but never read by the verdict — the fixture README's own rule, which the
+    verdict did not enforce until 2026-10-07.
+    """
     per_shape: dict[str, Any] = {}
     for shape in shapes:
         rows = [r for r in records if r["shape"] == shape]
@@ -674,6 +685,8 @@ def summarise(records: list[dict[str, Any]], shapes: list[str]) -> dict[str, Any
             "years_experience_rate": rate(lambda m: m["skills_with_years_experience"] > 0),
             "latency_p50_s": latencies[len(latencies) // 2] if latencies else None,
         }
+        if shape in no_write_expected:
+            per_shape[shape]["expects_no_write"] = True
 
     # WHY the schema rejected what it rejected — the step-3 prompt review reads
     # this, not the op labels.
@@ -708,6 +721,8 @@ def verdict(per_shape: dict[str, Any]) -> dict[str, Any]:
     lost_a_turn = False
     for shape, rates in per_shape.items():
         for metric, limit in THRESHOLDS.items():
+            if metric == "zero_op" and rates.get("expects_no_write"):
+                continue  # writing nothing IS the correct answer on this shape
             observed = rates.get(f"{metric}_rate", 0.0)
             if observed > limit:
                 crossings.append(f"{shape}: {metric}_rate {observed:.0%} > {limit:.0%}")
@@ -749,7 +764,10 @@ def print_summary(summary: dict[str, Any], header: str) -> None:
     usage = summary["usage"]
     logged = (summary.get("meta") or {}).get("llm_log")
     if logged:
-        print(f"\nprovider calls (debug log): {logged['calls']}  by stage: {logged['by_stage']}")
+        print(
+            f"\nprovider calls (debug log): {logged.get('calls')}  "
+            f"by stage: {logged.get('by_stage')}"
+        )
     print(
         f"\nprovider calls: {usage['calls']}  "
         f"prompt tokens: {usage['prompt_tokens']}  "
@@ -963,7 +981,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="S6,S7,S8",
         help="comma-separated shape names or prefixes; 'all' for every shape",
     )
-    parser.add_argument("--out", default=None, help="JSONL file for the per-run records")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="JSONL file for the per-run records (with --score: the summary JSON to write)",
+    )
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=None, help="LLM_TIMEOUT seconds")
     parser.add_argument(
@@ -1126,6 +1148,10 @@ def markdown_table(paths: list[Path]) -> str:
     return "\n".join(lines)
 
 
+def _no_write_shapes(fixtures: Fixtures, shapes: list[str]) -> set[str]:
+    return {shape for shape in shapes if not fixtures.expected_stations(shape)}
+
+
 def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Re-score records that already exist — no provider, no credit.
 
@@ -1256,9 +1282,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.score:
         records, scored_shapes = score_file(fixtures, Path(args.score))
-        summary = summarise(records, scored_shapes)
-        summary["meta"] = {"scored_from": args.score, "turns": len(records)}
+        summary = summarise(records, scored_shapes, _no_write_shapes(fixtures, scored_shapes))
+        # Re-scoring keeps the run's own meta (model, settings, prompt identity,
+        # call count) when its summary sits next to the records — a classifier
+        # change must not cost a row the facts the run recorded about itself.
+        sibling = Path(args.score).with_suffix(".summary.json")
+        meta: dict[str, Any] = {}
+        if sibling.exists():
+            meta = dict(json.loads(sibling.read_text(encoding="utf-8")).get("meta") or {})
+        meta.update({"scored_from": args.score, "turns": len(records)})
+        summary["meta"] = meta
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
+        if args.out:
+            with Path(args.out).open("w", encoding="utf-8") as fh:
+                json.dump(summary, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+            print(f"\nsummary: {args.out}")
         return 0
 
     from applire.config import settings as _settings
@@ -1304,7 +1343,7 @@ def _measure(
         outcome = asyncio.run(run_matrix(args, fixtures, shapes))
     records = outcome["records"]
     records.sort(key=lambda r: (r["shape"], r["run"]))
-    summary = summarise(records, shapes)
+    summary = summarise(records, shapes, _no_write_shapes(fixtures, shapes))
     summary["meta"] = {
         "provider": args.provider,
         "model": args.model,
