@@ -392,7 +392,9 @@ def qualification_for(provider: str, model: str) -> dict[str, Any]:
             return {
                 "qualification": entry.get("qualification", "unmeasured"),
                 "qualification_reason": entry.get("reason"),
-                "qualification_as_of": data.get("as_of"),
+                # #688 (MD2-13): each entry carries the date IT was measured;
+                # the file-level date is the newest and would misdate the rest.
+                "qualification_as_of": entry.get("as_of") or data.get("as_of"),
             }
     return {"qualification": "unmeasured", "qualification_reason": None,
             "qualification_as_of": data.get("as_of")}

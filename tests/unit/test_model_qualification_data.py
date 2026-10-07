@@ -56,3 +56,21 @@ def test_every_entry_is_named_in_the_public_guide():
         short = re.sub(r"-instruct$", "", short)
         candidates = {entry["model"], short, short.replace("-2512", "").replace("-2603", "")}
         assert any(c in guide for c in candidates), f"{entry['model']} is not in docs/llm-models.md"
+
+
+def test_the_panel_reads_each_models_own_measurement_date(monkeypatch):
+    """MD2-13: an entry measured on 2026-09-16 must not read as measured on the newest date."""
+    from applire.services import instance_settings as svc
+
+    monkeypatch.setattr(svc, "_qualification_cache", {
+        "as_of": "2026-10-07",
+        "entries": [
+            {"provider": "openrouter", "model": "old/model", "match": "exact",
+             "qualification": "qualified", "reason": "r", "as_of": "2026-09-16"},
+            {"provider": "openrouter", "model": "undated/model", "match": "exact",
+             "qualification": "qualified", "reason": "r"},
+        ],
+    })
+    assert svc.qualification_for("openrouter", "old/model")["qualification_as_of"] == "2026-09-16"
+    # an entry without its own date falls back to the file's
+    assert svc.qualification_for("openrouter", "undated/model")["qualification_as_of"] == "2026-10-07"
