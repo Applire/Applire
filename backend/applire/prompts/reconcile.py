@@ -190,7 +190,9 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   prompt, 0/14 and 0/10 on the old one; ``gpt-5.6-luna`` 0.00 on every rate in
   both arms. No threshold crossed, so the wording stays. Pooled with V's arms:
   5/44 vs 0/33 turns (one-sided Fisher p≈0.055), and the op-less-op shape did
-  not recur in 49 valid glm turns. Records: ``Documents/Runs/Strawberry/build-2/m/runs/v4/``.
+  not recur in 49 valid glm turns; the full S1–S8 matrix then showed it once on
+  S3 (1/9), and an S3 re-measure at n=10 gave 0/9 after vs 0/8 before (1/18, under
+  the bar). Records: ``tests/files/model_matrix/results/2026-10-07/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
