@@ -283,3 +283,87 @@ def test_a_paraphrased_label_falls_back_to_the_whole_sentence():
     key = OutcomeCriticReport.model_validate(report).cross_document[0].key
     label, wording = cross_document_target(SimpleNamespace(critic_report=report), key)
     assert wording == ["Ich begleite Werksbesuche auf Englisch."]
+
+
+# ── adv-review finding 7 (2026-10-07): the take-out is the item's SENTENCE ────
+OTHER = "Für Kosmetik-Verpackungen habe ich 2022 die Prüfpläne überarbeitet."
+
+
+async def _seed_two_sentence_letter(db):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    # The same paragraph holds a second sentence naming the same fact.
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", f"{OTHER} {TRANSFER}"]}}
+    await db.commit()
+    return cl_id
+
+
+@pytest.mark.asyncio
+async def test_take_out_hands_the_rewriter_only_the_sentence_and_splices_it_back(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_two_sentence_letter(db)
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    (call,) = rewrite.calls
+    assert call["section_id"] == "body"
+    body = resp.json()
+    (change,) = body["changes"]
+    # before/after are the WHOLE section (undo restores it), only the sentence moved
+    assert change["before"] == f"Erster Absatz.\n\n{OTHER} {TRANSFER}"
+    assert change["after"].startswith(f"Erster Absatz.\n\n{OTHER} ")
+    assert "Kosmetik-Verpackungen" not in change["after"][len(f"Erster Absatz.\n\n{OTHER} "):]
+    # the other sentence still names the fact — that is NOT this item still standing
+    assert body["still_listed"] is False
+
+
+@pytest.mark.asyncio
+async def test_undo_restores_the_whole_section_and_the_item_stands_again(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_two_sentence_letter(db)
+    with patch.object(ra, "_rewriter", return_value=_Rewrite()), patch.object(ra, "reaudit", _noop_reaudit):
+        _client(db).post(f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()})
+        out = await ra.undo("cover_letter", cl_id, _transfer_key(), db)
+    assert out.still_listed is True
+    paragraphs = (out.record.section_overrides or {}).get("body") or ""
+    assert f"{OTHER} {TRANSFER}" in paragraphs
+
+
+@pytest.mark.asyncio
+async def test_a_sentence_no_longer_in_the_letter_changes_nothing(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", OTHER]}}
+    await db.commit()
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    assert rewrite.calls == [] and resp.json()["changes"] == []
+    assert resp.json()["still_listed"] is False
+
+
+def test_a_whitespace_variant_of_the_quote_is_still_located():
+    from applire.services.review_signals import locate_sentence
+
+    text = "Erster Absatz.\n\nHygiene- und\nDokumentationsdisziplin   aus X."
+    hit = locate_sentence([("body", text)], "Hygiene- und Dokumentationsdisziplin aus X.")
+    assert hit is not None and text[hit[2]:hit[3]].startswith("Hygiene-")
