@@ -1024,10 +1024,17 @@ export default function CVPage({
           }}
           onSave={() => {
             const nav = pendingNav;
-            const handle = contentTabRef.current ?? contentTabMobileRef.current;
             setPendingNavBusy(true);
             setPendingNavFailed(false);
-            void (handle ? handle.saveOpenSection() : Promise.resolve(true))
+            // Both editor instances (desktop tab, phone sheet) may be mounted;
+            // each saves only its own draft and answers `true` when it has none.
+            const saveAll = async () => {
+              for (const handle of [contentTabRef.current, contentTabMobileRef.current]) {
+                if (handle && !(await handle.saveOpenSection())) return false;
+              }
+              return true;
+            };
+            void saveAll()
               .then((ok) => {
                 if (!ok) {
                   setPendingNavFailed(true);

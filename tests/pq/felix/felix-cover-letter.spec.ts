@@ -227,22 +227,15 @@ test.describe("Felix — Cover letter: generate, navigate, edit, restyle (PQ)", 
     });
   });
 
-  test("US-CL09: design tab shows 7 template options", async ({ page }) => {
+  // #737 (Strawberry build 2, WP-E): the seven template buttons discarded the
+  // choice (the letter inherits template + colour from the CV) — the Edit tab
+  // now says so and links to the CV instead.
+  test("US-CL09: edit tab states the template the letter inherits from the CV", async ({ page }) => {
     await setupCoverLetter(page);
     await page.getByTestId("sidebar-tab-edit").click();
-
-    const templates = [
-      "classic_german",
-      "modern_swiss",
-      "executive",
-      "tech_developer",
-      "creative_sidebar",
-      "academic",
-      "compact_pro",
-    ];
-    for (const tmpl of templates) {
-      await expect(page.getByTestId(`cl-template-${tmpl}`)).toBeVisible();
-    }
+    await expect(page.getByTestId("letter-look")).toBeVisible();
+    await expect(page.getByTestId("letter-look-cv-link")).toBeVisible();
+    await expect(page.locator('[data-testid^="cl-template-"]')).toHaveCount(0);
   });
 
   test("US-CL10: regenerate button opens modal", async ({ page }) => {
