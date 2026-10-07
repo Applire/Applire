@@ -198,5 +198,7 @@ def test_the_languages_shape_of_the_same_run():
         SetField(target="l-german", field="level", value="Native"),
     ]
     assert compute_import_not_applied(incoming, merged, ops) == []
-    # …and without the ops the same pair is the `partial` the founder saw.
-    assert len(compute_import_not_applied(incoming, merged, [])) == 2
+    # …and without the ops: before #709 the same pair was the `partial` the
+    # founder saw; since the closed DE/EN name table (ADR-046 am. 2026-10-07)
+    # the witness carries a translated language name by itself.
+    assert compute_import_not_applied(incoming, merged, []) == []

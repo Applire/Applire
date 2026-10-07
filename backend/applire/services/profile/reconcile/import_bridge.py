@@ -46,6 +46,7 @@ from applire.services.profile.reconcile.apply import (
     apply_ops,
 )
 from applire.services.profile.reconcile.dedupe import classify_certification_dupe
+from applire.services.profile.reconcile.alias_writer import record_bound_aliases
 from applire.services.profile.reconcile.engine import reconcile
 from applire.services.profile.reconcile.import_witness import compute_import_not_applied
 from applire.services.profile.reconcile.ops import CommitOp, RequestConfirmation
@@ -358,6 +359,12 @@ async def reconcile_import(
     # Both passes below are pure — this seam costs NO extra LLM call.
     applied.profile = enrich_skills_deterministic(applied.profile)
     _carry_skill_enrichment(applied.profile, incoming)
+    # ADR-046 amended 2026-10-07 (#709/#716) — the names the model bound to an
+    # existing entry become that entry's alternate names, copied from the ONE
+    # incoming document entry the witness binder binds (never the op's free
+    # text); the receipt keeps the incoming entry for the #717 undo. Pure,
+    # no LLM call; part of this import's one write.
+    record_bound_aliases(incoming, applied.profile, emitted_ops, applied.matched, applied.changes)
     # E037 PQ #4 — ambiguities ride the confirmation channel (question + options
     # intact); they are NO LONGER coerced into the 2-value Conflict shape, which
     # garbled the dialog. Real two-value disputes still come through `conflicts`.

@@ -377,15 +377,21 @@ class MatchExisting(BaseModel):
     ``target`` is the existing entity's id (the profile view the model reads keeps
     ids on EXISTING entries — ADR-078 strips them from the INCOMING block only);
     ``incoming`` is the incoming entry's name exactly as the new information
-    writes it. Scope: the six flat sections, whose upsert ops carry no
-    ``target``; engagements keep rule 7's ``upsert_*(target=…)`` mechanism, and
-    a ``match_existing`` aimed at an engagement id records its receipt and
-    rescues nothing at the witness.
+    writes it. Scope since ADR-046 amended 2026-10-07 (#715): every id-bearing
+    section — for a job ``"Company / Role"``, for volunteering
+    ``"Organization / Role"``, for a project its name — and for engagements only
+    when the employer is merely named differently and the title is the same (a
+    different TITLE stays rule 7's ``upsert_*(target=…)``). The import witness
+    binds it target-first in every section (arm (c) sub-clause 3), with equal
+    start months for engagements when both state one.
 
     The applier (``_apply_match_existing``) resolves ``target`` through
     ``resolve_any``, records ONE :class:`applire.schemas.profile.MatchReceipt`
     on ``ApplyResult.matched`` and mutates nothing. Never a ``set_field``: it
-    fills nothing, overwrites nothing, creates no alias.
+    fills nothing and overwrites nothing. On the IMPORT path only, the import
+    bridge afterwards copies the bound incoming DOCUMENT entry's differing
+    names onto the target as alternate names
+    (``reconcile/alias_writer.record_bound_aliases``, ADR-046 am. 2026-10-07).
     """
 
     op: Literal["match_existing"] = "match_existing"
