@@ -58,7 +58,7 @@ from tests.support.owners_1b import add_user, client_for
 #: Deliberately NOT credential-shaped (no ``sk-``/``Bearer``), so only the
 #: configured-value scrub can remove it.
 SENTINEL = "Mx7HARDENSENTINELq9Zt4uV0"
-#: The same marker inside a value no header can carry.
+#: The same marker with a control character inside.
 CTRL_SENTINEL = "Mx7HARDENSENTINEL\x0bq9Zt"
 
 
@@ -453,16 +453,16 @@ async def test_rest_classified_messages_are_unchanged(monkeypatch):
 
 
 # =====================================================================================
-# End to end: a plain user's request never receives a configured key
+# End to end: an unexpected provider failure echoes no configured secret
 # =====================================================================================
 
 
 @pytest.mark.asyncio
-async def test_a_plain_user_never_receives_a_configured_key_in_any_response(async_db, monkeypatch):
-    """The provider key holds a value the HTTP client refuses as a header; the
-    SDK's error text quotes it. A plain (non-admin) account analyses a posting
-    through REST and through the agent door: neither answer carries the key.
-    Hermetic — the SDK points at a socket on 127.0.0.1 that never answers."""
+async def test_an_unexpected_provider_failure_echoes_no_configured_secret(async_db, monkeypatch):
+    """A plain (non-admin) account analyses a posting through REST and through
+    the agent door while the real Mistral provider fails below the SDK. Neither
+    answer carries a configured secret value. Hermetic — the SDK points at a
+    socket on 127.0.0.1 that never answers."""
     import applire.providers.llm.mistral as mistral_mod
     from applire.mcp import server as mcp_server
     from applire.routers import job as job_router
