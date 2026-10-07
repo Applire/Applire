@@ -175,6 +175,35 @@ def test_adv_vault_1_unstated_degree_at_an_aliased_institution_is_folded():
     )
 
 
+def test_adv_vault_1_single_second_diplom_with_other_years_is_not_carried():
+    """Ruling adv-vault-1 = B (MD2-15): for education the alias counts only when
+    both stated start years (or end years) agree, or both are unknown. The
+    remaining case after the incoming-side exactly-one rule: the 2008 Diplom
+    imported ALONE (no 2002 Diplom beside it) still reads as carried."""
+    incoming = MasterProfileData(education=[EducationEntry(**_SECOND_DIPLOM)])
+    items = compute_import_not_applied(incoming, _leipzig_vault(), [])
+    assert _labels(items) == ["Universität Leipzig / Diplom"], (
+        f"2008-2012 Diplom carried through the 2002 entry's alias: {_labels(items)}"
+    )
+    applied = apply_ops(_leipzig_vault(), [UpsertEducation(**_SECOND_DIPLOM)], "linkedin_import")
+    assert not any(m.basis == "alias" for m in applied.matched), "alias matched across other years"
+
+
+def test_adv_vault_1_control_same_years_or_unknown_still_carry_under_b():
+    """Control for ruling B (passes now, must keep passing after the fix): the
+    alias still carries when the stated years agree, and when both sides
+    state none."""
+    same = MasterProfileData(education=[EducationEntry(
+        institution="Universität Leipzig", degree="Diplom", start_date="2002-10", end_date="2007-09",
+    )])
+    assert compute_import_not_applied(same, _leipzig_vault(), []) == []
+    undated_vault = MasterProfileData(education=[EducationEntry(
+        id="e1", institution="Universität Leipzig", degree="German Diploma", degree_aliases=["Diplom"],
+    )])
+    undated = MasterProfileData(education=[EducationEntry(institution="Universität Leipzig", degree="Diplom")])
+    assert compute_import_not_applied(undated, undated_vault, []) == []
+
+
 # ── finding 2: an alias carry leaves no receipt on the import summary ─────────
 
 
