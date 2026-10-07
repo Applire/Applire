@@ -165,6 +165,14 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   (challenge → mechanism → outcome → benchmark) are its richest material.
   **Story selection and angling per job description is YOUR strategy job**;
   Applire supplies the stories, receipts, and the Oracle to check the result.
+  **Alternate names.** An entry may carry `aliases` (skills, languages),
+  `company_aliases` / `role_aliases` (jobs), `organization_aliases`
+  (volunteering) or `institution_aliases` / `degree_aliases` (education): other
+  names the candidate's own documents used for the same entry, recorded when an
+  import recognised it (`import_cv` reports those pairs in `matched`, jobs
+  included). Use the name that fits the document's language; never invent one.
+  When you send an entry back through `update_profile`, keep its alias lists —
+  an entry sent without them loses them.
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
   raw material for your positioning. If `analyze_jd(url=…)` is refused with
   `data.reason = "linkedin_guest_fetch_disabled"`, the operator has switched off

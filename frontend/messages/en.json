@@ -2213,5 +2213,21 @@
     "empty": "There were no AI calls in this period.",
     "unattributedNote": "\"Not attributed\": calls from before the upgrade to accounts, and calls without a person, such as the provider check.",
     "deletedPerson": "deleted person"
+  },
+  "importSummary": {
+    "recognisedTitle": "Already in your profile ({count})",
+    "recognisedIntro": "These entries from your file are already in your profile, just under another name. We saved the new name as an alternate name. If a match is wrong, tap “Not the same”.",
+    "showInProfile": "Show in profile",
+    "notSame": "Not the same",
+    "separatedDone": "Added as its own entry",
+    "sameLanguage": "same language",
+    "showAll": "Show all {count}",
+    "separateFailed": "That did not work. Please try again."
+  },
+  "profileAliases": {
+    "label": "Also known as",
+    "remove": "Remove “{alias}” as an alternate name",
+    "removeFailed": "Removing did not work. Please try again.",
+    "labelFor": "{name} — also known as"
   }
 }

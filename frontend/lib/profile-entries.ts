@@ -40,6 +40,9 @@ export interface WorkEntry {
   achievements?: string[];
   technologies?: string[];
   role_aliases?: string[];
+  /** ADR-046 am. 2026-10-07 (#716) — other names of this employer the vault
+   * recognised; absent while empty. Removable only (no free-text entry). */
+  company_aliases?: string[];
   industry_context?: string | null;
   team_size?: number | null;
   budget_managed?: string | null;
@@ -61,6 +64,9 @@ export interface EducationEntry {
   grade?: string | null;
   thesis_title?: string | null;
   relevant_coursework?: string[];
+  /** ADR-046 am. 2026-10-07 (#716) — absent while empty; removable only. */
+  institution_aliases?: string[];
+  degree_aliases?: string[];
   /** Legacy records may carry this instead of start_date/end_date. */
   year?: string;
   [key: string]: unknown;
@@ -89,6 +95,8 @@ export interface Skill {
   experience_refs?: string[];
   /** Read-only badge — never a form control (H2.1). */
   status?: EntryStatus;
+  /** ADR-046 am. 2026-10-07 (#709) — absent while empty; removable only. */
+  aliases?: string[];
   [key: string]: unknown;
 }
 
@@ -100,6 +108,8 @@ export interface Language {
   level?: string | null;
   /** Read-only badge — never a form control (H2.1). Languages are never "denied". */
   status?: "confirmed" | "unconfirmed";
+  /** ADR-046 am. 2026-10-07 (#709) — absent while empty; removable only. */
+  aliases?: string[];
   [key: string]: unknown;
 }
 
@@ -180,6 +190,8 @@ export interface VolunteerActivity {
   description?: string | null;
   /** e.g. "Education", "Environment". */
   cause?: string | null;
+  /** ADR-046 am. 2026-10-07 (#716) — absent while empty; removable only. */
+  organization_aliases?: string[];
   location?: string | null;
   start_date?: string | null;
   end_date?: string | null;

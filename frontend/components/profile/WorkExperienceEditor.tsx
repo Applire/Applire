@@ -39,6 +39,7 @@ import {
 } from "@/lib/profile-entries";
 import { trimStringList } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { AliasChips } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -320,6 +321,7 @@ export function WorkExperienceEditor({
                     {[e.company, nonEmptyText(e.location) ? e.location : null].filter(Boolean).join(" · ")}
                   </p>
                 )}
+                <AliasChips section="work_experience" entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} />
                 {bullets.length > 0 && (
                   <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-sm text-gray-700">
                     {bullets.map((b, bi) => (

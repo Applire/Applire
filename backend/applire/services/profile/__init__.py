@@ -713,6 +713,60 @@ async def patch_profile_section(
     return _to_response(result.record)
 
 
+class MatchNotSeparable(Exception):
+    """#717 — the pair names no receipt `SeparateMatch` may undo. ``code`` is
+    the door's reason: ``unknown`` · ``already_undone`` · ``name_table``."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+async def separate_match(
+    db: AsyncSession,
+    *,
+    entity_id: str,
+    incoming: str,
+    user_id: uuid.UUID | None = None,
+) -> MasterProfileResponse:
+    """#717 — "Nicht dasselbe" (ADR-063 amended 2026-10-07 cl. 4, ruling V-2 = A).
+
+    One `SeparateMatch` op through the committer: the alternate names that
+    binding recorded come off the entry, the incoming entry is added as its own
+    entry, both in ONE history record (source ``manual_edit``, a direct act of
+    the candidate — no grounding, no snapshot, like a section edit). The
+    receipt is checked BEFORE the write so the door answers 409 cleanly; the
+    applier re-checks with the same predicate inside the transaction.
+    """
+    from applire.services.profile.reconcile.apply import (
+        MatchNotSeparableError,
+        find_separable_receipt,
+    )
+    from applire.services.profile.reconcile.ops import SeparateMatch
+
+    record = await _get_latest(db, user_id)
+    if not record:
+        raise LookupError("No profile found")
+    try:
+        find_separable_receipt(
+            MasterProfileData.model_validate(record.profile_json), entity_id, incoming
+        )
+        result = await commit_ops(
+            db,
+            [SeparateMatch(entity_id=entity_id, incoming=incoming)],
+            CommitProvenance(source="manual_edit", intake="field_edit", actor="candidate"),
+            record=record,
+            grounding=None,
+            snapshot=None,
+            llm_provider=None,
+        )
+    except MatchNotSeparableError as exc:
+        raise MatchNotSeparable(exc.code) from exc
+    await db.commit()
+    await db.refresh(result.record)
+    return _to_response(result.record)
+
+
 async def get_enrichment_history(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[EnrichmentRecord]:
     record = await _get_latest(db, user_id)
     if not record:
@@ -1340,6 +1394,9 @@ async def upload_cv(
         merge_status=merge_outcome.merge_status,
         not_applied=merge_outcome.not_applied,
         not_applied_loss_count=merge_outcome.not_applied_loss_count,
+        # #717 (ADR-063 amended 2026-10-07) — the import summary's
+        # "Schon in deinem Profil" reads the same receipt the history shows.
+        matched=merge_outcome.matched,
     )
 
 
@@ -1583,6 +1640,7 @@ async def resolve_staged_extraction(
             merge_status=merge_outcome.merge_status,
             not_applied=merge_outcome.not_applied,
             not_applied_loss_count=merge_outcome.not_applied_loss_count,
+            matched=merge_outcome.matched,  # #717
         )
 
     raise ValueError(f"unknown resolve action: {action!r}")

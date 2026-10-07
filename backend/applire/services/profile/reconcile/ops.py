@@ -377,15 +377,21 @@ class MatchExisting(BaseModel):
     ``target`` is the existing entity's id (the profile view the model reads keeps
     ids on EXISTING entries — ADR-078 strips them from the INCOMING block only);
     ``incoming`` is the incoming entry's name exactly as the new information
-    writes it. Scope: the six flat sections, whose upsert ops carry no
-    ``target``; engagements keep rule 7's ``upsert_*(target=…)`` mechanism, and
-    a ``match_existing`` aimed at an engagement id records its receipt and
-    rescues nothing at the witness.
+    writes it. Scope since ADR-046 amended 2026-10-07 (#715): every id-bearing
+    section — for a job ``"Company / Role"``, for volunteering
+    ``"Organization / Role"``, for a project its name — and for engagements only
+    when the employer is merely named differently and the title is the same (a
+    different TITLE stays rule 7's ``upsert_*(target=…)``). The import witness
+    binds it target-first in every section (arm (c) sub-clause 3), with equal
+    start months for engagements when both state one.
 
     The applier (``_apply_match_existing``) resolves ``target`` through
     ``resolve_any``, records ONE :class:`applire.schemas.profile.MatchReceipt`
     on ``ApplyResult.matched`` and mutates nothing. Never a ``set_field``: it
-    fills nothing, overwrites nothing, creates no alias.
+    fills nothing and overwrites nothing. On the IMPORT path only, the import
+    bridge afterwards copies the bound incoming DOCUMENT entry's differing
+    names onto the target as alternate names
+    (``reconcile/alias_writer.record_bound_aliases``, ADR-046 am. 2026-10-07).
     """
 
     op: Literal["match_existing"] = "match_existing"
@@ -440,6 +446,30 @@ class RequestConfirmation(BaseModel):
             options_i18n=self.options_i18n,
             lang=lang,
         )
+
+
+class SeparateMatch(BaseModel):
+    """The candidate says a recognised match is wrong — ADAPTER-ONLY (#717).
+
+    ADR-063 amended 2026-10-07, clause 4; founder ruling V-2 = A ("Nicht
+    dasselbe" on the import summary). Names ONE `MatchReceipt` by the pair it
+    recorded (``entity_id`` + the ``incoming`` name, compared with ``_norm``);
+    the applier takes the NEWEST such receipt that is not undone and not a
+    language-name-table pair, removes every alternate name THAT binding
+    recorded (``aliases_added``, where still present), and appends the incoming
+    entry (the receipt's ``incoming_entry``, else a minimal one built from
+    ``incoming``) as its own entry with a fresh id — WITHOUT the identity
+    instruments, because the candidate has just ruled the two different.
+    Both steps are receipted on this batch's ``changes`` (one history record),
+    and the receipt is stamped ``undone_at``.
+
+    Never model-emittable: a hallucinated separation would split one real entry
+    into two on the strength of nothing.
+    """
+
+    op: Literal["separate_match"] = "separate_match"
+    entity_id: str
+    incoming: str
 
 
 class ReplaceSection(BaseModel):
@@ -1047,6 +1077,7 @@ _ADAPTER_ONLY = (
     SetProfileMeta,
     MarkProbeAsked,
     EscalateDenialLevel,
+    SeparateMatch,
 )
 
 ReconcileOp = Annotated[Union[_MODEL_EMITTABLE], Field(discriminator="op")]
