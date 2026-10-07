@@ -274,6 +274,14 @@ _INTERNAL_FIELDS: dict[str, frozenset[str] | None] = {
     "experience_refs": frozenset({"skills"}),  # provenance — reconcile/apply.py evidence resolution
     "source": frozenset({"skills"}),  # years_experience provenance — services/skill_enrichment.py
     "photo_url": frozenset({"personal_info"}),  # photo UPLOAD feature, not CV/text extraction — no door asks for it
+    # ADR-046 amended 2026-10-07 (#709/#716) — alternate names are recorded by the
+    # import bridge from a reconcile BINDING to an existing vault entry; an
+    # extraction never sees the vault, so no extraction door may ask for them.
+    "aliases": frozenset({"skills", "languages"}),
+    "company_aliases": frozenset({"work_experience"}),
+    "organization_aliases": frozenset({"volunteer_activities"}),
+    "institution_aliases": frozenset({"education"}),
+    "degree_aliases": frozenset({"education"}),
 }
 
 

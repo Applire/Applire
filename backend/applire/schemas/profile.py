@@ -31,6 +31,32 @@ from pydantic import (
 )
 
 
+# ─── Alternate names (ADR-046 amended 2026-10-07, #709 #716) ──────────────────
+#
+# The other names an entry is known by, recorded from a binding the reconciler
+# made on an import (the incoming document's own wording, never a translation
+# the code produced) or from a targeted engagement upsert, and removable by the
+# candidate. Every list is OMITTED from a dump while empty, so a profile without
+# aliases serialises byte-identically to one persisted before these fields
+# existed — the reconcile prompt, every writer prompt and the #688 model-matrix
+# goldens see no new key until an alias exists. `WorkEntry.role_aliases` predates
+# this and keeps its always-present form (the goldens carry it).
+
+
+def _coerce_alias_list(v: object) -> list:
+    if not isinstance(v, list):
+        return []
+    return [a for a in v if isinstance(a, str) and a.strip()]
+
+
+def _omit_empty_alias_lists(data: Any, fields: tuple[str, ...]) -> Any:
+    if isinstance(data, dict):
+        for name in fields:
+            if name in data and not data[name]:
+                del data[name]
+    return data
+
+
 # ─── Section sub-models ───────────────────────────────────────────────────────
 
 class ProfessionalSummary(BaseModel):
@@ -213,6 +239,19 @@ class WorkEntry(ExperienceBase):
     # Enables the CV tailoring engine to pick the most relevant title per application
     # (e.g. "Team Lead" for leadership roles, "2nd Level Support" for technical roles).
     role_aliases: list[str] = Field(default_factory=list)
+    # ADR-046 amended 2026-10-07 (#716) — other names of this employer the
+    # vault recognised ("Roche" for "Roche Diagnostics GmbH").
+    company_aliases: list[str] = Field(default_factory=list)
+
+    @field_validator("company_aliases", mode="before")
+    @classmethod
+    def _coerce_company_aliases(cls, v: object) -> list:
+        return _coerce_alias_list(v)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_company_aliases(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("company_aliases",))
+
     industry_context: str | None = None
     team_size: int | None = None
     budget_managed: str | None = None
@@ -260,6 +299,20 @@ class EducationEntry(BaseModel):
     grade: str | None = None
     thesis_title: str | None = None
     relevant_coursework: list[str] = Field(default_factory=list)
+    # ADR-046 amended 2026-10-07 (#716) — "Diplom" for "German Diploma".
+    institution_aliases: list[str] = Field(default_factory=list)
+    degree_aliases: list[str] = Field(default_factory=list)
+
+    @field_validator("institution_aliases", "degree_aliases", mode="before")
+    @classmethod
+    def _coerce_edu_aliases(cls, v: object) -> list:
+        return _coerce_alias_list(v)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_edu_aliases(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(
+            handler(self), ("institution_aliases", "degree_aliases")
+        )
 
 
 def _coerce_partial_date(v: Any) -> Any:
@@ -423,6 +476,18 @@ class Skill(BaseModel):
     # reconciler's ``denials`` array carries no entity kind, so minting the
     # value for Certification/Language would create a state nothing can reach.
     status: Literal["confirmed", "unconfirmed", "denied"] = "confirmed"
+    # ADR-046 amended 2026-10-07 (#709) — "Machine Learning" for
+    # "Maschinelles Lernen", as an import wrote it.
+    aliases: list[str] = Field(default_factory=list)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _coerce_aliases(cls, v: object) -> list:
+        return _coerce_alias_list(v)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_aliases(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("aliases",))
 
     @model_validator(mode="before")
     @classmethod
@@ -563,6 +628,17 @@ class Language(BaseModel):
     language: str
     level: str | None = None
     status: Literal["confirmed", "unconfirmed"] = "confirmed"  # ADR-061 clause 3
+    # ADR-046 amended 2026-10-07 (#709) — "English" for "Englisch".
+    aliases: list[str] = Field(default_factory=list)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _coerce_aliases(cls, v: object) -> list:
+        return _coerce_alias_list(v)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_aliases(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("aliases",))
 
 
 class Publication(BaseModel):
@@ -593,6 +669,17 @@ class VolunteerActivity(ExperienceBase):
     # refinement): JSONB stores ISO strings, so legacy `date` values load fine.
     description: str | None = None
     cause: str | None = None  # e.g. "Education", "Environment"
+    # ADR-046 amended 2026-10-07 (#716) — other names of this organisation.
+    organization_aliases: list[str] = Field(default_factory=list)
+
+    @field_validator("organization_aliases", mode="before")
+    @classmethod
+    def _coerce_organization_aliases(cls, v: object) -> list:
+        return _coerce_alias_list(v)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_organization_aliases(self, handler: Any) -> Any:
+        return _omit_empty_alias_lists(handler(self), ("organization_aliases",))
 
     def org_label(self) -> str:
         return self.organization
@@ -693,6 +780,20 @@ class MatchReceipt(BaseModel):
     entity_id: str
     incoming: str
     existing: str
+    # ADR-046 / ADR-063 amended 2026-10-07 (#709 #716 #717) — all optional, so a
+    # receipt persisted before them loads unchanged.
+    #: who recognised the pair: the model (`match_existing`), a recorded
+    #: alternate name (an applier identity hit), or the closed DE/EN
+    #: language-name table. A `name_table` pair is a fact and is not undoable.
+    basis: Literal["model", "alias", "name_table"] = "model"
+    #: alias field -> the name recorded on the entity by THIS binding (the
+    #: import bridge's alias writer); what `SeparateMatch` takes back.
+    aliases_added: dict[str, str] = Field(default_factory=dict)
+    #: the incoming entry as the import read it (ids stripped) — what
+    #: `SeparateMatch` adds back as its own entry. Import path only.
+    incoming_entry: dict[str, Any] | None = None
+    #: set when the candidate said "Nicht dasselbe" (`SeparateMatch`).
+    undone_at: datetime | None = None
 
 
 class ImportNotApplied(BaseModel):

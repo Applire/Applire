@@ -1,0 +1,87 @@
+{
+  "personal_info": {
+    "name": "Jana Albrecht",
+    "email": "jana.albrecht@example.com",
+    "location": "Leipzig"
+  },
+  "work_experience": [
+    {
+      "id": "w-bsd",
+      "company": "Hessischer Blutspendedienst gGmbH",
+      "role": "Professional System Engineer / IT Quality Officer",
+      "role_aliases": [
+        "Systementwickler"
+      ],
+      "start_date": "2012-08",
+      "end_date": "2019-12",
+      "responsibilities": [
+        "Operated the blood-bank information system and its GMP validation."
+      ]
+    },
+    {
+      "id": "w-nov",
+      "company": "Novartis Diagnostics GmbH",
+      "role": "System Analyst",
+      "start_date": "2011-06",
+      "end_date": "2012-07",
+      "responsibilities": [
+        "Analysed laboratory system requirements."
+      ]
+    },
+    {
+      "id": "w-lims",
+      "company": "Labvantage Solutions GmbH",
+      "role": "LIMS Consultant",
+      "start_date": "2020-01",
+      "is_current": true,
+      "responsibilities": [
+        "Implement LIMS solutions for pharma customers."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "id": "e-uni",
+      "institution": "Universität Leipzig",
+      "degree": "German Diploma",
+      "field": "Biology",
+      "start_date": "2004",
+      "end_date": "2010"
+    },
+    {
+      "id": "e-kol2",
+      "institution": "Kolping Hochschule",
+      "degree": "Fachinformatiker Anwendungsentwicklung",
+      "end_date": "2004"
+    }
+  ],
+  "skills": [
+    {
+      "id": "sb1",
+      "name": "Computer System Validation",
+      "category": "domain"
+    },
+    {
+      "id": "sb2",
+      "name": "LIMS",
+      "category": "technical"
+    },
+    {
+      "id": "sb3",
+      "name": "SQL",
+      "category": "technical"
+    }
+  ],
+  "languages": [
+    {
+      "id": "lb1",
+      "language": "German",
+      "level": "Native"
+    },
+    {
+      "id": "lb2",
+      "language": "English",
+      "level": "C1"
+    }
+  ]
+}

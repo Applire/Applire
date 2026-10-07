@@ -84,6 +84,8 @@ from applire.services.profile.reconcile.attribution import (
     plan_attribution_resolution,
 )
 from applire.services.profile.reconcile.witness import compute_no_write
+from applire.services.profile.reconcile import aliases as _aliases
+from applire.services.profile.language_names import canonical_language
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     AddRole,
@@ -649,15 +651,16 @@ def apply_ops(
                     and _norm(user_confirmed_skill.name) == _norm(op.name)
                     else None
                 ),
+                matched=matched,
             )
         elif isinstance(op, DemoteSkill):
             _apply_demote_skill(op, new_profile, demotions)
         elif isinstance(op, UpsertCertification):
             _apply_upsert_certification(op, new_profile, changes, pending)
         elif isinstance(op, UpsertLanguage):
-            _apply_upsert_language(op, new_profile, changes, pending)
+            _apply_upsert_language(op, new_profile, changes, pending, matched)
         elif isinstance(op, UpsertEducation):
-            _apply_upsert_education(op, new_profile, changes, pending)
+            _apply_upsert_education(op, new_profile, changes, pending, matched)
         elif isinstance(op, UpsertPublication):
             _apply_upsert_publication(op, new_profile, changes, pending)
         elif isinstance(op, UpsertStory):
@@ -2045,9 +2048,19 @@ def _apply_upsert_work(
             # losing the candidate's answer a second time.
             verdict = DupeVerdict()
         else:
-            verdict = classify_engagement_dupe(
-                org=op.company, role=op.role, start_date=op.start_date,
-                existing=profile.work_experience, org_getter=lambda w: w.company,
+            # ADR-046 amended 2026-10-07 (#716) — a RECORDED other name of one
+            # employer, plus the same stated start month, is that stint. Any
+            # weaker evidence runs the guard below unchanged (incl. its ask).
+            alias_match = _aliases.engagement_alias_entry(
+                profile.work_experience, "work_experience", "company",
+                op.company, op.start_date,
+            )
+            verdict = (
+                DupeVerdict(match=alias_match) if alias_match is not None
+                else classify_engagement_dupe(
+                    org=op.company, role=op.role, start_date=op.start_date,
+                    existing=profile.work_experience, org_getter=lambda w: w.company,
+                )
             )
         if verdict.match is not None:
             target = verdict.match
@@ -2146,6 +2159,18 @@ def _apply_upsert_work(
     ):
         target.role_aliases.append(op.role)
         changes.append(_merged("work_experience", "role_aliases", None, op.role))
+    # ADR-046 amended 2026-10-07 (#716) — the same rule for the EMPLOYER's name:
+    # the model bound this op to `target`, so the name it read is another name
+    # of that employer. Not when the two start months contradict (a binding to
+    # the wrong stint must not teach the vault a name), and never a mere case
+    # variant (handled just below as a spelling preference, not an alias).
+    if (
+        op.company
+        and op.target is not None  # the MODEL's binding, not the guard's adoption
+        and not _aliases.months_contradict(op.start_date, target.start_date)
+        and _aliases.add_alias(target, "company", "work_experience", op.company)
+    ):
+        changes.append(_merged("work_experience", "company_aliases", None, op.company.strip()))
     # #602/#620 — identity is already settled (this IS `target`); prefer a
     # mixed-case employer rendering over an ALL-CAPS one from a layout
     # source. Deliberately BEFORE _fill_empties, which never overwrites a
@@ -2313,9 +2338,16 @@ def _apply_upsert_volunteer(
             # losing the candidate's answer a second time.
             verdict = DupeVerdict()
         else:
-            verdict = classify_engagement_dupe(
-                org=op.organization, role=op.role, start_date=op.start_date,
-                existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+            alias_match = _aliases.engagement_alias_entry(
+                profile.volunteer_activities, "volunteer_activities", "organization",
+                op.organization, op.start_date,
+            )
+            verdict = (
+                DupeVerdict(match=alias_match) if alias_match is not None
+                else classify_engagement_dupe(
+                    org=op.organization, role=op.role, start_date=op.start_date,
+                    existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+                )
             )
         if verdict.match is not None:
             target = verdict.match
@@ -2346,6 +2378,17 @@ def _apply_upsert_volunteer(
         return
 
     ref_map[op.ref] = target
+    # ADR-046 amended 2026-10-07 (#716) — another name of this organisation,
+    # exactly as `_apply_upsert_work` records `company_aliases`.
+    if (
+        op.organization
+        and op.target is not None  # the MODEL's binding, not the guard's adoption
+        and not _aliases.months_contradict(op.start_date, target.start_date)
+        and _aliases.add_alias(target, "organization", "volunteer_activities", op.organization)
+    ):
+        changes.append(_merged(
+            "volunteer_activities", "organization_aliases", None, op.organization.strip(),
+        ))
     # VolunteerActivity has no role_aliases — a differing role can only fill an
     # empty role; it is never folded into an alias list (ADR-013 Rule 1 is
     # WorkEntry-specific).
@@ -2480,7 +2523,9 @@ def _new_skill_kwargs(op, evidence_ids: list[str]) -> dict[str, Any]:
     return kwargs
 
 
-def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirmed=None):
+def _apply_upsert_skill(
+    op, profile, resolve, changes, pending, *, user_confirmed=None, matched=None,
+):
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
     # 'Team Leadership' instead of littering the profile with morphological twins.
@@ -2525,6 +2570,16 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         # else: leave unresolved handles out (defensive)
 
     near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+    # ADR-046 amended 2026-10-07 (#709) — a RECORDED other name of exactly one
+    # skill is that skill (an exact name compare, never fuzzy). Only when the
+    # near-dupe instrument found nothing: an alias never overrides a question
+    # the instrument would raise about several atoms.
+    if not near and user_confirmed is None:
+        alias_skill = _aliases.unique_entry_by_names(profile.skills, "skills", {"name": op.name})
+        if alias_skill is not None:
+            near = [alias_skill]
+            if matched is not None:
+                matched.append(_match_receipt("skills", alias_skill, op.name, "alias"))
 
     # #187 — the user has RESOLVED a deferred dedupe confirmation for this skill.
     # Apply their choice directly and never re-emit the confirmation: the guards
@@ -2619,7 +2674,11 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         _promote_to_confirmed(existing, op.status)
         # Keep the more-specific/longer name ONLY when the incoming strictly
         # contains the existing tokens; otherwise the existing name stays.
-        if skill_tokens(op.name) > skill_tokens(existing.name):
+        # (Never on an alias hit: the incoming IS one of the entry's names.)
+        if (
+            skill_tokens(op.name) > skill_tokens(existing.name)
+            and not _aliases.alias_hit(existing, "name", "skills", op.name)
+        ):
             existing.name = op.name
         changes.append(_merged("skills", "name", None, existing.name))
         return
@@ -2723,13 +2782,40 @@ def _apply_upsert_certification(op, profile, changes, pending):
     changes.append(_added("certifications", "name", op.name))
 
 
-def _apply_upsert_language(op, profile, changes, pending):
+def _language_identity(language: str, entries: list) -> tuple[Any | None, str]:
+    """ADR-046 amended 2026-10-07 (#709) — the ONE existing language that is
+    ``language`` by a FACT: a recorded alias of it, or the whole-string DE/EN
+    name table (``services/profile/language_names``). Returns (entry, basis);
+    ``(None, "")`` when no single entry qualifies (two candidates -> none)."""
+    alias_entry = _aliases.unique_entry_by_names(entries, "languages", {"language": language})
+    if alias_entry is not None:
+        return alias_entry, "alias"
+    canon = canonical_language(language)
+    if canon is None:
+        return None, ""
+    hits = [
+        e for e in entries
+        if canonical_language(e.language) == canon
+        or any(canonical_language(a) == canon for a in (getattr(e, "aliases", None) or []))
+    ]
+    if len(hits) == 1:
+        return hits[0], "name_table"
+    return None, ""
+
+
+def _apply_upsert_language(op, profile, changes, pending, matched=None):
     # Languages are a closed domain — 'German' ⊂ 'German (Native)' IS the same
     # language, so containment auto-merges instead of asking (#177).
     verdict = classify_dupe(
         {"language": op.language}, profile.languages,
         {"language": lambda l: l.language}, containment_is_same=True,
     )
+    if verdict.match is None:
+        entry, basis = _language_identity(op.language, profile.languages)
+        if entry is not None:
+            verdict = DupeVerdict(match=entry)
+            if matched is not None and _norm(entry.language) != _norm(op.language):
+                matched.append(_match_receipt("languages", entry, op.language, basis))
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {"level": op.level})
         # ADR-061 clause 3: promote-only, same rule as certifications.
@@ -2742,7 +2828,7 @@ def _apply_upsert_language(op, profile, changes, pending):
     changes.append(_added("languages", "language", op.language))
 
 
-def _apply_upsert_education(op, profile, changes, pending):
+def _apply_upsert_education(op, profile, changes, pending, matched=None):
     # #618 (education half) — was plain classify_dupe on (institution, degree)
     # alone: no institution-alias fold, no date-range signal. A two-source
     # import naming the SAME qualification via a long-legal-form institution
@@ -2764,6 +2850,19 @@ def _apply_upsert_education(op, profile, changes, pending):
         start_date_getter=lambda e: e.start_date,
         end_date_getter=lambda e: e.end_date,
     )
+    if verdict.match is None:
+        # ADR-046 amended 2026-10-07 (#716) — both names are recorded names of
+        # exactly ONE entry (its own value or an alias, at least one an alias).
+        alias_entry = _aliases.unique_entry_by_names(
+            profile.education, "education",
+            {"institution": op.institution, "degree": op.degree},
+        )
+        if alias_entry is not None:
+            verdict = DupeVerdict(match=alias_entry)
+            if matched is not None:
+                matched.append(_match_receipt(
+                    "education", alias_entry, f"{op.institution} / {op.degree}", "alias",
+                ))
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {
             "field": op.field,
@@ -2873,6 +2972,21 @@ def _apply_upsert_story(op, profile, resolve, source, changes):
     ))
 
 
+def _match_receipt(section: str, entity: Any, incoming: str, basis: str = "model") -> MatchReceipt:
+    """One `MatchReceipt` naming the existing entry by its own natural-key label
+    ("English -> Englisch", "TU Munich / M.Sc. -> TU München / M.Sc.")."""
+    fields = _ENTRY_NATURAL_KEYS.get(section, ())
+    parts = [str(getattr(entity, f, "") or "").strip() for f in fields]
+    existing = " / ".join(p for p in parts if p) or str(getattr(entity, "id", ""))
+    return MatchReceipt(
+        section=section,
+        entity_id=str(getattr(entity, "id", "")),
+        incoming=incoming,
+        existing=existing,
+        basis=basis,
+    )
+
+
 def _apply_match_existing(op, resolve, matched):
     """#707 (ADR-046 amended 2026-09-16, clause 3) — record the model's binding
     of an incoming entry to an existing entity; write nothing.
@@ -2891,18 +3005,9 @@ def _apply_match_existing(op, resolve, matched):
             "binding for %r recorded nowhere (#707)", op.target, op.incoming,
         )
         return
-    section = _section_for(entity)
-    fields = _ENTRY_NATURAL_KEYS.get(section, ())
-    parts = [str(getattr(entity, f, "") or "").strip() for f in fields]
-    existing = " / ".join(p for p in parts if p) or str(op.target)
-    matched.append(
-        MatchReceipt(
-            section=section,
-            entity_id=str(op.target),
-            incoming=op.incoming,
-            existing=existing,
-        )
-    )
+    receipt = _match_receipt(_section_for(entity), entity, op.incoming)
+    receipt.entity_id = str(op.target)
+    matched.append(receipt)
 
 
 def _apply_set_field(op, resolve, changes):
