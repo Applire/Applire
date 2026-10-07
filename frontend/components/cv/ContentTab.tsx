@@ -19,7 +19,7 @@
 "use client";
 
 import { countInText, type LocateTarget } from "@/lib/locate-in-preview";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { SectionEditor, type SectionEditorHandle } from "./SectionEditor";
@@ -67,7 +67,11 @@ interface ContentTabProps {
   cvId: string;
   flowSummary: FlowStateSummary | null;
   onSectionSave: (updatedHtml: string) => void;
-  onUnsavedChange: (hasUnsaved: boolean) => void;
+  /**
+   * `sectionLabel` (#737) names the open section, already translated, so the
+   * page's unsaved-change dialog can say WHICH text would be lost.
+   */
+  onUnsavedChange: (hasUnsaved: boolean, sectionLabel?: string | null) => void;
   /**
    * E058/US300 (ADR-081 cl. 2). `"full"` is the pre-E058 form — the gap cards
    * AND the section list — and stays the default so existing callers and tests
@@ -142,7 +146,17 @@ export function sectionHoldingPlace(
   return first;
 }
 
-export function ContentTab({
+/**
+ * #737 — the page's unsaved-change dialog acts on the open section through
+ * this handle: *Speichern und wechseln* saves it (default scope, see
+ * `SectionEditorHandle.saveWithDefaultScope`), *Verwerfen* drops the draft.
+ */
+export interface ContentTabHandle {
+  saveOpenSection: () => Promise<boolean>;
+  discardOpenSection: () => void;
+}
+
+export const ContentTab = forwardRef<ContentTabHandle, ContentTabProps>(function ContentTab({
   cvId,
   flowSummary,
   onSectionSave,
@@ -152,8 +166,9 @@ export function ContentTab({
   onPendingGapConsumed,
   pendingFinding = null,
   onPendingFindingConsumed,
-}: ContentTabProps) {
+}: ContentTabProps, ref) {
   const t = useTranslations("cv");
+  const tEdit = useTranslations("editTab");
   const tUnsaved = useTranslations("unsavedChanges");
   const router = useRouter();
 
@@ -232,7 +247,8 @@ export function ContentTab({
     setActiveSectionId(null);
     setPreSelectedGapIds([]);
     setHasUnsaved(false);
-  }, [hasUnsaved]);
+    onUnsavedChange(false, null);
+  }, [hasUnsaved, onUnsavedChange]);
 
   // #117: an honest gap can only close via profile enrichment — route to the
   // profile hub instead of the CV editor (never invite a written claim).
@@ -294,6 +310,26 @@ export function ContentTab({
 
   const activeSection = sections.find((s) => s.section_id === activeSectionId) ?? null;
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      saveOpenSection: async () => {
+        if (!sectionEditorRef.current) return true;
+        return sectionEditorRef.current.saveWithDefaultScope();
+      },
+      discardOpenSection: () => {
+        // Remounting the editor (same key trick as the Kaile reset) would keep
+        // the draft; leaving edit mode drops it, which is what *Verwerfen* says.
+        setMode("browse");
+        setActiveSectionId(null);
+        setPreSelectedGapIds([]);
+        setHasUnsaved(false);
+        onUnsavedChange(false, null);
+      },
+    }),
+    [onUnsavedChange],
+  );
+
   if (mode === "edit" && activeSection) {
     return (
       <div className="flex flex-col gap-4 p-3">
@@ -331,10 +367,14 @@ export function ContentTab({
           }}
           onUnsavedChange={(unsaved) => {
             setHasUnsaved(unsaved);
-            onUnsavedChange(unsaved);
+            onUnsavedChange(unsaved, sectionLabel(activeSection));
           }}
           onAddressGap={handleAddressGap}
           onEnrichProfile={handleEnrichProfile}
+          showHeading={false}
+          // #737: on the document pages the clusters are review groups 2/3 —
+          // the editor does not repeat them.
+          showGapHints={variant === "full"}
         />
 
         <KaileChat
@@ -460,8 +500,13 @@ export function ContentTab({
       )}
 
       <h4 className="text-xs font-semibold text-neutral-dark uppercase tracking-wide">
-        {t("sectionsEdit")}
+        {variant === "sections" ? tEdit("sectionsTitle") : t("sectionsEdit")}
       </h4>
+      {variant === "sections" && (
+        <p className="text-xs text-on-surface-variant" data-testid="edit-sections-intro">
+          {tEdit("sectionsIntro")}
+        </p>
+      )}
       {sections.length === 0 && (
         <p className="text-xs text-gray-500">
           {t("noSections")}
@@ -476,7 +521,18 @@ export function ContentTab({
             className="text-left text-sm flex items-center justify-between border-l-2 border-transparent rounded-r-lg px-3 py-2 hover:border-gold hover:bg-surface-container transition-colors"
           >
             <span className="text-neutral-darker">{sectionLabel(section)}</span>
-            {section.gaps.length > 0 ? (
+            {variant === "sections" ? (
+              // #737: no gap count here — gaps live on *Prüfung* (groups 2/3).
+              // What this list says is whether the section carries YOUR edit.
+              section.has_override ? (
+                <span
+                  className="text-[11px] font-semibold bg-surface-container-high text-primary px-2 py-0.5 rounded-full"
+                  data-testid={`edit-section-edited-${section.section_id}`}
+                >
+                  {tEdit("editedTag")}
+                </span>
+              ) : null
+            ) : section.gaps.length > 0 ? (
               <span className="text-xs bg-gold-container text-gold-dim px-1.5 py-0.5 rounded-full">
                 {section.gaps.length}
               </span>
@@ -489,4 +545,4 @@ export function ContentTab({
       </div>
     </div>
   );
-}
+});

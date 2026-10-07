@@ -32,7 +32,11 @@ import { DocumentIdentityBar } from "@/components/document/DocumentIdentityBar";
 import { DocumentExportFooter } from "@/components/document/DocumentExportFooter";
 import { ReviewSurface, type EditFindingRequest } from "@/components/document/ReviewSurface";
 import { RefinementSidebar, type SidebarTab } from "@/components/document/RefinementSidebar";
-import { ContentTab, type GapHintItem, type SectionItem } from "@/components/cv/ContentTab";
+import { ContentTab, type ContentTabHandle, type GapHintItem, type SectionItem } from "@/components/cv/ContentTab";
+import { EditContextStrip, type EditContext, type SaveReceipt } from "@/components/document/EditContextStrip";
+import { UnsavedEditDialog } from "@/components/document/UnsavedEditDialog";
+import { NewVersionDialog } from "@/components/document/NewVersionDialog";
+import { letterOnlyFacts } from "@/components/review/CrossDocumentSection";
 import { DesignTab } from "@/components/cv/DesignTab";
 import { CVActionsTab } from "@/components/cv/CVActionsTab";
 import { ClipboardCheck, Palette, Zap } from "lucide-react";
@@ -195,6 +199,23 @@ export default function CVPage({
 
   const cvDocRef = useRef<CVDocumentHandle>(null);
 
+  // #737 (WP-E) — the Edit tab knows why the user is here and what a save did.
+  const [editContext, setEditContext] = useState<EditContext | null>(null);
+  const [saveReceipt, setSaveReceipt] = useState<SaveReceipt | null>(null);
+  // The label of the finding the editor was opened from, for the receipt.
+  const editFindingLabel = useRef<string | null>(null);
+  // #737 — an unsaved section draft, and the navigation it is holding back.
+  // RefinementSidebar renders only the active tab, so leaving *Bearbeiten*
+  // unmounts the editor and the draft is lost (Finetuner Branch B).
+  const [editDraft, setEditDraft] = useState<{ dirty: boolean; label: string | null }>({ dirty: false, label: null });
+  const [pendingNav, setPendingNav] = useState<{ kind: "tab"; id: string } | { kind: "href"; href: string } | null>(null);
+  const [pendingNavBusy, setPendingNavBusy] = useState(false);
+  const [pendingNavFailed, setPendingNavFailed] = useState(false);
+  const contentTabRef = useRef<ContentTabHandle>(null);
+  const contentTabMobileRef = useRef<ContentTabHandle>(null);
+  // #737 — the one confirmation in front of every new-version path.
+  const [newVersionAction, setNewVersionAction] = useState<(() => void) | null>(null);
+
   // ADR-090: a review action answered with the refreshed reports and state.
   const applyReviewRefresh = useCallback(
     (refresh: ReviewRefresh, opts: { documentChanged: boolean }) => {
@@ -205,6 +226,8 @@ export default function CVPage({
       if (opts.documentChanged) {
         cvDocRef.current?.refresh();
         setDocVersion((v) => v + 1);
+        // The editor remounts on the rewritten text — no draft survives it.
+        setEditDraft({ dirty: false, label: null });
         setFindingEditRequest(null);
       }
     },
@@ -217,6 +240,27 @@ export default function CVPage({
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("tab") === "edit") setActiveSidebarTab("edit");
   }, []);
+
+  // #737: arrived from the letter's cross-document card with its item key —
+  // keep the letter-only facts in view on the Edit tab. Read from the letter's
+  // OWN critic report (the same `cross_document` item the card showed), so no
+  // document text travels in the URL; a failed read just shows no strip.
+  const letterIdForContext = flowState?.cover_letter_summary?.cover_letter_id ?? null;
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get("xdoc");
+    if (!key || !letterIdForContext) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/cover-letter/${letterIdForContext}/critic-report`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { report: OutcomeCriticReport } | null) => {
+        const item = data?.report?.cross_document?.find((i) => i.key === key);
+        if (!cancelled && item) setEditContext({ kind: "letter", facts: letterOnlyFacts(item) });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [letterIdForContext]);
 
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("retailored");
@@ -607,11 +651,33 @@ export default function CVPage({
       const findingKey = editFindingKey.current;
       if (findingKey && cvId) {
         editFindingKey.current = null;
+        const label = editFindingLabel.current ?? findingKey;
         markEdited("cv", cvId, findingKey)
-          .then((r) => applyReviewRefresh(r, { documentChanged: false }))
-          .catch(() => setTimeout(() => setAtsRefresh((n) => n + 1), 2500));
+          .then((r) => {
+            applyReviewRefresh(r, { documentChanged: false });
+            // #737: what the re-audit says about the place he came from, read
+            // from the refreshed report through the SAME grouping the review
+            // tab renders — never a second rule (ADR-081 cl. 2 / cl. 4).
+            const g1 = buildReviewGroups({
+              atsReport: refreshedReport(r) ?? atsReport,
+              truthReport: r.truthfulness ?? truthReport,
+              criticReport,
+              gapClusters,
+            }).find((g) => g.id === 1)!.items;
+            setSaveReceipt({
+              kind: "finding",
+              label,
+              stillListed: g1.some((it) => it.findingKey === findingKey),
+              openCount: g1.length,
+            });
+          })
+          .catch(() => {
+            setSaveReceipt({ kind: "plain" });
+            setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
+          });
         return;
       }
+      setSaveReceipt({ kind: "plain" });
       // Re-fetch ATS report after a short delay so the backend re-audit (BackgroundTask ~1s) has landed
       setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
     };
@@ -622,8 +688,58 @@ export default function CVPage({
       return cvSections.find((s) => s.section_id === sectionId)?.label ?? sectionId;
     };
 
+    // #737 — leave *Bearbeiten* only past the unsaved-draft question.
+    const proceedNav = (nav: { kind: "tab"; id: string } | { kind: "href"; href: string }) => {
+      if (nav.kind === "href") {
+        router.push(nav.href);
+        return;
+      }
+      setActiveSidebarTab(nav.id);
+      if (nav.id !== "edit") {
+        // The strip belongs to one visit of the Edit tab.
+        setEditContext(null);
+        setSaveReceipt(null);
+      }
+    };
+    const guardedNav = (nav: { kind: "tab"; id: string } | { kind: "href"; href: string }) => {
+      const leavingEdit = activeSidebarTab === "edit" && !(nav.kind === "tab" && nav.id === "edit");
+      if (leavingEdit && editDraft.dirty) {
+        setPendingNavFailed(false);
+        setPendingNav(nav);
+        return;
+      }
+      proceedNav(nav);
+    };
+    const handleDraftChange = (dirty: boolean, label?: string | null) =>
+      setEditDraft((prev) =>
+        prev.dirty === dirty && prev.label === (label ?? null) ? prev : { dirty, label: label ?? null },
+      );
+    const editContextBack =
+      editContext?.kind === "letter"
+        ? () => guardedNav({ kind: "href", href: `/flow/${flowId}/cover-letter` })
+        : editContext
+          ? () => guardedNav({ kind: "tab", id: "review" })
+          : undefined;
+    const editContextStrip = (
+      <EditContextStrip
+        context={editContext}
+        receipt={saveReceipt}
+        onBack={editContextBack}
+        onDismiss={editContext ? () => setEditContext(null) : undefined}
+      />
+    );
+    // #737 — every path to a new CV version goes through one confirmation that
+    // names the edited sections (the language switch keeps its own notice).
+    const editedSectionLabels = cvSections
+      .filter((s) => s.has_override)
+      .map((s) => sectionLabel(s.section_id));
+    const requestNewVersion = (action: () => void) => setNewVersionAction(() => action);
+
     const handleEditFinding = (req: EditFindingRequest) => {
       editFindingKey.current = req.findingKey;
+      editFindingLabel.current = req.label;
+      setEditContext({ kind: "finding", label: req.label, form: req.targets?.[0]?.form ?? req.label });
+      setSaveReceipt(null);
       setActiveSidebarTab("edit");
       findingNonce.current += 1;
       setFindingEditRequest({ targets: req.targets, placeIndex: req.placeIndex, nonce: findingNonce.current });
@@ -673,6 +789,9 @@ export default function CVPage({
           // still owns the routing decision (an honest gap goes to /profile,
           // #117), so this page never second-guesses the gap's kind.
           setActiveSidebarTab("edit");
+          const gapLabel = gapClusters?.find((g) => g.id === gapId)?.label;
+          setEditContext(gapLabel ? { kind: "gap", label: gapLabel } : null);
+          setSaveReceipt(null);
           setEditorGapRequest((prev) => ({ gapId, nonce: (prev?.nonce ?? 0) + 1 }));
           setFineTuneNonce((n) => (n ?? 0) + 1);
         }}
@@ -714,12 +833,14 @@ export default function CVPage({
                 gap cards moved into groups 2 and 3 of the review surface, which
                 is what dissolves the "Inhalt" / "Prüfung" duplication (SF-DOOR.7's
                 sibling) without either subsystem losing ownership of its data. */}
+            {editContextStrip}
             <ContentTab
+              ref={contentTabRef}
               key={`content-${docVersion}`}
               cvId={cvId}
               flowSummary={flowSummary}
               onSectionSave={refreshPreviewAndAts}
-              onUnsavedChange={() => {}}
+              onUnsavedChange={handleDraftChange}
               variant="sections"
               pendingGap={editorGapRequest}
               onPendingGapConsumed={() => setEditorGapRequest(null)}
@@ -743,8 +864,8 @@ export default function CVPage({
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
             currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#003399"}
             onColorApplied={refreshPreviewAndAts}
-            onChangeTemplate={() => setPhase("template_select")}
-            onRegenerateSame={() => void handleGenerate(template)}
+            onChangeTemplate={() => requestNewVersion(() => setPhase("template_select"))}
+            onRegenerateSame={() => requestNewVersion(() => void handleGenerate(template))}
             />
           </div>
         ),
@@ -760,7 +881,7 @@ export default function CVPage({
             coverLetterId={flowState?.cover_letter_summary?.cover_letter_id ?? null}
             cvId={cvId}
             onGenerateCoverLetter={() => setShowCoverLetterModal(true)}
-            onRegenerateSame={() => void handleGenerate(template)}
+            onRegenerateSame={() => requestNewVersion(() => void handleGenerate(template))}
             onNext={() => setPhase("complete")}
             languageSwitch={
               flowState?.application_id ? (
@@ -833,7 +954,7 @@ export default function CVPage({
               onToggleCollapse={() => setPanelOpen((o) => !o)}
               initialTabId="review"
               activeTabId={activeSidebarTab}
-              onTabChange={setActiveSidebarTab}
+              onTabChange={(id) => guardedNav({ kind: "tab", id })}
               identityBar={
                 <DocumentIdentityBar
                   flowId={flowId}
@@ -864,17 +985,21 @@ export default function CVPage({
               atsReport={atsReport}
               atsPanel={renderReviewSurface("sheet")}
               fineTuneSurface={
+                <>
+                {editContextStrip}
                 <ContentTab
+                  ref={contentTabMobileRef}
                   key={`content-m-${docVersion}`}
                   cvId={cvId}
                   flowSummary={flowSummary}
                   onSectionSave={refreshPreviewAndAts}
-                  onUnsavedChange={() => {}}
+                  onUnsavedChange={handleDraftChange}
                   variant="sections"
                   pendingGap={editorGapRequest}
                   onPendingGapConsumed={() => setEditorGapRequest(null)}
                   pendingFinding={findingEditRequest}
-                    />
+                />
+                </>
               }
               onDownloadPdf={() => void requestDownload("pdf")}
               openFineTuneNonce={fineTuneNonce}
@@ -882,6 +1007,48 @@ export default function CVPage({
               openCount={atsReport || truthReport ? group1Count : null}
             />
           }
+        />
+        <UnsavedEditDialog
+          open={pendingNav !== null}
+          sectionLabel={editDraft.label}
+          busy={pendingNavBusy}
+          failed={pendingNavFailed}
+          onStay={() => setPendingNav(null)}
+          onDiscard={() => {
+            contentTabRef.current?.discardOpenSection();
+            contentTabMobileRef.current?.discardOpenSection();
+            setEditDraft({ dirty: false, label: null });
+            const nav = pendingNav;
+            setPendingNav(null);
+            if (nav) proceedNav(nav);
+          }}
+          onSave={() => {
+            const nav = pendingNav;
+            const handle = contentTabRef.current ?? contentTabMobileRef.current;
+            setPendingNavBusy(true);
+            setPendingNavFailed(false);
+            void (handle ? handle.saveOpenSection() : Promise.resolve(true))
+              .then((ok) => {
+                if (!ok) {
+                  setPendingNavFailed(true);
+                  return;
+                }
+                setEditDraft({ dirty: false, label: null });
+                setPendingNav(null);
+                if (nav) proceedNav(nav);
+              })
+              .finally(() => setPendingNavBusy(false));
+          }}
+        />
+        <NewVersionDialog
+          open={newVersionAction !== null}
+          editedSections={editedSectionLabels}
+          onCancel={() => setNewVersionAction(null)}
+          onConfirm={() => {
+            const action = newVersionAction;
+            setNewVersionAction(null);
+            action?.();
+          }}
         />
         {downloadNotice && (
           <div
