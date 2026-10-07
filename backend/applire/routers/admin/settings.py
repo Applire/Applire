@@ -35,12 +35,18 @@ def _http(exc: svc.SettingsError) -> HTTPException:
     return HTTPException(status_code=exc.status, detail=detail)
 
 
-async def _response_after_write(db: AsyncSession) -> InstanceSettingsResponse:
-    """Re-read and re-pin: the request was pinned to the PRE-write snapshot."""
-    await svc.after_commit()
-    from applire.services.ops import probes
+async def _response_after_write(db: AsyncSession, *, provider_relevant: bool) -> InstanceSettingsResponse:
+    """Re-read and re-pin: the request was pinned to the PRE-write snapshot.
 
-    probes.reset_provider_cache()
+    The provider-probe cache is dropped only when the write touched the provider,
+    or the active provider's model or key (adv-admin ADM-5): a LinkedIn toggle
+    must not make the next dashboard load wait for a provider ping. The probe's
+    fingerprint makes a stale entry unusable anyway; this is belt and braces."""
+    await svc.after_commit()
+    if provider_relevant:
+        from applire.services.ops import probes
+
+        probes.reset_provider_cache()
     token = _config.pin_overlay()
     try:
         return InstanceSettingsResponse(**await svc.build_response(db))
@@ -80,13 +86,14 @@ async def put_settings(
                 "message": "Body must be {\"changes\": {KEY: value}} with 1-20 keys.",
             },
         )
+    relevant = svc.provider_relevant(set(changes))
     try:
         await svc.apply_changes(db, actor_id=admin.id, changes=changes)
         await db.commit()
     except svc.SettingsError as exc:
         await db.rollback()
         raise _http(exc) from None
-    return await _response_after_write(db)
+    return await _response_after_write(db, provider_relevant=relevant)
 
 
 @router.delete("/{key}", response_model=InstanceSettingsResponse)
@@ -95,10 +102,11 @@ async def reset_setting(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin_session),
 ) -> InstanceSettingsResponse:
+    relevant = svc.provider_relevant({key})
     try:
         await svc.reset(db, actor_id=admin.id, key=key)
         await db.commit()
     except svc.SettingsError as exc:
         await db.rollback()
         raise _http(exc) from None
-    return await _response_after_write(db)
+    return await _response_after_write(db, provider_relevant=relevant)
