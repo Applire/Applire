@@ -168,7 +168,7 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
   // Refinement panel visible with Browse content
   // -------------------------------------------------------------------------
 
-  test("Edit tab loads with section list and per-section gap counts", async ({
+  test("Edit tab loads with the section list and no gap counts (#737)", async ({
     page,
   }) => {
     await page.goto(CV_PAGE_URL);
@@ -181,14 +181,15 @@ test.describe("CV Section Editor — Browse/Edit/Save", () => {
     // on "edit". The aggregate "N gap(s) found for <role>" summary that used
     // to render here only exists for variant="full" — it no longer renders on
     // this page at all (that finding moved into the review surface's groups) —
-    // so the closest surviving equivalent is the per-section gap-count badge
-    // that variant="sections" still renders next to each section row.
+    // so the closest surviving equivalent was the per-section gap-count badge.
+    // #737 (Strawberry build 2, WP-E) removed that badge too: the gaps are
+    // review groups 2/3 on *Prüfung*, and the Edit tab no longer repeats them.
     await page.getByTestId("sidebar-tab-edit").click();
 
     // Section list buttons (they're rendered as buttons)
     const introBtn = page.getByRole("button", { name: "Introduction" });
     await expect(introBtn).toBeVisible();
-    await expect(introBtn).toContainText("1");
+    await expect(introBtn).not.toContainText("1");
     await expect(page.getByRole("button", { name: "Skills" })).toBeVisible();
   });
 

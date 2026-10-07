@@ -57,7 +57,8 @@ test.describe('#702 / #703 — review signals on the letter', () => {
     await stubCv(page);
     await page.goto(`/flow/${FLOW_ID}/cover-letter`);
     await page.getByTestId('review-xdoc-card').getByTestId('review-xdoc-add-to-cv').click();
-    await expect(page).toHaveURL(new RegExp(`/flow/${FLOW_ID}/cv\\?tab=edit$`));
+    // #737: the item key rides along so the CV Edit tab keeps the letter-only facts in view.
+    await expect(page).toHaveURL(new RegExp(`/flow/${FLOW_ID}/cv\\?tab=edit&xdoc=critic%3A`));
     await expect(page.getByTestId('sidebar-tab-edit')).toHaveAttribute('aria-selected', 'true');
   });
 });
