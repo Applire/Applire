@@ -36,7 +36,6 @@ Applire Community now has **built-in accounts**: several people can share one in
 
 ### Fixed
 - The GDPR retention run aborted on PostgreSQL when a calendar purge hit a document that a flow still pointed to (the run skipped every later rule). Purges now release the pointer first.
-- **Truthfulness check: a true figure no longer vouches for the rest of its sentence (#701).** A claim whose figures all matched the profile was graded *grounded* even when it also claimed something the profile does not hold (a fabricated certificate next to a real headcount). The figure now grounds only what its own evidence carries; the rest of the claim is checked like any other sentence and reads *unverifiable* when nothing backs it. This never produces an accusation.
 - **A skill duration Applire computed is no longer stored or written as if you had said it (#747).** A duration derived from your role dates (e.g. "SAP CO: 8 years" for a role that started 7.6 years ago) could be re-labelled as stated by you during a second CV import, and a cover letter then wrote "seit acht Jahren". Computed durations now keep their label; the cover letter may mention them only hedged and rounded down ("über sieben Jahre", "knapp acht Jahre"), estimated durations not at all; and the truthfulness check flags a stated duration that exceeds the dated roles naming that skill, unless your own words state it.
 
 ### Upgrade notes
