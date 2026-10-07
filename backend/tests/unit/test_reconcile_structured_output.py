@@ -71,8 +71,32 @@ def test_the_empty_reason_enum_is_read_from_the_one_literal():
     from applire.services.profile.reconcile.ops import EmptyReason
 
     enum = reconcile_response_schema()["properties"]["empty_reason"]["enum"]
-    assert set(enum) == set(get_args(EmptyReason)) | {None}
+    assert set(enum) == set(get_args(EmptyReason))
     assert _EMPTY_REASONS == frozenset(get_args(EmptyReason))
+
+
+def test_empty_reason_is_a_plain_string_enum_without_null():
+    """#756: Anthropic's schema compiler refused `type: ["string","null"]` with
+    an enum of string values on every Claude host OpenRouter routes to
+    (`Enum value 'already_known' does not match declared type`, 75/75 calls,
+    2026-10-07). The key is optional and the prompt says "omit it", so `null`
+    is never needed: the declared type is one string type, every enum value is
+    a string, and the key stays out of `required`."""
+    schema = reconcile_response_schema()
+    prop = schema["properties"]["empty_reason"]
+    assert prop["type"] == "string"
+    assert all(isinstance(v, str) for v in prop["enum"])
+    assert "empty_reason" not in schema["required"]
+
+
+def test_an_absent_empty_reason_parses_like_null():
+    """The one consumer of the field reads an absent key and `null` the same,
+    so dropping `null` from the schema loses nothing."""
+    from applire.services.profile.reconcile.engine import _parse_empty_reason
+
+    assert _parse_empty_reason({}.get("empty_reason")) is None
+    assert _parse_empty_reason(None) is None
+    assert _parse_empty_reason("already_known") == "already_known"
 
 
 def test_an_untyped_field_gets_the_json_scalars_rather_than_an_empty_schema():
