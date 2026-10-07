@@ -313,7 +313,9 @@ export interface DashboardHealth {
   llm_provider: string;
   llm_model: string;
   checked_at: string | null;
-  components: { name: string; status: string }[];
+  /** `checked_at`: when a CACHED component was measured (the provider; the
+   *  dashboard never pings it inline, adv-admin ADM-5). */
+  components: { name: string; status: string; checked_at?: string | null }[];
 }
 
 export type FailedJobKind = "cv" | "cover_letter" | "import" | "gap";

@@ -224,7 +224,8 @@ async def test_switching_to_a_provider_without_key_is_409(env, monkeypatch):
     r = await _put(client, {"LLM_PROVIDER": "anthropic"})
     assert r.status_code == 409
     assert r.json()["detail"] == {"error_code": "provider_not_ready",
-                                  "message": "The provider has no API key.", "provider": "anthropic"}
+                                  "message": "The provider has no API key.", "provider": "anthropic",
+                                  "key": "ANTHROPIC_API_KEY"}
     # keyless providers need none
     assert (await _put(client, {"LLM_PROVIDER": "ollama"})).status_code == 200
 

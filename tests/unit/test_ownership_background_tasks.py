@@ -37,6 +37,8 @@ SELF_SCOPED: dict[tuple[str, str], str] = {
 #: create_task sites and the unscoped reason each one declares (cl. 7/8).
 DECLARED_CREATE_TASK: dict[tuple[str, str], str] = {
     ("services/ops/aggregate.py", "_refresh_loop"): "ops-aggregate",  # 1c sets it
+    # fix-admin ADM-5: the dashboard's single-flight provider check, set inside.
+    ("services/ops/probes.py", "_kicked_provider_probe"): "ops-aggregate",
 }
 
 

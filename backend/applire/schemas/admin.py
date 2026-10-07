@@ -384,6 +384,10 @@ class AdminNoticesResponse(BaseModel):
 class DashboardComponent(BaseModel):
     name: str
     status: str
+    #: When this component was last measured, if it is a cached measurement (the
+    #: provider: the dashboard never pings it inline, adv-admin ADM-5); ``None`` =
+    #: measured in this request, or never measured yet.
+    checked_at: datetime | None = None
 
 
 class DashboardHealth(BaseModel):

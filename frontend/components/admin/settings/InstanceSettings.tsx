@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { History, ShieldCheck } from "lucide-react";
+import { AlertTriangle, History, ShieldCheck } from "lucide-react";
 
 import { ActionButton, Dialog } from "@/components/account/Dialog";
 import { formatDate } from "@/components/account/format";
@@ -121,6 +121,9 @@ function RetentionCard({
   const ttl = dash?.retention.ttl_days;
   const since = dash?.retention.enabled_since ?? null;
   const by = dash?.retention.changed_by_email ?? null;
+  // adv-admin ADM-1: the WORKER's newest run skipped (its own environment, an
+  // unobserved flip) — say so even while the panel reads "on".
+  const skippedAt = dash?.retention.last_run_skipped ? dash.retention.last_run_at : null;
   const ttlItems: [string, number][] = ttl
     ? [
         ["ttlUploads", ttl.uploads],
@@ -161,6 +164,15 @@ function RetentionCard({
             </>
           ) : null}
           <p className="text-[12px] text-on-surface-variant">{t("ttlEnvNote")}</p>
+          {skippedAt && (
+            <p
+              data-testid="admin-settings-retention-last-run-skipped"
+              className="mt-1.5 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning-container px-3 py-2 text-[12.5px] text-on-surface"
+            >
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+              {t("retentionLastRunSkipped", { date: formatDate(skippedAt, locale) })}
+            </p>
+          )}
           {since && (
             <p data-testid="admin-settings-retention-proof" className="mt-1.5 flex items-center gap-2 text-[12.5px] text-success">
               <ShieldCheck className="h-4 w-4" aria-hidden />

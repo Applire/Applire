@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from applire.constants import (
@@ -252,6 +252,17 @@ class Settings(BaseSettings):
     # must stay False, or pydantic turns the marker into a plain str and every
     # install reads as "configured" (mail on with localhost links, MD-32 broken).
     applire_base_url: str = Field(default=SHIPPED_DEFAULT_BASE_URL, validate_default=False)
+
+    @field_validator("applire_base_url", mode="after")
+    @classmethod
+    def _blank_base_url_is_the_shipped_default(cls, value: str) -> str:
+        """adv-admin ADM-6: ``APPLIRE_BASE_URL=`` (present, blank) is UNSET — for
+        ``configured_base_url()`` and for every link builder alike. Mapping it to the
+        marker gives both readers one answer: the S-1 default origin for links,
+        "unset" for MD-32 / the origin check / OIDC."""
+        if isinstance(value, str) and not value.strip():
+            return SHIPPED_DEFAULT_BASE_URL
+        return value
     upload_dir: str = "./data/uploads"
     storage_backend: str = "local"
     ocr_backend: str = "mistral_vision"

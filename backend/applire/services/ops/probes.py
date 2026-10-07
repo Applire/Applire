@@ -366,8 +366,10 @@ def _parse_backup_stamp(raw: Any) -> datetime | None:
 
 # ── provider ──────────────────────────────────────────────────────────────────
 
-# (expires_at_monotonic, ProbeResult, provider fingerprint)
-_provider_cache: tuple[float, ProbeResult, str] | None = None
+# (expires_at_monotonic, ProbeResult, provider fingerprint, checked_at ISO-8601 UTC)
+_provider_cache: tuple[float, ProbeResult, str, str] | None = None
+# The one background check a request may start (single-flight, adv-admin ADM-5).
+_kick_task: "asyncio.Task | None" = None
 
 
 def _provider_fingerprint() -> str:
@@ -395,10 +397,12 @@ async def probe_provider(force: bool = False) -> ProbeResult:
     """Is the configured provider reachable, and is there credit left?
 
     **The only probe that spends money.** Cached for
-    ``OPS_PROVIDER_PROBE_INTERVAL_MINUTES`` and never triggered synchronously by a
-    request — the endpoint reads whatever the background refresher last left
-    here, so an unauthenticated caller can neither spend the operator's credit
-    nor use the endpoint as an amplifier (``SF-OPS.6``).
+    ``OPS_PROVIDER_PROBE_INTERVAL_MINUTES``, keyed on the provider fingerprint.
+    The background refresher calls it. ``GET /api/ops/health`` calls it through
+    ``collect()`` and probes inline when the cache is cold or stale (the
+    endpoint is admin- or probe-token-only). The admin dashboard NEVER waits on
+    it: it reads :func:`provider_result_without_probing`, which returns the last
+    known result and starts at most one background check (adv-admin ADM-5).
     """
     global _provider_cache
     now = time.monotonic()
@@ -460,8 +464,62 @@ async def probe_provider(force: bool = False) -> ProbeResult:
         now + ops_config.OPS_PROVIDER_PROBE_INTERVAL_MINUTES * 60,
         result,
         fingerprint,
+        datetime.now(timezone.utc).isoformat(),
     )
     return result
+
+
+def kick_provider_probe() -> bool:
+    """Start one background provider check unless one is running (single-flight).
+
+    Runs in an EMPTY context: no request pin (the latest settings apply) and no
+    owner (the ping is instance work, never attributed to the admin who looked).
+    Returns whether a check was started.
+    """
+    import asyncio
+    import contextvars
+
+    global _kick_task
+    if _kick_task is not None and not _kick_task.done():
+        return False
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    _kick_task = loop.create_task(_kicked_provider_probe(), context=contextvars.Context())
+    return True
+
+
+async def _kicked_provider_probe() -> ProbeResult:
+    """The background check: instance work, declared unscoped like the refresher
+    (ADR-092 cl. 8, the same reason as ``aggregate._refresh_loop``)."""
+    from applire.ownership import unscoped
+
+    with unscoped("ops-aggregate"):
+        return await probe_provider()
+
+
+async def provider_result_without_probing() -> ProbeResult:
+    """The last known provider result — never a provider call in this request.
+
+    ``detail.checked_at`` says when it was measured. A cold cache, an expired one
+    or one about a different provider/model/key starts one background check; a
+    result about a different provider is never shown as this provider's.
+    """
+    if not ops_config.provider_probe_enabled():
+        return await probe_provider()  # the "switched off" answer, no network
+    cache = _provider_cache
+    if cache is None or cache[2] != _provider_fingerprint():
+        kick_provider_probe()
+        return ProbeResult(
+            "provider", UNKNOWN, "not checked yet — a check is running in the background",
+            {"checked_at": None},
+        )
+    if cache[0] <= time.monotonic():
+        kick_provider_probe()
+    result = cache[1]
+    return ProbeResult(result.name, result.status, result.message,
+                       {**result.detail, "checked_at": cache[3]})
 
 
 def _configured_model(family: str) -> str:

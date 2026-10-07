@@ -44,12 +44,12 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-__all__ = ["UnsafeFetchRefused", "check_address", "resolve_checked", "safe_get"]
+__all__ = ["PolicyRefused", "UnsafeFetchRefused", "check_address", "resolve_checked", "safe_get"]
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
@@ -61,6 +61,16 @@ _TRANSPORT: httpx.AsyncBaseTransport | None = None
 class UnsafeFetchRefused(Exception):
     """The URL (or a redirect hop) is not fetchable: wrong scheme, no host, a
     refused address range, or too many redirects."""
+
+
+class PolicyRefused(UnsafeFetchRefused):
+    """A hop's URL is refused by the CALLER's policy (e.g. the operator switched
+    LinkedIn fetching off, #726) — checked per hop, before any connection."""
+
+    def __init__(self, url: str, code: str) -> None:
+        super().__init__(f"refused by policy ({code})")
+        self.url = url
+        self.code = code
 
 
 def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
@@ -153,8 +163,13 @@ async def safe_get(
     timeout: float | httpx.Timeout,
     headers: Mapping[str, str] | None,
     max_redirects: int = 5,
+    refuse: Callable[[str], str | None] | None = None,
 ) -> httpx.Response:
     """GET ``url`` and return the final response, every hop checked and pinned.
+
+    ``refuse(hop_url)`` returns a refusal code (or ``None``) and is asked for
+    EVERY hop before it is resolved or connected — the first URL and each
+    redirect target alike (adv-admin ADM-2: a redirect to LinkedIn).
 
     The returned response's ``.url`` is the final hop's NAME-based URL (not the
     pinned IP form), so callers resolve relative links as before.
@@ -167,6 +182,8 @@ async def safe_get(
         transport=_TRANSPORT,
     ) as client:
         for _hop in range(max_redirects + 1):
+            if refuse is not None and (code := refuse(current)):
+                raise PolicyRefused(current, code)
             address = await resolve_checked(current)
             request = _pinned_request(current, address, headers)
             response = await client.send(request)

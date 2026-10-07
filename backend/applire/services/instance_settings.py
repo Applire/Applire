@@ -64,8 +64,10 @@ Kind = Literal["enum", "string", "bool", "secret"]
 
 #: ADR-009's selectable providers — ``mock`` is never offered on the panel.
 PROVIDERS: tuple[str, ...] = ("mistral", "openrouter", "requesty", "anthropic", "openai", "ollama")
-#: A provider whose key is REQUIRED to be ready. ``openai`` may point at a keyless
-#: local server (``OPENAI_BASE_URL``), ``ollama`` has no key.
+#: A provider whose key is REQUIRED to be ready. ``ollama`` has no key. ``openai``
+#: needs one UNLESS ``OPENAI_BASE_URL`` points at a keyless local server — that
+#: half is decided at call time by :func:`key_required` (adv-admin ADM-3b: with no
+#: base URL the provider calls api.openai.com with the placeholder key "local").
 KEY_REQUIRED: dict[str, bool] = {
     "mistral": True,
     "openrouter": True,
@@ -228,7 +230,10 @@ async def _ensure_instance_secret(db: AsyncSession) -> None:
 
 
 async def load_rows(db: AsyncSession) -> list[InstanceSetting]:
-    return list((await db.execute(select(InstanceSetting))).scalars().all())
+    # populate_existing: an upsert (core INSERT … ON CONFLICT) bypasses the
+    # identity map, so a re-read in the same session must refresh loaded rows.
+    stmt = select(InstanceSetting).execution_options(populate_existing=True)
+    return list((await db.execute(stmt)).scalars().all())
 
 
 async def _build_snapshot(db: AsyncSession) -> tuple[dict[str, Any], frozenset[str]]:
@@ -355,8 +360,47 @@ def _has_effective_key(provider: str) -> bool:
     return bool((effective(key.lower()) or "").strip())
 
 
+def key_required(provider: str) -> bool:
+    """Whether ``provider`` needs an API key to work (ADM-3b: ``openai`` only
+    without ``OPENAI_BASE_URL``, which is env-only, never a panel key)."""
+    if provider == "openai":
+        return not (getattr(settings, "openai_base_url", "") or "").strip()
+    return KEY_REQUIRED.get(provider, True)
+
+
 def provider_ready(provider: str) -> bool:
-    return (not KEY_REQUIRED.get(provider, True)) or _has_effective_key(provider)
+    return (not key_required(provider)) or _has_effective_key(provider)
+
+
+def _unready_after(*, set_values: Mapping[str, Any], removed: frozenset[str] = frozenset()) -> tuple[str, str] | None:
+    """``(provider, missing_key)`` when the ACTIVE provider would have no usable
+    key after a write that sets ``set_values`` and removes the overrides in
+    ``removed`` (falling back to env); ``None`` when it would be ready.
+
+    The one readiness rule for PUT and DELETE (adv-admin ADM-3, ruling MD2-17).
+    """
+
+    def value(key: str) -> Any:
+        if key in set_values:
+            return set_values[key]
+        field = key.lower()
+        return settings.env_value(field) if key in removed else effective(field)
+
+    provider = str(value("LLM_PROVIDER") or "").strip().lower()
+    if provider not in PROVIDERS or not key_required(provider):
+        return None
+    missing = api_key_key(provider)
+    if missing is not None and str(value(missing) or "").strip():
+        return None
+    return provider, missing or f"{provider.upper()}_API_KEY"
+
+
+def _refuse_unready(unready: tuple[str, str] | None) -> None:
+    if unready is not None:
+        provider, missing = unready
+        raise SettingsError(
+            "provider_not_ready", 409, "The provider has no API key.", provider=provider, key=missing
+        )
 
 
 _QUALIFICATION_FILE = "model_qualification.json"
@@ -409,7 +453,7 @@ def providers_status() -> list[dict[str, Any]]:
             {
                 "id": p,
                 "model": model,
-                "key_required": KEY_REQUIRED[p],
+                "key_required": key_required(p),
                 "has_key": _has_effective_key(p),
                 "ready": provider_ready(p),
                 "active": p == active,
@@ -516,6 +560,15 @@ def _validate(key: str, value: Any) -> Any:
     if not isinstance(value, str):
         raise SettingsError("invalid_setting_value", 422, "Expected a string.", key=key)
     value = value.strip()
+    if meta.secret and any(not ("\x21" <= ch <= "\x7e") for ch in value):
+        # adv-admin ADM-4: an API key is printable ASCII without spaces. Anything
+        # else (a pasted control character) would reach an HTTP header, whose
+        # library error quotes the header value. The message never names the value.
+        raise SettingsError(
+            "invalid_setting_value", 422,
+            "An API key may contain printable ASCII characters only (no spaces or control characters).",
+            key=key,
+        )
     if not value or len(value) > MAX_STRING_LEN or any(ch in value for ch in "\r\n\x00"):
         raise SettingsError(
             "invalid_setting_value", 422, f"Expected 1-{MAX_STRING_LEN} characters on one line.", key=key
@@ -557,15 +610,11 @@ async def apply_changes(
         raise SettingsError("invalid_setting_value", 422, "No changes given.")
     clean = {key: _validate(key, value) for key, value in changes.items()}
 
-    # provider_not_ready: judged on the state AFTER this request's own changes.
-    target_provider = clean.get("LLM_PROVIDER")
-    if target_provider is not None and KEY_REQUIRED.get(target_provider, True):
-        key_key = api_key_key(target_provider)
-        incoming = bool(key_key and clean.get(key_key))
-        if not incoming and not _has_effective_key(target_provider):
-            raise SettingsError(
-                "provider_not_ready", 409, "The provider has no API key.", provider=target_provider
-            )
+    # provider_not_ready: judged on the state AFTER this request's own changes,
+    # and only when this request switches the provider (a LinkedIn toggle on an
+    # instance that is already unready is not refused).
+    if "LLM_PROVIDER" in clean:
+        _refuse_unready(_unready_after(set_values=clean))
 
     if any(META[k].secret for k in clean):
         await _ensure_instance_secret(db)
@@ -592,28 +641,64 @@ async def apply_changes(
         if not meta.secret:
             details["from_value"] = _recordable(effective(meta.field))
             details["to_value"] = _recordable(value)
-        if row is None:
-            row = InstanceSetting(key=key)
-            db.add(row)
-        if meta.secret:
-            row.secret_ciphertext = encrypt_secret(value)
-            row.value = None
-        else:
-            row.value = value
-            row.secret_ciphertext = None
-        row.updated_at = now
-        row.updated_by_user_id = actor_id
+        await _upsert(
+            db,
+            key=key,
+            value=None if meta.secret else value,
+            secret_ciphertext=encrypt_secret(value) if meta.secret else None,
+            updated_at=now,
+            updated_by_user_id=actor_id,
+        )
         await _audit(db, actor_id, "settings.changed", details)
     await db.flush()
     logger.info("instance settings changed: %s", ", ".join(sorted(clean)))
 
 
+async def _upsert(db: AsyncSession, **values: Any) -> None:
+    """``INSERT … ON CONFLICT (key) DO UPDATE`` — two concurrent first writes of
+    one key end as last-write-wins, both audited, never an IntegrityError
+    (adv-admin ADM-7). PostgreSQL and SQLite share the statement shape."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:  # pragma: no cover — Core supports Postgres (production) and SQLite (tests)
+        raise RuntimeError(f"instance_settings upsert: unsupported dialect {dialect}")
+    stmt = insert(InstanceSetting).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[InstanceSetting.key],
+        set_={k: stmt.excluded[k] for k in values if k != "key"},
+    )
+    await db.execute(stmt)
+
+
+def provider_relevant(keys: set[str] | frozenset[str]) -> bool:
+    """Whether a write of ``keys`` can change what the provider probe measures:
+    the provider itself, or the ACTIVE provider's model or key (adv-admin ADM-5)."""
+    active = (effective("llm_provider") or "").strip().lower()
+    relevant = {"LLM_PROVIDER", model_key(active)}
+    if (k := api_key_key(active)) is not None:
+        relevant.add(k)
+    return bool(relevant & set(keys))
+
+
 async def reset(db: AsyncSession, *, actor_id: uuid.UUID, key: str) -> None:
-    """Remove the override of ``key`` (back to env/default), audited. Caller commits."""
+    """Remove the override of ``key`` (back to env/default), audited. Caller commits.
+
+    Refused with 409 ``provider_not_ready`` (naming the missing key) when the
+    fallback would leave the active provider without a usable key — the state
+    the PUT already refuses (adv-admin ADM-3, ruling MD2-17).
+    """
     meta = META.get(key)
     if meta is None:
         raise SettingsError("unknown_setting", 404, "Unknown setting.", key=key)
     row = await db.get(InstanceSetting, key)
+    if row is not None and meta.group == "llm":
+        before = _unready_after(set_values={})
+        after = _unready_after(set_values={}, removed=frozenset({key}))
+        if after is not None and after != before:
+            _refuse_unready(after)
     env = _env_snapshot()
     details: dict[str, Any] = {"key": key, "write_only": meta.secret, "to_source": _env_source(key, env)}
     if row is not None:
