@@ -311,8 +311,12 @@ async def test_unrelated_400_still_propagates(monkeypatch):
     provider._client.chat.completions.create = AsyncMock(
         side_effect=_bad_request("google/gemini-3.5-flash is not a valid model ID")
     )
-    with pytest.raises(openai.BadRequestError):
+    # Error detail hardening: an unmapped 4xx leaves as LLMProviderError (status kept).
+    from applire.exceptions import LLMProviderError
+
+    with pytest.raises(LLMProviderError) as exc:
         await provider.acomplete("ask", disable_thinking=True)
+    assert exc.value.status_code == 400 and exc.value.sdk_type == "BadRequestError"
 
 
 @pytest.mark.asyncio
@@ -323,8 +327,11 @@ async def test_no_fallback_when_reasoning_was_not_disabled(monkeypatch):
     provider._client.chat.completions.create = AsyncMock(
         side_effect=_bad_request("Reasoning is mandatory and cannot be disabled.")
     )
-    with pytest.raises(openai.BadRequestError):
+    from applire.exceptions import LLMProviderError
+
+    with pytest.raises(LLMProviderError) as exc:
         await provider.acomplete("ask")  # thinking on by default → no reasoning block sent
+    assert exc.value.status_code == 400
 
 
 # ---------------------------------------------------------------------------

@@ -280,7 +280,9 @@ async def test_unrelated_400_does_not_latch_reasoning_rejection(monkeypatch):
     p._client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=context_length_400))
     )
-    with pytest.raises(openai.BadRequestError):
+    from applire.exceptions import LLMProviderError
+
+    with pytest.raises(LLMProviderError):  # error detail hardening: 4xx leaves typed
         await p.acomplete("q", disable_thinking=True, max_tokens=512)
     assert p._reasoning_rejected is False          # unrelated 400 must NOT latch
 

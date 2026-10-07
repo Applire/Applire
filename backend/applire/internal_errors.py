@@ -83,12 +83,14 @@ def agent_facing_message(exc: BaseException, *, where: str) -> str:
 
     Our own LLM error types carry messages we wrote (a timeout, a rate limit, a
     truncation, a provider failure by type and status) that tell the agent
-    whether to retry; those pass, scrubbed. Anything else becomes the static
-    message plus the error id, and the exception goes to the log.
+    whether to retry, and a reverted vault write says that nothing was stored;
+    those pass, scrubbed. Anything else becomes the static message plus the
+    error id, and the exception goes to the log.
     """
     from applire.exceptions import LLMError
+    from applire.services.profile.reconcile.apply import VaultWriteRevertedError
 
-    if isinstance(exc, LLMError):
+    if isinstance(exc, (LLMError, VaultWriteRevertedError)):
         log_unexpected(exc, where=where)
         return scrub_secrets(str(exc))
     error_id = log_unexpected(exc, where=where)
