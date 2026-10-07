@@ -999,6 +999,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
     parser.add_argument(
+        "--table",
+        nargs="+",
+        default=None,
+        metavar="SUMMARY",
+        help="print a markdown table from *.summary.json files and exit — no provider call",
+    )
+    parser.add_argument(
         "--system-prompt",
         default=None,
         metavar="FILE",
@@ -1058,6 +1065,58 @@ def do_dry_run(fixtures: Fixtures, shapes: list[str]) -> int:
             f"{len(system):>9}{len(user):>9}{total:>9}{total // 4:>9}"
         )
     return 0
+
+
+def _short(shape: str) -> str:
+    return shape.split("_", 1)[0]
+
+
+def markdown_table(paths: list[Path]) -> str:
+    """One row per summary file: the per-shape rates the verdict reads, and the price.
+
+    Rates are printed per shape in shape order (``0/0/10/…`` in percent), so a
+    reader sees WHICH shape a model fails on, not only that it fails — the
+    per-prompt review (#688 step 2) reads the shape, not the label.
+    """
+    metrics = (
+        ("zero_op_rate", "lost turn"),
+        ("malformed_op_rate", "malformed"),
+        ("wrong_slot_rate", "wrong-slot"),
+        ("error_rate", "no response"),
+    )
+    lines: list[str] = []
+    header_shapes: list[str] | None = None
+    for path in paths:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        meta = summary.get("meta") or {}
+        per_shape = summary.get("per_shape") or {}
+        shapes = list(per_shape)
+        if header_shapes is None:
+            header_shapes = shapes
+            lines.append(
+                "| Model | n | "
+                + " | ".join(f"{label} {'/'.join(_short(s) for s in shapes)}" for _, label in metrics)
+                + " | Tier 1 | calls | tokens in/out | ≈ cost |"
+            )
+            lines.append("|" + "---|" * (len(metrics) + 6))
+        cells = []
+        for key, _ in metrics:
+            cells.append(
+                "/".join(f"{round(100 * (per_shape[s].get(key) or 0.0))}" for s in shapes) + " %"
+            )
+        usage = summary.get("usage") or {}
+        logged = (meta.get("llm_log") or {}).get("calls")
+        cost = (summary.get("cost") or {}).get("usd_from_tokens")
+        lines.append(
+            f"| `{meta.get('model')}` | {meta.get('n')} | "
+            + " | ".join(cells)
+            + f" | **{(summary.get('verdict') or {}).get('label')}** | "
+            + f"{logged if logged is not None else usage.get('calls')} | "
+            + f"{usage.get('prompt_tokens'):,} / {usage.get('completion_tokens'):,} | "
+            + (f"${cost:.4f}" if cost is not None else "—")
+            + " |"
+        )
+    return "\n".join(lines)
 
 
 def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -1175,6 +1234,10 @@ def main(argv: list[str] | None = None) -> int:
     configure_env(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
     fixtures = Fixtures(Path(args.fixtures))
     shapes = resolve_shapes(fixtures, args.shapes)
+
+    if args.table:
+        print(markdown_table([Path(p) for p in args.table]))
+        return 0
 
     if args.dump_prompt:
         identity = dump_prompt(Path(args.dump_prompt))

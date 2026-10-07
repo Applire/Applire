@@ -157,3 +157,28 @@ def test_llm_log_calls_counts_stages_and_errors(tmp_path):
         "errors": 1,
         "by_stage": {"reconcile": 2, "stance_adjudication": 1},
     }
+
+
+def test_table_prints_one_row_per_summary_with_per_shape_rates(tmp_path, capsys, monkeypatch):
+    summary = {
+        "meta": {"model": "vendor/model-x", "n": 10, "llm_log": {"calls": 37}},
+        "per_shape": {
+            "S6_incident_shape_all_present": {"zero_op_rate": 0.0, "malformed_op_rate": 0.2,
+                                              "wrong_slot_rate": 0.0, "error_rate": 0.0},
+            "S9_bullet_conflict_nova": {"zero_op_rate": 0.1, "malformed_op_rate": 0.0,
+                                        "wrong_slot_rate": 0.0, "error_rate": 0.0},
+        },
+        "usage": {"calls": 30, "prompt_tokens": 1000, "completion_tokens": 200},
+        "verdict": {"label": "sub-par"},
+        "cost": {"usd_from_tokens": 0.0123},
+    }
+    path = tmp_path / "x.summary.json"
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    monkeypatch.setenv("LLM_PROVIDER", "")
+    assert mm.main(["--table", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "malformed S6/S9" in out
+    row = [line for line in out.splitlines() if "model-x" in line][0]
+    # per-shape, in shape order; the debug-log count wins over the usage-line count
+    assert "| 0/10 % | 20/0 % |" in row  # lost turn, then malformed
+    assert "| **sub-par** | 37 |" in row and "$0.0123" in row
