@@ -871,7 +871,11 @@ export default function CVPage({
             templateLabel={template === "classic_german" ? t("templateClassic") : t("templateModern")}
             detectedCompany={flowState?.gap_summary?.detected_company ?? null}
             currentAccentHex={flowState?.gap_summary?.current_accent_hex ?? "#003399"}
-            onColorApplied={refreshPreviewAndAts}
+            onColorApplied={() => {
+              // A colour change re-renders only (Branch E) — no save receipt.
+              cvDocRef.current?.refresh();
+              setTimeout(() => setAtsRefresh((n) => n + 1), 2500);
+            }}
             onChangeTemplate={() => requestNewVersion(() => setPhase("template_select"))}
             onRegenerateSame={() => requestNewVersion(() => void handleGenerate(template))}
             />
