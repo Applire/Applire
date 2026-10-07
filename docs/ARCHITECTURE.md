@@ -1195,6 +1195,8 @@ Asking what else bothered them produced the larger problem. A user standing on t
 
 **Mobile is unchanged in kind.** The bottom command bar and its sheets stay (ADR-050); the sheet hosts the same grouped surface and the same sentence, mounting the live component rather than a forked panel.
 
+**Amended 2026-10-07 (#737) — each tab answers one question.** *Prüfung* finds things and is the only place gaps are handled. *Bearbeiten* changes the open document by your own hand: its sections, the cover letter's text and the accent colour. *Aktionen* makes a new version: same template, other template, other language, and the fact pins that feed it. A pin only acts on the next version, so it sits next to the button that makes one, still outside the finding groups. When the review sends you to *Bearbeiten*, a note says why and how to get back. A save started from a finding says whether the review still flags it, and never claims "nothing open" when a check did not answer. Every path to a new version first names the edits that will not carry over.
+
 ### ADR-082 — Redundancy in a Delivered Document: Names vs. Prose, and Detect Rather Than Repair (accepted + built 2026-09-03)
 
 **Decision:** Applire checks whether a generated CV says the same thing twice, and it **reports** that rather than silently fixing it.
