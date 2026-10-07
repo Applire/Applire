@@ -197,6 +197,22 @@ async def test_adv_admin_3_reset_can_leave_the_active_provider_without_a_key(env
     )
 
 
+@pytest.mark.asyncio
+async def test_adv_admin_3b_openai_without_key_and_without_base_url_reads_ready(env, monkeypatch):
+    """``KEY_REQUIRED['openai'] = False`` because ``OPENAI_BASE_URL`` may point at a
+    keyless local server. With NO base URL the provider talks to api.openai.com
+    with the placeholder key ``"local"`` (``providers/llm/openai.py:64``), yet the
+    panel reports it ``ready`` and the 409 guard lets the switch through."""
+    _, client, _, _ = env
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "openai_base_url", "")
+    r = await _put(client, {"LLM_PROVIDER": "openai"})
+    openai_row = next((p for p in r.json().get("providers", []) if p["id"] == "openai"), None)
+    assert r.status_code == 409, (
+        f"switch accepted ({r.status_code}); openai ready={openai_row and openai_row['ready']}"
+    )
+
+
 # =====================================================================================
 # 4. A panel key with an ASCII control character: httpx echoes it verbatim
 # =====================================================================================
@@ -230,6 +246,67 @@ async def test_adv_admin_4_a_key_with_a_control_character_is_stored(env):
     r = await _put(client, {"OPENROUTER_API_KEY": CTRL_KEY})
     assert r.status_code == 422 and r.json()["detail"]["error_code"] == "invalid_setting_value", (
         f"a key with a control character was accepted ({r.status_code})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_adv_admin_4b_a_non_admin_receives_that_key_in_a_500_detail(env, monkeypatch):
+    """End to end, hermetic: the admin stores the Mistral key through the panel,
+    a NON-admin analyses a posting, the Mistral SDK re-raises httpx's error raw
+    (``basesdk.py``: ``raise e``), ``MistralProvider`` re-raises it (not 429/5xx)
+    and ``routers/job.py`` answers ``500 detail=str(exc)`` — the operator's whole
+    key, in plain text, to an ordinary account. The SDK is pointed at a socket on
+    127.0.0.1; no provider is contacted."""
+    import functools
+
+    from fastapi import FastAPI
+
+    from applire.auth import get_auth_provider
+    from applire.db.session import get_db
+    from applire.routers import job as job_router
+    from applire.services import instance_settings as svc
+    from tests.support.owners_1b import add_user, client_for
+    import applire.providers.llm.mistral as mistral_mod
+
+    db, admin_client, _, _ = env
+    r = await _put(admin_client, {"LLM_PROVIDER": "mistral", "MISTRAL_API_KEY": CTRL_KEY})
+    assert r.status_code == 200, r.text
+    await svc.refresh()
+
+    server = await asyncio.start_server(lambda _r, _w: None, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    monkeypatch.setattr(mistral_mod, "Mistral",
+                        functools.partial(mistral_mod.Mistral, server_url=f"http://127.0.0.1:{port}"))
+
+    user = await add_user(db, email="plain-user@example.org", role="user")
+
+    class _AsUser:
+        async def get_current_user(self, request, _db):
+            request.state.auth_via = "session"
+            return user
+
+    app = FastAPI()
+    app.include_router(job_router.router)
+
+    async def _db():
+        yield db
+
+    async def _prov():
+        return _AsUser()
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_auth_provider] = _prov
+    posting = ("Senior Backend Engineer (m/w/d) at Example GmbH, Berlin. You build Python "
+               "services with FastAPI and PostgreSQL. Requirements: 5 years Python, SQL, "
+               "Docker. Nice to have: Kubernetes. We offer 30 days of holiday. ") * 3
+    try:
+        async with client_for(app) as client:
+            res = await client.post("/api/job/analyze", json={"text": posting}, headers=ORIGIN)
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert "ADVSENTINEL" not in res.text, (
+        f"a non-admin got the operator's key back: {res.status_code} {res.text[:160]!r}"
     )
 
 
@@ -334,3 +411,45 @@ async def test_adv_admin_sound_2_no_secret_in_any_settings_refusal(env):
         assert s not in r.text
     db = env[0]
     assert (await db.execute(select(InstanceSetting))).scalars().first() is None
+
+
+@pytest.mark.asyncio
+async def test_adv_admin_sound_3_csrf_guards_the_settings_writes_on_the_real_app(async_client, async_db, monkeypatch):
+    """C1's endpoint tests run on a provider double without a cookie, so
+    ``needs_cookie_csrf_check`` never fired there. On the real app with a real
+    session cookie: no Origin, a foreign Origin and ``Origin: null`` are 403
+    ``origin_mismatch`` on PUT and DELETE, and nothing is written."""
+    from applire.auth import get_auth_provider
+    from applire.auth.local import LocalAuthProvider
+    from applire.auth.passwords import hash_password
+    from applire.auth.throttle import login_throttle
+    from applire.main import app as fastapi_app
+    from applire.models.user import User
+
+    fastapi_app.dependency_overrides[get_auth_provider] = lambda: LocalAuthProvider()
+    login_throttle.clear()
+    try:
+        async_db.add(User(id=uuid.uuid4(), email="csrf-admin@example.org", role="admin",
+                          password_hash=await hash_password("correct horse battery staple")))
+        await async_db.commit()
+        same = {"Origin": "http://test"}
+        login = await async_client.post(
+            "/api/auth/login",
+            json={"email": "csrf-admin@example.org", "password": "correct horse battery staple"},
+            headers=same,
+        )
+        assert login.status_code in (200, 204), login.text
+        body = {"changes": {"RETENTION_ENABLED": False}}
+        for headers in ({}, {"Origin": "http://evil.example"}, {"Origin": "null"},
+                        {"Referer": "http://evil.example/x"}):
+            put = await async_client.put("/api/admin/settings", json=body, headers=headers)
+            assert put.status_code == 403 and put.json()["detail"]["error_code"] == "origin_mismatch", (
+                headers, put.status_code)
+            dele = await async_client.delete("/api/admin/settings/RETENTION_ENABLED", headers=headers)
+            assert dele.status_code == 403, (headers, dele.status_code)
+        assert (await async_db.execute(select(InstanceSetting))).scalars().first() is None
+        ok = await async_client.put("/api/admin/settings", json=body, headers=same)
+        assert ok.status_code == 200, ok.text
+    finally:
+        fastapi_app.dependency_overrides.pop(get_auth_provider, None)
+        login_throttle.clear()
