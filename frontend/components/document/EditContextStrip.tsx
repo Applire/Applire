@@ -86,7 +86,8 @@ export function EditContextStrip({ context, receipt, onBack, onDismiss }: EditCo
               ))}
             </ul>
           )}
-          {onBack && (
+          {/* After a finding save the receipt carries the way back — once. */}
+          {onBack && !(receipt?.kind === "finding" && !letter) && (
             <button
               type="button"
               onClick={onBack}

@@ -185,3 +185,19 @@ describe("LetterLookLine", () => {
     expect(screen.queryByTestId("letter-look-cv-link")).toBeNull();
   });
 });
+
+describe("EditContextStrip — one way back", () => {
+  it("after a finding save the back link sits in the receipt only", () => {
+    render(
+      withIntl(
+        <EditContextStrip
+          context={{ kind: "finding", label: "X", form: "y" }}
+          receipt={{ kind: "finding", label: "X", stillListed: false, openCount: 0 }}
+          onBack={() => {}}
+        />,
+      ),
+    );
+    expect(screen.queryByTestId("edit-context-back")).toBeNull();
+    expect(screen.getByTestId("edit-receipt-back")).toBeTruthy();
+  });
+});
