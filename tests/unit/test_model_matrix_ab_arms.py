@@ -226,3 +226,33 @@ def test_s10_silence_never_decides_the_verdict(tmp_path, monkeypatch):
     path.write_text("\n".join(json.dumps(r) for r in lost) + "\n", encoding="utf-8")
     records, shapes = mm.score_file(fixtures, path)
     assert mm.summarise(records, shapes, mm._no_write_shapes(fixtures, shapes))["verdict"]["label"] == "sub-par"
+
+
+def test_max_calls_stops_starting_turns_and_rates_only_what_ran(tmp_path, monkeypatch):
+    """The mock makes >=1 call per turn; a ceiling of 2 must leave turns unstarted."""
+    summary = _run_mock(
+        tmp_path, monkeypatch, "--llm-log-dir", str(tmp_path / "llm"), "--max-calls", "2"
+    )
+    # _run_mock runs n=1 on S6 only; widen to n=5 for this test.
+    out = tmp_path / "capped.jsonl"
+    assert mm.main(["--provider", "mock", "--n", "5", "--shapes", "S6,S7", "--concurrency", "1",
+                    "--out", str(out), "--llm-log-dir", str(tmp_path / "llm2"),
+                    "--max-calls", "4"]) == 0
+    capped = json.loads(out.with_suffix(".summary.json").read_text(encoding="utf-8"))
+    ran = sum(v["n"] for v in capped["per_shape"].values())
+    assert capped["meta"]["skipped_for_budget"] == 10 - ran > 0
+    # bounded by the one turn in flight (a mock S6 turn makes 3 calls)
+    assert capped["meta"]["llm_log"]["calls"] <= 4 + 3
+    # index-major: the first turns cover both shapes, not S6 twice
+    assert set(capped["per_shape"]) == {"S6_incident_shape_all_present",
+                                        "S7_incident_shape_current_only"}
+    assert summary["meta"]["max_calls"] == 2
+
+
+def test_max_calls_needs_the_debug_log(tmp_path, monkeypatch):
+    import pytest
+
+    for key in ("LLM_PROVIDER", "LLM_DEBUG_LOG", "LLM_DEBUG_LOG_DIR"):
+        monkeypatch.setenv(key, "")
+    with pytest.raises(SystemExit):
+        mm.main(["--provider", "mock", "--n", "1", "--shapes", "S6", "--max-calls", "3"])

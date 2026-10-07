@@ -531,12 +531,15 @@ async def run_one(
     shape: str,
     index: int,
     semaphore: asyncio.Semaphore,
+    budget: "CallBudget | None" = None,
 ) -> dict[str, Any]:
     """One reconcile turn, measured. Never raises."""
     from applire.services.profile.reconcile.apply import apply_ops
     from applire.services.profile.reconcile.engine import reconcile
 
     async with semaphore:
+        if budget is not None and budget.exhausted():
+            return {"shape": shape, "run": index, "skipped": "call_budget"}
         usage: list[dict[str, Any]] = []
         rejected_detail: list[dict[str, Any]] = []
         _usage_sink.set(usage)
@@ -1021,6 +1024,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
     parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help=(
+            "stop starting turns once the debug log counts this many provider calls "
+            "(needs --llm-log-dir); skipped turns are recorded and left out of every rate"
+        ),
+    )
+    parser.add_argument(
         "--table",
         nargs="+",
         default=None,
@@ -1207,22 +1219,59 @@ def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], li
     return records, sorted(shapes)
 
 
+class CallBudget:
+    """A hard ceiling on the provider calls one run may make (``--max-calls``).
+
+    Read from the debug log the run is writing — one record per call, secondary
+    calls included — because the reconcile seam's call count per turn is not a
+    constant: the stance guard adjudicates every uncertain token the model
+    emits, and `llama-3.2-3b` made 250 calls for 90 turns (2026-10-07, WP-M)
+    where the plan had priced ~110. A turn starts only while the count is under
+    the ceiling, so the overshoot is bounded by the turns already in flight.
+    """
+
+    def __init__(self, log_dir: Path, max_calls: int) -> None:
+        self.log_dir = log_dir
+        self.max_calls = max_calls
+
+    def used(self) -> int:
+        return llm_log_calls(self.log_dir)["calls"]
+
+    def exhausted(self) -> bool:
+        return self.used() >= self.max_calls
+
+
 async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> dict[str, Any]:
     from applire.providers.llm import get_provider
 
     provider = get_provider()
     print(f"provider: {type(provider).__name__} model={args.model or '<env default>'}", flush=True)
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
+    budget = (
+        CallBudget(Path(args.llm_log_dir), args.max_calls)
+        if args.max_calls is not None
+        else None
+    )
+    # Index-major: a run cut short by --max-calls leaves every shape with about
+    # the same n, instead of the last shapes with none.
     tasks = [
-        run_one(provider, fixtures, shape, index, semaphore)
-        for shape in shapes
+        run_one(provider, fixtures, shape, index, semaphore, budget)
         for index in range(1, args.n + 1)
+        for shape in shapes
     ]
     handle = open(args.out, "w", encoding="utf-8") if args.out else None
     records: list[dict[str, Any]] = []
+    skipped = 0
     try:
-        for coro in asyncio.as_completed(tasks):
+        # Scheduled in list order so the semaphore admits turns index-major;
+        # `as_completed` on bare coroutines would start them in set order.
+        futures = [asyncio.ensure_future(task) for task in tasks]
+        for coro in asyncio.as_completed(futures):
             record = await coro
+            if record.get("skipped"):
+                # Never a measurement: not written, not rated, only counted.
+                skipped += 1
+                continue
             records.append(record)
             if handle:
                 handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
@@ -1241,7 +1290,9 @@ async def run_matrix(args: argparse.Namespace, fixtures: Fixtures, shapes: list[
     finally:
         if handle:
             handle.close()
-    return {"records": records}
+    if skipped:
+        print(f"call budget reached: {skipped} turn(s) not started", flush=True)
+    return {"records": records, "skipped_for_budget": skipped}
 
 
 def _tooling_context():
@@ -1313,6 +1364,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_arm(args: argparse.Namespace, fixtures: Fixtures, shapes: list[str]) -> int:
     force_settings(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
+    if args.max_calls is not None and not args.llm_log_dir:
+        raise SystemExit("--max-calls counts from the debug log; pass --llm-log-dir too")
     if args.llm_log_dir:
         log_dir = Path(args.llm_log_dir)
         if log_dir.exists() and any(log_dir.glob("*.jsonl")):
@@ -1363,6 +1416,8 @@ def _measure(
         "schema_rejection_note": _schema_rejections[0] if _schema_rejections else None,
         # Which prompt + schema this row describes (#688: before/after rows).
         "prompt": prompt_meta,
+        "max_calls": args.max_calls,
+        "skipped_for_budget": outcome.get("skipped_for_budget", 0),
     }
     if args.llm_log_dir:
         summary["meta"]["llm_log"] = llm_log_calls(Path(args.llm_log_dir))
