@@ -250,16 +250,11 @@ def assemble_tailored_cv(prose: dict, profile_json: dict, *, user_id: uuid.UUID 
 # wholesale copy transcribes it, so assembly dedups deterministically. Mapping a
 # language's German name to its English name is a finite lookup — a FACT under
 # ADR-062 clause 1, not a judgement. First-seen row wins (vault order).
-_LANGUAGE_NAME_CANON: dict[str, str] = {
-    "deutsch": "german", "englisch": "english", "französisch": "french",
-    "spanisch": "spanish", "italienisch": "italian", "polnisch": "polish",
-    "türkisch": "turkish", "russisch": "russian", "niederländisch": "dutch",
-    "portugiesisch": "portuguese", "arabisch": "arabic", "chinesisch": "chinese",
-    "japanisch": "japanese", "koreanisch": "korean", "hindi": "hindi",
-    "schwedisch": "swedish", "dänisch": "danish", "norwegisch": "norwegian",
-    "finnisch": "finnish", "tschechisch": "czech", "ungarisch": "hungarian",
-    "rumänisch": "romanian", "griechisch": "greek", "ukrainisch": "ukrainian",
-}
+# The table lives in one module since #709 (ADR-046 amended 2026-10-07, ADR-066):
+# the vault's language applier and the import witness read the same 24 names.
+from applire.services.profile.language_names import (  # noqa: E402
+    LANGUAGE_NAME_DE_EN as _LANGUAGE_NAME_CANON,
+)
 
 
 def _dedup_languages(languages: list[dict]) -> list[dict]:
