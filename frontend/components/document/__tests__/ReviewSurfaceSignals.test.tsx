@@ -92,3 +92,25 @@ describe("#702 cross-document section placement", () => {
     expect(within(section).getByTestId("review-xdoc-add-to-cv").getAttribute("href")).toBe("/flow/f/cv?tab=edit");
   });
 });
+
+describe("#702 RULING R-1 = A — the verdict never contradicts an open card", () => {
+  const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
+
+  it("rewords the all-clear while a cross-document item is undecided (DE)", () => {
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean() })} />, "de"));
+    const verdict = screen.getByTestId("review-verdict");
+    expect(verdict).toHaveTextContent("Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf");
+    expect(verdict).not.toHaveTextContent("nicht im Weg");
+  });
+
+  it("returns to the plain all-clear once the item is decided", () => {
+    const reviewState = {
+      walked_at: null,
+      decisions: [{ finding_key: "critic:x", label: "x", action: "kept" as const, at: "2026-10-07T12:00:00Z", undo: null }],
+    };
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), reviewState })} />, "de"));
+    const verdict = screen.getByTestId("review-verdict");
+    expect(verdict).not.toHaveTextContent("Neben Deinem Lebenslauf");
+    expect(verdict).toHaveTextContent("Jede Aussage im Dokument ist durch Dein Profil gedeckt.");
+  });
+});

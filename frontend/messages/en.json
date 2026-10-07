@@ -1982,6 +1982,7 @@
     "monitoring": "Monitoring"
   },
   "reviewSignals": {
+    "verdictClearCrossRead": "Every statement in the document is covered by your profile. {open, plural, one {Read next to your CV, though, one passage stands out — decide on it before you send.} other {Read next to your CV, though, # passages stand out — decide on them before you send.}}",
     "sectionTitle": "Cross-read: cover letter and CV",
     "sectionSub": "Someone who reads both documents side by side notices these first. {decided} of {total} decided.",
     "unknown": "Not checked: the coherence check did not run for this cover letter. That is not an all-clear — the letter and the CV were not cross-read.",

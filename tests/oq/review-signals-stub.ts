@@ -9,7 +9,11 @@ import { readFileSync } from 'node:fs';
 
 const data = JSON.parse(readFileSync(new URL('./review-signals-data.json', import.meta.url), 'utf-8'));
 
-export async function stub(page: Page, uiLanguage: 'de' | 'en' = 'de') {
+/** `clean` empties group 1 (no unsupported term), so the verdict is the all-clear the R-1 condition rewords. */
+export async function stub(page: Page, uiLanguage: 'de' | 'en' = 'de', opts: { clean?: boolean } = {}) {
+  const ats = opts.clean
+    ? { ...data.ats, keywords: { ...data.ats.keywords, present_unsupported: [], present_unsupported_matches: {} } }
+    : data.ats;
   const server = { kept: [] as string[], takenOut: [] as string[] };
   let state: Record<string, unknown> = {};
   await page.route('**/api/settings', (r) => json(r, { ...SETTINGS, ui_language: uiLanguage }));
@@ -37,7 +41,7 @@ export async function stub(page: Page, uiLanguage: 'de' | 'en' = 'de') {
     }),
   );
   await page.route(`**/api/cover-letter/${CL_ID}/ats-report`, (r) =>
-    json(r, { document_id: CL_ID, status: 'ready', report: data.ats, review_state: state }),
+    json(r, { document_id: CL_ID, status: 'ready', report: ats, review_state: state }),
   );
   await page.route(`**/api/cover-letter/${CL_ID}/truthfulness-report`, (r) => json(r, { report: TRUTH }));
   await page.route(`**/api/cover-letter/${CL_ID}/critic-report`, (r) => json(r, { report: data.critic }));
@@ -54,3 +58,18 @@ export async function stub(page: Page, uiLanguage: 'de' | 'en' = 'de') {
   return server;
 }
 
+/** The CV page behind *In den Lebenslauf übernehmen* — enough to render its tabs. */
+export async function stubCv(page: Page) {
+  await page.route(`**/api/cv/${CV_ID}/html`, (r) =>
+    r.fulfill({ status: 200, contentType: 'text/html', body: '<html><body><p>Marcus</p></body></html>' }),
+  );
+  await page.route(`**/api/cv/${CV_ID}/status`, (r) =>
+    json(r, { document_language: 'de', template: 'classic_german', signature_available: false }),
+  );
+  await page.route(`**/api/cv/${CV_ID}/ats-report`, (r) => json(r, { report: null, review_state: {} }));
+  await page.route(`**/api/cv/${CV_ID}/truthfulness-report`, (r) => json(r, { report: TRUTH }));
+  await page.route(`**/api/cv/${CV_ID}/critic-report`, (r) =>
+    json(r, { report: { ran: true, mount: 'cv', advisories: [], dropped_citations: 0 } }),
+  );
+  await page.route(`**/api/cv/${CV_ID}/sections`, (r) => json(r, { sections: [], general_gaps: [] }));
+}

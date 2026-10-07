@@ -1982,6 +1982,7 @@
     "monitoring": "Monitoring"
   },
   "reviewSignals": {
+    "verdictClearCrossRead": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {open, plural, one {Neben Deinem Lebenslauf gelesen fällt aber eine Stelle auf — entscheide sie, bevor Du sendest.} other {Neben Deinem Lebenslauf gelesen fallen aber # Stellen auf — entscheide sie, bevor Du sendest.}}",
     "sectionTitle": "Gegengelesen: Anschreiben und Lebenslauf",
     "sectionSub": "Wer beide Dokumente nebeneinander liest, sieht das hier zuerst. {decided} von {total} entschieden.",
     "unknown": "Nicht geprüft: Der Kohärenz-Hinweis lief für dieses Anschreiben nicht. Das ist keine Entwarnung — Anschreiben und Lebenslauf wurden nicht gegengelesen.",

@@ -40,6 +40,7 @@ import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
+  buildCrossDocument,
   buildGroup1Rows,
   buildReviewGroups,
   verdictState,
@@ -475,6 +476,14 @@ export function ReviewSurface({
   // ADR-081 cl. 4 (amended by ADR-090 cl. 6): the number is the OPEN group-1
   // rows actually rendered — the length of the very array the list renders.
   const verdict = verdictState(groups, openRows.length);
+  // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
+  // the all-clear headline must not say the rest "does not stand in the way of
+  // sending" — the card above "Weitere Hinweise" says otherwise.
+  const openCrossRead = useMemo(
+    () => buildCrossDocument(criticReport, reviewState).rows.filter((r) => r.status === "open").length,
+    [criticReport, reviewState],
+  );
+  const tSignals = useTranslations("reviewSignals");
   const group1Blind = group1.unknownProducers.length > 0;
   const present = atsReport?.keywords.present.length ?? 0;
   const total = present + (atsReport?.keywords.missing.length ?? 0);
@@ -883,8 +892,13 @@ export function ReviewSurface({
           }`}
         >
           {verdict.kind === "findings" && t("verdictFindings", { count: verdict.count })}
-          {verdict.kind === "clear" && t("verdictClear")}
-          {verdict.kind === "clear_with_others" && t("verdictClearWithOthers", { count: verdict.others })}
+          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && openCrossRead > 0
+            ? tSignals("verdictClearCrossRead", { open: openCrossRead })
+            : null}
+          {verdict.kind === "clear" && openCrossRead === 0 && t("verdictClear")}
+          {verdict.kind === "clear_with_others" &&
+            openCrossRead === 0 &&
+            t("verdictClearWithOthers", { count: verdict.others })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>
         {verdict.kind === "findings" && (

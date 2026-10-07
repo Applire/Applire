@@ -9,7 +9,7 @@
 // repeated-demand signals.
 import { test, expect } from '../support/auth-fixture';
 import { FLOW_ID } from './review-letter-stub';
-import { stub } from './review-signals-stub';
+import { stub, stubCv } from './review-signals-stub';
 
 test.describe('#702 / #703 — review signals on the letter', () => {
   test('one weighted cross-document card instead of three benign rows, with the three actions', async ({ page }) => {
@@ -37,5 +37,27 @@ test.describe('#702 / #703 — review signals on the letter', () => {
     if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
     const tag = page.getByTestId('review-group-2').getByTestId('review-item-signal-tag');
     await expect(tag).toHaveText('2× nachgefordert');
+  });
+
+  test('the verdict does not call the rest harmless while the card is open (R-1 condition)', async ({ page }) => {
+    const server = await stub(page, 'de', { clean: true });
+    await page.goto(`/flow/${FLOW_ID}/cover-letter`);
+    await expect(page.getByTestId('review-xdoc-card')).toBeVisible();
+    const verdict = page.getByTestId('review-verdict');
+    await expect(verdict).toContainText('Jede Aussage im Dokument ist durch Dein Profil gedeckt.');
+    await expect(verdict).toContainText('Neben Deinem Lebenslauf gelesen fallen aber 4 Stellen auf');
+    await expect(verdict).not.toContainText('nicht im Weg');
+    // decided → the plain all-clear returns (this run has other findings below)
+    await page.getByTestId('review-xdoc-card').getByTestId('review-xdoc-keep').click();
+    await expect.poll(() => server.kept.length).toBe(1);
+  });
+
+  test('add-to-CV lands on the CV with the Edit tab open (MD2-9)', async ({ page }) => {
+    await stub(page);
+    await stubCv(page);
+    await page.goto(`/flow/${FLOW_ID}/cover-letter`);
+    await page.getByTestId('review-xdoc-card').getByTestId('review-xdoc-add-to-cv').click();
+    await expect(page).toHaveURL(new RegExp(`/flow/${FLOW_ID}/cv\\?tab=edit$`));
+    await expect(page.getByTestId('sidebar-tab-edit')).toHaveAttribute('aria-selected', 'true');
   });
 });
