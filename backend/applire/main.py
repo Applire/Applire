@@ -53,6 +53,9 @@ from applire.routers import auth_links, me_account, me_tokens  # Strawberry W1 (
 from applire.routers import auth_oidc, me_oidc, me_reauth  # Strawberry W3 (1d, US323)
 from applire.routers.admin import probe_tokens as admin_probe_tokens  # 1c
 from applire.routers.admin import users as admin_users  # 1b
+from applire.routers.admin import instance as admin_instance  # Epic C (#694, ADR-093)
+from applire.routers.admin import settings as admin_settings  # Epic C (#710 #726 #738)
+from applire.services.instance_settings import InstanceSettingsPin  # ADR-093 cl. 5
 from applire.auth.deps import require_user
 from applire.auth.deps_links import DocumentResponseHeaders
 from applire.auth.logfilter import install_access_log_redaction
@@ -211,6 +214,16 @@ async def _prepare_accounts() -> None:
         _applire_logger.warning(setup_block(code))
 
 
+async def _prepare_instance_settings() -> None:
+    """ADR-093 cl. 6/8: load the admin overrides, audit env-sourced changes."""
+    from applire.services import instance_settings
+
+    async with AsyncSessionLocal() as db:
+        if await instance_settings.observe_boot(db):
+            await db.commit()
+    await instance_settings.refresh()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_startup_posture()
@@ -228,6 +241,7 @@ async def lifespan(app: FastAPI):
     await _enforce_harness_fences()
     await _publish_upgrade_notice()
     await _prepare_accounts()
+    await _prepare_instance_settings()
     # ADR-077 clause 1 — one-time entry-id backfill through the committer
     # module. Idempotent (skips fully-migrated profiles), so it rides every
     # startup right after the schema migration, like the migration itself.
@@ -284,6 +298,10 @@ app.add_middleware(
 # cl. 18: Referrer-Policy + Cache-Control on the six document GETs (pure ASGI).
 app.add_middleware(DocumentResponseHeaders)
 
+# ADR-093 cl. 5/6: refresh the admin overrides (<= every 2 s) and pin them per
+# request, so a generation's background work keeps the provider it started with.
+app.add_middleware(InstanceSettingsPin)
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(health.router)
@@ -311,6 +329,8 @@ app.include_router(me_account.router)
 app.include_router(me_tokens.router)
 app.include_router(admin_users.router)
 app.include_router(admin_probe_tokens.router)
+app.include_router(admin_settings.router)
+app.include_router(admin_instance.router)
 app.include_router(auth_oidc.router)  # 1d: 404 while OIDC_ISSUER is empty
 app.include_router(me_oidc.router)
 app.include_router(me_reauth.router)
