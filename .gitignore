@@ -4,6 +4,7 @@
 !.env.example
 !.env.*.example
 !.env.ci
+!.env.ci-auth
 
 # Python
 __pycache__/

@@ -1,6 +1,10 @@
 # Copyright (C) 2026 Tobias Rosenbaum
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Storage hardening — file access stays inside the upload directory.
+"""On the Strawberry branch, photo-delete and erasure confinement are pinned by
+tests/unit/test_file_path_confinement_seams.py and the adv-ownership tests; the two
+v0.42-shaped (owner-less) cases of the 0.42.1 backport were dropped here.
+
+Storage hardening — file access stays inside the upload directory.
 
 A stored path (``personal_info.photo_url``, ``user_settings.signature_path``,
 ``uploads.file_path``) is a value in a row. The local storage provider acts only
@@ -143,40 +147,6 @@ async def test_photo_and_signature_bytes_outside_the_upload_dir_are_not_on_file(
         await get_photo_bytes(user_id=USER_ID, db=db, storage=storage)
     with pytest.raises(LookupError):
         await get_signature_bytes(user_id=USER_ID, db=db, storage=storage)
-
-
-@pytest.mark.asyncio
-async def test_photo_delete_does_not_unlink_outside_the_upload_dir(db, dirs):
-    from applire.services.photo import delete_photo
-
-    upload, secret = dirs
-    await delete_photo(user_id=USER_ID, db=db, storage=LocalStorageProvider(str(upload)))
-    assert secret.exists()
-
-
-@pytest.mark.asyncio
-async def test_erasure_does_not_unlink_outside_the_upload_dir(db, dirs):
-    from unittest.mock import AsyncMock, MagicMock
-
-    from applire.auth import get_auth_provider
-    from applire.db.session import get_db
-    from applire.routers.profile import _get_storage, router
-
-    upload, secret = dirs
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[_get_storage] = lambda: LocalStorageProvider(str(upload))
-    auth = MagicMock()
-    auth.get_current_user = AsyncMock(return_value=MagicMock(id=USER_ID))
-    app.dependency_overrides[get_auth_provider] = lambda: auth
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        resp = await c.delete("/api/profile")
-    assert resp.status_code == 202
-    assert secret.exists()
-
-
-# ─── the vault applier: photo_url has one writer ─────────────────────────────
 
 
 @pytest.mark.parametrize("source", ["cv_upload", "testimony", "agent_interview"])

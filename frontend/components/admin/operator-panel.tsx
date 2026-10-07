@@ -208,18 +208,32 @@ export function OperatorPanel() {
   const t = useTranslations("ops");
   const [report, setReport] = useState<OpsHealthReport | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/api/ops/health`);
-        if (!res.ok) {
+        const res = await fetch(`${API_BASE}/api/ops/health`, { credentials: "same-origin" });
+        // Strawberry (S-16): the route is admin-or-probe. A non-admin (403) or a
+        // lost session (401 — the shell's fetch patch redirects) is not an
+        // "instance unavailable" fact: render nothing.
+        if (res.status === 401 || res.status === 403) {
+          if (!cancelled) setHidden(true);
+          return;
+        }
+        // 503 is the contract's "down" verdict and still carries the report —
+        // exactly the state the operator must see expanded, not "unavailable".
+        if (!res.ok && res.status !== 503) {
           if (!cancelled) setUnavailable(true);
           return;
         }
         const data = (await res.json()) as OpsHealthReport;
+        if (!data || typeof data.status !== "string" || !data.components) {
+          if (!cancelled) setUnavailable(true);
+          return;
+        }
         if (cancelled) return;
         setReport(data);
         setExpanded(data.status !== "ok");
@@ -232,6 +246,8 @@ export function OperatorPanel() {
       cancelled = true;
     };
   }, []);
+
+  if (hidden) return null;
 
   if (unavailable) {
     return (

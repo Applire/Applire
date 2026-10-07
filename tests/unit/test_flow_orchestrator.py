@@ -40,6 +40,7 @@ from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.models.flow import FlowSession
 from applire.models.session import InterviewSession
 
+from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile
 
 # ---------------------------------------------------------------------------
@@ -103,6 +104,9 @@ async def user_and_job(db):
     )
     db.add(user)
     db.add(job)
+    await db.flush()
+    # ADR-092: the user reaches the shared posting only through their link.
+    await link_posting(db, job, user.id)
     await db.commit()
     return user, job
 

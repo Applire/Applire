@@ -28,6 +28,7 @@ import pytest_asyncio
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.posting_links import link_posting
 from applire.models.application import (
     Application,
     STEP_TO_WORKFLOW_STATUS,
@@ -87,7 +88,24 @@ async def db():
 
 @pytest_asyncio.fixture
 async def user_and_job(db):
-    """Insert a stub user and job analysis; return (user, job)."""
+    """Insert a stub user and job analysis; return (user, job).
+
+    The user is linked to the posting (hidden link, as analyze would create it) —
+    ADR-092 cl.5: a posting is reachable only through the user's own link.
+    """
+    user, job = await _make_user_and_job(db)
+    await link_posting(db, job, _STUB_USER_ID)
+    await db.commit()
+    return user, job
+
+
+@pytest_asyncio.fixture
+async def user_and_unlinked_job(db):
+    """Stub user + a posting the user has NO link to (raw-row model tests)."""
+    return await _make_user_and_job(db)
+
+
+async def _make_user_and_job(db):
     from applire.models.user import User
     from applire.models.job import JobAnalysis
 
@@ -162,9 +180,9 @@ def test_patch_request_accepts_user_status():
 
 
 @pytest.mark.asyncio
-async def test_application_default_statuses(db, user_and_job):
+async def test_application_default_statuses(db, user_and_unlinked_job):
     """New application defaults to workflow_status=none, user_status=tracking."""
-    _, job = user_and_job
+    _, job = user_and_unlinked_job
     app = Application(user_id=_STUB_USER_ID, job_analysis_id=job.id)
     db.add(app)
     await db.commit()
@@ -176,9 +194,9 @@ async def test_application_default_statuses(db, user_and_job):
 
 
 @pytest.mark.asyncio
-async def test_application_unique_constraint(db, user_and_job):
+async def test_application_unique_constraint(db, user_and_unlinked_job):
     """Duplicate (user_id, job_analysis_id) raises IntegrityError."""
-    _, job = user_and_job
+    _, job = user_and_unlinked_job
     db.add(Application(user_id=_STUB_USER_ID, job_analysis_id=job.id))
     await db.commit()
     db.add(Application(user_id=_STUB_USER_ID, job_analysis_id=job.id))
@@ -237,6 +255,50 @@ async def test_create_application_job_not_found(db, user_and_job):
             CreateApplicationRequest(job_analysis_id=uuid.uuid4()),
             db,
         )
+
+
+@pytest.mark.asyncio
+async def test_create_application_without_link_is_not_found_even_if_job_exists(db, user_and_unlinked_job):
+    """ADR-092 cl.5 / RD-2: a posting is reachable only via the caller's own link.
+
+    The job exists and ANOTHER user is linked to it, but the caller has no link
+    -> LookupError (no existence oracle, no cross-user attach).
+    """
+    from applire.models.user import User
+
+    _, job = user_and_unlinked_job
+    other = User(
+        id=uuid.UUID("00000000-0000-0000-0000-0000000000aa"),
+        email="other@example.com",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add(other)
+    await db.flush()
+    await link_posting(db, job, other.id, hidden=False, commit=True)
+
+    with pytest.raises(LookupError, match="not found"):
+        await create_application(
+            _STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job.id), db
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_application_on_existing_link_applies_request_fields(db, user_and_job):
+    """RD-2: create onto the analyze-made link applies the supplied fields to it."""
+    _, job = user_and_job
+    resp = await create_application(
+        _STUB_USER_ID,
+        CreateApplicationRequest(
+            job_analysis_id=job.id,
+            role_title="Staff Engineer",
+            source_url="https://example.com/jobs/42",
+        ),
+        db,
+    )
+    assert resp.role_title == "Staff Engineer"
+    assert resp.source_url == "https://example.com/jobs/42"
+    # Reused the link (one row), reactivated.
+    assert (await list_applications(_STUB_USER_ID, db)).total == 1
 
 
 @pytest.mark.asyncio
@@ -341,6 +403,7 @@ async def test_list_applications_returns_all(db, user_and_job):
         language_requirement="EN",
     )
     db.add(job2)
+    await link_posting(db, job2, _STUB_USER_ID)  # ADR-092 cl.5
     await db.commit()
 
     await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job1.id), db)
@@ -378,6 +441,7 @@ async def test_list_applications_filter_by_user_status(db, user_and_job):
         language_requirement="EN",
     )
     db.add(job2)
+    await link_posting(db, job2, _STUB_USER_ID)  # ADR-092 cl.5
     await db.commit()
 
     r1 = await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job1.id), db)
@@ -408,6 +472,7 @@ async def test_list_applications_filter_by_workflow_status(db, user_and_job):
         language_requirement="EN",
     )
     db.add(job2)
+    await link_posting(db, job2, _STUB_USER_ID)  # ADR-092 cl.5
     await db.commit()
 
     await create_application(_STUB_USER_ID, CreateApplicationRequest(job_analysis_id=job1.id), db)

@@ -18,7 +18,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "../../support/auth-fixture";
+import { type Page } from "@playwright/test";
 
 /**
  * US230 — responsive sweep of the remaining pages (profile hub, My Documents,

@@ -340,7 +340,7 @@ def _mock_provider():
 
 def _ui_language(db, lang):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
     db.add(UserSettings(user_id=_CE_STUB_USER_ID, ui_language=lang))
 
 

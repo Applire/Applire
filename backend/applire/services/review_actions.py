@@ -91,17 +91,23 @@ class ActionOutcome:
 # ── per-kind plumbing ────────────────────────────────────────────────────────
 
 
-async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession):
+async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None):
+    """The caller's live document — a foreign id reads like a missing one
+    (ADR-092 cl. 6, S-10; both kinds, both through an owner-keyed read)."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.load_document")
     if kind == "cv":
         from applire.services.cv import _load_cv
 
-        return await _load_cv(doc_id, db)
+        return await _load_cv(doc_id, db, user_id=owner)
     from applire.models.cover_letter import GeneratedCoverLetter
 
     cl = (
         await db.execute(
             select(GeneratedCoverLetter).where(
                 GeneratedCoverLetter.id == doc_id,
+                GeneratedCoverLetter.user_id == owner,
                 GeneratedCoverLetter.deleted_at.is_(None),
             )
         )
@@ -111,7 +117,7 @@ async def load_document(kind: Kind, doc_id: uuid.UUID, db: AsyncSession):
     return cl
 
 
-async def reaudit(kind: Kind, record, db: AsyncSession) -> None:
+async def reaudit(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:
     """The document re-audit, AWAITED (ADR-090 cl. 3/4) — the exact function the
     section editor's background task runs. It commits."""
     if kind == "cv":
@@ -125,7 +131,7 @@ async def reaudit(kind: Kind, record, db: AsyncSession) -> None:
     await db.refresh(record)
 
 
-def findings_of(record) -> list[rs.GroupOneFinding]:
+def findings_of(record, *, user_id: uuid.UUID | None = None) -> list[rs.GroupOneFinding]:
     ats = record.ats_report if isinstance(record.ats_report, dict) else None
     truth = record.truthfulness_report if isinstance(record.truthfulness_report, dict) else None
     return rs.group_one_findings(ats, truth)
@@ -142,21 +148,21 @@ async def _document_language(kind: Kind, record, db: AsyncSession) -> str:
         return record.document_language
     from applire.models.job import JobAnalysis
     from applire.services.application import get_application_for_job
-    from applire.services.color_detection import _CE_STUB_USER_ID
     from applire.utils.language_detection import resolve_document_language
 
     job = await db.get(JobAnalysis, record.job_analysis_id)
-    application = await get_application_for_job(record.job_analysis_id, _CE_STUB_USER_ID, db)
+    # ADR-092: the document's owner's link (the record was loaded owner-keyed).
+    application = await get_application_for_job(record.job_analysis_id, record.user_id, db)
     return resolve_document_language(application, job) if job else "de"
 
 
-async def patchable_sections(kind: Kind, record, db: AsyncSession) -> list[tuple[str, str]]:
+async def patchable_sections(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[tuple[str, str]]:
     """(section_id, current text) for every section the user's editor can write —
     CV: what ``PATCH /api/cv/{id}/sections/{section_id}`` takes; letter: ``body``."""
     if kind == "cv":
         from applire.services.cv_section_editor import get_cv_sections
 
-        resp = await get_cv_sections(record.id, db)
+        resp = await get_cv_sections(record.id, db, user_id=record.user_id)
         return [(s.section_id, s.content or "") for s in resp.sections]
     from applire.services.cover_letter import _apply_section_overrides
 
@@ -165,17 +171,21 @@ async def patchable_sections(kind: Kind, record, db: AsyncSession) -> list[tuple
     return [("body", "\n\n".join(p for p in paragraphs if isinstance(p, str)))]
 
 
-async def write_section(kind: Kind, record, section_id: str, content: str, db: AsyncSession) -> None:
+async def write_section(kind: Kind, record, section_id: str, content: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:
     """The section-editor write, WITHOUT its background re-audit (the caller
     awaits one)."""
     if kind == "cv":
         from applire.services.cv_section_editor import patch_cv_section
 
-        await patch_cv_section(record.id, section_id, content, False, db, None)
+        await patch_cv_section(
+            record.id, section_id, content, False, db, None, user_id=record.user_id
+        )
     else:
         from applire.services.cover_letter import patch_cover_letter_section
 
-        await patch_cover_letter_section(record.id, section_id, content, db, None)
+        await patch_cover_letter_section(
+            record.id, section_id, content, db, None, user_id=record.user_id
+        )
     await db.refresh(record)
 
 
@@ -204,7 +214,7 @@ def _section_holds_figures(text: str, figures: list[str]) -> bool:
     return any(figure_present(f, text or "") for f in figures)
 
 
-async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
+async def protected_names(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[str]:
     """The names a take-out may never rewrite, normalised (``ats_audit._norm``):
     the posting's title and employer (``non_claim_names_for_job``, the same names
     the audit masks), the letter's ``recipient.company``, and every employer, job
@@ -215,7 +225,13 @@ async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
     from applire.services.ats_audit import NonClaimNames, _norm, non_claim_names_for_job
 
     job = await db.get(JobAnalysis, record.job_analysis_id) if record.job_analysis_id else None
-    names = non_claim_names_for_job(job) or NonClaimNames()
+    application = None
+    if job is not None:
+        from applire.services.application import get_application_for_job
+
+        # ADR-092 cl. 5(f): the owner's own labels for the posting are names too.
+        application = await get_application_for_job(job.id, record.user_id, db)
+    names = non_claim_names_for_job(job, application) or NonClaimNames()
     if kind == "cover_letter":
         recipient = ((record.letter_data or {}).get("recipient")) or {}
         names = names.plus_employers(recipient.get("company"))
@@ -237,7 +253,7 @@ async def protected_names(kind: Kind, record, db: AsyncSession) -> list[str]:
     return out
 
 
-def protected_name_hit(section_text: str, wording: list[str], names: list[str]) -> str | None:
+def protected_name_hit(section_text: str, wording: list[str], names: list[str], *, user_id: uuid.UUID | None = None) -> str | None:
     """The first protected name that stands in ``section_text`` AND contains one
     of ``wording``'s forms (the audit's own ``surface_present``), else ``None``."""
     from applire.services.ats_audit import _norm, surface_present
@@ -266,13 +282,16 @@ def _listed_or_raise(record, key: str) -> rs.GroupOneFinding:
 # ── the actions ──────────────────────────────────────────────────────────────
 
 
-async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: AsyncSession, provider) -> ActionOutcome:
+async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.add_evidence")
     async with rs.document_lock(kind, doc_id):
-        record = await load_document(kind, doc_id, db)
+        record = await load_document(kind, doc_id, db, user_id=owner)
         finding = _listed_or_raise(record, key)
-        testimony = await submit_testimony(text, db, provider)
+        testimony = await submit_testimony(text, db, provider, user_id=owner)
         await reaudit(kind, record, db)
         vault_changed = testimony.status in ("applied", "partial")
         if vault_changed:
@@ -288,7 +307,7 @@ async def add_evidence(kind: Kind, doc_id: uuid.UUID, key: str, text: str, db: A
     return ActionOutcome(record=record, testimony=testimony, still_listed=still)
 
 
-async def sibling_document_id(kind: Kind, record, db: AsyncSession) -> tuple[Kind, uuid.UUID] | None:
+async def sibling_document_id(kind: Kind, record, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> tuple[Kind, uuid.UUID] | None:
     """The other document of the same application: the job's flow session
     (one per user+job) records the CURRENT CV and cover letter. Only when the
     pressed document IS that flow's current one — an older regeneration has no
@@ -299,6 +318,8 @@ async def sibling_document_id(kind: Kind, record, db: AsyncSession) -> tuple[Kin
         await db.execute(
             select(FlowSession).where(
                 FlowSession.job_id == record.job_analysis_id,
+                # ADR-092: the posting is shared; the flow is the owner's.
+                FlowSession.user_id == record.user_id,
                 FlowSession.deleted_at.is_(None),
             )
         )
@@ -318,7 +339,7 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
             return
         sib_kind, sib_id = sib
         async with rs.document_lock(sib_kind, sib_id):
-            sibling = await load_document(sib_kind, sib_id, db)
+            sibling = await load_document(sib_kind, sib_id, db, user_id=record.user_id)
             listed_before = rs.find_listed(findings_of(sibling), key)
             await reaudit(sib_kind, sibling, db)
             if listed_before is not None and rs.find_listed(findings_of(sibling), key) is None:
@@ -334,10 +355,16 @@ async def _reaudit_sibling(kind: Kind, record, key: str, label: str, db: AsyncSe
             pass
 
 
-async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider) -> ActionOutcome:
+async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, provider, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.take_out")
+    # ADR-092: the ownership check precedes everything else, so a foreign id is
+    # a 404 even where the rewriter is not installed.
+    await load_document(kind, doc_id, db, user_id=owner)
     rewrite_for_removal = _rewriter()
     async with rs.document_lock(kind, doc_id):
-        record = await load_document(kind, doc_id, db)
+        record = await load_document(kind, doc_id, db, user_id=owner)
         finding = _listed_or_raise(record, key)
         if finding.matches and all(m.get("stem") for m in finding.matches):
             raise TakeOutStemOnly(
@@ -393,10 +420,13 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
         return ActionOutcome(record=record, changes=changes, still_listed=still)
 
 
-async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> ActionOutcome:
+async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.undo")
     rs.split_key(key)
     async with rs.document_lock(kind, doc_id):
-        record = await load_document(kind, doc_id, db)
+        record = await load_document(kind, doc_id, db, user_id=owner)
         state = rs.load_state(record.review_state)
         decision = rs.get_decision(state, key)
         if decision is None:
@@ -416,14 +446,17 @@ async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> Act
         return ActionOutcome(record=record, still_listed=still)
 
 
-async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession) -> ActionOutcome:
+async def edited(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
     """Called after a section save that was opened from a finding (cl. 5). The
     save itself went through the editor unchanged; this awaits the re-audit and
     records ``edited`` only if the finding cleared. No undo text: the editor's
     own history is the user's."""
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.edited")
     rs.split_key(key)
     async with rs.document_lock(kind, doc_id):
-        record = await load_document(kind, doc_id, db)
+        record = await load_document(kind, doc_id, db, user_id=owner)
         label = key.partition(":")[2]
         before = rs.find_listed(findings_of(record), key)
         if before is not None:
@@ -461,8 +494,11 @@ def _term_known_to_report(record, key: str) -> bool:
     return False
 
 
-async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession) -> ActionOutcome:
+async def walked(kind: Kind, doc_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
+    from applire.services.owner_resolution import resolve_owner
+
+    owner = resolve_owner(user_id, site="review_actions.walked")
     async with rs.document_lock(kind, doc_id):
-        record = await load_document(kind, doc_id, db)
+        record = await load_document(kind, doc_id, db, user_id=owner)
         await _save_state(record, rs.with_walked(rs.load_state(record.review_state)), db)
         return ActionOutcome(record=record)

@@ -109,17 +109,18 @@ async def _get_user(user_id: uuid.UUID, db: AsyncSession) -> User:
     return user
 
 
-async def _get_settings_row(db: AsyncSession) -> UserSettings | None:
-    """The CE single user's settings row, or None when none exists yet."""
-    from applire.services.color_detection import _CE_STUB_USER_ID
+async def _get_settings_row(db: AsyncSession, user_id: uuid.UUID | None = None) -> UserSettings | None:
+    """``user_id``'s settings row (D-10, UNIQUE(user_id)), or None when none exists
+    yet. ``None`` → the user owner context (ruling 3d-1)."""
+    from applire.services.profile.owner import resolve_owner
 
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == resolve_owner(user_id))
     )
     return result.scalar_one_or_none()
 
 
-async def _get_or_create_settings_row(db: AsyncSession) -> UserSettings:
+async def _get_or_create_settings_row(db: AsyncSession, user_id: uuid.UUID | None = None) -> UserSettings:
     """The settings row, created if absent.
 
     A signature upload must not require a profile to exist first — unlike the
@@ -127,11 +128,12 @@ async def _get_or_create_settings_row(db: AsyncSession) -> UserSettings:
     with "import a CV first". Nothing about a signature depends on the vault
     having content, and refusing the upload would be an invented precondition.
     """
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from applire.services.profile.owner import resolve_owner
 
-    row = await _get_settings_row(db)
+    owner = resolve_owner(user_id)
+    row = await _get_settings_row(db, owner)
     if row is None:
-        row = UserSettings(user_id=_CE_STUB_USER_ID)
+        row = UserSettings(user_id=owner)
         db.add(row)
         await db.flush()
     return row
@@ -160,7 +162,7 @@ async def upload_signature(
         raise ValueError("Signature exceeds the 2 MB limit. Please use a smaller file.")
 
     await _get_user(user_id, db)
-    row = await _get_or_create_settings_row(db)
+    row = await _get_or_create_settings_row(db, user_id)
     old_path = row.signature_path
 
     # Save the new file BEFORE deleting the old one: if the save fails, the user
@@ -189,7 +191,7 @@ async def delete_signature(
 ) -> None:
     """Remove the stored signature file and clear the path. No-op if none."""
     await _get_user(user_id, db)
-    row = await _get_settings_row(db)
+    row = await _get_settings_row(db, user_id)
     if row is None or not row.signature_path:
         return
     try:
@@ -210,14 +212,14 @@ async def get_signature_bytes(
 ) -> tuple[bytes, str]:
     """Raw signature bytes + MIME type. Raises ``LookupError`` if none on file."""
     await _get_user(user_id, db)
-    row = await _get_settings_row(db)
+    row = await _get_settings_row(db, user_id)
     path = row.signature_path if row is not None else None
     if not path:
         raise LookupError("No signature on file")
     try:
         raw = await storage.read(path)
     except FileNotFoundError as exc:
-        # A deleted file, or a path the provider refuses as outside its
+        # A deleted file, or (MD-30) a path the provider refuses as outside its
         # storage: both are "no signature on file" (404), never a 500 or a read.
         raise LookupError("No signature on file") from exc
     content_type = mimetypes.guess_type(path)[0] or "image/png"
@@ -230,7 +232,8 @@ async def get_signature_bytes(
 
 
 async def _signature_path_if_enabled(
-    db: AsyncSession, document: DocumentKind, *, override: bool | None = None
+    db: AsyncSession, document: DocumentKind, *, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> str | None:
     """The stored path, or None when the effective toggle is off / nothing is
     on file.
@@ -248,7 +251,7 @@ async def _signature_path_if_enabled(
     kind-level toggle below, unchanged; ``True``/``False`` decide the
     question outright, regardless of what the kind default says.
     """
-    row = await _get_settings_row(db)
+    row = await _get_settings_row(db, user_id)
     if row is None:
         # No settings row == no signature has ever been uploaded, so the toggle
         # question does not arise — not even a document override can render an
@@ -270,7 +273,8 @@ async def _signature_path_if_enabled(
 
 
 async def resolve_signature_data_uri(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> str | None:
     """Inline ``data:`` URI for the HTML/PDF renderers, or None.
 
@@ -284,7 +288,7 @@ async def resolve_signature_data_uri(
     """
     from applire.storage import get_storage
 
-    path = await _signature_path_if_enabled(db, document, override=override)
+    path = await _signature_path_if_enabled(db, document, override=override, user_id=user_id)
     if not path:
         return None
     try:
@@ -297,17 +301,20 @@ async def resolve_signature_data_uri(
 
 
 async def resolve_signature_bytes(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> bytes | None:
     """Raw bytes for the DOCX writers (python-docx needs a stream, not a URI)."""
-    data_uri = await resolve_signature_data_uri(db, document=document, override=override)
+    data_uri = await resolve_signature_data_uri(
+        db, document=document, override=override, user_id=user_id
+    )
     if data_uri is None:
         return None
     _, _, payload = data_uri.partition(",")
     return base64.b64decode(payload)
 
 
-async def resolve_signature_available(db: AsyncSession) -> bool:
+async def resolve_signature_available(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bool:
     """Whether ANY signature image is on file at all, independent of either
     kind toggle or any document's override.
 
@@ -321,12 +328,13 @@ async def resolve_signature_available(db: AsyncSession) -> bool:
     must tell those two cases apart — one has nothing to offer, the other has
     a real choice to make.
     """
-    row = await _get_settings_row(db)
+    row = await _get_settings_row(db, user_id)
     return bool(row and row.signature_path)
 
 
 async def resolve_signature_effective(
-    db: AsyncSession, *, document: DocumentKind, override: bool | None = None
+    db: AsyncSession, *, document: DocumentKind, override: bool | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     """Whether a signature WOULD render for this document right now — the
     ``signature_effective`` field the status/detail responses expose (F-4b)
@@ -342,11 +350,11 @@ async def resolve_signature_effective(
     render path's own None-covers-every-case discipline intends (the
     template's ``{% if %}`` is what actually discovers a missing file).
     """
-    path = await _signature_path_if_enabled(db, document, override=override)
+    path = await _signature_path_if_enabled(db, document, override=override, user_id=user_id)
     return path is not None
 
 
-def format_place_date(location: str | None, language: str, today: date | None = None) -> str:
+def format_place_date(location: str | None, language: str, today: date | None = None, *, user_id: uuid.UUID | None = None) -> str:
     """The CV's closing ``Ort, Datum`` line.
 
     ``"Berlin, 11. September 2026"`` / ``"Berlin, 11 September 2026"``, falling

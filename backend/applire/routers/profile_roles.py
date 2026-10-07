@@ -22,8 +22,8 @@ docs/superpowers/specs/2026-05-18-post-hire-profile-refresh-design.md
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.schemas.profile_roles import AddRoleRequest, AddRoleResponse
 from applire.services.profile.role_add import (
@@ -34,14 +34,22 @@ from applire.services.profile.role_add import (
 router = APIRouter(prefix="/api/profile/roles", tags=["profile"])
 
 
+def _uid(user: "User | None"):
+    """The resolved caller's id. ``require_user`` always yields a user (and sets
+    the owner context to it); ``None`` only reaches here when a test calls the
+    route function directly — the service then takes the owner context
+    (ruling 3d-1), which is the same user on every real request."""
+    return getattr(user, "id", None)
+
+
 @router.post("", response_model=AddRoleResponse)
 async def add_role(
     body: AddRoleRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> AddRoleResponse:
     try:
-        return await add_role_to_profile(body, db)
+        return await add_role_to_profile(body, db, user_id=_uid(current_user))
     except LookupError:
         raise HTTPException(status_code=404, detail="No master profile found")
     except AddRoleValidationError as exc:

@@ -39,7 +39,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.models.cv import GeneratedCV
+from applire.services.owner_resolution import owned_cv, resolve_owner
 from applire.models.flow import FlowSession
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
@@ -84,6 +84,8 @@ async def start_assist_session(
     gap_id: str,
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> AssistStartResponse:
     """Generate one focused question for a gap in a CV section.
 
@@ -91,9 +93,10 @@ async def start_assist_session(
         LookupError: CV not found.
         ValueError: gap_id not found in gap_analysis, or section_id unknown.
     """
-    section_label, section_content = await _load_cv_and_section(cv_id, section_id, db)
+    owner = resolve_owner(user_id, site="cv_assist.start_assist_session")
+    section_label, section_content = await _load_cv_and_section(cv_id, section_id, db, owner)
 
-    if not await _gap_exists(cv_id, gap_id, db):
+    if not await _gap_exists(cv_id, gap_id, db, owner):
         raise ValueError(f"gap_id {gap_id!r} not found in gap_analysis for CV {cv_id}")
 
     # NOT triaged (ADR-040 amendment clause 3): this call produces a QUESTION for the
@@ -109,6 +112,8 @@ async def start_assist_session(
 
     session_id = str(uuid.uuid4())
     _sessions[session_id] = {
+        # ADR-092: the micro-session belongs to the user who opened it.
+        "user_id": str(owner),
         "cv_id": str(cv_id),
         "section_id": section_id,
         "gap_id": gap_id,
@@ -127,14 +132,25 @@ async def submit_assist_answer(
     answer: str,
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> AssistAnswerResponse:
     """Generate suggested section text from user's answer.
 
     Raises:
         ValueError: session_id not found or cv_id/section_id mismatch.
     """
+    owner = resolve_owner(user_id, site="cv_assist.submit_assist_answer")
+    # ADR-092 cl. 6: the CV first — a foreign cv_id is a missing one (404), before
+    # the session store is consulted at all.
+    await owned_cv(db, cv_id, owner)
     session = _sessions.get(session_id)
-    if not session or session["cv_id"] != str(cv_id) or session["section_id"] != section_id:
+    if (
+        not session
+        or session.get("user_id") != str(owner)
+        or session["cv_id"] != str(cv_id)
+        or session["section_id"] != section_id
+    ):
         raise ValueError(f"Invalid session_id: {session_id!r}")
 
     suggestion = await provider.acomplete(
@@ -159,6 +175,7 @@ async def submit_assist_answer(
         session_evidence=[("session.answer", answer)],
         prior_text=session.get("section_content"),
         gap_ids=[session["gap_id"]],
+        owner=owner,
     )
     return AssistAnswerResponse(suggestion=kept, withheld_count=withheld)
 
@@ -170,6 +187,8 @@ async def rewrite_section(
     gap_ids: list[str],
     provider: LLMProvider,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> RewriteResponse:
     """Single-turn directed rewrite for a CV section.
 
@@ -180,10 +199,11 @@ async def rewrite_section(
         LookupError: CV not found or has no content snapshot.
         ValueError: section_id is unknown.
     """
-    section_label, section_content = await _load_cv_and_section(cv_id, section_id, db)
+    owner = resolve_owner(user_id, site="cv_assist.rewrite_section")
+    section_label, section_content = await _load_cv_and_section(cv_id, section_id, db, owner)
 
     # Load job role title for context (best-effort — omitted if no flow found)
-    role_title = await _get_role_title(cv_id, db)
+    role_title = await _get_role_title(cv_id, db, owner)
 
     suggestion = await provider.acomplete(
         build_assist_rewrite_prompt(
@@ -201,6 +221,7 @@ async def rewrite_section(
         session_evidence=[("session.directions", directions)],
         prior_text=section_content,
         gap_ids=gap_ids,
+        owner=owner,
     )
     return RewriteResponse(suggestion=kept, withheld_count=withheld)
 
@@ -214,20 +235,13 @@ async def _load_cv_and_section(
     cv_id: uuid.UUID,
     section_id: str,
     db: AsyncSession,
+    owner: uuid.UUID,
 ) -> tuple[str, str]:
     """Return (section_label, section_content) for the given section.
 
-    Raises LookupError if CV not found or section_id unknown.
+    Raises LookupError if CV not found (missing or foreign, S-10) or section_id unknown.
     """
-    result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == cv_id,
-            GeneratedCV.deleted_at.is_(None),
-        )
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise LookupError(f"Generated CV {cv_id} not found")
+    record = await owned_cv(db, cv_id, owner)
 
     if not record.content_snapshot:
         raise LookupError(f"CV {cv_id} has no content snapshot — regenerate CV first")
@@ -255,19 +269,31 @@ async def _load_cv_and_section(
     raise ValueError(f"Unknown section_id: {section_id!r}")
 
 
-async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession) -> bool:
-    """Return True if gap_id appears in the gap_analysis linked to this CV."""
+async def _owner_flow(cv_id: uuid.UUID, db: AsyncSession, owner: uuid.UUID) -> FlowSession | None:
+    """The owner's live flow that produced this CV (ADR-092 cl. 3: ``+ user_id``)."""
     flow_result = await db.execute(
         select(FlowSession).where(
             FlowSession.generated_cv_id == cv_id,
+            FlowSession.user_id == owner,
             FlowSession.deleted_at.is_(None),
         ).limit(1)
     )
-    flow = flow_result.scalar_one_or_none()
+    return flow_result.scalar_one_or_none()
+
+
+async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession, owner: uuid.UUID) -> bool:
+    """Return True if gap_id appears in the owner's gap_analysis linked to this CV."""
+    flow = await _owner_flow(cv_id, db, owner)
     if not flow or not flow.gap_analysis_id:
         return False
 
-    gap_analysis = await db.get(GapAnalysis, flow.gap_analysis_id)
+    gap_analysis = (
+        await db.execute(
+            select(GapAnalysis).where(
+                GapAnalysis.id == flow.gap_analysis_id, GapAnalysis.user_id == owner
+            )
+        )
+    ).scalar_one_or_none()
     if not gap_analysis:
         return False
 
@@ -282,20 +308,21 @@ async def _gap_exists(cv_id: uuid.UUID, gap_id: str, db: AsyncSession) -> bool:
     )
 
 
-async def _get_role_title(cv_id: uuid.UUID, db: AsyncSession) -> str | None:
-    """Return the job role title linked to this CV, or None if not found."""
-    flow_result = await db.execute(
-        select(FlowSession).where(
-            FlowSession.generated_cv_id == cv_id,
-            FlowSession.deleted_at.is_(None),
-        ).limit(1)
-    )
-    flow = flow_result.scalar_one_or_none()
+async def _get_role_title(cv_id: uuid.UUID, db: AsyncSession, owner: uuid.UUID) -> str | None:
+    """Return the role title of the job linked to this CV as THIS user names it
+    (ADR-092 cl. 5(f): the application's label wins), or None if not found."""
+    flow = await _owner_flow(cv_id, db, owner)
     if not flow or not flow.job_id:
         return None
 
     job = await db.get(JobAnalysis, flow.job_id)
-    return job.role_title if job else None
+    if job is None:
+        return None
+    from applire.services.application import get_application_for_job
+    from applire.services.posting_labels import effective_posting_labels
+
+    application = await get_application_for_job(flow.job_id, owner, db)
+    return effective_posting_labels(job, application)[0]
 
 
 async def _ground_suggestion(
@@ -305,6 +332,7 @@ async def _ground_suggestion(
     session_evidence: list[tuple[str, str]],
     prior_text: str | None = None,
     gap_ids: list[str] | None = None,
+    owner: uuid.UUID | None = None,
 ) -> tuple[str, int]:
     """Withhold the sentences of ``suggestion`` the candidate's own data does not support.
 
@@ -380,13 +408,12 @@ async def _ground_suggestion(
         from applire.services.oracle.matchers import build_vault_index, extend_vault_index
         from applire.services.profile.reconcile.stance import is_denied_concept
 
-        result = await db.execute(
-            select(MasterProfile)
-            .where(MasterProfile.deleted_at.is_(None))
-            .order_by(MasterProfile.created_at.desc())
-            .limit(1)
+        from applire.services.profile import get_profile_for_user
+
+        # ADR-092 cl. 2: the caller's own vault is the evidence set.
+        record = await get_profile_for_user(
+            db, resolve_owner(owner, site="cv_assist._ground_suggestion")
         )
-        record = result.scalar_one_or_none()
         if record is None:
             # No vault to check against. Everything the candidate says is, trivially,
             # all the evidence there is — withholding here would block the very first

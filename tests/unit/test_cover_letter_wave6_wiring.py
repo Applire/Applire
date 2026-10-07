@@ -194,7 +194,7 @@ async def test_condense_pass_also_receives_retain_if(seeded):
         calls.append(kwargs)
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -282,7 +282,7 @@ async def test_condense_pass_alone_receives_prefer_if(seeded):
         calls.append(kwargs)
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -339,7 +339,7 @@ async def test_condense_over_budget_result_emits_letter_over_budget_log(seeded, 
     async def fake_review(**kwargs):
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -431,7 +431,7 @@ async def test_condense_within_budget_result_emits_no_over_budget_log(seeded, ca
     async def fake_review(**kwargs):
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -615,7 +615,7 @@ async def test_condense_pass_also_receives_load_bearing_fn(seeded):
         calls.append(kwargs)
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -737,7 +737,7 @@ async def test_condense_loop_corrector_prompt_carries_it_too(seeded):
         calls.append(kwargs)
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (
@@ -864,7 +864,7 @@ async def test_condense_pass_carries_the_forbidden_presence_fact_too(seeded):
         calls.append(kwargs)
         return kwargs["draft"]
 
-    async def _fake_render_pdf(cl_id, allow_unready=False):
+    async def _fake_render_pdf(cl_id, allow_unready=False, user_id=None):
         return b"%PDF-1.4 fake"
 
     with (

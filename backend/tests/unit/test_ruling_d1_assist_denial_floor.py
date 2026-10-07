@@ -16,12 +16,16 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+
+from tests.support.owners import HARNESS_USER_ID
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.auth import get_auth_provider
+
+from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import Base, get_db
 from tests.support.profile_factory import make_master_profile
 
@@ -138,7 +142,7 @@ def _client(db, provider) -> TestClient:
         yield db
 
     app = FastAPI()
-    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[_get_provider] = lambda: provider
     app.include_router(router)
@@ -157,6 +161,7 @@ async def test_patch_assist_withholds_a_suggestion_for_a_directly_denied_gap_con
     session_id = "d1-seam-session"
     _sessions[session_id] = {
         "cv_id": str(_CV_ID),
+        "user_id": str(HARNESS_USER_ID),  # ADR-092: the session carries its owner
         "section_id": "introduction",
         "gap_id": "Investitionsentscheidungen selbst treffen",
         "section_label": "Introduction",
@@ -196,6 +201,7 @@ async def test_patch_assist_still_ships_a_true_suggestion_for_an_undenied_gap(se
     session_id = "d1-seam-session-clean"
     _sessions[session_id] = {
         "cv_id": str(_CV_ID),
+        "user_id": str(HARNESS_USER_ID),  # ADR-092: the session carries its owner
         "section_id": "introduction",
         "gap_id": "Führung",
         "section_label": "Introduction",

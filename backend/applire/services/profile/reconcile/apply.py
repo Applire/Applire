@@ -735,7 +735,8 @@ def apply_ops(
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
 
-    # The class guard behind the per-op one in `_apply_set_personal_info`: NO op in this vocabulary may change a field
+    # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
+    # in `_apply_set_personal_info`: NO op in this vocabulary may change a field
     # another writer owns. `photo_url` is a storage path the CV render reads and
     # erasure unlinks; its only writers are the photo endpoints
     # (`services/photo.py`), which do not go through `apply_ops`. An import's
@@ -2957,7 +2958,7 @@ def _restore_user_managed_fields(before, after, changes):
         return after, changes
     logger.warning(
         "apply_ops: refused a write to user-managed personal_info field(s) %s "
-        "(owned by the upload endpoints) — stored value kept",
+        "(owned by the upload endpoints, MD-30) — stored value kept",
         ", ".join(restored),
     )
     kept = [
@@ -2980,8 +2981,11 @@ def _apply_set_personal_info(op, profile, source, changes, conflicts):
     pi = profile.personal_info
     if not hasattr(pi, op.field):
         return
-    # The owned-field check runs BEFORE the empty-slot branch: a field another
-    # writer owns is not this door's to write, whether the slot is empty or not.
+    # MD-30 (adv-own-1, 2026-10-05): the owned-field check runs BEFORE the
+    # empty-slot branch. It used to sit inside `if not _is_empty(current)`, so
+    # an EMPTY photo slot was filled with whatever path the reconcile model
+    # emitted from imported/pasted text — and the CV render then read that
+    # path off disk. Not ours to write, empty or not.
     if op.field in _USER_MANAGED_PERSONAL_INFO_FIELDS:
         return  # not ours to write and not ours to dispute — see the constant
     current = getattr(pi, op.field)

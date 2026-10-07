@@ -1,5 +1,5 @@
 // tests/e2e/oq/cv-preview.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/auth-fixture';
 
 const TEST_FLOW_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 const TEST_CV_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';

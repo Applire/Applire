@@ -38,6 +38,9 @@ from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.instance_state import (  # noqa: F401  (re-exported)
+    KEY_AUTH_CLAIM_NOTICE,
+    KEY_AUTH_INSTANCE_SECRET,
+    KEY_AUTH_SETUP_TOKEN_HASH,
     KEY_LAST_BACKUP_AT,
     KEY_LAST_SEEN_VERSION,
     KEY_UPGRADE_NOTICE_DISMISSED_FOR,
@@ -80,3 +83,16 @@ async def write_state(db: AsyncSession, key: str, value: Any) -> None:
     else:
         row.value = value
         row.updated_at = now
+
+
+async def delete_state(db: AsyncSession, key: str) -> None:
+    """Remove `key` (no-op when absent). The caller commits.
+
+    Used when a fact stops being true — the setup-code hash after the claim
+    (ADR-091 cl. 14).
+    """
+    if key not in KNOWN_KEYS:
+        raise ValueError(f"Unknown instance_state key: {key!r}. Add a constant first.")
+    row = await db.get(InstanceState, key)
+    if row is not None:
+        await db.delete(row)

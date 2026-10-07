@@ -1,19 +1,51 @@
 # CI override — use .env.ci instead of .env (no real secrets required).
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.ci.yml up -d --build
 #
-# This file only overrides the env_file on services that carry it.
+# Usage (local CI run — give it its OWN project name, or `down -v` below wipes
+# the dev stack of the same directory):
+#   cp .env.ci .env        # what the workflows do (test.yml, pq.yml); optional
+#                          # here, because this file pins the database name itself
+#   docker compose -p applire-ci -f docker-compose.yml -f docker-compose.override.yml \
+#     -f docker-compose.ci.yml up -d --build
+#
+# The CI lanes run on the fenced NoAuth test harness (.env.ci: AUTH_HARNESS=true,
+# ADR-091 cl. 3). The harness serves only a database whose name ends in _ci/_test
+# and that held no profile when the backend started, so:
+# * the database name is pinned to `applire_ci` HERE, not only in .env.ci:
+#   docker-compose.yml builds DATABASE_URL from ${POSTGRES_DB:-applire} in
+#   `environment:`, which beats env_file, and interpolation reads the project's
+#   .env — a developer's .env (or none) would otherwise give `applire`, and the
+#   backend refuses to boot ("AUTH_HARNESS refused …", exit 1);
+# * POSTGRES_DB only applies when the volume is first initialised: reusing a
+#   volume created under another name fails with "database applire_ci does not
+#   exist" — `down -v` that project first.
+# * `env_file: !override` replaces the base file's `.env` instead of adding to it
+#   (Compose concatenates env_file lists), so nothing from a developer's real
+#   .env (keys, AUTH_* settings) leaks into the CI stack.
+#
 # All other configuration is inherited from docker-compose.yml + docker-compose.override.yml.
+# The real-auth lane (login on, nginx on a non-80 port) is docker-compose.ci-auth.yml.
 
 services:
+  postgres:
+    environment:
+      POSTGRES_DB: applire_ci
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-applire} -d applire_ci"]
+
   backend:
-    env_file:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/applire_ci
+    env_file: !override
       - .env.ci
 
   retention:
-    env_file:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/applire_ci
+    env_file: !override
       - .env.ci
 
   mcp:
-    env_file:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-applire}:${POSTGRES_PASSWORD:-applire}@postgres:5432/applire_ci
+    env_file: !override
       - .env.ci

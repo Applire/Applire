@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 from pypdf import PdfReader
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.constants import CV_EXTRACTION_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
@@ -64,6 +64,7 @@ from applire.services.profile.commit import (
 )
 from applire.services.profile.extract_segmented import extract_with_fallback
 from applire.services.profile.field_edit import build_replace_section_op
+from applire.services.profile.owner import resolve_owner
 from applire.services.profile.reconcile.import_bridge import reconcile_import
 from applire.services.profile.reconcile.ops import ApplyImportMerge
 from applire.services.profile.resolution import (
@@ -220,11 +221,29 @@ def _to_import_response(
     )
 
 
-async def _get_latest(db: AsyncSession) -> MasterProfile | None:
+async def _get_latest(db: AsyncSession, user_id: uuid.UUID | None = None) -> MasterProfile | None:
+    """The OWNER's live profile row (ADR-092 cl. 2) — kept under its old name for
+    the callers outside this package; ``user_id`` falls back to the user owner
+    context and refuses without one (``services/profile/owner.py``)."""
+    return await get_profile_for_user(db, user_id)
+
+
+async def get_profile_for_user(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> MasterProfile | None:
+    """The one vault read path (ADR-092 cl. 2) — the user's live profile row.
+
+    Keyed on ``master_profiles.user_id``; ``uq_master_profiles_user_live`` makes
+    the live row unique per owner, the ``ORDER BY`` only keeps the read
+    deterministic on a pre-0074 shape. ``user_id=None`` takes the user owner
+    context; with none the read raises ``OwnerContextMissing`` (never "the newest
+    row of anyone").
+    """
+    owner = resolve_owner(user_id)
     result = await db.execute(
         select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
+        .where(MasterProfile.user_id == owner, MasterProfile.deleted_at.is_(None))
+        .order_by(MasterProfile.created_at.desc(), MasterProfile.id.desc())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -579,7 +598,7 @@ async def _import_from_text(
     # which also serves GET /api/profile and PATCH /{section} (neither is a merge;
     # refuter B MAJOR 1). A first import has nothing to reconcile against, so
     # `_apply_merge` returns the honest "applied, []" defaults there.
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     return _to_import_response(
         record,
         merge_status=outcome.merge.merge_status,
@@ -589,16 +608,16 @@ async def _import_from_text(
     )
 
 
-async def get_profile(db: AsyncSession) -> MasterProfileResponse | None:
-    record = await _get_latest(db)
+async def get_profile(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> MasterProfileResponse | None:
+    record = await _get_latest(db, user_id)
     if not record:
         return None
     return _to_response(record)
 
 
-async def profile_exists(db: AsyncSession) -> dict:
+async def profile_exists(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> dict:
     """Lightweight check: returns exists + completeness_score without full profile payload."""
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         return {"exists": False, "completeness_score": 0.0}
     profile_data = MasterProfileData.model_validate(record.profile_json)
@@ -616,6 +635,8 @@ async def patch_profile_section(
     source_session_id: str | None = None,
     provider: LLMProvider | None = None,
     basis_updated_at: datetime | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """The manual section edit — the `FieldEdit` intake, on `commit_ops`.
 
@@ -656,7 +677,7 @@ async def patch_profile_section(
     # touches the database, exactly as it was.
     op = build_replace_section_op(section, value, basis_updated_at=basis_updated_at)
 
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         raise LookupError("No profile found")
 
@@ -692,8 +713,8 @@ async def patch_profile_section(
     return _to_response(result.record)
 
 
-async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:
-    record = await _get_latest(db)
+async def get_enrichment_history(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> list[EnrichmentRecord]:
+    record = await _get_latest(db, user_id)
     if not record:
         return []
     profile_data = MasterProfileData.model_validate(record.profile_json)
@@ -702,11 +723,11 @@ async def get_enrichment_history(db: AsyncSession) -> list[EnrichmentRecord]:
     return profile_data.metadata.enrichment_history
 
 
-async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
+async def get_profile_changes(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileChangesResponse:
     """US145 / ADR-040 — the combined "what changed & why" surface contract:
     the decision trail plus any pending conflicts, read from the Master Profile only.
     Never touches the source uploads (retention-independent — ADR-005)."""
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         return ProfileChangesResponse()
     profile_data = MasterProfileData.model_validate(record.profile_json)
@@ -718,14 +739,14 @@ async def get_profile_changes(db: AsyncSession) -> ProfileChangesResponse:
     )
 
 
-async def get_profile_health(db: AsyncSession) -> ProfileHealthResponse:
+async def get_profile_health(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ProfileHealthResponse:
     """US160 (E033 / ADR-041 amended) — deterministic Tier-2 health for the
     current profile: conflict + accuracy issues plus a completeness block.
 
     No LLM; reads only the durable Master Profile (never the 7-day upload —
     ADR-005). An absent profile is reported as empty health, not a 404, so the
     Health panel renders uniformly."""
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         return ProfileHealthResponse(completeness=CompletenessBlock(score=0.0))
     profile_data = MasterProfileData.model_validate(record.profile_json)
@@ -738,6 +759,8 @@ async def resolve_conflict(
     resolution: str,
     value: object,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """Resolve a pending conflict by conflict_id — the `ResolveField` intake.
 
@@ -767,7 +790,7 @@ async def resolve_conflict(
     re-adjudicates the candidate (§7.4 / ADR-061 clause 2) — the decision IS the
     testimony, and the open dispute is what authorises the overwrite.
     """
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         raise LookupError("No profile found")
 
@@ -819,6 +842,8 @@ async def resolve_confirmation(
     confirmation_id: str,
     chosen_option: str,
     db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> MasterProfileResponse:
     """Resolve a pending import-time confirmation (E037 PQ #4).
 
@@ -850,7 +875,7 @@ async def resolve_confirmation(
     swallows exactly it to stay idempotent when an interview is resumed past a
     question that has already been answered.
     """
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if not record:
         raise LookupError("No profile found")
 
@@ -921,27 +946,19 @@ async def list_open_gates(
     These are the deferred Tier-1 gates US163 escalates into the JD interview —
     oldest first, so the longest-parked confirmation is asked first.
 
-    #367 (adversarial): a hold `import_cv` raises before any `User` row exists
-    is persisted with `user_id=NULL` (`mcp/server.py::_import_user_id` — "an
-    empty `users` table is an ownerless import rather than a failure", a real
-    state on the documented `python -m applire.mcp` standalone launch, which
-    never runs `applire.main`'s lifespan). An exact `user_id == :uid` filter
-    silently drops that row from the Health hub / `held_merges` the instant a
-    `User` row later appears, so the human is never asked to adjudicate a CV
-    the gate genuinely parked. Community is single-user (ADR-022 rejected), so
-    an ownerless row is unambiguously "the" user's — the same shape
-    `import_jobs.py::list_import_jobs` already uses for the sibling async-
-    import door (`or_(CVImportJob.user_id == user_id, CVImportJob.user_id.is_(None))`).
+    Owner-keyed (ADR-092 cl. 4): the #367 widening to ownerless rows
+    (``user_id IS NULL``) is gone — migration 0074 gave every such upload an
+    owner and made the column NOT NULL, so a NULL arm could only ever match
+    another user's row on a multi-user instance.
     """
     query = (
         select(UploadRecord)
-        .where(UploadRecord.gate_status.in_(tuple(_OPEN_GATES)))
+        .where(
+            UploadRecord.gate_status.in_(tuple(_OPEN_GATES)),
+            UploadRecord.user_id == resolve_owner(user_id),
+        )
         .order_by(UploadRecord.created_at.asc())
     )
-    if user_id is not None:
-        query = query.where(
-            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
-        )
     return list((await db.execute(query)).scalars().all())
 
 
@@ -1117,6 +1134,10 @@ async def ingest_cv(
     nothing about the merge.
     """
     emb_provider = embedding_provider or _DEFAULT_EMBEDDING_PROVIDER
+    # The importer, resolved ONCE (ADR-092 cl. 2/4): the gate compares against
+    # their vault, the merge writes it, and the UploadRecord is born theirs —
+    # never left for the ORM owner fill to guess from the context.
+    user_id = resolve_owner(user_id)
 
     if len(raw_text) > _MAX_CV_TEXT_CHARS:
         cut = raw_text.rfind("\n", 0, _MAX_CV_TEXT_CHARS)
@@ -1163,7 +1184,7 @@ async def ingest_cv(
     # not-a-CV and account-vs-CV name divergence are caught *before* the additive merge
     # can overwrite anything; safe default = don't merge. A held merge parks the staged
     # extraction for the user to resolve (merge / discard).
-    existing = await _get_latest(db)
+    existing = await _get_latest(db, user_id)
     vault = MasterProfileData.model_validate(existing.profile_json) if existing else None
     account_name = vault.personal_info.name if vault else None
     # The vault is passed for the nameless-extraction branch (ADR-041 amended
@@ -1194,7 +1215,8 @@ async def ingest_cv(
         )
 
     merge_outcome = await _apply_merge(
-        db, incoming, source=created_via, emb_provider=emb_provider, provider=provider, now=now
+        db, incoming, source=created_via, emb_provider=emb_provider, provider=provider, now=now,
+        user_id=user_id,
     )
     record = await _persist_upload_record(
         db,
@@ -1378,6 +1400,7 @@ async def _apply_merge(
     emb_provider: EmbeddingProvider,
     provider: LLMProvider,
     now: datetime | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> ApplyMergeOutcome:
     """Additively merge ``incoming`` into the latest profile (or create the first),
     commit, and return the outcome as an :class:`ApplyMergeOutcome`.
@@ -1386,13 +1409,14 @@ async def _apply_merge(
     runs the merge is authorised (clean upload, or a user-resolved staged merge).
     """
     now = now or datetime.now(timezone.utc)
-    existing = await _get_latest(db)
+    user_id = resolve_owner(user_id)
+    existing = await _get_latest(db, user_id)
 
     if existing:
         existing_data = MasterProfileData.model_validate(existing.profile_json)
         from applire.services.session import get_ui_language
 
-        lang = await get_ui_language(db)
+        lang = await get_ui_language(db, user_id=user_id)
         merge_result = await reconcile_import(
             existing_data, incoming, source=source, provider=provider, lang=lang,
         )
@@ -1468,6 +1492,7 @@ async def _apply_merge(
         snapshot=None,
         enrichment=EnrichPolicy.SKIP,
         embedding_provider=emb_provider,
+        user_id=user_id,
     )
     await db.commit()
     await db.refresh(committed.record)
@@ -1502,21 +1527,13 @@ async def resolve_staged_extraction(
     (drop it, leaving the profile untouched). Idempotency is enforced: a second
     resolve raises ``StagedExtractionAlreadyResolved``.
 
-    When ``user_id`` is given the lookup is scoped to that owner, so a foreign
-    upload is indistinguishable from a missing one (IDOR guard) — a parked CV
-    can only be resolved by the account that uploaded it. An ownerless row
-    (``user_id IS NULL`` — #367 adversarial: `import_cv` ran before any `User`
-    row existed) is included for any given ``user_id`` rather than excluded:
-    Community is single-user (ADR-022 rejected), so it is unambiguously "the"
-    user's, and an exact-equality filter made such a hold permanently
-    unresolvable the moment a `User` row appeared (`list_open_gates` carries
-    the same widening, and the same reasoning).
+    The lookup is keyed on the owner (``user_id``, else the owner context), so a
+    foreign upload is indistinguishable from a missing one (S-10). The #367
+    ownerless-row widening is gone (ADR-092 cl. 4: 0074 made the owner NOT NULL).
     """
-    query = select(UploadRecord).where(UploadRecord.id == staged_id)
-    if user_id is not None:
-        query = query.where(
-            or_(UploadRecord.user_id == user_id, UploadRecord.user_id.is_(None))
-        )
+    query = select(UploadRecord).where(
+        UploadRecord.id == staged_id, UploadRecord.user_id == resolve_owner(user_id)
+    )
     rec = (await db.execute(query)).scalar_one_or_none()
     if rec is None or rec.gate_status is None:
         raise StagedExtractionNotFound(str(staged_id))
@@ -1541,7 +1558,8 @@ async def resolve_staged_extraction(
 
             provider = get_provider()
         merge_outcome = await _apply_merge(
-            db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider
+            db, incoming, source="cv_upload", emb_provider=emb_provider, provider=provider,
+            user_id=rec.user_id,
         )
         rec.gate_status = "resolved_merged"
         await db.commit()

@@ -19,20 +19,23 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 import mimetypes
 
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+#: The catch-all 500 text (same wording as routers/session.py's #256 body).
+_INTERNAL_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
+
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.exceptions import LLMRateLimitError, LLMTimeoutError, LLMTruncatedError
 from applire.ocr import get_ocr_extractor
@@ -91,6 +94,14 @@ from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
+
+def _uid(user: "User | None"):
+    """The resolved caller's id. ``require_user`` always yields a user (and sets
+    the owner context to it); ``None`` only reaches here when a test calls the
+    route function directly — the service then takes the owner context
+    (ruling 3d-1), which is the same user on every real request."""
+    return getattr(user, "id", None)
+
 # Clean, user-appropriate message for a reconcile that hit the token budget
 # (LLMTruncatedError). The merge could not be completed in full, so we fail this
 # file rather than persist a silent half-merge — but we never leak the raw
@@ -146,7 +157,7 @@ async def upload_cv_endpoint(
     provider: LLMProvider = Depends(_get_provider),
     storage: StorageProvider = Depends(_get_storage),
     ocr: CVImageExtractor = Depends(_get_ocr),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVUploadResponse:
     """Upload a CV in any supported format and merge it into the Master Profile.
 
@@ -164,7 +175,7 @@ async def upload_cv_endpoint(
     on a self-hosted instance 2026-09-17). The async door returns a handle at once and
     is what the browser UI uses. Retirement of this door is scheduled separately.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     filename = file.filename or "upload"
     content_type = file.content_type or "application/octet-stream"
 
@@ -226,10 +237,13 @@ async def upload_cv_endpoint(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -246,7 +260,7 @@ async def start_cv_import_endpoint(
         default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"
     ),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVImportJobResponse:
     """Start an async CV import and return a handle immediately (202).
 
@@ -257,7 +271,7 @@ async def start_cv_import_endpoint(
     recommended door for every REST caller; the sync ``/upload`` remains only for
     compatibility and is cut by a proxy read timeout on a slow route (#674).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     filename = file.filename or "upload"
     content_type = file.content_type or "application/octet-stream"
     file_bytes = await file.read()
@@ -287,7 +301,7 @@ async def list_cv_import_jobs_endpoint(
         description="Only jobs still running (pending/processing, not expired)",
     ),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> list[CVImportJobListItem]:
     """List the current user's async CV imports, oldest first (PQ F1).
 
@@ -296,7 +310,7 @@ async def list_cv_import_jobs_endpoint(
     indicator after a refresh interrupted the onboarding overlay. User-scoped (same
     IDOR guard as GET /import-jobs/{id}); another user's jobs are never listed.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     jobs = await list_import_jobs(db, user_id=user.id, active=active)
     return [
         CVImportJobListItem(
@@ -318,10 +332,10 @@ async def get_cv_import_status_endpoint(
     import_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CVImportStatusResponse:
     """Poll an async CV import. 404 if unknown or owned by another user (IDOR guard)."""
-    user = await auth.get_current_user(request)
+    user = current_user
     job = await get_import_job(db, import_id, user_id=user.id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import not found")
@@ -348,7 +362,7 @@ async def resolve_staged_extraction_endpoint(
     body: StagedResolveRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
 ) -> StagedResolveResponse:
     """Resolve a CV upload that the pre-merge integrity gate held (US167).
@@ -359,7 +373,7 @@ async def resolve_staged_extraction_endpoint(
     attempt on an already-resolved item returns HTTP 409. The lookup is scoped to
     the authenticated user, so a foreign upload returns 404 (IDOR guard).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await resolve_staged_extraction(
             db, staged_id, action=body.action, user_id=user.id, provider=provider
@@ -380,7 +394,7 @@ async def resolve_staged_extraction_endpoint(
 async def undo_last_merge_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> UndoLastMergeResponse:
     """Undo the last Master Profile merge (US168 / ADR-042).
 
@@ -390,8 +404,7 @@ async def undo_last_merge_endpoint(
     whole-profile restore; per-field revert deferred). Idempotent: a repeat call
     with nothing left to undo returns ``restored=false``.
     """
-    await auth.get_current_user(request)
-    result = await undo_last_merge(db)
+    result = await undo_last_merge(db, user_id=_uid(current_user))
     return UndoLastMergeResponse(
         restored=result.restored,
         discarded_later_edits=result.discarded_later_edits,
@@ -408,7 +421,7 @@ async def import_profile(
     db: AsyncSession = Depends(get_db),
     provider: LLMProvider = Depends(_get_provider),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     file: Annotated[UploadFile | None, File(description="LinkedIn export ZIP")] = None,
     linkedin_json: Annotated[str | None, Form(description="LinkedIn export JSON string")] = None,
 ) -> ProfileImportResponse | CVUploadResponse:
@@ -438,7 +451,7 @@ async def import_profile(
             detail="Provide either a file or linkedin_json, not both",
         )
 
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         if file is not None:
             file_bytes = await file.read()
@@ -514,10 +527,13 @@ async def import_profile(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -533,7 +549,7 @@ async def upload_photo_endpoint(
     consent: bool = Query(default=False, description="Must be True — GDPR Art. 9(2)(a) explicit consent"),
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict[str, str]:
     """Upload a profile photo. Consent must be explicitly provided.
 
@@ -541,7 +557,7 @@ async def upload_photo_endpoint(
     Photo is stored and photo_url is set in the Master Profile personal_info.
     Re-uploading replaces the existing photo and refreshes consent_at.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     if not consent:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -568,10 +584,10 @@ async def delete_photo_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> None:
     """Delete the profile photo and clear GDPR consent."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         await delete_photo(user_id=user.id, db=db, storage=storage)
     except LookupError as exc:
@@ -583,10 +599,10 @@ async def get_photo_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> Response:
     """Return the raw photo bytes (GDPR data portability). 404 if no photo on file."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         photo_bytes, media_type = await get_photo_bytes(user_id=user.id, db=db, storage=storage)
     except LookupError:
@@ -600,18 +616,18 @@ async def get_photo_endpoint(
 @router.get("/exists")
 async def check_profile_exists(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict:
     """Lightweight check: returns exists + completeness_score (no full profile payload)."""
-    return await profile_exists(db)
+    return await profile_exists(db, user_id=_uid(current_user))
 
 
 @router.get("", response_model=MasterProfileResponse, status_code=status.HTTP_200_OK)
 async def get_current_profile(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> MasterProfileResponse:
-    profile = await get_profile(db)
+    profile = await get_profile(db, user_id=_uid(current_user))
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -624,10 +640,10 @@ async def get_current_profile(
 async def get_upload_history(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> list[UploadHistoryItem]:
     """Return the last 10 uploads for the current user, newest first."""
-    user = await auth.get_current_user(request)
+    user = current_user
     result = await db.execute(
         select(UploadRecord)
         .where(UploadRecord.user_id == user.id)
@@ -661,9 +677,9 @@ async def get_upload_history(
 )
 async def get_profile_enrichment_history(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> list[EnrichmentRecord]:
-    return await get_enrichment_history(db)
+    return await get_enrichment_history(db, user_id=_uid(current_user))
 
 
 @router.get(
@@ -673,11 +689,11 @@ async def get_profile_enrichment_history(
 )
 async def get_profile_changes_endpoint(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ProfileChangesResponse:
     """US145 / ADR-040 — the "what changed & why" surface data: the decision trail
     plus pending conflicts, read from the Master Profile only (retention-independent)."""
-    return await get_profile_changes(db)
+    return await get_profile_changes(db, user_id=_uid(current_user))
 
 
 @router.get(
@@ -687,12 +703,12 @@ async def get_profile_changes_endpoint(
 )
 async def get_profile_health_endpoint(
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ProfileHealthResponse:
     """US160 (E033 / ADR-041 amended) — deterministic Profile Health: conflict +
     accuracy issues (severity-tagged) plus a completeness block. No LLM; reads
     only the durable Master Profile (never the 7-day upload — ADR-005)."""
-    return await get_profile_health(db)
+    return await get_profile_health(db, user_id=_uid(current_user))
 
 
 @router.post(
@@ -704,16 +720,21 @@ async def resolve_profile_conflict(
     conflict_id: str,
     body: ConflictResolutionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> MasterProfileResponse:
     try:
-        return await resolve_conflict(conflict_id, body.resolution, body.value, db)
+        return await resolve_conflict(
+            conflict_id, body.resolution, body.value, db, user_id=_uid(current_user)
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    except Exception:
+        logger.exception("profile route failed")  # never echo str(exc) (MD-24 (6))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=_INTERNAL_ERROR_MESSAGE
+        )
 
 
 @router.post(
@@ -724,7 +745,7 @@ async def resolve_profile_conflict(
 async def submit_testimony_endpoint(
     body: TestimonyRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
 ) -> TestimonyResult:
     """#258 — the UI door for free-text testimony ("anything else recruiters
@@ -736,7 +757,7 @@ async def submit_testimony_endpoint(
     Calls the exact same `submit_testimony` service the MCP `submit_testimony`
     tool calls (ADR-058 door parity)."""
     try:
-        return await submit_testimony(body.text, db, provider)
+        return await submit_testimony(body.text, db, provider, user_id=_uid(current_user))
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
@@ -746,7 +767,7 @@ async def patch_section(
     section: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
     provider: LLMProvider = Depends(_get_provider),
     basis_updated_at: Annotated[
         datetime | None,
@@ -763,10 +784,11 @@ async def patch_section(
     body = await request.json()
     try:
         return await patch_profile_section(
-            section, body, db, provider=provider, basis_updated_at=basis_updated_at
+            section, body, db, provider=provider, basis_updated_at=basis_updated_at,
+            user_id=_uid(current_user),
         )
     except StaleEditError as exc:
-        current = await get_profile(db)
+        current = await get_profile(db, user_id=_uid(current_user))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -774,6 +796,15 @@ async def patch_section(
                 "current_updated_at": exc.current_updated_at.isoformat(),
                 "current": current.model_dump(mode="json"),
             },
+        )
+    except VaultWriteRevertedError as exc:
+        # The same structured body the upload doors give (#597): before W3 this
+        # door surfaced it only through the catch-all's str(exc), which no
+        # longer echoes exception text (MD-24 (6)).
+        logger.error("patch_section: vault write reverted (%s)", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
         )
     except ValueError as exc:
         raise HTTPException(
@@ -785,10 +816,13 @@ async def patch_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
-    except Exception as exc:
+    except Exception:
+        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
+        # name (an owner-guard refusal) or provider payload. Logged in full here.
+        logger.exception("profile route failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            detail=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -797,213 +831,28 @@ async def erase_profile(
     request: Request,
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> dict:
-    """GDPR Art. 17 — full user data erasure.
+    """GDPR Art. 17 — erase the CALLER's vault (ADR-092 cl. 11, US336).
 
-    Hard-deletes all user-scoped records in leaf-to-root FK order within a single
-    transaction. Physical file deletion (uploads, PDFs) happens after commit so a
-    storage I/O error cannot block the database erasure. Returns 202 Accepted.
-
-    Cascade order:
-      uploads → generated_cvs → interview_sessions → flow_sessions
-      → applications → master_profiles → users
-    job_analyses are NOT deleted (shared/global, no user_id).
+    An adapter over the one implementation, ``services.erasure.erase(db,
+    user_id, "vault")``: every per-user row of this user, leaf → root and keyed
+    on the owner, in one transaction; shared postings nobody else references are
+    purged (lock first, check second); files after the commit. Another user's
+    rows and any posting another user still references are untouched. The user
+    row stays (the account is deleted by ``DELETE /api/me/account``). 202 Accepted.
     """
-    from applire.models.application import Application
-    from applire.models.cover_letter import GeneratedCoverLetter
-    from applire.models.cv import GeneratedCV
-    from applire.models.flow import FlowSession
-    from applire.models.gap import GapAnalysis
-    from applire.models.profile import MasterProfile
-    from applire.models.session import InterviewSession
-    from applire.models.uploads import UploadRecord
-    from applire.models.user import User
+    from applire.services.erasure import ErasureFailed, erase
 
-    user = await auth.get_current_user(request)
-    uid = user.id
-    now = datetime.now(timezone.utc)
-
-    # --- Collect file paths before deleting rows ---
-    # #367 (adversarial): also sweep OWNERLESS uploads (`user_id IS NULL`) —
-    # a hold `import_cv` raised before any `User` row existed. Community is
-    # single-user (ADR-022 rejected), so an ownerless upload is unambiguously
-    # this account's; an exact `user_id == uid` filter left such a row (with
-    # its full `staged_extraction` personal data) behind on an Art. 17 request.
-    _upload_owner_filter = or_(UploadRecord.user_id == uid, UploadRecord.user_id.is_(None))
-    upload_paths_result = await db.execute(
-        select(UploadRecord.file_path).where(_upload_owner_filter)
-    )
-    upload_paths = [row[0] for row in upload_paths_result.fetchall()]
-
-    # Collect profile photo path (single-user pattern; no user_id on MasterProfile)
-    _photo_url_before_erasure: str | None = None
-    # #359: the signature image lives on user_settings (ADR-088), not in the vault
-    _signature_path_before_erasure: str | None = None
-    from applire.models.user_settings import UserSettings as _US
-    _signature_path_before_erasure = (
-        await db.execute(select(_US.signature_path).limit(1))
-    ).scalar_one_or_none()
-    _profile_snap_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    _profile_row = _profile_snap_result.scalar_one_or_none()
-    if _profile_row:
-        from applire.schemas.profile import MasterProfileData as _MPD
-        _pdata = _MPD.model_validate(_profile_row.profile_json)
-        _photo_url_before_erasure = _pdata.personal_info.photo_url
-
-    # generated_cvs linked via profile_id → master_profiles
-    cv_paths: list[str] = []  # PDF files not yet stored separately; no-op for now
-
-    # --- Anonymised audit log (before any deletes) ---
-    counts: dict[str, int] = {}
-
-    async def _count_delete(model: Any, *where_clauses: Any) -> int:
-        result = await db.execute(select(model).where(*where_clauses))
-        rows = result.scalars().all()
-        n = len(rows)
-        for row in rows:
-            db.expunge(row)
-        return n
-
-    # --- Atomic cascade (leaf → root) ---
-    #
-    # FK dependency graph (PostgreSQL enforces all):
-    #   Application.flow_session_id  → flow_sessions.id   (circular with ↓)
-    #   FlowSession.application_id   → applications.id    (circular with ↑)
-    #   FlowSession.generated_cv_id  → generated_cvs.id
-    #   FlowSession.interview_session_id → interview_sessions.id
-    #   GeneratedCV.profile_id       → master_profiles.id
-    #   InterviewSession.profile_id  → master_profiles.id
-    #
-    # Safe order: break the circular FK first, then delete referencing rows before
-    # referenced rows.  Deletion order: uploads → (break cycle) → flow_sessions
-    # → generated_cvs → interview_sessions → applications → master_profiles → users.
     try:
-        # 1. uploads — same ownerless-row widening as the path-collection SELECT above.
-        r = await db.execute(delete(UploadRecord).where(_upload_owner_filter))
-        counts["uploads"] = r.rowcount
+        from applire.services.profile.owner import resolve_owner
 
-        # 2. Break Application ↔ FlowSession circular FK so each side can be deleted.
-        #    Nullify Application.flow_session_id first so we can delete FlowSession rows
-        #    without violating the Application.flow_session_id → flow_sessions.id FK.
-        #    Same for the submitted pins (E039/US219): generated_cvs /
-        #    generated_cover_letters are deleted in steps 4/5c while applications
-        #    still exist — Art. 17 beats the pin, so the pin must let go first.
-        await db.execute(
-            update(Application)
-            .where(Application.user_id == uid)
-            .values(
-                flow_session_id=None,
-                submitted_cv_id=None,
-                submitted_cover_letter_id=None,
-            )
-        )
-
-        # 3. flow_sessions — must come before generated_cvs and interview_sessions
-        #    because FlowSession holds FKs into those tables; PostgreSQL blocks deleting
-        #    a referenced row while any row in flow_sessions still points to it.
-        r = await db.execute(delete(FlowSession).where(FlowSession.user_id == uid))
-        counts["flow_sessions"] = r.rowcount
-
-        # 4. generated_cvs (via profile_id subquery) — safe now that FlowSession is gone
-        profile_ids_sq = select(MasterProfile.id)
-        r = await db.execute(
-            delete(GeneratedCV).where(GeneratedCV.profile_id.in_(profile_ids_sq))
-        )
-        counts["generated_cvs"] = r.rowcount
-
-        # 5. interview_sessions — safe now that FlowSession is gone
-        r = await db.execute(
-            delete(InterviewSession).where(InterviewSession.profile_id.in_(profile_ids_sq))
-        )
-        counts["interview_sessions"] = r.rowcount
-
-        # 5b. gap_analyses — GapAnalysis.profile_id → master_profiles.id FK (RESTRICT)
-        #     must be deleted before master_profiles in step 7
-        r = await db.execute(
-            delete(GapAnalysis).where(GapAnalysis.profile_id.in_(profile_ids_sq))
-        )
-        counts["gap_analyses"] = r.rowcount
-
-        # 5c. generated_cover_letters — profile_id → master_profiles.id FK (RESTRICT)
-        #     safe to delete now that flow_sessions (which reference cover_letter_id) are gone
-        r = await db.execute(
-            delete(GeneratedCoverLetter).where(GeneratedCoverLetter.profile_id.in_(profile_ids_sq))
-        )
-        counts["generated_cover_letters"] = r.rowcount
-
-        # 6. applications — safe now that FlowSession rows (which held application_id FKs)
-        #    are deleted
-        r = await db.execute(delete(Application).where(Application.user_id == uid))
-        counts["applications"] = r.rowcount
-
-        # 7. master_profiles — no user_id column; delete all (single-user deployment)
-        r = await db.execute(delete(MasterProfile))
-        counts["master_profiles"] = r.rowcount
-
-        # NOTE: The User row is intentionally kept.  In Community Edition the stub
-        # user (seeded once at startup) is required for the app to remain functional
-        # after erasure.  All personal data has been deleted above; only the system
-        # account record stays so subsequent uploads continue to work.
-        counts["users"] = 0
-
-        await db.commit()
-
-    except Exception as exc:
-        await db.rollback()
-        logger.exception("GDPR erasure failed for user %s", uid, exc_info=True)
+        counts = await erase(db, resolve_owner(_uid(current_user)), "vault", storage=storage)
+    except ErasureFailed:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erasure failed — no data was deleted. Please retry.",
         )
-
-    # --- File deletion (outside transaction; failures are non-blocking) ---
-    # ERROR, not warning: a leftover file is PII outliving an Art. 17 request
-    # until the retention worker's daily orphan scan reclaims it (issue #152).
-    for path in upload_paths:
-        try:
-            await storage.delete(path)
-        except Exception as exc:
-            logger.error(
-                "Failed to delete upload file %s after GDPR erasure: %s "
-                "(retention orphan scan reclaims it within 24h)",
-                path,
-                exc,
-            )
-
-    # Delete profile photo (GDPR Art. 17)
-    if _photo_url_before_erasure:
-        try:
-            await storage.delete(_photo_url_before_erasure)
-        except Exception as exc:
-            logger.error(
-                "Failed to delete photo file %s after GDPR erasure: %s "
-                "(retention orphan scan reclaims it within 24h)",
-                _photo_url_before_erasure,
-                exc,
-            )
-
-    # Delete signature image (GDPR Art. 17; #359)
-    if _signature_path_before_erasure:
-        try:
-            await storage.delete(_signature_path_before_erasure)
-        except Exception as exc:
-            logger.error(
-                "Failed to delete signature file %s after GDPR erasure: %s "
-                "(retention orphan scan reclaims it within 24h)",
-                _signature_path_before_erasure,
-                exc,
-            )
-
-    logger.info(
-        "GDPR erasure completed",
-        extra={"event": "user_erasure_completed", "timestamp": now.isoformat(), "records": counts},
-    )
     return {"message": "Erasure accepted", "records_deleted": counts}
 
 
@@ -1011,7 +860,7 @@ async def erase_profile(
 async def export_profile(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> JSONResponse:
     """GDPR Art. 20 — data portability. Returns complete user data as JSON download.
 
@@ -1019,21 +868,16 @@ async def export_profile(
     """
     from applire.models.application import Application
     from applire.models.cv import GeneratedCV
-    from applire.models.profile import MasterProfile
     from applire.models.session import InterviewSession
     from applire.models.uploads import UploadRecord
 
-    user = await auth.get_current_user(request)
+    user = current_user
     uid = user.id
 
-    # Profile — MasterProfile has no user_id column; use the same _get_latest pattern
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    # The caller's own live profile (ADR-092 cl. 2) — the one read path.
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, uid)
 
     # Applications
     apps_result = await db.execute(
@@ -1046,6 +890,7 @@ async def export_profile(
     if profile:
         sess_result = await db.execute(
             select(InterviewSession).where(
+                InterviewSession.user_id == uid,
                 InterviewSession.profile_id == profile.id,
                 InterviewSession.deleted_at.is_(None),
             )

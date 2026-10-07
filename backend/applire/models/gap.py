@@ -29,13 +29,16 @@ from applire.db.session import Base
 
 class GapAnalysis(Base):
     __tablename__ = "gap_analyses"
-    # One LIVE analysis per (job, input fingerprint) — the app-level idempotency
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
+    # One LIVE analysis per (user, job, input fingerprint) — re-keyed with user_id
+    # by migration 0075 (ADR-092 cl. 3, SF-OWN.7). The app-level idempotency
     # check in analyze_gaps is check-then-insert and lost a 7 ms race (two rows,
     # two scores, the "Analyzing your profile…" hang; Spaghettieis UAT 2026-07-13).
     # Legacy NULL fingerprints and soft-deleted rows stay outside the constraint.
     __table_args__ = (
         Index(
             "uq_gap_analyses_live_fingerprint",
+            "user_id",
             "job_analysis_id",
             "input_fingerprint",
             unique=True,
@@ -50,6 +53,11 @@ class GapAnalysis(Base):
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("master_profiles.id"), nullable=False, index=True
+    )
+    # The owner (ADR-092 cl. 1, migration 0075): a copy of the profile's owner,
+    # checked against it at insert (ownership.py's chain listener, SF-OWN.9).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="fk_gap_analyses_user_id_users"), nullable=False, index=True
     )
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Cosine similarity of job_analysis.embedding vs master_profile.embedding (migration 0017).

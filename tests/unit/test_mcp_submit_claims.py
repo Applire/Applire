@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.support.profile_factory import make_master_profile
 
+
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
@@ -181,6 +182,11 @@ async def test_non_member_gap_rejects_whole_call_naming_value(seeded):
     )
     seeded.add(job)
     await seeded.flush()
+    # ADR-092 cl. 5c: the harness owner (the door's user here) is linked to the posting.
+    from tests.support.owners import HARNESS_USER_ID
+    from tests.support.posting_links import link_posting
+
+    await link_posting(seeded, job, HARNESS_USER_ID)
     seeded.add(
         GapAnalysis(
             job_analysis_id=job.id,
@@ -217,3 +223,13 @@ async def test_tool_description_carries_doctrine_and_limits():
     assert "not verif" in desc or "self-attested" in desc  # ADR-052 §5 limit
     assert "Health hub" in desc  # confirmation-parking note
     assert "analyze_gaps" in desc  # à-la-carte gap prerequisite
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

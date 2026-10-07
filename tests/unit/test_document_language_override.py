@@ -35,7 +35,10 @@ from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from tests.support.posting_links import link_posting
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -98,6 +101,7 @@ async def user_and_job(db):
         language_requirement="DE",
     )
     db.add_all([user, job])
+    await link_posting(db, job, _STUB_USER_ID)  # ADR-092 cl.5: own link to the posting
     await db.commit()
     return user, job
 
@@ -299,10 +303,11 @@ class TestGenerationPinning:
         from applire.models.application import Application
 
         user, job = user_and_job
-        db.add(
-            Application(
-                user_id=user.id, job_analysis_id=job.id, language_override="en"
-            )
+        # ADR-092 cl.5: the user's link already exists (fixture); pin onto it, live.
+        await db.execute(
+            update(Application)
+            .where(Application.user_id == user.id, Application.job_analysis_id == job.id)
+            .values(language_override="en", deleted_at=None)
         )
         await db.commit()
 
@@ -314,6 +319,8 @@ class TestGenerationPinning:
         self, db, user_and_job, monkeypatch
     ):
         user, job = user_and_job
+        # ADR-092: the user reaches the posting through their own link (no
+        # override) — the fixture's link_posting (4a) already made it.
         record = await self._generate(db, job, monkeypatch)
         assert record.document_language == "de"
 
@@ -415,7 +422,7 @@ class TestBackgroundRenderThreadsPinnedLanguage:
         }[id_]
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_gap
-        mock_db.execute.return_value = mock_result
+        mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
         fallback_kwargs: dict = {}
         language_pass_langs: list = []
@@ -484,10 +491,11 @@ class TestCoverLetterPinning:
 
         user, job = user_and_job
         await self._seed_profile(db)
-        db.add(
-            Application(
-                user_id=user.id, job_analysis_id=job.id, language_override="en"
-            )
+        # ADR-092 cl.5: the user's link already exists (fixture); pin onto it, live.
+        await db.execute(
+            update(Application)
+            .where(Application.user_id == user.id, Application.job_analysis_id == job.id)
+            .values(language_override="en", deleted_at=None)
         )
         db.add(FlowSession(user_id=user.id, job_id=job.id, current_step="cv_generation"))
         await db.commit()
@@ -583,3 +591,31 @@ async def _call_mcp_update_application(db, application_id: str, **kwargs):
     cm.__aexit__ = AsyncMock(return_value=False)
     with patch("applire.mcp.server.get_db", return_value=cm):
         return await update_application(application_id=application_id, **kwargs)
+
+
+def _execute_by_entity(mock_cv, default_result, job_id):
+    """ADR-092: the background render loads the CV via an owner-keyed SELECT
+    (not ``db.get``), so route ``execute`` by the selected entity. The CV row
+    is owned by the harness user, the acting owner."""
+    from unittest.mock import MagicMock
+
+    from applire.models.application import Application
+    from applire.models.cv import GeneratedCV
+    from tests.support.owners import HARNESS_USER_ID
+
+    mock_cv.user_id = HARNESS_USER_ID
+    mock_cv.job_analysis_id = job_id
+
+    def _execute(stmt, *args, **kwargs):
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is GeneratedCV:
+            row = mock_cv
+        elif entity is Application:
+            row = None
+        else:
+            return default_result
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = row
+        return result
+
+    return _execute

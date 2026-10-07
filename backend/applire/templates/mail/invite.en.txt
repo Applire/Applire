@@ -1,0 +1,19 @@
+Subject: Your invitation to Applire
+
+Hello,
+
+you have been invited to Applire — the tool you use to create CVs and cover letters for your job applications.
+
+Set your password here:
+
+{link}
+
+The link is valid until {expires_at} and works only once. Afterwards you sign in with {email} and your password at:
+
+{instance_url}
+
+If the link has expired, ask the person who invited you for a new one.
+If you did not expect an invitation, you can simply delete this email — nothing happens without the link.
+
+—
+This email was sent by the Applire instance at {instance_url}.

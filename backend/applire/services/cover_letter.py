@@ -51,6 +51,9 @@ from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
+from applire import ownership
+from applire.services.owner_resolution import owned_row, resolve_user_id
+from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
     CV_GENERATION_MAX_TOKENS,
     LETTER_TERMINAL_REENTRY_MAX,
@@ -151,6 +154,8 @@ async def generate_cover_letter(
     provider: LLMProvider,
     background_tasks: BackgroundTasks | None = None,
     base_url: str = "http://localhost:8001",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterGenerateResponse:
     """Create a GeneratedCoverLetter record and render it.
 
@@ -159,10 +164,13 @@ async def generate_cover_letter(
     (``background_tasks=None``) and we render inline before returning — the
     agent polls ``get_cover_letter_status`` and sees a terminal status on the
     first read (mirrors services/cv.py:generate_cv)."""
-    # Resolve flow session for this job
+    uid = resolve_user_id(user_id, site="cover_letter.generate_cover_letter")
+    # Resolve the CALLER's flow session for this job (ADR-092: two users may
+    # each have a flow on one shared posting).
     flow_result = await db.execute(
         select(FlowSession).where(
             FlowSession.job_id == request.job_id,
+            FlowSession.user_id == uid,
             FlowSession.deleted_at.is_(None),
         )
     )
@@ -175,22 +183,15 @@ async def generate_cover_letter(
     template = "classic_german"
     color_profile_id: uuid.UUID | None = None
     if flow.generated_cv_id is not None:
-        cv_result = await db.execute(
-            select(GeneratedCV).where(GeneratedCV.id == flow.generated_cv_id)
-        )
-        cv = cv_result.scalar_one_or_none()
+        cv = await owned_row(db, GeneratedCV, flow.generated_cv_id, uid, live=False)
         if cv is not None:
             template = cv.template
             color_profile_id = cv.color_profile_id
 
-    # Resolve profile
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    # Resolve the caller's profile (ADR-092 cl. 2 — the one vault read path)
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, uid)
     if profile is None:
         raise LookupError("No profile found — complete the interview step first")
 
@@ -207,11 +208,11 @@ async def generate_cover_letter(
     # E054 / ADR-038 amendment clause 3: resolve the document language ONCE,
     # here, and pin it on the record (mirrors services/cv.generate_cv).
     from applire.services.application import get_application_for_job
-    from applire.services.color_detection import _CE_STUB_USER_ID
     from applire.utils.language_detection import resolve_document_language
 
+    # The caller's own flow (above) already implies their link to the posting.
     job_row = await db.get(JobAnalysis, request.job_id)
-    application = await get_application_for_job(request.job_id, _CE_STUB_USER_ID, db)
+    application = await get_application_for_job(request.job_id, uid, db)
     document_language = (
         resolve_document_language(application, job_row) if job_row else "de"
     )
@@ -222,6 +223,7 @@ async def generate_cover_letter(
     cl = GeneratedCoverLetter(
         job_analysis_id=request.job_id,
         profile_id=profile.id,
+        user_id=uid,
         template=template,
         letter_data={},
         pre_gen_inputs=pre_gen_inputs,
@@ -250,6 +252,7 @@ async def generate_cover_letter(
             cv_id=flow.generated_cv_id,
             job_id=request.job_id,
             application_id=application_id,
+            user_id=uid,
         )
         await db.refresh(cl)
     else:
@@ -260,6 +263,7 @@ async def generate_cover_letter(
             cv_id=flow.generated_cv_id,
             job_id=request.job_id,
             application_id=application_id,
+            user_id=uid,
         )
 
     return CoverLetterGenerateResponse(
@@ -275,14 +279,11 @@ async def get_cover_letter_status(
     cl_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterStatusResponse:
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_status")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
 
@@ -302,9 +303,9 @@ async def get_cover_letter_status(
     from applire.services.signature import resolve_signature_available, resolve_signature_effective
 
     signature_effective = await resolve_signature_effective(
-        db, document="letter", override=cl.signature_override
+        db, document="letter", override=cl.signature_override, user_id=uid
     )
-    signature_available = await resolve_signature_available(db)
+    signature_available = await resolve_signature_available(db, user_id=uid)
 
     return CoverLetterStatusResponse(
         cover_letter_id=cl.id,
@@ -335,7 +336,9 @@ async def get_cover_letter_status(
 
 
 async def set_cover_letter_signature_override(
-    cl_id: uuid.UUID, override: bool | None, db: AsyncSession
+    cl_id: uuid.UUID, override: bool | None, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> bool:
     """Persist ``signature_override`` on one cover letter and return the
     resulting ``signature_effective``. Letter-side twin of
@@ -343,13 +346,8 @@ async def set_cover_letter_signature_override(
     (ready), same reasoning; see that function's own docstring."""
     from applire.services.signature import resolve_signature_effective
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.set_cover_letter_signature_override")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     if cl.status != CoverLetterStatus.ready.value:
@@ -357,10 +355,12 @@ async def set_cover_letter_signature_override(
 
     cl.signature_override = override
     await db.commit()
-    return await resolve_signature_effective(db, document="letter", override=override)
+    return await resolve_signature_effective(
+        db, document="letter", override=override, user_id=uid
+    )
 
 
-async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a cover-letter PDF (E039/US219).
 
     Format: <name>_<company>_<role>_<suffix>.pdf — same contract as the CV
@@ -375,8 +375,9 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     """
     from applire.services.cv import compose_document_filename
 
-    cl = await db.get(GeneratedCoverLetter, cl_id)
-    if cl is None or cl.deleted_at is not None:
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_pdf_filename")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
+    if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
 
     profile = await db.get(MasterProfile, cl.profile_id)
@@ -384,15 +385,13 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     job = await db.get(JobAnalysis, cl.job_analysis_id)
     # E054 clause 3b: the record's pinned language wins; seam fallback for
     # pre-migration rows — the filename must name the document it renders.
+    from applire.services.application import get_application_for_job
+
+    application = await get_application_for_job(cl.job_analysis_id, uid, db)
     language = cl.document_language
     if not language:
-        from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
         from applire.utils.language_detection import resolve_document_language
 
-        application = await get_application_for_job(
-            cl.job_analysis_id, _CE_STUB_USER_ID, db
-        )
         language = (
             resolve_document_language(application, job) if job is not None else "de"
         )
@@ -400,8 +399,9 @@ async def get_cover_letter_pdf_filename(cl_id: uuid.UUID, db: AsyncSession) -> s
     fallback_stem = "cover-letter" if language == "en" else "anschreiben"
     return compose_document_filename(
         name,
-        job.company_name if job else None,
-        job.role_title if job else None,
+        # ADR-092 cl. 5(f): the filename names the user's own labels.
+        effective_posting_labels(job, application)[1] if job else None,
+        effective_posting_labels(job, application)[0] if job else None,
         suffix=suffix,
         fallback=f"{fallback_stem}-{str(cl_id)[:8]}",
     )
@@ -411,6 +411,8 @@ async def get_cover_letter_html(
     cl_id: uuid.UUID,
     db: AsyncSession,
     require_ready: bool = True,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> str:
     """Render the cover letter HTML via Jinja2. Only works when status='ready'.
 
@@ -418,13 +420,8 @@ async def get_cover_letter_html(
     status flips to 'ready' (so the ATS audit lands BEFORE 'ready' is observable). The
     public download path keeps the default ready-only guard.
     """
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_html")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     if require_ready and cl.status != CoverLetterStatus.ready.value:
@@ -452,25 +449,24 @@ async def get_cover_letter_html(
     # (resolved from the target job, like the CV), not a hardcoded German "Bewerbung".
     from applire.models.job import JobAnalysis
     from applire.templates.labels import cover_letter_labels
+    from applire.services.application import get_application_for_job
+
     job = await db.get(JobAnalysis, cl.job_analysis_id)
+    application = await get_application_for_job(cl.job_analysis_id, uid, db)
     # E054 clause 3b: pinned document language first; seam fallback for
     # pre-migration rows.
     lang = cl.document_language
     if not lang:
-        from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
         from applire.utils.language_detection import resolve_document_language
 
-        application = await get_application_for_job(
-            cl.job_analysis_id, _CE_STUB_USER_ID, db
-        )
         lang = resolve_document_language(application, job) if job else "de"
     # F3 (blind PQ blocker) AC #3: the subject must reference the target role, not
     # just the bare word "Application"/"Bewerbung". Computed at render time (never
     # stored on letter_data) so it always reflects the job's current role_title —
     # role_title lives on JobAnalysis, not in the LLM's letter_data schema.
     labels = cover_letter_labels(lang)
-    role_title = job.role_title if job is not None else None
+    # ADR-092 cl. 5(f): the user's own posting labels (application wins).
+    role_title = effective_posting_labels(job, application)[0] if job is not None else None
     if role_title:
         subject = f"{labels['subject_prefix']}: {role_title}"
     else:
@@ -484,7 +480,7 @@ async def get_cover_letter_html(
     from applire.services.signature import resolve_signature_data_uri
 
     signature_image = await resolve_signature_data_uri(
-        db, document="letter", override=cl.signature_override
+        db, document="letter", override=cl.signature_override, user_id=cl.user_id
     )
     return tmpl.render(
         letter=letter_data,
@@ -629,12 +625,11 @@ async def _prepare_cover_letter_docx_render(
     lang = cl.document_language
     if not lang:
         from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
         from applire.utils.language_detection import resolve_document_language
 
         job = await db.get(JobAnalysis, cl.job_analysis_id)
         application = await get_application_for_job(
-            cl.job_analysis_id, _CE_STUB_USER_ID, db
+            cl.job_analysis_id, cl.user_id, db
         )
         lang = resolve_document_language(application, job) if job else "de"
 
@@ -645,12 +640,12 @@ async def _prepare_cover_letter_docx_render(
     from applire.services.signature import resolve_signature_bytes
 
     signature_bytes = await resolve_signature_bytes(
-        db, document="letter", override=cl.signature_override
+        db, document="letter", override=cl.signature_override, user_id=cl.user_id
     )
     return letter, lang, color_ctx["primary"], signature_bytes
 
 
-async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
+async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> bytes:
     """The editable Word export. Rendered ON DEMAND from letter_data, exactly
     like get_cover_letter_html / get_cover_letter_pdf — no bytes are
     persisted (ADR-079 clause 8; models/cover_letter.py has no
@@ -672,13 +667,8 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
     """
     from applire.services.office_export.letter_docx import render_letter_docx
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_docx")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     if cl.status != CoverLetterStatus.ready.value:
@@ -700,7 +690,7 @@ async def get_cover_letter_docx(cl_id: uuid.UUID, db: AsyncSession) -> bytes:
     )
 
 
-async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> str:
+async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> str:
     """Build the Content-Disposition filename for a cover-letter .docx
     export — the same <name>_<company>_<role>_<suffix> contract as
     get_cover_letter_pdf_filename (E039/US219), with a .docx extension.
@@ -712,8 +702,9 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
     """
     from applire.services.cv import compose_document_filename
 
-    cl = await db.get(GeneratedCoverLetter, cl_id)
-    if cl is None or cl.deleted_at is not None:
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_docx_filename")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
+    if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
 
     profile = await db.get(MasterProfile, cl.profile_id)
@@ -721,15 +712,13 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
     job = await db.get(JobAnalysis, cl.job_analysis_id)
     # E054 clause 3b: the record's pinned language wins; seam fallback for
     # pre-migration rows — the filename must name the document it renders.
+    from applire.services.application import get_application_for_job
+
+    application = await get_application_for_job(cl.job_analysis_id, uid, db)
     language = cl.document_language
     if not language:
-        from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
         from applire.utils.language_detection import resolve_document_language
 
-        application = await get_application_for_job(
-            cl.job_analysis_id, _CE_STUB_USER_ID, db
-        )
         language = (
             resolve_document_language(application, job) if job is not None else "de"
         )
@@ -737,8 +726,9 @@ async def get_cover_letter_docx_filename(cl_id: uuid.UUID, db: AsyncSession) -> 
     fallback_stem = "cover-letter" if language == "en" else "anschreiben"
     return compose_document_filename(
         name,
-        job.company_name if job else None,
-        job.role_title if job else None,
+        # ADR-092 cl. 5(f): the filename names the user's own labels.
+        effective_posting_labels(job, application)[1] if job else None,
+        effective_posting_labels(job, application)[0] if job else None,
         suffix=suffix,
         fallback=f"{fallback_stem}-{str(cl_id)[:8]}",
         extension="docx",
@@ -782,6 +772,8 @@ def _constraining_stated_limits_entry(limits: list[str]) -> dict:
 def build_stated_limits_entry(
     denied_concepts: list[dict] | None,
     keyword_ledger: list[dict] | None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> dict | None:
     """The ADR-075 affirmative entry, or ``None`` when nothing is owed (#532).
 
@@ -843,6 +835,8 @@ async def patch_cover_letter_section(
     content: str,
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     if section not in SUPPORTED_SECTION_OVERRIDES:
         raise ValueError(
@@ -850,13 +844,8 @@ async def patch_cover_letter_section(
             f"(supported: {sorted(SUPPORTED_SECTION_OVERRIDES)})"
         )
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.patch_cover_letter_section")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
 
@@ -866,25 +855,31 @@ async def patch_cover_letter_section(
     await db.commit()
 
     if background_tasks is not None:
-        background_tasks.add_task(_update_ats_report_letter_by_id, cl_id)
+        background_tasks.add_task(_update_ats_report_letter_by_id, cl_id, user_id=uid)
 
 
 async def get_cover_letter_by_job(
     job_id: uuid.UUID,
     db: AsyncSession,
     base_url: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> CoverLetterStatusResponse:
-    # Find active cover letter via flow session
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_by_job")
+    # Find the CALLER's active cover letter via their flow session (ADR-092).
     flow_result = await db.execute(
         select(FlowSession).where(
             FlowSession.job_id == job_id,
+            FlowSession.user_id == uid,
             FlowSession.deleted_at.is_(None),
         )
     )
     flow = flow_result.scalar_one_or_none()
     if flow is None or flow.generated_cover_letter_id is None:
         raise LookupError(f"No cover letter found for job {job_id}")
-    return await get_cover_letter_status(flow.generated_cover_letter_id, db, base_url)
+    return await get_cover_letter_status(
+        flow.generated_cover_letter_id, db, base_url, user_id=uid
+    )
 
 
 def _default_color_context() -> dict:
@@ -1184,8 +1179,30 @@ async def _render_cover_letter_background(
     cv_id: uuid.UUID | None,
     job_id: uuid.UUID,
     application_id: uuid.UUID | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
-    """Background task: LLM → Jinja2 → PDF. Updates status on completion.
+    """Background task entry point — acts for ``user_id`` (ADR-092 cl. 14).
+
+    The task outlives the request, so it names its owner itself: the caller
+    passes ``user_id`` and the whole render runs inside ``owner_context``.
+    """
+    uid = resolve_user_id(user_id, site="cover_letter._render_cover_letter_background")
+    with ownership.owner_context(uid):
+        await _render_cover_letter_body(
+            cl_id, cv_id, job_id, application_id, user_id=uid
+        )
+
+
+async def _render_cover_letter_body(
+    cl_id: uuid.UUID,
+    cv_id: uuid.UUID | None,
+    job_id: uuid.UUID,
+    application_id: uuid.UUID | None,
+    *,
+    user_id: uuid.UUID,
+) -> None:
+    """Background task body: LLM → Jinja2 → PDF. Updates status on completion.
 
     ``application_id`` (ADR-086 / US313, adversarial pass 2026-09-09 — the
     O1/O2 integration had not wired this file at all) is resolved by the
@@ -1207,10 +1224,7 @@ async def _render_cover_letter_background(
         async with AsyncSessionLocal() as db:
             try:
                 # Load cover letter record
-                cl_result = await db.execute(
-                    select(GeneratedCoverLetter).where(GeneratedCoverLetter.id == cl_id)
-                )
-                cl = cl_result.scalar_one_or_none()
+                cl = await owned_row(db, GeneratedCoverLetter, cl_id, user_id, live=False)
                 if cl is None:
                     return
 
@@ -1224,25 +1238,33 @@ async def _render_cover_letter_background(
                 job = job_result.scalar_one_or_none()
                 if job is None:
                     raise LookupError("Job not found")
+                # ADR-092 cl. 5(f): the user's own labels for this posting —
+                # from the application the caller already resolved (no new query).
+                from applire.models.application import Application
 
-                # Load CV tailored_data
+                label_application = (
+                    await db.get(Application, application_id)
+                    if application_id is not None else None
+                )
+                if label_application is not None and getattr(
+                    label_application, "user_id", user_id
+                ) != user_id:
+                    label_application = None
+                job_role_title, job_company_name = effective_posting_labels(
+                    job, label_application
+                )
+
+                # Load CV tailored_data (the owner's CV only)
                 cv_data: dict = {}
                 if cv_id is not None:
-                    cv_result = await db.execute(
-                        select(GeneratedCV).where(GeneratedCV.id == cv_id)
-                    )
-                    cv = cv_result.scalar_one_or_none()
+                    cv = await owned_row(db, GeneratedCV, cv_id, user_id, live=False)
                     if cv is not None:
                         cv_data = cv.tailored_data or {}
 
-                # Load profile
-                profile_result = await db.execute(
-                    select(MasterProfile)
-                    .where(MasterProfile.deleted_at.is_(None))
-                    .order_by(MasterProfile.created_at.desc())
-                    .limit(1)
-                )
-                profile = profile_result.scalar_one_or_none()
+                # Load the owner's profile (ADR-092 cl. 2)
+                from applire.services.profile import get_profile_for_user
+
+                profile = await get_profile_for_user(db, user_id)
                 if profile is not None and not cv_data:
                     # ADR-061 clause 3: no CV exists yet, so this raw profile stands in
                     # as the writer's evidence — an unconfirmed skill/language/
@@ -1266,8 +1288,8 @@ async def _render_cover_letter_background(
                     extracted = extract_recipient_from_jd(job.raw_text)
                     if extracted["name"]:
                         pre_gen["recipient_name"] = extracted["name"]
-                if not pre_gen.get("recipient_company") and hasattr(job, "company_name") and job.company_name:
-                    pre_gen["recipient_company"] = job.company_name
+                if not pre_gen.get("recipient_company") and job_company_name:
+                    pre_gen["recipient_company"] = job_company_name
 
                 # ADR-038: the letter follows the language the JD is written in —
                 # not language_requirement, which is the candidate requirement
@@ -1284,6 +1306,7 @@ async def _render_cover_letter_background(
                     select(GapAnalysis)
                     .where(
                         GapAnalysis.job_analysis_id == job_id,
+                        GapAnalysis.user_id == user_id,
                         GapAnalysis.deleted_at.is_(None),
                     )
                     .order_by(GapAnalysis.created_at.desc())
@@ -1459,7 +1482,6 @@ async def _render_cover_letter_background(
                 try:
                     from applire.schemas.profile import MasterProfileData
                     from applire.services.application import get_application_for_job
-                    from applire.services.color_detection import _CE_STUB_USER_ID
                     from applire.services.fact_pins import (
                         load_pins,
                         refresh_pin_staleness,
@@ -1470,7 +1492,7 @@ async def _render_cover_letter_background(
                     )
 
                     pin_application = await get_application_for_job(
-                        cl.job_analysis_id, _CE_STUB_USER_ID, db
+                        cl.job_analysis_id, user_id, db
                     )
                     if pin_application is not None and pin_application.pinned_facts:
                         raw_profile_data = MasterProfileData.model_validate(
@@ -1551,9 +1573,9 @@ async def _render_cover_letter_background(
                 # demanded, and in the one round that destroyed a correct honest-gap
                 # sentence the recomputed list was empty — a per-round corrector block
                 # would have been silent there too.
-                if job.company_name:
+                if job_company_name:
                     positioning_requested["company_domain_engagement"] = {
-                        "target_company": job.company_name,
+                        "target_company": job_company_name,
                         "required": True,
                         "instruction": (
                             "REQUIRED content: the letter must concretely engage this "
@@ -1664,10 +1686,10 @@ async def _render_cover_letter_background(
                     pre_gen_inputs=pre_gen,
                     detected_language=detected_language,
                     keyword_ledger=keyword_ledger,
-                    role_title=job.role_title,
+                    role_title=job_role_title,
                     word_budget=norm.letter_body_word_budget,
                     letter_pages=norm.letter_pages,
-                    company_name=job.company_name,
+                    company_name=job_company_name,
                     gap_testimony=gap_testimony,
                     availability_testimony=availability_testimony,
                     stated_limits_block=stated_limits_block,
@@ -2214,10 +2236,9 @@ async def _render_cover_letter_background(
             except Exception as exc:
                 logger.exception("Cover letter generation failed for %s: %s", cl_id, exc)
                 async with AsyncSessionLocal() as err_db:
-                    err_result = await err_db.execute(
-                        select(GeneratedCoverLetter).where(GeneratedCoverLetter.id == cl_id)
+                    err_cl = await owned_row(
+                        err_db, GeneratedCoverLetter, cl_id, user_id, live=False
                     )
-                    err_cl = err_result.scalar_one_or_none()
                     if err_cl is not None:
                         err_cl.status = CoverLetterStatus.failed.value
                         err_cl.error_message = str(exc)[:500]
@@ -2393,7 +2414,7 @@ async def _persist_and_measure(
     try:
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True, user_id=cl.user_id)
     except Exception as pdf_err:
         logger.warning("PDF render failed for CL %s: %s", cl.id, pdf_err)
     if pdf_bytes is not None:
@@ -3323,6 +3344,7 @@ async def _latest_keyword_ledger(
     job_id: uuid.UUID,
     *,
     profile_json: dict | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> list[dict] | None:
     """Return the latest non-deleted GapAnalysis Keyword Ledger for *job_id* (ADR-048/US203).
 
@@ -3340,10 +3362,13 @@ async def _latest_keyword_ledger(
     from applire.models.gap import GapAnalysis
     from applire.models.profile import MasterProfile
 
+    # ADR-092: the newest gap analysis of THIS owner on the shared posting.
+    uid = resolve_user_id(user_id, site="cover_letter._latest_keyword_ledger")
     result = await db.execute(
         select(GapAnalysis)
         .where(
             GapAnalysis.job_analysis_id == job_id,
+            GapAnalysis.user_id == uid,
             GapAnalysis.deleted_at.is_(None),
         )
         .order_by(GapAnalysis.created_at.desc())
@@ -3360,6 +3385,21 @@ async def _latest_keyword_ledger(
     return await refresh_persist_and_rescore(
         gap, profile_json, db, seam="letter ledger read"
     )
+
+
+async def _label_application(db: AsyncSession, cl: GeneratedCoverLetter):
+    """The letter owner's application on the letter's posting — the carrier of
+    THEIR role/company labels for the audit's non-claim names (ADR-092 cl. 5f).
+
+    Fail-safe like the pin load: a lookup error audits with the posting's own
+    names only (``non_claim_names_for_job(job, None)``)."""
+    try:
+        from applire.services.application import get_application_for_job
+
+        return await get_application_for_job(cl.job_analysis_id, cl.user_id, db)
+    except Exception:
+        logger.exception("label application lookup failed for cover letter %s", cl.id)
+        return None
 
 
 async def _update_ats_report_letter(
@@ -3419,12 +3459,12 @@ async def _update_ats_report_letter(
         from applire.services.ats_audit import audit_cover_letter, non_claim_names_for_job
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf = pdf if pdf is not None else await render_pdf(cl.id)
+        pdf = pdf if pdf is not None else await render_pdf(cl.id, user_id=cl.user_id)
         job = await db.get(JobAnalysis, cl.job_analysis_id)
         letter_data = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
         # ADR-048 / US203: the latest Keyword Ledger buckets each MISSING keyword as
         # missing-claimable vs missing-honest-gap (legacy rows have none → all honest-gap).
-        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
         # #249 run-4: same shared-predicate guard as the CV path — a keyword with a
         # literal vault tie never lands in present_unsupported (one vocabulary).
         from applire.services.ats_audit import grounding_vault_index
@@ -3443,11 +3483,10 @@ async def _update_ats_report_letter(
             pins = []
             try:
                 from applire.services.application import get_application_for_job
-                from applire.services.color_detection import _CE_STUB_USER_ID
                 from applire.services.fact_pins import load_pins
 
                 _pin_app = await get_application_for_job(
-                    cl.job_analysis_id, _CE_STUB_USER_ID, db
+                    cl.job_analysis_id, cl.user_id, db
                 )
                 if _pin_app is not None and _pin_app.pinned_facts:
                     pins = load_pins(_pin_app)
@@ -3469,7 +3508,7 @@ async def _update_ats_report_letter(
             vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
             # (the audit adds the letter's own recipient.company).
-            non_claim=non_claim_names_for_job(job),
+            non_claim=non_claim_names_for_job(job, await _label_application(db, cl)),
         ).model_dump()
     except Exception:
         logger.exception("ATS audit failed for cover letter %s — ats_report left NULL", cl.id)
@@ -3517,8 +3556,13 @@ async def _update_ats_report_letter(
     try:
         from applire.services.outcome_critic import run_pass_b
 
+        from applire.services.application import get_application_for_job
+
         job_row = await db.get(JobAnalysis, cl.job_analysis_id)
-        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        critic_application = await get_application_for_job(
+            cl.job_analysis_id, cl.user_id, db
+        )
+        ledger = await _latest_keyword_ledger(db, cl.job_analysis_id, user_id=cl.user_id)
         audited_letter = _apply_section_overrides(cl.letter_data, cl.section_overrides or {})
 
         # Pass B needs BOTH documents (ADR-060 amended 2026-07-30). Resolution
@@ -3536,17 +3580,21 @@ async def _update_ats_report_letter(
         flow_result = await db.execute(
             select(FlowSession).where(
                 FlowSession.job_id == cl.job_analysis_id,
+                FlowSession.user_id == cl.user_id,
                 FlowSession.deleted_at.is_(None),
             )
         )
         flow = flow_result.scalar_one_or_none()
         if flow is not None and flow.generated_cv_id is not None:
-            cv_record = await db.get(GeneratedCV, flow.generated_cv_id)
+            cv_record = await owned_row(
+                db, GeneratedCV, flow.generated_cv_id, cl.user_id, live=False
+            )
         if cv_record is None:
             fallback_result = await db.execute(
                 select(GeneratedCV)
                 .where(
                     GeneratedCV.job_analysis_id == cl.job_analysis_id,
+                    GeneratedCV.user_id == cl.user_id,
                     GeneratedCV.status == CVGenerationStatus.ready.value,
                 )
                 .order_by(GeneratedCV.created_at.desc())
@@ -3609,7 +3657,11 @@ async def _update_ats_report_letter(
                 cv_tailored=cv_tailored,
                 letter_data=audited_letter,
                 keyword_ledger=ledger,
-                job_role_title=job_row.role_title if job_row else None,
+                # ADR-092 cl. 5(f): the owner's own label for the posting.
+                job_role_title=(
+                    effective_posting_labels(job_row, critic_application)[0]
+                    if job_row else None
+                ),
                 jd_excerpt=build_jd_excerpt(job_row.raw_text) if job_row else None,
                 provider=critic_provider,
             )
@@ -3667,7 +3719,9 @@ async def _update_ats_report_letter(
         # ADR-048 / US203: same Keyword Ledger bucketing as the PDF audit —
         # recomputed here rather than reused from the ats_report block
         # above, deliberately (see the paragraph comment).
-        docx_ledger = await _latest_keyword_ledger(db, cl.job_analysis_id)
+        docx_ledger = await _latest_keyword_ledger(
+            db, cl.job_analysis_id, user_id=cl.user_id
+        )
         from applire.services.ats_audit import grounding_vault_index
         from applire.services.keyword_ledger import profile_literal_corpus
 
@@ -3683,11 +3737,10 @@ async def _update_ats_report_letter(
         docx_pins: list = []
         try:
             from applire.services.application import get_application_for_job
-            from applire.services.color_detection import _CE_STUB_USER_ID
             from applire.services.fact_pins import load_pins
 
             docx_pin_app = await get_application_for_job(
-                cl.job_analysis_id, _CE_STUB_USER_ID, db
+                cl.job_analysis_id, cl.user_id, db
             )
             if docx_pin_app is not None and docx_pin_app.pinned_facts:
                 docx_pins = load_pins(docx_pin_app)
@@ -3710,7 +3763,9 @@ async def _update_ats_report_letter(
             vault_index=grounding_vault_index(
                 docx_profile_row.profile_json if docx_profile_row else None
             ),
-            non_claim=non_claim_names_for_job(docx_job),  # WP-R, same names as the PDF report
+            non_claim=non_claim_names_for_job(  # WP-R, same names as the PDF report
+                docx_job, await _label_application(db, cl)
+            ),
         ).model_dump()
     except Exception:
         logger.exception(
@@ -3721,30 +3776,27 @@ async def _update_ats_report_letter(
     await db.commit()
 
 
-async def _update_ats_report_letter_by_id(cl_id: uuid.UUID) -> None:
+async def _update_ats_report_letter_by_id(cl_id: uuid.UUID, *, user_id: uuid.UUID | None = None) -> None:
     """BackgroundTasks entrypoint — own session (request session gone by run time)."""
     from applire.services.review_state import document_lock  # ADR-090: serialise with review actions
 
-    async with document_lock("cover_letter", cl_id), AsyncSessionLocal() as db:
-        cl = await db.get(GeneratedCoverLetter, cl_id)
-        if cl is not None:
-            await _update_ats_report_letter(cl, db)
+    uid = resolve_user_id(user_id, site="cover_letter._update_ats_report_letter_by_id")
+    with ownership.owner_context(uid):
+        async with document_lock("cover_letter", cl_id), AsyncSessionLocal() as db:
+            cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid, live=False)
+            if cl is not None:
+                await _update_ats_report_letter(cl, db)
 
 
-async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "ATSReportResponse":
+async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> "ATSReportResponse":
     """Return the persisted ATS report for a cover letter (ADR-039).
 
     Raises LookupError if the cover letter is not found (→ 404 in the router).
     """
     from applire.schemas.ats import ATSReport, ATSReportResponse
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_ats_report")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     # E037 PQ #2 hardening: a non-conforming stored report must degrade to report:null,
@@ -3770,7 +3822,9 @@ async def get_cover_letter_ats_report(cl_id: uuid.UUID, db: AsyncSession) -> "AT
 
 
 async def get_cover_letter_truthfulness_report(
-    cl_id: uuid.UUID, db: AsyncSession
+    cl_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "TruthfulnessReportResponse":
     """Return the persisted truthfulness report for a cover letter (ADR-052/US246).
 
@@ -3779,13 +3833,8 @@ async def get_cover_letter_truthfulness_report(
     """
     from applire.schemas.oracle import TruthfulnessReport, TruthfulnessReportResponse
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_truthfulness_report")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     report = None
@@ -3803,7 +3852,9 @@ async def get_cover_letter_truthfulness_report(
 
 
 async def get_cover_letter_critic_report(
-    cl_id: uuid.UUID, db: AsyncSession
+    cl_id: uuid.UUID, db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> "OutcomeCriticReportResponse":
     """Return the persisted ADR-060 Pass B advisory for a cover letter (#322).
 
@@ -3816,13 +3867,8 @@ async def get_cover_letter_critic_report(
     """
     from applire.schemas.outcome_critic import OutcomeCriticReport, OutcomeCriticReportResponse
 
-    result = await db.execute(
-        select(GeneratedCoverLetter).where(
-            GeneratedCoverLetter.id == cl_id,
-            GeneratedCoverLetter.deleted_at.is_(None),
-        )
-    )
-    cl = result.scalar_one_or_none()
+    uid = resolve_user_id(user_id, site="cover_letter.get_cover_letter_critic_report")
+    cl = await owned_row(db, GeneratedCoverLetter, cl_id, uid)
     if cl is None:
         raise LookupError(f"Cover letter {cl_id} not found")
     report = None
@@ -3849,6 +3895,8 @@ async def render_agent_letter(
     job_id: uuid.UUID,
     db: AsyncSession,
     template: str = "classic_german",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> GeneratedCoverLetter:
     """Render agent-authored cover-letter content (ADR-054) — letter twin of
     ``services.cv.render_agent_cv``.
@@ -3866,18 +3914,15 @@ async def render_agent_letter(
     only then flipped 'ready' — so 'ready' is never observable without reports.
     """
     from applire.schemas.cover_letter import LetterData
+    from applire.services.profile import get_profile_for_user
 
+    uid = resolve_user_id(user_id, site="cover_letter.render_agent_letter")
+    # Posting ACCESS (ADR-092 cl. 5c) is the MCP door's check (render_document).
     job = await db.get(JobAnalysis, job_id)
     if job is None:
         raise LookupError(f"Job analysis {job_id} not found")
 
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    profile = await get_profile_for_user(db, uid)
     if profile is None:
         raise LookupError("No profile found — import a CV first")
 
@@ -3890,10 +3935,9 @@ async def render_agent_letter(
     # E054 clause 2: the agent door renders an employer-facing artifact —
     # the user's override applies here exactly as on the pipeline path.
     from applire.services.application import get_application_for_job
-    from applire.services.color_detection import _CE_STUB_USER_ID
     from applire.utils.language_detection import resolve_document_language
 
-    _application = await get_application_for_job(job_id, _CE_STUB_USER_ID, db)
+    _application = await get_application_for_job(job_id, uid, db)
     language = resolve_document_language(_application, job)
     if not letter_data["recipient"].get("date"):
         letter_data = _inject_letter_date(letter_data, language)
@@ -3917,6 +3961,7 @@ async def render_agent_letter(
     cl = GeneratedCoverLetter(
         job_analysis_id=job_id,
         profile_id=profile.id,
+        user_id=uid,
         letter_data=letter_data,
         pre_gen_inputs={},
         template=template,
@@ -3933,7 +3978,7 @@ async def render_agent_letter(
     try:
         from applire.services.cover_letter_pdf import render_pdf
 
-        pdf_bytes = await render_pdf(cl.id, allow_unready=True)
+        pdf_bytes = await render_pdf(cl.id, allow_unready=True, user_id=uid)
     except Exception as pdf_err:
         # Fail-open like the pipeline: HTML preview still works; the audit
         # below degrades to a NULL ATS report (truthfulness needs no PDF).

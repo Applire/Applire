@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.support.profile_factory import make_master_profile
 
 
+
 @pytest_asyncio.fixture
 async def db():
     import applire.models  # noqa: F401
@@ -513,7 +514,10 @@ async def test_resolve_gap_inherits_completion_recompute(db):
         select(GapAnalysis).where(GapAnalysis.job_analysis_id == job_id)
     )).scalar_one()
 
-    user_id = uuid.uuid4()
+    # ADR-092: the flow owner is the owner of the gap rows (harness user).
+    from tests.support.owners import HARNESS_USER_ID
+
+    user_id = HARNESS_USER_ID
     db.add(User(id=user_id, email="local@applire.community"))
     flow = FlowSession(
         user_id=user_id, job_id=job_id, current_step="interview",
@@ -547,3 +551,13 @@ async def test_resolve_gap_inherits_completion_recompute(db):
     )).scalar_one()
     assert flow_after.gap_analysis_id == new_ga.id
     assert flow_after.gap_analysis_id != old_ga.id
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

@@ -13,10 +13,12 @@ Your Code Push
     ↓
 GitHub Actions Triggered
     ↓
-3 Test Suites Run in Parallel:
+Test Suites Run in Parallel:
   • Backend Unit Tests (2 min)
-  • Backend Integration Tests (10 min)
-  • E2E Tests (5 min)
+  • Integration & E2E Tests — the fenced NoAuth test harness (10 min)
+  • Postgres-only Tests — races, constraints, migrations
+  • Real-auth Lane — login on, production topology
+  • Frontend unit tests, lint and production build
     ↓
 Results Posted to Your PR
 ```
@@ -162,6 +164,20 @@ npx playwright show-report
 
 ---
 
+## The two auth lanes (ADR-091)
+
+Login is always on in the product, so CI has two postures:
+
+| Lane | Stack | What it proves |
+|---|---|---|
+| **Integration & E2E** (harness) | `cp .env.ci .env`, `docker-compose.ci.yml` — `AUTH_HARNESS=true`, database `applire_ci`; every request is the stub administrator | Behaviour: IQ, OQ, PQ, integration, MCP stdio. `.env.ci` pins `POSTGRES_DB=applire_ci` and `docker-compose.ci.yml` overrides `env_file`, so a developer's own `.env` is never concatenated into the CI stack |
+| **Real-auth lane** (job `real-auth-lane`, **blocking**) | `docker-compose.ci-auth.yml` + `.env.ci-auth` — production topology, login on, nginx on `:8091` | Access control: setup from the code in the backend log through nginx, a port-less `Origin` refused (403), `/health` returns three fields, `/api/ops/health` answers 401 then 200, logout/login, no signature in the access log, the harness refusing a non-test database; then `tests/test_auth_e2e.py` once present |
+| **Postgres-only** (job `postgres-only-tests`) | one throwaway `*_test` PostgreSQL database per file | Races, the audit-log trigger, ownership constraints, migration 0076, the erasure race; a skipped test fails the job |
+
+The harness refuses to start on a database that is not a throwaway test database (SQLite in memory, or a name ending in `_ci`/`_test` with no profile at boot) — never copy `AUTH_HARNESS=true` into a real install's `.env`.
+
+---
+
 ## Understanding Test Reports
 
 ### JUnit XML Reports
@@ -261,6 +277,8 @@ Don't make huge changes. Push frequently so you can catch issues early.
 | Backend Unit | 5 min | ≥75% | ✅ |
 | Backend Integration | 20 min | — | ✅ |
 | E2E (IQ + OQ + PQ) | 10 min | — | ✅ |
+| Postgres-only Tests | 20 min | — | ✅ |
+| Real-auth Lane | 30 min | — | ✅ (blocking) |
 
 ### Branches Monitored
 - `main` — stable, always deployable

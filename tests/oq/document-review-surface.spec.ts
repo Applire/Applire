@@ -23,7 +23,8 @@
 //
 // Every backend call is stubbed with `page.route`, so this spec neither needs
 // nor spends a provider call.
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '../support/auth-fixture';
+import { type Page } from '@playwright/test';
 
 const FLOW_ID = 'e058e058-e058-e058-e058-e058e058e058';
 const CV_ID = 'c058c058-c058-c058-c058-c058c058c058';

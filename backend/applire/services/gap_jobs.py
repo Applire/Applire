@@ -39,8 +39,10 @@ from applire.exceptions import (
     LLMTimeoutError,
     LLMTruncatedError,
 )
+from applire import ownership
 from applire.models.gap_job import GapAnalysisJob, GapJobStatus
 from applire.providers import get_provider
+from applire.services.owner_resolution import resolve_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
 _NON_TERMINAL = (GapJobStatus.pending.value, GapJobStatus.processing.value)
 
 
-def classify_gap_error(exc: BaseException) -> str:
+def classify_gap_error(exc: BaseException, *, user_id: uuid.UUID | None = None) -> str:
     """Map a gap-analysis failure to a STABLE machine code (parity with
     classify_import_error). Raw exception text stays internal; the API surfaces only this
     code, localized by the frontend."""
@@ -65,12 +67,17 @@ def classify_gap_error(exc: BaseException) -> str:
 
 
 async def _find_nonterminal_job(
-    db: AsyncSession, job_analysis_id: uuid.UUID
+    db: AsyncSession, job_analysis_id: uuid.UUID, user_id: uuid.UUID
 ) -> GapAnalysisJob | None:
-    """The newest live (pending/processing) job for a job_analysis_id, if any."""
+    """The caller's newest live (pending/processing) job for a posting, if any.
+
+    Keyed on (user, posting) like ``uq_gap_jobs_live_kickoff`` (ADR-092 cl. 3,
+    SF-OWN.7): the posting is shared, another user's kick-off is never reused.
+    """
     existing = await db.execute(
         select(GapAnalysisJob)
         .where(
+            GapAnalysisJob.user_id == user_id,
             GapAnalysisJob.job_analysis_id == job_analysis_id,
             GapAnalysisJob.status.in_(_NON_TERMINAL),
             GapAnalysisJob.deleted_at.is_(None),
@@ -82,7 +89,7 @@ async def _find_nonterminal_job(
 
 
 async def create_gap_job(
-    db: AsyncSession, *, job_analysis_id: uuid.UUID, user_id: uuid.UUID | None
+    db: AsyncSession, *, job_analysis_id: uuid.UUID, user_id: uuid.UUID | None = None
 ) -> GapAnalysisJob:
     """Create a pending gap-analysis job and return it (the kick-off's immediate handle).
 
@@ -92,7 +99,8 @@ async def create_gap_job(
     Spaghettieis UAT 2026-07-13), so the uq_gap_jobs_live_kickoff partial unique index
     is the real arbiter — a lost race lands here as IntegrityError and we return the
     winner's job."""
-    reused = await _find_nonterminal_job(db, job_analysis_id)
+    user_id = resolve_user_id(user_id, "gap_jobs.create_gap_job")
+    reused = await _find_nonterminal_job(db, job_analysis_id, user_id)
     if reused is not None:
         return reused
 
@@ -106,7 +114,7 @@ async def create_gap_job(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        winner = await _find_nonterminal_job(db, job_analysis_id)
+        winner = await _find_nonterminal_job(db, job_analysis_id, user_id)
         if winner is not None:
             return winner
         raise
@@ -118,11 +126,18 @@ async def get_gap_job(
     db: AsyncSession, gap_job_id: uuid.UUID, *, user_id: uuid.UUID | None = None
 ) -> GapAnalysisJob | None:
     """Fetch a gap-analysis job, scoped to its owner (IDOR guard). Returns None for an
-    unknown/deleted job or a job owned by a different user."""
-    job = await db.get(GapAnalysisJob, gap_job_id)
+    unknown/deleted job or a job owned by a different user (S-10). The ownerless
+    widening (``job.user_id is None`` readable by everyone) is gone: 0074 made
+    ``user_id`` NOT NULL (ADR-092 cl. 4)."""
+    user_id = resolve_user_id(user_id, "gap_jobs.get_gap_job")
+    job = (
+        await db.execute(
+            select(GapAnalysisJob).where(
+                GapAnalysisJob.id == gap_job_id, GapAnalysisJob.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
     if job is None or job.deleted_at is not None:
-        return None
-    if user_id is not None and job.user_id is not None and job.user_id != user_id:
         return None
     return job
 
@@ -144,9 +159,17 @@ async def run_gap_job_background(
     # Imported here to avoid a potential import cycle with services.gap.
     from applire.services.gap import analyze_gaps
 
+    # ADR-092 cl. 14: a background task names its owner itself — the request's
+    # context is gone by the time this runs in a fresh session.
+    user_id = resolve_user_id(user_id, "gap_jobs.run_gap_job_background")
+    with ownership.owner_context(user_id):
+        await _run_gap_job(gap_job_id, job_analysis_id, user_id, session_factory, analyze_gaps)
+
+
+async def _run_gap_job(gap_job_id, job_analysis_id, user_id, session_factory, analyze_gaps) -> None:  # noqa: ANN001
     async with session_factory() as db:
         job = await db.get(GapAnalysisJob, gap_job_id)
-        if job is None:
+        if job is None or job.user_id != user_id:
             logger.warning("run_gap_job_background: job %s vanished", gap_job_id)
             return
 
@@ -154,7 +177,7 @@ async def run_gap_job_background(
         await db.commit()
 
         try:
-            result = await analyze_gaps(job_analysis_id, db, get_provider())
+            result = await analyze_gaps(job_analysis_id, db, get_provider(), user_id=user_id)
         except Exception as exc:  # noqa: BLE001 — background task is the last line of defence
             # Discard any failed transaction so the job-status write below succeeds, then
             # re-fetch the job (it may be expired after rollback).

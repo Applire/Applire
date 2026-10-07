@@ -150,7 +150,8 @@ Applire ist **agent-fähig**. Verbinde deinen KI-Agenten — Claude, ChatGPT ode
   - Erzeugte Lebensläufe und Anschreiben: 90 Tage (`GENERATED_DOCUMENTS_TTL_DAYS`)
   - Zurückgezogene Bewerbungen: 7 Tage (`CANCELLED_APPLICATION_TTL_DAYS`)
   - Master-Profil nach Inaktivität: 730 Tage (`PROFILE_INACTIVITY_TTL_DAYS`)
-- **Recht auf Löschung** (DSGVO Art. 17): Vollständige Datenlöschung per Klick
+- **Recht auf Löschung** (DSGVO Art. 17): Vollständige Datenlöschung per Klick — auch das Löschen deines ganzen Kontos in Eigenregie
+- **Deine Daten gehören nur dir**: Auf einer Instanz, die sich mehrere Personen teilen, sind Tresor, Bewerbungen und Dokumente jeder Person privat; eine fremde ID antwortet wie eine, die es nicht gibt
 - **Selbst gehostet**: Deine Daten verlassen nie deine Infrastruktur
 - **Verschlüsselung im Ruhezustand liegt bei dir.** Applire legt außer PostgreSQL keinen eigenen Klartext-Speicher an und verschlüsselt die Datenbank *nicht* für dich — betreibe sie auf einem verschlüsselten Volume oder einem vollverschlüsselten Host, wenn dein Umfeld das erfordert
 
@@ -183,8 +184,8 @@ Je schwächer das Modell deines Agenten, desto mehr von der eingebauten Pipeline
 
 ### Beispiel für einen Agenten-Workflow
 ```bash
-# MCP-Server starten (stdio-Transport)
-python -m applire.mcp
+# MCP-Server starten (stdio-Transport) — braucht dein persönliches Agent-Token
+APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 
 # Eine typische Agenten-Sitzung:
 1. start_flow()                              → flow_id  (stabiler Wiederaufsetz-Handle)
@@ -276,6 +277,14 @@ docker compose pull && docker compose up -d
 Jeder Dienst — auch der Reverse-Proxy, dessen Konfiguration im `applire-nginx`-Image eingebacken ist — ist ein vorgefertigtes Image. `docker compose pull` holt damit einen vollständigen, lauffähigen Stack, ohne dass du Konfigurationsdateien auf dem Host ablegen musst.
 
 Rufe die Anwendung unter **http://localhost** auf — der mitgelieferte nginx-Reverse-Proxy liefert das Frontend aus und leitet `/api/*` an das Backend weiter. Nur Port 80 muss veröffentlicht werden; die Backend- und Frontend-Container bleiben intern. Die vollständige Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+> **Erster Start: Instanz in Besitz nehmen.** Applire verlangt immer eine Anmeldung. Eine neue Installation zeigt einen Einrichtungsbildschirm, der einen einmaligen Code verlangt, den das Backend in sein Log schreibt:
+> ```bash
+> docker compose logs backend | grep "SETUP REQUIRED"
+> ```
+> Gib den Code mit deiner E-Mail-Adresse und einem Passwort (mindestens 12 Zeichen) ein — damit bist du Administrator. (Oder ohne den Bildschirm: `docker compose exec backend python -m applire.admin create-admin --email du@example.org`.) Weitere Personen legst du unter **Administration → Personen** an; es gibt keine offene Registrierung. **Update von 0.42 oder früher?** Der Bildschirm erscheint einmal, und deine vorhandenen Daten werden zum Konto des Administrators — lies vorher die [Upgrade-Hinweise](CHANGELOG.md) (auf Englisch). Mehrere Personen können sich eine Instanz teilen, jede mit ihrem eigenen, privaten Tresor; Details, Single Sign-on und E-Mail-Versand in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) (auf Englisch).
+>
+> **Hinter einem eigenen Proxy oder über https?** Leite den `Host`-Header unverändert weiter (oder setze `APPLIRE_BASE_URL`) und setze `COOKIE_SECURE=true`, sobald Applire über https erreicht wird.
 
 > **Eigene Domain oder TLS?** Das Image bringt eine sinnvolle Standard-Proxy-Konfiguration
 > mit. Um sie zu überschreiben, binde deine eigene Datei über die eingebackene — ergänze
@@ -394,11 +403,26 @@ OLLAMA_MODEL=llama3.2
 # LLM-Timeout in Sekunden (für Reasoning-Modelle erhöhen)
 LLM_TIMEOUT=180
 
-# Auth (none für den Einzelnutzer-Modus der Community Edition)
-AUTH_PROVIDER=none
+# Anmeldung — eingebaute Konten. (Der alte Wert "none" bedeutet jetzt ebenfalls "local";
+# die Anmeldung ist immer aktiv. Steht in deiner .env noch AUTH_PROVIDER=none, lösche die Zeile.)
+AUTH_PROVIDER=local
+
+# Auf true setzen, sobald Applire über https ausgeliefert wird; bei reinem http false lassen
+COOKIE_SECURE=false
+
+# Öffentliche Adresse, unter der Applire aufgerufen wird (nötig hinter einem Proxy, der
+# Host nicht weiterleitet, für OIDC und für die Links in Einladungs-Mails)
+#APPLIRE_BASE_URL=https://applire.example.org
+
+# Optional: Single Sign-on (https-Issuer) und E-Mail-Versand:
+#OIDC_ISSUER=
+#OIDC_CLIENT_ID=
+#OIDC_CLIENT_SECRET=
+#SMTP_HOST=
 
 # CORS — kommagetrennte Liste erlaubter Origins
-# Standard "*" (alle erlauben) ist für Einzelnutzer-Self-Hosting mit AUTH_PROVIDER=none in Ordnung
+# Die Browser-App ist same-origin und braucht hier nichts; Anmelde-Cookies werden
+# nie cross-origin gesendet.
 #CORS_ORIGINS=*
 
 # Der Lese-Timeout des Reverse-Proxys beträgt 300 s und ist fest im
@@ -431,6 +455,16 @@ Applire ist Bring Your Own Key — kein Anbieter ist bevorzugt. Wähle, was zu d
 ### REST-API
 
 Im Docker-Stack wird die REST-API über nginx unter `http://localhost/api/*` erreicht; die interaktive Swagger-UI ist verfügbar, wenn das Backend standalone in der Entwicklung läuft. Die Einstiegspunkt- und Port-Topologie findest du in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+#### Authentifizierung
+
+Jede Route außer `GET /health` und den Anmelde-/Einrichtungsseiten braucht eine Anmeldung. Ein Browser nutzt das Session-Cookie; ein **Skript** nutzt statt eines Cookie-Jars ein persönliches API-Token (anlegen unter Einstellungen → Tokens):
+
+```bash
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+```
+
+`GET /health` ist offen und liefert nur `status`, `edition` und `version`. Instanz-Gesundheit und die Detailfelder liegen unter `GET /api/ops/health` (Administrator oder Monitoring-Token). `/docs` verlangt eine Anmeldung.
 
 #### Kern-Endpunkte
 
@@ -487,12 +521,20 @@ als kurzlebigen Container neben deinem laufenden Applire, über stdio:
       "command": "docker",
       "args": [
         "compose", "-f", "/absoluter/pfad/zu/applire/docker-compose.yml",
-        "run", "--rm", "-T", "mcp"
-      ]
+        "run", "--rm", "-T", "-e", "APPLIRE_AGENT_TOKEN", "mcp"
+      ],
+      "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
     }
   }
 }
 ```
+
+**Der Server braucht dein persönliches Agent-Token.** Lege eines in Applire unter
+**Einstellungen → Tokens** an (es wird nur einmal angezeigt) und trage es im
+`env`-Eintrag ein; der Agent arbeitet dann nur mit *deinen* Daten. Ohne gültiges
+Token startet `python -m applire.mcp` nicht und sagt, wo du eines anlegst. Ein
+Quellcode-Checkout nimmt dieselbe Variable:
+`APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp`.
 
 `-T` ist wichtig: Der Server bekommt eine einfache Pipe statt eines Terminals,
 und genau die braucht der stdio-Transport. Starte Applire vorher
@@ -744,7 +786,7 @@ Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milest
 - [x] **Tiramisu** — ausgeliefert mit v0.39.0-beta. **Wahrheits-Orakel**: Jedes erzeugte Dokument erhält einen deterministischen Wahrheits-Report — ist jede Aussage im Profil verankert, ist jede Zahl belegt, wurde aus „zielt auf 70 %" stillschweigend „70 % erreicht"? In der Oberfläche und als MCP-Tool `audit_document`, das auch Dokumente prüft, die dein Agent selbst geschrieben hat; ebenso **`render_document`** (die eigenen Inhalte deines Agenten durch Applires normgeprüften Renderer, niemals umgeschrieben), **`submit_claims`** / **`submit_testimony`** (Agent-Interviews landen mit Belegen im Profil) und **`resolve_gap`**. Der Flavour schloss mit der *Auswahl* der Belege: ein einziger Schreibpfad ins Profil und eine Prüfschleife, deren Urteil das Dokument wie komponiert abdeckt
 - [x] **Stracciatella** — ausgeliefert mit v0.41.1-beta. Felix übernimmt das Steuer: die führende Dokumentsprache pro Bewerbung wählen (Erkennung wird zum Vorschlag statt zum Gesetz), strukturierte Master-Profil-Editoren statt Roh-JSON und Muss-Fakten ans Dokument pinnen — dazu Härtung der gelieferten Dokumente (die Ship-Gate-Befunde aus v0.39 und die Prompt-Injection-Abwehr)
 - [x] **Nougat** — ausgeliefert mit v0.42.0-beta. Der selbst hostende Operator: ein Versionssprung-Hinweis für Einstellungen, die ein Release neu einführt und deine `.env` nicht setzt (mit Upgrade-Hinweisen pro Release), eine veröffentlichte Qualifikationsmatrix, welche Modelle für Applires Prompts gut genug sind, eine Betriebs- und Health-Schicht mit Token-Tracking — dazu die Konsolidierung der Stracciatella-Befunde (die belegten Dokument-Bugs und die Review-Loop-Entscheide)
-- [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: Nutzerrollen, Anmelde-UI, Admin-Panel zur Nutzerverwaltung und die Voreinstellungen, die ein Admin für andere Nutzer setzt
+- [ ] **Strawberry** — Mehrbenutzer-Fähigkeit: eingebaute Konten und optionales Single Sign-on, Rollen, ein Administrationsbereich für Personen, persönliche Tokens für Agenten und Skripte und die Privatsphäre der Daten jeder Person (noch nicht veröffentlicht — im Abschnitt `[Unreleased]` des [Changelogs](CHANGELOG.md); die Voreinstellungen, die ein Admin für andere setzt, folgen)
 
 Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 

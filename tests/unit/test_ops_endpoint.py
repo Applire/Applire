@@ -15,7 +15,13 @@ Three things are asserted here and nowhere else:
 * the payload is **stable and additive** — the top-level keys are pinned, so a
   rename fails a named test instead of breaking somebody's Uptime Kuma;
 * the payload **discloses nothing forbidden** (``SF-OPS.5``) — this is the
-  enforcement of ADR-086 clause 4, which is only prose without it.
+  enforcement of ADR-086 clause 4, which is only prose without it — including the
+  ``auth.*`` secrets in ``instance_state`` (US329, ADR-087 amended 2026-10-03 cl. 3).
+
+Since Strawberry (S-16, RD-1) the route needs an admin or a probe token
+(``admin_or_probe``): the fixture acts as an admin through the provider override;
+the gate itself is asserted at the bottom (anonymous 401, non-admin 403) and with
+real tokens in ``test_tokens.py``.
 """
 
 import json
@@ -26,7 +32,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from applire.auth import get_auth_provider
 from applire.db.session import Base, get_db
+from applire.models.instance_state import InstanceState
 from applire.models.llm_usage import LlmUsage
 from applire.models.retention_run import RetentionRun
 from applire.routers import ops as ops_router
@@ -38,6 +46,27 @@ _SQLITE_URL = "sqlite+aiosqlite:///:memory:"
 class _StubProvider:
     async def acomplete(self, *_a, **_k):
         return "pong"
+
+
+class _AuthAs:
+    """An ``AuthProvider`` stand-in: a transient user with ``role`` (or nobody)."""
+
+    def __init__(self, role: str | None):
+        self.role = role
+
+    async def get_current_user(self, request, db):
+        if self.role is None:
+            return None
+        import uuid
+
+        from applire.models.user import User
+
+        user = User(id=uuid.uuid4(), email=f"{self.role}@example.org")
+        user.role = self.role
+        return user
+
+
+_AUTH = {"role": "admin"}
 
 
 @pytest_asyncio.fixture
@@ -53,7 +82,7 @@ async def client(monkeypatch):
     async with engine.begin() as conn:
         await conn.run_sync(
             Base.metadata.create_all,
-            tables=[RetentionRun.__table__, LlmUsage.__table__],
+            tables=[RetentionRun.__table__, LlmUsage.__table__, InstanceState.__table__],
         )
     maker = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -64,6 +93,13 @@ async def client(monkeypatch):
     app = FastAPI()
     app.include_router(ops_router.router)
     app.dependency_overrides[get_db] = _get_db
+
+    async def _provider():
+        return _AuthAs(_AUTH["role"])
+
+    app.dependency_overrides[get_auth_provider] = _provider
+    _AUTH["role"] = "admin"
+    app.state.engine_maker = maker
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://ops") as c:
         yield c
@@ -306,3 +342,86 @@ async def test_the_background_refresher_starts_stops_and_fills_the_cache(monkeyp
     await asyncio.sleep(0.2)
     assert calls["n"] == settled  # cancelled, not merely detached
     aggregate.reset_state()
+
+
+# ── US329: the gate and the instance secrets ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_anonymous_request_is_401(client):
+    _AUTH["role"] = None
+    response = await client.get("/api/ops/health")
+    assert response.status_code == 401
+    assert response.json()["detail"]["error_code"] == "unauthenticated"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_is_403(client):
+    _AUTH["role"] = "user"
+    response = await client.get("/api/ops/health")
+    assert response.status_code == 403
+    assert response.json()["detail"]["error_code"] == "forbidden"
+
+
+@pytest.mark.asyncio
+async def test_the_payload_never_carries_the_auth_secrets(client, monkeypatch):
+    """ADR-087 amended 2026-10-03 cl. 3 / ES 1.11 boundary: `auth.instance_secret`
+    and `auth.setup_token_hash` are never read by the ops layer — written here as
+    sentinels and searched for in the serialised response."""
+    from datetime import datetime, timezone
+
+    sentinels = {
+        "auth.instance_secret": "SENTINEL-INSTANCE-SECRET-1c",
+        "auth.setup_token_hash": "SENTINEL-SETUP-HASH-1c",
+    }
+    maker = client._transport.app.state.engine_maker
+    async with maker() as db:
+        for key, value in sentinels.items():
+            db.add(InstanceState(key=key, value=value, updated_at=datetime.now(timezone.utc)))
+        await db.commit()
+    body = json.dumps((await client.get("/api/ops/health")).json())
+    assert not [v for v in sentinels.values() if v in body]
+
+
+# --- RD-9 / MD-27: retired duplicate profiles, count only -------------------
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_is_zero_when_nothing_was_retired(client):
+    body = (await client.get("/api/ops/health")).json()
+    assert body["retired_profiles"] == 0
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_counts_the_0074_record_and_never_carries_its_ids(client):
+    """The admin's post-upgrade notice names HOW MANY older profiles were set aside
+    (upgradeNotice.retiredProfile); the ids themselves never leave the instance."""
+    from datetime import datetime, timezone
+
+    ids = ["SENTINEL-RETIRED-ID-1", "SENTINEL-RETIRED-ID-2"]
+    maker = client._transport.app.state.engine_maker
+    async with maker() as db:
+        db.add(
+            InstanceState(
+                key="upgrade.retired_profiles",
+                value={"profile_ids": ids, "retired_at": "2026-10-05T10:00:00+00:00"},
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    payload = (await client.get("/api/ops/health")).json()
+    assert payload["retired_profiles"] == 2
+    body = json.dumps(payload)
+    assert not [i for i in ids if i in body]
+
+
+@pytest.mark.asyncio
+async def test_retired_profiles_reads_a_malformed_record_as_zero(client):
+    from datetime import datetime, timezone
+
+    maker = client._transport.app.state.engine_maker
+    async with maker() as db:
+        db.add(InstanceState(key="upgrade.retired_profiles", value="garbage",
+                             updated_at=datetime.now(timezone.utc)))
+        await db.commit()
+    assert (await client.get("/api/ops/health")).json()["retired_profiles"] == 0

@@ -61,6 +61,10 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 _USER_A = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000001")
+
+from tests.support.owners import act_as  # noqa: E402
+
+_acting_user = act_as(_USER_A)  # list_documents acts for _USER_A (ADR-092 cl. 8)
 _USER_B = uuid.UUID("bbbbbbbb-0000-0000-0000-000000000002")
 
 
@@ -112,12 +116,27 @@ async def _seed_cv(db, user_id, role_title, company_name, template="classic_germ
         db.add(user)
         await db.flush()
 
-    profile = make_master_profile(
-        profile_json=MasterProfileData(
-            personal_info=PersonalInfo(name="Test User")
-        ).model_dump(mode="json"),
-    )
-    db.add(profile)
+    # The user's ONE live vault (ADR-092 cl. 2), created on their first CV;
+    # each CV takes its profile's owner (cl. 1).
+    from sqlalchemy import select
+
+    from applire.models.profile import MasterProfile
+
+    profile = (
+        await db.execute(
+            select(MasterProfile).where(
+                MasterProfile.user_id == user_id, MasterProfile.deleted_at.is_(None)
+            )
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        profile = make_master_profile(
+            user_id=user_id,
+            profile_json=MasterProfileData(
+                personal_info=PersonalInfo(name="Test User")
+            ).model_dump(mode="json"),
+        )
+        db.add(profile)
 
     raw_text_hash = hashlib.sha256(f"{user_id}{role_title}{company_name}".encode()).hexdigest()
     job = JobAnalysis(

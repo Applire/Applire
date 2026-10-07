@@ -1,5 +1,5 @@
 // tests/e2e/oq/photo-management.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/auth-fixture';
 import path from 'path';
 
 const TEST_FLOW_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';

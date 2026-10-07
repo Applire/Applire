@@ -73,6 +73,7 @@ import functools
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import date, datetime, timedelta
 from importlib import resources as importlib_resources
@@ -84,14 +85,20 @@ from sqlalchemy import select
 from applire.config import settings
 from applire.constants import MAX_TARGET_PAGES
 from applire.exceptions import LLMTruncatedError
+from applire import ownership
+from applire.mcp import identity as mcp_identity
 from applire.mcp.deps import get_db
-from applire.mcp.errors import internal, invalid_input, not_found
+from applire.mcp.errors import internal, invalid_input, not_found, unauthorized
 from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.models.application import UserStatus
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
 from applire.models.job import JobAnalysis
+from applire.models.application import Application
+from applire.models.flow import FlowSession
 from applire.models.profile import MasterProfile
+from applire.models.session import InterviewSession
+from applire.models.uploads import UploadRecord
 from applire.models.user import User
 from applire.norms import DEFAULT_REGION, REGION_NORMS
 from applire.providers import get_provider
@@ -105,7 +112,6 @@ from applire.schemas.application import (
 )
 from applire.schemas.cover_letter import CoverLetterGenerateRequest
 from applire.schemas.cv import GeneratedCVResponse
-from applire.schemas.job import JobAnalysisResponse
 from applire.schemas.flow import AdvanceFlowRequest, CreateFlowRequest
 from applire.schemas.profile_roles import AddRoleRequest, CloseRoleEntry
 from applire.services.profile.role_add import add_role_to_profile, AddRoleValidationError
@@ -116,6 +122,7 @@ from applire.services import cover_letter as cover_letter_svc
 from applire.services import cv as cv_svc
 from applire.services import gap as gap_svc
 from applire.services import job as job_svc
+from applire.services import posting_labels
 from applire.services import oracle as oracle_svc
 from applire.services import profile as profile_svc
 from applire.services import session as session_svc
@@ -134,7 +141,7 @@ MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB pre-encode cap (ADR-010 amendment)
 # 2026-08-25 while the document it returned said 2026-07-25. An agent that
 # caches by version could not tell it had a stale document. Pinned in both
 # directions by `test_guide_version_matches_the_guides_own_revision_line`.
-GUIDE_VERSION = "2026-09-26"
+GUIDE_VERSION = "2026-10-03"
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +175,144 @@ _INSTRUCTIONS = (
 mcp = FastMCP("Applire", instructions=_INSTRUCTIONS)
 
 
-@mcp.tool(
+# ---------------------------------------------------------------------------
+# Agent identity on every call (ADR-091 cl. 17/18, ADR-092 cl. 10, MD-3)
+# ---------------------------------------------------------------------------
+
+#: An absolute document URL this door may hand out — CV or letter, html/pdf/docx.
+#: Every match is (re-)signed before it leaves the door (ADR-091 cl. 18).
+_DOCUMENT_URL_RE = re.compile(
+    r"^(?P<prefix>https?://[^\s?#]*?/api/(?P<seg>cv|cover-letter)/)"
+    r"(?P<doc_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    r"/(?:html|pdf|docx)(?:\?.*)?$"
+)
+
+
+def _sign_document_urls(payload, user: User):
+    """Return ``payload`` with every document URL in it signed for ``user``.
+
+    One seam for every tool and the ``flow://`` resource: the URLs the services
+    build (``get_cv_status``, ``generate_cv``, the flow summary, …) are unsigned
+    REST URLs that would 401 without a session; ``render_document`` builds its own.
+    A string is re-signed only when the WHOLE value is a document URL; the walk
+    covers nested dicts and lists. Fails closed: a document URL that cannot be
+    signed (no instance secret) is an error, never an unsigned link.
+    """
+    from applire.auth.links import InstanceSecretMissing, sign_document_url
+
+    def walk(value):
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, str):
+            match = _DOCUMENT_URL_RE.match(value)
+            if match is None:
+                return value
+            kind = "cv" if match.group("seg") == "cv" else "cover_letter"
+            try:
+                return sign_document_url(kind, uuid.UUID(match.group("doc_id")), user, value)
+            except InstanceSecretMissing:
+                raise internal(
+                    "Applire could not sign the document link (instance secret not "
+                    "loaded) — restart the MCP server after the backend has started once."
+                )
+        return value
+
+    return walk(payload)
+
+
+def _acting_user() -> User:
+    """The live user of the running tool call (set by :func:`_agent_call`)."""
+    user = mcp_identity.current_user()
+    if user is None:  # a tool body reached without the identity wrapper
+        raise unauthorized(mcp_identity.UNBOUND_MESSAGE)
+    return user
+
+
+async def _current_user_id(db=None) -> uuid.UUID:  # noqa: ARG001 — kept as the test seam
+    """The id of the user this tool call acts for (ADR-092 cl. 10).
+
+    Re-checked at the start of every call by :func:`_agent_call` (MD-3); the
+    former ``select(User).limit(1)`` ("the first user") is gone. ``db`` is
+    accepted and ignored so existing call sites and test patches keep their shape.
+    """
+    return _acting_user().id
+
+
+def _agent_call(fn):
+    """Wrap a tool/resource body: re-check the identity, act as that user, sign links.
+
+    * The identity is re-validated in a session of its own **before** the body
+      runs — a revoked token or a disabled account refuses this very call (MD-3).
+    * The body runs inside the user's owner context (ADR-092 cl. 8).
+    * A foreign or missing id (``OwnedNotFound``) becomes ``not_found`` (S-10).
+    * Every document URL in the result is signed (ADR-091 cl. 18).
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            if mcp_identity.bound() is None:
+                user = await mcp_identity.revalidate(None)
+            else:
+                async with get_db() as db:
+                    user = await mcp_identity.revalidate(db)
+        except mcp_identity.AgentCallRefused as exc:
+            raise unauthorized(str(exc))
+        owner_token = ownership.set_owner(user.id)
+        user_token = mcp_identity.set_call_user(user)
+        try:
+            result = await fn(*args, **kwargs)
+        except ownership.OwnedNotFound as exc:
+            raise not_found(str(exc.detail))
+        finally:
+            mcp_identity.reset_call_user(user_token)
+            ownership.reset_owner(owner_token)
+        return _sign_document_urls(result, user)
+
+    return wrapper
+
+
+def agent_resource(*args, **kwargs):
+    """``@mcp.resource(...)`` for a resource that reads the user's data."""
+
+    def decorate(fn):
+        return mcp.resource(*args, **kwargs)(_agent_call(fn))
+
+    return decorate
+
+
+def agent_tool(**kwargs):
+    """``@mcp.tool(...)`` for an identity-checked tool — every Applire tool uses it."""
+
+    def decorate(fn):
+        return mcp.tool(**kwargs)(_agent_call(fn))
+
+    return decorate
+
+
+async def _owned(db, Model, id_, kind: str):
+    """``ownership.get_owned`` for the acting user; foreign = missing (S-10).
+
+    Soft-deleted rows count as missing on this door.
+    """
+    row = await ownership.get_owned(db, Model, id_, _acting_user().id, kind=kind)
+    if getattr(row, "deleted_at", None) is not None:
+        raise ownership.OwnedNotFound(kind)
+    return row
+
+
+async def _owned_job(db, job_id: uuid.UUID):
+    """The shared posting, reachable only through the user's own link (ADR-092 cl. 5c).
+
+    MD-23: services do not check posting access — every tool taking a
+    ``job_id`` and the ``job://`` resource call this at the door.
+    """
+    return await job_svc.get_job_for_user(db, job_id, _acting_user().id)
+
+
+@agent_tool(
     description=(
         "Return the Applire agent-usage guide + honesty contract (markdown). "
         "Call this before your first application run; re-fetch on reconnect. "
@@ -262,7 +406,7 @@ def _match_receipt_summary(receipts, *, reveal_existing: bool) -> list[dict]:
     return out
 
 
-async def _recent_matched(db) -> list[dict]:
+async def _recent_matched(db, user_id: uuid.UUID) -> list[dict]:
     """The `match_existing` receipts of the most recent vault write (#674 L72).
 
     `get_profile_health` writes nothing of its own, so the honest scope is the
@@ -273,7 +417,7 @@ async def _recent_matched(db) -> list[dict]:
     `list_open_gates` beside it (ADR-066: a door may adapt, never branch on a
     business rule).
     """
-    history = await profile_svc.get_enrichment_history(db)
+    history = await profile_svc.get_enrichment_history(db, user_id=user_id)
     if not history:
         return []
     return _match_receipt_summary(history[-1].matched, reveal_existing=True)
@@ -414,35 +558,12 @@ def _marked(payload, kind: str):
     return mark_tool_result(payload, _JD_DERIVED_FIELDS[kind])
 
 
-async def _current_user_id(db) -> uuid.UUID:
-    """Resolve the single local user (Community single-user mode)."""
-    result = await db.execute(select(User).limit(1))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise not_found("No user found — import a CV first via import_cv")
-    return user.id
-
-
-async def _import_user_id(db) -> uuid.UUID | None:
-    """Owner for an import's `UploadRecord` — best-effort (#367).
-
-    `import_cv` is the one tool that must work before a user row exists (its own
-    error message tells every other tool to call it first), so an empty `users`
-    table is an ownerless import rather than a failure. Same shape as
-    `get_profile_health`: scope when we can, never crash when we cannot.
-    """
-    try:
-        return await _current_user_id(db)
-    except McpError:
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Tools (7.2 – 7.8)
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Seed or extend the Master Profile from a CV. Provide file_base64 "
         "(base64 PDF, <=10 MB) or text (extracted CV text). Call once per CV "
@@ -472,7 +593,7 @@ async def import_cv(
                 "(async; poll GET /api/profile/import-jobs/{import_id}) instead."
             )
         async with get_db() as db:
-            uid = await _import_user_id(db)
+            uid = await _current_user_id(db)
             try:
                 result = await profile_svc.import_from_pdf(
                     raw, db, provider,
@@ -487,11 +608,13 @@ async def import_cv(
                 # LLMTruncatedError idiom `send_message`/`resolve_gap` use
                 # below: nothing was stored, name the retry.
                 raise internal(f"{exc} Nothing was stored — retry the import.")
+            except ownership.OwnedNotFound:
+                raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
                 raise internal(str(exc))
     elif text and text.strip():
         async with get_db() as db:
-            uid = await _import_user_id(db)
+            uid = await _current_user_id(db)
             try:
                 result = await profile_svc.import_from_text(
                     text.strip(), db, provider,
@@ -503,6 +626,8 @@ async def import_cv(
                 raise invalid_input(str(exc))
             except VaultWriteRevertedError as exc:
                 raise internal(f"{exc} Nothing was stored — retry the import.")
+            except ownership.OwnedNotFound:
+                raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
                 raise internal(str(exc))
     else:
@@ -514,7 +639,7 @@ async def import_cv(
     return _profile_summary(result)
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Analyse a job description and return a structured JobAnalysis. "
         "Provide exactly one of: text (the JD body) or url (scraped "
@@ -546,8 +671,11 @@ async def analyze_jd(
         jd_text = text.strip()
         if not jd_text:
             raise invalid_input("text must not be empty")
+    uid = await _current_user_id()
     async with get_db() as db:
         try:
+            # RD-2 / ADR-092 cl. 5(b): the service get-or-creates THIS user's
+            # application link to the shared posting and returns their labels.
             result = await job_svc.analyze_jd(
                 jd_text,
                 db,
@@ -555,30 +683,24 @@ async def analyze_jd(
                 source_url=source_url,
                 role_title_override=role_title,
                 company_name_override=company_name,
+                user_id=uid,
             )
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
-        # Branch F (E039/US220): repost hint against the user's own pipeline.
-        # Best-effort — no user yet (fresh install) or any lookup failure just
-        # skips the hint; the analysis itself must never fail because of it.
-        try:
-            uid = await _current_user_id(db)
-            result.duplicate_of = await app_svc.find_duplicate_application(
-                uid,
-                job_analysis_id=result.id,
-                source_url=source_url,
-                raw_text=jd_text,
-                db=db,
-            )
-        except Exception:
-            pass
+        # Branch F (E039/US220): the service computes `duplicate_of` BEFORE it
+        # creates the caller's link (a recognised repost gets a hidden link,
+        # ruling 4a-1) — a post-hoc lookup here would always match the link the
+        # analysis itself just created. The result is returned as-is.
     return _marked(result.model_dump(mode="json"), "analyze_jd")
 
 
-@mcp.tool(description="Return the current MasterProfile.")
+@agent_tool(description="Return the current MasterProfile.")
 async def get_profile() -> dict:
+    uid = await _current_user_id()
     async with get_db() as db:
-        result = await profile_svc.get_profile(db)
+        result = await profile_svc.get_profile(db, user_id=uid)
     if result is None:
         # #603 (agent collector): the message used to name a REST path the agent
         # cannot call. An error an agent reads must name the TOOL that fixes it.
@@ -589,7 +711,7 @@ async def get_profile() -> dict:
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Update one MasterProfile section. "
         f"section: one of {', '.join(sorted(profile_svc._VALID_SECTIONS))}. "
@@ -613,10 +735,12 @@ async def update_profile(
             basis = datetime.fromisoformat(basis_updated_at.replace("Z", "+00:00"))
         except ValueError as exc:
             raise invalid_input(f"basis_updated_at is not an ISO datetime: {exc}")
+    uid = await _current_user_id()
     async with get_db() as db:
         try:
             result = await profile_svc.patch_profile_section(
-                section, data, db, provider=provider, basis_updated_at=basis
+                section, data, db, provider=provider, basis_updated_at=basis,
+                user_id=uid,
             )
         except StaleEditError as exc:
             raise invalid_input(str(exc))
@@ -666,7 +790,7 @@ def _held_merge_summary(record, account_name: str | None) -> dict:
     }
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Read Master Profile health: severity-tagged integrity issues, a "
         "completeness score with field-level gaps, and every import the "
@@ -675,32 +799,27 @@ def _held_merge_summary(record, account_name: str | None) -> dict:
     )
 )
 async def get_profile_health() -> dict:
+    uid = await _current_user_id()
     async with get_db() as db:
-        health = await profile_svc.get_profile_health(db)
-        profile = await profile_svc.get_profile(db)
+        health = await profile_svc.get_profile_health(db, user_id=uid)
+        profile = await profile_svc.get_profile(db, user_id=uid)
         account_name = (
             profile.profile.personal_info.name if profile is not None else None
         ) or None
-        # Community is single-user (ADR-022 rejected), but a fresh install has
-        # no user row at all — scope when we can, never crash when we cannot.
-        try:
-            uid = await _current_user_id(db)
-        except McpError:
-            uid = None
         held = await profile_svc.list_open_gates(db, user_id=uid)
         # #674 line 72 (ADR-063 door parity) — the hub's third fact beside the
         # issues and the held merges: what the last write RECOGNISED as already
         # present. An agent whose import came back `partial` reads the reason
         # here, the same way it reads a hold's two names here and not off the
         # black-box import summary.
-        recent_matched = await _recent_matched(db)
+        recent_matched = await _recent_matched(db, uid)
     payload = health.model_dump(mode="json")
     payload["held_merges"] = [_held_merge_summary(r, account_name) for r in held]
     payload["recent_matched"] = recent_matched
     return payload
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Undo the last Master Profile merge (restores the pre-merge snapshot). "
         "Single-level and idempotent: nothing left to undo returns "
@@ -710,15 +829,16 @@ async def get_profile_health() -> dict:
 async def undo_last_merge() -> dict:
     from applire.services.profile.snapshots import undo_last_merge as undo_svc
 
+    uid = await _current_user_id()
     async with get_db() as db:
-        result = await undo_svc(db)
+        result = await undo_svc(db, user_id=uid)
     return {
         "restored": result.restored,
         "discarded_later_edits": result.discarded_later_edits,
     }
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Resolve an import the pre-merge integrity gate held (staged_id from "
         "get_profile_health.held_merges). decision: 'merge' or 'discard'. "
@@ -738,8 +858,15 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
             f"decision must be 'merge' or 'discard', got: {decision!r}"
         )
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
-        uid = await _current_user_id(db)
+        try:
+            await _owned(db, UploadRecord, sid, "held merge")
+        except ownership.OwnedNotFound:
+            raise not_found(
+                f"No held merge with staged_id {staged_id} — call "
+                "get_profile_health and read held_merges for the open ones."
+            )
         try:
             result = await profile_svc.resolve_staged_extraction(
                 db, sid, action=decision, user_id=uid, provider=provider
@@ -756,7 +883,7 @@ async def resolve_held_merge(staged_id: str, decision: str) -> dict:
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Submit facts elicited from the candidate as free-text testimony "
         "(their own words); Applire reconciles them into the profile with "
@@ -779,9 +906,13 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
         raise invalid_input(str(exc))
     jid = _parse_uuid(job_id, "job_id") if job_id is not None else None
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        if jid is not None:
+            await _owned_job(db, jid)
         try:
-            result = await submit_agent_claims(submission, jid, db, provider)
+            result = await submit_agent_claims(submission, jid, db, provider, user_id=uid)
         except ValueError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
@@ -789,7 +920,7 @@ async def submit_claims(claims: list[dict], job_id: str | None = None) -> dict:
     return _marked(result.model_dump(mode="json"), "submit_claims")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Reconcile ONE whole free-text testimony document into the profile "
         "with receipts (itemized claims: use submit_claims instead). Read "
@@ -809,9 +940,10 @@ async def submit_testimony(text: str) -> dict:
     except ValidationError as exc:
         raise invalid_input(str(exc))
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
         try:
-            result = await submit_testimony_svc(request.text, db, provider)
+            result = await submit_testimony_svc(request.text, db, provider, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
     # #674 line 72 — `matched` rides the result DTO (ADR-063 door parity); this
@@ -824,21 +956,26 @@ async def submit_testimony(text: str) -> dict:
     return payload
 
 
-@mcp.tool(description="Analyse gaps between the current profile and the specified job.")
+@agent_tool(description="Analyse gaps between the current profile and the specified job.")
 async def analyze_gaps(job_id: str) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
-            result = await gap_svc.analyze_gaps(jid, db, provider)
+            result = await gap_svc.analyze_gaps(jid, db, provider, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "analyze_gaps")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Start a gap-fill interview session for the given job. "
         "Requires a gap analysis to exist (call analyze_gaps first). "
@@ -848,18 +985,25 @@ async def analyze_gaps(job_id: str) -> dict:
 async def run_interview(job_id: str) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             from applire.schemas.session import SessionCreateRequest as _SCR
-            result = await session_svc.create_session(_SCR(job_id=jid), db, provider)
+            result = await session_svc.create_session(
+                _SCR(job_id=jid), db, provider, user_id=uid
+            )
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "session")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Send a message in an active interview session. "
         "Returns the next question, or {complete: true} when finished. "
@@ -873,9 +1017,13 @@ async def send_message(session_id: str, message: str) -> dict:
     if not message.strip():
         raise invalid_input("message must not be empty")
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, InterviewSession, sid, "interview session")
         try:
-            result = await session_svc.send_message(sid, message.strip(), db, provider)
+            result = await session_svc.send_message(
+                sid, message.strip(), db, provider, user_id=uid
+            )
         except LookupError as exc:
             raise not_found(str(exc))
         except ValueError as exc:
@@ -884,12 +1032,14 @@ async def send_message(session_id: str, message: str) -> dict:
             raise internal(
                 f"{exc} The turn was rolled back — resend the same message to retry."
             )
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "session")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Resolve ONE gap cluster in a single call — the agent-channel form of "
         "the UI's targeted gap fill. Pass job_id, a gap_id from analyze_gaps' "
@@ -917,8 +1067,11 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
             "control word like 'skip'/'done'. To skip a gap, don't resolve it."
         )
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
-        valid_ids = await session_svc.gap_cluster_ids(jid, db)
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
+        valid_ids = await session_svc.gap_cluster_ids(jid, db, user_id=uid)
         if valid_ids is None:
             raise not_found(
                 "No gap analysis found for this job — call analyze_gaps first."
@@ -941,7 +1094,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         # (#627: both persist mode="targeted", so a plain mode comparison
         # here used to protect only a guided run, not a half-finished
         # targeted one).
-        if await session_svc.active_full_interview_exists(jid, db):
+        if await session_svc.active_full_interview_exists(jid, db, user_id=uid):
             raise invalid_input(
                 "A full interview is in progress for this job — finish it "
                 "(reply 'done') before resolving gaps one at a time."
@@ -950,9 +1103,9 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         # testimony is identical (after normalisation) to the answer this gap
         # last recorded, the earlier call's turn already committed: refuse it
         # BEFORE a session is opened, so the retry charges no budget.
-        last_answer = await session_svc.last_recorded_answer(jid, gap_id, db)
+        last_answer = await session_svc.last_recorded_answer(jid, gap_id, db, user_id=uid)
         if session_svc.same_testimony(last_answer, answer):
-            lang = await session_svc.get_conversation_language(db, job_id=jid)
+            lang = await session_svc.get_conversation_language(db, job_id=jid, user_id=uid)
             raise invalid_input(
                 session_svc.gap_record_copy("identical_retry", lang, gap_id=repr(gap_id))
             )
@@ -960,10 +1113,11 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
 
         try:
             created = await session_svc.create_session(
-                _SCR(job_id=jid, mode="targeted", target_gap=gap_id), db, provider
+                _SCR(job_id=jid, mode="targeted", target_gap=gap_id), db, provider,
+                user_id=uid,
             )
             result = await session_svc.send_message(
-                created.session_id, answer, db, provider
+                created.session_id, answer, db, provider, user_id=uid
             )
         except session_svc.GapNotAskableError as exc:
             # ADR-089 clause 7 — budget spent, or already covered/declined.
@@ -977,6 +1131,8 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
                 f"{exc} The turn was rolled back (nothing saved) — call "
                 "resolve_gap again with the same arguments to retry."
             )
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
 
@@ -984,14 +1140,16 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         # (a legacy analysis row) keeps the pre-ADR-089 status and reports the
         # cluster as the latest row carries it.
         turn_coverage = result.cluster_coverage
-        coverage = turn_coverage or await session_svc.cluster_coverage_for(jid, gap_id, db)
+        coverage = turn_coverage or await session_svc.cluster_coverage_for(
+            jid, gap_id, db, user_id=uid
+        )
         completeness = result.completeness_score
         if completeness is None:
             # A follow-up turn is not a completion, so it carries no score of
             # its own; the profile's current completeness is the same fact.
             try:
                 completeness = (
-                    await session_svc.get_session_state(created.session_id, db)
+                    await session_svc.get_session_state(created.session_id, db, user_id=uid)
                 ).completeness_score
             except Exception:
                 completeness = None
@@ -1046,7 +1204,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
     return _marked(out, "resolve_gap")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Generate a tailored CV for the given job. "
         "Returns cv_id, html_url, and pdf_url. "
@@ -1063,7 +1221,10 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
     if target_pages is not None and not (1 <= target_pages <= MAX_TARGET_PAGES):
         raise invalid_input(f"target_pages must be between 1 and {MAX_TARGET_PAGES}")
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await cv_svc.generate_cv(
                 jid,
@@ -1071,15 +1232,18 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
                 provider,
                 base_url=settings.applire_base_url,
                 target_pages=target_pages,
+                user_id=uid,
             )
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Poll the status of a CV generation. "
         "Returns {cv_id, status, html_url?, pdf_url?, expires_at?}. "
@@ -1088,15 +1252,21 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
 )
 async def get_cv_status(cv_id: str) -> dict:
     cid = _parse_uuid(cv_id, "cv_id")
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, GeneratedCV, cid, "CV")
         try:
-            result = await cv_svc.get_cv_status(cid, db, settings.applire_base_url)
+            # ADR-091 cl. 18: the URLs inside are the REST service's unsigned
+            # ones; the identity wrapper re-signs them for this user.
+            result = await cv_svc.get_cv_status(
+                cid, db, settings.applire_base_url, user_id=uid
+            )
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Get the persisted ATS audit report for a generated CV. Returns "
         "{document_id, status, report, review_state, truthfulness}; report is "
@@ -1106,9 +1276,11 @@ async def get_cv_status(cv_id: str) -> dict:
 )
 async def get_cv_ats_report(cv_id: str) -> dict:
     cid = _parse_uuid(cv_id, "cv_id")
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, GeneratedCV, cid, "CV")
         try:
-            result = await cv_svc.get_cv_ats_report(cid, db)
+            result = await cv_svc.get_cv_ats_report(cid, db, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
     return _marked(result.model_dump(mode="json"), "ats_report")
@@ -1145,7 +1317,8 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     if kind == "cv":
         try:
             keyword_ledger = await cv_svc._latest_keyword_ledger(
-                db, record.job_analysis_id, profile_json=profile_json or None
+                db, record.job_analysis_id, profile_json=profile_json or None,
+                user_id=record.user_id,
             )
         except Exception:
             logger.exception(
@@ -1165,6 +1338,8 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
                 "cover_letter", profile_json, letter_data=record.letter_data or {},
                 provider=get_provider(),
             )
+    except ownership.OwnedNotFound:
+        raise  # foreign = missing: the wrapper answers not_found (S-10)
     except Exception as exc:
         raise internal(str(exc))
     record.truthfulness_report = report.model_dump(mode="json")
@@ -1172,7 +1347,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     return {"document_id": str(record.id), **record.truthfulness_report}
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Audit a document against the vault: per-claim verdicts grounded | "
         "inflated | misattributed | unbacked | unverifiable, with evidence "
@@ -1191,13 +1366,7 @@ async def audit_document(
         if document_text is not None:
             if not document_text.strip():
                 raise invalid_input("document_text is empty")
-            result = await db.execute(
-                select(MasterProfile)
-                .where(MasterProfile.deleted_at.is_(None))
-                .order_by(MasterProfile.created_at.desc())
-                .limit(1)
-            )
-            profile = result.scalar_one_or_none()
+            profile = await profile_svc.get_profile_for_user(db, _acting_user().id)
             if profile is None:
                 raise not_found("No profile found — import a CV first")
             try:
@@ -1205,21 +1374,26 @@ async def audit_document(
                     "external", profile.profile_json or {},
                     text=document_text, provider=get_provider(),
                 )
+            except ownership.OwnedNotFound:
+                raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
                 raise internal(str(exc))
             return report.model_dump(mode="json")
 
         did = _parse_uuid(document_id, "document_id")
-        cv = await db.get(GeneratedCV, did)
-        if cv is not None and cv.deleted_at is None:
-            return await _audit_stored_document(cv, "cv", db)
-        cl = await db.get(GeneratedCoverLetter, did)
-        if cl is not None and cl.deleted_at is None:
-            return await _audit_stored_document(cl, "cover_letter", db)
+        # ADR-092 cl. 10: owned reads — a foreign id is the same miss as none.
+        uid = _acting_user().id
+        for model, kind in ((GeneratedCV, "cv"), (GeneratedCoverLetter, "cover_letter")):
+            try:
+                record = await ownership.get_owned(db, model, did, uid)
+            except ownership.OwnedNotFound:
+                continue
+            if record.deleted_at is None:
+                return await _audit_stored_document(record, kind, db)
         raise not_found(f"No generated CV or cover letter with id {document_id}")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Render YOUR content into a norms-checked PDF; NEVER rewrites it. "
         "Read schema://cv or schema://cover-letter first; unknown fields "
@@ -1270,11 +1444,17 @@ async def render_document(
         raise invalid_input(f"Unknown format {fmt!r}. Valid formats: pdf, docx")
 
     base = settings.applire_base_url
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
+            # ADR-091 cl. 18: the html/pdf/docx URLs below are signed by the
+            # identity wrapper on the way out.
             if document_kind == "cv":
                 record = await cv_svc.render_agent_cv(
-                    content, jid, db, template=tmpl, target_pages=target_pages
+                    content, jid, db, template=tmpl, target_pages=target_pages,
+                    user_id=uid,
                 )
                 result = {
                     "document_id": str(record.id),
@@ -1295,13 +1475,15 @@ async def render_document(
                     # office_export.cv_docx.render_cv_docx) — never a
                     # parallel construction. Rendered on demand, like the
                     # REST route; no bytes persisted (ADR-079 clause 8).
-                    docx_bytes = await cv_svc.get_cv_docx(record.id, db)
+                    docx_bytes = await cv_svc.get_cv_docx(record.id, db, user_id=uid)
                     result["docx_url"] = f"{base}/api/cv/{record.id}/docx"
                     result["docx_base64"] = base64.b64encode(docx_bytes).decode("ascii")
-                    result["docx_filename"] = await cv_svc.get_docx_filename(record.id, db)
+                    result["docx_filename"] = await cv_svc.get_docx_filename(
+                        record.id, db, user_id=uid
+                    )
                 return _marked(result, "render_document")
             cl = await cover_letter_svc.render_agent_letter(
-                content, jid, db, template=tmpl
+                content, jid, db, template=tmpl, user_id=uid
             )
             result = {
                 "document_id": str(cl.id),
@@ -1318,11 +1500,13 @@ async def render_document(
                 # Letter twin of the CV branch above — same function the
                 # REST door calls (services.cover_letter.get_cover_letter_docx
                 # → office_export.letter_docx.render_letter_docx).
-                docx_bytes = await cover_letter_svc.get_cover_letter_docx(cl.id, db)
+                docx_bytes = await cover_letter_svc.get_cover_letter_docx(
+                    cl.id, db, user_id=uid
+                )
                 result["docx_url"] = f"{base}/api/cover-letter/{cl.id}/docx"
                 result["docx_base64"] = base64.b64encode(docx_bytes).decode("ascii")
                 result["docx_filename"] = await cover_letter_svc.get_cover_letter_docx_filename(
-                    cl.id, db
+                    cl.id, db, user_id=uid
                 )
             return _marked(result, "render_document")
         except LookupError as exc:
@@ -1330,11 +1514,13 @@ async def render_document(
         except (ValidationError, ValueError) as exc:
             # Pydantic errors carry agent-actionable field paths in str().
             raise invalid_input(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Generate a cover letter for the given job. Requires an existing flow "
         "session (call start_flow first). Returns cover_letter_id, status, "
@@ -1345,22 +1531,28 @@ async def render_document(
 async def generate_cover_letter(job_id: str) -> dict:
     jid = _parse_uuid(job_id, "job_id")
     provider = get_provider()
+    uid = await _current_user_id()
     async with get_db() as db:
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await cover_letter_svc.generate_cover_letter(
                 CoverLetterGenerateRequest(job_id=jid),
                 db,
                 provider,
                 base_url=settings.applire_base_url,
+                user_id=uid,
             )
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Poll the status of a cover letter generation. "
         "Returns {cover_letter_id, status, html_url?, pdf_url?, expires_at?}. "
@@ -1369,17 +1561,19 @@ async def generate_cover_letter(job_id: str) -> dict:
 )
 async def get_cover_letter_status(cover_letter_id: str) -> dict:
     cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, GeneratedCoverLetter, cid, "cover letter")
         try:
             result = await cover_letter_svc.get_cover_letter_status(
-                cid, db, settings.applire_base_url
+                cid, db, settings.applire_base_url, user_id=uid
             )
         except LookupError as exc:
             raise not_found(str(exc))
     return result.model_dump(mode="json")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Get the persisted ATS audit report for a generated cover letter. "
         "Returns {document_id, status, report, review_state, truthfulness}; "
@@ -1389,15 +1583,17 @@ async def get_cover_letter_status(cover_letter_id: str) -> dict:
 )
 async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
     cid = _parse_uuid(cover_letter_id, "cover_letter_id")
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, GeneratedCoverLetter, cid, "cover letter")
         try:
-            result = await cover_letter_svc.get_cover_letter_ats_report(cid, db)
+            result = await cover_letter_svc.get_cover_letter_ats_report(cid, db, user_id=uid)
         except LookupError as exc:
             raise not_found(str(exc))
     return _marked(result.model_dump(mode="json"), "ats_report")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Create or resume a flow session. Pass job_id to bind the flow to a job "
         "(idempotent per user+job); omit it for a CV-only flow. Returns flow_id + state."
@@ -1405,22 +1601,25 @@ async def get_cover_letter_ats_report(cover_letter_id: str) -> dict:
 )
 async def start_flow(job_id: str | None = None) -> dict:
     jid = _parse_uuid(job_id, "job_id") if job_id else None
+    uid = await _current_user_id()
     async with get_db() as db:
-        # _current_user_id raises McpError directly; keep it outside the try so a
-        # missing user stays -32001 NotFound rather than being remapped to -32603.
-        uid = await _current_user_id(db)
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        if jid is not None:
+            await _owned_job(db, jid)
         try:
             result = await flow_svc.create_flow(
                 CreateFlowRequest(job_id=jid), uid, db, settings.applire_base_url
             )
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "flow")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Advance a flow to the next step. artifact_id is recorded at "
         "gap_analysis→gap_analysis_id, interview→interview_session_id, "
@@ -1431,26 +1630,37 @@ async def start_flow(job_id: str | None = None) -> dict:
 async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) -> dict:
     fid = _parse_uuid(flow_id, "flow_id")
     aid = _parse_uuid(artifact_id, "artifact_id") if artifact_id else None
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, FlowSession, fid, "flow")
         try:
+            # The artifact's owner check is the orchestrator's (MD-24 (5)): it
+            # runs before the transition check, identically for both doors.
             result = await flow_svc.advance_flow(
-                fid, AdvanceFlowRequest(step=step, artifact_id=aid), db, settings.applire_base_url
+                fid, AdvanceFlowRequest(step=step, artifact_id=aid), db,
+                settings.applire_base_url, user_id=uid,
             )
         except (InvalidTransitionError, ArtifactRequiredError, ArtifactNotFoundError) as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "flow")
 
 
-@mcp.tool(description="Get the current state of a flow session, including available actions.")
+@agent_tool(description="Get the current state of a flow session, including available actions.")
 async def get_flow_state(flow_id: str) -> dict:
     fid = _parse_uuid(flow_id, "flow_id")
+    uid = await _current_user_id()
     async with get_db() as db:
+        await _owned(db, FlowSession, fid, "flow")
         try:
-            result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
+            result = await flow_svc.get_flow_state(
+                fid, db, settings.applire_base_url, user_id=uid
+            )
         except LookupError as exc:
             raise not_found(str(exc))
     return _marked(result.model_dump(mode="json"), "flow")
@@ -1470,7 +1680,7 @@ def _parse_user_status(raw: str, field: str) -> UserStatus:
         )
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "List the user's application pipeline. "
         f"Optional status_filter: {_USER_STATUS_VALUES}."
@@ -1480,19 +1690,17 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
     user_status = None
     if status_filter:
         user_status = _parse_user_status(status_filter, "status_filter")
-    # Retrieve the single user from the DB (MCP runs in single-user context).
+    uid = await _current_user_id()
     async with get_db() as db:
-        user_result = await db.execute(select(User).limit(1))
-        user = user_result.scalar_one_or_none()
-        if user is None:
-            raise not_found("No user found — create a user first")
         try:
             result = await app_svc.list_applications(
-                user_id=user.id,
+                user_id=uid,
                 db=db,
                 workflow_status=None,
                 user_status=user_status,
             )
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return [
@@ -1500,7 +1708,7 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
     ]
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Get details for a specific application by ID. A non-null stale_cv "
         "field means the profile grew after the newest CV was tailored — "
@@ -1511,18 +1719,21 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
 )
 async def get_application(application_id: str) -> dict:
     aid = _parse_uuid(application_id, "application_id")
+    uid = await _current_user_id()
     async with get_db() as db:
-        uid = await _current_user_id(db)
+        await _owned(db, Application, aid, "application")
         try:
             result = await app_svc.get_application(aid, uid, db)
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "application")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Log an application to the user's pipeline. job_id is the JobAnalysis "
         "id; company_name/role_title/source_url default from the job when "
@@ -1552,20 +1763,24 @@ async def create_application(
         deadline=dl,
         source_url=source_url,
     )
+    uid = await _current_user_id()
     async with get_db() as db:
-        uid = await _current_user_id(db)
+        # MD-23: posting access is the door's check (ADR-092 cl. 5c).
+        await _owned_job(db, jid)
         try:
             result = await app_svc.create_application(uid, req, db)
         except app_svc.ConflictError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "application")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Update user-managed fields (omitted ones stay unchanged). "
         f"user_status: one of {_USER_STATUS_VALUES}. deadline: ISO 8601. "
@@ -1643,8 +1858,16 @@ async def update_application(
             "submitted_cover_letter_id, dismiss_stale_cv, language_override, "
             "add_fact_pin, remove_fact_pin)."
         )
+    uid = await _current_user_id()
     async with get_db() as db:
-        uid = await _current_user_id(db)
+        await _owned(db, Application, aid, "application")
+        # A submitted document must be one of the caller's own (S-10).
+        if "submitted_cv_id" in fields and fields["submitted_cv_id"] is not None:
+            await _owned(db, GeneratedCV, fields["submitted_cv_id"], "CV")
+        if fields.get("submitted_cover_letter_id") is not None:
+            await _owned(
+                db, GeneratedCoverLetter, fields["submitted_cover_letter_id"], "cover letter"
+            )
         try:
             if pin_request is not None:
                 await pin_svc.add_fact_pin(aid, uid, pin_request, db)
@@ -1659,12 +1882,14 @@ async def update_application(
             raise not_found(str(exc))
         except ValueError as exc:
             raise invalid_input(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return _marked(result.model_dump(mode="json"), "application")
 
 
-@mcp.tool(
+@agent_tool(
     description=(
         "Add a new ongoing role to the Master Profile (post-hire update). "
         "close_role_ids lists prior open roles to close; each is closed the day "
@@ -1689,13 +1914,16 @@ async def add_role(
         title=title, company=company, start_date=start_date,
         location=location, industry=industry, close_roles=close_roles, source="manual",
     )
+    uid = await _current_user_id()
     async with get_db() as db:
         try:
-            result = await add_role_to_profile(req, db)
+            result = await add_role_to_profile(req, db, user_id=uid)
         except AddRoleValidationError as exc:
             raise invalid_input(str(exc))
         except LookupError as exc:
             raise not_found(str(exc))
+        except ownership.OwnedNotFound:
+            raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
             raise internal(str(exc))
     return result.model_dump(mode="json")
@@ -1706,14 +1934,15 @@ async def add_role(
 # ---------------------------------------------------------------------------
 
 
-@mcp.resource(
+@agent_resource(
     "profile://current",
     mime_type="application/json",
     description="Current MasterProfile JSON.",
 )
 async def resource_profile() -> str:
+    uid = await _current_user_id()
     async with get_db() as db:
-        result = await profile_svc.get_profile(db)
+        result = await profile_svc.get_profile(db, user_id=uid)
     if result is None:
         raise not_found("No profile found")
     return json.dumps(result.model_dump(mode="json"))
@@ -1811,7 +2040,7 @@ async def resource_schema_testimony() -> str:
     )
 
 
-@mcp.resource(
+@agent_resource(
     "job://{job_id}",
     mime_type="application/json",
     description="JobAnalysis JSON for the given job_id.",
@@ -1819,37 +2048,49 @@ async def resource_schema_testimony() -> str:
 async def resource_job(job_id: str) -> str:
     jid = _parse_uuid(job_id, "job_id")
     async with get_db() as db:
-        result = await db.execute(
-            select(JobAnalysis).where(
-                JobAnalysis.id == jid,
-                JobAnalysis.deleted_at.is_(None),
-            )
+        # ADR-092 cl. 5(c)/10: the shared posting only through the caller's link.
+        try:
+            record = await _owned_job(db, jid)
+        except ownership.OwnedNotFound:
+            record = None
+        link = (
+            await job_svc.caller_link(db, record.id, _acting_user().id)
+            if record is not None else None
         )
-        record = result.scalar_one_or_none()
-    if record is None:
+    if record is None or record.deleted_at is not None:
         raise not_found(f"Job analysis {job_id} not found")
-    # ADR-084 cl. 4: the resource form of `analyze_jd` — same payload, same marking.
+    # ADR-084 cl. 4: the resource form of `analyze_jd` — same payload, same
+    # marking, and (MD-31) the same per-caller builder: labels and source_url
+    # from the caller's own row, never the shared posting's.
     return json.dumps(
-        _marked(JobAnalysisResponse.model_validate(record).model_dump(mode="json"), "analyze_jd")
+        _marked(posting_labels.posting_response(record, link).model_dump(mode="json"), "analyze_jd")
     )
 
 
-@mcp.resource(
+@agent_resource(
     "flow://{flow_id}",
     mime_type="application/json",
     description="FlowStateResponse JSON for the given flow_id.",
 )
 async def resource_flow(flow_id: str) -> str:
     fid = _parse_uuid(flow_id, "flow_id")
+    uid = await _current_user_id()
     async with get_db() as db:
         try:
-            result = await flow_svc.get_flow_state(fid, db, settings.applire_base_url)
+            await _owned(db, FlowSession, fid, "flow")
+        except ownership.OwnedNotFound:
+            raise not_found(f"Flow session {flow_id} not found")
+        try:
+            result = await flow_svc.get_flow_state(
+                fid, db, settings.applire_base_url, user_id=uid
+            )
         except LookupError as exc:
             raise not_found(str(exc))
-    return json.dumps(result.model_dump(mode="json"))
+    # ADR-091 cl. 18: the flow summary's CV link is signed like a tool's.
+    return json.dumps(_sign_document_urls(result.model_dump(mode="json"), _acting_user()))
 
 
-@mcp.resource(
+@agent_resource(
     "cv://{cv_id}",
     mime_type="application/json",
     description="GeneratedCV metadata JSON for the given cv_id.",
@@ -1857,13 +2098,10 @@ async def resource_flow(flow_id: str) -> str:
 async def resource_cv(cv_id: str) -> str:
     cid = _parse_uuid(cv_id, "cv_id")
     async with get_db() as db:
-        result = await db.execute(
-            select(GeneratedCV).where(
-                GeneratedCV.id == cid,
-                GeneratedCV.deleted_at.is_(None),
-            )
-        )
-        record = result.scalar_one_or_none()
+        try:
+            record = await _owned(db, GeneratedCV, cid, "CV")
+        except ownership.OwnedNotFound:
+            record = None
     if record is None:
         raise not_found(f"Generated CV {cv_id} not found")
     return json.dumps(GeneratedCVResponse.model_validate(record).model_dump(mode="json"))

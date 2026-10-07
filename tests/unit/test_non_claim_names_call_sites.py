@@ -515,3 +515,62 @@ async def test_letter_audit_adds_recipient_company_to_the_names():
         f"expected the non_claim=None baseline to keep flagging the keyword, "
         f"got {baseline_report.keywords.present_unsupported!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Strawberry W2 integration (3c x 3d, ADR-092 cl. 5f): the letter's two audit
+# sites also mask THE LETTER OWNER's own labels for the shared posting (their
+# ``applications`` row), unioned with the posting's names — the CV sites have
+# done so since 3c. One test per letter site; another user's application on
+# the same posting must not leak its labels into this owner's audit.
+# ---------------------------------------------------------------------------
+
+async def _link_with_labels(session, cl) -> None:
+    from applire.models.application import Application
+    from applire.models.user import User
+
+    other = User(id=uuid.uuid4(), email=f"other-{uuid.uuid4()}@example.org")
+    session.add(other)
+    await session.flush()
+    session.add_all([
+        Application(user_id=cl.user_id, job_analysis_id=cl.job_analysis_id,
+                    role_title="Werkleiter Süd", company_name="Rheinwerk Holding AG"),
+        Application(user_id=other.id, job_analysis_id=cl.job_analysis_id,
+                    role_title="Fremder Titel", company_name="Fremdfirma AG"),
+    ])
+    await session.commit()
+
+
+@pytest.mark.parametrize("site", ["pdf", "docx"])
+@pytest.mark.asyncio
+async def test_letter_audit_masks_the_owners_own_posting_labels(db_with_cover_letter, site):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl = await session.get(GeneratedCoverLetter, ctx["cl_id"])
+    assert cl.user_id is not None
+    await _link_with_labels(session, cl)
+
+    captured: dict = {}
+
+    def _spy(_doc, letter_data, keywords, ledger=None, **kwargs):
+        captured["non_claim"] = kwargs.get("non_claim")
+        return _make_report("cover_letter")
+
+    pdf_target = "applire.services.ats_audit.audit_cover_letter"
+    docx_target = "applire.services.office_export.extract._audit_letter_text"
+    spied, stubbed = (pdf_target, docx_target) if site == "pdf" else (docx_target, pdf_target)
+    with patch("applire.services.cover_letter.get_provider", side_effect=RuntimeError("no provider in test")), \
+         patch("applire.services.cover_letter_pdf.render_pdf", new=AsyncMock(return_value=b"%PDF-fake")), \
+         patch(spied, side_effect=_spy), \
+         patch(stubbed, return_value=_make_report("cover_letter")):
+        from applire.services.cover_letter import _update_ats_report_letter
+        await _update_ats_report_letter(cl, session)
+
+    non_claim = captured["non_claim"]
+    titles, employers = " | ".join(non_claim.titles), " | ".join(non_claim.employers)
+    assert "werkleiter" in titles, titles  # the owner's own label
+    assert "leiter operations" in titles, titles  # the posting's own name stays
+    assert "rheinwerk holding" in employers, employers
+    assert "fremd" not in titles + employers, (titles, employers)  # never another user's labels

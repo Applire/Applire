@@ -19,9 +19,12 @@
 # at mapper-configuration time, regardless of which service is imported first.
 from applire.models import (  # noqa: F401
     application,
+    audit,
+    auth,
     color_profile,
     color_scheme,
     company,
+    cover_letter,
     cv,
     flow,
     gap,

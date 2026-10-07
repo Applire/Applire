@@ -945,7 +945,9 @@ class TestSubmitAssistAnswer:
         start = await start_assist_session(
             ctx["cv_id"], "introduction", "Kubernetes", provider, ctx["db"]
         )
-        with pytest.raises(ValueError, match="Invalid session_id"):
+        # ADR-092: a cv_id the acting user does not own is refused at the CV
+        # lookup (LookupError -> 404), before the session is even consulted.
+        with pytest.raises(LookupError, match="not found"):
             await submit_assist_answer(
                 uuid.uuid4(),  # wrong cv_id
                 "introduction",

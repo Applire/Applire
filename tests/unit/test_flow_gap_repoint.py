@@ -46,7 +46,7 @@ from applire.services.gap import analyze_gaps
 
 from tests.support.profile_factory import make_master_profile
 
-_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
+_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")  # ADR-092: the harness owner the rows are filled with
 
 
 @pytest_asyncio.fixture

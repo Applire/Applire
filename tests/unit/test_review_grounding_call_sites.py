@@ -491,8 +491,11 @@ async def _seed_grounding_cv(db, *, skill_name: str | None, suffix: str):
         company_culture_signals=[],
         language_requirement="en",
     )
+    # Two independent vaults = two owners (ADR-092 cl. 2: one live profile per
+    # owner); the CV takes its profile's owner (cl. 1).
     profile = make_master_profile(
         id=profile_id,
+        user_id=uuid.uuid4(),
         profile_json=_profile_json(skill_name),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -560,7 +563,12 @@ async def test_cv_pdf_grounding_widens_present_unsupported(db):
                  "applire.services.office_export.extract._audit_cv_text",
                  return_value=_make_report("cv"),
              ):
-            await _update_ats_report(cv, db)
+            # The audit acts for the CV's owner, as its background task does
+            # (ADR-092 cl. 8) — each seeded CV has an owner of its own.
+            from applire.ownership import owner_context
+
+            with owner_context(cv.user_id):
+                await _update_ats_report(cv, db)
 
     await _run(grounded_cv)
 

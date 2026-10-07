@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
 
 /**
  * #705 (founder UAT on the Nougat RC, 2026-09-15) — the not-retained overlay

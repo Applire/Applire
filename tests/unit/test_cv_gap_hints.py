@@ -257,7 +257,11 @@ async def db_with_ledger_cv(db):
     from applire.models.cv import GeneratedCV
     from applire.models.flow import FlowSession
 
-    user_id, job_id, profile_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    from tests.support.owners import HARNESS_USER_ID
+
+    # ADR-092: the rows belong to the acting (harness) user.
+    user_id = HARNESS_USER_ID
+    job_id, profile_id = uuid.uuid4(), uuid.uuid4()
     gap_id, cv_id, flow_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
     ledger = [
@@ -361,9 +365,10 @@ class TestAssistAcceptsLedgerHints:
         """'Developer Experience' is a direct-status ledger hint — it is not in
         category_b/c, but Kaile assist on its hint chip must still work."""
         from applire.services.cv_assist import _gap_exists
+        from tests.support.owners import HARNESS_USER_ID
 
         ctx = db_with_ledger_cv
-        assert await _gap_exists(ctx["cv_id"], "Developer Experience", ctx["db"]) is True
+        assert await _gap_exists(ctx["cv_id"], "Developer Experience", ctx["db"], HARNESS_USER_ID) is True
 
 
 # ---------------------------------------------------------------------------

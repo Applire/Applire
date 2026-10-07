@@ -307,8 +307,9 @@ def format_upgrade_notice_log(notice: dict) -> str:
             )
     lines.append(
         "  See the CHANGELOG's 'Upgrade notes' and docs/SELF-HOSTING.md. "
-        "Dismiss on the dashboard, or: "
-        "curl -XPOST http://localhost/api/settings/upgrade-notice/dismiss"
+        "An administrator dismisses this on the dashboard (or with an API token: "
+        "curl -XPOST -H 'Authorization: Bearer <token>' "
+        "http://localhost/api/settings/upgrade-notice/dismiss)."
     )
     return "\n".join(lines)
 
@@ -905,18 +906,168 @@ _register_all(
         SettingEntry(
             env_var="AUTH_PROVIDER",
             source="config",
-            default="none",
+            default="local",
+            example="local",
             section="Network and access",
             commented=False,
             introduced_in="0.31.0",
+            semantics_changed_in="0.43.0",
             description=(
-                "'none' disables authentication, which is the only Community option and\n"
-                "is appropriate for a SINGLE-PERSON self-hosted instance. Anyone who can\n"
-                "reach the URL can read and change the vault — do not put an\n"
-                "AUTH_PROVIDER=none instance on a shared network without your own\n"
-                "authenticating proxy in front of it (docs/SELF-HOSTING.md).\n"
-                "Zitadel OIDC is a Cloud Edition feature."
+                "Sign-in provider. `local` = built-in accounts; the old value `none` now also means `local`.\n"
+                "Login is always on (ADR-091): every person signs in with an email and a\n"
+                "password, or with your identity provider when OIDC_ISSUER is set. If your\n"
+                ".env still says AUTH_PROVIDER=none you can delete that line. On the first\n"
+                "start the backend log prints a one-time SETUP code — open /setup and enter it."
             ),
+        ),
+        SettingEntry(
+            env_var="AUTH_HARNESS",
+            source="config",
+            default="false",
+            section="Network and access",
+            introduced_in="0.43.0",
+            in_env_example=False,
+            description=(
+                "Test harness only (ADR-091 cl. 3): answers every request as the\n"
+                "administrator without login. Refused at startup unless no account has a\n"
+                "credential and the database is a test database (SQLite in-memory, or a\n"
+                "Postgres name ending in _ci/_test that held no profile at boot)."
+            ),
+            notes="Withheld from .env.example: it has no operator audience.",
+        ),
+        SettingEntry(
+            env_var="COOKIE_SECURE",
+            source="config",
+            default="false",
+            section="Network and access",
+            commented=False,
+            introduced_in="0.43.0",
+            description=(
+                "Mark the sign-in cookie Secure (sent over https only). Leave false on a\n"
+                "plain-http LAN install — browsers drop Secure cookies there and nobody\n"
+                "could sign in. Set true as soon as Applire is served over https."
+            ),
+        ),
+        SettingEntry(
+            env_var="OIDC_ISSUER",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            example="https://auth.example.org",
+            description=(
+                "Optional single sign-on: your identity provider's issuer URL (https;\n"
+                "only localhost may use http). Empty = password sign-in only. Requires\n"
+                "OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and APPLIRE_BASE_URL (the redirect URI\n"
+                "is <APPLIRE_BASE_URL>/api/auth/oidc/callback)."
+            ),
+        ),
+        SettingEntry(
+            env_var="OIDC_CLIENT_ID",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description="Client id of the Applire application at your identity provider.",
+        ),
+        SettingEntry(
+            env_var="OIDC_CLIENT_SECRET",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            secret=True,
+            description="Client secret — required when OIDC_ISSUER is set.",
+        ),
+        SettingEntry(
+            env_var="OIDC_SCOPES",
+            source="config",
+            default="openid email profile",
+            section="Network and access",
+            introduced_in="0.43.0",
+            in_env_example=False,
+            description="Scopes requested at the identity provider.",
+            notes="Withheld: the default is what every IdP needs.",
+        ),
+        SettingEntry(
+            env_var="OIDC_BUTTON_LABEL",
+            source="config",
+            default="Single sign-on",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description=(
+                "Label of the sign-in button, shown as \"Sign in with <label>\"."
+            ),
+        ),
+        SettingEntry(
+            env_var="SMTP_HOST",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            example="smtp.example.org",
+            description=(
+                "Optional outgoing mail for invitations and \"forgot password\". Empty =\n"
+                "no mail: the administrator hands over invite and reset links instead.\n"
+                "Mail REQUIRES APPLIRE_BASE_URL: mailed links are built only from it, so\n"
+                "with SMTP set and APPLIRE_BASE_URL left unset no mail is sent (MD-32)."
+            ),
+        ),
+        SettingEntry(
+            env_var="SMTP_PORT",
+            source="config",
+            default="587",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description="SMTP port (587 for STARTTLS, 465 for TLS).",
+        ),
+        SettingEntry(
+            env_var="SMTP_USERNAME",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description="SMTP login, if your server needs one.",
+        ),
+        SettingEntry(
+            env_var="SMTP_PASSWORD",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            secret=True,
+            description="SMTP password.",
+        ),
+        SettingEntry(
+            env_var="SMTP_FROM",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            example="applire@example.org",
+            description="Sender address of invitation and reset mails.",
+        ),
+        SettingEntry(
+            env_var="SMTP_SECURITY",
+            source="config",
+            default="starttls",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description="starttls | tls | none.",
+        ),
+        SettingEntry(
+            env_var="APPLIRE_AGENT_TOKEN",
+            source="config",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            secret=True,
+            in_env_example=False,
+            description=(
+                "The MCP stdio process's agent token (Settings → Tokens). Set in your MCP\n"
+                "client's env, never in the server's .env."
+            ),
+            notes="Withheld: it belongs to the MCP client config, not the instance.",
         ),
         SettingEntry(
             env_var="CORS_ORIGINS",
@@ -925,9 +1076,23 @@ _register_all(
             section="Network and access",
             introduced_in="0.31.0",
             description=(
-                "Comma-separated list of allowed origins. '*' is safe for a single-user "
-                "self-hosted install with AUTH_PROVIDER=none; lock it down otherwise, "
-                "e.g. CORS_ORIGINS=https://app.example.com"
+                "Comma-separated list of origins allowed to call the API from another site.\n"
+                "The browser app is same-origin and needs nothing here; sign-in cookies are\n"
+                "never sent cross-origin (no credentials are allowed). Narrow it, e.g.\n"
+                "CORS_ORIGINS=https://app.example.com, if you run another web app against the API."
+            ),
+        ),
+        SettingEntry(
+            env_var="APPLIRE_TRUSTED_PROXY",
+            source="compose",
+            default="",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description=(
+                "Only behind your own TLS proxy: its address (IP or CIDR, comma-separated),\n"
+                "so Applire's nginx takes the client address for the login throttle from\n"
+                "that proxy's X-Forwarded-For. Empty = trust nobody (the default; a direct\n"
+                "install needs nothing here). An invalid value stops nginx at start (MD-33)."
             ),
         ),
         SettingEntry(
@@ -942,7 +1107,8 @@ _register_all(
                 "The default is correct only for a local, unproxied dev setup. Set this to\n"
                 "the externally reachable scheme://host:port of your reverse proxy for any\n"
                 "other deployment, or agent-fetched artifact links silently point at\n"
-                "localhost:8001 instead of your real host."
+                "localhost:8001 instead of your real host. Links in invitation and reset\n"
+                "mails are built ONLY from this value; left at the default, no mail is sent."
             ),
         ),
         SettingEntry(
@@ -1269,6 +1435,29 @@ _register_all(
             section="Advanced tuning",
             introduced_in="0.31.0",
             description="See MATCHING_SCORE_EMBEDDING_WEIGHT.",
+        ),
+        SettingEntry(
+            env_var="AGENT_LINK_TTL_MINUTES",
+            source="config",
+            default="60",
+            section="Advanced tuning",
+            introduced_in="0.43.0",
+            in_env_example=False,
+            description=(
+                "Lifetime of the signed document links the agent door returns (ADR-091 cl. 18)."
+            ),
+            notes="Withheld: RD-8 fixed the value; tuning only.",
+        ),
+        SettingEntry(
+            env_var="AUDIT_LOG_RETENTION_DAYS",
+            source="config",
+            default="730",
+            section="Retention (GDPR)",
+            introduced_in="0.43.0",
+            description=(
+                "Days the administration audit log (who did what to which account) is\n"
+                "kept. 0 = keep forever."
+            ),
         ),
     ]
 )

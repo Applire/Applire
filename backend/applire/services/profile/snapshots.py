@@ -82,15 +82,11 @@ async def _prune(db: AsyncSession, profile_id: uuid.UUID) -> None:
         await db.execute(delete(ProfileSnapshot).where(ProfileSnapshot.id.in_(stale)))
 
 
-async def _latest_profile(db: AsyncSession) -> MasterProfile | None:
-    return (
-        await db.execute(
-            select(MasterProfile)
-            .where(MasterProfile.deleted_at.is_(None))
-            .order_by(MasterProfile.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+async def _latest_profile(db: AsyncSession, user_id: uuid.UUID | None = None) -> MasterProfile | None:
+    """The owner's live profile (ADR-092 cl. 2) — the one read path."""
+    from applire.services.profile import get_profile_for_user
+
+    return await get_profile_for_user(db, user_id)
 
 
 def _head_enrichment_id(profile_json: dict) -> str | None:
@@ -98,7 +94,36 @@ def _head_enrichment_id(profile_json: dict) -> str | None:
     return history[-1].get("id") if history else None
 
 
-async def undo_last_merge(db: AsyncSession) -> UndoResult:
+def _keep_user_managed_fields(restored: dict | None, current: dict | None) -> dict:
+    """The snapshot, with the CURRENT value of every upload-owned field (MD-30).
+
+    ``personal_info.photo_url`` belongs to the photo endpoints, not to a merge:
+    an undo that rolled it back would point the vault at the file a later photo
+    upload already deleted (the render then drops the photo) and orphan the new
+    file for the retention scan to reclaim. An undo reverts what the MERGE
+    wrote; the photo was never the merge's to write (``apply_ops`` keeps it).
+    """
+    from applire.schemas.profile import USER_MANAGED_PERSONAL_INFO_FIELDS
+
+    out = dict(restored or {})
+    current_pi = (current or {}).get("personal_info") or {}
+    pi = dict(out.get("personal_info") or {})
+    changed = False
+    for field_name in USER_MANAGED_PERSONAL_INFO_FIELDS:
+        keep = current_pi.get(field_name)
+        if (pi.get(field_name) or None) == (keep or None):
+            continue  # already equal — the snapshot is restored byte-for-byte
+        if keep is None:
+            pi.pop(field_name, None)
+        else:
+            pi[field_name] = keep
+        changed = True
+    if changed:
+        out["personal_info"] = pi
+    return out
+
+
+async def undo_last_merge(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> UndoResult:
     """Restore the most recent pre-merge snapshot.
 
     Clears the conflicts the undone merge introduced (the restored pre-merge JSON
@@ -107,7 +132,7 @@ async def undo_last_merge(db: AsyncSession) -> UndoResult:
     Idempotent: after a successful undo all snapshots are consumed, so a repeat
     call is a no-op (single-level "undo last merge"; multi-level history deferred).
     """
-    profile = await _latest_profile(db)
+    profile = await _latest_profile(db, user_id)
     if profile is None:
         return UndoResult(restored=False, discarded_later_edits=False)
 
@@ -126,7 +151,7 @@ async def undo_last_merge(db: AsyncSession) -> UndoResult:
         _head_enrichment_id(profile.profile_json) != snapshot.enrichment_record_id
     )
 
-    profile.profile_json = snapshot.profile_json
+    profile.profile_json = _keep_user_managed_fields(snapshot.profile_json, profile.profile_json)
     # Consume the whole snapshot chain so a retry is a no-op (idempotent) and no
     # accidental multi-level peel-back occurs (MVP = undo the last merge only).
     await db.execute(

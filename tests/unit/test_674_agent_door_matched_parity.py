@@ -104,7 +104,6 @@ async def test_import_cv_states_what_the_merge_recognised_as_already_present():
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
         patch("applire.mcp.server.get_storage"),
-        patch("applire.mcp.server._import_user_id", AsyncMock(return_value=None)),
         patch(
             "applire.mcp.server.profile_svc.import_from_text",
             AsyncMock(return_value=_import_response([_receipt()])),
@@ -134,7 +133,6 @@ async def test_import_cvs_matched_never_carries_the_vaults_own_wording():
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
         patch("applire.mcp.server.get_storage"),
-        patch("applire.mcp.server._import_user_id", AsyncMock(return_value=None)),
         patch(
             "applire.mcp.server.profile_svc.import_from_text",
             AsyncMock(return_value=_import_response([receipt])),
@@ -161,7 +159,6 @@ async def test_import_cv_reports_an_empty_list_when_nothing_was_recognised():
         patch("applire.mcp.server.get_db", return_value=cm),
         patch("applire.mcp.server.get_provider"),
         patch("applire.mcp.server.get_storage"),
-        patch("applire.mcp.server._import_user_id", AsyncMock(return_value=None)),
         patch(
             "applire.mcp.server.profile_svc.import_from_text",
             AsyncMock(return_value=_import_response([])),

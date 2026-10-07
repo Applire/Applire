@@ -23,12 +23,18 @@ failure that was found in the 2026-07-13 real-LLM PQ and is why
 before deleting. A cost record must never be the reason a GDPR sweep fails, and
 a dangling id in a counters table harms nobody: the aggregation groups by it and
 does not need to resolve it.
+
+**One FK, ``ON DELETE SET NULL``** (ADR-092 cl. 3, S-8; migration 0075):
+``user_id`` attributes a call to the person whose request caused it. It is the
+one exception to the rule above because ``SET NULL`` can never abort a delete —
+erasing a user keeps the instance's cost record and drops the attribution.
+``llm_usage`` is instance data attributed to a user, not an owned table.
 """
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from applire.db.session import Base
@@ -43,6 +49,9 @@ class LlmUsage(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", name="fk_llm_usage_user_id_users", ondelete="SET NULL"), nullable=True, index=True
     )
     # Provider FAMILY, not the class name — 'openrouter', 'mistral', 'ollama'.
     # The same value ADR-085 clause 3 permits the PDF mark to carry.

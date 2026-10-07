@@ -31,7 +31,8 @@ from mcp.shared.exceptions import McpError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from tests.support.profile_factory import make_master_profile
+from tests.support.profile_factory import make_master_profile, retire_live_profiles
+
 
 _INFRA = "cluster-infra"
 _INVALID_INPUT = -32602
@@ -73,6 +74,7 @@ async def _seed(db, *, outcome=None, coverage="open", members=("Kubernetes", "Te
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
         company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test"},
         "skills": [{"name": "Python", "category": "technical"}],
@@ -357,3 +359,13 @@ async def test_a_gap_left_open_by_the_candidate_is_refused(db, lang, expected):
         await _call(db, job_id, "Some testimony.", bridge=_bridge(), writer=writer)
     assert expected in refused.value.error.message
     assert writer.calls == [], "no question is drafted for a gap left open"
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

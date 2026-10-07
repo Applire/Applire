@@ -23,7 +23,10 @@ import pytest_asyncio
 from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
 from tests.support.profile_factory import make_master_profile
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 
 @pytest_asyncio.fixture
@@ -60,7 +63,9 @@ async def _seed(db):
     from applire.models.job import JobAnalysis
     from applire.models.user import User
 
-    user = User(email=f"kaile-{uuid.uuid4()}@example.org")
+    # ADR-092: the flow owner is the harness user — the MCP door resolves the
+    # owner from the context, and the CV row's owner default is the same user.
+    user = User(id=HARNESS_USER_ID, email=f"kaile-{uuid.uuid4()}@example.org")
     job = JobAnalysis(
         raw_text_hash=f"hash-{uuid.uuid4()}",
         raw_text="Sample job description",
@@ -73,6 +78,7 @@ async def _seed(db):
     )
     db.add_all([user, job, profile])
     await db.flush()
+    await link_posting(db, job, user.id)  # ADR-092: the user's link to the posting
     cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={})
     db.add(cv)
     await db.commit()

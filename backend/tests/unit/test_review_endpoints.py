@@ -42,9 +42,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from applire.auth import get_auth_provider
+
+from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 from applire.schemas.testimony import TestimonyResult
-from tests.support.profile_factory import make_master_profile
+from tests.support.profile_factory import make_master_profile, retire_live_profiles
 
 import applire.routers.review as review_router
 import applire.services.review_actions as ra
@@ -91,7 +93,7 @@ def _client(db) -> TestClient:
         yield db
 
     app = FastAPI()
-    app.dependency_overrides[get_auth_provider] = lambda: None
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[review_router._get_provider] = lambda: object()
     app.include_router(review_router.router)
@@ -1041,8 +1043,10 @@ async def _seed_pair(db, *, cv_ats, cl_ats, with_flow=True):
         ats_report=cl_ats,
     ))
     if with_flow:
-        user_id = uuid.uuid4()
-        db.add(User(id=user_id, email="kontakt@applire.de"))
+        # ADR-092: the sibling flow belongs to the documents' owner.
+        user_id = cv.user_id
+        if await db.get(User, user_id) is None:
+            db.add(User(id=user_id, email="kontakt@applire.de"))
         db.add(FlowSession(
             user_id=user_id, job_id=cv.job_analysis_id, current_step="complete",
             user_type="new", available_actions={},
@@ -1274,6 +1278,7 @@ async def _set_vault_work(db, record, work):
     """Point the document at a fresh profile carrying ``work`` (profile_json is
     write-guarded, ADR-063 cl. 6 — a new row via the factory is the sanctioned path)."""
     profile_id = uuid.uuid4()
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     db.add(make_master_profile(id=profile_id, profile_json={"work_experience": work}))
     record.profile_id = profile_id
     await db.commit()

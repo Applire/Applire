@@ -20,6 +20,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { NextIntlClientProvider } from "next-intl";
+import { useCurrentUser } from "@/lib/auth/current-user";
 import enMessages from "../../messages/en.json";
 import deMessages from "../../messages/de.json";
 
@@ -54,6 +55,16 @@ export function browserTimeZone(): string {
   }
 }
 
+/** The signed-out locale: German for a German-speaking browser, else English. */
+export function browserLocale(): Locale {
+  try {
+    const first = (navigator.languages?.[0] ?? navigator.language ?? "").toLowerCase();
+    return first.startsWith("de") ? "de" : "en";
+  } catch {
+    return "en";
+  }
+}
+
 interface LocaleContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => Promise<void>;
@@ -80,17 +91,39 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     () => DEFAULT_TIME_ZONE,
   );
 
+  const { status, user } = useCurrentUser();
+  const userLanguage = user?.ui_language ?? null;
+
   useEffect(() => {
+    if (status === "loading") return;
+    const apply = (lang: Locale) => {
+      setLocaleState(lang);
+      document.documentElement.lang = lang;
+    };
+    // US330: signed out (/login, /setup, /invite, /reset, /forgot) there is no
+    // user_settings row to read — /api/settings would answer 401. The browser's
+    // own language decides until someone signs in.
+    if (status === "unauthenticated") {
+      apply(browserLocale());
+      return;
+    }
+    // Signed in: /api/auth/me already carries ui_language (F1) — use it at once.
+    if (userLanguage === "de" || userLanguage === "en") apply(userLanguage);
+    let cancelled = false;
     fetch(`${API_BASE}/api/settings`)
       .then((r) => r.json())
       .then((data) => {
-        const lang = data.ui_language as Locale;
-        if (lang === "de" || lang === "en") {
-          setLocaleState(lang);
-          document.documentElement.lang = lang;
+        if (cancelled) return;
+        const served = data.ui_language as Locale;
+        if (served === "de" || served === "en") {
           // ADR-038 (amended 2026-08-01, #400): the UI is an explicit language
           // context — persist the active locale once so "no explicit choice"
           // reliably means a headless/agent-channel journey.
+          // US330 (FQ w4-2a-2, option A): a never-chosen language is NOT the
+          // served "en" default but the language the person already used on
+          // the signed-out pages (the browser's) — no flip at sign-in.
+          const lang = data.ui_language_explicit === false ? browserLocale() : served;
+          apply(lang);
           if (data.ui_language_explicit === false) {
             fetch(`${API_BASE}/api/settings`, {
               method: "PATCH",
@@ -103,9 +136,12 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .catch(() => {
-        // Network error — stay with "en" default
+        // Network error — keep what we have
       });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [status, userLanguage]);
 
   const setLocale = useCallback(async (newLocale: Locale) => {
     await fetch(`${API_BASE}/api/settings`, {

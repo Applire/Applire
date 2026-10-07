@@ -18,7 +18,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,9 @@ _JSON = JSONB().with_variant(JSON(), "sqlite")
 
 class UserSettings(Base):
     __tablename__ = "user_settings"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
+    # One settings row per user (D-10; migration 0075 dedupes first).
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_settings_user"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

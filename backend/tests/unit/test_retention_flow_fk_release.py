@@ -21,6 +21,7 @@ from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import applire.models  # noqa: F401
+from applire import ownership
 from applire.db.session import Base
 from applire.models.cover_letter import GeneratedCoverLetter
 from applire.models.cv import GeneratedCV
@@ -41,41 +42,44 @@ async def fk_db():
     def _fk_on(dbapi_conn, _rec):  # noqa: ANN001
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    with ownership.unscoped("tooling"):
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(eng, expire_on_commit=False)
     past = datetime.now(timezone.utc) - timedelta(days=400)
-    async with factory() as s:
-        s.add(User(id=OWNER, email="c@example.org"))
-        job = JobAnalysis(
-            raw_text_hash=uuid.uuid4().hex, raw_text="t", role_title="R",
-            seniority_level="mid", language_requirement="English",
-        )
-        s.add(job)
-        await s.flush()
-        profile = make_master_profile(profile_json={})
-        s.add(profile)
-        await s.flush()
-        cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id,
-                         tailored_data={}, expires_at=past)
-        cl = GeneratedCoverLetter(job_analysis_id=job.id, profile_id=profile.id,
-                                  expires_at=past)
-        iv = InterviewSession(job_analysis_id=job.id, profile_id=profile.id, state={})
-        s.add_all([cv, cl, iv])
-        await s.flush()
-        flow = FlowSession(user_id=OWNER, job_id=job.id, generated_cv_id=cv.id,
-                           generated_cover_letter_id=cl.id, interview_session_id=iv.id)
-        s.add(flow)
-        await s.flush()
-        await s.execute(
-            text("UPDATE interview_sessions SET updated_at = :t"), {"t": past}
-        )
-        await s.commit()
-        ids = {"cv": cv.id, "cl": cl.id, "iv": iv.id, "flow": flow.id}
+    with ownership.owner_context(OWNER):
+        async with factory() as s:
+            s.add(User(id=OWNER, email="c@example.org"))
+            job = JobAnalysis(
+                raw_text_hash=uuid.uuid4().hex, raw_text="t", role_title="R",
+                seniority_level="mid", language_requirement="English",
+            )
+            s.add(job)
+            await s.flush()
+            profile = make_master_profile(user_id=OWNER, profile_json={})
+            s.add(profile)
+            await s.flush()
+            cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, user_id=OWNER,
+                             tailored_data={}, expires_at=past)
+            cl = GeneratedCoverLetter(job_analysis_id=job.id, profile_id=profile.id,
+                                      user_id=OWNER, expires_at=past)
+            iv = InterviewSession(job_analysis_id=job.id, profile_id=profile.id, user_id=OWNER, state={})
+            s.add_all([cv, cl, iv])
+            await s.flush()
+            flow = FlowSession(user_id=OWNER, job_id=job.id, generated_cv_id=cv.id,
+                               generated_cover_letter_id=cl.id, interview_session_id=iv.id)
+            s.add(flow)
+            await s.flush()
+            await s.execute(
+                text("UPDATE interview_sessions SET updated_at = :t"), {"t": past}
+            )
+            await s.commit()
+            ids = {"cv": cv.id, "cl": cl.id, "iv": iv.id, "flow": flow.id}
     yield factory, ids
     await eng.dispose()
 
 
+@pytest.mark.no_owner_context
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "rule, model, pointer",
@@ -89,8 +93,9 @@ async def test_an_expired_document_a_flow_points_at_is_purged(fk_db, rule, model
     from applire.retention import worker
 
     factory, ids = fk_db
-    async with factory() as s:
-        assert await getattr(worker, rule)(s) == 1
-        assert (await s.execute(select(model.id))).first() is None
-        flow = await s.get(FlowSession, ids["flow"])
-        assert getattr(flow, pointer) is None
+    with ownership.unscoped("retention"):
+        async with factory() as s:
+            assert await getattr(worker, rule)(s) == 1
+            assert (await s.execute(select(model.id))).first() is None
+            flow = await s.get(FlowSession, ids["flow"])
+            assert getattr(flow, pointer) is None

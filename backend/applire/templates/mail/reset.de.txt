@@ -1,0 +1,14 @@
+Subject: Neues Passwort für Applire
+
+Hallo,
+
+für das Applire-Konto {email} wurde ein neues Passwort angefordert. Leg es hier fest:
+
+{link}
+
+Der Link gilt eine Stunde (bis {expires_at}) und funktioniert nur einmal. Auf deinen anderen Geräten wirst du danach abgemeldet.
+
+Hast du das nicht angefordert? Dann kannst du diese E-Mail löschen — dein bisheriges Passwort bleibt gültig.
+
+—
+Diese E-Mail wurde von der Applire-Instanz unter {instance_url} verschickt.

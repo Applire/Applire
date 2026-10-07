@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.cv import GeneratedCV
 from applire.models.flow import FlowSession
+from applire.services.owner_resolution import owned_cv, resolve_owner
 from applire.models.gap import GapAnalysis
 from applire.models.profile import MasterProfile
 from applire.schemas.cv import TailoredCVData
@@ -56,7 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover — annotation only; the runtime import is
 # ---------------------------------------------------------------------------
 
 
-def build_content_snapshot(tailored: TailoredCVData) -> dict:
+def build_content_snapshot(tailored: TailoredCVData, *, user_id: uuid.UUID | None = None) -> dict:
     """Extract a structured snapshot dict from TailoredCVData.
 
     Called once at generation time. ~5ms, no LLM.
@@ -100,6 +101,8 @@ def apply_overrides_to_tailored(
     tailored: TailoredCVData,
     content_snapshot: dict | None,
     section_overrides: dict | None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> TailoredCVData:
     """Return a new TailoredCVData with section_overrides applied.
 
@@ -139,13 +142,14 @@ def apply_overrides_to_tailored(
 # ---------------------------------------------------------------------------
 
 
-async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsResponse:
+async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> CVSectionsResponse:
     """Load sections + overrides + gap hints for a CV.
 
     Returns empty sections list when content_snapshot is NULL.
     Returns 404 if CV not found.
     """
-    record = await _load_cv(cv_id, db)
+    owner = resolve_owner(user_id, site="cv_section_editor.get_cv_sections")
+    record = await _load_cv(cv_id, db, owner)
 
     # NULL snapshot — CV was generated before this sprint
     if record.content_snapshot is None:
@@ -161,7 +165,7 @@ async def get_cv_sections(cv_id: uuid.UUID, db: AsyncSession) -> CVSectionsRespo
     gap_map: dict[str, list[GapHintItem]] = {}
     general_gaps: list[GapHintItem] = []
 
-    gap_analysis = await _load_gap_analysis(cv_id, db)
+    gap_analysis = await _load_gap_analysis(cv_id, db, owner)
     if gap_analysis:
         gap_map, general_gaps = build_gap_hints(
             ledger=gap_analysis.keyword_ledger,
@@ -234,6 +238,8 @@ async def patch_cv_section(
     save_to_profile: bool,
     db: AsyncSession,
     background_tasks: BackgroundTasks | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> SectionPatchResponse:
     """Write a section override and re-render the CV HTML.
 
@@ -243,7 +249,8 @@ async def patch_cv_section(
     """
     from applire.services.cv import _jinja_env, _TEMPLATE_FILES
 
-    record = await _load_cv(cv_id, db)
+    owner = resolve_owner(user_id, site="cv_section_editor.patch_cv_section")
+    record = await _load_cv(cv_id, db, owner)
 
     # Validate section_id
     valid_position_ids: set[str] = set()
@@ -267,7 +274,7 @@ async def patch_cv_section(
 
     # Optional profile save
     if save_to_profile:
-        await _save_section_to_profile(cv_id, section_id, content, record, db)
+        await _save_section_to_profile(cv_id, section_id, content, record, db, owner)
 
     # Which hints did this edit just cover? Purely informational (#117): the UI
     # drops the chips; the gap analysis itself is NEVER mutated — the evidence
@@ -275,7 +282,7 @@ async def patch_cv_section(
     contents_after = dict(contents_before)
     contents_after[section_id] = content
     resolved_gaps: list[str] = []
-    gap_analysis = await _load_gap_analysis(cv_id, db)
+    gap_analysis = await _load_gap_analysis(cv_id, db, owner)
     if gap_analysis:
         resolved_gaps = resolved_gap_hints(
             ledger=gap_analysis.keyword_ledger,
@@ -296,7 +303,7 @@ async def patch_cv_section(
     # cv.get_cv_html, from the same implementation (ADR-066).
     from applire.services.cv import strip_empty_projects
     tailored_with_overrides = strip_empty_projects(tailored_with_overrides)
-    color_ctx = await resolve_color_context(record, db)
+    color_ctx = await resolve_color_context(record, db, user_id=owner)
     template_file = _TEMPLATE_FILES.get(record.template, "lebenslauf.html.j2")
     template = _jinja_env.get_template(template_file)
     # #4 (ADR-038): section headings follow the document's output language (mirrors
@@ -308,12 +315,11 @@ async def patch_cv_section(
     if not lang:
         from applire.models.job import JobAnalysis
         from applire.services.application import get_application_for_job
-        from applire.services.color_detection import _CE_STUB_USER_ID
         from applire.utils.language_detection import resolve_document_language
 
         job = await db.get(JobAnalysis, record.job_analysis_id)
         application = await get_application_for_job(
-            record.job_analysis_id, _CE_STUB_USER_ID, db
+            record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
     html = template.render(
@@ -323,7 +329,8 @@ async def patch_cv_section(
     if background_tasks is not None:
         # ADR-039: re-audit off-thread; the report must never describe a stale document
         from applire.services.cv import _update_ats_report_by_id
-        background_tasks.add_task(_update_ats_report_by_id, record.id)
+        # ADR-092 cl. 14: the task receives its user explicitly.
+        background_tasks.add_task(_update_ats_report_by_id, record.id, user_id=owner)
 
     return SectionPatchResponse(
         html=html,
@@ -339,6 +346,7 @@ def build_section_field_edit(
     profile_data: "MasterProfileData",
     content_snapshot: dict | None,
     lang: str,
+    user_id: uuid.UUID | None = None,
 ) -> tuple[str, object] | None:
     """Intake adapter (ADR-063 clause 3): a CV-section edit → one ``FieldEdit``.
 
@@ -428,6 +436,7 @@ async def _save_section_to_profile(
     content: str,
     record: GeneratedCV,
     db: AsyncSession,
+    owner: uuid.UUID,
 ) -> None:
     """Save the edited section into the Master Profile through the shared
     ``FieldEdit`` intake (ADR-063 clauses 2–3, ADR-066).
@@ -497,12 +506,11 @@ async def _save_section_to_profile(
         if not record.document_language and record.job_analysis_id:
             from applire.models.job import JobAnalysis
             from applire.services.application import get_application_for_job
-            from applire.services.color_detection import _CE_STUB_USER_ID
             from applire.utils.language_detection import resolve_document_language
 
             job = await db.get(JobAnalysis, record.job_analysis_id)
             application = await get_application_for_job(
-                record.job_analysis_id, _CE_STUB_USER_ID, db
+                record.job_analysis_id, owner, db
             )
             lang = resolve_document_language(application, job) if job else "de"
 
@@ -523,6 +531,7 @@ async def _save_section_to_profile(
         db,
         source="manual_edit",
         source_session_id=str(cv_id),
+        user_id=owner,
     )
 
 
@@ -538,12 +547,16 @@ def _section_contents(snapshot: ContentSnapshot, overrides: dict) -> dict[str, s
     return contents
 
 
-async def _load_gap_analysis(cv_id: uuid.UUID, db: AsyncSession) -> GapAnalysis | None:
-    """The gap analysis linked to this CV via its FlowSession, or None."""
+async def _load_gap_analysis(
+    cv_id: uuid.UUID, db: AsyncSession, owner: uuid.UUID
+) -> GapAnalysis | None:
+    """The gap analysis linked to this CV via the owner's FlowSession, or None
+    (ADR-092 cl. 3 table: flow lookups ``+ user_id``)."""
     flow_result = await db.execute(
         select(FlowSession)
         .where(
             FlowSession.generated_cv_id == cv_id,
+            FlowSession.user_id == owner,
             FlowSession.deleted_at.is_(None),
         )
         .limit(1)
@@ -551,7 +564,14 @@ async def _load_gap_analysis(cv_id: uuid.UUID, db: AsyncSession) -> GapAnalysis 
     flow = flow_result.scalar_one_or_none()
     if not flow or not flow.gap_analysis_id:
         return None
-    return await db.get(GapAnalysis, flow.gap_analysis_id)
+    gap = (
+        await db.execute(
+            select(GapAnalysis).where(
+                GapAnalysis.id == flow.gap_analysis_id, GapAnalysis.user_id == owner
+            )
+        )
+    ).scalar_one_or_none()
+    return gap
 
 
 # ---------------------------------------------------------------------------
@@ -559,14 +579,6 @@ async def _load_gap_analysis(cv_id: uuid.UUID, db: AsyncSession) -> GapAnalysis 
 # ---------------------------------------------------------------------------
 
 
-async def _load_cv(cv_id: uuid.UUID, db: AsyncSession) -> GeneratedCV:
-    result = await db.execute(
-        select(GeneratedCV).where(
-            GeneratedCV.id == cv_id,
-            GeneratedCV.deleted_at.is_(None),
-        )
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise LookupError(f"Generated CV {cv_id} not found")
-    return record
+async def _load_cv(cv_id: uuid.UUID, db: AsyncSession, owner: uuid.UUID) -> GeneratedCV:
+    """The owner's live CV — a foreign id reads like a missing one (S-10)."""
+    return await owned_cv(db, cv_id, owner)

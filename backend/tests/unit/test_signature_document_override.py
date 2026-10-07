@@ -83,8 +83,13 @@ def storage(tmp_path):
 
 async def _make_user(db) -> uuid.UUID:
     from applire.models.user import User
+    from tests.support.owners import HARNESS_USER_ID
 
-    user_id = uuid.uuid4()
+    # ADR-092 / D-10 (Strawberry W2): user_settings is keyed to the CALLER now,
+    # not "the CE stub regardless of which user_id was passed" — the test user
+    # is the harness user the owner context acts as, so `_settings_row` (stub
+    # id) and the services read the same row.
+    user_id = HARNESS_USER_ID
     db.add(User(id=user_id, email=f"{user_id}@example.de"))
     await db.commit()
     return user_id
@@ -92,7 +97,7 @@ async def _make_user(db) -> uuid.UUID:
 
 async def _settings_row(db):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
 
     result = await db.execute(
         select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
@@ -397,11 +402,10 @@ async def test_signature_available_false_after_delete(db, storage, monkeypatch):
     monkeypatch.setattr("applire.storage.get_storage", lambda: storage)
     from applire.services.signature import delete_signature, resolve_signature_available
 
-    user_id = uuid.uuid4()
-    from applire.models.user import User
+    from tests.support.owners import HARNESS_USER_ID
 
-    db.add(User(id=user_id, email=f"{user_id}@example.de"))
-    await db.commit()
+    # D-10: the caller's settings row — `_upload` creates the harness user.
+    user_id = HARNESS_USER_ID
     await _upload(db, storage)
     assert await resolve_signature_available(db) is True
 

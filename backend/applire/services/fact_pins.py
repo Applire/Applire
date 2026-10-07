@@ -69,7 +69,7 @@ _SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
 CV_UNRENDERABLE_PIN_TYPES: frozenset[str] = frozenset({"volunteer", "publication"})
 
 
-def check_target_renderable(request) -> None:
+def check_target_renderable(request, *, user_id: uuid.UUID | None = None) -> None:
     """Refuse a target the document cannot render (ValueError → 422 on both doors)."""
     if "cv" in request.targets and request.entry_type in CV_UNRENDERABLE_PIN_TYPES:
         raise ValueError(
@@ -85,7 +85,7 @@ def _find_entry(profile: MasterProfileData, entry_type: str, entry_id: str):
     return None
 
 
-def entry_is_claimable(entry) -> bool:
+def entry_is_claimable(entry, *, user_id: uuid.UUID | None = None) -> bool:
     """ADR-077 clause 2 — the claim gate runs ABOVE pins.
 
     An `unconfirmed` or `denied` entry cannot back a CV line or a letter
@@ -96,7 +96,7 @@ def entry_is_claimable(entry) -> bool:
     return getattr(entry, "status", None) not in ("unconfirmed", "denied")
 
 
-def quote_resolves_in_entry(quote: str, entry, entry_type: str) -> bool:
+def quote_resolves_in_entry(quote: str, entry, entry_type: str, *, user_id: uuid.UUID | None = None) -> bool:
     """The fact of normalized-quote containment (ADR-062 clause 1 discipline)."""
     quote_norm = _norm_quote(quote)
     if not quote_norm:
@@ -111,7 +111,7 @@ def quote_resolves_in_entry(quote: str, entry, entry_type: str) -> bool:
     return False
 
 
-def pin_resolves(pin: FactPin, profile: MasterProfileData) -> bool:
+def pin_resolves(pin: FactPin, profile: MasterProfileData, *, user_id: uuid.UUID | None = None) -> bool:
     entry = _find_entry(profile, pin.entry_type, pin.entry_id)
     return (
         entry is not None
@@ -121,7 +121,9 @@ def pin_resolves(pin: FactPin, profile: MasterProfileData) -> bool:
 
 
 def refresh_pin_staleness(
-    pins: list[FactPin], profile: MasterProfileData
+    pins: list[FactPin], profile: MasterProfileData,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> tuple[list[FactPin], bool]:
     """Recompute ``stale`` on every pin against the current vault.
 
@@ -140,21 +142,16 @@ def refresh_pin_staleness(
     return refreshed, changed
 
 
-def load_pins(application) -> list[FactPin]:
+def load_pins(application, *, user_id: uuid.UUID | None = None) -> list[FactPin]:
     """Parse the JSONB list (NULL = pre-migration row = no pins)."""
     return [FactPin.model_validate(p) for p in (application.pinned_facts or [])]
 
 
-async def _load_profile(db: AsyncSession) -> MasterProfileData:
-    from applire.models.profile import MasterProfile
+async def _load_profile(db: AsyncSession, user_id: uuid.UUID) -> MasterProfileData:
+    """The pin owner's vault (ADR-092 cl. 2) — a pin resolves against its own vault."""
+    from applire.services.profile import get_profile_for_user
 
-    result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    record = result.scalar_one_or_none()
+    record = await get_profile_for_user(db, user_id)
     if record is None:
         raise LookupError("No profile found — import a CV first")
     return MasterProfileData.model_validate(record.profile_json)
@@ -179,7 +176,7 @@ async def add_fact_pin(
     check_target_renderable(request)
 
     app = await _get_or_404(application_id, user_id, db)
-    profile = await _load_profile(db)
+    profile = await _load_profile(db, user_id)
 
     entry = _find_entry(profile, request.entry_type, request.entry_id)
     if entry is None:

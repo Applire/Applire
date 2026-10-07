@@ -29,11 +29,14 @@ from applire.db.session import Base
 
 class InterviewSession(Base):
     __tablename__ = "interview_sessions"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
     __table_args__ = (
-        # At most one active session per job — closes the check-then-create
-        # race in create_session (concurrent requests, React StrictMode).
+        # At most one active session per (user, job) — closes the check-then-create
+        # race in create_session (concurrent requests, React StrictMode). Re-keyed
+        # with user_id by migration 0075 (ADR-092 cl. 3, SF-OWN.7).
         Index(
             "uq_interview_sessions_active_per_job",
+            "user_id",
             "job_analysis_id",
             unique=True,
             postgresql_where=text("status = 'active' AND deleted_at IS NULL"),
@@ -50,6 +53,11 @@ class InterviewSession(Base):
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("master_profiles.id"), nullable=False
+    )
+    # The owner (ADR-092 cl. 1, migration 0075): a copy of the profile's owner,
+    # checked against it at insert (ownership.py's chain listener, SF-OWN.9).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="fk_interview_sessions_user_id_users"), nullable=False, index=True
     )
     # "targeted" (MODE A) | "guided" (MODE B)
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="targeted")

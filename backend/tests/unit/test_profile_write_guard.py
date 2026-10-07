@@ -54,6 +54,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from applire.ownership import owner_context
 import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy import event, insert, update
@@ -296,6 +297,7 @@ async def test_the_photo_service_is_authorised(db_session):
     with authorized_profile_write():
         db_session.add(
             MasterProfile(
+                user_id=user_id,  # ADR-092 cl. 2: the photo owner's own vault
                 profile_json={
                     "personal_info": {
                         "full_name": "Daniel Kovač",
@@ -307,10 +309,12 @@ async def test_the_photo_service_is_authorised(db_session):
         )
     await db_session.commit()
 
-    storage = _Storage()
-    await delete_photo(user_id=user_id, db=db_session, storage=storage)
+    # Acts for the user it names, as its request would (ADR-092 cl. 8).
+    with owner_context(user_id):
+        storage = _Storage()
+        await delete_photo(user_id=user_id, db=db_session, storage=storage)
 
-    assert storage.deleted == ["photos/photo.jpg"]
+        assert storage.deleted == ["photos/photo.jpg"]
 
 
 @pytest.mark.asyncio
@@ -924,13 +928,17 @@ async def test_the_executemany_insert_form_carrying_the_vault_raises(db_session)
     assert excinfo.value.reason == "ORM bulk INSERT"
 
 
+_STUB_OWNER = uuid.UUID("00000000-0000-0000-0000-000000000001")  # ADR-092 cl. 2 owner
+
+
 @pytest.mark.asyncio
 async def test_a_tokened_bulk_insert_succeeds(db_session):
     new_id = uuid.uuid4()
 
     with authorized_profile_write():
         await db_session.execute(
-            insert(MasterProfile).values(id=new_id, profile_json=_seed())
+            # a bulk INSERT bypasses the ORM owner fill: it names the owner itself
+            insert(MasterProfile).values(id=new_id, profile_json=_seed(), user_id=_STUB_OWNER)
         )
     await db_session.commit()
 

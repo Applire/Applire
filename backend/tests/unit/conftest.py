@@ -7,7 +7,12 @@ import os
 import uuid
 
 # Must be set before app modules are imported (pydantic Settings validates at import time)
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
+# ADR-091 cl. 3 (c): the harness proof for this tree is an IN-MEMORY SQLite URL
+# (was a ./test.db file, which outlives the run and so is no proof).
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
+# ADR-091 cl. 3: the unit tiers run on the NoAuth harness (AUTH_PROVIDER now
+# defaults to `local`; CI's unit step sets neither) — 1a NEEDS-EDIT, accepted by main.
+os.environ.setdefault("AUTH_HARNESS", "true")
 
 import pytest
 import pytest_asyncio
@@ -20,6 +25,34 @@ from applire.db.session import Base, get_db
 from applire.main import app
 from applire.schemas.profile import MasterProfileData
 
+# MD-24 (2) — the 0-production-fallback ratchet (autouse fixture + counters).
+from tests.support.owner_ratchet import (  # noqa: E402,F401
+    install_owner_ratchet,
+    owner_fallback_ratchet,
+    register_ratchet_marker,
+)
+
+# ADR-092 cl. 8 test bootstrap (Strawberry F12): the sync autouse owner context,
+# the opt-out marker, and the two-user fixture.
+from tests.support.owners import (  # noqa: E402,F401
+    configure_test_guard,
+    harness_owner_context,
+    register_markers,
+    two_users,
+)
+
+
+def pytest_configure(config):
+    register_markers(config)
+    # MD-24 (1): the statement guard runs ON in the unit suites, on every engine
+    # (``APPLIRE_TEST_OWNER_GUARD=off|report`` for the isolation suite's second arm
+    # and diagnostics).
+    configure_test_guard()
+    # MD-24 (2): production doors reach the user_id=None fallback / a context
+    # owner fill 0 times — the autouse ratchet fails the test that does.
+    install_owner_ratchet()
+    register_ratchet_marker(config)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def docker_environment():
@@ -28,13 +61,29 @@ def docker_environment():
 
 
 @pytest_asyncio.fixture
-async def async_db():
-    """Create an in-memory SQLite database for testing."""
+async def async_db(harness_owner_context):
+    """Create an in-memory SQLite database for testing.
+
+    Depends on ``harness_owner_context`` so the owner context is set BEFORE
+    ``create_all`` (its PRAGMA statements name the owned tables — ADR-092 cl. 8).
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Create all tables. A ``no_owner_context`` test has no owner here; its
+    # schema build declares test tooling (ADR-092 cl. 8) so the guard — on —
+    # refuses only what the TEST runs, never its fixture.
+    import contextlib
+
+    from applire.ownership import current_owner, unscoped
+
+    owned = current_owner() is not None
+
+    def schema_ctx():
+        return contextlib.nullcontext() if owned else unscoped("tooling")
+
+    with schema_ctx():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     # Create session factory
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -44,8 +93,9 @@ async def async_db():
         yield session
 
     # Cleanup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    with schema_ctx():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 

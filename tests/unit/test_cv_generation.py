@@ -348,6 +348,10 @@ async def _seed_job_and_profile(db):
         company_culture_signals=[],
         language_requirement="German",
     ))
+    # ADR-092: the acting user reaches the posting through their own link.
+    await db.flush()
+    from tests.support.owners_3c import link_job
+    await link_job(db, job_id)
     db.add(make_master_profile(
         id=uuid.uuid4(),
         profile_json={"personal_info": {"full_name": "Emma Beispiel"}},
@@ -358,7 +362,7 @@ async def _seed_job_and_profile(db):
 
 async def _seed_user_settings(db, target_cv_pages: int | None):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
     from applire.models.user import User
 
     db.add(User(id=_CE_STUB_USER_ID, email="local@applire.community"))

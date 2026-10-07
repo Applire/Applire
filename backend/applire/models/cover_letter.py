@@ -44,6 +44,7 @@ def _cl_expires_at() -> datetime:
 
 class GeneratedCoverLetter(Base):
     __tablename__ = "generated_cover_letters"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     job_analysis_id: Mapped[uuid.UUID] = mapped_column(
@@ -51,6 +52,11 @@ class GeneratedCoverLetter(Base):
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("master_profiles.id"), nullable=False
+    )
+    # The owner (ADR-092 cl. 1, migration 0075): a copy of the profile's owner,
+    # checked against it at insert (ownership.py's chain listener, SF-OWN.9).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="fk_generated_cover_letters_user_id_users"), nullable=False, index=True
     )
     template: Mapped[str] = mapped_column(String(40), nullable=False, default="classic_german")
     letter_data: Mapped[dict] = mapped_column(_JSON, nullable=False, default=dict)

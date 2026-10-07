@@ -225,11 +225,11 @@ class TestCreateSessionRace:
         real_lookup = session_service._get_active_session
         calls = {"n": 0}
 
-        async def racy_lookup(job_id, db):
+        async def racy_lookup(job_id, db, **kw):  # ADR-092: + user_id
             calls["n"] += 1
             if calls["n"] == 1:
                 return None
-            return await real_lookup(job_id, db)
+            return await real_lookup(job_id, db, **kw)
 
         req = SessionCreateRequest(job_id=job.id, mode="targeted")
         with patch.object(session_service, "_get_active_session", racy_lookup), patch(

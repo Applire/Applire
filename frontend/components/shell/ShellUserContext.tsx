@@ -17,14 +17,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+
+import { useCurrentUser } from "@/lib/auth/current-user";
 
 interface ShellUserContextValue {
   /** Profile display name, or null while loading / if the fetch failed. */
   userName: string | null;
+  /** US330: the signed-in account (from `/api/auth/me`), null while unknown. */
+  id: string | null;
+  email: string | null;
+  role: "admin" | "user" | null;
 }
 
-const ShellUserContext = createContext<ShellUserContextValue>({ userName: null });
+const ShellUserContext = createContext<ShellUserContextValue>({ userName: null, id: null, email: null, role: null });
 
 /**
  * Threads the profile display name — already fetched once in the (shell)
@@ -38,8 +44,13 @@ export function ShellUserProvider({
   userName: string | null;
   children: ReactNode;
 }) {
+  const { user } = useCurrentUser();
+  const value = useMemo<ShellUserContextValue>(
+    () => ({ userName, id: user?.id ?? null, email: user?.email ?? null, role: user?.role ?? null }),
+    [userName, user],
+  );
   return (
-    <ShellUserContext.Provider value={{ userName }}>
+    <ShellUserContext.Provider value={value}>
       {children}
     </ShellUserContext.Provider>
   );

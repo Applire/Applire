@@ -133,6 +133,11 @@ services:
     image: ghcr.io/applire/applire-nginx:latest
     restart: unless-stopped
     logging: *default-logging
+    environment:
+      # MD-33: empty = trust no X-Forwarded-For (the login throttle keys on the
+      # address nginx sees). Behind your own TLS proxy, set it in .env to that
+      # proxy's address (SELF-HOSTING §8).
+      APPLIRE_TRUSTED_PROXY: ${APPLIRE_TRUSTED_PROXY:-}
     ports:
       - "80:80"
     depends_on:

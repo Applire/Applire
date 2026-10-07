@@ -44,6 +44,7 @@ def _expires_at() -> datetime:
 
 class GeneratedCV(Base):
     __tablename__ = "generated_cvs"
+    __owned__ = True  # ADR-092 cl. 3 — the statement guard's owned set
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     job_analysis_id: Mapped[uuid.UUID] = mapped_column(
@@ -51,6 +52,11 @@ class GeneratedCV(Base):
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("master_profiles.id"), nullable=False
+    )
+    # The owner (ADR-092 cl. 1, migration 0075): a copy of the profile's owner,
+    # checked against it at insert (ownership.py's chain listener, SF-OWN.9).
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="fk_generated_cvs_user_id_users"), nullable=False, index=True
     )
     tailored_data: Mapped[dict] = mapped_column(_JSON, nullable=False)
     template: Mapped[str] = mapped_column(default="classic_german", nullable=False)

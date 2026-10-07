@@ -33,8 +33,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.models.application import UserStatus, WorkflowStatus
 from applire.schemas.application import (
@@ -68,10 +68,10 @@ async def list_pipeline(
     user_status: UserStatus | None = Query(default=None),
     q: str | None = Query(default=None, description="Search role_title, company_name, notes"),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ApplicationListResponse:
     """List all applications for the current user, sorted updated_at DESC."""
-    user = await auth.get_current_user(request)
+    user = current_user
     return await list_applications(user.id, db, workflow_status, user_status, q)
 
 
@@ -80,14 +80,14 @@ async def create(
     body: CreateApplicationRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ApplicationResponse:
     """Add a job to the tracking pipeline.
 
     Provide start_workflow=true for atomic create-and-start (same code path as POST /{id}/start).
     Requires a pre-existing job_analysis_id — call POST /api/job/analyze first.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await create_application(user.id, body, db)
     except LookupError as exc:
@@ -103,9 +103,9 @@ async def get(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ApplicationResponse:
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await get_application(application_id, user.id, db)
     except LookupError as exc:
@@ -118,10 +118,10 @@ async def patch(
     body: PatchApplicationRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ApplicationResponse:
     """Update user-managed fields. workflow_status is system-managed and will be rejected (422)."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await patch_application(application_id, user.id, body, db)
     except LookupError as exc:
@@ -137,10 +137,10 @@ async def delete(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> None:
     """Soft-delete the application and cascade to attached FlowSession."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         await delete_application(application_id, user.id, db)
     except LookupError as exc:
@@ -154,13 +154,13 @@ async def start_workflow(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> ApplicationResponse:
     """Create a FlowSession for a tracking application (deferred activation).
 
     Returns 409 if a workflow has already been started for this application.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await start_application_workflow(application_id, user.id, db)
     except LookupError as exc:
@@ -176,9 +176,9 @@ async def mark_hired(
     application_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> MarkHiredResponse:
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await mark_application_hired(application_id, user.id, db)
     except LookupError as exc:
@@ -195,14 +195,14 @@ async def add_pin(
     body: AddFactPinRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> FactPin:
     """Add one fact pin (E056/ADR-077 clause 6 — additive, never list-replace).
 
     422 when the quote does not resolve fail-closed inside the referenced
     vault entry, on the MAX_FACT_PINS cap, and on duplicates.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await add_fact_pin(application_id, user.id, body, db)
     except LookupError as exc:
@@ -219,10 +219,10 @@ async def delete_pin(
     pin_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> None:
     """Remove one fact pin — idempotent (an absent pin_id is not an error)."""
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         await remove_fact_pin(application_id, user.id, pin_id, db)
     except LookupError as exc:

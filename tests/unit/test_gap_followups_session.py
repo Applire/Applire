@@ -38,7 +38,7 @@ _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from tests.support.profile_factory import make_master_profile  # noqa: E402
+from tests.support.profile_factory import make_master_profile, retire_live_profiles  # noqa: E402
 
 _INFRA = "cluster-infra"
 _API = "cluster-api"
@@ -106,6 +106,7 @@ async def _seed(db, *, clusters=None, ledger=None, jd_language="en"):
         nice_to_have_skills=[], keywords=[], seniority_level="Senior",
         company_culture_signals=[], language_requirement="English", jd_language=jd_language,
     )
+    await retire_live_profiles(db)  # one live vault per owner (ADR-092 cl. 2)
     profile = make_master_profile(profile_json={
         "personal_info": {"name": "Mara Test", "email": "mara@example.de"},
         "skills": [{"name": "Python", "category": "technical"}],
@@ -628,6 +629,8 @@ def test_the_rest_door_answers_409_with_the_error_code():
     from fastapi.testclient import TestClient
 
     from applire.auth import get_auth_provider
+
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
     from applire.routers.session import _get_provider, router
     from applire.services.session import GapNotAskableError
@@ -636,9 +639,10 @@ def test_the_rest_door_answers_409_with_the_error_code():
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: MagicMock()
     app.dependency_overrides[_get_provider] = lambda: MagicMock()
-    app.dependency_overrides[get_auth_provider] = lambda: MagicMock()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     refusal = GapNotAskableError("gap_budget_spent", '"Cloud infrastructure" is spent.', _INFRA)
-    with patch("applire.routers.session.create_session", new=AsyncMock(side_effect=refusal)):
+    with patch("applire.routers.session.create_session", new=AsyncMock(side_effect=refusal)), \
+            patch("applire.routers.session.get_job_for_user", new=AsyncMock()):
         resp = TestClient(app).post(
             "/api/session", json={"job_id": str(uuid.uuid4()), "target_gap": _INFRA}
         )

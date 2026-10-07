@@ -37,13 +37,20 @@ TEST_USER_ID = uuid.uuid4()
 async def db_session():
     from applire.db.session import Base
     from applire.models.gap import GapAnalysis
+    from applire.models.application import Application
     from applire.models.gap_job import GapAnalysisJob
+    from applire.models.job import JobAnalysis
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda c: Base.metadata.create_all(
-                c, tables=[GapAnalysisJob.__table__, GapAnalysis.__table__]
+                c, tables=[
+                    GapAnalysisJob.__table__,
+                    GapAnalysis.__table__,
+                    JobAnalysis.__table__,  # ADR-092: the posting + the user's link
+                    Application.__table__,
+                ]
             )
         )
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -71,9 +78,25 @@ async def client(db_session):
         yield ac
 
 
+async def _linked_posting(db_session) -> uuid.UUID:
+    """A shared posting plus TEST_USER_ID's link to it (ADR-092: the job routes
+    resolve the caller's link before anything else)."""
+    from applire.models.job import JobAnalysis
+    from tests.support.posting_links import link_posting
+
+    job = JobAnalysis(
+        raw_text_hash=uuid.uuid4().hex, raw_text="JD", role_title="Engineer",
+        seniority_level="mid", language_requirement="en",
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await link_posting(db_session, job, TEST_USER_ID, commit=True)
+    return job.id
+
+
 @pytest.mark.asyncio
-async def test_post_gap_jobs_returns_202_and_handle(client):
-    job_id = uuid.uuid4()
+async def test_post_gap_jobs_returns_202_and_handle(client, db_session):
+    job_id = await _linked_posting(db_session)
     # Patch the background task so no real analyze_gaps runs after the response.
     with patch("applire.routers.job.run_gap_job_background", new=AsyncMock()):
         resp = await client.post(f"/api/job/{job_id}/gap-jobs")
@@ -84,8 +107,8 @@ async def test_post_gap_jobs_returns_202_and_handle(client):
 
 
 @pytest.mark.asyncio
-async def test_get_gap_job_poll_pending(client):
-    job_id = uuid.uuid4()
+async def test_get_gap_job_poll_pending(client, db_session):
+    job_id = await _linked_posting(db_session)
     with patch("applire.routers.job.run_gap_job_background", new=AsyncMock()):
         start = await client.post(f"/api/job/{job_id}/gap-jobs")
     gap_job_id = start.json()["gap_job_id"]
@@ -106,6 +129,7 @@ async def test_get_gap_job_ready_returns_analysis(client, db_session):
     analysis = GapAnalysis(
         job_analysis_id=job_id,
         profile_id=uuid.uuid4(),
+        user_id=TEST_USER_ID,  # the owner (ADR-092 cl. 1); no profile row in this DB
         match_score=0.72,
     )
     db_session.add(analysis)

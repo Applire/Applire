@@ -135,7 +135,7 @@ async def _run_cv(ledger: list[dict]) -> dict:
     }[id_]
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_gap
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
     captured: dict = {}
 
@@ -300,3 +300,29 @@ async def test_letter_generation_seam_refreshes_the_ledger_it_hands_the_writer()
     assert rows["REST APIs"]["claimable"] is True
     assert _VAULT_SENTENCE in rows["REST APIs"]["evidence"]
     assert rows["GraphQL"]["claimable"] is False
+
+
+def _execute_by_entity(mock_cv, default_result, job_id):
+    """ADR-092: the background render loads the CV via an owner-keyed SELECT
+    (not ``db.get``), so route ``execute`` by the selected entity. The CV row
+    is owned by the harness user, the acting owner."""
+    from applire.models.application import Application
+    from applire.models.cv import GeneratedCV
+    from tests.support.owners import HARNESS_USER_ID
+
+    mock_cv.user_id = HARNESS_USER_ID
+    mock_cv.job_analysis_id = job_id
+
+    def _execute(stmt, *args, **kwargs):
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is GeneratedCV:
+            row = mock_cv
+        elif entity is Application:
+            row = None
+        else:
+            return default_result
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = row
+        return result
+
+    return _execute

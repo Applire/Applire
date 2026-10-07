@@ -37,6 +37,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from tests.support.profile_factory import make_master_profile
 
 
+
 @pytest_asyncio.fixture
 async def db():
     import importlib
@@ -192,7 +193,14 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     from applire.models.cv import GeneratedCV
     from applire.models.job import JobAnalysis
 
-    await _seed_user(db)
+    from applire.auth.harness import STUB_USER_ID
+    from applire.models.user import User
+
+    # The in-process MCP door acts for its identity — unbound in a unit test,
+    # that is the harness stub user (4b) — so the stub user owns the link.
+    db.add(User(id=STUB_USER_ID, email=f"stub-{uuid.uuid4()}@example.org"))
+    await db.flush()
+    uid = STUB_USER_ID
     job = JobAnalysis(
         id=uuid.uuid4(), raw_text_hash=f"h-{uuid.uuid4()}", raw_text="JD",
         role_title="Software Engineer", seniority_level="mid",
@@ -201,13 +209,20 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     profile = make_master_profile(profile_json=_profile_json())
     db.add_all([job, profile])
     await db.flush()
+    # ADR-092 cl. 5c: the door's user reaches the posting through their link.
+    from tests.support.posting_links import link_posting
+
+    await link_posting(db, job, uid)
     cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={})
     db.add(cv)
     await db.commit()
     await db.refresh(cv)
 
+    from applire.ownership import owner_context
+
     p_db, p_prov = _patched(db)
-    with p_db, p_prov:
+    # ADR-092 cl. 10: the MCP identity acts for its user (package 4b sets this per call).
+    with p_db, p_prov, owner_context(uid):
         flow = await start_flow(job_id=str(job.id))
         flow_id = flow["flow_id"]
         with pytest.raises(McpError) as exc:
@@ -215,3 +230,13 @@ async def test_mcp_advance_flow_with_wrong_table_id_is_invalid_input_not_a_crash
     msg = str(exc.value)
     assert str(cv.id) in msg
     assert "gap_analysis" in msg
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

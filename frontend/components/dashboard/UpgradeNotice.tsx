@@ -24,8 +24,14 @@
  * An upgrade used to change behaviour with no message on any surface the operator
  * reads. This is the third of the three surfaces the story gives it — the other two
  * are a WARNING block on the backend log at startup and `upgrade_notice` on
- * `GET /health`. All three are computed once, in the lifespan, from the same
- * comparison; this component only renders what `/health` reports.
+ * `GET /api/ops/health`. All three are computed once, in the lifespan, from the same
+ * comparison; this component only renders what the ops report says.
+ *
+ * Strawberry (RD-1, S-16): the fields left the public `/health` for the
+ * admin-or-probe `/api/ops/health`, so the notice is ADMIN-ONLY — a non-admin never
+ * requests it. Crossing into the multi-user release (from < 0.43.0) adds the
+ * W0-B upgrade mock's parts: the AUTH_PROVIDER=none paragraph (MD-2), the to-do
+ * list, and — RD-9 — how many older duplicate profiles were set aside.
  *
  * Two independent things can put it on screen, and they behave differently on purpose:
  *
@@ -42,9 +48,27 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { AlertTriangle, X } from "lucide-react";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
+import { API_BASE, useCurrentUser } from "@/lib/auth";
+
+/** The release that introduced accounts (ADR-091) — the notice's to-do list is for crossing it. */
+const MULTI_USER_RELEASE = [0, 43, 0] as const;
+
+function releaseTuple(v: string | undefined): number[] | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec((v ?? "").trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+function before(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
+/** True when this upgrade went from a pre-accounts release to one with accounts. */
+export function crossesMultiUser(from: string, to: string): boolean {
+  const f = releaseTuple(from);
+  const t = releaseTuple(to);
+  return f !== null && t !== null && before(f, MULTI_USER_RELEASE) && !before(t, MULTI_USER_RELEASE);
+}
 
 interface NoticeItem {
   env_var: string;
@@ -61,43 +85,52 @@ interface UpgradeNoticePayload {
   re_meant: NoticeItem[];
 }
 
-interface HealthPayload {
+interface OpsPayload {
   upgrade_notice?: UpgradeNoticePayload | null;
   debug_log_on?: boolean;
+  /** RD-9 / MD-27: older duplicate profiles migration 0074 set aside (count only). */
+  retired_profiles?: number;
 }
 
 export function UpgradeNotice() {
   const t = useTranslations("upgradeNotice");
+  const { isAdmin } = useCurrentUser();
   const [notice, setNotice] = useState<UpgradeNoticePayload | null>(null);
   const [debugLogOn, setDebugLogOn] = useState(false);
+  const [retired, setRetired] = useState(0);
   const [dismissing, setDismissing] = useState(false);
 
   useEffect(() => {
+    if (!isAdmin) return;
     let stopped = false;
     async function load() {
       try {
-        const res = await fetch(`${API_BASE}/health`);
-        if (!res.ok) return;
-        const data = (await res.json()) as HealthPayload;
+        const res = await fetch(`${API_BASE}/api/ops/health`, { credentials: "same-origin" });
+        // 503 is the "down" verdict and still carries the report (contract §3.1);
+        // 401/403 means this is not (or no longer) an admin session — nothing to show.
+        if (!res.ok && res.status !== 503) return;
+        const data = (await res.json()) as OpsPayload;
         if (stopped) return;
         setNotice(data.upgrade_notice ?? null);
         setDebugLogOn(Boolean(data.debug_log_on));
+        setRetired(typeof data.retired_profiles === "number" ? data.retired_profiles : 0);
       } catch {
-        // Non-fatal: a dashboard that cannot reach /health has bigger problems
-        // than a missing notice, and they are already visible elsewhere.
+        // Non-fatal: a dashboard that cannot reach the ops report has bigger
+        // problems than a missing notice, and they are already visible elsewhere.
       }
     }
     void load();
     return () => {
       stopped = true;
     };
-  }, []);
+  }, [isAdmin]);
 
   const dismiss = useCallback(async () => {
     setDismissing(true);
     try {
       await fetch(`${API_BASE}/api/settings/upgrade-notice/dismiss`, {
         method: "POST",
+        credentials: "same-origin",
       });
       setNotice(null);
     } catch {
@@ -106,7 +139,12 @@ export function UpgradeNotice() {
     }
   }, []);
 
-  if (!notice && !debugLogOn) return null;
+  if (!isAdmin || (!notice && !debugLogOn)) return null;
+
+  const crossing = notice !== null && crossesMultiUser(notice.from, notice.to);
+  const authReMeant = notice?.re_meant.some((item) => item.env_var === "AUTH_PROVIDER") ?? false;
+  // The AUTH_PROVIDER paragraph replaces its generic re-meant line (no double mention).
+  const reMeant = (notice?.re_meant ?? []).filter((item) => !(authReMeant && item.env_var === "AUTH_PROVIDER"));
 
   return (
     <div
@@ -127,6 +165,24 @@ export function UpgradeNotice() {
               <p className="text-[12px] text-on-surface-variant mt-0.5">
                 {t("versions", { from: notice.from, to: notice.to })}
               </p>
+
+              {authReMeant && (
+                <p data-testid="upgrade-notice-auth" className="text-[12px] text-neutral-dark mt-2.5">
+                  {t("authReMeant")}
+                </p>
+              )}
+
+              {crossing && (
+                <div data-testid="upgrade-notice-next-steps" className="mt-2.5">
+                  <p className="text-[12px] font-bold text-neutral-dark">{t("nextStepsTitle")}</p>
+                  <ul className="mt-1 list-disc pl-5 flex flex-col gap-0.5 text-[12px] text-neutral-dark">
+                    <li>{t("nextStepAgent")}</li>
+                    <li>{t("nextStepScripts")}</li>
+                    <li>{t("nextStepMonitor")}</li>
+                    <li>{t("nextStepPeople")}</li>
+                  </ul>
+                </div>
+              )}
 
               {notice.unset.length > 0 && (
                 <div className="mt-2.5">
@@ -149,13 +205,13 @@ export function UpgradeNotice() {
                 </div>
               )}
 
-              {notice.re_meant.length > 0 && (
+              {reMeant.length > 0 && (
                 <div className="mt-2.5">
                   <p className="text-[12px] font-bold text-neutral-dark">
                     {t("reMeantHeading")}
                   </p>
                   <ul className="mt-1 flex flex-col gap-1">
-                    {notice.re_meant.map((item) => (
+                    {reMeant.map((item) => (
                       <li key={item.env_var} className="text-[12px] text-neutral-dark">
                         <code className="font-mono font-bold">{item.env_var}</code>
                         <span className="text-on-surface-variant ml-1">
@@ -167,6 +223,12 @@ export function UpgradeNotice() {
                     ))}
                   </ul>
                 </div>
+              )}
+
+              {retired > 0 && (
+                <p data-testid="upgrade-notice-retired" className="text-[12px] text-on-surface-variant mt-2.5">
+                  {t("retiredProfile", { count: retired })}
+                </p>
               )}
 
               <p className="text-[12px] text-on-surface-variant mt-2.5">

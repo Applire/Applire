@@ -152,12 +152,12 @@ def _letter_render_pdf(monkeypatch, origin: str | None):
         async def scalar(self, *args, **kwargs):
             return origin
 
-    async def _html(cl_id, db, require_ready=True):
+    async def _html(cl_id, db, require_ready=True, **_kw):  # + user_id (ADR-092, W2)
         return _MINIMAL_LETTER_HTML
 
     monkeypatch.setattr(cover_letter_pdf, "AsyncSessionLocal", lambda: _NullSession())
     monkeypatch.setattr(cover_letter_pdf, "get_cover_letter_html", _html)
-    return cover_letter_pdf.render_pdf(uuid4())
+    return cover_letter_pdf.render_pdf(uuid4(), user_id=uuid4())  # own session names its user
 
 
 @pytest.mark.asyncio

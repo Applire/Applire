@@ -120,7 +120,7 @@ async def _run_render_cv_background(*, profile_json: dict, ledger: list[dict]):
     }[id_]
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_gap
-    mock_db.execute.return_value = mock_result
+    mock_db.execute.side_effect = _execute_by_entity(mock_cv, mock_result, job_id)
 
     fallback_kwargs: dict = {}
     review_kwargs: dict = {}
@@ -220,3 +220,29 @@ async def test_the_stated_limits_block_is_independent_of_the_keyword_ledger():
     assert claimable["stated_limits_block"]
     assert claimable["stated_limits_block"] == non_claimable["stated_limits_block"]
     assert claimable["stated_limits_block"] == empty_ledger["stated_limits_block"]
+
+
+def _execute_by_entity(mock_cv, default_result, job_id):
+    """ADR-092: the background render loads the CV via an owner-keyed SELECT
+    (not ``db.get``), so route ``execute`` by the selected entity. The CV row
+    is owned by the harness user, the acting owner."""
+    from applire.models.application import Application
+    from applire.models.cv import GeneratedCV
+    from tests.support.owners import HARNESS_USER_ID
+
+    mock_cv.user_id = HARNESS_USER_ID
+    mock_cv.job_analysis_id = job_id
+
+    def _execute(stmt, *args, **kwargs):
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is GeneratedCV:
+            row = mock_cv
+        elif entity is Application:
+            row = None
+        else:
+            return default_result
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = row
+        return result
+
+    return _execute

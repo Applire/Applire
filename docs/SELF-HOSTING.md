@@ -18,29 +18,30 @@ Everything here talks about the **production** topology (`docker-compose.yml` al
 10. [Upgrading](#10-upgrading)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Monitoring from outside](#12-monitoring-from-outside)
-13. [What Applire does not do for you](#13-what-applire-does-not-do-for-you)
+13. [Accounts, first-run setup and sign-in](#13-accounts-first-run-setup-and-sign-in)
+14. [Single sign-on (OIDC)](#14-single-sign-on-oidc)
+15. [Outgoing mail (SMTP)](#15-outgoing-mail-smtp)
+16. [Tokens: agents and scripts](#16-tokens-agents-and-scripts)
+17. [You are the controller of other people's data](#17-you-are-the-controller-of-other-peoples-data)
+18. [What Applire does not do for you](#18-what-applire-does-not-do-for-you)
 
 ---
 
 ## 1. Who this is for
 
-Applire Community is built for **one operator, one person, one instance**. `AUTH_PROVIDER=none` is the only Community option: there is no login, and anyone who can reach the URL can read and change the vault — your Master Profile, your applications, your generated documents. Treat network reach as the access control. Do not put an `AUTH_PROVIDER=none` instance on a network anyone else can reach without your own authenticating proxy in front of it.
+Applire Community is built for **one operator running one instance for one or several people** — yourself, a household, a small team. Sign-in is always on: every person has their own account (email + password, or your identity provider), and every person's vault — Master Profile, applications, generated documents — is visible to that person only. There is no user cap. Accounts are created by an administrator; there is no open sign-up.
 
-One user maps to exactly one profile. That is a deliberate architecture decision, not a limitation to work around — Applire's data model has no concept of a second person sharing an instance, and nothing in the roadmap adds one to Community.
+One user maps to exactly one profile. That is a deliberate architecture decision: a second person gets their own account, not a second profile on yours.
 
-If a second person in your household or team wants their own Applire, the workaround is a **second compose project**, not a shared instance:
+Two roles exist. An **administrator** manages accounts (create, invite, disable, delete, reset a password, revoke tokens) and sees account metadata on the People page — email, role, status, last sign-in, counts, storage and AI usage. That page has no view of anybody's profile or documents. A **user** works with their own data. The instance has one LLM provider and key (yours); every call is attributed to the person who triggered it.
 
-- a separate directory with its own copy of `docker-compose.yml` and `.env`
-- `COMPOSE_PROJECT_NAME=applire-<name>` in that `.env` (or pass `-p applire-<name>` on every `docker compose` call)
-- a different published port for its `nginx` service, since two projects can't both bind host port 80 — edit the `ports:` mapping, e.g. `"8081:80"`
-
-A distinct project name gives you distinct named volumes and a distinct database automatically — the two installs never touch each other's data. This is two single-user instances side by side, not multi-user support.
+Everything about accounts is in [Section 13](#13-accounts-first-run-setup-and-sign-in). The rest of this runbook is for whoever has shell access to the server.
 
 ## 2. Which topology am I running?
 
 `docker-compose.yml` on its own is the **production** topology: every service is a pre-built GHCR image, and nginx on port 80 is the only published port — backend and frontend stay internal.
 
-`docker-compose.override.yml` sitting beside it is the **development** topology: it builds the backend and frontend from source, mounts your working tree for hot reload, and publishes `3000` (frontend), `8001` (an *unauthenticated* API), and `5433` (Postgres with the compose default credentials).
+`docker-compose.override.yml` sitting beside it is the **development** topology: it builds the backend and frontend from source, mounts your working tree for hot reload, and publishes `3000` (frontend), `8001` (the API, bypassing nginx — login still applies, but use the app through port 80, see Section 8), and `5433` (Postgres with the compose default credentials).
 
 Docker Compose auto-applies an override file whenever it sits next to the base compose file — which is every source clone — so a plain `docker compose up -d` inside a clone silently gives you the dev topology. For a real install, always be explicit:
 
@@ -54,8 +55,8 @@ Three independent ways to check which one you're actually running:
 # 1. The published-port column
 docker compose ps
 
-# 2. The instance says so directly
-curl -s http://localhost/health | grep topology
+# 2. The instance says so directly (needs an admin session or a monitoring token — Section 12)
+curl -s -H "Authorization: Bearer apl_…" http://localhost/api/ops/health | grep topology
 # "topology": "production"   — or —   "topology": "dev"
 
 # 3. A startup warning naming the exposed ports, if you're on dev
@@ -133,6 +134,8 @@ Run it from the directory that holds `docker-compose.yml`, on a stack that is ei
 5. **Brings the rest of the stack up.** The backend runs `alembic upgrade head` on startup, so a backup taken on an older release is migrated forward to the schema the running image expects.
 6. **Prints `GET /health`** so you can see what came back.
 
+Accounts, sessions, tokens and the audit log live in the database, so a restore brings them back with it. A backup taken **before** the upgrade to 0.43 restores to an instance that has no account yet: after the backend has migrated it forward you meet the setup screen again (Section 13).
+
 The script itself never runs `docker compose down -v` — deleting a volume stays your decision, made with the command in front of you, not a step buried inside a recovery script.
 
 After it finishes: **open the app and confirm a document you expect is actually there.** `/health` returning `"status": "ok"` tells you the backend is serving, not that your data survived the round trip intact. Then take a fresh backup — the restored instance has no backup of its own yet, and its `last_backup_at` marker is necessarily *older* than the archive you just restored: a backup is dumped before its own completion timestamp is written, so what comes back is the timestamp of the run before it. Taking a backup now makes the marker true again.
@@ -164,7 +167,9 @@ Other secrets to mind:
 
 - **`chmod 600 .env`** — it holds your database credentials and your LLM provider's API key.
 - The provider API key lives only in `.env` and is never written to a log.
-- **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /health` reports `"debug_log_on": true`. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging.
+- **The session secret** (it signs document links for agents) is generated on first start and stored in the database (`instance_state`) — there is nothing to configure, and it travels with your backup. Passwords are stored hashed (scrypt); tokens are stored hashed and shown once.
+- **The setup code** is printed in the backend log until the instance is claimed (Section 13). Treat the log as sensitive until then.
+- **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /api/ops/health` reports `"debug_log_on": true`. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging.
 
 ## 8. TLS and a reverse proxy in front
 
@@ -180,7 +185,22 @@ Applire's own nginx has no config file on the host to edit — it's baked into t
 
 **Or put your own reverse proxy (Caddy, Traefik, another nginx) in front of port 80** and let it terminate TLS, forwarding plain HTTP to Applire's nginx.
 
-If you go the second route, set `APPLIRE_BASE_URL` in `.env` to your proxy's externally reachable `scheme://host` (or `scheme://host:port`). The MCP/agent channel uses it to build the `html_url`/`pdf_url` links it returns to a connected agent — left unset, those links point at `http://localhost:8001`, which is only correct on an unproxied local dev box.
+If you go the second route, **two things are mandatory**:
+
+1. **Your proxy must forward the `Host` header unchanged** (including a non-default port) — **or** you set `APPLIRE_BASE_URL` in `.env` to your proxy's externally reachable `scheme://host` (or `scheme://host:port`). Every sign-in, setup and other state-changing request is checked: the browser's `Origin` must match the `Host` Applire receives (or the host of `APPLIRE_BASE_URL`). If it does not, the request is refused with 403 `origin_mismatch`, and the message names both remedies. Applire's own nginx already forwards `Host $http_host`; a bind-mounted config of your own must do the same (the shipped default is `nginx/self-hosted.conf`).
+2. **Set `COOKIE_SECURE=true`** as soon as people reach Applire over https. It marks the sign-in cookie `Secure`. The default is `false` so plain-http LAN installs keep working — browsers drop `Secure` cookies on http, so setting it on a plain-http install locks everybody out.
+
+`APPLIRE_BASE_URL` is also what builds the `html_url`/`pdf_url` links the MCP/agent channel returns — left unset, those links point at `http://localhost:8001`, which is only correct on an unproxied local dev box. Links in invitation and reset **mails** are built from `APPLIRE_BASE_URL` only, so mail needs it (Section 15). OIDC (Section 14) requires it.
+
+**The login throttle and your proxy.** The login throttle is keyed on the email and the client address that Applire's nginx sees. By default nginx trusts **no** `X-Forwarded-For` header from anyone, because a device on your network could otherwise give itself a fresh address on every attempt and never be slowed down. Without a proxy you need nothing. Behind your own TLS proxy, every request arrives from the proxy's address and everyone shares one throttle key. To fix that, name the proxy with one line in `.env`:
+
+```env
+APPLIRE_TRUSTED_PROXY=172.18.0.1        # your proxy's address as nginx sees it (IP or CIDR, comma-separated)
+```
+
+Then run `docker compose up -d`. To find the address, look at the first field of `docker compose logs nginx` while you open Applire through the proxy. nginx refuses to start on a value that is not an IP address or CIDR range, and `docker compose logs nginx` names the entry. A bind-mounted config of your own trusts nobody unless it contains `include /etc/nginx/applire/*.conf;` (the shipped default does).
+
+What nginx sees without a proxy: Docker's port publishing keeps the real IPv4 address of a client on your network. Requests to `localhost`, over IPv6, or from another container on the same host arrive from the Docker bridge gateway (for example `172.17.0.1`), so those clients share one throttle key. That is harmless for a household. Under an active attack from the same path, though, the owner's sign-in on that path waits behind the attacker's attempts.
 
 ## 9. Disk and pruning
 
@@ -207,16 +227,20 @@ docker compose pull && docker compose up -d
 
 Migrations run automatically when the backend container starts — there's no separate migration step to remember.
 
+**Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*.
+
 The instance tells you what an upgrade actually changed, in three places:
 
 - a WARNING block in `docker compose logs backend`
-- `upgrade_notice` on `GET /health` (`null` when there's nothing to report — a fresh install, an unchanged version, or a version jump that introduced nothing this environment is missing)
-- a dismissable notice on the dashboard
+- `upgrade_notice` on `GET /api/ops/health` (admin session or monitoring token; `null` when there's nothing to report — a fresh install, an unchanged version, or a version jump that introduced nothing this environment is missing)
+- a dismissable notice on the dashboard (shown to administrators)
 
 Dismissing the notice (in the UI, or directly) records the now-running version as seen, so it won't repeat on the next restart:
 
+The dismiss endpoint needs an administrator, so the in-app button is the easy way. From a script, use an API token of an administrator (Section 16):
+
 ```bash
-curl -X POST http://localhost/api/settings/upgrade-notice/dismiss
+curl -X POST -H "Authorization: Bearer apl_…" http://localhost/api/settings/upgrade-notice/dismiss
 ```
 
 **Back up before you upgrade** (Section 3) — migrations are one-directional in practice, and a bad upgrade is much easier to undo from a backup than by hand.
@@ -262,6 +286,19 @@ docker compose logs backend
 
 Look for the Alembic traceback. Restore from your pre-upgrade backup (Section 5), or report the traceback.
 
+### I cannot sign in
+
+- **"origin_mismatch" (403) on the sign-in or setup page:** Applire compares the address in your browser with the `Host` it receives. Open Applire on the address your proxy publishes, make your proxy forward `Host` unchanged, or set `APPLIRE_BASE_URL` (Section 8).
+- **Sign-in "works" but you are signed out on the next click:** `COOKIE_SECURE=true` on a plain-http install. Set it back to `false`, or serve Applire over https.
+- **The setup page asks for a code you do not have:** `docker compose logs backend | grep "SETUP REQUIRED"` — a new code is printed at every start until the instance is claimed. Or skip the page: `docker compose exec backend python -m applire.admin create-admin --email you@example.org`.
+- **You forgot the last administrator's password:** `docker compose exec backend python -m applire.admin reset-password --email you@example.org` (add `--password-stdin` to pipe the new one in).
+- **A person is told their account is disabled:** an administrator disabled it (Administration → People). It is only shown after a correct password.
+- **Repeated failures make the page slow:** the login throttle only delays; it never locks an account.
+
+### The backend exits at start with a message about `AUTH_HARNESS`
+
+`AUTH_HARNESS=true` is the test harness (every request is the administrator, no login). It is refused unless the database is a throwaway test database. Remove the line from `.env` — a real install never sets it.
+
 ### Ollama answers nothing / the model is missing
 
 The Ollama server starts **empty** — nothing is pulled by default.
@@ -286,13 +323,25 @@ You changed `POSTGRES_USER` (or `POSTGRES_PASSWORD`/`POSTGRES_DB`) against an **
 
 ## 12. Monitoring from outside
 
-Applire tells you how it is doing at **`GET /api/ops/health`**. It answers **200** while the
-instance is `ok` or `degraded` and **503** when something is `down`, so a simple uptime check needs
-no JSON parsing at all:
+Applire has two health endpoints.
 
-    curl -fsS http://localhost/api/ops/health > /dev/null || echo "Applire is down"
+**`GET /health`** is open and reports liveness only: `status`, `edition` and `version`. That is all
+the compose healthcheck and a simple "is it up" probe need.
 
-Point Uptime Kuma, a Zabbix HTTP agent or a cron job at that URL — this is a **supported** path.
+**`GET /api/ops/health`** tells you how the instance is doing. It needs either an **administrator
+session** or a **monitoring token** — a read-only token an administrator creates under
+Administration → Monitoring (Section 16). It answers **200** while the instance is `ok` or
+`degraded` and **503** when something is `down`, so a simple uptime check needs no JSON parsing
+at all:
+
+    curl -fsS -H "Authorization: Bearer apl_…" http://localhost/api/ops/health > /dev/null || echo "Applire is down"
+
+A monitoring token works for this one URL only, and only while the administrator who created it
+is still an active administrator. Fields that used to be on `/health` (`llm_provider`,
+`upgrade_notice`, `debug_log_on`, `topology`, `ops`) are now here. A probe that read them from
+`/health` before 0.43 must switch.
+
+Point Uptime Kuma, a Zabbix HTTP agent or a cron job at that URL with the token in an `Authorization: Bearer` header — this is a **supported** path.
 Applire cannot send you an e-mail or a push message, and it deliberately does not try; your own
 monitoring is the notification channel.
 
@@ -314,7 +363,7 @@ What it reports:
 | `components.errors` | failures in the last hour, counted inside this backend process |
 | `usage` | tokens spent today and over the last seven days, and which documents and applications spent them |
 
-The same facts are shown on the **Admin** page of the UI (one quiet line while everything is fine,
+The same facts are shown on the **Administration → Monitoring** page of the UI (one quiet line while everything is fine,
 expanded when something is not).
 
 **The provider check is the only one that costs anything**, and you choose how much:
@@ -333,9 +382,9 @@ Only providers that publish a balance can report one — OpenRouter does. For a 
 OpenAI-compatible endpoint the credit line reads **"this provider reports no balance"**, which is
 the correct answer and not a fault.
 
-**What the endpoint reveals.** There is no login in the Community edition, so treat this URL as
-readable by anything that can reach the port. It reports versions, your provider and model name,
-component statuses and the numeric gauges. It never reports an API key, a file path, a host name, or
+**What the endpoint reveals.** It is readable only with an administrator session or a monitoring
+token, so keep that token as secret as a password. It reports versions, your provider and model name,
+component statuses and the numeric gauges, and a count of profiles the upgrade retired. It never reports an API key, a file path, a host name, or
 anything from a candidate's documents.
 
 **Token costs.** Every model call is recorded with its token counts — numbers and ids only, never
@@ -345,9 +394,110 @@ on; that log contains personal data and is off by default.) Records are kept for
 nightly cleanup. Where a provider does not report token counts, Applire estimates them and says so
 next to the figure.
 
-## 13. What Applire does not do for you
+## 13. Accounts, first-run setup and sign-in
+
+**First start (new install or upgrade).** Until someone claims the instance, the backend prints a block like this at every start, with a fresh one-time code:
+
+```
+SETUP REQUIRED — open /setup on the address where you normally open Applire … and enter: <code> — or run: docker compose exec backend python -m applire.admin create-admin --email you@example.org. A new code is printed at every start until setup is done.
+```
+
+```bash
+docker compose logs backend | grep "SETUP REQUIRED"
+```
+
+Open `/setup`, enter the code, your email and a password (12–256 characters), and the instance is yours. Only a person with access to the server can read the code, which is the point: a stranger who finds the URL cannot claim your instance. On an **upgraded** install, the existing vault becomes the administrator's account — same data, now behind a login. The `create-admin` command does the same from the shell and refuses once the instance is claimed.
+
+**Adding people.** Sign in as the administrator and open Administration → People. *Add person* creates a pending account and an **invite link** (valid 7 days, single use) which you hand over — or, with SMTP configured (Section 15), Applire mails it. The person opens the link and chooses a password. There is no open sign-up. You can also re-invite, issue a **reset link** (valid 1 hour; you never see the new password), change a role, disable or delete an account, and revoke all of a person's tokens. The last administrator cannot be demoted, disabled or deleted. Every one of these actions is written to an audit log (who, what, when, target — no IP address), kept `AUDIT_LOG_RETENTION_DAYS` days (730; `0` = forever).
+
+**Sessions.** A session lasts 14 days idle and 90 days absolute. Sign-in attempts are slowed down per (email, client) after failures; nothing locks an account.
+
+**People can leave on their own.** Settings → Account lets a person change their password, link or unlink single sign-on, sign out, and delete their own account (confirmed with the password, or a fresh sign-in at the identity provider). Their data is erased; other people's data and job postings that other people still use stay. The last administrator cannot delete themselves.
+
+**Forgot password.** With SMTP, a "forgot password" link on the sign-in page mails a reset link. Without SMTP, an administrator issues a reset link; if the last administrator is locked out, use the CLI (`python -m applire.admin reset-password --email …`).
+
+**Why `AUTH_PROVIDER=none` no longer disables sign-in.** The value is still accepted and means `local`, with a startup WARNING; delete it from `.env`. The old no-login behaviour exists only as a test harness (`AUTH_HARNESS`), which refuses to start on anything but a throwaway test database.
+
+**`/docs` and `/openapi.json`** need a sign-in too.
+
+## 14. Single sign-on (OIDC)
+
+Applire can sign people in through any OpenID Connect provider (Keycloak, Authentik, Zitadel, Entra ID, …). It is optional and sits next to password sign-in. Authorization-code flow with PKCE.
+
+At your provider, create a client for Applire with the redirect URI **`<APPLIRE_BASE_URL>/api/auth/oidc/callback`**, then set in `.env`:
+
+```env
+OIDC_ISSUER=https://auth.example.org
+OIDC_CLIENT_ID=applire
+OIDC_CLIENT_SECRET=…
+APPLIRE_BASE_URL=https://applire.example.org
+#OIDC_BUTTON_LABEL=Single sign-on
+```
+
+- **https only.** `OIDC_ISSUER` and every endpoint the provider's discovery document names must be `https` (only `localhost` may use `http`). The backend refuses to start with an unusable OIDC configuration: a missing client id or secret, or an `APPLIRE_BASE_URL` left at its default.
+- **Single sign-on binds to invited accounts.** A first-time identity is matched to a *pending, invited* account by email, and only when the provider reports that email as verified (`email_verified` is the boolean `true`). So the sequence is: an administrator invites the person by email; the person signs in with the provider instead of choosing a password. There is no automatic account creation. Existing accounts link single sign-on from Settings → Account. The account is identified afterwards by (issuer, subject), not by email.
+- **Destructive actions ask for a fresh sign-in.** A person without a password confirms self-deletion or an unlink by signing in again at the provider. This needs the provider to send an **`auth_time`** claim in the ID token. A provider that sends none makes that confirmation fail closed: **an SSO-only person cannot delete their own account, and an administrator deletes it for them** (Administration → People). Nothing else is affected.
+- An account cannot unlink single sign-on while it has no password (it would lock the person out).
+
+## 15. Outgoing mail (SMTP)
+
+Optional. With no mail configured, nothing breaks: administrators copy invite and reset links from the dialog and hand them over.
+
+```env
+SMTP_HOST=smtp.example.org
+#SMTP_PORT=587
+#SMTP_SECURITY=starttls        # starttls | tls | none
+#SMTP_USERNAME=
+#SMTP_PASSWORD=
+SMTP_FROM=applire@example.org
+```
+
+**Mail requires `APPLIRE_BASE_URL`** (Section 8), set to the address people open Applire on. A link in a mail is built only from that value, never from the address a request claims to come from. Otherwise anyone could ask for a password-reset mail whose link points at their own server. With `SMTP_HOST` set and `APPLIRE_BASE_URL` unset, Applire sends **no** mail and logs a WARNING at every start. "Forgot password" then answers as usual but sends nothing. When the administrator adds a person, the dialog shows the link with the "could not be sent" notice (`mail_failed_reason: base_url_unset`).
+
+With `SMTP_HOST` and `APPLIRE_BASE_URL` set, invitations (unless the administrator unticks the mail box when adding the person) and "forgot password" requests are mailed. The invite or reset link is always shown to the administrator as well. Mail is sent with Python's standard library; no extra service is needed. The forgot-password endpoint always answers the same way whether or not the address is known, and sends at most three mails per hour per account.
+
+## 16. Tokens: agents and scripts
+
+Everybody creates their own tokens under **Settings → Tokens**. A token is shown once, stored hashed, checked on every call, and can be revoked at any time; an administrator can revoke all of a person's tokens.
+
+| Scope | Used for | How |
+|---|---|---|
+| **agent** | the MCP stdio server (`python -m applire.mcp`) — acts as that person only | environment variable `APPLIRE_AGENT_TOKEN` |
+| **api** | scripts against the REST API | `Authorization: Bearer apl_…` instead of a login cookie |
+| **monitoring** | `GET /api/ops/health` only | created by an administrator under Administration → Monitoring |
+
+A **script** needs no cookie jar:
+
+```bash
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+```
+
+An **MCP client** configuration gains the token (the Docker form passes it through):
+
+```json
+{
+  "mcpServers": {
+    "applire": {
+      "command": "docker",
+      "args": [
+        "compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
+        "run", "--rm", "-e", "APPLIRE_AGENT_TOKEN", "-T", "mcp"
+      ],
+      "env": { "APPLIRE_AGENT_TOKEN": "apl_…" }
+    }
+  }
+}
+```
+
+Without a valid token (missing, malformed, revoked, wrong scope, or the owner is disabled or deleted) `python -m applire.mcp` prints one line naming Settings → Tokens and exits. A revoked token is refused on its next call, and the document links it handed out stop working. Those `html_url` / `pdf_url` links are signed and expire after 60 minutes.
+
+## 17. You are the controller of other people's data
+
+If other people keep their CV data on your instance, you are the one who decides how long it is kept and who can reach it. The retention worker deletes data on a schedule — the five TTLs in `.env.example` (`GENERATED_DOCUMENTS_TTL_DAYS`, `CANCELLED_APPLICATION_TTL_DAYS`, `INTERVIEW_SESSION_TTL_DAYS`, `UPLOAD_TTL_DAYS`, `PROFILE_INACTIVITY_TTL_DAYS`) — and tombstones an account after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity (last sign-in or write; never an administrator). The defaults did not change in 0.43. Read them, decide whether they fit the people you invited, and tell those people. Applire does not encrypt the database for you; run it on an encrypted volume if your context requires it.
+
+## 18. What Applire does not do for you
 
 - No automated off-host backup. `scripts/backup.sh` writes an archive; getting it off this machine (a NAS, object storage, another host) is on you.
 - No alerting. `GET /api/ops/health` ([Section 12](#12-monitoring-from-outside)) tells you the state of the database, the disk, the nightly cleanup, your backups and your provider — but nothing pages you; point your own monitoring at it.
-- No multi-user support (Section 1).
+- No open sign-up and no per-person LLM key: one provider and key per instance, accounts created by an administrator (Sections 1 and 13).
 - No built-in TLS (Section 8).

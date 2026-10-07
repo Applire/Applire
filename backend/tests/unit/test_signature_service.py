@@ -83,8 +83,13 @@ async def _make_user(db) -> uuid.UUID:
     touching `user_settings` (which is keyed to the CE stub user regardless
     of which user_id was passed — ADR-022, single user in CE)."""
     from applire.models.user import User
+    from tests.support.owners import HARNESS_USER_ID
 
-    user_id = uuid.uuid4()
+    # ADR-092 / D-10 (Strawberry W2): user_settings is keyed to the CALLER now,
+    # not "the CE stub regardless of which user_id was passed" — the test user
+    # is the harness user the owner context acts as, so `_settings_row` (stub
+    # id) and the services read the same row.
+    user_id = HARNESS_USER_ID
     db.add(User(id=user_id, email=f"{user_id}@example.de"))
     await db.commit()
     return user_id
@@ -92,7 +97,7 @@ async def _make_user(db) -> uuid.UUID:
 
 async def _settings_row(db):
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
 
     result = await db.execute(
         select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
@@ -317,7 +322,7 @@ async def test_delete_signature_clears_path_even_if_file_already_gone(db, storag
     LocalStorageProvider's (which already swallows FileNotFoundError itself
     and so cannot exercise this branch)."""
     from applire.models.user_settings import UserSettings
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
     from applire.services.signature import delete_signature
 
     user_id = await _make_user(db)
@@ -705,7 +710,7 @@ async def test_orphan_scan_keeps_referenced_signature_and_deletes_unreferenced_f
 
     from applire.models.user_settings import UserSettings
     from applire.retention.worker import _scan_orphan_files
-    from applire.services.color_detection import _CE_STUB_USER_ID
+    from tests.support.owners import HARNESS_USER_ID as _CE_STUB_USER_ID
     from applire.storage.local import LocalStorageProvider
 
     storage = LocalStorageProvider(str(tmp_path))

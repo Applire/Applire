@@ -37,7 +37,8 @@ export default defineConfig({
    * Shared settings for all projects
    */
   use: {
-    baseURL: 'http://localhost:3000',
+    // E2E_BASE_URL: a lead's own `next dev -p <port>` (Strawberry COMMON-BRIEF §1).
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
     trace: 'on-first-retry', // Capture trace only when a test is retried
     screenshot: 'only-on-failure', // Capture screenshots only on failure
     video: 'retain-on-failure', // Record video only on failure

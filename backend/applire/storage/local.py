@@ -35,7 +35,7 @@ class LocalStorageProvider(StorageProvider):
     def _confined(self, file_path: str) -> Path | None:
         """The resolved path when it lies inside the upload dir, else ``None``.
 
-        Every path this provider reads or deletes comes from a database
+        MD-30: every path this provider reads or deletes comes from a database
         row (the vault JSON's ``photo_url``, ``signature_path``, ``uploads``), and
         a row is data, not a capability. Both sides are ``resolve()``d — ``..``
         segments and symlinks are followed BEFORE the containment test, so

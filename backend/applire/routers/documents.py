@@ -21,8 +21,8 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
 from applire.schemas.documents import DocumentListResponse
 from applire.services.documents import list_documents
@@ -37,10 +37,10 @@ async def get_documents(
     page_size: int = Query(default=10, ge=1, le=100),
     status: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> DocumentListResponse:
     """List all generated CVs for the current user, newest first."""
-    user = await auth.get_current_user(request)
+    user = current_user
     return await list_documents(
         user_id=user.id,
         db=db,

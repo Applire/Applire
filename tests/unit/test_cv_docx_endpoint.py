@@ -74,13 +74,14 @@ async def db():
 @pytest_asyncio.fixture
 async def client(db):
     from applire.auth import get_auth_provider
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
     from applire.routers.cv import router
 
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_auth_provider] = lambda: object()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

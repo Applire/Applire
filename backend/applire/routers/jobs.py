@@ -30,12 +30,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.db.session import get_db
-from applire.models.profile import MasterProfile
 from applire.services.matching import JobMatchResult, rank_jobs
-from sqlalchemy import select
+from applire.services.profile import get_profile_for_user
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -57,21 +56,15 @@ async def match_jobs(
     top_n: int = Query(default=10, ge=1, le=100, description="Maximum number of results"),
     berufsbild_code: Optional[str] = Query(default=None, description="KldB 2020 prefix filter"),
     db: AsyncSession = Depends(get_db),
-    _auth: AuthProvider = Depends(get_auth_provider),
+    user: User = Depends(require_user),
 ) -> list[JobMatchResultResponse]:
     """Return jobs ranked by combined score (embedding similarity + LLM match score).
 
     The score weights are controlled by MATCHING_SCORE_EMBEDDING_WEIGHT and
     MATCHING_SCORE_LLM_WEIGHT environment variables (default: 0.4 / 0.6).
     """
-    # Resolve current profile
-    profile_result = await db.execute(
-        select(MasterProfile)
-        .where(MasterProfile.deleted_at.is_(None))
-        .order_by(MasterProfile.created_at.desc())
-        .limit(1)
-    )
-    profile = profile_result.scalar_one_or_none()
+    # Resolve the caller's profile (ADR-092 cl. 2 — the one vault read path)
+    profile = await get_profile_for_user(db, user.id)
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -84,6 +77,7 @@ async def match_jobs(
             db=db,
             top_n=top_n,
             berufsbild_code=berufsbild_code,
+            user_id=user.id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

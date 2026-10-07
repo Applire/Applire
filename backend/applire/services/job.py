@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+import uuid
 import hashlib
 import json
 import logging
@@ -187,33 +188,136 @@ def _coerce_jd_payload(data: dict) -> dict:
     return coerced
 
 
-async def _apply_title_overrides(
-    record: JobAnalysis,
-    role_title_override: str | None,
-    company_name_override: str | None,
-    db: AsyncSession,
-) -> JobAnalysis:
-    """Apply caller-supplied title/company overrides to an existing record (#222).
+def _clean(value: str | None) -> str | None:
+    """A caller-supplied label, stripped; blank → None."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
 
-    Used on the dedup/cache-hit paths so a later call carrying the authoritative
-    title the first pass lacked isn't silently dropped. Commits only when a value
-    actually changes.
+
+async def get_job_for_user(
+    db: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID
+) -> JobAnalysis:
+    """The shared posting ``job_id`` if ``user_id`` holds a link to it (ADR-092 cl. 5c).
+
+    The posting cache has no owner (S-17); a user reaches a posting only through
+    their own ``applications`` row for it (RD-2). A soft-deleted application still
+    counts — removing the card keeps access to the posting. A missing posting, a
+    soft-deleted posting and a posting the user never analysed are the same
+    ``OwnedNotFound("job")`` (404 ``{"detail": "job not found"}``, S-10).
     """
-    changed = False
-    if role_title_override and role_title_override.strip():
-        new = role_title_override.strip()
-        if record.role_title != new:
-            record.role_title = new
-            changed = True
-    if company_name_override and company_name_override.strip():
-        new = company_name_override.strip()
-        if record.company_name != new:
-            record.company_name = new
-            changed = True
-    if changed:
-        await db.commit()
-        await db.refresh(record)
-    return record
+    from applire.models.application import Application
+    from applire.ownership import OwnedNotFound
+
+    job = (
+        await db.execute(
+            select(JobAnalysis)
+            .join(Application, Application.job_analysis_id == JobAnalysis.id)
+            .where(
+                JobAnalysis.id == job_id,
+                JobAnalysis.deleted_at.is_(None),
+                Application.user_id == user_id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise OwnedNotFound("job")
+    return job
+
+
+async def caller_link(db: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID):
+    """The caller's ``applications`` row for ``job_id`` — soft-deleted included
+    (a hidden repost link, 4a-1, is still the caller's link) — or ``None``."""
+    from applire.models.application import Application
+
+    return (
+        await db.execute(
+            select(Application).where(
+                Application.user_id == user_id,
+                Application.job_analysis_id == job_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def ensure_application_link(
+    db: AsyncSession,
+    job: JobAnalysis,
+    user_id: uuid.UUID,
+    *,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
+    source_url: str | None = None,
+    hidden: bool = False,
+):
+    """Get-or-create the caller's link to a posting — their ``applications`` row (RD-2).
+
+    Analyze (REST + MCP) calls this so the analysing user can reach the posting
+    (``get_job_for_user``); an agent-only analysis becomes a visible tracking card
+    (ADR-058 door parity). A new row is ``user_status='tracking'`` with the
+    posting's labels denormalised, overrides winning; an existing row — also a
+    soft-deleted one, which keeps its deleted state — receives only the non-blank
+    overrides (#222: the authoritative title a later call carries is never
+    dropped, and never written to the shared posting, ADR-092 cl. 5a).
+    ``source_url`` is the CALLER's own URL — never the shared row's, which may
+    be another user's (MD-10). ``hidden`` creates a NEW row soft-deleted — the
+    link exists (access works, cl. 5c) but no dashboard card appears (used for a
+    recognised repost, Branch F / 4a-1). Flushes; the caller commits.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from applire.models.application import Application
+
+    role = _clean(role_title_override)
+    company = _clean(company_name_override)
+
+    async def _existing():
+        return (
+            await db.execute(
+                select(Application).where(
+                    Application.user_id == user_id,
+                    Application.job_analysis_id == job.id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    app = await _existing()
+    if app is None:
+        candidate = Application(
+            user_id=user_id,
+            job_analysis_id=job.id,
+            role_title=role or job.role_title,
+            company_name=company or job.company_name,
+            source_url=source_url,
+        )
+        if hidden:
+            from datetime import datetime, timezone
+
+            candidate.deleted_at = datetime.now(timezone.utc)
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
+                await db.flush()
+            return candidate
+        except IntegrityError:
+            # A concurrent analyze of the same posting by the same user won
+            # uq_application_user_job — adopt the winner (savepoint rolled back).
+            app = await _existing()
+            if app is None:
+                raise
+    if role is not None:
+        app.role_title = role
+    if company is not None:
+        app.company_name = company
+    if source_url and not (app.source_url or "").strip():
+        # MD-31: the caller's own URL fills their own empty slot, so the response
+        # (`posting_response`, which reads only this row) still carries the URL
+        # the caller just analysed from.
+        app.source_url = source_url
+    await db.flush()
+    return app
 
 
 _SCOPE_KINDS = ("team_size", "budget")
@@ -322,35 +426,100 @@ async def analyze_jd(
     embedding_provider: EmbeddingProvider | None = None,
     role_title_override: str | None = None,
     company_name_override: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
+    raw_text_origin: str | None = None,
 ) -> JobAnalysisResponse:
-    # #222: LinkedIn (and most boards) separate the title/company from the body,
-    # so the caller can pass authoritative values — otherwise the LLM infers a
-    # title from the body and a heading leaks into the letter subject.
-    # URL-based deduplication: return existing record for the same URL.
-    if source_url:
-        result = await db.execute(
-            select(JobAnalysis).where(JobAnalysis.source_url == source_url)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            existing = await _apply_title_overrides(
-                existing, role_title_override, company_name_override, db
+    """See :func:`_analyze_jd_once`; retried ONCE on an ``IntegrityError``.
+
+    ADR-092 cl. 11 / SF-OWN.4: a concurrent erasure can delete the shared
+    posting between this call's cache hit and its link insert (the link's FK
+    then fails). The retry runs the whole dedup again in a fresh transaction —
+    the posting is re-found or re-analysed, never linked to a deleted row.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    kwargs = dict(
+        source_url=source_url,
+        embedding_provider=embedding_provider,
+        role_title_override=role_title_override,
+        company_name_override=company_name_override,
+        user_id=user_id,
+        raw_text_origin=raw_text_origin,
+    )
+    try:
+        return await _analyze_jd_once(text, db, provider, **kwargs)
+    except IntegrityError:
+        # The link/posting inserts run in savepoints, so the outer transaction is
+        # normally still usable (and the caller's loaded objects stay loaded); roll
+        # back only a transaction the error left inactive.
+        tx = db.sync_session.get_transaction()
+        if tx is not None and not tx.is_active:
+            await db.rollback()
+        logger.warning("analyze_jd: integrity error (concurrent posting delete?) — retrying the dedup once.")
+        return await _analyze_jd_once(text, db, provider, **kwargs)
+
+
+async def _analyze_jd_once(
+    text: str,
+    db: AsyncSession,
+    provider: LLMProvider,
+    source_url: str | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+    role_title_override: str | None = None,
+    company_name_override: str | None = None,
+    *,
+    user_id: uuid.UUID | None = None,
+    raw_text_origin: str | None = None,
+) -> JobAnalysisResponse:
+    """Analyse a posting into the shared cache and link it to the caller (ADR-092 cl. 5).
+
+    * The ``job_analyses`` row is one shared, immutable analysis per posting
+      (S-17): a cache hit by URL or text hash returns the existing row, and no
+      caller value is ever written onto it — the title/company overrides (#222)
+      land on the caller's own ``applications`` row (RD-2).
+    * URL dedup only matches rows whose text Applire scraped itself
+      (``raw_text_origin='scraped'``, MD-10): pasted text may carry a person's
+      notes and must never reach another user by URL. ``raw_text_origin``
+      defaults to ``scraped`` when ``source_url`` is given (both doors pass a
+      URL only when they fetched the text from it), else ``supplied``.
+    * The caller's link is get-or-created (``ensure_application_link``) and the
+      response carries the caller's effective labels (``posting_labels``) and
+      the Branch-F repost hint (E039/US220), computed BEFORE the link so the
+      fresh link never flags itself.
+    * Named residual (cl. 5e): an instant cache hit reveals that someone
+      analysed this posting before.
+    """
+    from applire.services.owner_resolution import resolve_user_id
+
+    uid = resolve_user_id(user_id, "job.analyze_jd")
+    origin = raw_text_origin or ("scraped" if source_url else "supplied")
+    if origin not in ("scraped", "supplied"):
+        raise ValueError(f"raw_text_origin must be 'scraped' or 'supplied', got {origin!r}")
+
+    existing: JobAnalysis | None = None
+    if source_url and origin == "scraped":
+        existing = (
+            await db.execute(
+                select(JobAnalysis)
+                .where(
+                    JobAnalysis.source_url == source_url,
+                    JobAnalysis.raw_text_origin == "scraped",
+                )
+                .order_by(JobAnalysis.created_at)
+                .limit(1)
             )
-            return JobAnalysisResponse.model_validate(existing)
+        ).scalar_one_or_none()
 
     raw_hash = _hash_text(text)
-
-    result = await db.execute(
-        select(JobAnalysis).where(JobAnalysis.raw_text_hash == raw_hash)
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
-        # #222: a later call may carry the authoritative title the first pass
-        # lacked — apply it to the cached record rather than silently dropping it.
-        existing = await _apply_title_overrides(
-            existing, role_title_override, company_name_override, db
+    if existing is None:
+        existing = (
+            await db.execute(select(JobAnalysis).where(JobAnalysis.raw_text_hash == raw_hash))
+        ).scalar_one_or_none()
+    if existing is not None:
+        return await _link_and_respond(
+            db, existing, uid, text, source_url, role_title_override, company_name_override
         )
-        return JobAnalysisResponse.model_validate(existing)
 
     # Stage label (#538/#539 pattern, applied here for #617). The review loop
     # labels its own calls — `reviewer.py:715` sets the chain id — but THIS call
@@ -442,12 +611,12 @@ async def analyze_jd(
             "(no role title or requirements could be detected)."
         )
 
+    # ADR-092 cl. 5a: the shared row keeps what the POSTING says; a caller's
+    # authoritative title/company (#222) goes onto their application below.
+    # The creation-time override is gone too (cl. 5a): an empty inferred title
+    # stays empty here and the caller's override shows through its application.
     role_title = inferred_role_title
-    if role_title_override and role_title_override.strip():
-        role_title = role_title_override.strip()
     company_name = (data.get("company_name") or None)
-    if company_name_override and company_name_override.strip():
-        company_name = company_name_override.strip()
 
     berufsbild_code, berufsbild_label = _validate_berufsbild(
         data.get("berufsbild_code"),
@@ -458,6 +627,7 @@ async def analyze_jd(
         raw_text_hash=raw_hash,
         raw_text=text,
         source_url=source_url,
+        raw_text_origin=origin,
         company_name=company_name,
         role_title=role_title,
         required_skills=data.get("required_skills", []),
@@ -486,7 +656,67 @@ async def analyze_jd(
         berufsbild_label=berufsbild_label,
         embedding=embedding,
     )
-    db.add(record)
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        async with db.begin_nested():
+            db.add(record)
+            await db.flush()
+    except IntegrityError:
+        # Another analysis of the same text committed first (raw_text_hash is
+        # instance-wide unique) — adopt the winner; the shared row is the same
+        # posting by construction.
+        record = (
+            await db.execute(select(JobAnalysis).where(JobAnalysis.raw_text_hash == raw_hash))
+        ).scalar_one_or_none()
+        if record is None:
+            raise
+    return await _link_and_respond(
+        db, record, uid, text, source_url, role_title_override, company_name_override
+    )
+
+
+async def _link_and_respond(
+    db: AsyncSession,
+    job: JobAnalysis,
+    user_id: uuid.UUID,
+    text: str,
+    source_url: str | None,
+    role_title_override: str | None,
+    company_name_override: str | None,
+) -> JobAnalysisResponse:
+    """Repost hint (before the link), link, commit, answer with the caller's labels."""
+    from applire.services.application import find_duplicate_application
+
+    duplicate_of = None
+    try:
+        duplicate_of = await find_duplicate_application(
+            user_id,
+            job_analysis_id=job.id,
+            source_url=source_url,
+            raw_text=text,
+            db=db,
+        )
+    except Exception:
+        # Best-effort read-model enrichment (E039/US220) — never fails the analysis.
+        logger.warning("duplicate-JD check failed; returning analysis without hint.", exc_info=True)
+    app = await ensure_application_link(
+        db,
+        job,
+        user_id,
+        role_title_override=role_title_override,
+        company_name_override=company_name_override,
+        source_url=source_url,
+        # 4a-1 (recommendation B, founder question open): a recognised repost
+        # (Branch F) gets a hidden link — no phantom card beside the one the
+        # user already has; "continue anyway" (create_application) reactivates it.
+        hidden=duplicate_of is not None,
+    )
     await db.commit()
-    await db.refresh(record)
-    return JobAnalysisResponse.model_validate(record)
+    await db.refresh(job)
+    await db.refresh(app)
+    from applire.services.posting_labels import posting_response
+
+    response = posting_response(job, app)
+    response.duplicate_of = duplicate_of
+    return response

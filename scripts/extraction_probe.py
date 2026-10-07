@@ -318,6 +318,24 @@ def summarise(records: list[dict[str, Any]], probe: str) -> dict[str, Any]:
     return summary
 
 
+def _tooling_context():
+    """Declare this in-process script's database access (ADR-092 cl. 7/8).
+
+    Scripts run without a request, so no owner context exists; with the owner
+    guard on, owned-table SQL without one raises ``OwnerContextMissing``. A
+    script declares the closed-list reason ``tooling`` instead (never a request
+    path). An ``applire`` tree from before the ownership model has no
+    ``applire.ownership`` — then there is nothing to declare.
+    """
+    import contextlib
+
+    try:
+        from applire.ownership import unscoped
+    except ImportError:
+        return contextlib.nullcontext()
+    return unscoped("tooling")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="extraction_probe")
     parser.add_argument("--probe", choices=sorted(PROBES), required=True)
@@ -375,7 +393,8 @@ def main(argv: list[str] | None = None) -> int:
             for i in range(1, args.n + 1)
         ]
 
-    records = asyncio.run(_all())
+    with _tooling_context():
+        records = asyncio.run(_all())
     summary = summarise(records, args.probe)
     summary["meta"] = {"door": args.door, "provider": args.provider, "model": args.model,
                        "system_chars": len(system), "user_chars": len(user)}

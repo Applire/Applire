@@ -420,9 +420,15 @@ class TestGateForcesInterviewRouting:
         from applire.schemas.flow import AdvanceFlowRequest
 
         # Returning user (complete profile) + a parked gate.
+        from tests.support.owners import HARNESS_USER_ID
+        from tests.support.posting_links import link_posting
+
         job, _ = await _seed(sqlite_session, gate=True)
+        # ADR-092: the flow owner is the harness user (the vault + gap rows are
+        # theirs) and they reach the shared posting through their link.
+        await link_posting(sqlite_session, job, HARNESS_USER_ID, commit=True)
         created = await create_flow(
-            CreateFlowRequest(job_id=job.id), uuid.uuid4(), sqlite_session
+            CreateFlowRequest(job_id=job.id), HARNESS_USER_ID, sqlite_session
         )
         assert created.user_type == "returning"
 

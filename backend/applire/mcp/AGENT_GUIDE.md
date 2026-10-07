@@ -1,6 +1,6 @@
 # Applire Agent Guide
 
-*Revision 2026-09-26 · re-fetch anytime with `get_guide`*
+*Revision 2026-10-03 · re-fetch anytime with `get_guide`*
 
 You are driving Applire — the open-source, agent-ready job application tool —
 on behalf of a real candidate. Division of labor: **you** elicit facts,
@@ -10,6 +10,19 @@ renders. Applire never competes with you; you never bypass its checks.
 
 ## Before you start
 
+- **You act for one person — the owner of your agent token.** Applire has
+  accounts. The person creates an *agent token* in Applire under
+  **Settings → Tokens** (shown once) and puts it in your MCP client's
+  environment as `APPLIRE_AGENT_TOKEN`. With Docker, the `mcpServers` entry runs
+  `docker compose -f /absolute/path/to/applire/docker-compose.yml run --rm -T
+  -e APPLIRE_AGENT_TOKEN mcp` and carries `"env": {"APPLIRE_AGENT_TOKEN":
+  "apl_…"}` — the `-e` without a value passes the client's variable into the
+  container; the compose file stays as shipped. Without a valid token the server
+  does not start (its stderr says why). Every tool then reads and writes only
+  that person's vault, applications and documents; another person's id answers
+  exactly like an id that does not exist. The token is re-checked on every call:
+  if the person revokes it (or an admin disables the account), the next call is
+  refused — tell the human; a new token and a restart are the fix, not a retry.
 - **Check what's already there.** Call `get_profile` first. If the candidate
   already has a vault, work from it — don't re-import blindly or assume it's
   empty.
@@ -240,7 +253,13 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   serves (ADR-066: one writer, both doors), never a parallel one. It adds
   `docx_url`, `docx_base64` (the file itself, base64-encoded) and
   `docx_filename` to the response; `pdf_url`/`html_url` are unchanged
-  (additive, not a replacement). The attached ATS/truthfulness reports
+  (additive, not a replacement). Every document link Applire returns to you
+  (`html_url`, `pdf_url`, `docx_url` — from `render_document`,
+  `generate_cv`/`get_cv_status`, the letter tools and the flow state) is a
+  **signed link that expires** (60 minutes by default): it opens without a login
+  for the person the token belongs to. Hand it to the human promptly; when it has
+  expired, call the status tool again for a fresh one. Revoking the agent token
+  kills the links it was given. The attached ATS/truthfulness reports
   describe the document **as generated** — they are never re-evaluated
   against edits you or the human make to a downloaded `.docx` afterwards,
   and there is no tool to re-check an edited file (ADR-079 clause 6: a

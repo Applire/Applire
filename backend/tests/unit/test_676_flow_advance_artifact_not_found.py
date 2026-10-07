@@ -16,6 +16,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.owners import HARNESS_USER_ID
+from tests.support.posting_links import link_posting
+
 
 @pytest.mark.asyncio
 async def test_advance_with_unknown_artifact_id_returns_422(
@@ -62,6 +65,7 @@ async def test_advance_with_an_id_from_the_wrong_table_still_422s(
     )
     async_db.add_all([job, profile])
     await async_db.flush()
+    await link_posting(async_db, job, HARNESS_USER_ID)  # ADR-092: the caller's link
 
     cv = GeneratedCV(job_analysis_id=job.id, profile_id=profile.id, tailored_data={})
     async_db.add(cv)
@@ -105,6 +109,7 @@ async def test_advance_with_a_soft_deleted_artifact_id_still_422s(
     )
     async_db.add(job)
     await async_db.flush()
+    await link_posting(async_db, job, HARNESS_USER_ID)  # ADR-092: the caller's link
 
     gap = GapAnalysis(
         job_analysis_id=job.id,
@@ -153,6 +158,7 @@ async def test_advance_with_real_artifact_id_still_succeeds(
     )
     async_db.add(job)
     await async_db.flush()
+    await link_posting(async_db, job, HARNESS_USER_ID)  # ADR-092: the caller's link
 
     gap = GapAnalysis(
         job_analysis_id=job.id,

@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import { test, expect, Page } from "@playwright/test";
+import { test, expect } from "../support/auth-fixture";
+import { type Page } from "@playwright/test";
 
 /**
  * Post-Hire Profile Refresh — OQ Tests

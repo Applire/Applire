@@ -21,19 +21,32 @@ import { NextIntlClientProvider } from "next-intl";
 import messages from "@/messages/de.json";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ShellUserProvider } from "@/components/shell/ShellUserContext";
+import { CurrentUserProvider, type CurrentUserValue } from "@/lib/auth/current-user";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }));
 
-function withIntl(c: React.ReactNode, userName: string | null = null) {
+function withIntl(c: React.ReactNode, userName: string | null = null, auth: Partial<CurrentUserValue> = { status: "loading" }) {
   return (
     <NextIntlClientProvider locale="de" messages={messages}>
-      <ShellUserProvider userName={userName}>{c}</ShellUserProvider>
+      <CurrentUserProvider value={auth}>
+        <ShellUserProvider userName={userName}>{c}</ShellUserProvider>
+      </CurrentUserProvider>
     </NextIntlClientProvider>
   );
 }
+
+const JONAS = {
+  id: "u-2",
+  email: "jonas.keller@example.org",
+  role: "user" as const,
+  has_password: true,
+  oidc_linked: false,
+  ui_language: "de",
+};
+const ANNA = { ...JONAS, id: "u-1", email: "anna.bauer@example.org", role: "admin" as const };
 
 describe("AppTopbar", () => {
   it("section mode renders a single h1 with the section title", () => {
@@ -98,11 +111,59 @@ describe("AppTopbar", () => {
     expect(screen.getByTestId("topbar-avatar-mobile").textContent).toBe("MM");
   });
 
-  // AC: "Desktop (md: and up) keeps the current persistent sidebar and
-  // AppTopbar unchanged" — the desktop avatar keeps the placeholder letter
-  // regardless of userName; only the below-md avatar shows real initials.
-  it("keeps the desktop avatar unchanged (placeholder letter) even when userName is threaded via context", () => {
-    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, "Max Mustermann"));
+  // US330 (W0-B user-menu mock, G-1): the desktop avatar is the account-menu
+  // button now and shows the person's letter — the US223 placeholder stays only
+  // while nobody is known.
+  it("desktop avatar: placeholder while nobody is known, then the person's letter", () => {
+    const { unmount } = render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />));
     expect(screen.getByTestId("topbar-avatar-desktop").textContent).toBe(messages.shell.topbarUserInitial);
+    unmount();
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, "Max Mustermann", { user: JONAS }));
+    expect(screen.getByTestId("topbar-avatar-desktop").textContent).toBe("M");
+  });
+
+  it("desktop avatar falls back to the e-mail's first letter without a profile name", () => {
+    render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, null, { user: JONAS }));
+    expect(screen.getByTestId("topbar-avatar-desktop").textContent).toBe("J");
+    expect(screen.getByTestId("topbar-avatar-mobile").textContent).toBe("J");
+  });
+
+  describe("account menu (US330)", () => {
+    it("admin: signed in as + role chip, account, Administration, sign out", () => {
+      render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, null, { user: ANNA }));
+      const trigger = screen.getByRole("button", { name: messages.shell.userMenuAria });
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(trigger);
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByText(messages.shell.userMenuSignedInAs)).toBeInTheDocument();
+      expect(screen.getByTestId("user-menu-email").textContent).toBe("anna.bauer@example.org");
+      expect(screen.getByTestId("user-menu-role").textContent).toBe(messages.shell.roleAdmin);
+      expect(screen.getByRole("menuitem", { name: new RegExp(messages.shell.userMenuAccount) })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: new RegExp(messages.shell.userMenuAdmin) })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: new RegExp(messages.shell.userMenuSignOut) })).toBeInTheDocument();
+    });
+
+    it("user: no Administration entry, role Nutzer", () => {
+      render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, null, { user: JONAS }));
+      fireEvent.click(screen.getByRole("button", { name: messages.shell.userMenuAria }));
+      expect(screen.getByTestId("user-menu-role").textContent).toBe(messages.shell.roleUser);
+      expect(screen.queryByTestId("user-menu-admin")).toBeNull();
+    });
+
+    it("sign out calls signOut and shows the working label", () => {
+      const signOut = vi.fn(() => new Promise<void>(() => {}));
+      render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, null, { user: JONAS, signOut }));
+      fireEvent.click(screen.getByRole("button", { name: messages.shell.userMenuAria }));
+      fireEvent.click(screen.getByTestId("user-menu-sign-out"));
+      expect(signOut).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("user-menu-sign-out").textContent).toContain(messages.shell.signingOut);
+    });
+
+    it("Escape closes the menu", () => {
+      render(withIntl(<AppTopbar mode="section" titleKey="shell.dashboard" />, null, { user: JONAS }));
+      fireEvent.click(screen.getByRole("button", { name: messages.shell.userMenuAria }));
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByTestId("user-menu")).toBeNull();
+    });
   });
 });

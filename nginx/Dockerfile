@@ -6,5 +6,10 @@
 # `default.conf` means it routes /api,/health,/static → backend:8000 and everything
 # else → frontend:3000 out of the box. Operators who need a custom domain or TLS can
 # still bind-mount their own file over /etc/nginx/conf.d/default.conf.
+#
+# MD-33: the stock entrypoint runs /docker-entrypoint.d/*.sh before nginx; ours
+# turns APPLIRE_TRUSTED_PROXY (.env, one line) into the X-Forwarded-For trust the
+# config includes from /etc/nginx/applire/ — empty = trust nobody.
 FROM nginx:alpine
 COPY self-hosted.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=755 15-applire-trusted-proxy.sh /docker-entrypoint.d/15-applire-trusted-proxy.sh

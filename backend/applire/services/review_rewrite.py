@@ -37,6 +37,7 @@ HTTP answer; nothing was written.
 
 from __future__ import annotations
 
+import uuid
 import logging
 import re
 from dataclasses import dataclass
@@ -75,12 +76,12 @@ class RemovalRewrite:
     llm_calls: int
 
 
-def form_present(form: str, text: str) -> bool:
+def form_present(form: str, text: str, *, user_id: uuid.UUID | None = None) -> bool:
     """The audit's presence test for one form in one passage (``surface_present``)."""
     return surface_present(form, _norm(text))
 
 
-def figure_present(figure: str, text: str) -> bool:
+def figure_present(figure: str, text: str, *, user_id: uuid.UUID | None = None) -> bool:
     """Is the named figure still in ``text``? (E-1, ``figures_only`` mode.)
 
     Two facts, either suffices: the Oracle's own figure extractor
@@ -99,7 +100,7 @@ def figure_present(figure: str, text: str) -> bool:
     return bool(re.search(rf"(?<![\w.,]){literal}(?![\w]|[.,]\d)", text, flags=re.IGNORECASE))
 
 
-def find_occurrences(forms: list[str], text: str) -> list[str]:
+def find_occurrences(forms: list[str], text: str, *, user_id: uuid.UUID | None = None) -> list[str]:
     """The spellings under which ``forms`` occur in ``text``, as whole tokens.
 
     A fact about the input, handed to the prompt (never used to edit output):
@@ -197,6 +198,7 @@ async def rewrite_for_removal(
     *,
     language: str,
     figures_only: bool = False,
+    user_id: uuid.UUID | None = None,
 ) -> RemovalRewrite:
     """Remove every matched form of one finding from one section (Contract 1).
 

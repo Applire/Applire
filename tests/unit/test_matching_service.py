@@ -53,6 +53,24 @@ async def sqlite_session():
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
+        # ADR-092 cl. 5 / RD-2 (Strawberry W2): a user ranks only the postings they
+        # hold a link (application) to — analyze creates it. Every posting these
+        # tests add is analysed BY the acting (harness) user, so link it here.
+        from sqlalchemy import event
+
+        from applire.models.application import Application
+        from applire.models.job import JobAnalysis
+        from tests.support.owners import HARNESS_USER_ID
+
+        def _link_new_postings(sess, _ctx, _instances):
+            for obj in list(sess.new):
+                if isinstance(obj, JobAnalysis):
+                    if obj.id is None:
+                        obj.id = uuid.uuid4()
+                    sess.add(Application(user_id=HARNESS_USER_ID, job_analysis_id=obj.id,
+                                         company_name="", role_title=obj.role_title or ""))
+
+        event.listen(session.sync_session, "before_flush", _link_new_postings)
         yield session
 
     await engine.dispose()
@@ -863,6 +881,7 @@ class TestJobsMatchRouter:
         from applire.routers.jobs import router
         from applire.db.session import get_db
         from applire.auth import get_auth_provider
+        from applire.auth.no_auth import NoAuthProvider
 
         app = FastAPI()
         app.include_router(router)
@@ -876,7 +895,7 @@ class TestJobsMatchRouter:
             yield mock_session
 
         async def override_auth():
-            return None
+            return NoAuthProvider()
 
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_auth_provider] = override_auth
@@ -895,8 +914,7 @@ class TestJobsMatchRouter:
         app = self._make_app()
 
         # Patch dependencies
-        with patch("applire.routers.jobs.get_auth_provider"), \
-             patch("applire.routers.jobs.get_db"), \
+        with patch("applire.routers.jobs.get_db"), \
              patch("applire.routers.jobs.rank_jobs", new=AsyncMock(return_value=[])):
 
             profile_mock = MagicMock(spec=MasterProfile)
@@ -916,10 +934,11 @@ class TestJobsMatchRouter:
                 yield mock_session
 
             async def override_auth():
-                return None
+                return NoAuthProvider()
 
             from applire.db.session import get_db
             from applire.auth import get_auth_provider
+            from applire.auth.no_auth import NoAuthProvider
 
             fresh_app.include_router(router)
             fresh_app.dependency_overrides[get_db] = override_db

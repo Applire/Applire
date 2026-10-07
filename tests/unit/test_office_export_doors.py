@@ -47,6 +47,8 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
+
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -115,6 +117,7 @@ async def client(db):
     will use — the parity assertion only means something if both doors
     read/write the SAME row."""
     from applire.auth import get_auth_provider
+    from applire.auth.no_auth import NoAuthProvider
     from applire.db.session import get_db
     from applire.routers.cover_letter import router as cl_router
     from applire.routers.cv import router as cv_router
@@ -123,7 +126,7 @@ async def client(db):
     app.include_router(cv_router)
     app.include_router(cl_router)
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_auth_provider] = lambda: object()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -166,6 +169,10 @@ async def seeded(db):
             ),
         ]
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)
     await db.commit()
     return {"db": db, "job_id": job_id}
 
@@ -248,3 +255,13 @@ async def test_cover_letter_docx_door_parity(client, seeded):
     assert mcp_text == rest_text
     assert "Petra Lindqvist" in mcp_text
     assert "Ich bewerbe mich hiermit." in mcp_text
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]

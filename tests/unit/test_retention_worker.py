@@ -26,7 +26,13 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    deleted_at TEXT
+    deleted_at TEXT,
+    -- ADR-091 0071: the D-4 rule reads both (ADR-092 cl. 12a)
+    role TEXT NOT NULL DEFAULT 'user',
+    last_active_at TEXT,
+    -- w4-fix-id (MD-39): the stub exception reads the credential columns
+    password_hash TEXT,
+    oidc_subject TEXT
 );
 CREATE TABLE IF NOT EXISTS master_profiles (
     id TEXT PRIMARY KEY,
@@ -393,7 +399,12 @@ async def test_tombstone_inactive_profiles(db):
     inactive_id = await _seed_profile(db, updated_at=_ago(days=731))
     active_id = await _seed_profile(db, updated_at=_ago(days=100))
 
-    tombstoned = await _tombstone_inactive_profiles(db)
+    # The rule runs where production runs it: inside the sweep's declared
+    # cross-user context (ADR-092 cl. 7/8) — not as the harness user.
+    from applire.ownership import unscoped
+
+    with unscoped("retention"):
+        tombstoned = await _tombstone_inactive_profiles(db)
     assert tombstoned == 1
 
     row = (await db.execute(text("SELECT deleted_at FROM master_profiles WHERE id = :id"), {"id": inactive_id})).one()

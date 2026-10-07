@@ -42,7 +42,6 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import colorgram
-import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,15 +49,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from applire.models.color_profile import ColorProfile
 from applire.models.company import Company
 from applire.models.user_settings import UserSettings
+from applire.services import safe_fetch
+from applire.services.owner_resolution import resolve_user_id
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ACCENT = "#2b5fa8"
 _SCRAPE_TTL_DAYS = 30
-# CE stub user — see ADR-022; replace with real user lookup when multi-user lands
-_CE_STUB_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
-
 @dataclass
 class ColorContext:
     primary: str        # hex — main brand color
@@ -76,7 +73,7 @@ def _srgb_to_linear(c: float) -> float:
     return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
 
 
-def derive_tint(hex_color: str) -> str:
+def derive_tint(hex_color: str, *, user_id: uuid.UUID | None = None) -> str:
     """Return a light tint derived from the accent color (L=95%, S=10%, hue preserved)."""
     hex_color = hex_color.lstrip("#")
     r, g, b = (int(hex_color[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
@@ -85,7 +82,7 @@ def derive_tint(hex_color: str) -> str:
     return "#{:02x}{:02x}{:02x}".format(int(r2 * 255), int(g2 * 255), int(b2 * 255))
 
 
-def derive_surface_text(hex_color: str) -> str:
+def derive_surface_text(hex_color: str, *, user_id: uuid.UUID | None = None) -> str:
     """Return white or black for legible text on hex_color background.
 
     Uses the WCAG relative-luminance formula (IEC 61966-2-1 sRGB).
@@ -114,8 +111,13 @@ def _default_context() -> ColorContext:
     return _make_color_context(DEFAULT_ACCENT)
 
 
-async def resolve_color_context(record: "GeneratedCV", db: AsyncSession) -> ColorContext:  # noqa: F821
-    """Walk the 4-step resolution cascade and return a ColorContext."""
+async def resolve_color_context(record: "GeneratedCV", db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ColorContext:  # noqa: F821
+    """Walk the 4-step resolution cascade and return a ColorContext.
+
+    Step 3 reads the OWNER's default (ADR-092 / D-10): the document row names
+    its owner; ``user_id`` (or the context user) is the fallback for a record
+    that carries none.
+    """
     from applire.models.job import JobAnalysis
 
     # Step 1: CV-specific override
@@ -133,9 +135,12 @@ async def resolve_color_context(record: "GeneratedCV", db: AsyncSession) -> Colo
             if cp:
                 return _make_color_context(cp.derived["--cv-accent"])
 
-    # Step 3: User default (CE: always stub user)
+    # Step 3: the owner's default colour profile
+    owner_id = getattr(record, "user_id", None) or resolve_user_id(
+        user_id, site="color_detection.resolve_color_context"
+    )
     result = await db.execute(
-        select(UserSettings).where(UserSettings.user_id == _CE_STUB_USER_ID)
+        select(UserSettings).where(UserSettings.user_id == owner_id)
     )
     settings = result.scalar_one_or_none()
     if settings and settings.default_color_profile_id:
@@ -164,8 +169,10 @@ async def _fetch_favicon_color(domain: str) -> str | None:
     """Fetch favicon via Google CDN and extract the most saturated non-neutral color."""
     url = f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
     try:
-        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-            resp = await client.get(url)
+        # RD-7 / ADR-092 cl. 15: every outbound fetch goes through the one safe
+        # fetcher (address check + per-hop redirect re-check); a refusal is a
+        # miss, never a crash — the cascade falls through to the next step.
+        resp = await safe_fetch.safe_get(url, timeout=8.0, headers=None)
         if resp.status_code != 200 or not resp.content:
             return None
         colors = colorgram.extract(io.BytesIO(resp.content), 5)
@@ -185,6 +192,9 @@ async def _fetch_favicon_color(domain: str) -> str | None:
             return None  # All grayscale
         r, g, b = best.rgb.r, best.rgb.g, best.rgb.b
         return "#{:02x}{:02x}{:02x}".format(r, g, b)
+    except safe_fetch.UnsafeFetchRefused as exc:
+        logger.info("Favicon fetch refused for %s (RD-7): %s", domain, exc)
+        return None
     except Exception as exc:
         logger.debug("Favicon fetch failed for %s: %s", domain, exc)
         return None
@@ -194,8 +204,11 @@ async def _fetch_meta_color(domain: str) -> str | None:
     """Scrape homepage for theme-color meta-tag or CSS :root color variables."""
     url = f"https://{domain}"
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "Applire/1.0 brand-color-bot"})
+        # RD-7: the domain derives from the posting's source URL — any account
+        # holder controls it, so this is the SSRF-relevant fetch (SF-SCRAPER.2).
+        resp = await safe_fetch.safe_get(
+            url, timeout=10.0, headers={"User-Agent": "Applire/1.0 brand-color-bot"}
+        )
         if resp.status_code != 200:
             return None
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -215,6 +228,9 @@ async def _fetch_meta_color(domain: str) -> str | None:
             )
             if match:
                 return match.group(1)
+        return None
+    except safe_fetch.UnsafeFetchRefused as exc:
+        logger.info("Meta-tag scrape refused for %s (RD-7): %s", domain, exc)
         return None
     except Exception as exc:
         logger.debug("Meta-tag scrape failed for %s: %s", domain, exc)
@@ -277,7 +293,7 @@ async def _upsert_company_color(
     return company
 
 
-async def detect_and_cache_company_color(job: "JobAnalysis", db: AsyncSession) -> None:  # noqa: F821
+async def detect_and_cache_company_color(job: "JobAnalysis", db: AsyncSession, *, user_id: uuid.UUID | None = None) -> None:  # noqa: F821
     """Run the detection cascade for a job's company. Updates companies table and job.company_id.
 
     Called from _render_cv_background. Silently logs and returns on any failure.

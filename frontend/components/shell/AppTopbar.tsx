@@ -19,11 +19,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 import { useShellUser } from "./ShellUserContext";
+import { useCurrentUser } from "@/lib/auth/current-user";
+import { avatarInitials, avatarLetter } from "./avatar";
+import { UserMenu } from "./UserMenu";
 
 type IntlKey = string;
 
@@ -58,15 +60,17 @@ interface FlowMode {
 type AppTopbarProps = SectionMode | DetailMode | FlowMode;
 
 export function AppTopbar(props: AppTopbarProps) {
-  const router = useRouter();
   const t = useTranslations();
   const { userName } = useShellUser();
+  const { user } = useCurrentUser();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const activeStepRef = useRef<HTMLSpanElement | null>(null);
 
-  const initials = userName
-    ? userName.split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase()
-    : null;
+  // US330: the avatar is the account menu now (W0-B user-menu mock). Below md:
+  // two initials (US223); md and up: one letter (A for Anna, J for Jonas, M from
+  // an e-mail when there is no profile yet).
+  const initials = avatarInitials(userName, user?.email) || null;
+  const letter = avatarLetter(userName, user?.email) || null;
 
   // US225: at 390px four full-text step pills don't all fit next to the
   // hamburger + bell + avatar — the strip scrolls horizontally (overflow-x-auto
@@ -85,7 +89,7 @@ export function AppTopbar(props: AppTopbarProps) {
 
   return (
     <>
-      <header className="h-[52px] bg-white/90 backdrop-blur border-b border-gray-200 flex items-center px-6 gap-4 flex-shrink-0">
+      <header className="relative z-40 h-[52px] bg-white/90 backdrop-blur border-b border-gray-200 flex items-center px-6 gap-4 flex-shrink-0">
         {/* US223: below md the persistent AppSidebar is hidden — this hamburger
             opens the equivalent drawer navigation (MobileNavDrawer). */}
         <button
@@ -176,21 +180,14 @@ export function AppTopbar(props: AppTopbarProps) {
             {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- Material Symbols icon name */}
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications</span>
           </button>
-          <button
-            type="button"
-            aria-label={t("shell.openSettingsAriaLabel")}
-            onClick={() => router.push("/settings")}
-            className="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-primary-container to-surface-container-highest flex items-center justify-center text-[12px] font-bold text-primary cursor-pointer"
-          >
-            {/* Below md: real initials (US223). md and up: unchanged — the
-                same placeholder letter AppTopbar always showed here. */}
+          <UserMenu triggerClassName="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-primary-container to-surface-container-highest flex items-center justify-center text-[12px] font-bold text-primary cursor-pointer">
             <span className="md:hidden" data-testid="topbar-avatar-mobile">
               {initials ?? t("shell.topbarUserInitial")}
             </span>
             <span className="hidden md:inline" data-testid="topbar-avatar-desktop">
-              {t("shell.topbarUserInitial")}
+              {letter ?? t("shell.topbarUserInitial")}
             </span>
-          </button>
+          </UserMenu>
         </div>
       </header>
       <MobileNavDrawer open={drawerOpen} onOpenChange={setDrawerOpen} />

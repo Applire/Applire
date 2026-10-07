@@ -30,7 +30,20 @@ Rules (ADR 005 v2 — amended iter17; submitted-pin exemption 2026-07-06):
                      generated documents hard-deleted incl. submitted pins
                      (US222/issue #158, ADR-005 amendment 2026-07-13)
   master_profiles  → soft-delete after 730 days inactivity
-  users            → soft-delete after 730 days inactivity
+  users            → soft-delete after 730 days INACTIVITY — keyed on
+                     coalesce(last_active_at, created_at), never on sign-up
+                     date alone; an admin is never tombstoned (D-4, ADR-005
+                     amended 2026-10-03 / ADR-092 cl. 12a)
+  job_analyses     → shared postings no row of any user references, older
+                     than INTERVIEW_SESSION_TTL_DAYS, hard-deleted with the
+                     erasure's lock-then-check predicate (ADR-092 cl. 11/12c)
+  auth_sessions    → revoked / idle-expired / absolute-expired rows purged;
+  auth_links, reauth_grants → used or expired rows purged (ADR-005 amended)
+  audit_events     → older than AUDIT_LOG_RETENTION_DAYS (0 = keep) deleted —
+                     the only DELETE the audit table permits (ADR-091 cl. 26)
+
+Ownership (ADR-092 cl. 7/8): the sweep is a declared cross-user entry point —
+it runs under ``unscoped("retention")``; the per-row TTLs stay global (cl. 12d).
   generated_cvs (stale generation jobs) → mark failed after 10 minutes in
                      pending/generating (stale job reaper, arc42 §5.3.4)
   orphan files     → delete upload-volume files no DB row references any more
@@ -48,7 +61,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,12 +72,14 @@ from applire.constants import (
     PROFILE_INACTIVITY_TTL_DAYS as _INACTIVITY_TTL_DAYS,
     UPLOAD_TTL_DAYS as _UPLOADS_TTL_DAYS,
 )
+from applire import ownership
 from applire.db.session import AsyncSessionLocal
 from applire.models.application import Application
 from applire.models.cv import CVGenerationStatus, GeneratedCV
 from applire.models.profile import MasterProfile
 from applire.models.session import InterviewSession
-from applire.models.user import User
+from applire.auth.harness import STUB_USER_ID
+from applire.models.user import ROLE_ADMIN, User
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +125,45 @@ async def _purge_uploads(db: AsyncSession) -> int:
     return result.rowcount  # type: ignore[return-value]
 
 
+async def referenced_file_paths(db: AsyncSession) -> set[str]:
+    """Every stored-file path some row still references — the file census.
+
+    ONE definition of "referenced" for both deleters of stored files (MD-30):
+    the orphan scan below keeps what is in this set, and GDPR erasure
+    (``services/erasure.py``) unlinks a departing user's file only when it is
+    NOT in this set after the user's rows are gone — a path is data in the
+    vault JSON, so two users' rows can name the same file. Cross-user by
+    construction: callers run it under ``ownership.unscoped("orphan-scan")``
+    or inside the retention sweep. Raises the DB error to the caller, whose
+    rule is the same in both places: an untrustworthy census deletes nothing.
+    """
+    referenced: set[str] = set()
+    rows = await db.execute(text("SELECT file_path FROM uploads"))
+    referenced.update(row[0] for row in rows.fetchall())
+
+    prof_rows = await db.execute(text("SELECT profile_json FROM master_profiles"))
+    for (profile_json,) in prof_rows.fetchall():
+        if isinstance(profile_json, str):  # SQLite test harness stores TEXT
+            try:
+                profile_json = json.loads(profile_json)
+            except ValueError:
+                continue
+        if not isinstance(profile_json, dict):
+            continue
+        photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
+        if photo_url:
+            referenced.add(photo_url)
+
+    # #359 / ADR-088: the signature image's path lives on user_settings, not
+    # in the profile JSONB, so it needs its own read. Same failure mode as
+    # the photo if omitted — the file is deleted, not merely unprotected.
+    sig_rows = await db.execute(
+        text("SELECT signature_path FROM user_settings WHERE signature_path IS NOT NULL")
+    )
+    referenced.update(row[0] for row in sig_rows.fetchall() if row[0])
+    return referenced
+
+
 async def _scan_orphan_files(db: AsyncSession) -> int:
     """Delete upload-volume files that no DB row references any more.
 
@@ -153,31 +207,8 @@ async def _scan_orphan_files(db: AsyncSession) -> int:
         )
         return 0
 
-    referenced: set[str] = set()
     try:
-        rows = await db.execute(text("SELECT file_path FROM uploads"))
-        referenced.update(row[0] for row in rows.fetchall())
-
-        prof_rows = await db.execute(text("SELECT profile_json FROM master_profiles"))
-        for (profile_json,) in prof_rows.fetchall():
-            if isinstance(profile_json, str):  # SQLite test harness stores TEXT
-                try:
-                    profile_json = json.loads(profile_json)
-                except ValueError:
-                    continue
-            if not isinstance(profile_json, dict):
-                continue
-            photo_url = (profile_json.get("personal_info") or {}).get("photo_url")
-            if photo_url:
-                referenced.add(photo_url)
-
-        # #359 / ADR-088: the signature image's path lives on user_settings, not
-        # in the profile JSONB, so it needs its own read. Same failure mode as
-        # the photo if omitted — the file is deleted, not merely unprotected.
-        sig_rows = await db.execute(
-            text("SELECT signature_path FROM user_settings WHERE signature_path IS NOT NULL")
-        )
-        referenced.update(row[0] for row in sig_rows.fetchall() if row[0])
+        referenced = await referenced_file_paths(db)
     except (ProgrammingError, OperationalError):
         # Can't trust the referenced set → delete nothing this run.
         await db.rollback()
@@ -351,20 +382,139 @@ async def _tombstone_inactive_profiles(db: AsyncSession) -> int:
 
 
 async def _tombstone_inactive_users(db: AsyncSession) -> int:
-    """Soft-delete users inactive for ≥ 24 months (based on profile activity)."""
+    """Soft-delete accounts INACTIVE for ≥ 24 months (D-4, ADR-092 cl. 12a).
+
+    Inactivity = ``coalesce(last_active_at, created_at)`` — the last sign-in /
+    authenticated write, falling back to sign-up for an account that never
+    acted. The pre-Strawberry query keyed on ``created_at`` alone and would
+    have tombstoned every real account 24 months after it was created, however
+    active. An **admin is never tombstoned** (last-admin protection, ADR-091
+    cl. 7): an instance whose only admin went quiet must stay claimable by them.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=_INACTIVITY_TTL_DAYS)
     now = datetime.now(timezone.utc)
     try:
         result = await db.execute(
             update(User)
-            .where(User.created_at < cutoff)
+            .where(
+                func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
+                < cutoff
+            )
+            .where(User.role != ROLE_ADMIN)
             .where(User.deleted_at.is_(None))
+            # The unclaimed setup stub owns an upgraded vault and is what /setup
+            # converts into the admin; a tombstoned stub can never be claimed
+            # (claim_stub refuses deleted rows), so it is never retired here
+            # while it holds no credential (w4-fix-id, MD-39).
+            .where(
+                or_(
+                    User.id != STUB_USER_ID,
+                    User.password_hash.is_not(None),
+                    User.oidc_subject.is_not(None),
+                )
+            )
             .values(deleted_at=now)
+            .execution_options(synchronize_session=False)
         )
         await db.commit()
         return result.rowcount  # type: ignore[return-value]
     except (ProgrammingError, OperationalError) as exc:
         logger.warning("_tombstone_inactive_users skipped: %s", exc)
+        await db.rollback()
+        return 0
+
+
+async def _purge_orphan_postings(db: AsyncSession) -> int:
+    """Hard-delete shared postings nobody references any more (ADR-092 cl. 12c).
+
+    ``job_analyses`` is an instance-wide cache without an owner (S-17); before
+    Strawberry such rows lived forever. The predicate is the erasure's
+    (``services.erasure.purge_unreferenced_postings``: lock the candidates,
+    then a fresh ``DELETE … NOT EXISTS`` over all seven referencing tables), so
+    a posting a user links to concurrently survives. Age floor: older than
+    ``INTERVIEW_SESSION_TTL_DAYS`` — a posting analysed a minute ago whose
+    link is still being created is not an orphan.
+    """
+    from applire.services.erasure import purge_unreferenced_postings
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SESSION_TTL_DAYS)
+    try:
+        n = await purge_unreferenced_postings(db, None, created_before=cutoff)
+        await db.commit()
+        return n
+    except IntegrityError as exc:
+        # A link landed between the lock and the delete on a backend without
+        # row locks; the next run collects whatever is still orphaned.
+        logger.warning("_purge_orphan_postings deferred to the next run: %s", exc)
+        await db.rollback()
+        return 0
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_purge_orphan_postings skipped: %s", exc)
+        await db.rollback()
+        return 0
+
+
+async def _purge_auth_housekeeping(db: AsyncSession) -> dict[str, int]:
+    """Purge dead credentials (ADR-005 amended 2026-10-03, item 4).
+
+    ``auth_sessions``: revoked, idle past ``IDLE_TIMEOUT`` or older than
+    ``ABSOLUTE_TIMEOUT`` — none of them can authenticate any more (RD-8).
+    ``auth_links`` / ``reauth_grants``: used or expired. Personal tokens are kept
+    (a revoked token stays listed with its revocation date).
+    """
+    from applire.auth.sessions import ABSOLUTE_TIMEOUT, IDLE_TIMEOUT
+    from applire.models.auth import AuthLink, AuthSession, ReauthGrant
+
+    now = datetime.now(timezone.utc)
+    out = {"auth_sessions_deleted": 0, "auth_links_deleted": 0, "reauth_grants_deleted": 0}
+    try:
+        dead_sessions = or_(
+            AuthSession.revoked_at.is_not(None),
+            AuthSession.last_seen_at < now - IDLE_TIMEOUT,
+            AuthSession.created_at < now - ABSOLUTE_TIMEOUT,
+        )
+        # Grants first: reauth_grants.session_id → auth_sessions (CASCADE on
+        # Postgres; explicit here so the order holds on every backend).
+        r = await db.execute(
+            delete(ReauthGrant).where(
+                or_(
+                    ReauthGrant.used_at.is_not(None),
+                    ReauthGrant.expires_at < now,
+                    ReauthGrant.session_id.in_(select(AuthSession.id).where(dead_sessions)),
+                )
+            )
+        )
+        out["reauth_grants_deleted"] = r.rowcount or 0
+        r = await db.execute(delete(AuthSession).where(dead_sessions))
+        out["auth_sessions_deleted"] = r.rowcount or 0
+        r = await db.execute(
+            delete(AuthLink).where(or_(AuthLink.used_at.is_not(None), AuthLink.expires_at < now))
+        )
+        out["auth_links_deleted"] = r.rowcount or 0
+        await db.commit()
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_purge_auth_housekeeping skipped: %s", exc)
+        await db.rollback()
+    return out
+
+
+async def _purge_audit_events(db: AsyncSession) -> int:
+    """Delete audit rows older than ``AUDIT_LOG_RETENTION_DAYS`` (default 730;
+    ``0`` = keep forever) — the only DELETE the append-only audit table permits
+    (ADR-091 cl. 26; the Postgres trigger refuses UPDATE, allows DELETE)."""
+    from applire.config import settings as _settings
+    from applire.models.audit import AuditEvent
+
+    days = int(getattr(_settings, "audit_log_retention_days", 730) or 0)
+    if days <= 0:
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        r = await db.execute(delete(AuditEvent).where(AuditEvent.at < cutoff))
+        await db.commit()
+        return r.rowcount or 0
+    except (ProgrammingError, OperationalError) as exc:
+        logger.warning("_purge_audit_events skipped: %s", exc)
         await db.rollback()
         return 0
 
@@ -796,7 +946,15 @@ async def run() -> None:
 
 
 async def _sweep() -> dict:
-    """Run every TTL rule and build the report. Raises on an unhandled failure."""
+    """Run every TTL rule and build the report. Raises on an unhandled failure.
+
+    A declared cross-user entry point (ADR-092 cl. 8): ``unscoped("retention")``.
+    """
+    with ownership.unscoped("retention"):
+        return await _sweep_unscoped()
+
+
+async def _sweep_unscoped() -> dict:
     async with AsyncSessionLocal() as db:
         uploads_deleted = await _purge_uploads(db)
         sessions_deleted = await _purge_sessions(db)
@@ -829,6 +987,11 @@ async def _sweep() -> dict:
         orphan_files_deleted = await _scan_orphan_files(db)
         # ADR-086 clause 10 — a growth bound, not a PII clock.
         llm_usage_deleted = await _purge_llm_usage(db)
+        # After every owned-row purge above: a posting whose last referencing
+        # session/document went today is an orphan in the same run.
+        orphan_postings_deleted = await _purge_orphan_postings(db)
+        auth_housekeeping = await _purge_auth_housekeeping(db)
+        audit_events_deleted = await _purge_audit_events(db)
 
     report = {
         "run_at": datetime.now(timezone.utc).isoformat(),
@@ -850,5 +1013,8 @@ async def _sweep() -> dict:
         "submitted_exempt": submitted_exempt,
         "orphan_files_deleted": orphan_files_deleted,
         "llm_usage_deleted": llm_usage_deleted,
+        "orphan_postings_deleted": orphan_postings_deleted,
+        **auth_housekeeping,
+        "audit_events_deleted": audit_events_deleted,
     }
     return report

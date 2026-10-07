@@ -40,6 +40,7 @@ from applire.auth.no_auth import NoAuthProvider
 from applire.db.session import get_db
 
 from tests.support.profile_factory import make_master_profile
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +174,10 @@ async def _seed_job_and_profile(db):
         company_culture_signals=[],
         language_requirement="German",
     ))
+    # ADR-092: the acting user reaches the posting through their own link.
+    await db.flush()
+    from tests.support.owners_3c import link_job
+    await link_job(db, job_id)
     db.add(make_master_profile(
         id=uuid.uuid4(),
         profile_json={"personal_info": {"full_name": "Emma Beispiel"}},

@@ -1,0 +1,59 @@
+# Copyright (C) 2026 Tobias Rosenbaum
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Real-auth CI lane (ADR-091 D-1; arc42 §8.10) — the production topology with
+# login ON, nginx published on a NON-80 port.
+#
+# Why a non-80 port: the backend's origin check compares the browser's Origin
+# (host AND port, e.g. http://localhost:8091) with the Host nginx forwards. With
+# `Host $host` nginx dropped the port and every login/setup on a remapped port
+# was refused as cross-site; on :80 that class of bug is invisible. This lane
+# runs where it is visible.
+#
+# Usage (own project name — never the dev stack's; nothing here touches it):
+#   docker compose -p applire-ci-auth -f docker-compose.yml -f docker-compose.ci-auth.yml \
+#     up -d --build
+#   # the setup code is in: docker compose -p applire-ci-auth ... logs backend
+#   docker compose -p applire-ci-auth -f docker-compose.yml -f docker-compose.ci-auth.yml down -v
+# Port: APPLIRE_CI_AUTH_PORT (default 8091). Tests reach it through
+# APPLIRE_API_BASE=http://localhost:8091 (tests/conftest.py, `auth_session`).
+#
+# NOT layered on docker-compose.override.yml: no backend/frontend host ports,
+# no bind mounts, no hot reload — everything goes through nginx, as on an
+# install. The images are built from this tree under their OWN names, so the
+# build never overwrites the ghcr.io/applire/*:latest tags a dev or install
+# stack on the same host runs.
+
+services:
+  backend:
+    image: applire-backend:ci-auth
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: !override
+      - .env.ci-auth
+
+  retention:
+    image: applire-backend:ci-auth
+    env_file: !override
+      - .env.ci-auth
+
+  mcp:
+    image: applire-backend:ci-auth
+    env_file: !override
+      - .env.ci-auth
+
+  frontend:
+    image: applire-frontend:ci-auth
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runner
+
+  nginx:
+    image: applire-nginx:ci-auth
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports: !override
+      - "${APPLIRE_CI_AUTH_PORT:-8091}:80"

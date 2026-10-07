@@ -94,6 +94,8 @@ async def submit_testimony(
     db: AsyncSession,
     provider: LLMProvider,
     lang: str = "en",
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> TestimonyResult:
     """Reconcile one free-text testimony submission into the vault.
 
@@ -106,11 +108,11 @@ async def submit_testimony(
     from applire.services.profile import _get_latest
     from applire.services.session import get_ui_language
 
-    record = await _get_latest(db)
+    record = await _get_latest(db, user_id)
     if record is None:
         raise LookupError("No profile found — import a CV or create a profile first")
 
-    lang = await get_ui_language(db)
+    lang = await get_ui_language(db, user_id=record.user_id)
     submission_id = str(uuid.uuid4())
     current = MasterProfileData.model_validate(record.profile_json)
     if current.metadata is None:

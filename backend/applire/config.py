@@ -110,7 +110,29 @@ class Settings(BaseSettings):
     # Combined score weights for GET /api/jobs/match (must sum to 1.0)
     matching_score_embedding_weight: float = 0.4
     matching_score_llm_weight: float = 0.6
-    auth_provider: str = "none"
+    # --- Accounts (ADR-091; declared in settings_registry.py, introduced 0.43.0) ---
+    # "local" = built-in accounts. The pre-0.43 value "none" now ALSO means
+    # local (MD-2) — login is always on (S-2); the lifespan names the line to delete.
+    auth_provider: str = "local"
+    # Test harness only (ADR-091 cl. 3) — fenced: no credential anywhere, a test
+    # database, boot latch. Withheld from .env.example.
+    auth_harness: bool = False
+    # Session cookie `Secure` attribute (ruling S-15: default off for plain-http LANs).
+    cookie_secure: bool = False
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_scopes: str = "openid email profile"
+    oidc_button_label: str = "Single sign-on"
+    smtp_host: str = ""                     # empty = no mail (S-7)
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_security: str = "starttls"         # starttls | tls | none
+    agent_link_ttl_minutes: int = 60        # signed document links (RD-8)
+    audit_log_retention_days: int = 730     # 0 = keep forever
+    applire_agent_token: str = ""           # MCP stdio process only (S-5)
     mcp_transport: str = "stdio"
     applire_base_url: str = "http://localhost:8001"
     upload_dir: str = "./data/uploads"

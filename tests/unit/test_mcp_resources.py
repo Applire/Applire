@@ -117,9 +117,9 @@ async def test_resource_job_happy_path():
 
     with (
         patch("applire.mcp.server.get_db", return_value=cm),
-        patch("applire.mcp.server.JobAnalysisResponse") as mock_schema,
+        # MD-31: the resource builds through the per-caller `posting_response`.
+        patch("applire.mcp.server.posting_labels.posting_response", return_value=mock_response),
     ):
-        mock_schema.model_validate.return_value = mock_response
         raw = await resource_job(job_id=str(job_id))
 
     data = json.loads(raw)

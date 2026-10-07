@@ -153,6 +153,10 @@ async def seeded(db):
             ),
         ]
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)
     await db.commit()
     return {"db": db, "job_id": job_id, "profile_id": profile_id}
 
@@ -296,6 +300,10 @@ async def test_render_agent_cv_unknown_job_and_missing_profile(db):
             language_requirement="de",
         )
     )
+    await db.flush()
+    from tests.support.owners_3c import link_job
+
+    await link_job(db, job_id)  # linked: it must fail on the MISSING PROFILE
     await db.commit()
     with pytest.raises(LookupError):
         await render_agent_cv(dict(AGENT_CV_CONTENT), job_id, db)
@@ -340,7 +348,7 @@ async def test_render_agent_letter_chrome_injected_when_absent(seeded):
     assert cl.ats_report is not None
     assert cl.truthfulness_report is not None
     # pre-render used the allow_unready path with the row already committed
-    render_mock.assert_awaited_once_with(cl.id, allow_unready=True)
+    render_mock.assert_awaited_once_with(cl.id, allow_unready=True, user_id=cl.user_id)
     # chrome injected (DE job): a real date and the German closing
     assert cl.letter_data["recipient"]["date"]
     assert cl.letter_data["signature"]["closing"] == "Mit freundlichen Grüßen"

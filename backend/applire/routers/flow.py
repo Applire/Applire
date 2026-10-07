@@ -20,8 +20,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from applire.auth import get_auth_provider
-from applire.auth.base import AuthProvider
+from applire.auth.deps import require_user
+from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.schemas.flow import (
@@ -47,7 +47,7 @@ def _base_url(request: Request) -> str:
     # incoming request's Host — a reverse proxy on a non-80/443 port drops
     # the port from request.base_url, pointing agents/UIs at the wrong origin.
     # `request` is accepted (unused) to keep this a drop-in for the three
-    # call sites below, all of which also need it for auth.get_current_user.
+    # call sites below (they once also passed it to auth.get_current_user).
     del request
     return settings.applire_base_url.rstrip("/")
 
@@ -57,14 +57,14 @@ async def create_flow_session(
     body: CreateFlowRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> CreateFlowResponse:
     """Create or resume a flow session for a job.
 
     Resolves user_type (new/returning) from profile completeness.
     Idempotent: returns the existing flow if one exists for (user_id, job_id).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await create_flow(body, user.id, db, base_url=_base_url(request))
     except LookupError as exc:
@@ -76,7 +76,7 @@ async def get_flow_state_endpoint(
     flow_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> FlowStateResponse:
     """Return current flow step, available actions, and child resource summaries.
 
@@ -84,7 +84,7 @@ async def get_flow_state_endpoint(
     user 404s exactly like an unknown one (IDOR guard, same shape as the
     profile.py import-job and job.py gap-job lookups).
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await get_flow_state(flow_id, db, base_url=_base_url(request), user_id=user.id)
     except LookupError as exc:
@@ -97,7 +97,7 @@ async def advance_flow_endpoint(
     body: AdvanceFlowRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth: AuthProvider = Depends(get_auth_provider),
+    current_user: User = Depends(require_user),
 ) -> FlowStateResponse:
     """Request a step transition.
 
@@ -113,7 +113,7 @@ async def advance_flow_endpoint(
     user 404s exactly like an unknown one (IDOR guard), checked before any
     transition validation so it never leaks the flow's current_step.
     """
-    user = await auth.get_current_user(request)
+    user = current_user
     try:
         return await advance_flow(flow_id, body, db, base_url=_base_url(request), user_id=user.id)
     except LookupError as exc:

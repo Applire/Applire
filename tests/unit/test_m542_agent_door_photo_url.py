@@ -45,6 +45,8 @@ import pytest
 import pytest_asyncio
 from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from tests.support.mcp_door import mcp_signing_secret  # noqa: F401 — autouse: the MCP door signs its document links (ADR-091 cl. 18)
+
 
 _backend = Path(__file__).parent.parent.parent / "backend"
 if str(_backend) not in sys.path:
@@ -222,3 +224,13 @@ async def test_the_same_payload_without_photo_url_is_accepted(seeded):
 
     assert result["document_kind"] == "cover_letter"
     assert result["status"] == "ready"
+
+
+# MD-23: these tests pin a tool's own logic on a seeded job without an
+# application link; posting access is pinned by test_cross_user_isolation.py.
+# (Opt-in mark, not a module autouse fixture: under the combined two-tree run an
+# autouse fixture here leaked into other modules' tests.)
+from tests.support.mcp_door import posting_access_granted  # noqa: E402,F401
+
+_marks = globals().get("pytestmark", [])
+pytestmark = [*(_marks if isinstance(_marks, list) else [_marks]), pytest.mark.usefixtures("posting_access_granted")]
