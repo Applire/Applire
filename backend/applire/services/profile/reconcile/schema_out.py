@@ -168,7 +168,7 @@ def reconcile_response_schema() -> dict[str, Any]:
     """The reconciler's output envelope as a JSON Schema, cached per process.
 
     Shape: ``{"ops": [<any of the 15 ops>], "ambiguities": [<confirmation>],
-    "denials": ["..."], "empty_reason": <enum|null>}`` — the same four keys
+    "denials": ["..."], "empty_reason": <enum>}`` — the same four keys
     ``engine._parse_ops`` / ``_parse_ambiguities`` / ``_parse_denials`` /
     ``_parse_empty_reason`` read, in the same order the prompt states them.
 
@@ -219,9 +219,15 @@ def reconcile_response_schema() -> dict[str, Any]:
             "ops": {"type": "array", "items": {"anyOf": branches}},
             "ambiguities": {"type": "array", "items": confirmation_ref},
             "denials": {"type": "array", "items": {"type": "string"}},
+            # #756: a plain string enum. The key is optional and the prompt
+            # says "omit it", and `_parse_empty_reason` reads an absent key and
+            # `null` alike — so `null` was never needed, and Anthropic's schema
+            # compiler refuses a `["string","null"]` type whose enum holds
+            # string values (`Enum value 'already_known' does not match
+            # declared type`), measured 2026-10-07 on four Claude hosts.
             "empty_reason": {
-                "type": ["string", "null"],
-                "enum": [*get_args(EmptyReason), None],
+                "type": "string",
+                "enum": [*get_args(EmptyReason)],
             },
         },
         "required": ["ops", "ambiguities", "denials"],

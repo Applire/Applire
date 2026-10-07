@@ -165,6 +165,52 @@ class OpenRouterProvider(LLMProvider):
             return True
         return False
 
+    async def _retry_without_schema(
+        self,
+        exc: openai.BadRequestError,
+        *,
+        max_tokens: int,
+        extra_body: dict | None,
+        kwargs: dict,
+    ):
+        """Retry a schema-carrying call ONCE with `json_object`; latch on success.
+
+        #756 (ADR-063 clause (f) amended 2026-10-07): the wording check alone
+        missed every Claude host's refusal (`output_config.format.schema:
+        Invalid schema: …`, `The compiled grammar is too large …`), so the turn
+        was lost. A 400 that disappears once the schema is gone IS a schema
+        rejection, whatever the host called it — so the retry decides, and a
+        successful retry sets the same latch the wording path sets. A 400 that
+        persists without the schema was not about the schema: this returns
+        `None`, the latch stays off (an unrelated 400 must never turn structured
+        output off — adversarial pass 2026-09-10), and `_create` surfaces the
+        ORIGINAL error. The wording path keeps its old behaviour: it latches
+        before the retry and its retry's error propagates. One retry, no loop.
+        """
+        worded = self._note_schema_rejection(exc)
+        retry_kwargs = {**kwargs, "response_format": {"type": "json_object"}}
+        try:
+            response = await self._client.chat.completions.create(
+                max_tokens=max_tokens, extra_body=extra_body, **retry_kwargs
+            )
+        except openai.BadRequestError as retry_exc:
+            if worded:
+                raise
+            logger.warning(
+                "model=%s: a 400 on a json_schema call persisted without the "
+                "schema; surfacing the original error, schema stays on (%s)",
+                self._model, retry_exc,
+            )
+            return None
+        if not worded:
+            self._json_schema_rejected = True
+            logger.warning(
+                "model=%s rejected the response json_schema (the call succeeded "
+                "without it); falling back to plain JSON mode for this process (%s)",
+                self._model, exc,
+            )
+        return response
+
     async def acomplete(
         self,
         prompt: str,
@@ -283,17 +329,19 @@ class OpenRouterProvider(LLMProvider):
                 max_tokens=max_tokens, extra_body=extra_body, **kwargs
             )
         except openai.BadRequestError as exc:
-            # M-3 — a schema-shaped 400 retries the SAME call without the
-            # schema, so structured output can never cost a turn.
+            # M-3 / #756 — ANY 400 on a call that carried a schema retries the
+            # SAME call once without it, so structured output can never cost a
+            # turn. `None` means the 400 persisted without the schema: fall
+            # through with the ORIGINAL error, exactly as before.
             if (
                 isinstance(kwargs.get("response_format"), dict)
                 and kwargs["response_format"].get("type") == "json_schema"
-                and self._note_schema_rejection(exc)
             ):
-                retry_kwargs = {**kwargs, "response_format": {"type": "json_object"}}
-                return await self._client.chat.completions.create(
-                    max_tokens=max_tokens, extra_body=extra_body, **retry_kwargs
+                response = await self._retry_without_schema(
+                    exc, max_tokens=max_tokens, extra_body=extra_body, kwargs=kwargs
                 )
+                if response is not None:
+                    return response
             tried_disable = bool(
                 extra_body and extra_body.get("reasoning", {}).get("enabled") is False
             )

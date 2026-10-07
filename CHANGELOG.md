@@ -36,6 +36,7 @@ Applire Community now has **built-in accounts**: several people can share one in
 
 ### Fixed
 - The GDPR retention run aborted on PostgreSQL when a calendar purge hit a document that a flow still pointed to (the run skipped every later rule). Purges now release the pointer first.
+- **Claude models via OpenRouter lost every interview answer and import merge (#756).** With the default `LLM_STRUCTURED_OUTPUT=auto`, every Claude host refused the reconcile response schema with HTTP 400, worded in a way the plain-JSON fallback did not recognise, so each turn ended with nothing written. Now any 400 on a call that carried the schema is retried once without it; when that retry succeeds, the schema stays off for the rest of the process. A 400 that also fails without the schema surfaces as before. The schema's `empty_reason` field is now a plain string enum, which Anthropic's schema check accepts.
 
 ### Upgrade notes
 **Action required** on every existing install. Back up first (`scripts/backup.sh`, see `docs/SELF-HOSTING.md`) — migrations 0071–0076 are one-directional.
