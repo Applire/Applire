@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
+from applire.redaction import scrub_secrets
 from applire.templates.filters import build_template_env
 from playwright.async_api import async_playwright
 from sqlalchemy import select
@@ -147,7 +148,7 @@ def _record_generation_failure(record, exc: BaseException) -> None:
     Kept as a seam so the classification + split is unit-testable without a DB session.
     """
     record.status = CVGenerationStatus.failed.value
-    record.error_message = str(exc)[:1000]
+    record.error_message = scrub_secrets(str(exc))[:1000]
     record.error_code = classify_generation_error(exc)
 
 

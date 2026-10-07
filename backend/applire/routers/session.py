@@ -22,6 +22,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.db.session import get_db
@@ -173,8 +174,7 @@ async def get_session(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
-        logger.exception("get_session failed for session %s", session_id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="session.get_session", logger=logger)
 
 
 @router.post(

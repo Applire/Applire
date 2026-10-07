@@ -41,6 +41,7 @@ from datetime import date, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks
+from applire.redaction import scrub_secrets
 from applire.templates.filters import build_template_env
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2241,7 +2242,7 @@ async def _render_cover_letter_body(
                     )
                     if err_cl is not None:
                         err_cl.status = CoverLetterStatus.failed.value
-                        err_cl.error_message = str(exc)[:500]
+                        err_cl.error_message = scrub_secrets(str(exc))[:500]
                         await err_db.commit()
 
 

@@ -21,6 +21,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user, user_or_signed_link
 from applire.models.user import User
 from applire.config import settings
@@ -85,7 +86,7 @@ async def post_generate(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cover_letter.post_generate")
 
 
 @router.get("/by-job/{job_id}", response_model=CoverLetterStatusResponse)

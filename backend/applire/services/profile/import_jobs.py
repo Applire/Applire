@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import ownership
+from applire.redaction import scrub_secrets
 from applire.db.session import AsyncSessionLocal
 from applire.exceptions import (
     LLMRateLimitError,
@@ -247,7 +248,7 @@ async def _process_import_job(
             if job is not None:
                 job.status = CVImportStatus.failed.value
                 job.error_code = code
-                job.error_message = str(exc)[:500]
+                job.error_message = scrub_secrets(str(exc))[:500]
                 await db.commit()
             return
 
