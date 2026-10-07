@@ -108,6 +108,19 @@ minimal work): `import_cv` → `analyze_jd` → `analyze_gaps` →
 also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
 advisory when the letter states something your CV doesn't back at the same
 depth. Read-only, never mutates either document; null until the pass runs.
+Its `cross_document` list folds the advisories that quote the same letter
+sentence into one item; `weight: "high"` means the letter states a fact the CV
+never mentions, with a figure, year or duration — the shape blind recruiters
+read as inflation. For each item ask the human one question: add the fact to
+the CV, take it out of the letter, or keep it as is. Never decide for them.
+
+**Terms the writer was asked for repeatedly.** The `terminal-review` check on
+either ATS report carries `driver.repeated_demands` (and `driver.open`) when
+the writing loop demanded the same job term in two or more rounds; `details`
+names each term with its count. `open` = still not in the document although
+the profile backs it (worth telling the human); `landed` = it arrived late —
+re-read the sentence it landed in, late arrivals tend to end up in a bare
+keyword list.
 
 **Stop on a red verdict.** After every generation, read `truthfulness` on the
 ATS report (`get_cv_ats_report` / `get_cover_letter_ats_report`) before the

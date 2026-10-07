@@ -211,6 +211,13 @@ export default function CVPage({
     [],
   );
 
+  // #702 (RULING R-2 = A, MD2-9): *In den Lebenslauf übernehmen* on the letter's
+  // cross-document card lands here with `?tab=edit` — the top of the Edit tab,
+  // nothing pre-filled.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "edit") setActiveSidebarTab("edit");
+  }, []);
+
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get("retailored");
     if (param) setRetailoredGained(decodeGained(param));

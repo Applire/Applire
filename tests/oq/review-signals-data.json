@@ -1,0 +1,482 @@
+{
+ "critic": {
+  "ran": true,
+  "reason": null,
+  "mount": "letter",
+  "advisories": [
+   {
+    "concept": "Kosmetik-Verpackungen",
+    "kind": "letter_only",
+    "cv_state": null,
+    "cv_detail": null,
+    "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu Kosmetik-Verpackungen); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about Kosmetik-Verpackungen); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "Sauberraumbereich seit 2021",
+    "kind": "letter_only",
+    "cv_state": null,
+    "cv_detail": null,
+    "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu Sauberraumbereich seit 2021); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about Sauberraumbereich seit 2021); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "ISO-9001-Audit-Praxis",
+    "kind": "letter_only",
+    "cv_state": null,
+    "cv_detail": null,
+    "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (zu ISO-9001-Audit-Praxis); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.\" (about ISO-9001-Audit-Praxis); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "Feinplanung",
+    "kind": "letter_only",
+    "cv_state": null,
+    "cv_detail": null,
+    "letter_state": "SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt \"SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.\" (zu Feinplanung); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.\" (about Feinplanung); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "Quartalspräsentationen",
+    "kind": "letter_only",
+    "cv_state": null,
+    "cv_detail": null,
+    "letter_state": "Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt \"Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.\" (zu Quartalspräsentationen); dein Lebenslauf erwähnt dies nicht. Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.\" (about Quartalspräsentationen); your CV does not mention it. Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "MES-Einführung",
+    "kind": "letter_richer",
+    "cv_state": "Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.",
+    "cv_detail": null,
+    "letter_state": "Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt zu MES-Einführung \"Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.\"; dein Lebenslauf nennt MES-Einführung nur ohne diese Angabe (\"Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.\"). Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.\" about MES-Einführung; your CV mentions MES-Einführung without that detail (\"Einführung eines MES-Systems mit Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen von der Auswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet; Echtzeit-OEE-Transparenz am Shopfloor-Board geschaffen und die OEE im Spritzguss in 18 Monaten von 61 % auf 73 % gesteigert.\"). Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   },
+   {
+    "concept": "Kunststofftechnik-Erfahrung",
+    "kind": "letter_richer",
+    "cv_state": "Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung",
+    "cv_detail": null,
+    "letter_state": "neun Jahre Kunststofftechnik mit Spritzguss und Montage",
+    "changed": false,
+    "message": {
+     "de": "Dein Anschreiben nennt zu Kunststofftechnik-Erfahrung \"neun Jahre Kunststofftechnik mit Spritzguss und Montage\"; dein Lebenslauf nennt Kunststofftechnik-Erfahrung nur ohne diese Angabe (\"Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung\"). Es wurde nichts verändert — du entscheidest, ob du das Dokument anpasst oder es so lässt.",
+     "en": "Your cover letter states \"neun Jahre Kunststofftechnik mit Spritzguss und Montage\" about Kunststofftechnik-Erfahrung; your CV mentions Kunststofftechnik-Erfahrung without that detail (\"Diskrete Fertigung, Kunststofftechnik, Spritzguss und Montage, Serienfertigung\"). Nothing has been changed — it is your choice whether to adjust the document or leave it as is."
+    }
+   }
+  ],
+  "dropped_citations": 0,
+  "cross_document": [
+   {
+    "key": "critic:hygiene und dokumentationsdisziplin aus kosmetik verpackungen, einem sauberraumbereich seit 2021 und zehn jahren iso 9001 audit praxis sowie neun jahre kunststofftechnik mit spritzguss und montage sind jedoch übertragbare grundlagen.",
+    "letter_state": "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+    "concepts": [
+     "Kosmetik-Verpackungen",
+     "Sauberraumbereich seit 2021",
+     "ISO-9001-Audit-Praxis",
+     "Kunststofftechnik-Erfahrung"
+    ],
+    "letter_only": [
+     "Kosmetik-Verpackungen",
+     "Sauberraumbereich seit 2021",
+     "ISO-9001-Audit-Praxis"
+    ],
+    "kinds": [
+     "letter_only",
+     "letter_richer"
+    ],
+    "weight": "high",
+    "figures": [
+     "zehn Jahren",
+     "neun Jahre",
+     "2021"
+    ]
+   },
+   {
+    "key": "critic:sap pp, sap mm, iso 9001, iso 45001, arbeitssicherheit, instandhaltung, arbeitsvorbereitung, fertigungssteuerung und feinplanung kenne ich aus meiner berufserfahrung.",
+    "letter_state": "SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung.",
+    "concepts": [
+     "Feinplanung"
+    ],
+    "letter_only": [
+     "Feinplanung"
+    ],
+    "kinds": [
+     "letter_only"
+    ],
+    "weight": "normal",
+    "figures": []
+   },
+   {
+    "key": "critic:meine englischpraxis umfasst werksbesuche und quartalspräsentationen.",
+    "letter_state": "Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen.",
+    "concepts": [
+     "Quartalspräsentationen"
+    ],
+    "letter_only": [
+     "Quartalspräsentationen"
+    ],
+    "kinds": [
+     "letter_only"
+    ],
+    "weight": "normal",
+    "figures": []
+   },
+   {
+    "key": "critic:bei weberit leitete ich die mes einführung an 14 spritzgussmaschinen; dadurch stieg die oee von 61 % auf 73 %.",
+    "letter_state": "Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %.",
+    "concepts": [
+     "MES-Einführung"
+    ],
+    "letter_only": [],
+    "kinds": [
+     "letter_richer"
+    ],
+    "weight": "normal",
+    "figures": []
+   }
+  ]
+ },
+ "ats": {
+  "version": 1,
+  "document": "cover_letter",
+  "checks": [
+   {
+    "id": "contact-name",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "contact-email",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "recipient-company",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "body-0",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "body-1",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "body-2",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "body-3",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "body-4",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "page-length",
+    "status": "pass",
+    "details": null,
+    "details_key": null,
+    "details_params": null,
+    "driver": null
+   },
+   {
+    "id": "terminal-review",
+    "status": "fail",
+    "details": "The terminal review exhausted its retries with findings still open, and the document was delivered unreviewed after 3 round(s). Open findings: The gap/transfer paragraph says the candidate does not know IFS, BRC, direct Lebensmittelproduktion, Verbundverpackungen, or Konsumgüter and gives adjacent strengths, but it omits the required transfer positioning for the packaging-market gap in the candidate's own terms: the nine years of Kunststofftechnik with Spritzguss und Montage in Serienfertigung, preceded by Blechumformung bei Rasselstein, as verwandte diskrete Fertigung rather than Verpackungsproduktion.; The body does not deliver the required Investitionsplanung transfer positioning. It says only that Investitionsentscheidungen were prepared and not made, which incorrectly frames the unlisted limit Investitionsverantwortung and fails to give the supported Investitionsplanung capability its required prominence.; The body does not deliver the required transfer positioning for Wertschätzende Führung. It mentions leadership responsibilities but does not prominently ground the adjacent capability of Mitarbeiterführung as the response to this requirement.; The verified coverage check re…",
+    "details_key": null,
+    "details_params": null,
+    "driver": {
+     "repeated_demands": 3,
+     "open": 1
+    },
+    "signals": [
+     {
+      "kind": "repeated_demand",
+      "term": "Maschinendatenerfassung",
+      "rounds": 2,
+      "total_rounds": 8,
+      "in_document": false,
+      "weight": "open"
+     },
+     {
+      "kind": "repeated_demand",
+      "term": "Arbeitssicherheit",
+      "rounds": 3,
+      "total_rounds": 8,
+      "in_document": true,
+      "weight": "landed"
+     },
+     {
+      "kind": "repeated_demand",
+      "term": "Arbeitsvorbereitung",
+      "rounds": 2,
+      "total_rounds": 8,
+      "in_document": true,
+      "weight": "landed"
+     }
+    ]
+   }
+  ],
+  "keywords": {
+   "present": [
+    "Operations",
+    "Produktion",
+    "Instandhaltung",
+    "Arbeitsvorbereitung",
+    "Mehrschichtbetrieb",
+    "Lean-Produktion",
+    "Shopfloor-Management",
+    "KVP",
+    "OEE",
+    "Digitalisierung der Fertigung",
+    "MES",
+    "Industrie 4.0",
+    "Arbeitssicherheit",
+    "ISO 45001",
+    "Führung",
+    "Schichtleiter",
+    "Bereichsleiter",
+    "Kunststoffverpackungen",
+    "Verbundverpackungen",
+    "Konsumgüter",
+    "Lebensmittelkunden"
+   ],
+   "missing": [
+    "Maschinendatenerfassung",
+    "Investitionsplanung",
+    "Supply Chain",
+    "Qualität"
+   ],
+   "missing_claimable": [
+    "Maschinendatenerfassung",
+    "Supply Chain",
+    "Qualität"
+   ],
+   "missing_honest_gap": [
+    "Investitionsplanung"
+   ],
+   "present_unsupported": [
+    "Operations",
+    "Lean-Produktion",
+    "Digitalisierung der Fertigung",
+    "Bereichsleiter",
+    "Kunststoffverpackungen",
+    "Lebensmittelkunden"
+   ],
+   "claimable_concepts": [
+    "Führungserfahrung",
+    "Mitarbeiterführung",
+    "Führung",
+    "5S",
+    "5-S",
+    "5S-Workshops",
+    "SMED",
+    "Single-Minute Exchange of Die",
+    "Rüstoptimierung",
+    "Rüstworkshops",
+    "KVP",
+    "Kontinuierlicher Verbesserungsprozess",
+    "Kaizen",
+    "KVP/Kaizen",
+    "Shopfloor-Management",
+    "Shopfloor Management",
+    "Shopfloor",
+    "OEE",
+    "Overall Equipment Effectiveness",
+    "Gesamtanlageneffektivität",
+    "MES-Systeme",
+    "MES",
+    "Manufacturing Execution System",
+    "MES-System",
+    "SAP",
+    "SAP ERP",
+    "SAP-Fertigungseinführung",
+    "Budgetverantwortung",
+    "Budgetmanagement",
+    "operatives Budget",
+    "Budgetplanung",
+    "ISO 9001",
+    "ISO-9001",
+    "Qualitätsmanagementsystem",
+    "ISO-9001-Audits",
+    "Arbeitssicherheit",
+    "Sicherheitsbeauftragter",
+    "Arbeitsschutz",
+    "Englisch",
+    "English",
+    "Business English",
+    "SAP PP",
+    "PP",
+    "SAP Production Planning",
+    "SAP MM",
+    "MM",
+    "SAP Materials Management",
+    "ISO 45001",
+    "ISO-45001",
+    "Arbeitsschutzmanagement",
+    "Produktion",
+    "Produktionsleitung",
+    "Fertigung",
+    "Produktionsleiter",
+    "Produktionserfahrung",
+    "Instandhaltung",
+    "Maintenance",
+    "industrielle Instandhaltung",
+    "Instandhaltungsbudget",
+    "Arbeitsvorbereitung",
+    "AV",
+    "Fertigungsplanung",
+    "Feinplanung/Fertigungssteuerung",
+    "Mehrschichtbetrieb",
+    "Dreischichtbetrieb",
+    "Schichtbetrieb",
+    "Maschinendatenerfassung",
+    "MDE",
+    "Betriebsdatenerfassung",
+    "BDE",
+    "Industrie 4.0",
+    "Industry 4.0",
+    "Industrie-4.0",
+    "Industrie4.0",
+    "Supply Chain",
+    "Supply-Chain-Management",
+    "SCM",
+    "Supply-Chain",
+    "Qualität",
+    "Qualitätssicherung",
+    "Qualitätsmanagement",
+    "Leadership",
+    "Schichtführung",
+    "Schichtleiter",
+    "Shift Leader",
+    "Fertigungsmeister / Schichtleiter"
+   ],
+   "keyword_liability_concepts": [
+    "Lean-Produktion",
+    "Investitionsverantwortung",
+    "Wertschätzende Führung",
+    "Arbeitssicherheit"
+   ]
+  },
+  "passed": 9,
+  "failed": 1,
+  "not_applicable": 0,
+  "pinned_facts": null
+ },
+ "letter_data": {
+  "body": {
+   "signature": {
+    "name": "STEFAN BRANDT",
+    "closing": null
+   },
+   "paragraphs": [
+    "Sehr geehrte Damen und Herren,",
+    "mit 14 Jahren Erfahrung in der diskreten Fertigung und als Produktionsleiter bewerbe ich mich als Leiter Operations bei Rheinwerk Verpackungen GmbH. Das europäische Umfeld für Kunststoff- und Verbundverpackungen für Konsumgüter- und Lebensmittelkunden spricht mich an.",
+    "Bei Weberit Kunststofftechnik GmbH führte ich 38 Mitarbeitende über drei Schichtleiter im Dreischichtbetrieb, verantwortete rund 6 Mio. € operatives Budget und vertrat zwei- bis vierwöchig die Betriebsleitung für rund 90 Mitarbeitende. Bei Rasselstein Umformtechnik GmbH führte ich zuvor eine Schicht mit 14 Mitarbeitenden. Lean Management, Shopfloor-Management, KVP, 5S, Kaizen und SMED steigerten die Termintreue von 87 % auf 96 %.",
+    "Bei Weberit leitete ich die MES-Einführung an 14 Spritzgussmaschinen; dadurch stieg die OEE von 61 % auf 73 %. SAP PP, SAP MM, ISO 9001, ISO 45001, Arbeitssicherheit, Instandhaltung, Arbeitsvorbereitung, Fertigungssteuerung und Feinplanung kenne ich aus meiner Berufserfahrung. IFS, BRC, direkte Lebensmittelproduktion und Verpackungsproduktion fehlen mir. Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare Grundlagen.",
+    "Über die Gelegenheit, meinen möglichen Beitrag zu Rheinwerk Verpackungen in einem persönlichen Gespräch zu erläutern, freue ich mich. Meine Englischpraxis umfasst Werksbesuche und Quartalspräsentationen."
+   ]
+  },
+  "header": {
+   "name": "STEFAN BRANDT",
+   "email": "stefan.brandt@example.com",
+   "phone": "+49 261 0000000",
+   "address": "Koblenz"
+  },
+  "recipient": {
+   "date": "13. September 2026",
+   "name": null,
+   "title": null,
+   "address": null,
+   "company": "Rheinwerk Verpackungen GmbH"
+  },
+  "signature": {
+   "name": "STEFAN BRANDT",
+   "closing": "Mit freundlichen Grüßen"
+  }
+ },
+ "signals": [
+  {
+   "kind": "repeated_demand",
+   "term": "Maschinendatenerfassung",
+   "rounds": 2,
+   "total_rounds": 8,
+   "in_document": false,
+   "weight": "open"
+  },
+  {
+   "kind": "repeated_demand",
+   "term": "Arbeitssicherheit",
+   "rounds": 3,
+   "total_rounds": 8,
+   "in_document": true,
+   "weight": "landed"
+  },
+  {
+   "kind": "repeated_demand",
+   "term": "Arbeitsvorbereitung",
+   "rounds": 2,
+   "total_rounds": 8,
+   "in_document": true,
+   "weight": "landed"
+  }
+ ]
+}

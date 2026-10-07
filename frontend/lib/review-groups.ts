@@ -46,8 +46,12 @@
  */
 
 import type { GapHintItem } from "@/components/cv/ContentTab";
-import type { CriticAdvisory, OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
-import type { ATSCheck, ATSReport } from "./ats-report";
+import type {
+  CriticAdvisory,
+  CrossDocumentItem,
+  OutcomeCriticReport,
+} from "@/components/cv/CriticAdvisoryPanel";
+import type { ATSCheck, ATSReport, CheckSignal } from "./ats-report";
 import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
@@ -67,7 +71,7 @@ export type ReviewProducer = "ats" | "oracle" | "critic" | "clusters";
  * layer computing a backend rule, the `SF-DOOR.7` defect ADR-081 cl. 2 exists
  * to avoid repeating.
  */
-export type ReviewItemKind = "term" | "cluster" | "claim" | "check" | "advisory";
+export type ReviewItemKind = "term" | "cluster" | "claim" | "check" | "advisory" | "signal";
 
 export type ReviewSeverity = "critical" | "warning" | "info" | "neutral";
 
@@ -93,6 +97,12 @@ export interface ReviewItem {
   check?: ATSCheck;
   /** For a critic row: the advisory, carried through verbatim (ADR-060). */
   advisory?: CriticAdvisory;
+  /**
+   * #703 (RULING R-3 = A): the terminal review's repeated-demand signal for this
+   * term — on a group-2 row when it is still `open`, as its own group-4 `signal`
+   * row when it `landed` late. Carried verbatim from `terminal-review.signals`.
+   */
+  signal?: CheckSignal;
   /** For a claim row: where in the document the Oracle found it. */
   location?: string | null;
   /**
@@ -151,6 +161,9 @@ export interface ReviewInputs {
    */
   hasClusterProducer?: boolean;
 }
+
+/** #702: the advisory kinds the cross-document section owns. */
+const CROSS_DOCUMENT_KINDS = new Set(["letter_only", "letter_richer"]);
 
 /** ADR-060: the outcome critic is an EXCEPTION surface — absent or `ran: false` both mean it did not run. */
 function criticRan(report: OutcomeCriticReport): boolean {
@@ -258,18 +271,56 @@ function buildGroup1(inputs: ReviewInputs): ReviewItem[] {
  * deviation" note — ADR-081's table lists the clusters against group 3 without
  * distinguishing their kind.
  */
+/**
+ * #703 — the `terminal-review` check's repeated-demand signals (RULING R-3 = A,
+ * threshold ≥ 2 rounds, applied by the backend). Read, never recomputed.
+ */
+export function repeatedDemandSignals(atsReport: ATSReport): CheckSignal[] {
+  const check = (atsReport?.checks ?? []).find((c) => c.id === "terminal-review");
+  return (check?.signals ?? []).filter((s) => s.kind === "repeated_demand");
+}
+
 function buildGroup2(inputs: ReviewInputs): ReviewItem[] {
   const { atsReport, gapClusters } = inputs;
   const terms = atsReport?.keywords.missing_claimable ?? [];
   const clusters = dedupeClusters(gapClusters ?? []).filter((g) => g.kind === "claimable");
-  return [
-    ...terms.map((term, i) => ({
-      key: `mc-term-${i}-${normQuote(term) || term}`,
+  // #703: an OPEN repeated demand annotates the group-2 row it belongs to. The
+  // LIVE report decides whether the term is still missing — a term the user has
+  // since added is no longer a group-2 row, so its (frozen) signal shows nowhere
+  // here. An open term the ATS list names differently gets its own row: it IS
+  // "missing although your profile covers it".
+  const open = repeatedDemandSignals(atsReport).filter((s) => s.weight === "open");
+  const byNorm = new Map(open.map((s) => [normQuote(s.term), s]));
+  const used = new Set<string>();
+  const termRows: ReviewItem[] = terms.map((term, i) => {
+    const n = normQuote(term);
+    const signal = byNorm.get(n);
+    if (signal) used.add(n);
+    return {
+      key: `mc-term-${i}-${n || term}`,
       label: term,
       kind: "term" as const,
       producers: ["ats"] as ReviewProducer[],
       severity: "warning" as const,
-    })),
+      ...(signal ? { signal } : {}),
+    };
+  });
+  const extraRows: ReviewItem[] = atsReport
+    ? open
+        .filter((s) => !used.has(normQuote(s.term)))
+        .map((s) => ({
+          key: `mc-signal-${normQuote(s.term) || s.term}`,
+          label: s.term,
+          kind: "term" as const,
+          producers: ["ats"] as ReviewProducer[],
+          severity: "warning" as const,
+          signal: s,
+        }))
+    : [];
+  // Annotated rows first: the weighted ones are what the candidate reads first.
+  const ordered = [...termRows.filter((r) => r.signal), ...extraRows, ...termRows.filter((r) => !r.signal)];
+  return [
+    ...ordered,
     ...clusters.map((g) => ({
       key: `mc-cluster-${g.id}`,
       label: g.label,
@@ -357,8 +408,28 @@ function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks:
     })),
   ];
 
+  // #703: a demand that LANDED late — re-read the sentence it landed in.
+  repeatedDemandSignals(atsReport)
+    .filter((s) => s.weight === "landed")
+    .forEach((s) => {
+      items.push({
+        key: `signal-${normQuote(s.term) || s.term}`,
+        label: s.term,
+        kind: "signal",
+        producers: ["ats"],
+        severity: "info",
+        signal: s,
+      });
+    });
+
   if (criticRan(criticReport)) {
+    // #702 (ADR-060 amended 2026-10-07): when the backend derives the
+    // cross-document items, the letter_only / letter_richer advisories move to
+    // the cross-document section and leave this group. An older response
+    // without the field keeps every advisory here (no row is ever dropped).
+    const crossDocumentDerived = Array.isArray(criticReport?.cross_document);
     (criticReport?.advisories ?? []).forEach((a, i) => {
+      if (crossDocumentDerived && CROSS_DOCUMENT_KINDS.has(a.kind)) return;
       items.push({
         key: `advisory-${i}-${a.concept}`,
         label: a.concept,
@@ -481,7 +552,11 @@ function keyFold(findingKey: string): string {
  */
 export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null | undefined): Group1Row[] {
   const latest = new Map<string, ReviewDecision>();
-  for (const d of state?.decisions ?? []) latest.set(keyFold(d.finding_key), d);
+  for (const d of state?.decisions ?? []) {
+    // #702: a cross-document decision (`critic:` key) is never a group-1 row.
+    if (d.finding_key.startsWith("critic:")) continue;
+    latest.set(keyFold(d.finding_key), d);
+  }
 
   const listedFolds = new Set(items.map((it) => keyFold(it.findingKey ?? it.key)));
   const decided: Group1Row[] = [];
@@ -496,4 +571,51 @@ export function buildGroup1Rows(items: ReviewItem[], state: ReviewState | null |
     return { findingKey: key, label: it.label, status: "open", item: it, decision: latest.get(keyFold(key)) ?? null };
   });
   return [...decided, ...open];
+}
+
+/* ------------------------------------------------- #702 cross-document */
+
+/** One cross-document card/row: the item, and the decision recorded on it. */
+export interface CrossDocumentRow {
+  item: CrossDocumentItem;
+  /**
+   * The critic does not re-run after an edit, so a recorded decision LABELS the
+   * item decided (unlike group 1, where the live report decides — ADR-090 cl. 6
+   * amended 2026-10-07).
+   */
+  status: "open" | "kept" | "taken_out" | "edited";
+  decision: ReviewDecision | null;
+}
+
+export interface CrossDocumentSectionState {
+  /** ADR-081 cl. 9: the critic did not run → *unknown*, never an empty section. */
+  unknown: boolean;
+  rows: CrossDocumentRow[];
+  decided: number;
+}
+
+/**
+ * #702 — the cross-document section's rows: the backend's derived items in its
+ * order (high weight first), each with the latest `critic:` decision on it.
+ * An older backend response without `cross_document` yields no rows (its
+ * advisories stay in group 4, see `buildGroup4`).
+ */
+export function buildCrossDocument(
+  criticReport: OutcomeCriticReport,
+  state: ReviewState | null | undefined,
+): CrossDocumentSectionState {
+  if (!criticRan(criticReport)) return { unknown: true, rows: [], decided: 0 };
+  const latest = new Map<string, ReviewDecision>();
+  for (const d of state?.decisions ?? []) {
+    if (d.finding_key.startsWith("critic:")) latest.set(keyFold(d.finding_key), d);
+  }
+  const rows: CrossDocumentRow[] = (criticReport?.cross_document ?? []).map((item) => {
+    const decision = latest.get(keyFold(item.key)) ?? null;
+    const status =
+      decision && (decision.action === "kept" || decision.action === "taken_out" || decision.action === "edited")
+        ? decision.action
+        : "open";
+    return { item, status, decision };
+  });
+  return { unknown: false, rows, decided: rows.filter((r) => r.status !== "open").length };
 }

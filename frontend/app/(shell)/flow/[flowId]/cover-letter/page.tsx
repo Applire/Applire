@@ -616,6 +616,7 @@ export default function CoverLetterPage({
       onEditFinding={handleEditFinding}
       sectionLabel={() => t("bodySection")}
       gapAnalysisHref={`/flow/${flowId}/gaps`}
+      cvEditHref={`/flow/${flowId}/cv?tab=edit`}
     >
       {/* Not one of ADR-081's four producers — rendered after the groups so it
           can never be mistaken for one of them. */}

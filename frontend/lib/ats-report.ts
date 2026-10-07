@@ -46,6 +46,21 @@ export type ATSCheck = {
   // E056/ADR-077 clause 5: structured driver for a fail band — currently only
   // {"pinned_facts": N} on the page-length check (N present pinned facts).
   driver?: Record<string, number> | null;
+  // #703 (ADR-076 amended 2026-10-07): structured, locale-neutral signals —
+  // today only `repeated_demand` on the `terminal-review` check. Absent/null on
+  // every report that predates it.
+  signals?: CheckSignal[] | null;
+};
+
+/** #703 — a job term the writing loop demanded in `rounds` of `total_rounds`. */
+export type CheckSignal = {
+  kind: "repeated_demand";
+  term: string;
+  rounds: number;
+  total_rounds: number;
+  in_document: boolean;
+  /** `open` = still not in the document; `landed` = it arrived late. */
+  weight: "open" | "landed";
 };
 
 // E056/ADR-077 clauses 3+5: one fact pin's measured fate on THIS document —

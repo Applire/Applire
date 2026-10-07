@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
     from applire.services.ledger_restore import PreseedPlan
-    from applire.services.terminal_review_outcome import TerminalReviewOutcome
+    from applire.services.terminal_review_outcome import DemandRecord, TerminalReviewOutcome
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
@@ -942,6 +942,14 @@ async def _review_cv_language(
     )
 
 logger = logging.getLogger(__name__)
+
+
+def _critic_report_for_door(raw):
+    """#702 — see ``outcome_critic.critic_report_for_door`` (local import: the
+    critic module imports the provider layer)."""
+    from applire.services.outcome_critic import critic_report_for_door
+
+    return critic_report_for_door(raw)
 
 
 def _project_bullets(source_project: dict) -> list[str]:
@@ -3091,7 +3099,7 @@ async def get_cv_status(
         origin=record.origin,
         # ADR-060 clause 6: the Pass A verdict is data on the status surface,
         # both doors (REST poller and MCP get_cv_status serialize this model).
-        critic_report=record.critic_report,
+        critic_report=_critic_report_for_door(record.critic_report),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=record.document_language,
         # F-4b: the stored per-document override (None/True/False) and the
@@ -3996,8 +4004,19 @@ async def _render_cv_background(
 
                 if pinned_facts_loop_block:
                     source_material = f"{source_material}\n\n{pinned_facts_loop_block}"
+                # #703 (ADR-076 amended 2026-10-07): one record per delivery of what
+                # each reviewer round's VERIFIED COVERAGE block demanded — this
+                # tailoring loop and the terminal review below. A REPORT only; it
+                # never reaches a prompt (ADR-021 cl. 6). Read once, at the audit.
+                from applire.services.terminal_review_outcome import (
+                    DemandRecord,
+                    with_repeated_demands,
+                )
+
+                cv_demand_record = DemandRecord()
                 reviewer_fn = coverage_reviewer_prompt_fn(
-                    _build_cv_review_prompt, keyword_ledger, budget=coverage_budget
+                    _build_cv_review_prompt, keyword_ledger, budget=coverage_budget,
+                    on_demand=cv_demand_record.record_round,
                 )
                 if cv_pins:
                     reviewer_fn = pinned_facts_reviewer_prompt_fn(
@@ -4178,6 +4197,7 @@ async def _render_cv_background(
                         coverage_budget=coverage_budget,
                         measured=measured,
                         preseed=preseed_plan,
+                        demand_record=cv_demand_record,
                     )
                     prose_draft, measured = tr.prose_draft, tr.measured
                     terminal_rounds = tr.rounds
@@ -4194,7 +4214,11 @@ async def _render_cv_background(
                 while True:
                     await _update_ats_report(
                         record, db, measured=measured, commit=False,
-                        terminal_review=terminal_outcome,
+                        # #703: the delivery's repeated demands, measured against
+                        # the composed CV this audit reads.
+                        terminal_review=with_repeated_demands(
+                            terminal_outcome, cv_demand_record, record.tailored_data
+                        ),
                     )
                     delivered_hash = _subject_hash(record.tailored_data)
                     match = delivered_hash == verdict_hash
@@ -4864,6 +4888,7 @@ async def _terminal_review(
     coverage_budget,
     measured: MeasuredRender | None,
     preseed: "PreseedPlan | None" = None,
+    demand_record: "DemandRecord | None" = None,
 ) -> TerminalReviewResult:
     """ADR-076 clause 3 (#538): the TERMINAL review — the verdict that closes
     over the COMPOSED document (the delivered artifact), with the real render
@@ -4999,6 +5024,9 @@ async def _terminal_review(
                 + _group_claimable_forms(list(entries))
             )
         )
+        # #703: the same round's demand, into the delivery's record (report only).
+        if demand_record is not None:
+            demand_record.record_round(entries)
 
     _coverage_fn = coverage_reviewer_prompt_fn(
         _terminal_base, keyword_ledger, budget=coverage_budget,

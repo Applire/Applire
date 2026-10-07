@@ -35,7 +35,7 @@ the only way to alter that would be to change the schema, never a call site.
 import uuid
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class CriticAdvisory(BaseModel):
@@ -78,6 +78,36 @@ class CriticAdvisory(BaseModel):
     message: dict[str, str] = Field(default_factory=dict)  # {"de": ..., "en": ...}
 
 
+class CrossDocumentItem(BaseModel):
+    """#702 (ADR-060 amended 2026-10-07) — ONE letter sentence the CV does not
+    back, with every critic advisory that quotes it.
+
+    DERIVED, never judged: built deterministically from the persisted
+    ``advisories`` by ``services.outcome_critic.group_cross_document``. On the
+    2026-09-13 delivery run the critic filed three benign ``letter_only``
+    advisories (Kosmetik-Verpackungen / Sauberraumbereich seit 2021 /
+    ISO-9001-Audit-Praxis) that quote one and the same sentence — the sentence
+    both blind panelists named as their strongest concern. One problem, one item.
+
+    ``weight`` is a FACT about the quoted sentence: ``high`` when a
+    ``letter_only`` advisory's sentence states a figure, year or duration
+    (``figures``) — a fact the CV never mentions, made specific; ``normal``
+    otherwise.
+    ``key`` is the review-state key of the decision on this item
+    (``critic:<_norm_quote(letter_state)>``).
+    """
+
+    key: str
+    letter_state: str
+    concepts: list[str] = Field(default_factory=list)
+    #: The subset of ``concepts`` the CV never mentions (kind ``letter_only``) —
+    #: what the card counts and marks; the rest are ``letter_richer``.
+    letter_only: list[str] = Field(default_factory=list)
+    kinds: list[str] = Field(default_factory=list)
+    weight: Literal["high", "normal"] = "normal"
+    figures: list[str] = Field(default_factory=list)
+
+
 class OutcomeCriticReport(BaseModel):
     """Persisted on ``GeneratedCV.critic_report`` (Pass A) and
     ``GeneratedCoverLetter.critic_report`` (Pass B).
@@ -108,6 +138,17 @@ class OutcomeCriticReport(BaseModel):
     mount: Optional[str] = None
     advisories: list[CriticAdvisory] = Field(default_factory=list)
     dropped_citations: int = 0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cross_document(self) -> list[CrossDocumentItem]:
+        """#702 — the cross-document advisories grouped per letter sentence and
+        weighted. Computed on EVERY read (never trusted from the stored blob), so
+        a report persisted before this field existed carries it on every door,
+        and the stored copy can never drift from the advisories it derives from."""
+        from applire.services.outcome_critic import group_cross_document
+
+        return group_cross_document(self.advisories)
 
 
 class OutcomeCriticReportResponse(BaseModel):

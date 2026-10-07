@@ -32,7 +32,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "d
 
 export type ReviewDocumentKind = "cv" | "cover-letter";
 
-export type ReviewAction = "added" | "taken_out" | "edited";
+// #702: `kept` — *So lassen* on a cross-document item (`critic:` key).
+export type ReviewAction = "added" | "taken_out" | "edited" | "kept";
 
 /** ADR-090 cl. 6 — one decision on one finding of THIS generated document. */
 export interface ReviewDecision {
@@ -134,6 +135,11 @@ export function undoDecision(kind: ReviewDocumentKind, id: string, findingKey: s
 /** After a section save that was opened from a finding (ADR-090 cl. 5). */
 export function markEdited(kind: ReviewDocumentKind, id: string, findingKey: string) {
   return post<ReviewRefresh>(kind, id, "edited", { finding_key: findingKey });
+}
+
+/** #702 (RULING R-2): record (`keep`) or withdraw the `kept` decision on a cross-document item. */
+export function keepCrossDocument(kind: ReviewDocumentKind, id: string, findingKey: string, keep = true) {
+  return post<{ review_state: ReviewState | null }>(kind, id, "kept", { finding_key: findingKey, keep });
 }
 
 export function markWalked(kind: ReviewDocumentKind, id: string) {
