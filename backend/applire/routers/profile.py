@@ -55,6 +55,7 @@ from applire.schemas.profile import (
     ProfileChangesResponse,
     ProfileHealthResponse,
     ProfileImportResponse,
+    SeparateMatchRequest,
     StagedResolveRequest,
     StagedResolveResponse,
     UndoLastMergeResponse,
@@ -82,7 +83,9 @@ from applire.services.profile import (
     patch_profile_section,
     profile_exists,
     resolve_conflict,
+    MatchNotSeparable,
     resolve_staged_extraction,
+    separate_match,
     StagedExtractionAlreadyResolved,
     StagedExtractionNotFound,
     upload_cv,
@@ -409,6 +412,32 @@ async def undo_last_merge_endpoint(
         restored=result.restored,
         discarded_later_edits=result.discarded_later_edits,
     )
+
+
+@router.post(
+    "/matches/separate",
+    response_model=MasterProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def separate_match_endpoint(
+    body: SeparateMatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> MasterProfileResponse:
+    """#717 — "Nicht dasselbe": undo one recognised-as-already-present match
+    (ADR-063 amended 2026-10-07, ruling V-2 = A). Removes the alternate names
+    that match recorded and adds the incoming entry as its own entry, both in
+    one history record. 409 when the receipt is unknown, already undone, or a
+    language-name-table match (a fact, not undoable); 404 without a profile.
+    """
+    try:
+        return await separate_match(
+            db, entity_id=body.entity_id, incoming=body.incoming, user_id=_uid(current_user)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No profile found")
+    except MatchNotSeparable as exc:
+        raise HTTPException(status_code=409, detail=exc.code)
 
 
 @router.post(
