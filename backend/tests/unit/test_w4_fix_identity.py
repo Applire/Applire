@@ -239,6 +239,15 @@ ADMIN_ROUTES: dict[tuple[str, str], str] = {
     ("DELETE", "/api/admin/color-schemes/{scheme_id}"): "bearer",
     ("POST", "/api/settings/upgrade-notice/dismiss"): "bearer",
     ("GET", "/api/ops/health"): "bearer",                  # admin_or_probe (probe tokens by design)
+    # Strawberry build 2, Epic C (ADR-093 cl. 7): reads may use a bearer; a write
+    # that reroutes every user's documents or swaps the key needs a session.
+    ("GET", "/api/admin/settings"): "bearer",
+    ("PUT", "/api/admin/settings"): "session",
+    ("DELETE", "/api/admin/settings/{key}"): "session",
+    ("GET", "/api/admin/audit"): "bearer",
+    ("GET", "/api/admin/usage"): "bearer",
+    ("GET", "/api/admin/dashboard"): "bearer",
+    ("GET", "/api/admin/notices"): "bearer",
 }
 
 
