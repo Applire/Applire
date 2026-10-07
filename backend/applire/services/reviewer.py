@@ -207,7 +207,6 @@ from applire.providers.llm.debug_log import (
     set_review_call_meta,
 )
 from applire.services.terminal_review_outcome import (
-    reviewer_round_answered,
     reviewer_round_begins,
     reviewer_round_unanswered,
 )
@@ -775,7 +774,6 @@ async def review_and_refine(
                 reviewer_round_unanswered()
                 return _settle(current_draft, path="review_malformed")
 
-            reviewer_round_answered()
             approved = bool(review.get("approved", False))
             issues = normalize_issues(review.get("issues", []))
             blocking = [i for i in issues if i.is_blocking]
