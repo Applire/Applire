@@ -57,7 +57,21 @@ export type OutcomeCriticReport = {
   mount?: "cv" | "letter" | null;
   advisories: CriticAdvisory[];
   dropped_citations: number;
+  // #702 (ADR-060 amended 2026-10-07): derived server-side on every read —
+  // letter_only/letter_richer advisories that quote the same letter sentence,
+  // one weighted item each. Absent on a response from an older backend.
+  cross_document?: CrossDocumentItem[];
 } | null;
+
+/** #702 — one letter sentence the CV does not back (`key` = `critic:<fold>`). */
+export type CrossDocumentItem = {
+  key: string;
+  letter_state: string;
+  concepts: string[];
+  kinds: CriticAdvisoryKind[];
+  weight: "high" | "normal";
+  figures: string[];
+};
 
 // The advisory is an exception surface, not a permanent panel (ADR-060): a
 // report that didn't run, or ran and found nothing, renders NOTHING — no
