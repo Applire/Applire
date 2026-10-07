@@ -1280,7 +1280,9 @@ async def _render_cover_letter_body(
                     # path nobody would think to re-measure. The letter's REVIEWER seam
                     # (`grounding_source`, below) is the one that actually carried it.
                     from applire.services.prompt_view import prompt_profile_view
-                    cv_data = prompt_profile_view(exclude_unconfirmed(profile.profile_json or {}))
+                    cv_data = prompt_profile_view(
+                        exclude_unconfirmed(profile.profile_json or {}), derived_spans="hedge"
+                    )
 
                 # Auto-extract recipient if not provided
                 pre_gen = dict(cl.pre_gen_inputs or {})
@@ -1728,7 +1730,9 @@ async def _render_cover_letter_body(
                         # and the corrector unchanged every round (§5.3.23), so every char
                         # of the audit trail was paid for on each of them.
                         "profile": (
-                            prompt_profile_view(exclude_unconfirmed(profile.profile_json))
+                            prompt_profile_view(
+                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge"
+                            )
                             if profile is not None
                             else {}
                         ),
