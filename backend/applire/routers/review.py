@@ -49,6 +49,12 @@ class FindingKeyBody(BaseModel):
     finding_key: str = Field(..., min_length=3, max_length=2000)
 
 
+class KeepBody(FindingKeyBody):
+    """#702 — *So lassen*: ``keep=false`` withdraws the decision."""
+
+    keep: bool = True
+
+
 class AddEvidenceBody(FindingKeyBody):
     text: str = Field(..., min_length=1, max_length=20_000)
 
@@ -171,6 +177,23 @@ def _mount(prefix: str, kind: Kind) -> None:
         await _run(ra.edited(kind, doc_id, body.finding_key, db, user_id=_auth.id))
         return ReviewReportResponse(**await _reports(kind, doc_id, db, _auth.id))
 
+    async def kept(
+        doc_id: uuid.UUID,
+        body: KeepBody,
+        db: AsyncSession = Depends(get_db),
+        _auth: User = Depends(require_user),
+    ) -> ReviewStateResponse:
+        """#702 (ADR-060 amended 2026-10-07) — record or withdraw the `kept`
+        decision on a cross-document item (`critic:` key). Nothing in the
+        document changes, so there is no re-audit."""
+        from applire.services import review_signals
+        from applire.services.review_state import load_state
+
+        out = await _run(
+            review_signals.keep(kind, doc_id, body.finding_key, db, keep=body.keep, user_id=_auth.id)
+        )
+        return ReviewStateResponse(review_state=load_state(out.record.review_state))
+
     async def walked(
         doc_id: uuid.UUID,
         db: AsyncSession = Depends(get_db),
@@ -189,6 +212,7 @@ def _mount(prefix: str, kind: Kind) -> None:
         ("undo", undo, ReviewReportResponse),
         ("edited", edited, ReviewReportResponse),
         ("walked", walked, ReviewStateResponse),
+        ("kept", kept, ReviewStateResponse),
     ):
         fn.__name__ = f"review_{name.replace('-', '_')}_{tag.replace('-', '_')}"
         router.add_api_route(

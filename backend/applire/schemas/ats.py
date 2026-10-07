@@ -21,6 +21,21 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class CheckSignal(BaseModel):
+    """#703 (ADR-076 amended 2026-10-07) — one structured, locale-neutral signal a
+    check carries beside its EN ``details``. Today only ``repeated_demand`` on the
+    ``terminal-review`` check: a job term the writing loop demanded in ``rounds`` of
+    ``total_rounds`` reviewer rounds; ``in_document`` / ``weight`` (``open`` |
+    ``landed``) say whether the delivered document now carries it."""
+
+    kind: Literal["repeated_demand"]
+    term: str
+    rounds: int
+    total_rounds: int
+    in_document: bool
+    weight: Literal["open", "landed"]
+
+
 class ATSCheck(BaseModel):
     id: str                      # stable machine id, e.g. "contact-name", "work-2", "reading-order"
     # E057/ADR-079 clause 4: a THIRD status, `not_applicable`, for a check that
@@ -50,6 +65,9 @@ class ATSCheck(BaseModel):
     # and {"concepts": N} on `narrative-evidence` (ADR-039 amended 2026-09-04).
     # Read the key, never assume the single one.
     driver: Optional[dict[str, int]] = None
+    # #703: structured signals (see CheckSignal). None on every check that has none —
+    # every pre-#703 report shape is unchanged.
+    signals: Optional[list[CheckSignal]] = None
 
 
 class KeywordMatch(BaseModel):
