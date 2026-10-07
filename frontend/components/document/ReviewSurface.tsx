@@ -63,6 +63,7 @@ import {
 } from "@/lib/api/document-review";
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
 import { changedPassages } from "@/lib/passage-diff";
+import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
 
 /**
  * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
@@ -102,7 +103,7 @@ const PRODUCER_LABEL_KEY: Record<ReviewProducer, string> = {
   clusters: "producerClusters",
 };
 
-const KIND_LABEL_KEY: Record<ReviewItem["kind"], string> = {
+const KIND_LABEL_KEY: Record<Exclude<ReviewItem["kind"], "signal">, string> = {
   term: "kindTerm",
   cluster: "kindCluster",
   claim: "kindClaim",
@@ -159,6 +160,11 @@ export interface ReviewSurfaceProps {
   /** ADR-090 cl. 6 — the persisted per-document decisions. `null` = none. */
   reviewState?: ReviewState | null;
   /**
+   * #702 (RULING R-2): where *In den Lebenslauf übernehmen* on a cross-document
+   * card goes — the CV's Edit tab. Absent → that action is not offered.
+   */
+  cvEditHref?: string | null;
+  /**
    * A review action answered with refreshed reports and state (the server
    * awaited the re-audit). `documentChanged` = the document text changed (take
    * out / undo), so the page reloads the preview.
@@ -211,6 +217,7 @@ export function ReviewSurface({
   gapClusters,
   hasClusterProducer = true,
   reviewState = null,
+  cvEditHref = null,
   onRefresh,
   locator = null,
   previewVersion = 0,
@@ -970,7 +977,8 @@ export function ReviewSurface({
                           : "bg-surface-container text-on-surface-variant"
                       }`}
                     >
-                      {t(STATUS_KEY[r.status])}
+                      {/* `kept` belongs to cross-document items only; buildGroup1Rows never yields it. */}
+                      {t(STATUS_KEY[r.status as keyof typeof STATUS_KEY])}
                     </span>
                   )}
                   {r.status === "open" && !isCurrent && (
@@ -983,6 +991,18 @@ export function ReviewSurface({
         </ul>
       )}
 
+      {/* #702 (ADR-060 amended 2026-10-07): the cross-document section sits
+          between group 1 and the other findings — it is not "nothing that
+          stands in the way of sending" (RULING R-1 pending: placement A). */}
+      <CrossDocumentSection
+        documentKind={documentKind}
+        documentId={documentId}
+        criticReport={criticReport}
+        reviewState={reviewState}
+        cvEditHref={cvEditHref}
+        onRefresh={onRefresh}
+      />
+
       <OtherFindings
         groups={groups}
         gapAnalysisHref={gapAnalysisHref}
@@ -991,6 +1011,7 @@ export function ReviewSurface({
             key={item.key}
             item={item}
             group={group}
+            documentKind={documentKind}
             locale={locale}
             t={t}
             tAts={tAts}
@@ -1156,6 +1177,7 @@ function OtherFindings({
 function ItemRow({
   item,
   group,
+  documentKind,
   locale,
   t,
   tAts,
@@ -1164,24 +1186,49 @@ function ItemRow({
 }: {
   item: ReviewItem;
   group: ReviewGroup;
+  documentKind: ReviewDocumentKind;
   locale: string;
   t: ReturnType<typeof useTranslations<"documentReview">>;
   tAts: ReturnType<typeof useTranslations<"ats">>;
   onResolveCluster?: (gapId: string) => void;
   onEditGapSection?: (gapId: string) => void;
 }) {
+  const tSig = useTranslations("reviewSignals");
   const detail = itemDetail(item, locale, tAts);
+  const doc = documentKind === "cv" ? "cv" : "letter";
   const label = item.kind === "check" && item.checkId ? tAts(`checks.${baseId(item.checkId)}`) : item.label;
 
   const body = (
     <>
       <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[item.severity]}`} />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm text-on-surface">{label}</span>
+        <span className="flex flex-wrap items-center gap-1.5 text-sm text-on-surface">
+          {label}
+          {item.signal && (
+            <span
+              data-testid="review-item-signal-tag"
+              data-weight={item.signal.weight}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                item.signal.weight === "open"
+                  ? "border border-warning bg-warning-container text-gold-dim"
+                  : "bg-surface-container-high text-primary"
+              }`}
+            >
+              {tSig("signalTag", { count: item.signal.rounds })}
+            </span>
+          )}
+        </span>
+        {item.signal && (
+          <span data-testid="review-item-signal-note" className="block text-xs text-on-surface-variant">
+            {item.signal.weight === "open"
+              ? tSig("signalOpen", { count: item.signal.rounds, doc })
+              : tSig("signalLanded", { count: item.signal.rounds, doc })}
+          </span>
+        )}
         {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
         <span className="mt-0.5 flex flex-wrap items-center gap-1">
           <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant">
-            {t(KIND_LABEL_KEY[item.kind])}
+            {item.kind === "signal" ? tSig("kindSignal") : t(KIND_LABEL_KEY[item.kind])}
           </span>
           {item.producers.map((p) => (
             <span
