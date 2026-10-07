@@ -719,7 +719,7 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.42.0-beta)
+### ✅ Aktuelle Version (v0.42.1-beta)
 
 - [x] Ein selbst hostender Betreiber sieht, ob die Instanz gesund ist und was sie kostet: `GET /api/ops/health` bündelt Datenbank-, Migrations-, Retention-, Speicherplatz-, Backup- und LLM-Provider-Prüfungen zu einem Urteil, und `scripts/backup.sh` / `restore.sh` skripten und dokumentieren Backup, Verifikation und Restore
 - [x] Jede vom Backend gelesene Umgebungsvariable ist einmal in einer Settings-Registry deklariert, `.env.example` wird daraus generiert, und ein Upgrade-Hinweis auf `GET /health` und im Dashboard nennt Einstellungen, die ein Release eingeführt hat und die deine `.env` nicht setzt

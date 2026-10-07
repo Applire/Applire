@@ -703,7 +703,7 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.42.0-beta)
+### ✅ Current Release (v0.42.1-beta)
 
 - [x] A self-hosting operator can see whether the instance is healthy and what it costs: `GET /api/ops/health` aggregates database, migration, retention, disk, backup and LLM-provider probes behind one verdict, and `scripts/backup.sh` / `restore.sh` script and document backup, verification and restore
 - [x] Every environment variable the backend reads is declared once in a settings registry, `.env.example` is generated from it, and an upgrade notice on `GET /health` and the dashboard names settings a release introduced that your `.env` does not set

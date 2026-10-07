@@ -55,6 +55,19 @@ Applire Community now has **built-in accounts**: several people can share one in
 
 New and re-meant environment variables: `AUTH_PROVIDER` (meaning changed), `COOKIE_SECURE`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_BUTTON_LABEL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_SECURITY`, `AUDIT_LOG_RETENTION_DAYS`, `APPLIRE_TRUSTED_PROXY`. All are optional; the defaults are in `.env.example`.
 
+## [0.42.1-beta] – 2026-10-06
+
+Patch release on top of 0.42.0-beta. Recommended for every installation.
+
+### Fixed
+- **The retention worker no longer aborts on Postgres (#749).** When an expired CV, cover letter or interview session was still referenced by an application flow, the calendar purge hit a foreign key, the whole `python -m applire.retention` run exited with an error and every later retention rule was skipped — so expired data stayed past its retention period, run after run. Each purge now releases the flow's reference to exactly the rows it deletes before deleting them.
+
+### Security
+- **Storage hardening.** The local storage provider now reads and deletes only files inside the configured upload directory; any other path is refused and logged. Profile photo and signature downloads answer 404 for a refused or missing file (a missing file used to answer 500). The profile photo is set only through the photo upload — an import, a section edit or an interview answer no longer changes it, including when no photo is set yet.
+
+### Upgrade notes
+None — no environment variable or compose change. Pull the new images and restart.
+
 ## [0.42.0-beta] – 2026-10-01
 
 ### Added
