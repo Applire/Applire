@@ -81,12 +81,12 @@ export function RecognisedMatches({
               data-testid="recognised-match-row"
               className="flex flex-wrap items-center gap-2 border-t border-outline-variant py-2 text-[13px]"
             >
-              <span className="min-w-[96px] text-[11px] text-on-surface-variant">
+              <span className="basis-full text-[11px] text-on-surface-variant sm:basis-auto sm:min-w-[96px]">
                 {sectionLabel(item.section)}
               </span>
               <span
                 className={
-                  "flex min-w-[180px] flex-1 items-center gap-1 text-on-surface" +
+                  "flex min-w-0 basis-full flex-wrap items-center gap-x-1 break-words text-on-surface sm:basis-auto sm:flex-1" +
                   (state === "done" ? " line-through text-on-surface-variant" : "")
                 }
               >
