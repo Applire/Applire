@@ -275,3 +275,20 @@ def test_error_kinds_name_the_upstream_sentence(tmp_path):
     kinds = mm.llm_log_calls(tmp_path)["error_kinds"]
     assert any(k.startswith("BadRequestError: The compiled grammar is too large") for k in kinds), kinds
     assert "LLMTimeoutError: OpenRouter call timed out after 180s" in kinds
+
+
+def test_rescore_orders_shapes_numerically_and_keeps_the_runs_cost(tmp_path, monkeypatch):
+    good = [{"op": "add_bullets", "target": "w-nova", "responsibilities": ["NovaRNA systems"]}]
+    rows = [_turn("S10_restated_fact_nothing_new", 1, []), _turn("S1_all_present_en", 1, good)]
+    path = tmp_path / "arm.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    (tmp_path / "arm.summary.json").write_text(
+        json.dumps({"meta": {"model": "vendor/x"}, "cost": {"usd_from_tokens": 0.5}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LLM_PROVIDER", "")
+    out = tmp_path / "re.json"
+    assert mm.main(["--score", str(path), "--out", str(out)]) == 0
+    summary = json.loads(out.read_text(encoding="utf-8"))
+    assert list(summary["per_shape"]) == ["S1_all_present_en", "S10_restated_fact_nothing_new"]
+    assert summary["cost"] == {"usd_from_tokens": 0.5}

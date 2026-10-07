@@ -1190,6 +1190,13 @@ def markdown_table(paths: list[Path]) -> str:
     return "\n".join(lines)
 
 
+def _shape_order(shape: str) -> tuple[int, str]:
+    """S1 < S2 < … < S10 — numeric, not the string order that put S10 first."""
+    head = shape.split("_", 1)[0]
+    digits = head[1:]
+    return (int(digits) if digits.isdigit() else 10**6, shape)
+
+
 def _no_write_shapes(fixtures: Fixtures, shapes: list[str]) -> set[str]:
     return {shape for shape in shapes if not fixtures.expected_stations(shape)}
 
@@ -1246,7 +1253,7 @@ def score_file(fixtures: Fixtures, path: Path) -> tuple[list[dict[str, Any]], li
                 if raw.get("apply_error"):
                     record["apply_error"] = raw["apply_error"]
             records.append(record)
-    return records, sorted(shapes)
+    return records, sorted(shapes, key=_shape_order)
 
 
 class CallBudget:
@@ -1370,7 +1377,10 @@ def main(argv: list[str] | None = None) -> int:
         sibling = Path(args.score).with_suffix(".summary.json")
         meta: dict[str, Any] = {}
         if sibling.exists():
-            meta = dict(json.loads(sibling.read_text(encoding="utf-8")).get("meta") or {})
+            original = json.loads(sibling.read_text(encoding="utf-8"))
+            meta = dict(original.get("meta") or {})
+            if original.get("cost"):
+                summary["cost"] = original["cost"]
         meta.update({"scored_from": Path(args.score).name, "turns": len(records)})
         summary["meta"] = meta
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")

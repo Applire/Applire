@@ -1,25 +1,5 @@
 {
   "per_shape": {
-    "S10_restated_fact_nothing_new": {
-      "n": 10,
-      "valid": 10,
-      "transport_turns": 0,
-      "error_rate": 0.0,
-      "budget_exhausted": 0,
-      "zero_op_rate": 0.0,
-      "empty_batch_rate": 0.0,
-      "questions_only_rate": 0.0,
-      "malformed_op_rate": 0.0,
-      "wrong_slot_rate": 0.0,
-      "dispute_rate": 0.0,
-      "set_summary_rate": 0.0,
-      "apply_error_rate": 0.0,
-      "station_coverage_mean": null,
-      "skill_evidence_mean": 0.0,
-      "years_experience_rate": 0.0,
-      "latency_p50_s": 1.16,
-      "expects_no_write": true
-    },
     "S1_all_present_en": {
       "n": 10,
       "valid": 10,
@@ -171,6 +151,26 @@
       "skill_evidence_mean": 0.0,
       "years_experience_rate": 0.0,
       "latency_p50_s": 1.28
+    },
+    "S10_restated_fact_nothing_new": {
+      "n": 10,
+      "valid": 10,
+      "transport_turns": 0,
+      "error_rate": 0.0,
+      "budget_exhausted": 0,
+      "zero_op_rate": 0.0,
+      "empty_batch_rate": 0.0,
+      "questions_only_rate": 0.0,
+      "malformed_op_rate": 0.0,
+      "wrong_slot_rate": 0.0,
+      "dispute_rate": 0.0,
+      "set_summary_rate": 0.0,
+      "apply_error_rate": 0.0,
+      "station_coverage_mean": null,
+      "skill_evidence_mean": 0.0,
+      "years_experience_rate": 0.0,
+      "latency_p50_s": 1.16,
+      "expects_no_write": true
     }
   },
   "usage": {
@@ -192,6 +192,11 @@
       "wrong_slot": 0.1,
       "error": 0.1
     }
+  },
+  "cost": {
+    "usd_from_tokens": 0.055435,
+    "price_in": 0.05,
+    "price_out": 0.33
   },
   "meta": {
     "provider": "openrouter",
