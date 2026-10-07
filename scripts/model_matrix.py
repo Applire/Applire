@@ -290,8 +290,10 @@ def apply_prompt_overrides(
 
         engine._structured_output_schema = _overridden
     identity = prompt_identity(engine.RECONCILE_SYSTEM_PROMPT, engine._structured_output_schema())
-    identity["system_prompt_override"] = system_prompt_path
-    identity["schema_override"] = schema_path
+    # File NAMES only: summaries get committed as data, and a local absolute
+    # path does not belong in a public record (the hash identifies the content).
+    identity["system_prompt_override"] = Path(system_prompt_path).name if system_prompt_path else None
+    identity["schema_override"] = Path(schema_path).name if schema_path else None
     return identity, restore
 
 
@@ -1369,7 +1371,7 @@ def main(argv: list[str] | None = None) -> int:
         meta: dict[str, Any] = {}
         if sibling.exists():
             meta = dict(json.loads(sibling.read_text(encoding="utf-8")).get("meta") or {})
-        meta.update({"scored_from": args.score, "turns": len(records)})
+        meta.update({"scored_from": Path(args.score).name, "turns": len(records)})
         summary["meta"] = meta
         print_summary(summary, f"MODEL MATRIX (re-scored) — {args.score}")
         if args.out:

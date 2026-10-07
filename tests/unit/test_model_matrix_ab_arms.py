@@ -91,8 +91,8 @@ def test_an_override_reaches_the_engine_and_is_restored_after(tmp_path, monkeypa
     assert seen and seen[0].endswith("VARIANT-B MARKER\n")
     identity = summary["meta"]["prompt"]
     assert identity["system_prompt_sha256"] == mm._sha(variant.read_text(encoding="utf-8"))
-    assert identity["system_prompt_override"] == str(variant)
-    assert identity["schema_override"] == str(schema_file)
+    assert identity["system_prompt_override"] == "b.txt"  # a name, never a local path
+    assert identity["schema_override"] == "b.json"
     # … and nothing leaks into the next arm in the same process.
     assert engine.RECONCILE_SYSTEM_PROMPT == before_prompt
     assert engine._structured_output_schema is before_schema_fn
