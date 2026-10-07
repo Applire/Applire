@@ -77,6 +77,17 @@ test.describe('#737 — CV Edit tab', () => {
     await expect(panel(page).getByTestId('edit-receipt-cleared')).toHaveCount(0);
   });
 
+  test('a re-audit without a report never reads as "nothing open" (ADR-081 cl. 9)', async ({ page }) => {
+    await stubDocuments(page, 'de', { editedReportMissing: true });
+    await page.goto(CV);
+    await page.getByTestId('review-action-edit').click();
+    await panel(page).getByTestId('section-textarea').fill('- Leitete die Einführung eines Maschinendatensystems');
+    await panel(page).getByTestId('section-save').click();
+    await page.getByRole('button', { name: 'Nur für diesen Lebenslauf' }).click();
+    await expect(panel(page).getByTestId('edit-receipt-plain')).toBeVisible();
+    await expect(panel(page).getByTestId('edit-receipt-cleared')).toHaveCount(0);
+  });
+
   test('leaving Edit with a draft asks; stay keeps it, discard drops it', async ({ page }) => {
     await stubDocuments(page);
     await page.goto(CV);

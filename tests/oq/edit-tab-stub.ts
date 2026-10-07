@@ -124,7 +124,7 @@ export interface EditServer {
 export async function stubDocuments(
   page: Page,
   uiLanguage: 'de' | 'en' = 'de',
-  opts: { letterBodyEdited?: boolean } = {},
+  opts: { letterBodyEdited?: boolean; editedReportMissing?: boolean } = {},
 ): Promise<EditServer> {
   const server: EditServer = { patches: [], rewrites: [], generates: [], edited: [] };
   let sections = SECTIONS.map((s) => ({ ...s }));
@@ -166,6 +166,8 @@ export async function stubDocuments(
     server.edited.push(JSON.parse(r.request().postData() ?? '{}'));
     const stillThere = sections.some((s) => s.content.includes('MES-Einführung'));
     const report = stillThere ? ATS : { ...ATS, keywords: { ...ATS.keywords, present_unsupported: [], present_unsupported_matches: {} } };
+    // ADR-081 cl. 9 shape: the re-audit answered without a report (the producer did not run).
+    if (opts.editedReportMissing) return json(r, { report: { document_id: CV_ID, status: 'failed', report: null, review_state: {} }, review_state: {} });
     return json(r, { report: { document_id: CV_ID, status: 'ready', report, review_state: {} }, review_state: {} });
   });
   await page.route('**/api/cv/generate', async (r) => {

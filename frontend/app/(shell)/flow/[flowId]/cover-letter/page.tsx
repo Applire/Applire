@@ -488,18 +488,26 @@ export default function CoverLetterPage({
         .then((r) => {
           applyReviewRefresh(r, { documentChanged: false });
           // #737: read from the refreshed report through the review tab's own grouping.
+          const rep = refreshedReport(r);
           const g1 = buildReviewGroups({
-            atsReport: refreshedReport(r) ?? atsReport,
-            truthReport: r.truthfulness ?? truthReport,
+            // `undefined` = the action did not carry it (keep ours); `null` = no report.
+            atsReport: rep === undefined ? atsReport : rep,
+            truthReport: r.truthfulness === undefined ? truthReport : r.truthfulness,
             criticReport,
             gapClusters: [],
             hasClusterProducer: false,
-          }).find((g) => g.id === 1)!.items;
+          }).find((g) => g.id === 1)!;
+          // ADR-081 cl. 9: a group-1 producer that did not answer makes the
+          // count partial — never turn that into "nichts mehr offen".
+          if (g1.unknownProducers.length > 0) {
+            setSaveReceipt({ kind: "plain" });
+            return;
+          }
           setSaveReceipt({
             kind: "finding",
             label,
-            stillListed: g1.some((it) => it.findingKey === findingKey),
-            openCount: g1.length,
+            stillListed: g1.items.some((it) => it.findingKey === findingKey),
+            openCount: g1.items.length,
           });
         })
         .catch(() => setSaveReceipt({ kind: "plain" }));
