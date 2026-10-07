@@ -68,17 +68,71 @@ async def _last_retention_run(db: AsyncSession) -> RetentionRun | None:
 _RETENTION_ACTIONS = ("settings.changed", "settings.reset", "settings.env_observed")
 
 
-async def _retention_history(db: AsyncSession) -> tuple[datetime | None, uuid.UUID | None]:
-    """``(enabled_since, off_by_actor)`` from the audit log (CONTRACT-CHANGE MD2-6 (3)).
+async def _last_off_evidence(db: AsyncSession) -> datetime | None:
+    """The newest moment retention was demonstrably OFF in the WORKER: a
+    ``retention.skipped`` audit row or a run record with ``retention_enabled:
+    false`` (adv-admin ADM-1). The settings rows only show what the web process
+    observed; the worker reads its own environment at every run."""
+    skipped_row = (
+        await db.execute(
+            select(AuditEvent.at)
+            .where(AuditEvent.action == "retention.skipped")
+            .order_by(AuditEvent.at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    try:
+        skipped_run = (
+            await db.execute(
+                select(RetentionRun.run_at)
+                .where(RetentionRun.report["retention_enabled"].as_boolean().is_(False))
+                .order_by(RetentionRun.run_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    except Exception:
+        await db.rollback()
+        skipped_run = None
+    times = [_aware(t) for t in (skipped_row, skipped_run) if t is not None]
+    return max(times) if times else None
 
-    ``enabled_since``: the newest OFF→ON transition row of ``RETENTION_ENABLED``,
-    else the instance claim time. ``off_by_actor``: the actor of the newest panel
-    change that set it to false.
+
+async def _first_enabled_run_after(db: AsyncSession, after: datetime) -> datetime | None:
+    try:
+        runs = (
+            await db.execute(
+                select(RetentionRun.run_at, RetentionRun.report)
+                .where(RetentionRun.run_at > after)
+                .order_by(RetentionRun.run_at.asc())
+                .limit(50)
+            )
+        ).all()
+    except Exception:
+        await db.rollback()
+        return None
+    for run_at, report in runs:
+        if (report or {}).get("retention_enabled") is not False:
+            return _aware(run_at)
+    return None
+
+
+async def _retention_history(db: AsyncSession) -> tuple[datetime | None, uuid.UUID | None]:
+    """``(enabled_since, off_by_actor)`` (CONTRACT-CHANGE MD2-6 (3), adv-admin ADM-1).
+
+    ``enabled_since`` is the latest of: the newest OFF→ON transition row of
+    ``RETENTION_ENABLED``, the instance claim time, and the newest OFF EVIDENCE
+    (a skipped run). After a skipped run it is the first run after it that did
+    not skip, or else the skip itself — it never claims an ON period across a run
+    that skipped. ``off_by_actor``: the actor of the newest panel change that set
+    it to false.
     """
     rows = (
         await db.execute(
             select(AuditEvent)
             .where(AuditEvent.action.in_(_RETENTION_ACTIONS))
+            # ADM-1: filter on the KEY, so 500 provider switches cannot push the
+            # retention rows out of the window.
+            .where(AuditEvent.detail["key"].as_string() == "RETENTION_ENABLED")
             .order_by(AuditEvent.at.desc())
             .limit(500)
         )
@@ -107,7 +161,11 @@ async def _retention_history(db: AsyncSession) -> tuple[datetime | None, uuid.UU
             )
         ).scalar_one_or_none()
         since = claimed
-    return _aware(since), off_by
+    since = _aware(since)
+    off = await _last_off_evidence(db)
+    if off is not None and (since is None or off >= since):
+        since = await _first_enabled_run_after(db, off) or off
+    return since, off_by
 
 
 async def retention_block(db: AsyncSession) -> dict[str, Any]:
@@ -146,10 +204,12 @@ def ttl_days() -> dict[str, int]:
     }
 
 
-def _setting_notices() -> list[dict[str, str]]:
+def _setting_notices(*, last_run_skipped: bool | None = None) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     enabled, _source = instance_settings.retention_state()
-    if not enabled and not HAS_CLOUD:
+    # ADM-1: also when the web process reads ON but the WORKER's newest run
+    # skipped (its own environment, an unobserved flip): the run record is the truth.
+    if not HAS_CLOUD and (not enabled or last_run_skipped):
         out.append({"code": "retention_disabled", "severity": _WARNING})
     if settings.llm_debug_log:
         out.append({"code": "debug_log_on", "severity": _WARNING})
@@ -186,7 +246,9 @@ async def notices_cheap(db: AsyncSession) -> list[dict[str, str]]:
 
     summary = cached_summary()
     notices = _health_notice(summary["status"] if summary else None)
-    notices += _setting_notices()
+    run = await _last_retention_run(db)
+    skipped = (run.report or {}).get("retention_enabled") is False if run is not None else None
+    notices += _setting_notices(last_run_skipped=skipped)
     count, _items = await failed_jobs.collect(db)
     if count:
         notices.append({"code": "failed_jobs", "severity": _WARNING})
@@ -197,9 +259,15 @@ async def dashboard(db: AsyncSession) -> dict[str, Any]:
     from applire.services.ops.aggregate import collect
 
     with unscoped("ops-aggregate"):
-        report = await collect(db, with_usage=False)
+        # ADM-5: the page an admin opens to switch away from a slow provider
+        # never waits on that provider — last known result + its age.
+        report = await collect(db, with_usage=False, provider_inline=False)
     components = [
-        {"name": name, "status": str(c.get("status", "unknown"))}
+        {
+            "name": name,
+            "status": str(c.get("status", "unknown")),
+            "checked_at": (c.get("detail") or {}).get("checked_at"),
+        }
         for name, c in (report.get("components") or {}).items()
     ]
     family = (settings.llm_provider or "").strip().lower()
@@ -217,7 +285,10 @@ async def dashboard(db: AsyncSession) -> dict[str, Any]:
     }
     count, items = await failed_jobs.collect(db)
     emails = {u.id: u.email for u in await accounts.list_users(db)}
-    notices = _health_notice(health["status"]) + _setting_notices()
+    retention = await retention_block(db)
+    notices = _health_notice(health["status"]) + _setting_notices(
+        last_run_skipped=retention["last_run_skipped"]
+    )
     if count:
         notices.append({"code": "failed_jobs", "severity": _WARNING})
     return {
@@ -240,6 +311,6 @@ async def dashboard(db: AsyncSession) -> dict[str, Any]:
             ],
         },
         "upgrade_notice": _upgrade_notice(),
-        "retention": await retention_block(db),
+        "retention": retention,
         "notices": _order(notices),
     }
