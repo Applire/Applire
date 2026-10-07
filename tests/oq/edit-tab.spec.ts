@@ -246,6 +246,19 @@ test.describe('#737 — cover letter', () => {
 // Adversarial finding 11 — an unsaved draft holds back EVERY way off the page,
 // not only the tab strip: in-app links (shell, stepper, document switch), the
 // browser's back button, and a reload / tab close (beforeunload).
+/** Wait until some unload guard holds the draft (the page hook arms one render after the editor's). */
+async function unloadGuardArmed(page: import('@playwright/test').Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const e = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(e);
+        return e.defaultPrevented;
+      }),
+    )
+    .toBe(true);
+}
+
 test.describe('#737 adv-review 11 — leaving the page with a draft', () => {
   test('CV: an in-app link asks; stay keeps the draft, discard follows the link', async ({ page }) => {
     await stubDocuments(page);
@@ -330,6 +343,7 @@ test.describe('#737 adv-review 11 — leaving the page with a draft', () => {
     await page.goto(LETTER);
     await page.getByTestId('sidebar-tab-edit').click();
     await panel(page).getByTestId('cl-body-textarea').fill('Entwurf');
+    await unloadGuardArmed(page);
     const dialog = page.waitForEvent('dialog');
     await page.close({ runBeforeUnload: true });
     const d = await dialog;
@@ -343,6 +357,7 @@ test.describe('#737 adv-review 11 — leaving the page with a draft', () => {
     await page.getByTestId('sidebar-tab-edit').click();
     await panel(page).getByRole('button', { name: /Weberit/ }).click();
     await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    await unloadGuardArmed(page);
     const dialog = page.waitForEvent('dialog');
     await page.close({ runBeforeUnload: true });
     expect((await dialog).type()).toBe('beforeunload');
