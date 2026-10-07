@@ -2234,6 +2234,7 @@
     "labelFor": "{name} — also known as"
   },
   "reviewSignals": {
+    "verdictClearCrossReadUnknown": "Every statement in the document is covered by your profile. Whether the cover letter and the CV agree was not checked — read them side by side before you send.",
     "verdictClearCrossRead": "Every statement in the document is covered by your profile. {open, plural, one {Read next to your CV, though, one passage stands out — decide on it before you send.} other {Read next to your CV, though, # passages stand out — decide on them before you send.}}",
     "sectionTitle": "Cross-read: cover letter and CV",
     "sectionSub": "Someone who reads both documents side by side notices these first. {decided} of {total} decided.",

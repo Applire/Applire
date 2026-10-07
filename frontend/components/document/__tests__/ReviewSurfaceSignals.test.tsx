@@ -114,3 +114,26 @@ describe("#702 RULING R-1 = A — the verdict never contradicts an open card", (
     expect(verdict).toHaveTextContent("Jede Aussage im Dokument ist durch Dein Profil gedeckt.");
   });
 });
+
+describe("adv-review finding 10 — a critic that did not answer leaves the cross-read undecided", () => {
+  const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
+  const errored: OutcomeCriticReport = {
+    ran: true, reason: "judgement_error", mount: "letter", dropped_citations: 0, advisories: [], cross_document: [],
+  };
+
+  it("states not-checked and never calls the rest harmless on the letter (DE)", () => {
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: errored })} />, "de"));
+    expect(screen.getByTestId("review-xdoc-unknown")).toBeInTheDocument();
+    const verdict = screen.getByTestId("review-verdict");
+    expect(verdict).toHaveTextContent("Ob Anschreiben und Lebenslauf zusammenpassen, wurde nicht geprüft");
+    expect(verdict).not.toHaveTextContent("nicht im Weg");
+  });
+
+  it("a critic that ran and found nothing keeps the plain all-clear", () => {
+    const quiet: OutcomeCriticReport = { ...errored, reason: null };
+    render(withIntl(<ReviewSurface {...props({ atsReport: clean(), criticReport: quiet })} />, "de"));
+    expect(screen.queryByTestId("review-xdoc-unknown")).toBeNull();
+    expect(screen.getByTestId("review-verdict")).toHaveTextContent("Jede Aussage im Dokument ist durch Dein Profil gedeckt.");
+    expect(screen.getByTestId("review-verdict")).not.toHaveTextContent("zusammenpassen");
+  });
+});
