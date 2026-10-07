@@ -112,3 +112,33 @@ test.describe("Administration — not an admin", () => {
     await expect(page).toHaveURL(/\/dashboard/);
   });
 });
+
+test.describe("Dashboard — instance signal (#694)", () => {
+  test("an admin sees one line with the notice count that opens the overview", async ({ page }) => {
+    await stubEpicC(page, { notices: [{ code: "health_degraded", severity: "warning" }, { code: "failed_jobs", severity: "warning" }] });
+    await page.goto("/dashboard");
+    await expect(page.getByTestId("instance-signal")).toHaveAttribute("data-critical", "false");
+    await expect(page.getByTestId("instance-signal")).toContainText("2");
+    await page.getByTestId("instance-signal-link").click();
+    await expect(page).toHaveURL(/\/admin\/overview$/);
+  });
+
+  test("nothing to say → no line", async ({ page }) => {
+    await stubEpicC(page, { notices: [] });
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+    await expect(page.getByTestId("instance-signal")).toHaveCount(0);
+  });
+});
+
+test.describe("Dashboard — instance signal, not an admin", () => {
+  test.use({ authUser: REGULAR_USER });
+
+  test("a non-admin never asks for notices", async ({ page }) => {
+    const log = await stubEpicC(page, { notices: [{ code: "health_down", severity: "critical" }] });
+    await page.goto("/dashboard");
+    await page.waitForTimeout(1500);
+    await expect(page.getByTestId("instance-signal")).toHaveCount(0);
+    expect(log.some((r) => r.url === "/api/admin/notices")).toBe(false);
+  });
+});
