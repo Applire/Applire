@@ -129,8 +129,14 @@ function RetentionCard({
         ["ttlUploads", ttl.uploads],
         ["ttlInterviews", ttl.interview_sessions],
         ["ttlDocuments", ttl.generated_documents],
-        ["ttlCancelled", ttl.cancelled_applications],
         ["ttlProfiles", ttl.profile_inactivity],
+      ]
+    : [];
+  // Ruling C1-3: these keep running whatever the switch says, so they are
+  // listed apart from it (E2E finding E2E-2).
+  const alwaysItems: [string, number][] = ttl
+    ? [
+        ["ttlCancelled", ttl.cancelled_applications],
         ["ttlAudit", ttl.audit_log],
       ]
     : [];
@@ -163,7 +169,7 @@ function RetentionCard({
               </ul>
             </>
           ) : null}
-          <p className="text-[12px] text-on-surface-variant">{t("ttlEnvNote")}</p>
+
           {skippedAt && (
             <p
               data-testid="admin-settings-retention-last-run-skipped"
@@ -201,6 +207,19 @@ function RetentionCard({
           )}
         </div>
       )}
+
+      <div data-testid="admin-settings-retention-always" className="mt-3">
+        <p className="text-[13.5px]">{t("retentionAlwaysIntro")}</p>
+        <ul className="my-1.5 list-disc pl-5 text-[13px] leading-7 text-on-surface">
+          {alwaysItems
+            .filter(([, d]) => d > 0)
+            .map(([k, d]) => (
+              <li key={k}>{t(k, { days: d })}</li>
+            ))}
+          <li>{t("alwaysAuthLinks")}</li>
+        </ul>
+        <p className="text-[12px] text-on-surface-variant">{t("ttlEnvNote")}</p>
+      </div>
       {s.item.source === "panel" && (
         <div className="mt-2">
           <ResetLink onClick={() => void s.reset()} busy={s.busy} testId="admin-settings-retention-reset" />

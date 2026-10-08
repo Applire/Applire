@@ -2046,7 +2046,7 @@
     "configLink": "Einstellungen ändern",
     "activityTitle": "Zuletzt im Protokoll",
     "activityLink": "Ganzes Protokoll",
-    "retentionOffBanner": "Automatisches Löschen ist aus. Auf dieser Instanz haben {count, plural, one {# weitere Person} other {# weitere Personen}} ein Konto — ihre Daten bleiben, bis du oder sie selbst sie löschen."
+    "retentionOffBanner": "Automatisches Löschen ist aus. {count, plural, one {Auf dieser Instanz hat # weitere Person ein Konto} other {Auf dieser Instanz haben # weitere Personen ein Konto}} — ihre Daten bleiben, bis du oder sie selbst sie löschen."
   },
   "adminSettings": {
     "intro": "Was hier gilt, gilt für alle Personen dieser Instanz und für ihre Agenten.",
@@ -2107,22 +2107,24 @@
     "ttlProfiles": "Profile nach {days} Tagen ohne Anmeldung",
     "ttlAudit": "Protokolleinträge nach {days} Tagen",
     "ttlEnvNote": "Die Fristen stehen in der .env (docs/SELF-HOSTING.md, Abschnitt Aufbewahrung).",
-    "retentionOffIntro": "Applire löscht nichts mehr von selbst. Das bleibt trotzdem:",
+    "retentionOffIntro": "Applire löscht keine alten Daten mehr nach Frist. Das bleibt trotzdem:",
     "keepsSelfDelete": "Jede Person kann ihr Konto und ihre Daten jederzeit selbst löschen.",
     "keepsAdminDelete": "Du kannst Konten löschen.",
     "keepsLog": "Das Protokoll hält fest, wann das Löschen aus- und wieder eingeschaltet wurde.",
     "retentionLastRunSkipped": "Der letzte Löschlauf am {date} hat die Fristen übersprungen: Für ihn war automatisches Löschen aus.",
     "retentionProofOn": "Durchgehend eingeschaltet seit {date}.",
     "retentionProofOff": "Ausgeschaltet seit {date} von {email}.",
-    "retentionOthers": "Auf dieser Instanz haben {count, plural, one {# weitere Person} other {# weitere Personen}} ein Konto. Für ihre Daten bist du verantwortlich (DSGVO) — ohne automatisches Löschen hältst du die Fristen selbst ein.",
+    "retentionOthers": "{count, plural, one {Auf dieser Instanz hat # weitere Person ein Konto.} other {Auf dieser Instanz haben # weitere Personen ein Konto.}} Für ihre Daten bist du verantwortlich (DSGVO) — ohne automatisches Löschen hältst du die Fristen selbst ein.",
     "retentionOffTitle": "Automatisches Löschen ausschalten?",
-    "retentionOffBody": "Ab heute Nacht löscht Applire nichts mehr von selbst. Das Ausschalten steht im Protokoll und ist für alle Admins sichtbar.",
+    "retentionOffBody": "Ab heute Nacht löscht Applire keine alten Daten mehr nach Frist. Abgebrochene Bewerbungen, abgelaufene Anmelde-Links und alte Protokolleinträge werden weiter gelöscht. Das Ausschalten steht im Protokoll und ist für alle Admins sichtbar.",
     "retentionOffConfirm": "Ausschalten",
     "providerNoKey": "{provider} — kein Schlüssel",
     "errorSecretUnavailable": "Der Schlüssel konnte nicht sicher gespeichert werden — das Instanz-Geheimnis fehlt. Es wurde nichts geändert.",
     "errorInvalidValue": "Dieser Wert wird nicht angenommen: {key}",
     "errorGeneric": "Das hat nicht geklappt. Es wurde nichts geändert.",
-    "dependencyGeneric": "Abhängigkeit {code}"
+    "dependencyGeneric": "Abhängigkeit {code}",
+    "retentionAlwaysIntro": "Unabhängig von diesem Schalter löscht Applire weiter:",
+    "alwaysAuthLinks": "Abgelaufene Anmelde-Links und Sitzungen"
   },
   "adminAudit": {
     "intro": "Wer wann was an Konten, Tokens und Einstellungen geändert hat. Einträge lassen sich nicht ändern.",

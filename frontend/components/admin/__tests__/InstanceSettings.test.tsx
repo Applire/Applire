@@ -224,3 +224,38 @@ describe("Einstellungen → Automatisches Löschen: a skipped worker run (adv-ad
     expect(screen.queryByTestId("admin-settings-retention-last-run-skipped")).toBeNull();
   });
 });
+
+describe("Einstellungen → Automatisches Löschen: what the switch governs (E2E-2, ruling C1-3)", () => {
+  const TTL = { uploads: 7, interview_sessions: 30, generated_documents: 90, cancelled_applications: 7, profile_inactivity: 730, audit_log: 730 };
+  function routeTtl(retention: boolean) {
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/api/admin/dashboard") return res(200, { ...DASH, retention: { ...DASH.retention, enabled: retention, ttl_days: TTL } });
+      if (url === "/api/admin/settings" && method === "GET") return res(200, settings({ retention }));
+      return res(404, {});
+    });
+  }
+  const cancelled = T.ttlCancelled.replace("{days}", "7");
+  const audit = T.ttlAudit.replace("{days}", "730");
+
+  it("lists the rules C1-3 never suspends apart from the switch, in both states", async () => {
+    for (const on of [true, false]) {
+      routeTtl(on);
+      render(withIntl(<InstanceSettings />));
+      const always = await screen.findByTestId("admin-settings-retention-always");
+      expect(always).toHaveTextContent(cancelled);
+      expect(always).toHaveTextContent(audit);
+      expect(always).toHaveTextContent(T.alwaysAuthLinks);
+      const state = screen.getByTestId(on ? "admin-settings-retention-on" : "admin-settings-retention-off");
+      expect(state).not.toHaveTextContent(cancelled);
+      expect(state).not.toHaveTextContent(audit);
+      cleanup();
+    }
+  });
+
+  it("the OFF copy never claims nothing is deleted", () => {
+    expect(T.retentionOffIntro).not.toMatch(/no longer deletes anything/);
+    expect(T.retentionOffBody).not.toMatch(/no longer deletes anything/);
+  });
+});
+

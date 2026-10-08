@@ -2107,7 +2107,7 @@
     "ttlProfiles": "Profiles after {days} days without a sign-in",
     "ttlAudit": "Activity-log entries after {days} days",
     "ttlEnvNote": "The periods are set in the .env (docs/SELF-HOSTING.md, section Retention).",
-    "retentionOffIntro": "Applire no longer deletes anything on its own. This still works:",
+    "retentionOffIntro": "Applire no longer deletes old data by its periods. This still works:",
     "keepsSelfDelete": "Everyone can delete their own account and data at any time.",
     "keepsAdminDelete": "You can delete accounts.",
     "keepsLog": "The activity log records when deletion was switched off and on again.",
@@ -2116,13 +2116,15 @@
     "retentionProofOff": "Switched off since {date} by {email}.",
     "retentionOthers": "{count, plural, one {# other person has} other {# other people have}} an account on this instance. You are responsible for their data (GDPR) — without automatic deletion you keep the periods yourself.",
     "retentionOffTitle": "Switch off automatic deletion?",
-    "retentionOffBody": "From tonight Applire no longer deletes anything on its own. Switching it off is recorded in the activity log and visible to every admin.",
+    "retentionOffBody": "From tonight Applire no longer deletes old data by its periods. Cancelled applications, expired sign-in links and old activity-log entries are still deleted. Switching it off is recorded in the activity log and visible to every admin.",
     "retentionOffConfirm": "Switch off",
     "providerNoKey": "{provider} — no key",
     "errorSecretUnavailable": "The key could not be stored securely — the instance secret is missing. Nothing was changed.",
     "errorInvalidValue": "This value is not accepted: {key}",
     "errorGeneric": "That did not work. Nothing was changed.",
-    "dependencyGeneric": "Dependency {code}"
+    "dependencyGeneric": "Dependency {code}",
+    "retentionAlwaysIntro": "Whatever this switch says, Applire still deletes:",
+    "alwaysAuthLinks": "Expired sign-in links and sessions"
   },
   "adminAudit": {
     "intro": "Who changed what about accounts, tokens and settings, and when. Entries cannot be changed.",
