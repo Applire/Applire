@@ -715,6 +715,24 @@ def _plan_language_preseed(
             entry["industry_context"] = industry
             plan.industry_context[eid] = industry
 
+        # (2b) #759 (founder ruling E5-2, 2026-10-08): the role's budget line
+        # ("Budget: up to €2M") rides the same vehicle as the industry line —
+        # same vault-level gate — when it carries WORDS to translate (a bare
+        # "€2M" has none). Only a value `_apply_role_facts` would render at all
+        # (a unit is stated, #382). The settle guard accepts the translation only
+        # when its figures are the vault's figures.
+        budget = (vault_by_id.get(eid) or {}).get("budget_managed")
+        if (
+            vault_cross_language
+            and isinstance(budget, str)
+            and budget.strip()
+            and not budget_needs_unit(budget)
+            and _BUDGET_WORD_RE.search(budget)
+        ):
+            entry["budget_managed"] = budget
+            plan.budget_managed[eid] = budget
+            plan._budget_vault[eid] = budget
+
         # (3) vault project copies _nest_projects would add to THIS role
         drafted = {
             _norm(p.get("name") or "")
@@ -810,16 +828,40 @@ def _plan_language_preseed(
         return prose_draft, plan
     logger.info(
         "LANGUAGE_PRESEED (#724, ADR-072 amended 2026-09-19) document_language=%s "
-        "bullets=%d roles_with_industry_line=%d skills_placed=%d "
-        "skills_already_covered=%d bullets_already_covered=%d",
+        "bullets=%d roles_with_industry_line=%d roles_with_budget_line=%d "
+        "skills_placed=%d skills_already_covered=%d bullets_already_covered=%d",
         document_language,
         sum(len(v) for v in plan.by_entry.values()),
         len(plan.industry_context),
+        len(plan.budget_managed),
         len(plan.skills),
         len(plan.skills_already_covered),
         len(plan.bullets_already_covered),
     )
     return new_draft, plan
+
+
+_BUDGET_WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+_FIGURE_RE = re.compile(r"\d+(?:[.,'’\u202f\u00a0]\d+)*")
+
+
+def _figure_digits(text: object) -> list[str]:
+    """The figures of ``text`` as digit strings, separators removed, sorted —
+    "€1.5M" and "1,5 Mio. €" both give ``['15']``, "500,000" and "500.000" both
+    ``['500000']``. Deliberately strict: a translation that rewrites "2M" as
+    "2.000.000" changes the digits and is refused (the vault original then
+    renders) — a false refusal costs an English budget line, a false accept
+    would cost a wrong figure."""
+    if not isinstance(text, str):
+        return []
+    return sorted(re.sub(r"\D", "", m) for m in _FIGURE_RE.findall(text))
+
+
+def _figures_preserved(original: object, translated: object) -> bool:
+    """#759 (founder ruling E5-2): the deterministic control on the first figure
+    field that passes through an LLM translation — the multiset of figures is
+    identical before and after. A fact comparison (ADR-062 clause 1)."""
+    return _figure_digits(original) == _figure_digits(translated)
 
 
 def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
@@ -865,6 +907,27 @@ def _settle_language_preseed(settled: dict, plan: "PreseedPlan") -> dict:
         industry = entry.pop("industry_context", None)
         if eid in plan.industry_context and isinstance(industry, str) and industry.strip():
             plan.industry_context[eid] = industry.strip()
+
+        # #759 (ruling E5-2): the first FIGURE field through an LLM translation.
+        # Accepted only when the figures survive unchanged and a unit is still
+        # stated; otherwise the vault original renders and the refusal is receipted.
+        budget = entry.pop("budget_managed", None)
+        if eid in plan.budget_managed:
+            vault_budget = plan._budget_vault.get(eid, plan.budget_managed[eid])
+            if isinstance(budget, str) and budget.strip():
+                candidate = budget.strip()
+                if _figures_preserved(vault_budget, candidate) and not budget_needs_unit(candidate):
+                    plan.budget_managed[eid] = candidate
+                else:
+                    plan.budget_managed[eid] = vault_budget
+                    logger.warning(
+                        "LANGUAGE_PRESEED_FIGURE_KEPT (#759, ruling E5-2) entry=%s "
+                        "vault=%r translated=%r vault_figures=%s translated_figures=%s "
+                        "unit_stated=%s — the translation changed a figure or lost the "
+                        "unit; the vault original is rendered",
+                        eid, vault_budget, candidate, _figure_digits(vault_budget),
+                        _figure_digits(candidate), not budget_needs_unit(candidate),
+                    )
 
         placed = plan.by_entry.get(eid)
         if not placed:
@@ -1650,6 +1713,12 @@ def _apply_role_facts(
         budget_managed = vault_entry.get("budget_managed") or None
         if budget_needs_unit(budget_managed):
             budget_managed = None
+        # #759 (ruling E5-2): the settled rendering the #724 preseed accepted (its
+        # figures checked against the vault's) — never a value the draft carried.
+        if budget_managed and preseed is not None:
+            settled_budget = preseed.budget_managed.get(w.id or "")
+            if settled_budget:
+                budget_managed = settled_budget
         industry_context = vault_entry.get("industry_context") or None
         if industry_context and preseed is not None:
             settled_industry = preseed.industry_context.get(w.id or "")

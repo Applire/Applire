@@ -113,6 +113,15 @@ class PreseedPlan:
     #: all, since anything it selects at that point is past the last chance
     #: to translate it).
     bullets_already_covered: frozenset[str] = field(default_factory=frozenset)
+    #: #759 (founder ruling E5-2, 2026-10-08): work-entry id -> the role's
+    #: ``budget_managed`` line as it will render — the vault value at injection,
+    #: the language pass's rendering once the settle guard accepted it. The ONLY
+    #: figure field that passes through an LLM translation, so the settle accepts a
+    #: rendering only when its figures are the vault's figures
+    #: (``cv._figures_preserved``) — otherwise the vault original stays, receipted.
+    budget_managed: dict[str, str] = field(default_factory=dict)
+    #: the vault originals of ``budget_managed``, kept for the figure comparison
+    _budget_vault: dict[str, str] = field(default_factory=dict)
     #: bullet counts per entry at injection time, used to verify the settle
     _pre_lengths: dict[str, int] = field(default_factory=dict)
     #: skills-list length at injection time, same purpose
@@ -160,6 +169,7 @@ class PreseedPlan:
         return (
             not any(self.by_entry.values())
             and not self.industry_context
+            and not self.budget_managed
             and not self.skills
             and not self.skills_already_covered
             and not self.bullets_already_covered

@@ -856,7 +856,8 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
     nested under positions, US187), standalone project bullets, and the skills
     list (each skill is a checkable claim — the #192 skill-dump lesson).
     Certifications/education/languages are copied deterministically from the
-    vault by the pipeline (PQ F7 / ADR-040) and are not re-audited in v1.
+    vault by the pipeline (PQ F7 / ADR-040) and are not re-audited in v1. A role's
+    ``budget_managed`` line IS audited (#759): it can come back from a translation.
     """
     data = tailored_data or {}
     claims: list[Claim] = []
@@ -874,6 +875,19 @@ def extract_claims_from_tailored(tailored_data: dict[str, Any]) -> list[Claim]:
         claims += _bullet_claims(
             entry.get("bullets"), f"work_history[{wi}].bullets", source_id
         )
+        # #759 (founder ruling E5-2, 2026-10-08): the role's budget line is the
+        # first FIGURE field the language pass translates ("up to €2M" →
+        # "bis zu 2 Mio. €"), so it is graded like a bullet of its own role —
+        # literally against the vault's `budget_managed` unit on a same-language
+        # CV, through the ADR-068 cl. 2a cross-language judgement on a translated one.
+        budget = entry.get("budget_managed")
+        if isinstance(budget, str) and len(budget.strip()) >= _MIN_CLAIM_CHARS:
+            claims.append(Claim(
+                text=budget.strip(),
+                location=f"work_history[{wi}].budget_managed",
+                kind="bullet",
+                source_experience_id=source_id,
+            ))
         for pi, proj in enumerate(entry.get("projects") or []):
             if isinstance(proj, dict):
                 claims += _bullet_claims(
