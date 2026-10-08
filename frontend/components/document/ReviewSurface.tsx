@@ -43,6 +43,7 @@ import {
   buildCrossDocument,
   buildGroup1Rows,
   buildReviewGroups,
+  buildSendChecks,
   verdictState,
   type Group1Row,
   type ReviewGroup,
@@ -475,7 +476,11 @@ export function ReviewSurface({
 
   // ADR-081 cl. 4 (amended by ADR-090 cl. 6): the number is the OPEN group-1
   // rows actually rendered — the length of the very array the list renders.
-  const verdict = verdictState(groups, openRows.length);
+  // #759: a failed send-blocking check (document-language) is named by the
+  // verdict and shown in its own block — never counted among the findings that
+  // "do not stand in the way of sending".
+  const sendChecks = useMemo(() => buildSendChecks(atsReport), [atsReport]);
+  const verdict = verdictState(groups, openRows.length, sendChecks.length);
   // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
   // the all-clear headline must not say the rest "does not stand in the way of
   // sending" — the card above "Weitere Hinweise" says otherwise.
@@ -904,6 +909,7 @@ export function ReviewSurface({
             openCrossRead === 0 &&
             !crossReadUnknown &&
             t("verdictClearWithOthers", { count: verdict.others })}
+          {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>
         {verdict.kind === "findings" && (
@@ -1022,6 +1028,23 @@ export function ReviewSurface({
         onRefresh={onRefresh}
       />
 
+      {sendChecks.length > 0 && (
+        <SendChecks
+          items={sendChecks}
+          renderItem={(item) => (
+            <ItemRow
+              key={item.key}
+              item={item}
+              group={groups.find((g) => g.id === 4)!}
+              documentKind={documentKind}
+              locale={locale}
+              t={t}
+              tAts={tAts}
+            />
+          )}
+        />
+      )}
+
       <OtherFindings
         groups={groups}
         gapAnalysisHref={gapAnalysisHref}
@@ -1092,6 +1115,33 @@ function UnknownProducerNote({ group }: { group: ReviewGroup }) {
     <p data-testid={`review-group-unknown-${group.id}`} className="text-xs text-on-surface-variant">
       {group.unknown ? t("unknownWhole", { producers: names }) : t("unknownPartial", { producers: names })}
     </p>
+  );
+}
+
+/* ------------------------------------------------------ before sending */
+
+/**
+ * #759 (ADR-081 amended 2026-10-08) — failed checks that DO stand in the way of
+ * sending (`SEND_CHECK_IDS`). Open without interaction, above "Weitere Hinweise",
+ * whose "nothing here stands in the way" sentence is then true again.
+ */
+function SendChecks({
+  items,
+  renderItem,
+}: {
+  items: ReviewItem[];
+  renderItem: (item: ReviewItem) => ReactNode;
+}) {
+  const t = useTranslations("documentReview");
+  return (
+    <div
+      data-testid="review-send-checks"
+      className="flex flex-col gap-1 rounded-xl border border-warning/40 bg-warning-container px-3 py-2"
+    >
+      <span className="font-heading text-[13px] font-bold text-on-surface">{t("sendCheckTitle")}</span>
+      <span className="text-xs text-on-surface-variant">{t("sendCheckSub")}</span>
+      <ul>{items.map((item) => renderItem(item))}</ul>
+    </div>
   );
 }
 

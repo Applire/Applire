@@ -773,3 +773,55 @@ describe("D-3 — This is what changed shows the changed passage, not the sectio
     expect(change.textContent).toContain("…");
   });
 });
+
+/* ------------------------------------------------------------------ #759 */
+
+describe("#759 — a failed document-language check is not 'nothing stands in the way'", () => {
+  const MIXED = {
+    id: "document-language",
+    status: "fail" as const,
+    details: "items not written in the document language (de): [Nivalo GmbH] 'Campaign development'",
+    details_key: "document-language-mixed",
+    details_params: { language: "de", count: 2, examples: "Campaign development, including end-to-end" },
+  };
+
+  it("renders the send-check block above the other findings, open without a click", () => {
+    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
+    const block = screen.getByTestId("review-send-checks");
+    expect(block.textContent).toMatch(/before you send it/i);
+    expect(within(block).getByTestId("review-item-g4-check-send-document-language")).toBeTruthy();
+    expect(block.textContent).toMatch(/2 places are not written in German: Campaign development/);
+    const other = screen.getByTestId("review-other");
+    expect(block.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the verdict names it and never says it does not stand in the way of sending", () => {
+    renderSurface({ atsReport: ats({}, [MIXED]), gapClusters: [] });
+    const verdict = screen.getByTestId("review-verdict").textContent ?? "";
+    expect(verdict).toMatch(/1 finding needs a look before you send it/);
+    expect(verdict).not.toMatch(/does not stand in the way/);
+  });
+
+  it("the failed check is no longer a group-4 row", () => {
+    renderSurface({ atsReport: ats({}, [MIXED, { id: "page-length-0", status: "fail", details: "3 Seiten" }]), gapClusters: [] });
+    fireEvent.click(screen.getByTestId("review-group-toggle-4"));
+    const g4 = screen.getByTestId("review-group-4");
+    expect(within(g4).queryByTestId("review-item-g4-check-send-document-language")).toBeNull();
+    expect(within(g4).queryByTestId("review-item-g4-check-fail-document-language")).toBeNull();
+    expect(within(g4).getByTestId("review-item-g4-check-fail-page-length-0")).toBeTruthy();
+  });
+
+  it("renders the localised German detail in the German UI", () => {
+    render(withIntl(<ReviewSurface {...FULL_INPUTS} atsReport={ats({}, [MIXED])} gapClusters={[]} />, "de"));
+    const block = screen.getByTestId("review-send-checks");
+    expect(block.textContent).toMatch(/Vor dem Versand ansehen/);
+    expect(block.textContent).toMatch(/2 Stellen sind nicht auf Deutsch geschrieben/);
+    expect(block.textContent).not.toMatch(/items not written/);
+    expect(screen.getByTestId("review-verdict").textContent).toMatch(/vor dem Versand ansehen/);
+  });
+
+  it("no block when the check passed", () => {
+    renderSurface({ atsReport: ats({}, [{ id: "document-language", status: "pass" }]), gapClusters: [] });
+    expect(screen.queryByTestId("review-send-checks")).toBeNull();
+  });
+});

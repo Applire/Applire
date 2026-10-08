@@ -1356,6 +1356,7 @@
       "page-length-letter": "{pages} pages — a {region} cover letter is {letterPages, plural, one {# page} other {# pages}}",
       "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
       "document-language-not-applicable": "Not applicable — no language was stated for this document",
+      "document-language-mixed": "{count, plural, one {# place is} other {# places are}} not written in {language, select, de {German} en {English} other {{language}}}: {examples}",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {
@@ -1618,6 +1619,7 @@
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
     "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
+    "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",
     "group2Title": "Missing although your profile covers it",
@@ -1668,6 +1670,8 @@
     "statusEdited": "Edited",
     "otherTitle": "Other findings",
     "otherSub": "None of these stand in the way of sending the document.",
+    "sendCheckTitle": "Look at this before you send it",
+    "sendCheckSub": "The document is not ready to send as it is. Edit these places yourself or generate it again.",
     "group3Link": "Open in the gap analysis",
     "coverageLine": "{present} of {total} job keywords appear in the document."
   },
