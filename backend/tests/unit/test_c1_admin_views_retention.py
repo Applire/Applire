@@ -393,6 +393,25 @@ async def test_mcp_door_carries_the_reason_beside_the_text(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mcp_door_reason_survives_the_fastmcp_tool_layer(monkeypatch):
+    """E2E-1: FastMCP turns an exception raised in a tool body into text-only
+    ToolError content, so ``data`` is lost at the real door. Route through
+    ``mcp.call_tool`` (the layer a stdio agent hits) and require the reason in
+    the text the agent actually receives."""
+    from applire.mcp import server
+
+    monkeypatch.setattr(svc, "refresh", AsyncMock(return_value={}))
+    with (
+        patch("applire.mcp.server.scrape_job_url",
+              AsyncMock(side_effect=ScraperError(LI, "LinkedIn fetch disabled", code="linkedin_guest_fetch_disabled"))),
+        patch("applire.mcp.server.get_provider"),
+    ):
+        with pytest.raises(Exception) as exc:
+            await server.mcp.call_tool("analyze_jd", {"url": LI})
+    assert "[linkedin_guest_fetch_disabled]" in str(exc.value)
+
+
+@pytest.mark.asyncio
 async def test_mcp_door_keeps_jd_fetch_failed_for_another_scrape_failure(monkeypatch):
     from applire.mcp import server
 

@@ -188,8 +188,8 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   an entry sent without them loses them. You may remove an alternate name;
   a new one you add there is dropped (only an import records them).
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
-  raw material for your positioning. If `analyze_jd(url=…)` is refused with
-  `data.reason = "linkedin_guest_fetch_disabled"`, the operator has switched off
+  raw material for your positioning. If `analyze_jd(url=…)` is refused with an
+  error whose text begins `[linkedin_guest_fetch_disabled]`, the operator has switched off
   LinkedIn fetching: do not retry the URL — ask the candidate for the posting
   text and pass it as `text`. Each `gap_clusters` entry is a gap with a
   memory: its `gaps` are its **open** requirements only — what is covered or

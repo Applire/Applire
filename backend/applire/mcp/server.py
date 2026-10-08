@@ -686,10 +686,13 @@ async def analyze_jd(
             jd_text = await scrape_job_url(url)
         except ScraperError as exc:
             # #726 / ADR-058 door parity: a machine-readable reason beside the text.
+            # FastMCP wraps any exception raised in a tool body into text-only
+            # ToolError content, so ``data`` never reaches the agent over the
+            # door; the reason therefore leads the message as ``[<code>]`` too.
             raise McpError(
                 ErrorData(
                     code=_INVALID_INPUT_CODE,
-                    message=f"Could not scrape {url}: {exc}",
+                    message=f"[{exc.code}] Could not scrape {url}: {exc}",
                     data={"reason": exc.code},
                 )
             )
