@@ -74,6 +74,24 @@ describe("QuickTailorWidget", () => {
     await waitFor(() => expect(screen.getByText("Bad URL")).toBeInTheDocument());
   });
 
+  // Error detail hardening: a 500 answers {error_code, message, error_id}.
+  // The widget shows its catalog copy, never the object (a React child crash).
+  it("shows the catalog copy when a 500 answers a structured detail", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        detail: { error_code: "internal_error", message: "An unexpected error occurred.", error_id: "abc123def456" },
+      }),
+    });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://example.de/job" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(screen.getByText("errorAnalysisFailed")).toBeInTheDocument());
+  });
+
   // US224 — mobile Quick Tailor capture: the input+button row must stack
   // (not squash) below sm so both tabs stay usable at 390px.
   describe("mobile capture row (US224)", () => {
@@ -157,6 +175,25 @@ describe("QuickTailorWidget", () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/flow/flow-1"));
     const createCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
     expect(JSON.parse(createCall[1].body)).not.toHaveProperty("source_url");
+  });
+
+  it("shows the catalog copy when creating the application answers a structured 500", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1" }) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({
+          detail: { error_code: "internal_error", message: "An unexpected error occurred.", error_id: "abc123def456" },
+        }),
+      });
+    render(<QuickTailorWidget />);
+    fireEvent.change(screen.getByPlaceholderText("urlPlaceholder"), {
+      target: { value: "https://example.de/job" },
+    });
+    fireEvent.click(screen.getByText("analyseButton"));
+    await waitFor(() => expect(screen.getByText("errorCreateAppFailed")).toBeInTheDocument());
   });
 
   it("routes to the flow index (not a hard-coded step) after creating the application", async () => {

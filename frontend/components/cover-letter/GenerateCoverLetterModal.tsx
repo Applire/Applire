@@ -132,8 +132,10 @@ export function GenerateCoverLetterModal({
         // #311: a hard-coded English default here always won over the
         // translated fallback below (a thrown Error is always an Error, so
         // err.message was never empty). An empty message defers to t().
-        const detail = (data as { detail?: string }).detail;
-        throw new Error(detail?.trim() ? detail : "");
+        // A 5xx answers a structured body (error_code/message/error_id), not a
+        // string: only a string detail is shown, anything else defers to t().
+        const detail = (data as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" && detail.trim() ? detail : "");
       }
       const data = await res.json();
       onGenerated((data as { cover_letter_id: string }).cover_letter_id);

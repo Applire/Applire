@@ -37,9 +37,69 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from applire.exceptions import LLMProviderUnavailableError, LLMTruncatedError
+from applire.exceptions import (
+    LLMError,
+    LLMProviderError,
+    LLMProviderUnavailableError,
+    LLMTruncatedError,
+)
 
 logger = logging.getLogger(__name__)
+
+# ── Error detail hardening: unclassified SDK / HTTP-client errors ────────────
+#
+# A provider's except-chain maps the errors it understands (timeout, rate
+# limit, 5xx, truncation) to our own types. Whatever is left used to propagate
+# raw, and a raw SDK or HTTP-client exception's text is not ours: it can quote
+# request details. ``unclassified_provider_error`` turns such an exception into
+# an ``LLMProviderError`` with a static message (provider, SDK type name, HTTP
+# status) and logs the scrubbed original. Callers raise it ``from None`` so the
+# original does not ride along in a traceback either.
+
+#: Top-level modules whose exceptions are SDK / transport errors.
+_SDK_MODULE_ROOTS = frozenset(
+    {"httpx", "httpcore", "h11", "h2", "openai", "anthropic", "mistralai", "ollama"}
+)
+
+
+def _status_code_of(exc: BaseException) -> int | None:
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None) if response is not None else None
+    return status if isinstance(status, int) else None
+
+
+def unclassified_provider_error(
+    exc: BaseException, provider: str
+) -> LLMProviderError | None:
+    """An ``LLMProviderError`` to raise in place of ``exc``, or ``None`` to re-raise it.
+
+    ``exc`` is wrapped when it is an SDK / HTTP-client exception, or when its
+    text carries a configured secret whatever its type. Our own ``LLMError``
+    types and every other exception (``json.JSONDecodeError``, a ``ValueError``
+    the caller classifies, …) pass through unchanged.
+    """
+    from applire.redaction import scrub_secrets
+
+    if isinstance(exc, LLMError):
+        return None
+    try:
+        text = str(exc)
+    except Exception:  # noqa: BLE001 — an unprintable exception is treated as SDK noise
+        text = ""
+    root = type(exc).__module__.split(".", 1)[0]
+    scrubbed = scrub_secrets(text)
+    if root not in _SDK_MODULE_ROOTS and scrubbed == text:
+        return None
+    wrapped = LLMProviderError(
+        provider,
+        sdk_type=type(exc).__name__,
+        status_code=_status_code_of(exc),
+        detail=scrubbed[:1000],
+    )
+    logger.warning("%s [detail: %s]", wrapped, wrapped.detail)
+    return wrapped
 
 # ── M-3 structured-output rejection wording (shared by openrouter.py and
 # requesty.py's `_note_schema_rejection`, so a wording fix lands once) ────────

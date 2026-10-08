@@ -1323,8 +1323,13 @@ async def test_mcp_update_profile_door_propagates_a_reverted_write_and_the_vault
     monkeypatch.setattr(server, "get_db", _mcp_db(factory))
     monkeypatch.setattr(server, "get_provider", lambda: None)
 
-    with pytest.raises(VaultWriteRevertedError):
+    # Error detail hardening: the identity wrapper answers an escaping error as
+    # an MCP error; a reverted write keeps its own (scrubbed) message.
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc:
         await server.update_profile(section="personal_info", data={"phone": "+49 1"})
+    assert "vault_write_reverted" in exc.value.error.message
 
     stored_after = await _read_back(engine, profile_id)
     assert stored_after == stored_before

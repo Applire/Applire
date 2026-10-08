@@ -21,6 +21,7 @@ import openai
 
 from applire.config import settings
 from applire.providers.embedding.base import EmbeddingProvider
+from applire.providers.llm.base import unclassified_provider_error
 
 DEFAULT_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
@@ -44,8 +45,15 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self._dim = EMBEDDING_DIM
 
     async def embed(self, text: str) -> list[float]:
-        response = await self._client.embeddings.create(
-            model=self._model,
-            input=text,
-        )
+        try:
+            response = await self._client.embeddings.create(
+                model=self._model,
+                input=text,
+            )
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "OpenAI embeddings")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         return response.data[0].embedding

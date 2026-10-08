@@ -74,3 +74,30 @@ class LLMTruncatedError(LLMError):
     (2026-06-24). Routers should surface this as HTTP 502/retry, never persist the
     partial artifact.
     """
+
+
+class LLMProviderError(LLMError):
+    """A provider call failed in a way the provider module does not classify.
+
+    Error detail hardening: providers raise this in place of a raw SDK/HTTP
+    client exception, whose text is not ours and may quote request details.
+    ``str(exc)`` is a short static description — the provider, the SDK
+    exception's type name and, when there is one, the HTTP status — so callers
+    that classify on the status (the ops probe's 401/402/429 reading) still
+    work. The original text, scrubbed, is kept on :attr:`detail` for the log.
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        *,
+        sdk_type: str,
+        status_code: int | None = None,
+        detail: str = "",
+    ) -> None:
+        self.provider = provider
+        self.sdk_type = sdk_type
+        self.status_code = status_code
+        self.detail = detail
+        status = f", HTTP {status_code}" if status_code is not None else ""
+        super().__init__(f"{provider} call failed ({sdk_type}{status}).")

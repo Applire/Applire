@@ -22,6 +22,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user
 from applire.models.user import User
 from applire.db.session import get_db
@@ -117,7 +118,7 @@ async def analyze_job_description(
         # handled above and stays a 502.)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="job.analyze_job_description", logger=logger)
     return analysis
 
 
@@ -180,7 +181,7 @@ async def refresh_gap_analysis(
             detail="LLM returned invalid JSON",
         )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="job.refresh_gap_analysis", logger=logger)
 
 
 @router.post(

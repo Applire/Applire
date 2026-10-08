@@ -28,6 +28,7 @@ from mistralai import Mistral
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    unclassified_provider_error,
     LLMProvider,
     raise_if_no_completion,
     raise_if_truncated,
@@ -113,7 +114,10 @@ class MistralProvider(LLMProvider):
                     f"Mistral is temporarily unavailable (HTTP {status}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Mistral")
+            if wrapped is None:
+                raise
+            raise wrapped from None
 
     async def aparse_json(
         self,
@@ -148,7 +152,10 @@ class MistralProvider(LLMProvider):
                     f"Mistral is temporarily unavailable (HTTP {status}). "
                     "Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "Mistral")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         return json.loads(raw)
 
     @_retry
