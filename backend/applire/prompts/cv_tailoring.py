@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v12.1 (#759, 2026-10-08 — `build_retry_prompt(document_language=…)`: the
+#   TERMINAL corrector is told the document language (it never was; it copied English vault
+#   evidence into a German CV after the language pass, CV 1680cd28 records 176/178). The
+#   drafting rounds pass nothing and are byte-identical. Measured: see Runs/Strawberry/
+#   build-2/fix-e2e5/report.md (replay of record 176 per arm).)
 # NOT a prompt version: #455's proposed rule-9 precedence line ("WHEN THE CEILING BINDS,
 #   REQUIRED CONTENT IS PLACED FIRST") was written on 2026-09-09, measured, and NOT
 #   shipped. Replay of the exact captured writer call that lost the ADR-070 REQUIRED
@@ -322,11 +327,37 @@ def build_user_prompt(
     )
 
 
+def _document_language_block(document_language: str | None) -> str:
+    """#759: the DOCUMENT LANGUAGE block for the TERMINAL corrector.
+
+    The terminal corrector writes after the ``cv_language`` pass and was never told
+    the document's language; asked to surface a concept "in the candidate's own
+    terms" with the English vault evidence quoted, it copied the English sentence
+    and the English skill names into a German CV (build-2 delivery run, CV
+    1680cd28, records 176/178). ``None`` → empty: the drafting rounds are unchanged.
+    """
+    if not document_language:
+        return ""
+    from applire.prompts.interview import language_name
+
+    name = language_name(document_language)
+    return (
+        f"DOCUMENT LANGUAGE: {name}. The delivered document is written in {name} and must "
+        f"stay in one language. Write every sentence and every skills entry you add or "
+        f"change in {name}. The CANDIDATE PROFILE — and any profile evidence the feedback "
+        f"quotes — may be in another language: translate it, keeping every figure, name "
+        f"and scope word, and never copy a sentence or a skill name from it verbatim. "
+        f"\"In the candidate's own terms\" means the candidate's facts and scope, written "
+        f"in {name}. Company, product and tool names stay as they are.\n\n"
+    )
+
+
 def build_retry_prompt(
     previous_draft: dict,
     feedback: str,
     source: str,
     delivered: dict | None = None,
+    document_language: str | None = None,
 ) -> str:
     """Build the retry user prompt after a reviewer rejection of a tailored CV.
 
@@ -358,6 +389,11 @@ def build_retry_prompt(
     subject the same artefact; the corrector still RECEIVES and RETURNS only the prose
     shape, so ADR-067 clause 2/3 is untouched and no vault-verbatim field is ever
     LLM-authored.
+
+    ``document_language`` (#759, ADR-076 clause 3 amended 2026-10-08) — TERMINAL
+    chain only, like ``delivered``: the corrector writes after the language pass and
+    is told the document's language (:func:`_document_language_block`). ``None`` →
+    the prompt is byte-identical to what shipped.
     """
     delivered_section = ""
     if delivered is not None:
@@ -370,6 +406,7 @@ def build_retry_prompt(
         "A quality review of your previous CV tailoring identified the following issues. "
         "Patch the JSON to address every issue, using the CANDIDATE PROFILE as the only "
         "source of truth, and return the corrected object in the SAME schema.\n\n"
+        f"{_document_language_block(document_language)}"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
         f"CANDIDATE PROFILE (source of truth):\n{source}\n\n"
         f"{delivered_section}"

@@ -898,6 +898,9 @@ async def _review_cv_language(
     keyword_ledger: list | None = None,
     budget: Any = None,
     preseed: "PreseedPlan | None" = None,
+    *,
+    chain_id: str = "cv_language",
+    settle_guard=None,
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -913,6 +916,14 @@ async def _review_cv_language(
     tailoring loop above rank-gates with — is threaded through so this LAST writer's
     coverage demand agrees with the tailoring loop's about which absences are still
     blocking (:func:`applire.services.keyword_ledger.cv_coverage_budget`).
+
+    #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the SAME pass re-runs
+    over a terminal corrector round's output (:func:`_terminal_language_recheck`),
+    under its own ``chain_id`` (``cv_language_recheck``) so per-round attribution
+    can tell the two apart, with that caller's own structural ``settle_guard``.
+    ``settle_guard`` and ``preseed`` are mutually exclusive: the preseed guard
+    verifies the shape the #724 injection promised; a re-check verifies the shape
+    of the corrector's draft it was handed.
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
@@ -932,15 +943,225 @@ async def _review_cv_language(
         provider=provider,
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
         generator_max_tokens=CV_GENERATION_MAX_TOKENS,
-        chain_id="cv_language",
+        chain_id=chain_id,
         # #724: verify the shape the refiner was told to keep, for the vault text
         # the preseed put in front of this pass. ADR-069 clause 4 hook.
         settle_guard=(
             (lambda settled, _history: _settle_language_preseed(settled, preseed))
             if preseed is not None and not preseed.is_empty()
-            else None
+            else settle_guard
         ),
     )
+
+
+@dataclass
+class TerminalLanguageTrigger:
+    """What :func:`_terminal_language_trigger` found in one terminal corrector round."""
+
+    foreign_prose: list[tuple[str, str]]
+    new_skills: list[str]
+    cross_language: bool
+
+    @property
+    def fired(self) -> bool:
+        return bool(self.foreign_prose) or (self.cross_language and bool(self.new_skills))
+
+
+def _prose_items(draft: dict) -> list[tuple[str, str]]:
+    """(where, text) for every prose item of a PROSE draft: summary, work bullets,
+    nested and standalone project bullets — the items ``cv_language`` reviews."""
+    items: list[tuple[str, str]] = []
+    summary = draft.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        items.append(("summary", summary))
+    for w in draft.get("work") or []:
+        if not isinstance(w, dict):
+            continue
+        eid = str(w.get("id") or "")
+        for b in w.get("bullets") or []:
+            if isinstance(b, str) and b.strip():
+                items.append((f"work[{eid}]", b))
+        for pr in w.get("projects") or []:
+            if not isinstance(pr, dict):
+                continue
+            for b in pr.get("bullets") or []:
+                if isinstance(b, str) and b.strip():
+                    items.append((f"work[{eid}].projects[{pr.get('name') or ''}]", b))
+    for pr in draft.get("projects") or []:
+        if not isinstance(pr, dict):
+            continue
+        for b in pr.get("bullets") or []:
+            if isinstance(b, str) and b.strip():
+                items.append((f"projects[{pr.get('name') or ''}]", b))
+    return items
+
+
+def _terminal_language_trigger(
+    before: dict, after: dict, profile_json: dict, document_language: str
+) -> TerminalLanguageTrigger:
+    """#759 — did this terminal corrector round write text that is not in the
+    document language? Facts only (ADR-062 clause 1), no LLM, pure.
+
+    Only what the round WROTE is examined: a prose item or chip of ``after`` whose
+    normalised text does not occur anywhere in ``before`` (the draft the corrector
+    was handed). Anything already there had its language pass.
+
+    The two gates are the #724 preseed's own (ADR-066 — one instrument per class):
+
+    * prose (summary, work and project bullets) — ``item_language_mismatch``
+      against the document language, the predicate the ADR-039
+      ``document-language`` check reads;
+    * skills — on a cross-language vault (``_vault_dominant_language``, ADR-068
+      clause 2a's rule) ANY new chip. The per-item detector cannot judge a 2–3-word
+      chip (measured for #724: "Large Language Models" reads as German), and the
+      captured corrector replaced the whole list with the vault's English names
+      (records 176/178, CV 1680cd28). On a same-language vault chips never fire.
+    """
+    from applire.services.ats_audit import _norm
+    from applire.utils.language_detection import item_language_mismatch
+
+    seen = {_norm(t) for _, t in _prose_items(before)}
+    foreign = [
+        (where, text)
+        for where, text in _prose_items(after)
+        if _norm(text) not in seen and item_language_mismatch(text, document_language)
+    ]
+    before_skills = {_norm(x) for x in before.get("skills") or [] if isinstance(x, str)}
+    new_skills = [
+        x for x in after.get("skills") or []
+        if isinstance(x, str) and x.strip() and _norm(x) not in before_skills
+    ]
+    cross = _vault_dominant_language(profile_json) != document_language
+    return TerminalLanguageTrigger(
+        foreign_prose=foreign, new_skills=new_skills, cross_language=cross,
+    )
+
+
+def _settle_language_recheck(settled: dict, corrected: dict) -> dict:
+    """#759 settle guard (ADR-069 clause 4 hook) for the terminal language
+    re-check — structural only, no LLM.
+
+    The refiner is told to translate in place and never to add, drop, merge or
+    reorder an entry. This VERIFIES it against the draft it was handed (the
+    corrector's output): the work entries are rebuilt in ``corrected``'s order and
+    id set; a container whose bullet count, project set/bullet counts, or a skills
+    list whose length changed keeps the CORRECTOR's text for that container. The
+    untranslated text then stays visible to the ``document-language`` check and
+    the review surface — a lost translation is reported, a lost fact would be a
+    silent ADR-072 cut, which is the worse defect.
+    """
+    import copy as _copy
+
+    out = _copy.deepcopy(settled) if isinstance(settled, dict) else {}
+    fallbacks: list[str] = []
+
+    def _proj_shape(projects) -> list[tuple[str, int]]:
+        return [
+            (str(p.get("name") or ""), len(p.get("bullets") or []))
+            for p in projects or [] if isinstance(p, dict)
+        ]
+
+    settled_by_id = {
+        str(w.get("id") or ""): w
+        for w in (out.get("work") or []) if isinstance(w, dict)
+    }
+    work: list[dict] = []
+    for cw in corrected.get("work") or []:
+        if not isinstance(cw, dict):
+            continue
+        eid = str(cw.get("id") or "")
+        sw = settled_by_id.get(eid)
+        if sw is None:
+            fallbacks.append(f"work[{eid}] missing")
+            work.append(_copy.deepcopy(cw))
+            continue
+        entry = dict(sw)
+        if len(sw.get("bullets") or []) != len(cw.get("bullets") or []):
+            fallbacks.append(f"work[{eid}].bullets")
+            entry["bullets"] = list(cw.get("bullets") or [])
+        if _proj_shape(sw.get("projects")) != _proj_shape(cw.get("projects")):
+            fallbacks.append(f"work[{eid}].projects")
+            entry["projects"] = _copy.deepcopy(cw.get("projects") or [])
+        work.append(entry)
+    out["work"] = work
+
+    if _proj_shape(out.get("projects")) != _proj_shape(corrected.get("projects")):
+        fallbacks.append("projects")
+        out["projects"] = _copy.deepcopy(corrected.get("projects") or [])
+    if len(out.get("skills") or []) != len(corrected.get("skills") or []):
+        fallbacks.append("skills")
+        out["skills"] = list(corrected.get("skills") or [])
+    if not (isinstance(out.get("summary"), str) and out["summary"].strip()) and corrected.get("summary"):
+        fallbacks.append("summary")
+        out["summary"] = corrected["summary"]
+
+    if fallbacks:
+        logger.warning(
+            "LANGUAGE_RECHECK_SETTLE_FALLBACK (#759, ADR-072): the language re-check "
+            "changed the shape of %s — those containers keep the corrector's own text "
+            "(left to the document-language check, never dropped)",
+            ", ".join(fallbacks),
+        )
+    return out
+
+
+async def _terminal_language_recheck(
+    before: dict,
+    after: dict,
+    *,
+    profile_json: dict,
+    document_language: str,
+    provider,
+    keyword_ledger: list | None,
+    budget: Any,
+    cv_id: Any = None,
+    round_no: int = 0,
+) -> dict:
+    """#759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08) — the language pass is
+    the LAST prose writer again.
+
+    The terminal corrector writes after ``cv_language`` (ADR-076 clause 3 puts it
+    over the composed document), and ADR-076's own deviation paragraph named the
+    gap: its re-emissions were "not language-re-checked". On the 2026-10-08
+    delivery run it wrote two English vault sentences and an English skills list
+    into a German CV (records 176/178, CV 1680cd28) and nothing after it
+    translated a word.
+
+    The corrector is TOLD the document language (prompt, both terminal seats);
+    this is the guarantee behind the instruction (#229: an instruction is not a
+    guarantee). When :func:`_terminal_language_trigger` fires, the corrector's
+    draft goes through :func:`_review_cv_language` again — the same pass, prompts,
+    coverage wrapper and budget — under chain id ``cv_language_recheck``, with
+    :func:`_settle_language_recheck` as its settle guard. A translated bullet is
+    grounded by the Oracle's ADR-068 clause 2a cross-language judgement like every
+    other translated bullet (the #724 precedent). Not fired → ``after`` unchanged,
+    no call. Never raises: a failure ships the corrector's draft (the check reports).
+    """
+    if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0 or not document_language:
+        return after
+    trig = _terminal_language_trigger(before, after, profile_json, document_language)
+    logger.info(
+        "TERMINAL_LANGUAGE_RECHECK (#759) cv_id=%s round=%d document_language=%s "
+        "foreign_prose=%d new_skills=%d cross_language=%s fired=%s",
+        cv_id, round_no, document_language, len(trig.foreign_prose),
+        len(trig.new_skills), trig.cross_language, trig.fired,
+    )
+    if not trig.fired:
+        return after
+    try:
+        return await _review_cv_language(
+            after, document_language, provider,
+            keyword_ledger=keyword_ledger,
+            budget=budget,
+            chain_id="cv_language_recheck",
+            settle_guard=lambda settled, _history: _settle_language_recheck(settled, after),
+        )
+    except Exception:
+        logger.exception(
+            "TERMINAL_LANGUAGE_RECHECK failed for CV %s — shipping the corrector's "
+            "draft; the document-language check reports what it finds", cv_id,
+        )
+        return after
 
 logger = logging.getLogger(__name__)
 
@@ -4994,6 +5215,8 @@ async def _terminal_review(
             page_count=(m.page_count if m is not None else None),
             target=(m.target if m is not None else condense_ctx.target),
             condensation_exhausted=(m.condensation_exhausted if m is not None else False),
+            # #759: the reviewer must not demand the profile's other-language wording.
+            document_language=language,
         )
 
     # The US213 coverage wrapper computes verified coverage over the SUBJECT —
@@ -5126,6 +5349,9 @@ async def _terminal_review(
             feedback,
             source,
             delivered=_subject_for(previous_draft).model_dump(mode="json"),
+            # #759: the corrector writes after `cv_language` — it is told which
+            # language the document is in (it never was).
+            document_language=language,
         )
 
     # #563 (D) / #542: the settle report, and the deterministic under-claim signal.
@@ -5224,6 +5450,20 @@ async def _terminal_review(
             # The verdict covers exactly the composition already sitting on the
             # record — the delivered document.
             break
+        # #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the corrector
+        # writes AFTER `cv_language`. What it wrote in another language goes
+        # through the language pass again BEFORE it is composed, so the next
+        # round reviews — and the delivery carries — the document-language text.
+        settled = await _terminal_language_recheck(
+            current, settled,
+            profile_json=profile_json,
+            document_language=language,
+            provider=provider,
+            keyword_ledger=keyword_ledger,
+            budget=_budget_for_round(),
+            cv_id=record.id,
+            round_no=rounds,
+        )
         # A terminal corrector round changed the draft → re-compose, re-measure,
         # and let the CHANGED document re-enter review (clause 3). The corrector
         # emitted prose only; the vault joins are re-applied by code.
