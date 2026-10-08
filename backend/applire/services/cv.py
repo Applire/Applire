@@ -1113,7 +1113,7 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
     The refiner is told to translate in place and never to add, drop, merge or
     reorder an entry. This VERIFIES it against the draft it was handed
     (``corrected``: the writer's draft on the first pass, the terminal corrector's
-    on a re-check). Measured need (founder ruling E5-3 pending, real-provider probe
+    on a re-check). Measured need (ruling E5-3 = MD2-23, real-provider probe
     3 of 3 on the fixed tree, 2026-10-08): the refiner returned three work entries
     nested as KEYS inside the first one and no ``skills`` at all; the pipeline took
     it and the delivered CV kept 4 of 12 bullets. The work entries are rebuilt in
