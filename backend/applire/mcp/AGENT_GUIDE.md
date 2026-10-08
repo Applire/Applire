@@ -182,14 +182,14 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   `company_aliases` / `role_aliases` (jobs), `organization_aliases`
   (volunteering) or `institution_aliases` / `degree_aliases` (education): other
   names the candidate's own documents used for the same entry, recorded when an
-  import recognised it (`import_cv` reports those pairs in `matched`, jobs
+  import recognised it (`import_cv` reports them in `matched` — section and your own incoming label only, jobs
   included). Use the name that fits the document's language; never invent one.
   When you send an entry back through `update_profile`, keep its alias lists —
   an entry sent without them loses them. You may remove an alternate name;
   a new one you add there is dropped (only an import records them).
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
   raw material for your positioning. If `analyze_jd(url=…)` is refused with an
-  error whose text begins `[linkedin_guest_fetch_disabled]`, the operator has switched off
+  error whose text contains `[linkedin_guest_fetch_disabled]`, the operator has switched off
   LinkedIn fetching: do not retry the URL — ask the candidate for the posting
   text and pass it as `text`. Each `gap_clusters` entry is a gap with a
   memory: its `gaps` are its **open** requirements only — what is covered or
