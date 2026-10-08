@@ -1135,11 +1135,15 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
             for p in projects or [] if isinstance(p, dict)
         ]
 
+    if not isinstance(corrected, dict):
+        return settled
     settled_by_id = {
         str(w.get("id") or ""): w
         for w in (out.get("work") or []) if isinstance(w, dict)
     }
     work: list[dict] = []
+    # A container the handed draft does not carry (a legacy `work_history`-shaped
+    # draft in a fixture, a draft without `projects`) is not this guard's to add.
     for cw in corrected.get("work") or []:
         if not isinstance(cw, dict):
             continue
@@ -1157,12 +1161,13 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
             fallbacks.append(f"work[{eid}].projects")
             entry["projects"] = _copy.deepcopy(cw.get("projects") or [])
         work.append(entry)
-    out["work"] = work
+    if "work" in corrected:
+        out["work"] = work
 
-    if _proj_shape(out.get("projects")) != _proj_shape(corrected.get("projects")):
+    if "projects" in corrected and _proj_shape(out.get("projects")) != _proj_shape(corrected.get("projects")):
         fallbacks.append("projects")
         out["projects"] = _copy.deepcopy(corrected.get("projects") or [])
-    if len(out.get("skills") or []) != len(corrected.get("skills") or []):
+    if "skills" in corrected and len(out.get("skills") or []) != len(corrected.get("skills") or []):
         fallbacks.append("skills")
         out["skills"] = list(corrected.get("skills") or [])
     if not (isinstance(out.get("summary"), str) and out["summary"].strip()) and corrected.get("summary"):
@@ -3670,7 +3675,9 @@ def strip_empty_projects(tailored: TailoredCVData, *, user_id: uuid.UUID | None 
     })
 
 
-def localize_languages(tailored: TailoredCVData, lang: str | None) -> TailoredCVData:
+def localize_languages(
+    tailored: TailoredCVData, lang: str | None, *, user_id: uuid.UUID | None = None
+) -> TailoredCVData:
     """#759 (founder ruling E5-2, 2026-10-08): the LANGUAGES list is rendered in
     the document's language — "German · Native" in a German CV becomes
     "Deutsch · Muttersprache".
