@@ -457,30 +457,60 @@ async def test_rest_classified_messages_are_unchanged(monkeypatch):
 # =====================================================================================
 
 
+#: Hard ceiling for each leg of the end-to-end case: a regression fails fast
+#: instead of hanging the job (the call itself fails in milliseconds).
+_E2E_GUARD_S = 20
+
+
 @pytest.mark.asyncio
 async def test_an_unexpected_provider_failure_echoes_no_configured_secret(async_db, monkeypatch):
     """A plain (non-admin) account analyses a posting through REST and through
     the agent door while the real Mistral provider fails below the SDK. Neither
     answer carries a configured secret value. Hermetic — the SDK points at a
-    socket on 127.0.0.1 that never answers."""
+    socket on 127.0.0.1.
+
+    Bounded on purpose: the local server closes every connection it accepts
+    (on Python 3.12 ``Server.wait_closed()`` waits for open connections, and an
+    unclosed one hangs the test forever), the SDK runs without retries and with
+    a short timeout, the provider timeout is short, and every leg sits under
+    ``asyncio.wait_for``."""
     import applire.providers.llm.mistral as mistral_mod
+    from mistralai.utils import BackoffStrategy, RetryConfig
+
     from applire.mcp import server as mcp_server
     from applire.routers import job as job_router
 
     monkeypatch.setattr(settings, "llm_provider", "mistral")
+    monkeypatch.setattr(settings, "llm_timeout", 5)
     monkeypatch.setattr(settings, "mistral_api_key", CTRL_SENTINEL)  # past the start-up check
 
-    srv = await asyncio.start_server(lambda _r, _w: None, "127.0.0.1", 0)
+    accepted: list[asyncio.StreamWriter] = []
+
+    async def _close_at_once(_reader, writer):
+        accepted.append(writer)
+        writer.close()
+
+    srv = await asyncio.start_server(_close_at_once, "127.0.0.1", 0)
     port = srv.sockets[0].getsockname()[1]
     monkeypatch.setattr(
-        mistral_mod, "Mistral", functools.partial(mistral_mod.Mistral, server_url=f"http://127.0.0.1:{port}")
+        mistral_mod,
+        "Mistral",
+        functools.partial(
+            mistral_mod.Mistral,
+            server_url=f"http://127.0.0.1:{port}",
+            retry_config=RetryConfig("none", BackoffStrategy(1, 1, 1.0, 1), False),
+            timeout_ms=2000,
+        ),
     )
     user = await add_user(async_db, email="plain-user@example.org", role="user")
     app = _rest_app(user, db=async_db)
     app.dependency_overrides.pop(job_router._get_provider, None)  # the real provider
     try:
         async with client_for(app) as client:
-            res = await client.post("/api/job/analyze", json={"text": POSTING}, headers={"Origin": "http://applire.test"})
+            res = await asyncio.wait_for(
+                client.post("/api/job/analyze", json={"text": POSTING}, headers={"Origin": "http://applire.test"}),
+                _E2E_GUARD_S,
+            )
 
         cm = MagicMock()
         cm.__aenter__ = AsyncMock(return_value=async_db)
@@ -488,10 +518,12 @@ async def test_an_unexpected_provider_failure_echoes_no_configured_secret(async_
         monkeypatch.setattr(mcp_server, "get_db", lambda: cm)
         monkeypatch.setattr(mcp_server, "_current_user_id", AsyncMock(return_value=user.id))
         with pytest.raises(McpError) as mcp_exc:
-            await mcp_server.analyze_jd(text=POSTING)
+            await asyncio.wait_for(mcp_server.analyze_jd(text=POSTING), _E2E_GUARD_S)
     finally:
         srv.close()
-        await srv.wait_closed()
+        for writer in accepted:
+            writer.close()
+        await asyncio.wait_for(srv.wait_closed(), 5)
 
     assert res.status_code == 500, res.text
     _assert_clean(res.text)
