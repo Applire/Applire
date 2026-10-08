@@ -81,6 +81,32 @@ describe("RecognisedMatches (#717)", () => {
     expect(screen.getByTestId("recognised-match-separate")).toBeInTheDocument();
   });
 
+  // E2E-3 (b), 2026-10-08: an identical pair (Django -> Django) is no rename —
+  // never a row, never an undo that would add a second Django.
+  it("never renders an identical-name pair", () => {
+    render(
+      withIntl(
+        <RecognisedMatches
+          matched={[
+            pair({ entity_id: "s1", incoming: "Django", existing: "Django" }),
+            pair({ entity_id: "s2", incoming: "  rest  APIs ", existing: "REST APIs" }),
+            pair({ entity_id: "s3", incoming: "Contract Testing", existing: "Vertragsbasierte Tests" }),
+          ]}
+        />,
+      ),
+    );
+    expect(screen.getAllByTestId("recognised-match-row")).toHaveLength(1);
+    expect(screen.getByText("Contract Testing")).toBeInTheDocument();
+    expect(screen.queryByText("Django")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when every pair is identical", () => {
+    const { container } = render(
+      withIntl(<RecognisedMatches matched={[pair({ incoming: "Django", existing: "django" })]} />),
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("folds after five rows and hides undone receipts", () => {
     const many = Array.from({ length: 7 }, (_, i) => pair({ entity_id: `s${i}`, incoming: `x${i}` }));
     many.push(pair({ entity_id: "gone", incoming: "old", undone_at: "2026-10-07T10:00:00Z" }));
