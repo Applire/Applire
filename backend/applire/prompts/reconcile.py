@@ -193,17 +193,30 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   not recur in 49 valid glm turns; the full S1–S8 matrix then showed it once on
   S3 (1/9), and an S3 re-measure at n=10 gave 0/9 after vs 0/8 before (1/18, under
   the bar). Records: ``tests/files/model_matrix/results/2026-10-07/``.
-* **20,525 (V-6, 2026-10-08).** ``upsert_skill`` gains an optional ``target``
-  (one sentence in its op description): the id of the profile's skill when the
+* **20,543 (V-6, 2026-10-08).** ``upsert_skill`` gains an optional ``target``
+  (one sentence in its op description: the id of the profile's skill when the
   new information names it differently — never a second skill under the new
-  name. Why (E2E-3 a): with reasoning OFF (the stack's setting) luna linked
+  name), and rule 5's ONE-WRITE list of ops that "record that decision via
+  target" names ``upsert_skill`` beside the engagement upserts. Why (E2E-3 a): with reasoning OFF (the stack's setting) luna linked
   translated skills to their jobs through a TARGET-LESS ``upsert_skill`` under
   the incoming name in 6/10 replays of the captured delivery prompt (real path
   3/3) — the op had no way to name the existing skill, so each link created a
   duplicate; jobs never duplicated because ``upsert_work`` has a target. The
   applier merges a targeted op into its skill and receipts it; the import
   bridge records the document's name as the alias (ADR-046/063 amended
-  2026-10-08). *Measured:* MEASURED-PLACEHOLDER
+  2026-10-08). *Measured* on the captured delivery prompt, luna, with
+  OPENROUTER_DISABLE_THINKING=true read from the stack's own ``.env`` (n=10
+  per arm): runs with a translated duplicate 6/10 on the old prompt → 3/10
+  with the op sentence alone (the model still re-created three skills
+  untargeted in 3 runs) → 0/10 with the sentence AND the rule-5 list entry;
+  that arm recorded all 4 skill aliases 10/10 and left ``not_applied`` empty
+  10/10. Negative case (two genuinely new skills added to the same input,
+  n=3): both created 3/3, never targeted; one run re-created REST APIs
+  untargeted (1/3, so 1 in 13 on this input overall). Case B (Strawberry-V
+  synthetic, n=3): unchanged — 0 not carried, Novartis Pharma AG still its
+  own job, the employer and skill aliases as before. With reasoning ON the old
+  prompt already showed 0/15 — the thinking setting must be stated on every
+  measurement of this prompt. Records: ``Documents/Runs/Strawberry/build-2/fix-e2e3/runs/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -415,7 +428,8 @@ Operations:
    ONE WRITE (#618): once this batch has already decided a fact belongs to an
    EXISTING entity, that entity is handled — never ALSO emit a target-less
    upsert_* that re-creates it under a different-sounding name. upsert_work /
-   upsert_project / upsert_volunteer record that decision via target: <id>.
+   upsert_project / upsert_volunteer / upsert_skill record that decision via
+   target: <id>.
    upsert_education / upsert_certification / upsert_language / upsert_publication
    carry no target of their own — so to add a fact to one of those, either name
    it with set_field against its id, or restate the entity with its EXISTING
