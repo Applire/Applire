@@ -416,7 +416,7 @@ two fields for the human's review of ONE generated document:
   form of it. A missing key means the report predates the field.
 - `review_state`: `{walked_at, decisions: [{finding_key, label, action, at, undo}]}`
   — what the human decided in the review panel (`added` to profile, `taken_out`,
-  `edited`). **A decision is a label, never a verdict:** a keyword the current
+  `edited`, or `kept` — a letter-only fact left in the letter on purpose). **A decision is a label, never a verdict:** a keyword the current
   report still lists in `present_unsupported` is open, whatever `review_state`
   says. Count from the report; use `review_state` only to tell your user what
   they already did about a finding the report no longer lists.
