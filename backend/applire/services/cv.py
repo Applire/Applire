@@ -3577,6 +3577,40 @@ def strip_empty_projects(tailored: TailoredCVData, *, user_id: uuid.UUID | None 
     })
 
 
+def localize_languages(tailored: TailoredCVData, lang: str | None) -> TailoredCVData:
+    """#759 (founder ruling E5-2, 2026-10-08): the LANGUAGES list is rendered in
+    the document's language — "German · Native" in a German CV becomes
+    "Deutsch · Muttersprache".
+
+    A RENDER-CONTEXT step, like :func:`strip_empty_projects`, applied at every
+    place a CV reaches a renderer (``get_cv_html``, the section-editor preview, the
+    ``.docx`` prep) — never per template (ADR-066), and never written back into
+    ``tailored_data``: the persisted row stays the vault's transcription
+    (ADR-067), so the Oracle and the audits read what the vault says.
+
+    A closed-vocabulary lookup — a FACT under ADR-062 clause 1 — through the ONE
+    DE/EN table (``services/profile/language_names``); CEFR codes and anything the
+    table does not know are left verbatim. Returns a copy; pure.
+    """
+    from applire.services.profile.language_names import (
+        localized_language_level,
+        localized_language_name,
+    )
+
+    if not lang or not tailored.languages:
+        return tailored
+    changed = False
+    out = []
+    for entry in tailored.languages:
+        name = localized_language_name(entry.language, lang)
+        level = localized_language_level(entry.level, lang)
+        if name != entry.language or level != entry.level:
+            changed = True
+            entry = entry.model_copy(update={"language": name, "level": level})
+        out.append(entry)
+    return tailored.model_copy(update={"languages": out}) if changed else tailored
+
+
 # ---------------------------------------------------------------------------
 # GET /api/cv/{cv_id}/html  (requires status=ready)
 # ---------------------------------------------------------------------------
@@ -3616,6 +3650,8 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
             record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
+    # #759 (ruling E5-2): the languages list in the document's language.
+    tailored = localize_languages(tailored, lang)
     # #359: the signature is resolved at RENDER time from user_settings, not
     # pinned onto the row — one seam (services/signature.py) serves this path and
     # the .docx path, so the toggle cannot be honoured on one and ignored on the
@@ -3750,6 +3786,8 @@ async def _prepare_cv_docx_render(
             record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
+    # #759 (ruling E5-2): same render-context step as get_cv_html.
+    tailored = localize_languages(tailored, lang)
 
     # #359: same single seam as get_cv_html, decoded to bytes for python-docx.
     # Resolved HERE rather than in get_cv_docx so the ADR-079 clause 8 audit
