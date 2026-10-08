@@ -963,7 +963,6 @@ async def _review_cv_language(
     preseed: "PreseedPlan | None" = None,
     *,
     chain_id: str = "cv_language",
-    settle_guard=None,
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -983,10 +982,9 @@ async def _review_cv_language(
     #759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08): the SAME pass re-runs
     over a terminal corrector round's output (:func:`_terminal_language_recheck`),
     under its own ``chain_id`` (``cv_language_recheck``) so per-round attribution
-    can tell the two apart, with that caller's own structural ``settle_guard``.
-    ``settle_guard`` and ``preseed`` are mutually exclusive: the preseed guard
-    verifies the shape the #724 injection promised; a re-check verifies the shape
-    of the corrector's draft it was handed.
+    can tell the two apart. Every pass is settled by
+    :func:`_settle_after_language_pass`: the shape of the draft it was handed
+    (#759), then — when a preseed rode along — the #724 placement guard.
     """
     if CV_LANGUAGE_REVIEW_MAX_RETRIES <= 0:
         return draft
@@ -1007,14 +1005,22 @@ async def _review_cv_language(
         max_retries=CV_LANGUAGE_REVIEW_MAX_RETRIES,
         generator_max_tokens=CV_GENERATION_MAX_TOKENS,
         chain_id=chain_id,
-        # #724: verify the shape the refiner was told to keep, for the vault text
-        # the preseed put in front of this pass. ADR-069 clause 4 hook.
-        settle_guard=(
-            (lambda settled, _history: _settle_language_preseed(settled, preseed))
-            if preseed is not None and not preseed.is_empty()
-            else settle_guard
+        # ADR-069 clause 4 hook, two guards in order: #759 — the refiner kept the
+        # shape of the draft it was HANDED (no entry, bullet, project or chip lost
+        # to a malformed reply); #724 — and the vault text the preseed put in front
+        # of this pass came back where it was placed.
+        settle_guard=lambda settled, _history: _settle_after_language_pass(
+            settled, draft, preseed
         ),
     )
+
+
+def _settle_after_language_pass(settled: dict, handed: dict, preseed) -> dict:
+    """The composed settle guard of every ``cv_language`` pass (see above)."""
+    settled = _settle_language_shape(settled, handed)
+    if preseed is not None and not preseed.is_empty():
+        settled = _settle_language_preseed(settled, preseed)
+    return settled
 
 
 @dataclass
@@ -1100,13 +1106,18 @@ def _terminal_language_trigger(
     )
 
 
-def _settle_language_recheck(settled: dict, corrected: dict) -> dict:
-    """#759 settle guard (ADR-069 clause 4 hook) for the terminal language
-    re-check — structural only, no LLM.
+def _settle_language_shape(settled: dict, corrected: dict) -> dict:
+    """#759 settle guard (ADR-069 clause 4 hook) for EVERY ``cv_language`` pass —
+    structural only, no LLM.
 
     The refiner is told to translate in place and never to add, drop, merge or
-    reorder an entry. This VERIFIES it against the draft it was handed (the
-    corrector's output): the work entries are rebuilt in ``corrected``'s order and
+    reorder an entry. This VERIFIES it against the draft it was handed
+    (``corrected``: the writer's draft on the first pass, the terminal corrector's
+    on a re-check). Measured need (founder ruling E5-3 pending, real-provider probe
+    3 of 3 on the fixed tree, 2026-10-08): the refiner returned three work entries
+    nested as KEYS inside the first one and no ``skills`` at all; the pipeline took
+    it and the delivered CV kept 4 of 12 bullets. The work entries are rebuilt in
+    ``corrected``'s order and
     id set; a container whose bullet count, project set/bullet counts, or a skills
     list whose length changed keeps the CORRECTOR's text for that container. The
     untranslated text then stays visible to the ``document-language`` check and
@@ -1160,9 +1171,9 @@ def _settle_language_recheck(settled: dict, corrected: dict) -> dict:
 
     if fallbacks:
         logger.warning(
-            "LANGUAGE_RECHECK_SETTLE_FALLBACK (#759, ADR-072): the language re-check "
-            "changed the shape of %s — those containers keep the corrector's own text "
-            "(left to the document-language check, never dropped)",
+            "LANGUAGE_RECHECK_SETTLE_FALLBACK (#759, ADR-072): the language pass "
+            "changed the shape of %s — those containers keep the text the pass was "
+            "handed (left to the document-language check, never dropped)",
             ", ".join(fallbacks),
         )
     return out
@@ -1195,7 +1206,7 @@ async def _terminal_language_recheck(
     guarantee). When :func:`_terminal_language_trigger` fires, the corrector's
     draft goes through :func:`_review_cv_language` again — the same pass, prompts,
     coverage wrapper and budget — under chain id ``cv_language_recheck``, with
-    :func:`_settle_language_recheck` as its settle guard. A translated bullet is
+    :func:`_settle_language_shape` as its settle guard. A translated bullet is
     grounded by the Oracle's ADR-068 clause 2a cross-language judgement like every
     other translated bullet (the #724 precedent). Not fired → ``after`` unchanged,
     no call. Never raises: a failure ships the corrector's draft (the check reports).
@@ -1217,7 +1228,6 @@ async def _terminal_language_recheck(
             keyword_ledger=keyword_ledger,
             budget=budget,
             chain_id="cv_language_recheck",
-            settle_guard=lambda settled, _history: _settle_language_recheck(settled, after),
         )
     except Exception:
         logger.exception(

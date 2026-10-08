@@ -232,14 +232,14 @@ def test_trigger_reads_project_bullets_and_the_summary():
 # =============================================================================
 
 def test_settle_guard_keeps_the_correctors_bullets_when_the_refiner_dropped_one(caplog):
-    from applire.services.cv import _settle_language_recheck
+    from applire.services.cv import _settle_language_shape
 
     caplog.set_level(logging.WARNING, logger="applire.services.cv")
     corrected = _corrector_inserts_english(_german_draft())
     lossy = _translate_draft(corrected)
     lossy["work"][0]["bullets"] = lossy["work"][0]["bullets"][:-1]  # merged/dropped
 
-    settled = _settle_language_recheck(lossy, corrected)
+    settled = _settle_language_shape(lossy, corrected)
 
     assert settled["work"][0]["bullets"] == corrected["work"][0]["bullets"], \
         "the entry falls back to the corrector's own text — never one bullet fewer"
@@ -248,14 +248,14 @@ def test_settle_guard_keeps_the_correctors_bullets_when_the_refiner_dropped_one(
 
 
 def test_settle_guard_keeps_ids_and_skills_count():
-    from applire.services.cv import _settle_language_recheck
+    from applire.services.cv import _settle_language_shape
 
     corrected = _corrector_inserts_english(_german_draft())
     bad = _translate_draft(corrected)
     bad["work"] = []  # the refiner lost the entry
     bad["skills"] = bad["skills"][:2]
 
-    settled = _settle_language_recheck(bad, corrected)
+    settled = _settle_language_shape(bad, corrected)
 
     assert [w["id"] for w in settled["work"]] == [WORK]
     assert settled["work"][0]["bullets"] == corrected["work"][0]["bullets"]
@@ -263,11 +263,11 @@ def test_settle_guard_keeps_ids_and_skills_count():
 
 
 def test_settle_guard_passes_a_shape_preserving_translation_through():
-    from applire.services.cv import _settle_language_recheck
+    from applire.services.cv import _settle_language_shape
 
     corrected = _corrector_inserts_english(_german_draft())
     good = _translate_draft(corrected)
-    assert _settle_language_recheck(good, corrected) == good
+    assert _settle_language_shape(good, corrected) == good
 
 
 # =============================================================================
@@ -358,7 +358,7 @@ def _fake_review(calls: list, terminal_script: list):
     return fake
 
 
-async def _run(db, profile_json, *, terminal_script, extra_patches=()):
+async def _run(db, profile_json, *, terminal_script, extra_patches=(), payload=None):
     from contextlib import ExitStack
 
     from applire.services.cv import _render_cv_background
@@ -366,7 +366,7 @@ async def _run(db, profile_json, *, terminal_script, extra_patches=()):
     ids = await _seed(db, profile_json)
     calls: list = []
     provider = AsyncMock()
-    provider.aparse_json.return_value = _german_draft()
+    provider.aparse_json.return_value = payload if payload is not None else _german_draft()
     patches = [
         patch("applire.services.cv.get_provider", return_value=provider),
         patch("applire.services.cv.review_and_refine",
@@ -555,3 +555,71 @@ def test_376_guard_keeps_concept_name_first_on_a_same_language_cv():
         _tailored_narrating_pitches(), _profile_with_pitches(), _ledger_pitches(),
     )
     assert "Client presentations & pitches" in out.skills
+
+
+# =============================================================================
+# 5. The FIRST cv_language pass is shape-guarded too (ruling E5-3 / MD2-23)
+# =============================================================================
+
+def _probe3_malformed(draft: dict) -> dict:
+    """The shape the real refiner returned on probe 3 (2026-10-08, luna, thinking
+    OFF): later work entries nested as KEYS inside the first entry, no `skills`."""
+    first = dict(draft["work"][0])
+    for w in draft["work"][1:]:
+        first[w["id"]] = {"bullets": list(w.get("bullets") or [])}
+    return {"summary": draft.get("summary"), "work": [first]}
+
+
+TWO_ROLE = "dc114c0a-4da5-405f-8caf-ea279f6978fd"
+DE_ROLE2 = "Leitete die kreative Umsetzung digitaler Kampagnen für Elektronik- und Modekunden."
+
+
+def _two_role_profile() -> dict:
+    p = _de_profile()
+    p["work_experience"].append({
+        "id": TWO_ROLE, "company": "TWENTYONE Digital", "role": "Art Director",
+        "start_date": "2018-08", "end_date": "2022-04", "responsibilities": [DE_ROLE2],
+    })
+    return p
+
+
+def _two_role_draft() -> dict:
+    d = _german_draft()
+    d["work"].append({"id": TWO_ROLE, "bullets": [DE_ROLE2], "projects": []})
+    return d
+
+
+def test_shape_guard_restores_the_probe3_malformed_reply():
+    from applire.services.cv import _settle_language_shape
+
+    handed = _two_role_draft()
+    settled = _settle_language_shape(_probe3_malformed(handed), handed)
+    assert [w["id"] for w in settled["work"]] == [WORK, TWO_ROLE]
+    assert settled["work"][1]["bullets"] == [DE_ROLE2]
+    assert settled["skills"] == handed["skills"]
+
+
+@pytest.mark.asyncio
+async def test_first_language_pass_never_delivers_a_truncated_cv(db):
+    """Seam test for the FIRST pass's call site (`_review_cv_language` from
+    `_render_cv_background`): the fake applies whatever `settle_guard` the real
+    call site passed, exactly as `review_and_refine`'s `_settle` does."""
+    calls: list = []
+    base = _fake_review(calls, [])
+
+    async def fake(**kwargs):
+        if kwargs.get("chain_id") == "cv_language":
+            guard = kwargs.get("settle_guard")
+            broken = _probe3_malformed(kwargs["draft"])
+            return guard(broken, []) if guard else broken
+        return await base(**kwargs)
+
+    provider_payload = _two_role_draft()
+    record, _ = await _run(
+        db, _two_role_profile(), terminal_script=[],
+        extra_patches=[patch("applire.services.cv.review_and_refine", side_effect=fake)],
+        payload=provider_payload,
+    )
+    roles = {w["id"]: w["bullets"] for w in record.tailored_data["work_history"]}
+    assert roles[TWO_ROLE] == [DE_ROLE2], "the second role's bullet survives a malformed reply"
+    assert record.tailored_data["skills"], "the skills list survives a reply without `skills`"
