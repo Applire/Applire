@@ -500,3 +500,58 @@ async def test_settle_guard_is_wired_at_the_recheck_call_site(db):
         "the refiner lost the bullet; the guard keeps the corrector's text (reported, not cut)"
     assert _doc_language_check(record)["status"] == "fail", \
         "and the document-language check reports it"
+
+
+# =============================================================================
+# 4. The #376 skills-list gap guard on a cross-language document
+# =============================================================================
+
+def _ledger_pitches() -> list[dict]:
+    return [{
+        "concept": "Client presentations & pitches", "surface_forms": ["Pitches"],
+        "claimable": True, "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+        "evidence": "Won 4 of 6 new-business pitches as pitch creative lead.",
+    }]
+
+
+def _profile_with_pitches(*, english: bool = True) -> dict:
+    p = _en_profile() if english else _de_profile()
+    p["skills"].append({"name": "Client presentations & pitches", "status": "confirmed"})
+    return p
+
+
+def _tailored_narrating_pitches():
+    from applire.schemas.cv import TailoredCVData
+
+    return TailoredCVData.model_validate({
+        "contact": {"name": "Milan Novak"},
+        "work_history": [{"id": WORK, "company": "Nivalo GmbH", "role": "Brand Design Lead",
+                          "bullets": ["Gewann als Pitch Creative Lead vier von sechs Pitches."]}],
+        "skills": ["Kampagnenentwicklung"],
+    })
+
+
+def test_376_guard_adds_the_narrated_form_not_the_vault_concept_on_a_cross_language_cv():
+    """Found by the deterministic replay of CV 1680cd28 on the fixed tree: once the
+    re-check translated the corrector's chips, the #376 guard re-added the ledger
+    concept in the VAULT's language ("Client presentations & pitches") to the
+    German CV. On a cross-language document the chip is the narrated string."""
+    from applire.services.cv import _restore_narrative_named_skills
+
+    out = _restore_narrative_named_skills(
+        _tailored_narrating_pitches(), _profile_with_pitches(), _ledger_pitches(),
+        document_language="de",
+    )
+    assert "Client presentations & pitches" not in out.skills
+    assert "Pitches" in out.skills
+
+
+def test_376_guard_keeps_concept_name_first_on_a_same_language_cv():
+    """F-9's rule is untouched where the vault and the document share a language
+    (here: no document language stated — the pre-#759 call shape)."""
+    from applire.services.cv import _restore_narrative_named_skills
+
+    out = _restore_narrative_named_skills(
+        _tailored_narrating_pitches(), _profile_with_pitches(), _ledger_pitches(),
+    )
+    assert "Client presentations & pitches" in out.skills

@@ -2950,6 +2950,7 @@ def _restore_narrative_named_skills(
     tailored: TailoredCVData,
     profile_json: dict | None,
     keyword_ledger: list[dict] | None,
+    document_language: str | None = None,
 ) -> TailoredCVData:
     """#376 — a skill named in a generated bullet must not be missing from the
     generated skills list.
@@ -3107,6 +3108,18 @@ def _restore_narrative_named_skills(
     def _oracle_backed(name: str) -> bool:
         return ground_skill_claim(name, vault_index, _ledger_form_groups) is not None
 
+    # #759 (ADR-038 amended 2026-10-08): on a CROSS-LANGUAGE document this pass
+    # writes after the last language pass, and the group's concept name is the
+    # vault's / ledger's own wording — "Client presentations & pitches" added to a
+    # German CV whose narrative says "Pitches" (deterministic replay of CV
+    # 1680cd28 on the fixed tree). There, the chip is the narrated string itself:
+    # a form that is literally on the page is in the document's language by
+    # construction (a fact, ADR-062 cl. 1), and it must still ground (#219).
+    # A same-language document keeps F-9's concept-name-first rule unchanged.
+    cross_language = bool(document_language) and (
+        _vault_dominant_language(profile_json or {}) != document_language
+    )
+
     to_add: list[str] = []
     for group in groups:
         if any(_covered(f) for f in group):
@@ -3131,7 +3144,8 @@ def _restore_narrative_named_skills(
         narrated = [f for f in group if surface_present(f, narrative_norm)]
         if not narrated:
             continue
-        hit = next((f for f in group if _oracle_backed(f)), None)
+        candidates = narrated if cross_language else group
+        hit = next((f for f in candidates if _oracle_backed(f)), None)
         if hit is None:
             # Never a silent hold-back: this is the #219 case, and the
             # ledger row that authorised the name is what to look at.
@@ -4755,7 +4769,9 @@ def _compose_document(
     # persisted, so the audit (and any human reader) sees the final,
     # self-consistent document. Only ever ADDS a name already known-true and
     # already narrated; never invents, reorders, or removes an entry.
-    tailored = _restore_narrative_named_skills(tailored, profile_json, keyword_ledger)
+    tailored = _restore_narrative_named_skills(
+        tailored, profile_json, keyword_ledger, document_language=language
+    )
 
     # Populate photo_url from master profile's personal_info.
     # Stored path; resolved to base64 at render time in get_cv_html.
