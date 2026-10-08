@@ -43,7 +43,11 @@ from applire.schemas.profile import FieldChange, MasterProfileData, MatchReceipt
 from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.reconcile.apply import _ENTRY_NATURAL_KEYS, _merged, _norm
 from applire.services.profile.language_names import same_language
-from applire.services.profile.reconcile.import_witness import alias_carries, match_existing_bindings
+from applire.services.profile.reconcile.import_witness import (
+    alias_carries,
+    bound_name,
+    match_existing_bindings,
+)
 from applire.services.profile.reconcile.ops import UpsertVolunteer, UpsertWork
 from applire.services.prompt_view import prompt_incoming_view
 
@@ -80,7 +84,7 @@ def record_bound_aliases(
         )
         alias_map = _aliases.ALIAS_FIELDS.get(section, {})
         for op, target, entry in bindings:
-            receipts = receipts_by_op_target.get((str(op.target), _norm(op.incoming)), [])
+            receipts = receipts_by_op_target.get((str(op.target), _norm(bound_name(op, section))), [])
             receipt = receipts[0] if receipts else None
             if receipt is not None and receipt.incoming_entry is None:
                 receipt.incoming_entry = _entry_payload(entry)

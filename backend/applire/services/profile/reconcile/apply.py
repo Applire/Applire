@@ -2603,7 +2603,20 @@ def _apply_upsert_skill(
                 evidence_ids.append(ent_id)
         # else: leave unresolved handles out (defensive)
 
-    near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+    # RULING V-6 = A (ADR-046 amended 2026-10-08) — the model bound this op to
+    # an existing skill by id. Merge into it (the merge branch below) and
+    # receipt the pair; the alias is the import bridge's to record (writer b,
+    # document text only). A missing/unknown target falls through to today's
+    # path, and so does a target when ANOTHER skill already carries the
+    # incoming name exactly (a fact: "Java" never folds into JavaScript while
+    # "Java" is its own entry).
+    targeted = _targeted_skill(op, profile) if user_confirmed is None else None
+    if targeted is not None:
+        if matched is not None and not _same_words(op.name, targeted.name):
+            matched.append(_match_receipt("skills", targeted, op.name))
+        near = [targeted]
+    else:
+        near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
     # ADR-046 amended 2026-10-07 (#709) — a RECORDED other name of exactly one
     # skill is that skill (an exact name compare, never fuzzy). Only when the
     # near-dupe instrument found nothing: an alias never overrides a question
@@ -2710,7 +2723,8 @@ def _apply_upsert_skill(
         # contains the existing tokens; otherwise the existing name stays.
         # (Never on an alias hit: the incoming IS one of the entry's names.)
         if (
-            skill_tokens(op.name) > skill_tokens(existing.name)
+            targeted is None
+            and skill_tokens(op.name) > skill_tokens(existing.name)
             and not _aliases.alias_hit(existing, "name", "skills", op.name)
         ):
             existing.name = op.name
@@ -2719,6 +2733,23 @@ def _apply_upsert_skill(
 
     profile.skills.append(Skill(**_new_skill_kwargs(op, evidence_ids)))
     changes.append(_added("skills", "name", op.name))
+
+
+def _targeted_skill(op, profile):
+    """The existing skill ``op.target`` names, or ``None`` (V-6). ``None`` also
+    when another skill already carries ``op.name`` as its own name or a recorded
+    alias — the target never overrides that fact."""
+    if not getattr(op, "target", None):
+        return None
+    target = next((s for s in profile.skills if getattr(s, "id", None) == op.target), None)
+    if target is None:
+        return None
+    if any(
+        s is not target and _norm(op.name) in _aliases.names_of(s, "name", "skills")
+        for s in profile.skills
+    ):
+        return None
+    return target
 
 
 def _apply_demote_skill(op, profile, demotions):

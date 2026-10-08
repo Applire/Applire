@@ -193,6 +193,17 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   not recur in 49 valid glm turns; the full S1–S8 matrix then showed it once on
   S3 (1/9), and an S3 re-measure at n=10 gave 0/9 after vs 0/8 before (1/18, under
   the bar). Records: ``tests/files/model_matrix/results/2026-10-07/``.
+* **20,525 (V-6, 2026-10-08).** ``upsert_skill`` gains an optional ``target``
+  (one sentence in its op description): the id of the profile's skill when the
+  new information names it differently — never a second skill under the new
+  name. Why (E2E-3 a): with reasoning OFF (the stack's setting) luna linked
+  translated skills to their jobs through a TARGET-LESS ``upsert_skill`` under
+  the incoming name in 6/10 replays of the captured delivery prompt (real path
+  3/3) — the op had no way to name the existing skill, so each link created a
+  duplicate; jobs never duplicated because ``upsert_work`` has a target. The
+  applier merges a targeted op into its skill and receipts it; the import
+  bridge records the document's name as the alias (ADR-046/063 amended
+  2026-10-08). *Measured:* MEASURED-PLACEHOLDER
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -276,6 +287,9 @@ Operations:
   demonstrate this skill — a list even for a single id, never a bare string and
   never null: omit the field instead. On the profile side the same links are
   rendered under the name "experience_refs"; on an OP the field is "evidence").
+  target: the `id` of the profile's skill when the new information names THAT
+  skill differently (translation, synonym, abbreviation) — never a second
+  skill under the new name; omit it for a new skill.
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".

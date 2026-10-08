@@ -420,14 +420,12 @@ def match_existing_bindings(
         distinct.setdefault(_entry_key(entry, key_fields), entry)
     bindings: list[tuple[MatchExisting, Any, Any]] = []
     for op in ops:
-        if not isinstance(op, MatchExisting):
+        wanted = _norm(bound_name(op, section) or "")
+        if not wanted:
             continue
         target = merged_by_id.get(op.target)
         if target is None:
             continue  # unresolvable, or an entity of another section
-        wanted = _norm(op.incoming or "")
-        if not wanted:
-            continue
         candidates = [
             entry
             for entry in distinct.values()
@@ -464,6 +462,17 @@ def match_existing_bindings(
         if len(candidates) == 1:
             bindings.append((op, target, candidates[0]))
     return bindings
+
+
+def bound_name(op: Any, section: str) -> str | None:
+    """The incoming name an op BINDS to an existing entity by id, or ``None``:
+    ``match_existing``'s ``incoming``; a targeted ``upsert_skill``'s ``name``
+    (RULING V-6 = A, ADR-063 amended 2026-10-08 — sub-clause 3 widened)."""
+    if isinstance(op, MatchExisting):
+        return op.incoming
+    if section == "skills" and isinstance(op, UpsertSkill) and getattr(op, "target", None):
+        return op.name
+    return None
 
 
 def _match_existing_bound_keys(

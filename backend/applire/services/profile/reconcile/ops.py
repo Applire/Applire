@@ -140,6 +140,13 @@ class AddBullets(BaseModel):
 class UpsertSkill(BaseModel):
     op: Literal["upsert_skill"] = "upsert_skill"
     name: str
+    # RULING V-6 = A (ADR-046 amended 2026-10-08) — the `id` of the EXISTING
+    # skill this op is, when the new information names it differently (a
+    # translation, synonym, abbreviation) and adds evidence / a level / a span.
+    # Without it the op could only re-create the skill under the new name
+    # (E2E-3: 6/10 translated duplicates with reasoning off). A missing or
+    # unknown target behaves exactly as before.
+    target: str | None = None
     category: str | None = None
     proficiency: str | None = None
     # Existing ids or local refs of experiences that demonstrate the skill.
