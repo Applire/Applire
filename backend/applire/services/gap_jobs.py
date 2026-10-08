@@ -33,6 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.redaction import scrub_secrets
 from applire.db.session import AsyncSessionLocal
 from applire.exceptions import (
     LLMRateLimitError,
@@ -190,7 +191,7 @@ async def _run_gap_job(gap_job_id, job_analysis_id, user_id, session_factory, an
             if job is not None:
                 job.status = GapJobStatus.failed.value
                 job.error_code = code
-                job.error_message = str(exc)[:500]
+                job.error_message = scrub_secrets(str(exc))[:500]
                 await db.commit()
             return
 

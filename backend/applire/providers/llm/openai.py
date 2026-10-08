@@ -32,6 +32,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
+    unclassified_provider_error,
     LLMProvider,
     raise_if_no_completion,
     raise_if_truncated,
@@ -102,7 +103,17 @@ class OpenAIProvider(LLMProvider):
                     f"{self._model or 'The LLM provider'} is temporarily unavailable "
                     f"(HTTP {exc.status_code}). Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "OpenAI")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "OpenAI")
+            if wrapped is None:
+                raise
+            raise wrapped from None
 
     async def aparse_json(
         self,
@@ -140,7 +151,17 @@ class OpenAIProvider(LLMProvider):
                     f"{self._model or 'The LLM provider'} is temporarily unavailable "
                     f"(HTTP {exc.status_code}). Retry the same request."
                 ) from exc
-            raise
+            wrapped = unclassified_provider_error(exc, "OpenAI")
+            if wrapped is None:
+                raise
+            raise wrapped from None
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error the
+            # clauses above do not classify leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "OpenAI")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         # Strip markdown code fences (common with local models)
         if content.startswith("```"):
             content = content.split("```")[1]

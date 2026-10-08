@@ -17,9 +17,16 @@
 
 """
 MCP error helpers — translate domain exceptions to structured McpError responses.
+
+Error detail hardening: every message passes :func:`applire.redaction.scrub_secrets`
+on its way out, and an exception no tool classified becomes
+:func:`internal_unexpected` — a static message plus an error id, the exception
+itself going to the server log only.
 """
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
+
+from applire.redaction import scrub_secrets
 
 # JSON-RPC error codes
 _NOT_FOUND = -32001
@@ -30,16 +37,29 @@ _UNAUTHORIZED = -32003
 
 
 def not_found(msg: str) -> McpError:
-    return McpError(ErrorData(code=_NOT_FOUND, message=msg))
+    return McpError(ErrorData(code=_NOT_FOUND, message=scrub_secrets(msg)))
 
 
 def invalid_input(msg: str) -> McpError:
-    return McpError(ErrorData(code=_INVALID_INPUT, message=msg))
+    return McpError(ErrorData(code=_INVALID_INPUT, message=scrub_secrets(msg)))
 
 
 def internal(msg: str) -> McpError:
-    return McpError(ErrorData(code=_INTERNAL, message=msg))
+    return McpError(ErrorData(code=_INTERNAL, message=scrub_secrets(msg)))
 
 
 def unauthorized(msg: str) -> McpError:
-    return McpError(ErrorData(code=_UNAUTHORIZED, message=msg))
+    return McpError(ErrorData(code=_UNAUTHORIZED, message=scrub_secrets(msg)))
+
+
+def internal_unexpected(exc: BaseException, *, where: str) -> McpError:
+    """The ``internal`` error for an exception the tool did not classify.
+
+    Never ``str(exc)`` of an arbitrary exception: our own LLM error types keep
+    their (static) message so the agent knows whether to retry; anything else
+    answers a static message plus an error id. See
+    :func:`applire.internal_errors.agent_facing_message`.
+    """
+    from applire.internal_errors import agent_facing_message
+
+    return internal(agent_facing_message(exc, where=f"mcp.{where}"))

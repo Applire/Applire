@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from applire.constants import (
@@ -145,6 +145,29 @@ def configured_base_url(value: object = None) -> str | None:
     base = raw.strip().rstrip("/")
     return base or None
 
+#: Provider API keys travel in an HTTP request header, so a usable key is
+#: printable ASCII without spaces (``\x21``-``\x7e``).
+PROVIDER_API_KEY_FIELDS = (
+    "mistral_api_key",
+    "openai_api_key",
+    "openrouter_api_key",
+    "requesty_api_key",
+    "anthropic_api_key",
+)
+
+
+def has_unprintable_key_char(value: str) -> bool:
+    """True when ``value`` holds a character outside printable ASCII ``\x21``-``\x7e``."""
+    return any(not ("\x21" <= ch <= "\x7e") for ch in value)
+
+
+class InvalidSettingError(Exception):
+    """A setting's value is refused at startup. Names the setting, never the value.
+
+    Deliberately not a ``ValueError``: pydantic would wrap one in a
+    ``ValidationError`` whose text quotes the input.
+    """
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -162,6 +185,24 @@ class Settings(BaseSettings):
         """The value from the environment / ``.env`` / code default — never the
         admin override (ADR-093 cl. 3: what "reset to environment value" restores)."""
         return super().__getattribute__(name)
+
+    @field_validator(*PROVIDER_API_KEY_FIELDS, mode="before")
+    @classmethod
+    def _provider_api_key_is_printable(cls, value: object, info: ValidationInfo) -> object:
+        """Error detail hardening: refuse a provider key that cannot be a valid
+        header value. Surrounding whitespace (a paste artefact) is stripped; any
+        other space or control/non-ASCII character stops the start with an
+        operator error that names the setting only."""
+        if not isinstance(value, str):
+            return value
+        key = value.strip()
+        if has_unprintable_key_char(key):
+            raise InvalidSettingError(
+                f"{info.field_name.upper()} contains a space, a control character or a "
+                "non-ASCII character. API keys are printable ASCII only: re-enter the "
+                "key in your .env / environment and restart. (The value is not shown.)"
+            )
+        return key
 
     database_url: str
     llm_provider: str = "mistral"

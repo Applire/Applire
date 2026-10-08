@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.internal_errors import internal_server_error
 from applire.auth.deps import require_user, user_or_signed_link
 from applire.models.user import User
 from applire.config import settings
@@ -91,7 +92,7 @@ async def post_generate(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.post_generate")
 
 
 @router.get("/{cv_id}/status", response_model=CVStatusResponse)
@@ -113,7 +114,7 @@ async def get_status(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_status")
 
 
 @router.get("/{cv_id}/ats-report", response_model=ATSReportResponse)
@@ -194,7 +195,7 @@ async def get_html(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_html")
 
 
 @router.get("/{cv_id}/pdf")
@@ -216,7 +217,7 @@ async def get_pdf(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_pdf")
 
 
 @router.get("/{cv_id}/docx")
@@ -241,7 +242,7 @@ async def get_docx(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_docx")
 
 
 @router.get("", response_model=list[CVStatusResponse])
@@ -263,7 +264,7 @@ async def get_cvs_for_job(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_cvs_for_job")
 
 
 @router.get("/{cv_id}/sections", response_model=CVSectionsResponse)
@@ -280,7 +281,7 @@ async def get_sections(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.get_sections")
 
 
 @router.post(
@@ -308,7 +309,7 @@ async def post_section_assist(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.post_section_assist")
 
 
 @router.patch(
@@ -336,7 +337,7 @@ async def patch_section_assist(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.patch_section_assist")
 
 
 @router.post(
@@ -369,7 +370,7 @@ async def post_section_rewrite(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.post_section_rewrite")
 
 
 @router.patch(
@@ -401,7 +402,7 @@ async def patch_section(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise internal_server_error(exc, where="cv.patch_section")
 
 
 @router.patch("/{cv_id}/signature", response_model=CVSignatureOverrideResponse)

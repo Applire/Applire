@@ -21,6 +21,7 @@ from mistralai import Mistral
 
 from applire.config import settings
 from applire.providers.embedding.base import EmbeddingProvider
+from applire.providers.llm.base import unclassified_provider_error
 
 DEFAULT_MODEL = "mistral-embed"
 EMBEDDING_DIM = 1024
@@ -35,8 +36,15 @@ class MistralEmbeddingProvider(EmbeddingProvider):
         self._dim = EMBEDDING_DIM
 
     async def embed(self, text: str) -> list[float]:
-        response = await self._client.embeddings.create(
-            model=self._model,
-            inputs=[text],
-        )
+        try:
+            response = await self._client.embeddings.create(
+                model=self._model,
+                inputs=[text],
+            )
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Mistral embeddings")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         return response.data[0].embedding

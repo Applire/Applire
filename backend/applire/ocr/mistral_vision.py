@@ -27,6 +27,7 @@ expose — that interface is intentionally minimal for text completion.
 import base64
 
 from applire.ocr.base import CVImageExtractor
+from applire.providers.llm.base import unclassified_provider_error
 
 _VISION_MODEL = "pixtral-12b-2409"
 _SYSTEM_PROMPT = (
@@ -51,19 +52,26 @@ class MistralVisionExtractor(CVImageExtractor):
         b64 = base64.standard_b64encode(image_bytes).decode()
         data_uri = f"data:{mime_type};base64,{b64}"
 
-        client = Mistral(api_key=self._api_key)
-        response = await client.chat.complete_async(
-            model=_VISION_MODEL,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": data_uri}},
-                        {"type": "text", "text": "Extract all text from this CV image."},
-                    ],
-                },
-            ],
-            temperature=0.0,
-        )
+        try:
+            client = Mistral(api_key=self._api_key)
+            response = await client.chat.complete_async(
+                model=_VISION_MODEL,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                            {"type": "text", "text": "Extract all text from this CV image."},
+                        ],
+                    },
+                ],
+                temperature=0.0,
+            )
+        except Exception as exc:
+            # Error detail hardening: an SDK / HTTP-client error leaves as our own type.
+            wrapped = unclassified_provider_error(exc, "Mistral OCR")
+            if wrapped is None:
+                raise
+            raise wrapped from None
         return response.choices[0].message.content or ""

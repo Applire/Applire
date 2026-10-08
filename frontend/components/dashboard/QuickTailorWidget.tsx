@@ -100,7 +100,13 @@ export function QuickTailorWidget() {
       });
       if (!createRes.ok) {
         const err = await createRes.json();
-        setError(createRes.status === 409 ? tDash("errorAppExists") : (err.detail ?? tDash("errorCreateAppFailed")));
+        // A 5xx answers a structured body (error_code/message/error_id): only a
+        // string detail is a message meant for the user; else the catalog copy.
+        setError(
+          createRes.status === 409
+            ? tDash("errorAppExists")
+            : typeof err.detail === "string" ? err.detail : tDash("errorCreateAppFailed"),
+        );
         return;
       }
       const appData = await createRes.json();

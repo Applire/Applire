@@ -90,7 +90,7 @@ from applire import ownership
 from applire.mcp import identity as mcp_identity
 from applire.mcp.deps import get_db
 from applire.mcp.errors import _INVALID_INPUT as _INVALID_INPUT_CODE
-from applire.mcp.errors import internal, invalid_input, not_found, unauthorized
+from applire.mcp.errors import internal, internal_unexpected, invalid_input, not_found, unauthorized
 from applire.services.profile.commit import StaleEditError, VaultWriteRevertedError
 from applire.models.application import UserStatus
 from applire.models.cover_letter import GeneratedCoverLetter
@@ -258,8 +258,16 @@ def _agent_call(fn):
         # ADR-093 cl. 5/6: refresh the admin overrides and pin them for this whole
         # call, BEFORE the body (analyze_jd resolves its provider before it opens
         # a session) — the agent door uses a switched provider on its next call.
-        async with instance_settings.pinned_call():
-            return await _agent_call_body(fn, args, kwargs)
+        try:
+            async with instance_settings.pinned_call():
+                return await _agent_call_body(fn, args, kwargs)
+        except McpError:
+            raise
+        except Exception as exc:
+            # Error detail hardening: an exception a tool body (or the pin's
+            # refresh) let escape would otherwise reach the agent as its raw
+            # text through the SDK.
+            raise internal_unexpected(exc, where=fn.__name__)
 
     return wrapper
 
@@ -623,7 +631,7 @@ async def import_cv(
             except ownership.OwnedNotFound:
                 raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
-                raise internal(str(exc))
+                raise internal_unexpected(exc, where="import_cv")
     elif text and text.strip():
         async with get_db() as db:
             uid = await _current_user_id(db)
@@ -641,7 +649,7 @@ async def import_cv(
             except ownership.OwnedNotFound:
                 raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
-                raise internal(str(exc))
+                raise internal_unexpected(exc, where="import_cv")
     else:
         raise invalid_input("Provide either file_base64 (base64 PDF) or text")
     # #367 — the US167/ADR-041 gate now fires on this door too. A HOLD is not an
@@ -707,7 +715,7 @@ async def analyze_jd(
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="analyze_jd")
         # Branch F (E039/US220): the service computes `duplicate_of` BEFORE it
         # creates the caller's link (a recognised repost gets a hidden link,
         # ruling 4a-1) — a post-hoc lookup here would always match the link the
@@ -990,7 +998,7 @@ async def analyze_gaps(job_id: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="analyze_gaps")
     return _marked(result.model_dump(mode="json"), "analyze_gaps")
 
 
@@ -1018,7 +1026,7 @@ async def run_interview(job_id: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="run_interview")
     return _marked(result.model_dump(mode="json"), "session")
 
 
@@ -1054,7 +1062,7 @@ async def send_message(session_id: str, message: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="send_message")
     return _marked(result.model_dump(mode="json"), "session")
 
 
@@ -1153,7 +1161,7 @@ async def resolve_gap(job_id: str, gap_id: str, answer: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="resolve_gap")
 
         # The turn's own record decides the status; a turn that wrote none
         # (a legacy analysis row) keeps the pre-ADR-089 status and reports the
@@ -1258,7 +1266,7 @@ async def generate_cv(job_id: str, target_pages: int | None = None) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="generate_cv")
     return result.model_dump(mode="json")
 
 
@@ -1360,7 +1368,7 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     except ownership.OwnedNotFound:
         raise  # foreign = missing: the wrapper answers not_found (S-10)
     except Exception as exc:
-        raise internal(str(exc))
+        raise internal_unexpected(exc, where="_audit_stored_document")
     record.truthfulness_report = report.model_dump(mode="json")
     await db.commit()
     return {"document_id": str(record.id), **record.truthfulness_report}
@@ -1396,7 +1404,7 @@ async def audit_document(
             except ownership.OwnedNotFound:
                 raise  # foreign = missing: the wrapper answers not_found (S-10)
             except Exception as exc:
-                raise internal(str(exc))
+                raise internal_unexpected(exc, where="audit_document")
             return report.model_dump(mode="json")
 
         did = _parse_uuid(document_id, "document_id")
@@ -1536,7 +1544,7 @@ async def render_document(
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="render_document")
 
 
 @agent_tool(
@@ -1567,7 +1575,7 @@ async def generate_cover_letter(job_id: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="generate_cover_letter")
     return result.model_dump(mode="json")
 
 
@@ -1634,7 +1642,7 @@ async def start_flow(job_id: str | None = None) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="start_flow")
     return _marked(result.model_dump(mode="json"), "flow")
 
 
@@ -1666,7 +1674,7 @@ async def advance_flow(flow_id: str, step: str, artifact_id: str | None = None) 
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="advance_flow")
     return _marked(result.model_dump(mode="json"), "flow")
 
 
@@ -1721,7 +1729,7 @@ async def list_applications(status_filter: str | None = None) -> list[dict]:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="list_applications")
     return [
         _marked(item.model_dump(mode="json"), "application") for item in result.items
     ]
@@ -1748,7 +1756,7 @@ async def get_application(application_id: str) -> dict:
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="get_application")
     return _marked(result.model_dump(mode="json"), "application")
 
 
@@ -1795,7 +1803,7 @@ async def create_application(
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="create_application")
     return _marked(result.model_dump(mode="json"), "application")
 
 
@@ -1904,7 +1912,7 @@ async def update_application(
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="update_application")
     return _marked(result.model_dump(mode="json"), "application")
 
 
@@ -1944,7 +1952,7 @@ async def add_role(
         except ownership.OwnedNotFound:
             raise  # foreign = missing: the wrapper answers not_found (S-10)
         except Exception as exc:
-            raise internal(str(exc))
+            raise internal_unexpected(exc, where="add_role")
     return result.model_dump(mode="json")
 
 

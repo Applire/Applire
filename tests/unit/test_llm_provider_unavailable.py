@@ -150,8 +150,14 @@ async def test_openrouter_400_still_propagates_unmapped(monkeypatch):
         from applire.providers.llm.openrouter import OpenRouterProvider
         provider = OpenRouterProvider(timeout=30)
 
-    with pytest.raises(openai.BadRequestError):
+    # Error detail hardening: unmapped, i.e. not the retryable typed error —
+    # it leaves as LLMProviderError with the status, never the SDK text.
+    from applire.exceptions import LLMProviderError, LLMProviderUnavailableError
+
+    with pytest.raises(LLMProviderError) as exc:
         await provider.acomplete("test prompt")
+    assert not isinstance(exc.value, LLMProviderUnavailableError)
+    assert exc.value.status_code == 400
 
 
 # ---------------------------------------------------------------------------

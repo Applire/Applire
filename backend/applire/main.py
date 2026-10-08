@@ -62,6 +62,14 @@ from applire.auth.logfilter import install_access_log_redaction
 
 # ADR-091 cl. 18: the uvicorn access log never carries a link signature or a token.
 install_access_log_redaction()
+
+# Error detail hardening: a log record's message and traceback are scrubbed of
+# configured secret values before any handler formats them — on the applire
+# handler (every ``applire.*`` record) and on uvicorn's error logger (an
+# exception that escapes a route is logged there).
+from applire.redaction import install_secret_redaction, scrub_detail  # noqa: E402
+
+install_secret_redaction(*_applire_logger.handlers, logging.getLogger("uvicorn.error"))
 from applire.services.thumbnails import ensure_thumbnails
 
 STATIC_DIR = resolve_static_dir()
@@ -271,6 +279,19 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+
+# Error detail hardening: every HTTP error body passes one scrub on its way
+# out, so a ``detail`` built from exception text cannot carry a configured
+# secret value. Route-level catch-alls already answer with a static body.
+from fastapi.exception_handlers import http_exception_handler  # noqa: E402
+from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _scrubbed_http_exception_handler(request, exc: StarletteHTTPException):
+    exc.detail = scrub_detail(exc.detail)
+    return await http_exception_handler(request, exc)
 
 
 @app.get("/openapi.json", include_in_schema=False)

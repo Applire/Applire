@@ -64,6 +64,24 @@ describe("GenerateCoverLetterModal", () => {
     await waitFor(() => expect(screen.getByText("Profil unvollständig.")).toBeTruthy());
   });
 
+  // Error detail hardening: a 500 answers {error_code, message, error_id}; the
+  // modal shows its translated fallback instead of throwing on `.trim()`.
+  it("shows the translated error when a 500 answers a structured detail", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () =>
+        Promise.resolve({
+          detail: { error_code: "internal_error", message: "An unexpected error occurred.", error_id: "abc123def456" },
+        }),
+    } as Response);
+
+    renderModal();
+    fireEvent.click(screen.getByTestId("cl-modal-generate"));
+
+    await waitFor(() => expect(screen.getByText("Unbekannter Fehler")).toBeTruthy());
+  });
+
   it("renders the tonality options in German", () => {
     renderModal();
     expect(screen.getByText("Förmlich")).toBeTruthy();
