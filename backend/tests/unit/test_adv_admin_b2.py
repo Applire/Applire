@@ -223,6 +223,37 @@ async def test_adv_admin_3b_openai_without_key_and_without_base_url_reads_ready(
 
 CTRL_KEY = "sk-or-ADVSENTINEL\x0b4f2a"
 
+#: Ceiling for every network leg below: a regression fails fast, never hangs.
+_GUARD_S = 20
+
+
+class _ClosingServer:
+    """A socket on 127.0.0.1 that closes every connection it accepts.
+
+    On Python 3.12 ``Server.wait_closed()`` waits for open connections, so a
+    server whose handler leaves the connection open hangs the test forever."""
+
+    def __init__(self) -> None:
+        self.accepted: list[asyncio.StreamWriter] = []
+        self.server: asyncio.Server | None = None
+        self.port = 0
+
+    async def _handle(self, _reader, writer) -> None:
+        self.accepted.append(writer)
+        writer.close()
+
+    async def __aenter__(self) -> "_ClosingServer":
+        self.server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self.port = self.server.sockets[0].getsockname()[1]
+        return self
+
+    async def __aexit__(self, *_exc) -> None:
+        assert self.server is not None
+        self.server.close()
+        for writer in self.accepted:
+            writer.close()
+        await asyncio.wait_for(self.server.wait_closed(), 5)
+
 
 @pytest.mark.asyncio
 async def test_adv_admin_4_a_key_with_a_control_character_is_stored(env):
@@ -235,17 +266,15 @@ async def test_adv_admin_4_a_key_with_a_control_character_is_stored(env):
 
     # Precondition, on a socket on 127.0.0.1 (no provider, no network): httpx's
     # error text carries the header value — i.e. the key — verbatim.
-    server = await asyncio.start_server(lambda _r, _w: None, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    try:
+    async with _ClosingServer() as srv:
         async with httpx.AsyncClient(timeout=2) as c:
             with pytest.raises(httpx.LocalProtocolError) as exc:
-                await c.get(f"http://127.0.0.1:{port}/",
-                            headers={"Authorization": f"Bearer {CTRL_KEY}"})
+                await asyncio.wait_for(
+                    c.get(f"http://127.0.0.1:{srv.port}/",
+                          headers={"Authorization": f"Bearer {CTRL_KEY}"}),
+                    _GUARD_S,
+                )
         assert "ADVSENTINEL" in str(exc.value)
-    finally:
-        server.close()
-        await server.wait_closed()
 
     r = await _put(client, {"OPENROUTER_API_KEY": CTRL_KEY})
     assert r.status_code == 422 and r.json()["detail"]["error_code"] == "invalid_setting_value", (
@@ -254,33 +283,35 @@ async def test_adv_admin_4_a_key_with_a_control_character_is_stored(env):
 
 
 @pytest.mark.asyncio
-async def test_adv_admin_4b_a_non_admin_receives_that_key_in_a_500_detail(env, monkeypatch):
-    """End to end, hermetic: the admin stores the Mistral key through the panel,
-    a NON-admin analyses a posting, the Mistral SDK re-raises httpx's error raw
-    (``basesdk.py``: ``raise e``), ``MistralProvider`` re-raises it (not 429/5xx)
-    and ``routers/job.py`` answers ``500 detail=str(exc)`` — the operator's whole
-    key, in plain text, to an ordinary account. The SDK is pointed at a socket on
-    127.0.0.1; no provider is contacted."""
+async def test_adv_admin_4b_a_key_below_the_panel_reaches_no_plain_account(env, monkeypatch):
+    """The panel refuses a key outside printable ASCII (4a). A value that gets
+    in BELOW the panel — an ``instance_settings`` row written directly — still
+    reaches the provider. A plain (non-admin) account then analyses a posting
+    through REST and through the agent door: neither answer may carry the
+    stored key. The Mistral SDK is pointed at a socket on 127.0.0.1 that closes
+    at once; no provider is contacted, every leg is time-bounded."""
     import functools
 
     from fastapi import FastAPI
+    from mcp.shared.exceptions import McpError
+    from mistralai.utils import BackoffStrategy, RetryConfig
+    from unittest.mock import AsyncMock, MagicMock
 
+    import applire.providers.llm.mistral as mistral_mod
     from applire.auth import get_auth_provider
     from applire.db.session import get_db
+    from applire.mcp import server as mcp_server
     from applire.routers import job as job_router
     from applire.services import instance_settings as svc
     from tests.support.owners_1b import add_user, client_for
-    import applire.providers.llm.mistral as mistral_mod
 
-    db, admin_client, _, _ = env
-    r = await _put(admin_client, {"LLM_PROVIDER": "mistral", "MISTRAL_API_KEY": CTRL_KEY})
-    assert r.status_code == 200, r.text
+    db, _admin_client, _, _ = env
+    db.add(InstanceSetting(key="LLM_PROVIDER", value="mistral"))
+    db.add(InstanceSetting(key="MISTRAL_API_KEY", secret_ciphertext=svc.encrypt_secret(CTRL_KEY)))
+    await db.commit()
     await svc.refresh()
-
-    server = await asyncio.start_server(lambda _r, _w: None, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    monkeypatch.setattr(mistral_mod, "Mistral",
-                        functools.partial(mistral_mod.Mistral, server_url=f"http://127.0.0.1:{port}"))
+    assert settings.mistral_api_key == CTRL_KEY  # the overlay carries it
+    monkeypatch.setattr(settings, "llm_timeout", 5)
 
     user = await add_user(db, email="plain-user@example.org", role="user")
 
@@ -303,15 +334,35 @@ async def test_adv_admin_4b_a_non_admin_receives_that_key_in_a_500_detail(env, m
     posting = ("Senior Backend Engineer (m/w/d) at Example GmbH, Berlin. You build Python "
                "services with FastAPI and PostgreSQL. Requirements: 5 years Python, SQL, "
                "Docker. Nice to have: Kubernetes. We offer 30 days of holiday. ") * 3
-    try:
+
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(mcp_server, "get_db", lambda: cm)
+    monkeypatch.setattr(mcp_server, "_current_user_id", AsyncMock(return_value=user.id))
+
+    async with _ClosingServer() as srv:
+        monkeypatch.setattr(
+            mistral_mod, "Mistral",
+            functools.partial(
+                mistral_mod.Mistral,
+                server_url=f"http://127.0.0.1:{srv.port}",
+                retry_config=RetryConfig("none", BackoffStrategy(1, 1, 1.0, 1), False),
+                timeout_ms=2000,
+            ),
+        )
         async with client_for(app) as client:
-            res = await client.post("/api/job/analyze", json={"text": posting}, headers=ORIGIN)
-    finally:
-        server.close()
-        await server.wait_closed()
-    assert "ADVSENTINEL" not in res.text, (
-        f"a non-admin got the operator's key back: {res.status_code} {res.text[:160]!r}"
-    )
+            res = await asyncio.wait_for(
+                client.post("/api/job/analyze", json={"text": posting}, headers=ORIGIN), _GUARD_S
+            )
+        with pytest.raises(McpError) as mcp_exc:
+            await asyncio.wait_for(mcp_server.analyze_jd(text=posting), _GUARD_S)
+
+    assert "ADVSENTINEL" not in res.text, f"REST answer carried the stored key: {res.text[:160]!r}"
+    assert res.status_code == 500 and res.json()["detail"]["error_code"] == "internal_error", res.text
+    message = mcp_exc.value.error.message
+    assert "ADVSENTINEL" not in message, f"MCP answer carried the stored key: {message[:160]!r}"
+    assert "Mistral call failed" in message, message
 
 
 # =====================================================================================
