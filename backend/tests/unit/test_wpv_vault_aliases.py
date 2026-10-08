@@ -510,3 +510,32 @@ def test_volunteer_alias_match_in_the_applier_leaves_an_alias_receipt():
     applied = apply_ops(vault, [UpsertVolunteer(ref="v", organization="DRK", role="Sanitäter",
                                                 start_date="2015-01")], "cv_upload")
     assert [(m.basis, m.entity_id) for m in applied.matched] == [("alias", "v1")]
+
+
+# ── E2E-3 (b), 2026-10-08: identical pairs are never "recognised" ─────────────
+
+
+def test_identical_match_existing_leaves_no_receipt_but_still_carries():
+    """The model emits `match_existing` for names the vault already holds word
+    for word (Django -> Django). That is no rename: no receipt (the card would
+    claim the entry was renamed and offer an undo that adds a second Django).
+    The witness still carries it through the op."""
+    vault = MasterProfileData(
+        skills=[Skill(id="s1", name="Django"), Skill(id="s2", name="REST APIs")],
+        work_experience=[WorkEntry(id="w1", company="Acme GmbH", role="Backend Engineer", start_date="2020-01")],
+    )
+    ops = [
+        MatchExisting(target="s1", incoming="Django"),
+        MatchExisting(target="s2", incoming="  rest   apis "),
+        MatchExisting(target="w1", incoming="Acme GmbH / Backend Engineer"),
+    ]
+    applied = apply_ops(vault, ops, "cv_upload")
+    assert applied.matched == []
+    incoming = MasterProfileData(skills=[Skill(name="Django")])
+    assert compute_import_not_applied(incoming, applied.profile, ops) == []
+
+
+def test_a_real_rename_still_leaves_its_receipt():
+    vault = MasterProfileData(skills=[Skill(id="s1", name="Vertragsbasierte Tests")])
+    applied = apply_ops(vault, [MatchExisting(target="s1", incoming="Contract Testing")], "cv_upload")
+    assert [(m.incoming, m.existing) for m in applied.matched] == [("Contract Testing", "Vertragsbasierte Tests")]

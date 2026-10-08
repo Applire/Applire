@@ -24,6 +24,11 @@ const FOLD_AFTER = 5;
 
 type RowState = "idle" | "busy" | "done" | "failed";
 
+function sameWords(a: string, b: string): boolean {
+  const norm = (v: string) => v.normalize("NFC").trim().toLocaleLowerCase().split(/\s+/).join(" ");
+  return norm(a) === norm(b);
+}
+
 export function RecognisedMatches({
   matched,
   onSeparated,
@@ -36,7 +41,9 @@ export function RecognisedMatches({
   const [expanded, setExpanded] = useState(false);
   const [rows, setRows] = useState<Record<number, RowState>>({});
 
-  const items = matched.filter((m) => !m.undone_at);
+  // E2E-3 (b): an identical pair is no rename — never a row, never an undo
+  // (receipts persisted before the backend stopped writing them).
+  const items = matched.filter((m) => !m.undone_at && !sameWords(m.incoming, m.existing));
   if (items.length === 0) return null;
   const visible = expanded ? items : items.slice(0, FOLD_AFTER);
 

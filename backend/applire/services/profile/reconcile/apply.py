@@ -3044,7 +3044,19 @@ def _apply_match_existing(op, resolve, matched):
         return
     receipt = _match_receipt(_section_for(entity), entity, op.incoming)
     receipt.entity_id = str(op.target)
+    if _same_words(receipt.incoming, receipt.existing):
+        # E2E-3 (b), 2026-10-08 — the model also matches word-for-word
+        # restatements (Django -> Django). That is no rename: no receipt, so
+        # the import summary never claims one and never offers an undo that
+        # would add a second copy. The witness still carries the entry
+        # through the op itself (arm (c), sub-clause 3).
+        return
     matched.append(receipt)
+
+
+def _same_words(a: str, b: str) -> bool:
+    """Equal after the committer's ``_norm`` with internal whitespace collapsed."""
+    return " ".join(_norm(a).split()) == " ".join(_norm(b).split())
 
 
 _SECTION_MODEL: dict[str, type] = {
