@@ -281,3 +281,34 @@ def test_the_check_never_mutates_the_tailored_document():
     _audit(cv, "de")
 
     assert cv.model_dump(mode="json") == before
+
+
+# ── #759: the fail row is localisable (ADR-081 amended 2026-10-08) ────────────
+
+
+def test_a_failed_check_carries_a_localisable_detail_key_and_params():
+    """The review surface renders a FAILED document-language check in its
+    "before you send it" block, in the UI language: the row carries
+    `details_key="document-language-mixed"` with the language, the count and up
+    to three examples; `details` stays the EN diagnostic for the agent door."""
+    cv = TailoredCVData.model_validate({
+        "contact": {"name": "Jana Lehmann"},
+        "summary": DE_SUMMARY,
+        "work_history": [_de_work_entry(bullets=[DE_BULLET_1, EN_BULLET_WORK])],
+        "skills": [],
+    })
+
+    check = _check(_audit(cv, "de"), "document-language")
+
+    assert check.status == "fail"
+    assert check.details_key == "document-language-mixed"
+    assert check.details_params["language"] == "de"
+    assert check.details_params["count"] == 1
+    assert EN_BULLET_WORK[:40] in check.details_params["examples"]
+    assert "items not written in the document language (de)" in check.details
+
+
+def test_a_passing_check_carries_no_detail_key():
+    check = _check(_audit(_clean_german_cv(), "de"), "document-language")
+    assert check.status == "pass"
+    assert check.details_key is None and check.details_params is None

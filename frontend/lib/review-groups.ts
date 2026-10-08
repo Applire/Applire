@@ -51,7 +51,7 @@ import type {
   CrossDocumentItem,
   OutcomeCriticReport,
 } from "@/components/cv/CriticAdvisoryPanel";
-import type { ATSCheck, ATSReport, CheckSignal } from "./ats-report";
+import { baseId, type ATSCheck, type ATSReport, type CheckSignal } from "./ats-report";
 import type { ReviewAction, ReviewDecision, ReviewState } from "./api/document-review";
 import type { LocateTarget } from "./locate-in-preview";
 import { normQuote } from "./norm-quote";
@@ -369,6 +369,30 @@ function buildGroup3(inputs: ReviewInputs): ReviewItem[] {
 }
 
 /**
+ * #759 (ADR-081 amended 2026-10-08) — the checks whose FAILURE does stand in the
+ * way of sending. A fixed list of the producer's own check ids (this module reads,
+ * it does not compute): a failed `document-language` check means the document
+ * mixes languages, and it may not sit under "Nichts davon steht dem Versand im
+ * Weg". Such a row leaves group 4 and renders in its own block above it.
+ */
+export const SEND_CHECK_IDS: ReadonlySet<string> = new Set(["document-language"]);
+
+const isSendCheck = (c: ATSCheck): boolean => c.status === "fail" && SEND_CHECK_IDS.has(baseId(c.id));
+
+/** #759 — the failed send-blocking checks, as rows for the "before you send it" block. */
+export function buildSendChecks(atsReport: ATSReport): ReviewItem[] {
+  return (atsReport?.checks ?? []).filter(isSendCheck).map((c) => ({
+    key: `check-send-${c.id}`,
+    label: c.id,
+    kind: "check" as const,
+    producers: ["ats"] as ReviewProducer[],
+    severity: "warning" as const,
+    checkId: c.id,
+    check: c,
+  }));
+}
+
+/**
  * Group 4 — craft. Failing structure checks, pass-with-advisory checks,
  * `not_applicable` checks (ADR-079 cl. 4 — never silently absent) and the
  * outcome critic's advisories (ADR-060).
@@ -381,7 +405,8 @@ function buildGroup3(inputs: ReviewInputs): ReviewItem[] {
 function buildGroup4(inputs: ReviewInputs): { items: ReviewItem[]; passedChecks: number } {
   const { atsReport, criticReport } = inputs;
   const checks: ATSCheck[] = atsReport?.checks ?? [];
-  const failed = checks.filter((c) => c.status === "fail");
+  // #759: a failed send-blocking check is NOT craft — see `buildSendChecks`.
+  const failed = checks.filter((c) => c.status === "fail" && !isSendCheck(c));
   const advisory = checks.filter((c) => c.status === "pass" && c.details);
   const notApplicable = checks.filter((c) => c.status === "not_applicable");
   const passedChecks = checks.filter((c) => c.status === "pass" && !c.details).length;
@@ -513,12 +538,22 @@ export type VerdictState =
    * clean group 1 may not render as an unqualified all-clear while real
    * findings sit beneath it.
    */
-  | { kind: "clear_with_others"; others: number };
+  | { kind: "clear_with_others"; others: number }
+  /**
+   * #759 — group 1 is clean, but a send-blocking check failed (`buildSendChecks`).
+   * The sentence names it instead of calling the rest harmless.
+   */
+  | { kind: "clear_with_send_checks"; count: number };
 
-export function verdictState(groups: ReviewGroup[], renderedGroup1Count: number): VerdictState {
+export function verdictState(
+  groups: ReviewGroup[],
+  renderedGroup1Count: number,
+  sendCheckCount = 0,
+): VerdictState {
   const group1 = groups.find((g) => g.id === 1);
   if (group1?.unknown) return { kind: "unknown" };
   if (renderedGroup1Count > 0) return { kind: "findings", count: renderedGroup1Count };
+  if (sendCheckCount > 0) return { kind: "clear_with_send_checks", count: sendCheckCount };
   const others = groups
     .filter((g) => g.id !== 1 && !g.unknown)
     .reduce((n, g) => n + g.items.length, 0);

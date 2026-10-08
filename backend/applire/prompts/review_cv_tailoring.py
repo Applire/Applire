@@ -15,6 +15,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v10.1 (#759, 2026-10-08 — `build_terminal_review_prompt(document_language=…)`:
+#   the terminal reviewer is told the document language and that a document-language
+#   rendering of profile evidence is grounded; it had demanded the vault's English skill
+#   names in a German CV (CV 1680cd28 record 175). User prompt only; system prompt unchanged.)
 # Prompt version: v10 (#668 / ADR-082 + ADR-083 reconciled 2026-09-08, founder ruling 3 of
 #   2026-09-05 — `repetition` leaves the minor-by-definition line on BOTH doors and becomes
 #   NAMED check 8, REDUNDANCY, blocking like any other. The clause-9 terminal checks
@@ -472,6 +476,7 @@ def build_terminal_review_prompt(
     page_count: int | None,
     target: int,
     condensation_exhausted: bool,
+    document_language: str | None = None,
 ) -> str:
     """Build the TERMINAL-round reviewer user prompt (#538, ADR-076 clause 3).
 
@@ -487,6 +492,10 @@ def build_terminal_review_prompt(
         target: The resolved target page count (ADR-051).
         condensation_exhausted: True when the deterministic condense loop could not
                     reach the target — stated for honest context, never as a mandate.
+        document_language: #759 — the language the delivered document is written in.
+                    The reviewer was never told it and asked a German CV for the
+                    profile's English skill names ("use the supported skill 'Motion
+                    Design'", CV 1680cd28 record 175). ``None`` → no note (unchanged).
     """
     if page_count is not None:
         measure = f"measured pages: {page_count}, target: {target}"
@@ -497,9 +506,23 @@ def build_terminal_review_prompt(
             )
     else:
         measure = f"render measure unavailable for this round (target: {target} pages)"
+    language_note = ""
+    if document_language:
+        from applire.prompts.interview import language_name
+
+        name = language_name(document_language)
+        language_note = (
+            f"DOCUMENT LANGUAGE: {name}. The delivered document is written in {name}; the "
+            "CANDIDATE PROFILE may be in another language. A rendering of profile evidence "
+            f"in {name} — a bullet or a skills entry — is grounded, not altered wording: "
+            "never ask for it to be replaced by the profile's wording in another "
+            "language, and never ask for profile text to be inserted verbatim in "
+            "another language.\n\n"
+        )
     return (
         "Terminal review: the document below is the COMPOSED artifact exactly as it "
         "will be delivered (see SHAPE NOTE — TERMINAL ROUND).\n\n"
+        f"{language_note}"
         f"CANDIDATE PROFILE (source of truth):\n{source_material}\n\n"
         f"COMPOSED CV (the delivered document):\n"
         f"{json.dumps(composed_json, ensure_ascii=False, indent=2)}\n\n"

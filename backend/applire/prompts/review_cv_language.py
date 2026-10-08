@@ -24,6 +24,11 @@
 #   competency stated in English words is not a "technology name", and a bilingual
 #   twin in the skills list is translated into an exact duplicate on purpose so the
 #   page-scope dedup can collapse it.
+# Prompt version: v3 (2026-10-08, #759 / founder ruling E5-2 — a role's `budget_managed`
+#   line ("up to €2M") joins the pass beside the industry line; its figures must survive
+#   unchanged, and a deterministic figure check (`cv._figures_preserved`) refuses any
+#   rendering that changes one. Also re-run over the terminal corrector's output
+#   (chain `cv_language_recheck`).)
 # Used by: services/cv.py → _review_cv_language(), wrapped with
 #          services/reviewer.review_and_refine (ADR-021, ADR-038).
 #          review_and_refine calls reviewer_prompt_fn(source, draft) positionally,
@@ -51,12 +56,12 @@ from applire.prompts.review_severity import review_output_schema
 CV_LANGUAGE_REVIEW_SYSTEM_PROMPT = """\
 You are a language reviewer for an AI-generated, tailored CV draft represented as JSON.
 The draft is prose only (ADR-067): a professional `summary`, `work` entries (each an
-`id` with `bullets`, nested `projects` and sometimes an `industry_context` line), and a
-`skills` list — employer names, dates, education and certifications are joined from the
+`id` with `bullets`, nested `projects` and sometimes an `industry_context` line and a
+`budget_managed` line), and a `skills` list — employer names, dates, education and certifications are joined from the
 profile elsewhere and are not in this draft. Your sole responsibility is to verify that
 ALL human-readable text is written entirely in the required language: the `summary`,
-every work bullet, every project bullet, every `industry_context` line, and every entry
-in the `skills` list.
+every work bullet, every project bullet, every `industry_context` and `budget_managed`
+line, and every entry in the `skills` list.
 
 Some of these were copied from the candidate's own records in THEIR language and are
 reaching you for exactly this reason. Treat them like any other item: they are
@@ -114,19 +119,22 @@ waive it in your feedback, as instructed above.
     issue_hint="one item still in the wrong language, named exactly — empty array if nothing found",
     feedback_hint="one concise instruction naming the required language and what to translate — empty string if there is nothing blocking",
 ) + """
-Approve only if summary, all bullets (work AND project), every `industry_context` line and
-all skills are entirely in the required language (proper nouns above excepted; project
+Approve only if summary, all bullets (work AND project), every `industry_context` and
+`budget_managed` line and all skills are entirely in the required language (proper nouns above excepted; project
 NAMES may stay — they are often proper nouns).
 """
 
 CV_LANGUAGE_REFINEMENT_PROMPT = """\
 You rewrite a tailored CV prose draft into a required language.
 You receive (1) a previous draft — `summary`, `work` entries (each an `id` with
-`bullets`, nested `projects` and sometimes an `industry_context` line), `skills` — and
+`bullets`, nested `projects` and sometimes an `industry_context` and a `budget_managed`
+line), `skills` — and
 (2) reviewer feedback naming the required language and the items to translate.
 Translate the `summary`, every work bullet, every project bullet, every
-`industry_context` line, and every `skills` entry into that language, preserving meaning
-and facts EXACTLY. Translating is not inventing.
+`industry_context` and `budget_managed` line, and every `skills` entry into that
+language, preserving meaning and facts EXACTLY. A `budget_managed` line is a figure with
+its scope words ("up to €2M" → "bis zu 2 Mio. €"): translate the words, keep every
+number exactly as it is — never convert, round or spell it out — and keep the currency. Translating is not inventing.
 Some items were copied from the candidate's own records in their original language.
 Translate them in place like everything else: keep every figure, date, name and scope
 word exactly, and keep each entry's `bullets` list the SAME LENGTH — one translated
@@ -162,6 +170,7 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
     bullets: list[str] = []
     project_bullets: list[str] = []
     industry_lines: list[str] = []
+    budget_lines: list[str] = []
     # E049/ADR-067: the draft is the prose shape (`work`); `work_history` is read as
     # a fallback so a legacy full-shape draft in a test fixture still reviews.
     for entry in (draft.get("work") or draft.get("work_history") or []):
@@ -169,6 +178,9 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
         industry = entry.get("industry_context")
         if isinstance(industry, str) and industry.strip():
             industry_lines.append(industry)
+        budget = entry.get("budget_managed")
+        if isinstance(budget, str) and budget.strip():
+            budget_lines.append(budget)
         for proj in entry.get("projects", []) or []:
             project_bullets.extend(proj.get("bullets", []) or [])
     # Standalone projects (blind PQ 2026-07-04: these shipped unreviewed).
@@ -181,8 +193,9 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
         f"work bullets: {json.dumps(bullets, ensure_ascii=False)}\n"
         f"project bullets: {json.dumps(project_bullets, ensure_ascii=False)}\n"
         f"industry lines: {json.dumps(industry_lines, ensure_ascii=False)}\n"
-        f"skills: {json.dumps(skills, ensure_ascii=False)}\n\n"
-        f"Are the summary, every bullet (work and project), every industry line and "
+        + (f"budget lines: {json.dumps(budget_lines, ensure_ascii=False)}\n" if budget_lines else "")
+        + f"skills: {json.dumps(skills, ensure_ascii=False)}\n\n"
+        f"Are the summary, every bullet (work and project), every industry and budget line and "
         f"every skill written "
         f"entirely in {required_language} (proper product/tool/company/project names "
         "excepted)? Respond with JSON only."

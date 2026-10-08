@@ -137,6 +137,9 @@ export const LOCALIZED_DETAIL_KEYS = new Set([
   "page-length-not-applicable",
   // #391 interim (ADR-076 amendment 4 point 6): measurement-only advisory.
   "skills-weak-vault-tie",
+  // #759: a FAILED document-language check, shown in the review surface's
+  // "before you send it" block ({language, count, examples}).
+  "document-language-mixed",
 ]);
 
 /**

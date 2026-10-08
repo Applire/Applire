@@ -17,7 +17,14 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect } from "vitest";
-import { buildGroup1Rows, buildReviewGroups, verdictState, type ReviewInputs } from "../review-groups";
+import {
+  buildGroup1Rows,
+  buildReviewGroups,
+  buildSendChecks,
+  SEND_CHECK_IDS,
+  verdictState,
+  type ReviewInputs,
+} from "../review-groups";
 import type { ReviewState } from "../api/document-review";
 import type { ATSReport } from "../ats-report";
 import type { TruthfulnessReport } from "../truthfulness-display";
@@ -415,5 +422,55 @@ describe("buildGroup1Rows — counts from the live report, decisions only label 
 
   it("null state = every listed finding open, nothing decided", () => {
     expect(buildGroup1Rows(items, null).map((r) => r.status)).toEqual(["open", "open"]);
+  });
+});
+
+/* ------------------------------------------------------------------ #759 */
+
+describe("#759 — a failed document-language check stands in the way of sending", () => {
+  const mixed = {
+    id: "document-language",
+    status: "fail" as const,
+    details: "items not written in the document language (de): [Nivalo GmbH] 'Campaign development'",
+    details_key: "document-language-mixed",
+    details_params: { language: "de", count: 2, examples: "Campaign development, including end-to-end" },
+  };
+
+  it("names exactly the document-language check as send-blocking", () => {
+    expect([...SEND_CHECK_IDS]).toEqual(["document-language"]);
+  });
+
+  it("lifts a FAILED document-language check out of group 4 into the send checks", () => {
+    const report = ats({}, [mixed, { id: "page-length-0", status: "fail", details: "3 Seiten" }]);
+    const groups = buildReviewGroups(inputs({ atsReport: report }));
+    expect(byId(groups, 4).items.map((i) => i.checkId)).toEqual(["page-length-0"]);
+    const send = buildSendChecks(report);
+    expect(send.map((i) => i.checkId)).toEqual(["document-language"]);
+    expect(send[0].severity).toBe("warning");
+    expect(send[0].check).toBe(mixed);
+  });
+
+  it("leaves a PASSING or not_applicable document-language check where it was", () => {
+    expect(buildSendChecks(ats({}, [{ id: "document-language", status: "pass" }]))).toEqual([]);
+    const na = ats({}, [{ id: "document-language", status: "not_applicable", details: "n/a" }]);
+    expect(buildSendChecks(na)).toEqual([]);
+    expect(byId(buildReviewGroups(inputs({ atsReport: na })), 4).items.map((i) => i.checkId)).toEqual([
+      "document-language",
+    ]);
+  });
+
+  it("the verdict names the send check instead of calling the rest harmless", () => {
+    const report = ats({}, [mixed]);
+    const groups = buildReviewGroups(inputs({ atsReport: report }));
+    expect(verdictState(groups, 0, buildSendChecks(report).length)).toEqual({
+      kind: "clear_with_send_checks",
+      count: 1,
+    });
+  });
+
+  it("group-1 findings still lead the verdict", () => {
+    const report = ats({ present_unsupported: ["Kubernetes"] }, [mixed]);
+    const groups = buildReviewGroups(inputs({ atsReport: report }));
+    expect(verdictState(groups, 1, 1)).toEqual({ kind: "findings", count: 1 });
   });
 });

@@ -322,6 +322,10 @@ async def patch_cv_section(
             record.job_analysis_id, owner, db
         )
         lang = resolve_document_language(application, job) if job else "de"
+    # #759 (ruling E5-2): same render-context step as cv.get_cv_html.
+    from applire.services.cv import localize_languages
+
+    tailored_with_overrides = localize_languages(tailored_with_overrides, lang)
     html = template.render(
         cv=tailored_with_overrides, color=color_ctx, lang=lang, labels=cv_labels(lang)
     )

@@ -62,3 +62,67 @@ def same_language(a: object, b: object) -> bool:
     """True only when BOTH names are whole table entries naming one language."""
     ca = canonical_language(a)
     return ca is not None and ca == canonical_language(b)
+
+
+# ---------------------------------------------------------------------------
+# #759 (founder ruling E5-2, 2026-10-08): render the LANGUAGES list in the
+# document's language. Same table, same whole-string rule, plus a closed
+# vocabulary of level WORDS. CEFR codes (A1 … C2) are language-invariant and are
+# never touched; a level the vocabulary does not know is rendered verbatim.
+# ---------------------------------------------------------------------------
+
+#: Level words, (German display form, English display form). Whole-string,
+#: casefolded match on either side. Deliberately small: a level phrase the
+#: candidate wrote in their own words ("conversational, rusty") is theirs.
+LANGUAGE_LEVEL_DE_EN: tuple[tuple[str, str], ...] = (
+    ("Muttersprache", "Native"),
+    ("Muttersprachlich", "Native speaker"),
+    ("Fließend", "Fluent"),
+    ("Verhandlungssicher", "Business fluent"),
+    ("Sehr gut", "Very good"),
+    ("Sehr gute Kenntnisse", "Very good command"),
+    ("Gut", "Good"),
+    ("Gute Kenntnisse", "Good command"),
+    ("Grundkenntnisse", "Basic knowledge"),
+    ("Grundlagen", "Basic"),
+    ("Fortgeschritten", "Advanced"),
+    ("Mittelstufe", "Intermediate"),
+    ("Anfänger", "Beginner"),
+)
+_LEVEL_BY_FOLD: dict[str, tuple[str, str]] = {}
+for _de, _en in LANGUAGE_LEVEL_DE_EN:
+    _LEVEL_BY_FOLD.setdefault(_fold(_de), (_de, _en))
+    _LEVEL_BY_FOLD.setdefault(_fold(_en), (_de, _en))
+# Common English synonyms, folded onto one row (never a second German form).
+_LEVEL_BY_FOLD.setdefault("mother tongue", ("Muttersprache", "Native"))
+_LEVEL_BY_FOLD.setdefault("native language", ("Muttersprache", "Native"))
+_LEVEL_BY_FOLD.setdefault("muttersprachler", ("Muttersprachlich", "Native speaker"))
+
+_DE_BY_EN: dict[str, str] = {en: de for de, en in LANGUAGE_NAME_DE_EN.items()}
+
+
+def localized_language_name(name: object, lang: str) -> object:
+    """``name`` rendered in ``lang`` ("de"/"en") when the WHOLE name is a table
+    entry; otherwise ``name`` unchanged (a name the table does not know, or a
+    parenthetical form, is the candidate's own wording)."""
+    canon = canonical_language(name)
+    if canon is None or lang not in ("de", "en"):
+        return name
+    target = canon if lang == "en" else _DE_BY_EN.get(canon)
+    if not target:
+        return name
+    if _fold(name) == target:
+        return name  # already in the document's language — keep its casing
+    return target.capitalize()
+
+
+def localized_language_level(level: object, lang: str) -> object:
+    """``level`` rendered in ``lang`` when the WHOLE level is a known level word;
+    CEFR codes and unknown phrases unchanged."""
+    row = _LEVEL_BY_FOLD.get(_fold(level))
+    if row is None or lang not in ("de", "en"):
+        return level
+    target = row[0] if lang == "de" else row[1]
+    if _fold(level) == _fold(target):
+        return level
+    return target
