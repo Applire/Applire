@@ -54,7 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire import config as _config
 from applire import settings_registry as registry
-from applire.config import HAS_CLOUD, settings
+from applire.config import HAS_CLOUD, has_unprintable_key_char, settings
 from applire.models.instance_settings import InstanceSetting
 
 logger = logging.getLogger("applire.instance_settings")
@@ -560,7 +560,7 @@ def _validate(key: str, value: Any) -> Any:
     if not isinstance(value, str):
         raise SettingsError("invalid_setting_value", 422, "Expected a string.", key=key)
     value = value.strip()
-    if meta.secret and any(not ("\x21" <= ch <= "\x7e") for ch in value):
+    if meta.secret and has_unprintable_key_char(value):
         # adv-admin ADM-4: an API key is printable ASCII without spaces. Anything
         # else (a pasted control character) would reach an HTTP header, whose
         # library error quotes the header value. The message never names the value.
