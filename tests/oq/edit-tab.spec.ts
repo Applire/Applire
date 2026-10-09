@@ -313,9 +313,19 @@ test.describe('#737 adv-review 11 — leaving the page with a draft', () => {
     await page.getByTestId('sidebar-tab-edit').click();
     await panel(page).getByRole('button', { name: /Weberit/ }).click();
     await panel(page).getByTestId('section-textarea').fill('- Entwurf');
+    // The guard drops its entry with an async history.back() in an effect after
+    // the save renders. A back press inside that window traverses to the same
+    // /cv entry, so both land there (lane flake, 2/17 under 6x CPU throttle,
+    // 0/17 with this wait). The user's press comes after the guard's pop.
+    await page.evaluate(() => {
+      const w = window as unknown as { __guardPops: number };
+      w.__guardPops = 0;
+      window.addEventListener('popstate', () => { w.__guardPops++; });
+    });
     await panel(page).getByTestId('section-save').click();
     await page.getByRole('button', { name: 'Nur für diesen Lebenslauf' }).click();
     await expect(panel(page).getByTestId('edit-receipt-plain')).toBeVisible();
+    await page.waitForFunction(() => (window as unknown as { __guardPops: number }).__guardPops > 0);
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${LETTER}$`));
     await expect(page.getByTestId('edit-unsaved-dialog')).toHaveCount(0);

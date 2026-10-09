@@ -9,7 +9,12 @@ import { type Page } from "@playwright/test";
  * summary and #709/#716 "Auch bekannt als" chips on the profile editors
  * (ADR-046/063 amended 2026-10-07; founder rulings V-2 = A, V-3 = A).
  *
- * page.route() mocks only — no backend.
+ * page.route() mocks only — no backend. That includes `/api/settings`: the
+ * `LocaleProvider` applies `authUser.ui_language` first and then whatever
+ * `/api/settings` serves, so an unmocked settings call lets the CI stack's real
+ * stub admin (explicit "en" once any earlier spec has loaded a page in the
+ * en-US browser) switch this German spec to English. Locally against a bare
+ * `next dev` that call fails and the "de" stays, which hid it.
  */
 
 const MATCHED = [
@@ -73,7 +78,14 @@ const json = (body: unknown, status = 200) => ({
   body: JSON.stringify(body),
 });
 
+async function mockGermanSettings(page: Page) {
+  await page.route("**/api/settings", (r) =>
+    r.fulfill(json({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] })),
+  );
+}
+
 async function mockImport(page: Page, separated: string[]) {
+  await mockGermanSettings(page);
   await page.route("**/api/profile/uploads", (r) => r.fulfill(json([])));
   await page.route("**/api/profile/import-jobs", (r) => r.fulfill(json({ import_id: "imp-1", status: "pending" }, 202)));
   await page.route("**/api/profile/import-jobs/imp-1", (r) =>
@@ -122,6 +134,7 @@ test.describe("#709/#716 — alternate names on the profile editors", () => {
 
   test("shows removable chips and removes one through a section save", async ({ page }) => {
     let patched: unknown = null;
+    await mockGermanSettings(page);
     await page.route("**/api/profile", (r) =>
       r.request().method() === "GET" ? r.fulfill(json(PROFILE)) : r.fallback(),
     );
