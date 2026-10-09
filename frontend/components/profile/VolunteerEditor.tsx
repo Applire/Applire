@@ -37,6 +37,7 @@ import {
   type VolunteerActivity,
 } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { AliasChips } from "@/components/profile/AliasChips";
 import { PartialDateField } from "./PartialDateField";
 import { BulletListField } from "./BulletListField";
 
@@ -313,6 +314,7 @@ export function VolunteerEditor({
                 {nonEmptyText(e.organization) && e.role !== e.organization && (
                   <p className="text-xs text-gray-600">{e.organization}</p>
                 )}
+                <AliasChips section="volunteer_activities" entries={entries} index={i} apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated} />
                 {nonEmptyText(e.cause) && <p className="text-xs text-gray-500">{e.cause}</p>}
               </div>
             );

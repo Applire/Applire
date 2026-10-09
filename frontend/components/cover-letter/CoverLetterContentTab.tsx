@@ -44,6 +44,11 @@ interface CoverLetterContentTabProps {
    * paragraphs, which after a take-out or a manual save are stale.
    */
   initialBody?: string;
+  /**
+   * #737 — whether the body holds text that is not saved, for the page's
+   * unsaved-draft dialog (Finetuner Branch B).
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
@@ -54,12 +59,16 @@ export function CoverLetterContentTab({
   onSectionSaved,
   openBodyNonce,
   initialBody,
+  onDirtyChange,
 }: CoverLetterContentTabProps) {
   const t = useTranslations("coverLetter");
   const tc = useTranslations("common");
-  const [bodyText, setBodyText] = useState(
-    initialBody ?? letterData?.body?.paragraphs?.join("\n\n") ?? ""
-  );
+  const tEdit = useTranslations("editTab");
+  // #737 (D2): the text Abbrechen returns to is the LAST SAVED body — the
+  // effective one — never the generated paragraphs. Resetting to the generated
+  // text let a later save write back a passage *Nimm es heraus* had removed.
+  const [savedBody, setSavedBody] = useState(initialBody ?? letterData?.body?.paragraphs?.join("\n\n") ?? "");
+  const [bodyText, setBodyText] = useState(savedBody);
   const [bodyEditing, setBodyEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -71,6 +80,27 @@ export function CoverLetterContentTab({
     setBodyEditing(true);
   }, [openBodyNonce]);
 
+  const dirty = bodyText !== savedBody;
+  const lastDirty = useRef(false);
+  useEffect(() => {
+    if (lastDirty.current === dirty) return;
+    lastDirty.current = dirty;
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  // Adversarial finding 11: a reload or tab close with an unsaved body asks,
+  // like the CV section editor does (ContentTab) — the editor guards itself,
+  // whatever page mounts it.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
   async function handleSaveBody() {
     setSaving(true);
     setSaveError(null);
@@ -81,70 +111,34 @@ export function CoverLetterContentTab({
         body: JSON.stringify({ section: "body", content: bodyText }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setSavedBody(bodyText);
       setBodyEditing(false);
       onSectionSaved();
-    } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : t("saveFailed"));
+    } catch {
+      setSaveError(t("saveFailed"));
     } finally {
       setSaving(false);
     }
   }
 
-  const header = letterData?.header;
-  const recipient = letterData?.recipient;
-  const signature = letterData?.signature;
-
   return (
     <div className="flex flex-col gap-3 p-3">
-      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-        {t("sectionHeader")}
+      {/* #737: header, recipient and closing are not editable here — one
+          line says where they come from instead of three read-only cards. */}
+      <p className="rounded-lg bg-surface-container px-3 py-2 text-[12.5px] leading-snug text-on-surface" data-testid="cl-fixed-line">
+        {tEdit("letterFixedLine")}
       </p>
 
-      {/* Header — read-only */}
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">{t("headerSection")}</span>
-          <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            {t("autoTag")}
-          </span>
-        </div>
-        <p className="text-xs text-neutral-500">
-          {[header?.name ?? t("fromProfile"), header?.email].filter(Boolean).join(` ${t("separator")} `)}
-        </p>
-      </div>
-
-      {/* Recipient — read-only */}
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">{t("recipientSection")}</span>
-          <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            {t("autoTag")}
-          </span>
-        </div>
-        <p className="text-xs text-neutral-500">
-          {[recipient?.name ?? t("emDash"), recipient?.company].filter(Boolean).join(` ${t("separator")} `)}
-        </p>
-      </div>
-
-      {/* Body — editable */}
       <div
-        className={`border rounded-lg p-3 transition-colors ${
-          bodyEditing
-            ? "border-blue-400 bg-blue-50"
-            : "border-neutral-200 bg-neutral-50"
+        className={`rounded-xl border p-3 transition-colors ${
+          bodyEditing ? "border-primary bg-primary-container" : "border-outline-variant bg-white"
         }`}
       >
-        <div className="flex items-center justify-between mb-2">
-          <span className={`text-sm font-semibold ${bodyEditing ? "text-blue-700" : ""}`}>
-            {t("bodySection")}
-          </span>
-          <span className="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-            {t("editableTag")}
-          </span>
-        </div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+          {tEdit("letterBodyTitle")}
+        </p>
         <textarea
-          className="w-full border border-blue-200 rounded p-2 text-xs text-neutral-700 resize-none bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-          rows={8}
+          className="w-full min-h-[200px] resize-y rounded-lg border border-outline-variant bg-white p-2 text-sm leading-relaxed text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
           value={bodyText}
           onChange={(e) => {
             setBodyText(e.target.value);
@@ -152,16 +146,14 @@ export function CoverLetterContentTab({
           }}
           data-testid="cl-body-textarea"
         />
-        {saveError && (
-          <p className="text-xs text-red-500 mt-1">{saveError}</p>
-        )}
+        {saveError && <p className="mt-1 text-xs text-critical">{saveError}</p>}
         {bodyEditing && (
-          <div className="flex gap-2 mt-2">
+          <div className="mt-2 flex gap-2">
             <button
               type="button"
               onClick={handleSaveBody}
               disabled={saving}
-              className="flex-1 bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-primary py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
               data-testid="cl-save-body-btn"
             >
               {saving ? tc("preparing") : tc("save")}
@@ -169,29 +161,18 @@ export function CoverLetterContentTab({
             <button
               type="button"
               onClick={() => {
-                setBodyText(letterData?.body?.paragraphs?.join("\n\n") ?? "");
+                setBodyText(savedBody);
                 setBodyEditing(false);
+                setSaveError(null);
               }}
               disabled={saving}
-              className="flex-1 border border-neutral-300 text-xs py-1.5 rounded hover:border-neutral-500 disabled:opacity-50"
+              data-testid="cl-cancel-body-btn"
+              className="flex-1 rounded-lg border border-outline-variant py-2 text-sm font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
             >
               {tc("cancel")}
             </button>
           </div>
         )}
-      </div>
-
-      {/* Signature — read-only */}
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm font-semibold">{t("signatureSection")}</span>
-          <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-            {t("autoTag")}
-          </span>
-        </div>
-        <p className="text-xs text-neutral-500">
-          {[signature?.closing ?? t("salutationClosing"), signature?.name ?? t("emDash")].join(` ${t("separator")} `)}
-        </p>
       </div>
     </div>
   );

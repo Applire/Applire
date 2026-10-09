@@ -1,0 +1,150 @@
+{
+  "personal_info": {
+    "name": "Daniel Kovač",
+    "email": "daniel.kovac@example.com",
+    "location": "Frankfurt am Main"
+  },
+  "work_experience": [
+    {
+      "id": "w-cargo",
+      "company": "Cargonaut Logistics GmbH",
+      "role": "Senior Backend-Entwickler",
+      "start_date": "2021-03",
+      "is_current": true,
+      "location": "Frankfurt am Main",
+      "responsibilities": [
+        "Entwurf und Betrieb des Backends für die Sendungsverfolgung (Python, Django, PostgreSQL) für rund 40.000 täglich aktive Logistikkunden.",
+        "Verantwortlich für das AWS-Deployment (ECS, RDS, S3) und die GitLab-CI/CD-Pipelines von vier Diensten.",
+        "Mentor für zwei Entwickler auf mittlerem Erfahrungsniveau."
+      ],
+      "achievements": [
+        "Neugestaltung des Preisdatenmodells; p95-Latenz der Angebotsberechnung von 1,8 s auf 240 ms gesenkt."
+      ],
+      "technologies": [
+        "Python",
+        "Django",
+        "PostgreSQL",
+        "AWS"
+      ]
+    },
+    {
+      "id": "w-finleap",
+      "company": "Finleap Build GmbH",
+      "role": "Backend-Entwickler",
+      "start_date": "2017-06",
+      "end_date": "2021-02",
+      "location": "Berlin",
+      "responsibilities": [
+        "REST-Schnittstellen (Python, Flask, PostgreSQL) für ein B2B-Rechnungsprodukt entwickelt.",
+        "Workflow-Engine für das Mahnwesen umgesetzt, rund 200.000 Rechnungen pro Monat.",
+        "Stripe-basierten Checkout integriert.",
+        "Bereitschaftsdienst; Störfall-Runbook verfasst."
+      ],
+      "technologies": [
+        "Python",
+        "Flask",
+        "PostgreSQL"
+      ]
+    },
+    {
+      "id": "w-datis",
+      "company": "DATIS IT-Services",
+      "role": "Werkstudent Softwareentwicklung",
+      "start_date": "2015-10",
+      "end_date": "2017-05",
+      "location": "Darmstadt",
+      "responsibilities": [
+        "Interne Werkzeuge in Python; SQL-Berichte für den Betrieb."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "id": "e-tud",
+      "institution": "Technische Universität Darmstadt",
+      "degree": "B.Sc. Informatik",
+      "end_date": "2016"
+    }
+  ],
+  "certifications": [
+    {
+      "id": "c-aws",
+      "name": "AWS Certified Solutions Architect – Associate",
+      "date_obtained": "2022-01-01"
+    },
+    {
+      "id": "c-istqb",
+      "name": "ISTQB® Certified Tester Foundation Level",
+      "date_obtained": "2018-01-01"
+    }
+  ],
+  "skills": [
+    {
+      "id": "s0",
+      "name": "Python",
+      "category": "technical"
+    },
+    {
+      "id": "s1",
+      "name": "Django",
+      "category": "technical"
+    },
+    {
+      "id": "s2",
+      "name": "Flask",
+      "category": "technical"
+    },
+    {
+      "id": "s3",
+      "name": "PostgreSQL",
+      "category": "technical"
+    },
+    {
+      "id": "s4",
+      "name": "Amazon Web Services (AWS)",
+      "category": "technical"
+    },
+    {
+      "id": "s5",
+      "name": "GitLab CI/CD",
+      "category": "technical"
+    },
+    {
+      "id": "s6",
+      "name": "REST-Schnittstellenentwicklung",
+      "category": "technical"
+    },
+    {
+      "id": "s7",
+      "name": "SQL",
+      "category": "technical"
+    },
+    {
+      "id": "s8",
+      "name": "Störfallmanagement",
+      "category": "technical"
+    },
+    {
+      "id": "s9",
+      "name": "Mentoring von Nachwuchskräften",
+      "category": "technical"
+    },
+    {
+      "id": "s10",
+      "name": "Vertragsbasierte Tests",
+      "category": "technical"
+    }
+  ],
+  "languages": [
+    {
+      "id": "l-de",
+      "language": "Deutsch",
+      "level": "Muttersprache"
+    },
+    {
+      "id": "l-en",
+      "language": "Englisch",
+      "level": "verhandlungssicher"
+    }
+  ]
+}

@@ -715,3 +715,56 @@ async def test_the_shape_and_story_wrappers_are_handed_the_composed_document(db)
     assert "work_history" in doc and "work" not in doc, doc.keys()
     # … and carrying a vault-joined field only `_compose_document` adds.
     assert any(c.get("name") == _CERT_NAME for c in (doc.get("certifications") or [])), doc
+
+
+# --- #703: the CV chain records every round's coverage demand -----------------
+
+
+@pytest.mark.asyncio
+async def test_the_cv_chain_reports_a_demand_repeated_across_rounds(db):
+    """#703 (ADR-076 amended 2026-10-07) — the SEAM test for `cv.py`'s wiring.
+
+    Two call sites feed one per-delivery `DemandRecord`: the tailoring loop's coverage
+    wrapper (`on_demand=cv_demand_record.record_round`) and the terminal mount's
+    `_record_coverage_demand` (`demand_record.record_round`); the audit call hands the
+    outcome through `with_repeated_demands`. Each drafting/terminal round below demands
+    a different term on purpose: drop the tailoring wiring and `Tailoring-Begriff` falls
+    to the terminal-only count; drop the terminal wiring and `Terminal-Begriff` vanishes."""
+    from applire.models.cv import GeneratedCV
+    from applire.services.review_issues import ReviewSettle
+    import applire.services.keyword_ledger as kl
+
+    ids = await _seed(db)
+    current = {"chain": None}
+
+    def fake_coverage(base_fn, keyword_ledger, budget=None, max_terms_per_round=None, on_demand=None):
+        def fn(source, draft):
+            term = {"cv_tailoring": "Tailoring-Begriff", "cv_terminal_review": "Terminal-Begriff"}.get(
+                current["chain"]
+            )
+            if on_demand is not None and term:
+                on_demand([{"concept": term, "surface_forms": [term]}])
+            return base_fn(source, draft)
+        return fn
+
+    async def fake_review(**kwargs):
+        current["chain"] = kwargs.get("chain_id")
+        if current["chain"] in ("cv_tailoring", "cv_terminal_review"):
+            for _ in range(2):
+                kwargs["reviewer_prompt_fn"](kwargs["source"], kwargs["draft"])
+        on_settle = kwargs.get("on_settle")
+        if on_settle is not None:
+            on_settle(ReviewSettle(path="exhausted", approved=False,
+                                   blocking_issues=("Coverage missing.",), minor_issues=(),
+                                   rounds=2, settled=kwargs["draft"]))
+        return kwargs["draft"]
+
+    await _run_pipeline(
+        db, ids, review_fake=fake_review,
+        extra_patches=(patch.object(kl, "coverage_reviewer_prompt_fn", side_effect=fake_coverage),),
+    )
+    record = await db.get(GeneratedCV, ids[2])
+    check = {c["id"]: c for c in record.ats_report["checks"]}["terminal-review"]
+    assert check["driver"]["repeated_demands"] == 2, check
+    assert "Tailoring-Begriff (2 of 4 rounds" in check["details"]
+    assert "Terminal-Begriff (2 of 4 rounds" in check["details"]

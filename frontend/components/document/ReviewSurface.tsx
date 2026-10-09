@@ -40,8 +40,10 @@ import type { OutcomeCriticReport } from "@/components/cv/CriticAdvisoryPanel";
 import { baseId, usesLocalizedDetail, type ATSCheck, type ATSReport } from "@/lib/ats-report";
 import type { TruthfulnessReport } from "@/lib/truthfulness-display";
 import {
+  buildCrossDocument,
   buildGroup1Rows,
   buildReviewGroups,
+  buildSendChecks,
   verdictState,
   type Group1Row,
   type ReviewGroup,
@@ -63,6 +65,7 @@ import {
 } from "@/lib/api/document-review";
 import { countInText, type LocateTarget, type PreviewLocator } from "@/lib/locate-in-preview";
 import { changedPassages } from "@/lib/passage-diff";
+import { CrossDocumentSection } from "@/components/review/CrossDocumentSection";
 
 /**
  * The document review surface (arc42 §5.3.29, ADR-081 as amended by ADR-090).
@@ -102,7 +105,7 @@ const PRODUCER_LABEL_KEY: Record<ReviewProducer, string> = {
   clusters: "producerClusters",
 };
 
-const KIND_LABEL_KEY: Record<ReviewItem["kind"], string> = {
+const KIND_LABEL_KEY: Record<Exclude<ReviewItem["kind"], "signal">, string> = {
   term: "kindTerm",
   cluster: "kindCluster",
   claim: "kindClaim",
@@ -159,6 +162,11 @@ export interface ReviewSurfaceProps {
   /** ADR-090 cl. 6 — the persisted per-document decisions. `null` = none. */
   reviewState?: ReviewState | null;
   /**
+   * #702 (RULING R-2): where *In den Lebenslauf übernehmen* on a cross-document
+   * card goes — the CV's Edit tab. Absent → that action is not offered.
+   */
+  cvEditHref?: string | null;
+  /**
    * A review action answered with refreshed reports and state (the server
    * awaited the re-audit). `documentChanged` = the document text changed (take
    * out / undo), so the page reloads the preview.
@@ -211,6 +219,7 @@ export function ReviewSurface({
   gapClusters,
   hasClusterProducer = true,
   reviewState = null,
+  cvEditHref = null,
   onRefresh,
   locator = null,
   previewVersion = 0,
@@ -467,7 +476,20 @@ export function ReviewSurface({
 
   // ADR-081 cl. 4 (amended by ADR-090 cl. 6): the number is the OPEN group-1
   // rows actually rendered — the length of the very array the list renders.
-  const verdict = verdictState(groups, openRows.length);
+  // #759: a failed send-blocking check (document-language) is named by the
+  // verdict and shown in its own block — never counted among the findings that
+  // "do not stand in the way of sending".
+  const sendChecks = useMemo(() => buildSendChecks(atsReport), [atsReport]);
+  const verdict = verdictState(groups, openRows.length, sendChecks.length);
+  // #702 RULING R-1 = A (condition): while a cross-document item is undecided,
+  // the all-clear headline must not say the rest "does not stand in the way of
+  // sending" — the card above "Weitere Hinweise" says otherwise.
+  const crossRead = useMemo(() => buildCrossDocument(criticReport, reviewState), [criticReport, reviewState]);
+  const openCrossRead = crossRead.rows.filter((r) => r.status === "open").length;
+  // Adv-review finding 10: on the letter, a critic that did not answer leaves the
+  // cross-read UNDECIDED — the all-clear may not call the rest harmless either.
+  const crossReadUnknown = documentKind === "cover-letter" && crossRead.unknown;
+  const tSignals = useTranslations("reviewSignals");
   const group1Blind = group1.unknownProducers.length > 0;
   const present = atsReport?.keywords.present.length ?? 0;
   const total = present + (atsReport?.keywords.missing.length ?? 0);
@@ -876,8 +898,18 @@ export function ReviewSurface({
           }`}
         >
           {verdict.kind === "findings" && t("verdictFindings", { count: verdict.count })}
-          {verdict.kind === "clear" && t("verdictClear")}
-          {verdict.kind === "clear_with_others" && t("verdictClearWithOthers", { count: verdict.others })}
+          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && openCrossRead > 0
+            ? tSignals("verdictClearCrossRead", { open: openCrossRead })
+            : null}
+          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && crossReadUnknown
+            ? tSignals("verdictClearCrossReadUnknown")
+            : null}
+          {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
+          {verdict.kind === "clear_with_others" &&
+            openCrossRead === 0 &&
+            !crossReadUnknown &&
+            t("verdictClearWithOthers", { count: verdict.others })}
+          {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>
         {verdict.kind === "findings" && (
@@ -970,7 +1002,8 @@ export function ReviewSurface({
                           : "bg-surface-container text-on-surface-variant"
                       }`}
                     >
-                      {t(STATUS_KEY[r.status])}
+                      {/* `kept` belongs to cross-document items only; buildGroup1Rows never yields it. */}
+                      {t(STATUS_KEY[r.status as keyof typeof STATUS_KEY])}
                     </span>
                   )}
                   {r.status === "open" && !isCurrent && (
@@ -983,6 +1016,35 @@ export function ReviewSurface({
         </ul>
       )}
 
+      {/* #702 (ADR-060 amended 2026-10-07): the cross-document section sits
+          between group 1 and the other findings — it is not "nothing that
+          stands in the way of sending" (RULING R-1 pending: placement A). */}
+      <CrossDocumentSection
+        documentKind={documentKind}
+        documentId={documentId}
+        criticReport={criticReport}
+        reviewState={reviewState}
+        cvEditHref={cvEditHref}
+        onRefresh={onRefresh}
+      />
+
+      {sendChecks.length > 0 && (
+        <SendChecks
+          items={sendChecks}
+          renderItem={(item) => (
+            <ItemRow
+              key={item.key}
+              item={item}
+              group={groups.find((g) => g.id === 4)!}
+              documentKind={documentKind}
+              locale={locale}
+              t={t}
+              tAts={tAts}
+            />
+          )}
+        />
+      )}
+
       <OtherFindings
         groups={groups}
         gapAnalysisHref={gapAnalysisHref}
@@ -991,6 +1053,7 @@ export function ReviewSurface({
             key={item.key}
             item={item}
             group={group}
+            documentKind={documentKind}
             locale={locale}
             t={t}
             tAts={tAts}
@@ -1052,6 +1115,33 @@ function UnknownProducerNote({ group }: { group: ReviewGroup }) {
     <p data-testid={`review-group-unknown-${group.id}`} className="text-xs text-on-surface-variant">
       {group.unknown ? t("unknownWhole", { producers: names }) : t("unknownPartial", { producers: names })}
     </p>
+  );
+}
+
+/* ------------------------------------------------------ before sending */
+
+/**
+ * #759 (ADR-081 amended 2026-10-08) — failed checks that DO stand in the way of
+ * sending (`SEND_CHECK_IDS`). Open without interaction, above "Weitere Hinweise",
+ * whose "nothing here stands in the way" sentence is then true again.
+ */
+function SendChecks({
+  items,
+  renderItem,
+}: {
+  items: ReviewItem[];
+  renderItem: (item: ReviewItem) => ReactNode;
+}) {
+  const t = useTranslations("documentReview");
+  return (
+    <div
+      data-testid="review-send-checks"
+      className="flex flex-col gap-1 rounded-xl border border-warning/40 bg-warning-container px-3 py-2"
+    >
+      <span className="font-heading text-[13px] font-bold text-on-surface">{t("sendCheckTitle")}</span>
+      <span className="text-xs text-on-surface-variant">{t("sendCheckSub")}</span>
+      <ul>{items.map((item) => renderItem(item))}</ul>
+    </div>
   );
 }
 
@@ -1156,6 +1246,7 @@ function OtherFindings({
 function ItemRow({
   item,
   group,
+  documentKind,
   locale,
   t,
   tAts,
@@ -1164,24 +1255,49 @@ function ItemRow({
 }: {
   item: ReviewItem;
   group: ReviewGroup;
+  documentKind: ReviewDocumentKind;
   locale: string;
   t: ReturnType<typeof useTranslations<"documentReview">>;
   tAts: ReturnType<typeof useTranslations<"ats">>;
   onResolveCluster?: (gapId: string) => void;
   onEditGapSection?: (gapId: string) => void;
 }) {
+  const tSig = useTranslations("reviewSignals");
   const detail = itemDetail(item, locale, tAts);
+  const doc = documentKind === "cv" ? "cv" : "letter";
   const label = item.kind === "check" && item.checkId ? tAts(`checks.${baseId(item.checkId)}`) : item.label;
 
   const body = (
     <>
       <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[item.severity]}`} />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm text-on-surface">{label}</span>
+        <span className="flex flex-wrap items-center gap-1.5 text-sm text-on-surface">
+          {label}
+          {item.signal && (
+            <span
+              data-testid="review-item-signal-tag"
+              data-weight={item.signal.weight}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                item.signal.weight === "open"
+                  ? "border border-warning bg-warning-container text-gold-dim"
+                  : "bg-surface-container-high text-primary"
+              }`}
+            >
+              {tSig("signalTag", { count: item.signal.rounds })}
+            </span>
+          )}
+        </span>
+        {item.signal && (
+          <span data-testid="review-item-signal-note" className="block text-xs text-on-surface-variant">
+            {item.signal.weight === "open"
+              ? tSig("signalOpen", { count: item.signal.rounds, doc })
+              : tSig("signalLanded", { count: item.signal.rounds, doc })}
+          </span>
+        )}
         {detail && <span className="block text-xs text-on-surface-variant">{detail}</span>}
         <span className="mt-0.5 flex flex-wrap items-center gap-1">
           <span className="rounded-full border border-outline-variant px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant">
-            {t(KIND_LABEL_KEY[item.kind])}
+            {item.kind === "signal" ? tSig("kindSignal") : t(KIND_LABEL_KEY[item.kind])}
           </span>
           {item.producers.map((p) => (
             <span

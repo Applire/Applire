@@ -44,8 +44,14 @@ interface DesignTabProps {
   detectedCompany: DetectedCompany | null;
   currentAccentHex: string;
   onColorApplied: () => void;
-  onChangeTemplate: () => void;
-  onRegenerateSame: () => void;
+  /**
+   * #737 (RULING E-1 = A): both template actions make a NEW version, so on the
+   * document pages they live on *Aktionen* ("Neue Fassung erstellen"); the Edit
+   * tab mounts this component for the accent colour only and passes neither.
+   * The template block renders only when both handlers are given.
+   */
+  onChangeTemplate?: () => void;
+  onRegenerateSame?: () => void;
 }
 
 export function DesignTab({
@@ -91,7 +97,8 @@ export function DesignTab({
   return (
     <div className="flex flex-col gap-4 p-3" data-testid="design-tab">
 
-      {/* Template selection + regenerate */}
+      {/* Template selection + regenerate — only where a caller still offers it (#737). */}
+      {onChangeTemplate && onRegenerateSame && (
       <div>
         <p className="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">
           {t("templateLabel")}
@@ -118,6 +125,7 @@ export function DesignTab({
           {t("regenerateCurrentTemplate")}
         </button>
       </div>
+      )}
 
       {/* Detected company color card */}
       {detectedCompany && (

@@ -5,8 +5,9 @@
 An unsafe request (POST/PUT/PATCH/DELETE) must carry ``Origin`` or ``Referer``;
 neither, or ``Origin: null``, is 403 ``origin_mismatch``. The netloc (host
 **and** port, default ports normalised) must equal the request ``Host`` — or
-the netloc of ``APPLIRE_BASE_URL`` when that is set and not the shipped default
-``http://localhost:8001``. With such a base URL set, an unsafe request whose
+the netloc of ``APPLIRE_BASE_URL`` when the operator set it (presence, not a
+value compare: :func:`applire.config.configured_base_url`, ruling S-1). With such a
+base URL set, an unsafe request whose
 ``Host`` is neither that netloc nor ``localhost``/``127.0.0.1`` is refused too
 (DNS rebinding against ``/api/setup``).
 
@@ -28,10 +29,9 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
 
-from applire.config import settings
+from applire.config import SHIPPED_DEFAULT_BASE_URL, configured_base_url, settings  # noqa: F401  (re-export)
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-SHIPPED_DEFAULT_BASE_URL = "http://localhost:8001"
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 _DEFAULT_PORTS = {"http": "80", "https": "443"}
 
@@ -69,9 +69,9 @@ def _hostname(netloc: str) -> str:
 
 
 def configured_base_netloc() -> tuple[str, str] | None:
-    """``(scheme, netloc)`` of ``APPLIRE_BASE_URL`` when set and not the shipped default."""
-    base = (settings.applire_base_url or "").strip().rstrip("/")
-    if not base or base == SHIPPED_DEFAULT_BASE_URL:
+    """``(scheme, netloc)`` of ``APPLIRE_BASE_URL`` when the operator set it (S-1)."""
+    base = configured_base_url()
+    if base is None:
         return None
     parts = urlsplit(base)
     if not parts.scheme or not parts.netloc:

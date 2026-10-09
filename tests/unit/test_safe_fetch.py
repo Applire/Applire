@@ -396,9 +396,12 @@ def test_frozen_signature():
 
     sig = inspect.signature(safe_get)
     params = sig.parameters
-    assert list(params) == ["url", "timeout", "headers", "max_redirects"]
+    # adv-admin ADM-2 (build 2): one ADDITIVE keyword-only ``refuse`` (default
+    # None) — a per-hop policy predicate; every existing caller is unchanged.
+    assert list(params) == ["url", "timeout", "headers", "max_redirects", "refuse"]
+    assert params["refuse"].default is None
     assert params["url"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
-    for name in ("timeout", "headers", "max_redirects"):
+    for name in ("timeout", "headers", "max_redirects", "refuse"):
         assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
     assert params["timeout"].default is inspect.Parameter.empty
     assert params["headers"].default is inspect.Parameter.empty

@@ -179,7 +179,10 @@ from applire.schemas.profile import ImportNotApplied, MasterProfileData
 from applire.services.ats_audit import skill_tokens
 from applire.services.profile.reconcile.apply import _ENTRY_NATURAL_KEYS, _norm
 from applire.services.profile.reconcile.attribution import _core_company_name
+from applire.services.profile.language_names import canonical_language
+from applire.services.profile.reconcile import aliases as _aliases
 from applire.services.profile.reconcile.dedupe import (
+    DupeVerdict,
     _field_relation,
     _SAME,
     classify_certification_dupe,
@@ -241,6 +244,7 @@ _ENGAGEMENT_SECTIONS: tuple[_EngagementSection, ...] = (
     _EngagementSection("projects", "name", UpsertProject),
     _EngagementSection("volunteer_activities", "organization", UpsertVolunteer),
 )
+_ENGAGEMENT_SECTION_NAMES: frozenset[str] = frozenset(s.name for s in _ENGAGEMENT_SECTIONS)
 _ENGAGEMENT_OP_TYPES: tuple[type[CommitOp], ...] = tuple(
     s.op_type for s in _ENGAGEMENT_SECTIONS
 )
@@ -384,41 +388,60 @@ def _flat_set_field_touched_entries(
     return [e for e in merged_entries if getattr(e, "id", None) in targets]
 
 
-def _flat_match_existing_bound_keys(
+def match_existing_bindings(
+    section: str,
     incoming_entries: Sequence[Any],
     merged_entries: Sequence[Any],
     ops: Sequence[CommitOp],
-    fields: tuple[str, ...],
-) -> set[tuple[str, ...]]:
-    """Arm (c), sub-clause 3 (#707) — the natural keys of the incoming entries a
-    `match_existing` op binds to a merged entry of THIS section, target-first.
+) -> list[tuple[MatchExisting, Any, Any]]:
+    """Arm (c), sub-clause 3 — every `match_existing` op that binds EXACTLY ONE
+    incoming entry of ``section`` to a merged entry of that section,
+    target-first: ``(op, target, incoming_entry)``.
 
-    See the module docstring. Distinct incoming keys only (a literal duplicate
-    incoming entry is one data point, as everywhere else in this module)."""
+    #707 (ADR-063 am. 2026-09-16) for the flat sections; #715 (ADR-063 am.
+    2026-10-07) for the three engagement sections, with one extra fact: the
+    incoming start month must equal the target's when both state one (a repeat
+    stint is a distinct CV line, B1). The label compared is the natural key
+    WITHOUT the date (``"Company / Role"``), which is what the op's ``incoming``
+    carries. See the module docstring for the cardinality discipline.
+
+    Also the alias writer's binder (``reconcile/aliases.record_bound_aliases``):
+    an alternate name is only ever copied from the ONE incoming document entry
+    this function binds — never from the op's free text.
+    """
+    fields = _ENTRY_NATURAL_KEYS[section]
+    is_engagement = section in _ENGAGEMENT_SECTION_NAMES
     merged_by_id = {
         getattr(e, "id", None): e for e in merged_entries if getattr(e, "id", None)
     }
+    key_fields = WITNESS_KEYS[section]
     distinct: dict[tuple[str, ...], Any] = {}
     for entry in incoming_entries:
-        distinct.setdefault(_entry_key(entry, fields), entry)
-    bound: set[tuple[str, ...]] = set()
+        distinct.setdefault(_entry_key(entry, key_fields), entry)
+    bindings: list[tuple[MatchExisting, Any, Any]] = []
     for op in ops:
-        if not isinstance(op, MatchExisting):
+        wanted = _norm(bound_name(op, section) or "")
+        if not wanted:
             continue
         target = merged_by_id.get(op.target)
         if target is None:
             continue  # unresolvable, or an entity of another section
-        wanted = _norm(op.incoming or "")
-        if not wanted:
-            continue
         candidates = [
-            (key, entry)
-            for key, entry in distinct.items()
-            if _norm(_format_label(entry, fields)) == wanted
-            or any(
-                _norm(getattr(entry, f, "") or "") == wanted
-                for f in fields
-                if _norm(getattr(entry, f, "") or "")
+            entry
+            for entry in distinct.values()
+            if (
+                _norm(_format_label(entry, fields)) == wanted
+                or any(
+                    _norm(getattr(entry, f, "") or "") == wanted
+                    for f in fields
+                    if _norm(getattr(entry, f, "") or "")
+                )
+            )
+            and (
+                not is_engagement
+                or _same_month_or_unknown(
+                    getattr(entry, "start_date", None), getattr(target, "start_date", None)
+                )
             )
         ]
         if len(candidates) > 1:
@@ -426,8 +449,8 @@ def _flat_match_existing_bound_keys(
             # fields decide (the two-M.Sc. case): keep those sharing a further
             # non-empty natural-key field with E.
             candidates = [
-                (key, entry)
-                for key, entry in candidates
+                entry
+                for entry in candidates
                 if any(
                     _norm(getattr(entry, f, "") or "")
                     and _norm(getattr(entry, f, "") or "")
@@ -437,8 +460,105 @@ def _flat_match_existing_bound_keys(
                 )
             ]
         if len(candidates) == 1:
-            bound.add(candidates[0][0])
-    return bound
+            bindings.append((op, target, candidates[0]))
+    return bindings
+
+
+def bound_name(op: Any, section: str) -> str | None:
+    """The incoming name an op BINDS to an existing entity by id, or ``None``:
+    ``match_existing``'s ``incoming``; a targeted ``upsert_skill``'s ``name``
+    (RULING V-6 = A, ADR-063 amended 2026-10-08 — sub-clause 3 widened)."""
+    if isinstance(op, MatchExisting):
+        return op.incoming
+    if section == "skills" and isinstance(op, UpsertSkill) and getattr(op, "target", None):
+        return op.name
+    return None
+
+
+def _match_existing_bound_keys(
+    section: str,
+    incoming_entries: Sequence[Any],
+    merged_entries: Sequence[Any],
+    ops: Sequence[CommitOp],
+) -> set[tuple[str, ...]]:
+    """The witness keys of the incoming entries ``match_existing_bindings`` binds."""
+    key_fields = WITNESS_KEYS[section]
+    return {
+        _entry_key(entry, key_fields)
+        for _op, _target, entry in match_existing_bindings(
+            section, incoming_entries, merged_entries, ops
+        )
+    }
+
+
+def _resolves_to(section: str, entry: Any, merged_entries: Sequence[Any]) -> list[Any]:
+    """Every merged entry whose recorded names (own value or alias) cover ALL of
+    ``entry``'s natural-key values, with the date evidence an alias needs
+    (``aliases.dates_allow``). Empty values never match (not a wildcard)."""
+    fields = _ENTRY_NATURAL_KEYS[section]
+    wanted = {f: _norm(getattr(entry, f, "") or "") for f in fields}
+    if any(not w for w in wanted.values()):
+        return []
+    return [
+        e for e in merged_entries
+        if _aliases.dates_allow(section, entry, e)
+        and all(w in _aliases.names_of(e, f, section) for f, w in wanted.items())
+    ]
+
+
+def _dedupe_key(section: str, entry: Any) -> tuple[str, ...]:
+    """The witness's per-entry dedupe key: the witness key, plus the stated
+    dates for education (two degrees of one name at one institution are two
+    CV lines — adv-vault-1, 2026-10-07)."""
+    key = _entry_key(entry, WITNESS_KEYS[section])
+    if section == "education":
+        key += _entry_key(entry, ("start_date", "end_date"))
+    return key
+
+
+def alias_carries(
+    section: str, incoming_entries: Sequence[Any], merged_entries: Sequence[Any]
+) -> list[tuple[Any, Any]]:
+    """Arm (a), alternate-name reading (ADR-063 amended 2026-10-07, #716; V-1;
+    adv-vault-1 = B, MD2-15) — ``(incoming_entry, carrier)`` for every incoming
+    entry carried THROUGH a recorded alias.
+
+    An entry is carried when its every natural-key value is a recorded name of
+    exactly ONE merged entry (at least one of them an alias), the dates allow it
+    (engagements: the same stated start month; education: the same stated
+    years, or none on either side), and — the incoming-side exactly-one rule —
+    no OTHER distinct incoming entry resolves to that same merged entry. Two
+    document lines that both read as one vault entry are two things; neither
+    is carried by a name alone.
+
+    A fact, not a judgement (ADR-062 cl. 1): the alias is already in the vault
+    and this compares strings. Every carry it returns is receipted on the
+    import's ``matched`` (``alias_writer.record_alias_carries``, finding 2), so
+    the summary shows it and "Nicht dasselbe" can take it back. Named
+    residual: a WRONG alias carries a later genuinely different entry of
+    exactly that name (System-FMEA, new row) — visible, and undoable.
+
+    Shared by the witness and the receipt writer (ADR-066).
+    """
+    if section not in _aliases.ALIAS_FIELDS and section not in _ENGAGEMENT_SECTION_NAMES:
+        return []
+    distinct: dict[tuple[str, ...], Any] = {}
+    for entry in incoming_entries:
+        distinct.setdefault(_dedupe_key(section, entry), entry)
+    resolved: list[tuple[Any, Any]] = []
+    per_target: dict[int, int] = {}
+    for entry in distinct.values():
+        hits = _resolves_to(section, entry, merged_entries)
+        if len(hits) != 1:
+            continue
+        resolved.append((entry, hits[0]))
+        per_target[id(hits[0])] = per_target.get(id(hits[0]), 0) + 1
+    fields = _ENTRY_NATURAL_KEYS[section]
+    return [
+        (entry, target) for entry, target in resolved
+        if per_target[id(target)] == 1
+        and any(_aliases.alias_hit(target, f, section, getattr(entry, f, None)) for f in fields)
+    ]
 
 
 def _flat_section_not_applied(
@@ -450,7 +570,7 @@ def _flat_section_not_applied(
     merged_keys = {_entry_key(e, fields) for e in merged_entries}
     op_keys = _op_natural_keys(ops, _FLAT_OP_TYPES[section], fields)
     touched_entries = _flat_set_field_touched_entries(ops, merged_entries)
-    bound_keys = _flat_match_existing_bound_keys(incoming_entries, merged_entries, ops, fields)
+    bound_keys = _match_existing_bound_keys(section, incoming_entries, merged_entries, ops)
     # ADR-063 amended 2026-09-18 (#674 line 82) — the target-first binder. A
     # pure WIDENING: the key-equality arm below is untouched and still runs.
     bound_keys |= _flat_set_field_bound_keys(
@@ -459,14 +579,18 @@ def _flat_section_not_applied(
     getters = _getters_for(fields)
     containment_is_same = _FLAT_CONTAINMENT_IS_SAME.get(section, False)
 
+    carried_by_alias = {id(e) for e, _t in alias_carries(section, incoming_entries, merged_entries)}
+
     items: list[ImportNotApplied] = []
     seen: set[tuple[str, ...]] = set()
     for entry in incoming_entries:
         key = _entry_key(entry, fields)
-        if key in seen:
+        if _dedupe_key(section, entry) in seen:
             continue
-        seen.add(key)
+        seen.add(_dedupe_key(section, entry))
         if key in merged_keys:  # arm (a)
+            continue
+        if id(entry) in carried_by_alias:  # arm (a), alternate names
             continue
         if key in bound_keys:
             # arm (c), sub-clause 3 (#707, `match_existing`) — the model said so
@@ -514,6 +638,17 @@ def _flat_section_not_applied(
             verdict = classify_dupe(
                 incoming_dict, merged_entries, getters, containment_is_same=containment_is_same
             )
+            if verdict.match is None and section == "languages":
+                # ADR-046 amended 2026-10-07 (#709) — the whole-string DE/EN
+                # language-name table, the SAME function the applier uses
+                # (ADR-066): a lookup in a closed list is a fact.
+                canon = canonical_language(getattr(entry, "language", None))
+                table_hits = [
+                    e for e in merged_entries
+                    if canon is not None and canonical_language(getattr(e, "language", None)) == canon
+                ]
+                if len(table_hits) == 1:
+                    verdict = DupeVerdict(match=table_hits[0])
         if verdict.match is not None:  # arm (b)
             continue
         if key in op_keys:  # arm (c), sub-clause 1
@@ -657,6 +792,12 @@ def _engagement_section_not_applied(
     merged_keys = {_entry_key(e, fields) for e in merged_entries}
     op_keys = _op_natural_keys(ops, section.op_type, fields)
     section_touched = touched_orgs.get(section.name, [])
+    # #715 (ADR-063 amended 2026-10-07) — arm (c) sub-clause 3 on engagements.
+    bound_keys = _match_existing_bound_keys(section.name, incoming_entries, merged_entries, ops)
+
+    carried_by_alias = {
+        id(e) for e, _t in alias_carries(section.name, incoming_entries, merged_entries)
+    }
 
     items: list[ImportNotApplied] = []
     seen: set[tuple[str, ...]] = set()
@@ -666,6 +807,10 @@ def _engagement_section_not_applied(
             continue
         seen.add(key)
         if key in merged_keys:  # arm (a)
+            continue
+        if id(entry) in carried_by_alias:  # arm (a), alternate names
+            continue
+        if key in bound_keys:  # arm (c), sub-clause 3 — the model said so (#715)
             continue
         org = getattr(entry, section.org_field, None)
         role = getattr(entry, "role", None)

@@ -365,12 +365,23 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
     rewrite_for_removal = _rewriter()
     async with rs.document_lock(kind, doc_id):
         record = await load_document(kind, doc_id, db, user_id=owner)
-        finding = _listed_or_raise(record, key)
-        if finding.matches and all(m.get("stem") for m in finding.matches):
-            raise TakeOutStemOnly(
-                f"finding {key!r} matched only through another word form; edit it yourself"
-            )
-        wording = finding.wording()
+        if rs.split_key(key)[0] == "critic":
+            # #702 RULING R-2 = A (ADR-090 cl. 3 amended 2026-10-07): a
+            # cross-document item is taken out of the LETTER by the same removal
+            # rewrite — its literal concepts, or the whole sentence.
+            from applire.services.review_signals import cross_document_target
+
+            label, wording = cross_document_target(record, key)
+            finding = rs.GroupOneFinding(key=key, producer="critic", norm=rs.split_key(key)[1], label=label)
+            critic_sentence = label
+        else:
+            critic_sentence = None
+            finding = _listed_or_raise(record, key)
+            if finding.matches and all(m.get("stem") for m in finding.matches):
+                raise TakeOutStemOnly(
+                    f"finding {key!r} matched only through another word form; edit it yourself"
+                )
+            wording = finding.wording()
         # RULING E-1 part 2: an Oracle finding whose verdict names figures
         # removes ONLY those figures (the rest of the claim is the candidate's
         # true prose); without the field it takes the whole-claim path.
@@ -378,10 +389,27 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
         if figures_only:
             wording = list(finding.claim_figures)
         holds = _section_holds_figures if figures_only else _section_holds
-        sections = [
-            (sid, text) for sid, text in await patchable_sections(kind, record, db)
-            if holds(text, wording)
-        ]
+        # (section_id, text the rewriter sees, full section text, start, end)
+        targets: list[tuple[str, str, str, int, int]] = []
+        if critic_sentence is not None:
+            # Adv-review finding 7 (2026-10-07): a cross-document item is ONE
+            # sentence ("Applire schreibt den Satz … neu"). Only that sentence goes
+            # to the removal rewrite; the result is spliced back into its section,
+            # so another sentence naming the same fact is never touched.
+            from applire.services.review_signals import locate_sentence
+
+            hit = locate_sentence(await patchable_sections(kind, record, db), critic_sentence)
+            if hit is not None:
+                sid, full, start, end = hit
+                if holds(full[start:end], wording):
+                    targets.append((sid, full[start:end], full, start, end))
+        else:
+            targets = [
+                (sid, text, text, 0, len(text))
+                for sid, text in await patchable_sections(kind, record, db)
+                if holds(text, wording)
+            ]
+        sections = [(sid, span) for sid, span, _f, _s, _e in targets]
         # WP-R belt (ruling R-1): refuse BEFORE any model call when a section to
         # be rewritten holds a job title / employer name containing the wording.
         if sections:
@@ -395,14 +423,15 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
                     )
         language = await _document_language(kind, record, db)
         changes: list[dict] = []
-        for section_id, section_text in sections:
+        for section_id, section_text, full, start, end in targets:
             result = await rewrite_for_removal(
                 kind, record, section_id, section_text, wording, provider,
                 language=language, figures_only=figures_only,
             )
             if not result.changed or result.after == section_text:
                 continue
-            changes.append({"section_id": section_id, "before": section_text, "after": result.after})
+            after = full[:start] + result.after + full[end:]
+            changes.append({"section_id": section_id, "before": full, "after": after})
         # Adversarial finding 2 (2026-09-24): all-or-nothing ACROSS sections.
         # Every rewrite runs first; nothing is written unless all of them
         # returned, so a failing second section can no longer leave the first
@@ -416,8 +445,26 @@ async def take_out(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, pr
                 undo_sections=[{"section_id": c["section_id"], "before": c["before"]} for c in changes],
             )
             await _save_state(record, state, db)
-        still = rs.find_listed(findings_of(record), key) is not None
+        still = await _still_listed(kind, record, key, wording, db, sentence=critic_sentence)
         return ActionOutcome(record=record, changes=changes, still_listed=still)
+
+
+async def _still_listed(
+    kind: Kind, record, key: str, wording: list[str], db: AsyncSession, *, sentence: str | None = None
+) -> bool:
+    """Group 1: the live report still lists the finding. A cross-document item
+    (#702): the critic does not re-run on a re-audit, so "still there" is read off
+    the document itself — does the item's SENTENCE still stand and hold the
+    wording (adv-review finding 7: another sentence naming the fact is not this
+    item)."""
+    if rs.split_key(key)[0] == "critic":
+        from applire.services.review_signals import locate_sentence
+
+        if not sentence or not wording:
+            return False
+        hit = locate_sentence(await patchable_sections(kind, record, db), sentence)
+        return hit is not None and _section_holds(hit[1][hit[2]:hit[3]], wording)
+    return rs.find_listed(findings_of(record), key) is not None
 
 
 async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, user_id: uuid.UUID | None = None) -> ActionOutcome:
@@ -442,7 +489,16 @@ async def undo(kind: Kind, doc_id: uuid.UUID, key: str, db: AsyncSession, *, use
         if sections:
             await reaudit(kind, record, db)
         await _save_state(record, rs.without_decision(state, key), db)
-        still = rs.find_listed(findings_of(record), key) is not None
+        wording: list[str] = []
+        sentence: str | None = None
+        if rs.split_key(key)[0] == "critic":
+            from applire.services.review_signals import cross_document_target
+
+            try:
+                sentence, wording = cross_document_target(record, key)
+            except FindingNotListed:
+                wording = []
+        still = await _still_listed(kind, record, key, wording, db, sentence=sentence)
         return ActionOutcome(record=record, still_listed=still)
 
 

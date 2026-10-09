@@ -868,3 +868,58 @@ async def test_the_letter_chain_hands_settle_to_outcome_the_reviewed_draft(db):
     # over, and it differs from the settled (corrected-after-verdict) draft.
     assert letter_calls[-1]["reviewed_draft"] == seen[-1]["reviewed"]
     assert letter_calls[-1]["reviewed_draft"] != seen[-1]["settled"]
+
+
+# --- #703: the letter chain records every round's coverage demand ------------
+
+
+@pytest.mark.asyncio
+async def test_the_letter_chain_reports_a_demand_repeated_across_rounds(db):
+    """#703 (ADR-076 amended 2026-10-07) — the SEAM test for `cover_letter.py`'s wiring.
+
+    `_wrap_reviewer` hands `coverage_reviewer_prompt_fn` the delivery's
+    `DemandRecord.record_round` as `on_demand`; the audit call hands the folded outcome
+    through `with_repeated_demands`. Drop either and this test goes red by name. The
+    coverage wrapper is replaced by a stand-in that demands one fixed term per round,
+    so the assertion reads the CHAIN's plumbing, not the ledger's ranking."""
+    from applire.services.review_issues import ReviewSettle
+    import applire.services.keyword_ledger as kl
+
+    ids = await _seed(db)
+    audits: list = []
+
+    def fake_coverage(base_fn, keyword_ledger, budget=None, max_terms_per_round=None, on_demand=None):
+        def fn(source, draft):
+            if on_demand is not None:
+                on_demand([{"concept": "Maschinendatenerfassung", "surface_forms": ["MDE"]}])
+            return base_fn(source, draft)
+        return fn
+
+    async def fake_review(**kwargs):
+        # Every letter loop: two reviewer rounds, then settle.
+        for _ in range(2):
+            kwargs["reviewer_prompt_fn"](kwargs["source"], kwargs["draft"])
+        on_settle = kwargs.get("on_settle")
+        if on_settle is not None:
+            on_settle(ReviewSettle(path="exhausted", approved=False,
+                                   blocking_issues=("Coverage missing.",), minor_issues=(),
+                                   rounds=2, settled=kwargs["draft"]))
+        return kwargs["draft"]
+
+    async def capture_audit(cl, db_, **kwargs):
+        audits.append(kwargs.get("terminal_review"))
+
+    await _run_pipeline(
+        db, ids,
+        extra_patches=(
+            patch.object(kl, "coverage_reviewer_prompt_fn", side_effect=fake_coverage),
+            patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review),
+            patch("applire.services.cover_letter._update_ats_report_letter", side_effect=capture_audit),
+        ),
+    )
+    assert audits and audits[0] is not None
+    (signal,) = audits[0].repeated_demands
+    assert signal.term == "Maschinendatenerfassung"
+    assert signal.rounds >= 4  # drafting + terminal loops, two rounds each
+    assert signal.rounds == signal.total_rounds
+    assert signal.weight == "open"  # the stub writer never says it

@@ -60,6 +60,7 @@ SUB_KEY_VALUES = {
     "conflict_id": "conflict-1",
     "pin_id": "pin-1",
     "scheme_id": str(uuid.UUID(int=7)),
+    "key": "LLM_PROVIDER",  # ADR-093 instance setting (admin-only)
 }
 
 
@@ -85,6 +86,11 @@ REST_BODIES: dict[tuple[str, str], dict] = {
         ("POST", f"/api/{kind}/{{doc_id}}/review/{action}"): dict(_FK)
         for kind in ("cv", "cover-letter")
         for action in ("take-out", "undo", "edited")
+    },
+    # #702: *So lassen* on a cross-document item (a `critic:` key).
+    **{
+        ("POST", f"/api/{kind}/{{doc_id}}/review/kept"): {"finding_key": "critic:python"}
+        for kind in ("cv", "cover-letter")
     },
     ("PATCH", "/api/cv/{cv_id}/color"): {"accent_hex": "#12233E"},
     ("PATCH", "/api/applications/{application_id}"): {"notes": "Changed by B."},

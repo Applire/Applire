@@ -1,4 +1,4 @@
-import { test, expect } from "../support/auth-fixture";
+import { test, expect, ADMIN_USER } from "../support/auth-fixture";
 
 /**
  * #704 (founder UAT on the Nougat RC, 2026-09-15) — a first-time user with no
@@ -45,19 +45,27 @@ test.describe("#704 — the empty profile page offers the CV upload", () => {
     await expect(pageBar).toHaveText(/my profile/i);
   });
 
-  test("renders the German heading and upload copy under the de locale", async ({ page }) => {
-    await page.route("**/api/settings", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] }),
-      }),
-    );
-    await openEmptyProfile(page);
+  test.describe("under the de locale", () => {
+    test.use({ authUser: { ...ADMIN_USER, ui_language: "de" } });
 
-    await expect(page.getByTestId("main-file-input")).toHaveCount(1, { timeout: 30000 });
-    const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
-    expect(text).toContain("Noch kein Profil");
-    expect(text).toContain("Zurück zur Startseite");
+    test("renders the German heading and upload copy under the de locale", async ({ page }) => {
+      // The signed-in person's language agrees with the served settings, as it
+      // does on a real install. With ADMIN_USER ("en") the LocaleProvider renders
+      // English until the /api/settings answer lands, and the innerText read
+      // below can fall into that window (CI run 37823148632: first attempt English).
+      await page.route("**/api/settings", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] }),
+        }),
+      );
+      await openEmptyProfile(page);
+
+      await expect(page.getByTestId("main-file-input")).toHaveCount(1, { timeout: 30000 });
+      const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
+      expect(text).toContain("Noch kein Profil");
+      expect(text).toContain("Zurück zur Startseite");
+    });
   });
 });

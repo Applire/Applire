@@ -139,6 +139,45 @@ def test_scrub_leaves_ordinary_text_and_non_strings_alone():
     assert scrub_detail({"n": 3, "s": "plain"}) == {"n": 3, "s": "plain"}
 
 
+@pytest.fixture
+def overlay_restored():
+    """Restore the ADR-093 overlay snapshot after the test."""
+    from applire import config
+
+    before = config.overlay_latest()
+    try:
+        yield config
+    finally:
+        config.set_overlay_latest(before)
+
+
+def test_scrub_covers_env_and_panel_stored_secrets(overlay_restored, monkeypatch):
+    """Configured secret values come from the environment AND the instance-
+    settings overlay (ADR-093): the effective value, an env value an override
+    shadows, the latest snapshot and an older snapshot a call is pinned to."""
+    config = overlay_restored
+    env_key = "Mx7ENVSENTINELq9Zt4uV0"
+    latest_key = "Mx7LATESTSENTINELq9Zt4"
+    pinned_key = "Mx7PINNEDSENTINELq9Zt4"
+    monkeypatch.setattr(settings, "mistral_api_key", env_key)
+    config.set_overlay_latest({"mistral_api_key": latest_key})
+    token = config.pin_overlay({"mistral_api_key": pinned_key})
+    try:
+        assert settings.mistral_api_key == pinned_key  # the pin wins in this context
+        out = scrub_secrets(f"a {env_key} b {latest_key} c {pinned_key} d {latest_key!r}")
+    finally:
+        config.unpin_overlay(token)
+    for marker in ("ENVSENTINEL", "LATESTSENTINEL", "PINNEDSENTINEL"):
+        assert marker not in out, out
+
+
+def test_panel_and_startup_share_one_key_charset_rule():
+    from applire import config
+    from applire.services import instance_settings
+
+    assert instance_settings.has_unprintable_key_char is config.has_unprintable_key_char
+
+
 def test_scrub_detail_walks_nested_structures(configured_secret):
     detail = {"error_code": "x", "message": f"m {SENTINEL}", "list": [f"{SENTINEL}", 1]}
     _assert_clean(json.dumps(scrub_detail(detail)))
@@ -687,3 +726,31 @@ def test_every_stored_error_message_is_scrubbed(path):
             found += 1
             assert "scrub_secrets(" in ast.unparse(node.value), ast.unparse(node)
     assert found == 1
+
+
+def test_mcp_entrypoint_scrubs_every_logger_it_writes(configured_secret, monkeypatch, capsys):
+    """The stdio process installs no handler of its own before this; a record
+    from ``applire.*`` or ``mcp.*`` (and an exception escaping a tool) reached
+    stderr through Python's last-resort handler, unscrubbed."""
+    import logging
+
+    from applire.mcp import __main__ as entry
+
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    entry._install_stderr_logging()
+    try:
+        logging.getLogger("mcp.server.lowlevel").warning("provider said %s", SENTINEL)
+        try:
+            raise RuntimeError(f"upstream refused {SENTINEL}")
+        except RuntimeError:
+            logging.getLogger("applire.mcp.server").exception("tool failed")
+        for h in root.handlers:
+            h.flush()
+        err = capsys.readouterr().err
+        assert "provider said" in err and "tool failed" in err
+        assert SENTINEL not in err
+    finally:
+        for h in list(root.handlers):
+            root.removeHandler(h)
+

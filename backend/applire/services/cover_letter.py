@@ -102,6 +102,14 @@ from applire.utils.recipient_extraction import extract_recipient_from_jd
 
 logger = logging.getLogger(__name__)
 
+
+def _critic_report_for_door(raw):
+    """#702 — see ``outcome_critic.critic_report_for_door`` (local import: the
+    critic module imports the provider layer)."""
+    from applire.services.outcome_critic import critic_report_for_door
+
+    return critic_report_for_door(raw)
+
 # M5.4.2 (3) (founder, 2026-09-11): how many absent claimable terms the LETTER's
 # reviewer may be shown — and therefore demand — in one round. The number is the
 # one `prompts/review_cover_letter.py` used to ASK for in prose ("DEMAND AT MOST
@@ -318,7 +326,9 @@ async def get_cover_letter_status(
         letter_data=letter_data,
         section_overrides=section_overrides,
         origin=cl.origin,
-        critic_report=cl.critic_report,
+        # #702: through the schema, so `cross_document` reaches the agent door
+        # on legacy rows too (derived, never stored-and-trusted).
+        critic_report=_critic_report_for_door(cl.critic_report),
         # E054/US289 (clause 3b): pinned language, stored value as-is.
         document_language=cl.document_language,
         # F-4b: the stored per-document override (None/True/False) and the
@@ -1281,7 +1291,9 @@ async def _render_cover_letter_body(
                     # path nobody would think to re-measure. The letter's REVIEWER seam
                     # (`grounding_source`, below) is the one that actually carried it.
                     from applire.services.prompt_view import prompt_profile_view
-                    cv_data = prompt_profile_view(exclude_unconfirmed(profile.profile_json or {}))
+                    cv_data = prompt_profile_view(
+                        exclude_unconfirmed(profile.profile_json or {}), derived_spans="hedge"
+                    )
 
                 # Auto-extract recipient if not provided
                 pre_gen = dict(cl.pre_gen_inputs or {})
@@ -1729,7 +1741,9 @@ async def _render_cover_letter_body(
                         # and the corrector unchanged every round (§5.3.23), so every char
                         # of the audit trail was paid for on each of them.
                         "profile": (
-                            prompt_profile_view(exclude_unconfirmed(profile.profile_json))
+                            prompt_profile_view(
+                                exclude_unconfirmed(profile.profile_json), derived_spans="hedge"
+                            )
                             if profile is not None
                             else {}
                         ),
@@ -1838,11 +1852,25 @@ async def _render_cover_letter_body(
                     forbidden_presence_reviewer_prompt_fn,
                 )
 
+                # #703 (ADR-076 amended 2026-10-07): one record per delivery of what
+                # each reviewer round's VERIFIED COVERAGE block demanded. Every letter
+                # loop (drafting, condense, terminal, final floor) builds its reviewer
+                # prompt through `_wrap_reviewer`, so this one wiring point sees every
+                # round in order. A REPORT only — it never reaches a prompt (ADR-021
+                # cl. 6); read once, at the audit below.
+                from applire.services.terminal_review_outcome import (
+                    DemandRecord,
+                    with_repeated_demands,
+                )
+
+                demand_record = DemandRecord()
+
                 def _wrap_reviewer(base_fn):
                     fn = unaddressed_requirements_reviewer_prompt_fn(
                         coverage_reviewer_prompt_fn(
                             base_fn,
                             keyword_ledger,
+                            on_demand=demand_record.record_round,
                             budget=letter_coverage_budget(norm.letter_body_word_budget),
                             # M5.4.2 (3) (2026-09-13): the per-round demand cap
                             # is a BOUND here, not a request in the reviewer
@@ -2151,7 +2179,11 @@ async def _render_cover_letter_body(
                     await _update_ats_report_letter(
                         cl, db, pdf=pdf_bytes,
                         pins=letter_pins, truth_floor_hits=pin_floor_hits,
-                        terminal_review=terminal_outcome,
+                        # #703: the delivery's repeated demands, measured against
+                        # the letter this audit reads.
+                        terminal_review=with_repeated_demands(
+                            terminal_outcome, demand_record, cl.letter_data
+                        ),
                     )
                     delivered_hash = subject_hash(cl.letter_data)
                     match = delivered_hash == verdict_hash

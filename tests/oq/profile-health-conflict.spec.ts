@@ -1,4 +1,4 @@
-import { test, expect } from "../support/auth-fixture";
+import { test, expect, ADMIN_USER } from "../support/auth-fixture";
 
 /**
  * #604 — E2E coverage for the Health hub's conflict card.
@@ -158,22 +158,30 @@ test.describe("#604 — Health hub conflict card", () => {
     expect(text).not.toContain("professional_summary");
   });
 
-  test("renders the German catalog, not English fallbacks", async ({ page }) => {
-    // `LocaleProvider` reads the active UI language from GET /api/settings —
-    // there is no cookie or query-param switch.
-    await page.route("**/api/settings", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] }),
-      }),
-    );
-    await openProfileWith(page, HEALTH_WITH_ENTITY_CONFLICT);
+  test.describe("under the de locale", () => {
+    test.use({ authUser: { ...ADMIN_USER, ui_language: "de" } });
 
-    const text = (
-      await page.getByTestId("health-issue-conflict").innerText()
-    ).replace(/\s+/g, " ");
-    expect(text).toContain("Enddatum");
-    expect(text).toContain("Aktueller Wert");
+    test("renders the German catalog, not English fallbacks", async ({ page }) => {
+      // The signed-in person's language agrees with the served settings, as it
+      // does on a real install. With ADMIN_USER ("en") the LocaleProvider renders
+      // English until the /api/settings answer lands, and the innerText read
+      // below can fall into that window (CI run 37823148632: first attempt English).
+      // The `LocaleProvider` takes the language from /api/auth/me, then from
+      // GET /api/settings — there is no cookie or query-param switch.
+      await page.route("**/api/settings", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ui_language: "de", ui_language_explicit: true, dismissed_explainers: [] }),
+        }),
+      );
+      await openProfileWith(page, HEALTH_WITH_ENTITY_CONFLICT);
+
+      const text = (
+        await page.getByTestId("health-issue-conflict").innerText()
+      ).replace(/\s+/g, " ");
+      expect(text).toContain("Enddatum");
+      expect(text).toContain("Aktueller Wert");
+    });
   });
 });

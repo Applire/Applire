@@ -48,18 +48,37 @@ def _escaped_forms(value: str) -> set[str]:
     return {f for f in forms if len(f) >= _MIN_SECRET_LEN}
 
 
+def _candidate_values(name: str) -> list[Any]:
+    """Every value ``name`` may hold right now: the effective one in this
+    context, the environment / ``.env`` one, and the admin override (ADR-093) in
+    the process-wide latest snapshot. A call pinned to an older snapshot, or an
+    env key shadowed by an override, is still a secret worth scrubbing."""
+    from applire import config
+
+    settings = config.settings
+    found: list[Any] = [getattr(settings, name, None)]
+    env_value = getattr(settings, "env_value", None)
+    if callable(env_value):
+        found.append(env_value(name))
+    overlay_latest = getattr(config, "overlay_latest", None)
+    if callable(overlay_latest):
+        found.append(overlay_latest().get(name))
+    return found
+
+
 def configured_secret_values() -> list[str]:
-    """Every configured secret value (and its escaped forms), longest first."""
+    """Every configured secret value (and its escaped forms), longest first —
+    from the environment and from the instance-settings overlay alike."""
     from applire.config import settings
 
     values: set[str] = set()
     for name in type(settings).model_fields:
         if not name.endswith(_SECRET_FIELD_SUFFIXES):
             continue
-        value = getattr(settings, name, None)
-        if isinstance(value, str) and len(value.strip()) >= _MIN_SECRET_LEN:
-            values |= _escaped_forms(value)
-            values |= _escaped_forms(value.strip())
+        for value in _candidate_values(name):
+            if isinstance(value, str) and len(value.strip()) >= _MIN_SECRET_LEN:
+                values |= _escaped_forms(value)
+                values |= _escaped_forms(value.strip())
     return sorted(values, key=len, reverse=True)
 
 

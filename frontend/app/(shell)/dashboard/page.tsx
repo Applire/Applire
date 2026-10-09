@@ -24,6 +24,7 @@ import { useTranslations } from "next-intl";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { ImportInProgressBanner } from "@/components/dashboard/ImportInProgressBanner";
 import { UpgradeNotice } from "@/components/dashboard/UpgradeNotice";
+import { InstanceSignal } from "@/components/dashboard/InstanceSignal";
 import { QuickTailorWidget } from "@/components/dashboard/QuickTailorWidget";
 import { ProfileStrengthCard } from "@/components/dashboard/ProfileStrengthCard";
 import { DashboardApplicationCard } from "@/components/dashboard/DashboardApplicationCard";
@@ -137,6 +138,8 @@ export default function DashboardPage() {
             changed something this environment does not set (or while the LLM debug
             log is on); on a normal day it renders nothing at all.
             WP-O1's OperatorPanel mounts directly below this line. */}
+        {/* #694 (Epic C): admin-only one-line instance signal, only while degraded/down. */}
+        <InstanceSignal />
         <UpgradeNotice />
 
         {/* PQ F1: truthful dashboard — CV imports may still be running server-side

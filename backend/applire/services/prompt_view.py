@@ -116,12 +116,28 @@ def _is_empty_incoming_value(value: Any) -> bool:
     return value is None or value == [] or value == ""
 
 
+#: Provenance labels of a skill duration that NO source text states (ADR-061
+#: clause 7). Computed from role dates or estimated by a model.
+DERIVED_SPAN_SOURCES: frozenset[str] = frozenset({"computed", "llm_estimated"})
+
+
 def _strip_incoming(value: Any) -> Any:
     if isinstance(value, dict):
+        # #747 (ADR-061 cl. 7 / ADR-078 amended 2026-10-07): a DERIVED span
+        # leaves the incoming view together with its label. The label alone was
+        # stripped before (it is bookkeeping), which rendered skill
+        # enrichment's computed ``years_experience: 8`` as a number the new
+        # document STATES — the reconciler's own rule then carried it into
+        # ``upsert_skill`` and the applier stamped it ``transcribed``. Replay
+        # of the captured call (2026-09-19, n=5 per rendering): 5/5 laundered
+        # as rendered, 0/5 with the derived span stripped.
+        derived = value.get("source") in DERIVED_SPAN_SOURCES
         return {
             k: _strip_incoming(v)
             for k, v in value.items()
-            if k not in INCOMING_STRIPPED_KEYS and not _is_empty_incoming_value(v)
+            if k not in INCOMING_STRIPPED_KEYS
+            and not _is_empty_incoming_value(v)
+            and not (derived and k == "years_experience")
         }
     if isinstance(value, list):
         return [_strip_incoming(v) for v in value]
@@ -162,6 +178,7 @@ def prompt_profile_view(
     profile_json: Any,
     *,
     keep: frozenset[str] = PROMPT_FACING_METADATA_KEYS,
+    derived_spans: str = "keep",
 ) -> Any:
     """Return a filtered COPY of ``profile_json`` for model consumption.
 
@@ -175,6 +192,15 @@ def prompt_profile_view(
     it excludes ``metadata`` entirely, denials included, because a denial's own
     text token-matches *for* the skill it denies and would read as evidence of
     it (the F4 fix).
+
+    ``derived_spans`` (#747, ADR-078 amended 2026-10-07, rulings T-1/T-1b) is
+    a second clause-4 narrowing: ``"keep"`` (default) leaves skill durations
+    as stored; ``"hedge"`` — the cover letter's renderings — replaces a
+    ``computed`` span by ``years_experience_derived`` (``at_least`` = the
+    floor of the evidenced span, ``below`` = its ceiling, and the only
+    wording the letter may use for it), and drops an ``llm_estimated`` span
+    (no dated evidence: the Oracle could never check it). A ``transcribed``
+    span is the candidate's own number and is unchanged.
 
     Tolerant of ``None`` and malformed shapes at every level: a prompt-input
     filter must never become a new way for generation to fail, so anything it
@@ -205,4 +231,66 @@ def prompt_profile_view(
             # value is bookkeeping-shaped by position. Drop it.
             del view["metadata"]
 
+    if derived_spans == "hedge":
+        view = _hedge_derived_spans(view)
     return view
+
+
+def _hedge_derived_spans(view: dict[str, Any]) -> dict[str, Any]:
+    """Render derived skill spans the way a letter may state them (ruling T-1).
+
+    The span is recomputed from the profile's own dated roles by
+    ``skill_enrichment.evidenced_span_years`` — the instrument the Oracle's
+    duration check reads — so every hedge offered here is one the Oracle
+    accepts. Never rounds up: 7.6 years is "über 7" / "knapp 8".
+    """
+    skills = view.get("skills")
+    if not isinstance(skills, list):
+        return view
+    try:
+        from applire.schemas.profile import MasterProfileData
+        from applire.services.skill_enrichment import evidenced_span_years
+
+        model = MasterProfileData.model_validate(view)
+    except Exception:  # noqa: BLE001 — a view must never fail generation
+        model = None
+    out: list[Any] = []
+    for skill in skills:
+        if (
+            not isinstance(skill, dict)
+            or skill.get("source") not in DERIVED_SPAN_SOURCES
+            or skill.get("years_experience") is None
+        ):
+            out.append(skill)
+            continue
+        rendered = {k: v for k, v in skill.items() if k != "years_experience"}
+        span = None
+        if skill.get("source") == "computed" and model is not None and skill.get("name"):
+            span = evidenced_span_years(model, str(skill["name"]), bound="floor")
+        if span is not None:
+            years, _orgs = span
+            at_least = int(years)
+            if at_least < 1:
+                # Under a year: no count a letter could state honestly.
+                out.append(rendered)
+                continue
+            # "knapp N+1" only when the span is within half a year of N+1 —
+            # the same N-0.5 floor the Oracle applies to "knapp/fast" (ADR-052
+            # amended 2026-10-07); 7.1 years is "über 7", never "knapp 8".
+            below = at_least + 1 if years - at_least >= 0.5 else None
+            over_de = "über ein Jahr" if at_least == 1 else f"über {at_least} Jahre"
+            over_en = "over one year" if at_least == 1 else f"over {at_least} years"
+            hedges_de = [over_de] + ([f"knapp {below} Jahre"] if below else [])
+            hedges_en = [over_en] + ([f"almost {below} years"] if below else [])
+            derived: dict[str, Any] = {"at_least": at_least}
+            if below:
+                derived["below"] = below
+            derived["say"] = (
+                "derived from role dates, not stated by the candidate — only "
+                "hedged and never rounded up: "
+                + " / ".join(f'"{h}"' for h in hedges_de + hedges_en)
+                + '; never a flat "seit N Jahren" / "for N years"'
+            )
+            rendered["years_experience_derived"] = derived
+        out.append(rendered)
+    return {**view, "skills": out}

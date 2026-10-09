@@ -15,7 +15,7 @@ test.describe("signed-in shell (US330)", () => {
     await page.route("**/api/profile", (r) => r.fulfill(json({ profile: { personal_info: { name: "Anna Bauer" } } })));
   });
 
-  test("admin: e-mail under the name, Administration nav → /admin/users, account menu", async ({ page }) => {
+  test("admin: e-mail under the name, Administration nav → /admin/overview (Epic C landing), account menu", async ({ page }) => {
     await page.goto("/settings");
     const sidebar = page.getByTestId("app-sidebar");
     await expect(sidebar.getByTestId("sidebar-user-email")).toHaveText(ADMIN_USER.email);
@@ -27,7 +27,7 @@ test.describe("signed-in shell (US330)", () => {
     await expect(menu.getByRole("menuitem", { name: "Administration" })).toBeVisible();
     await page.keyboard.press("Escape");
     await sidebar.getByTestId("sidebar-nav-admin").click();
-    await expect(page).toHaveURL(/\/admin\/users$/);
+    await expect(page).toHaveURL(/\/admin\/overview$/);
   });
 
   test.describe("plain user", () => {

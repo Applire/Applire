@@ -108,6 +108,19 @@ minimal work): `import_cv` → `analyze_jd` → `analyze_gaps` →
 also carries `critic_report` (ADR-060 Pass B) — a cross-document coherence
 advisory when the letter states something your CV doesn't back at the same
 depth. Read-only, never mutates either document; null until the pass runs.
+Its `cross_document` list folds the advisories that quote the same letter
+sentence into one item; `weight: "high"` means the letter states a fact the CV
+never mentions, with a figure, year or duration — the shape blind recruiters
+read as inflation. For each item ask the human one question: add the fact to
+the CV, take it out of the letter, or keep it as is. Never decide for them.
+
+**Terms the writer was asked for repeatedly.** The `terminal-review` check on
+either ATS report carries `driver.repeated_demands` (and `driver.open`) when
+the writing loop demanded the same job term in two or more rounds; `details`
+names each term with its count. `open` = still not in the document although
+the profile backs it (worth telling the human); `landed` = it arrived late —
+re-read the sentence it landed in, late arrivals tend to end up in a bare
+keyword list.
 
 **Stop on a red verdict.** After every generation, read `truthfulness` on the
 ATS report (`get_cv_ats_report` / `get_cover_letter_ats_report`) before the
@@ -165,8 +178,20 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   (challenge → mechanism → outcome → benchmark) are its richest material.
   **Story selection and angling per job description is YOUR strategy job**;
   Applire supplies the stories, receipts, and the Oracle to check the result.
+  **Alternate names.** An entry may carry `aliases` (skills, languages),
+  `company_aliases` / `role_aliases` (jobs), `organization_aliases`
+  (volunteering) or `institution_aliases` / `degree_aliases` (education): other
+  names the candidate's own documents used for the same entry, recorded when an
+  import recognised it (`import_cv` reports them in `matched` — section and your own incoming label only, jobs
+  included). Use the name that fits the document's language; never invent one.
+  When you send an entry back through `update_profile`, keep its alias lists —
+  an entry sent without them loses them. You may remove an alternate name;
+  a new one you add there is dropped (only an import records them).
 - `analyze_jd` + `analyze_gaps` — Applire's job parse and keyword ledger,
-  raw material for your positioning. Each `gap_clusters` entry is a gap with a
+  raw material for your positioning. If `analyze_jd(url=…)` is refused with an
+  error whose text contains `[linkedin_guest_fetch_disabled]`, the operator has switched off
+  LinkedIn fetching: do not retry the URL — ask the candidate for the posting
+  text and pass it as `text`. Each `gap_clusters` entry is a gap with a
   memory: its `gaps` are its **open** requirements only — what is covered or
   declined moved to `outcome.covered` / `outcome.declined` — `coverage` is
   `open` / `partly_covered` / `covered` / `declined`, `outcome.asked` counts
@@ -391,7 +416,7 @@ two fields for the human's review of ONE generated document:
   form of it. A missing key means the report predates the field.
 - `review_state`: `{walked_at, decisions: [{finding_key, label, action, at, undo}]}`
   — what the human decided in the review panel (`added` to profile, `taken_out`,
-  `edited`). **A decision is a label, never a verdict:** a keyword the current
+  `edited`, or `kept` — a letter-only fact left in the letter on purpose). **A decision is a label, never a verdict:** a keyword the current
   report still lists in `present_unsupported` is open, whatever `review_state`
   says. Count from the report; use `review_state` only to tell your user what
   they already did about a finding the report no longer lists.

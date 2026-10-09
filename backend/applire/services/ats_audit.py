@@ -1747,10 +1747,30 @@ def _audit_cv_text(
     # never evaluated.
     if document_language:
         foreign = foreign_language_items(tailored, document_language)
-        _check(checks, "document-language", not foreign,
-               f"items not written in the document language ({document_language}): "
-               + "; ".join(f"[{where}] '{text[:60]}'" for where, text in foreign[:5])
-               + (f" (+{len(foreign) - 5} more)" if len(foreign) > 5 else ""))
+        details = (
+            f"items not written in the document language ({document_language}): "
+            + "; ".join(f"[{where}] '{text[:60]}'" for where, text in foreign[:5])
+            + (f" (+{len(foreign) - 5} more)" if len(foreign) > 5 else "")
+        )
+        if not foreign:
+            _check(checks, "document-language", True)
+        else:
+            # #759 (ADR-081 amended 2026-10-08): the review surface shows a FAILED
+            # document-language check in its "before you send it" block, in the
+            # reader's UI language — so the row carries a machine-readable variant.
+            # `details` stays the EN diagnostic (the agent door and legacy readers).
+            checks.append(ATSCheck(
+                id="document-language", status="fail", details=details,
+                details_key="document-language-mixed",
+                details_params={
+                    "language": document_language,
+                    "count": len(foreign),
+                    "examples": "; ".join(
+                        text if len(text) <= 60 else f"{text[:60].rstrip()}…"
+                        for _where, text in foreign[:3]
+                    ),
+                },
+            ))
     else:
         checks.append(ATSCheck(
             id="document-language", status="not_applicable",

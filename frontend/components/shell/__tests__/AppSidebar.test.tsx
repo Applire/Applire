@@ -48,10 +48,10 @@ describe("AppSidebar", () => {
   });
 
   describe("US330 — account in the shell", () => {
-    it("Administration is admin-only and goes to /admin/users (G-2)", () => {
+    it("Administration is admin-only and goes to the admin landing /admin/overview (G-2, Epic C)", () => {
       render(<AppSidebar />);
       fireEvent.click(screen.getByTestId("sidebar-nav-admin"));
-      expect(mockPush).toHaveBeenCalledWith("/admin/users");
+      expect(mockPush).toHaveBeenCalledWith("/admin/overview");
     });
 
     it("a plain user sees no Administration entry — neither full nor rail", () => {

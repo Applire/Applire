@@ -93,6 +93,8 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
   // (pipeline resumes with the analyzed job) or explicitly continues without.
   const [jdRecovery, setJdRecovery] = useState<{
     code: "url_invalid" | "fetch_failed";
+    /** #726: the instance does not fetch LinkedIn pages — same paste path, own copy. */
+    linkedinOff?: boolean;
     text: string;
     error: string | null;
     submitting: boolean;
@@ -425,7 +427,13 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
     if (!current || current.submitting) return;
     setJdRecovery(null);
     setStepStatus(0, "done");
-    setJdNote(current.code === "url_invalid" ? t("jdUrlInvalid") : t("jdFetchFailed"));
+    setJdNote(
+      current.linkedinOff
+        ? t("jdLinkedinOff")
+        : current.code === "url_invalid"
+          ? t("jdUrlInvalid")
+          : t("jdFetchFailed"),
+    );
     await continueAfterJd(null, current.code);
   }
 
@@ -497,13 +505,18 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
                   ? body.detail
                   : null;
               const errorCode = detail?.error_code;
-              if (errorCode === "jd_url_invalid" || errorCode === "jd_fetch_failed") {
+              if (
+                errorCode === "jd_url_invalid" ||
+                errorCode === "jd_fetch_failed" ||
+                errorCode === "linkedin_guest_fetch_disabled"
+              ) {
                 // #151: STOP the pipeline — no flow yet, no silent JD-less run.
                 // The user pastes the JD inline (resume with the analyzed job)
                 // or explicitly chooses to continue without one.
                 setStepStatus(0, "error");
                 setJdRecovery({
                   code: errorCode === "jd_url_invalid" ? "url_invalid" : "fetch_failed",
+                  linkedinOff: errorCode === "linkedin_guest_fetch_disabled",
                   text: "",
                   error: null,
                   submitting: false,
@@ -688,9 +701,11 @@ export function ProcessingOverlay({ files, jdMode, jdUrl, jdText, onCancel, guid
                 className="w-full mt-4 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4"
               >
                 <p className="text-sm text-amber-800">
-                  {jdRecovery.code === "url_invalid"
-                    ? t("jdUrlInvalidPaste")
-                    : t("jdFetchFailedPaste")}
+                  {jdRecovery.linkedinOff
+                    ? t("jdLinkedinOffPaste")
+                    : jdRecovery.code === "url_invalid"
+                      ? t("jdUrlInvalidPaste")
+                      : t("jdFetchFailedPaste")}
                 </p>
                 {jdRecovery.error && (
                   <p data-testid="jd-paste-error" className="text-xs text-critical">

@@ -24,18 +24,22 @@
 #   scripts/backup.sh /mnt/nas/applire    # write somewhere else
 #   scripts/backup.sh --verify <archive>  # check an archive without restoring it
 #
-# Run it from the directory that holds docker-compose.yml. The stack must be up.
+# Run it from the directory that holds your install's docker-compose.yml (the script
+# itself may live anywhere, e.g. /opt/applire-scripts/backup.sh). The stack must be up.
 #
 # Both volumes matter and a backup with only one of them is not a backup:
 # postgres_data is the vault (profile, applications, generated documents) and
 # applire_uploads holds every uploaded CV and profile photo. The volume NAMES are
-# read from the running containers rather than guessed from the project name, so
-# this works whatever `-p` or COMPOSE_PROJECT_NAME the install uses.
+# read from the running containers rather than guessed from the project name.
 #
-# Non-standard compose setup? `docker compose` reads COMPOSE_FILE (colon-separated)
-# and COMPOSE_PROJECT_NAME from the environment, and so does this script by simply
-# not overriding them:
-#   COMPOSE_PROJECT_NAME=myapplire scripts/backup.sh
+# Which stack: the compose project this folder resolves to, exactly as
+# `docker compose` resolves it here (COMPOSE_PROJECT_NAME from the shell or .env,
+# else the compose file's `name:`, else the folder name). A stack started with
+# `docker compose -p <name>` resolves to something else; name it then:
+#   COMPOSE_PROJECT_NAME=<name> /path/to/backup.sh
+# That also works from a folder WITHOUT a compose file. When the resolved project
+# has no running postgres, the error lists the Applire stacks that are running.
+# COMPOSE_FILE (colon-separated) is honoured the same way docker compose honours it.
 #
 # Exits non-zero on ANY failure. A backup script that reports success on a partial
 # archive is worse than none (docs/SELF-HOSTING.md).
@@ -68,10 +72,47 @@ read_env_value() {
   sed -n "s/^[[:space:]]*${key}=//p" .env | tail -1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
-POSTGRES_USER="${POSTGRES_USER:-$(read_env_value POSTGRES_USER)}"
-POSTGRES_DB="${POSTGRES_DB:-$(read_env_value POSTGRES_DB)}"
-POSTGRES_USER="${POSTGRES_USER:-applire}"
-POSTGRES_DB="${POSTGRES_DB:-applire}"
+# The compose project this folder resolves to (see the header). `docker compose
+# config` prints the merged file, whose first key is the resolved `name:`; only
+# that one line is kept (the rest can contain secrets and is never printed).
+resolve_project() {
+  local name
+  name="$( (docker compose config 2>/dev/null || true) | sed -n 's/^name:[[:space:]]*//p' | head -1)"
+  [ -n "$name" ] || name="${COMPOSE_PROJECT_NAME:-}"
+  printf '%s' "$name"
+}
+
+# Running Applire stacks on this host = compose projects with a running postgres
+# AND backend service. Names only; used to make a "not running" error actionable.
+applire_projects() {
+  local pg be
+  pg="$(docker ps --filter label=com.docker.compose.service=postgres --format '{{.Label "com.docker.compose.project"}}' | sort -u)"
+  be="$(docker ps --filter label=com.docker.compose.service=backend --format '{{.Label "com.docker.compose.project"}}' | sort -u)"
+  comm -12 <(printf '%s\n' "$pg") <(printf '%s\n' "$be") | sed '/^$/d' | paste -sd, - | sed 's/,/, /g'
+}
+
+service_container() {  # service_container <service> — the running, non-one-off container
+  docker ps -q \
+    --filter "label=com.docker.compose.project=$PROJECT" \
+    --filter "label=com.docker.compose.service=$1" \
+    --filter "label=com.docker.compose.oneoff=False" | head -1
+}
+
+not_running() {  # not_running <service>
+  local others
+  others="$(applire_projects)"
+  if [ -n "$others" ]; then
+    fail "no running $1 container in compose project '$PROJECT' (resolved in $PWD).
+       Applire stacks running on this host: $others.
+       If yours is one of them, run this script from the folder that holds its
+       docker-compose.yml, or name it: COMPOSE_PROJECT_NAME=<project> $0"
+  fi
+  fail "the $1 container of compose project '$PROJECT' is not running — start the stack first (docker compose up -d)"
+}
+
+container_env() {  # container_env <container> <VAR> — the value the running container got
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" | sed -n "s/^$2=//p" | head -1
+}
 
 # --------------------------------------------------------------------------
 # --verify: is this archive a backup, without restoring it? (JF-O-7.2)
@@ -140,10 +181,28 @@ mkdir -p "$OUTDIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ARCHIVE="$OUTDIR/applire-backup-${STAMP}.tar.gz"
 
-PG_CID="$(docker compose ps -q postgres || true)"
-[ -n "$PG_CID" ] || fail "the postgres container is not running — start the stack first (docker compose up -d)"
-BACKEND_CID="$(docker compose ps -q backend || true)"
-[ -n "$BACKEND_CID" ] || fail "the backend container is not running — start the stack first (docker compose up -d)"
+PROJECT="$(resolve_project)"
+if [ -z "$PROJECT" ]; then
+  others="$(applire_projects)"
+  fail "no docker-compose.yml in $PWD and COMPOSE_PROJECT_NAME is not set.
+       Run this script from the folder that holds your install's docker-compose.yml
+       (the script itself may live anywhere), or name the project:
+       COMPOSE_PROJECT_NAME=<project> $0${others:+
+       Applire stacks running on this host: $others.}"
+fi
+PG_CID="$(service_container postgres)"
+[ -n "$PG_CID" ] || not_running postgres
+BACKEND_CID="$(service_container backend)"
+[ -n "$BACKEND_CID" ] || not_running backend
+
+# Database name and user: the shell wins, then what the running postgres container
+# was started with, then .env in this folder, then the compose defaults.
+POSTGRES_USER="${POSTGRES_USER:-$(container_env "$PG_CID" POSTGRES_USER)}"
+POSTGRES_DB="${POSTGRES_DB:-$(container_env "$PG_CID" POSTGRES_DB)}"
+POSTGRES_USER="${POSTGRES_USER:-$(read_env_value POSTGRES_USER)}"
+POSTGRES_DB="${POSTGRES_DB:-$(read_env_value POSTGRES_DB)}"
+POSTGRES_USER="${POSTGRES_USER:-applire}"
+POSTGRES_DB="${POSTGRES_DB:-applire}"
 
 volume_at() {  # volume_at <container> <mount destination>
   docker inspect -f "{{range .Mounts}}{{if eq .Destination \"$2\"}}{{.Name}}{{end}}{{end}}" "$1"
@@ -154,6 +213,7 @@ UPLOADS_VOLUME="$(volume_at "$BACKEND_CID" /app/data/uploads)"
 [ -n "$UPLOADS_VOLUME" ] || fail "could not find the uploads volume on container $BACKEND_CID"
 
 log "Applire backup"
+log "  project ...... $PROJECT"
 log "  database ..... $POSTGRES_DB (user $POSTGRES_USER) in volume $PG_VOLUME"
 log "  uploads ...... volume $UPLOADS_VOLUME"
 log "  archive ...... $ARCHIVE"
@@ -162,7 +222,7 @@ TMP="$(mktempdir)"
 
 
 log "  dumping the database ..."
-docker compose exec -T postgres \
+docker exec "$PG_CID" \
   pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom \
   > "$TMP/db.dump"
 [ -s "$TMP/db.dump" ] || fail "pg_dump produced an empty file"
@@ -178,11 +238,11 @@ docker run --rm \
   --entrypoint sh "$PG_IMAGE" -c 'cd /src && tar -cf - .' > "$TMP/uploads.tar"
 [ -s "$TMP/uploads.tar" ] || fail "the uploads archive was empty or not produced"
 
-APP_VERSION="$(docker compose exec -T backend python -c 'from applire._version import __version__; print(__version__)' 2>/dev/null | tr -d '\r' || echo unknown)"
+APP_VERSION="$(docker exec "$BACKEND_CID" python -c 'from applire._version import __version__; print(__version__)' 2>/dev/null | tr -d '\r' || echo unknown)"
 {
   echo "created_utc=${STAMP}"
   echo "applire_version=${APP_VERSION}"
-  echo "compose_project=${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+  echo "compose_project=${PROJECT}"
   echo "postgres_volume=${PG_VOLUME}"
   echo "uploads_volume=${UPLOADS_VOLUME}"
   echo "postgres_db=${POSTGRES_DB}"
@@ -199,7 +259,7 @@ log "  wrote $(wc -c < "$ARCHIVE" | tr -d ' ') bytes"
 # and failing here would report a good backup as a failure.
 # --------------------------------------------------------------------------
 NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-if docker compose exec -T postgres psql -q -v ON_ERROR_STOP=1 \
+if docker exec "$PG_CID" psql -q -v ON_ERROR_STOP=1 \
       -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
       "INSERT INTO instance_state (key, value, updated_at)
        VALUES ('${LAST_BACKUP_KEY}', to_jsonb('${NOW_ISO}'::text), now())

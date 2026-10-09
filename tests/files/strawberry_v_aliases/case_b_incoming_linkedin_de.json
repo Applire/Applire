@@ -1,0 +1,73 @@
+{
+  "personal_info": {
+    "name": "Jana Albrecht",
+    "location": "Leipzig"
+  },
+  "work_experience": [
+    {
+      "company": "Blutspendedienst des Hessischen Roten Kreuzes gGmbH",
+      "role": "Systementwickler",
+      "start_date": "2012-08",
+      "end_date": "2019-12"
+    },
+    {
+      "company": "Novartis",
+      "role": "Systemanalytiker",
+      "start_date": "2011-06",
+      "end_date": "2012-07"
+    },
+    {
+      "company": "Labvantage",
+      "role": "LIMS Consultant",
+      "start_date": "2020-01",
+      "is_current": true
+    },
+    {
+      "company": "Novartis Pharma AG",
+      "role": "Data Scientist",
+      "start_date": "2009-03",
+      "end_date": "2010-09",
+      "responsibilities": [
+        "Built statistical models for clinical trial data as a part-time student assistant."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Universität Leipzig",
+      "degree": "Diplom",
+      "field": "Biologie",
+      "start_date": "2004",
+      "end_date": "2010"
+    },
+    {
+      "institution": "Kolping Hochschule",
+      "degree": "Fachinformatiker",
+      "end_date": "2004"
+    }
+  ],
+  "skills": [
+    {
+      "name": "Computervalidierung",
+      "category": "domain"
+    },
+    {
+      "name": "LIMS",
+      "category": "technical"
+    },
+    {
+      "name": "SQL",
+      "category": "technical"
+    }
+  ],
+  "languages": [
+    {
+      "language": "Deutsch",
+      "level": "Muttersprache"
+    },
+    {
+      "language": "Englisch",
+      "level": "C1"
+    }
+  ]
+}

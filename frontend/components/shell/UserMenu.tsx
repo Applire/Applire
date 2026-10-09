@@ -108,7 +108,7 @@ export function UserMenu({ children, triggerClassName }: UserMenuProps) {
                 icon={ADMIN_ICON}
                 label={t("userMenuAdmin")}
                 testId="user-menu-admin"
-                onClick={() => go("/admin/users")}
+                onClick={() => go("/admin/overview")}
               />
             )}
           </div>

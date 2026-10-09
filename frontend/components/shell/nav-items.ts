@@ -19,7 +19,7 @@ export interface NavItem {
   key: "dashboard" | "profile" | "import" | "documents" | "settings" | "admin";
   href: string;
   icon: string;
-  /** US330: shown to admins only (Administration → /admin/users, G-2). */
+  /** US330: shown to admins only (Administration → its landing section, G-2; Epic C: the overview). */
   adminOnly?: boolean;
   /** Path prefix that marks the item active (default: `href`). */
   activePrefix?: string;
@@ -37,7 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "import",    href: "/profile/upload",   icon: "upload_file"  },
   { key: "documents", href: "/documents",        icon: "description"  },
   { key: "settings",  href: "/settings",         icon: "settings"     },
-  { key: "admin",     href: "/admin/users",      icon: "shield_person", adminOnly: true, activePrefix: "/admin" },
+  { key: "admin",     href: "/admin/overview",   icon: "shield_person", adminOnly: true, activePrefix: "/admin" },
 ];
 
 /** The entries this person sees — Administration only for admins (G-2). */

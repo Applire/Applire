@@ -90,6 +90,18 @@ test.describe("/match page", () => {
         body: JSON.stringify(MOCK_JOBS),
       })
     );
+    // The landing page `/` sends a person who already has a profile on to
+    // /dashboard. Unmocked, /api/profile/exists reached the CI harness's stub
+    // admin, who has a profile from the MCP stdio tier, so `/?job_id=…` lasted
+    // one render and this assertion passed only when its poll caught it
+    // (CI run 37823148632: 3× /match, then 6× /dashboard).
+    await page.route("**/api/profile/exists", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ exists: false }),
+      })
+    );
 
     await page.goto("/match");
 

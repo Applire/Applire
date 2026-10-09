@@ -42,8 +42,8 @@ DOCUMENT_KINDS: tuple[DocumentKind, ...] = ("cv", "cover_letter")
 INSTANCE_SECRET_KEY = "auth.instance_secret"
 
 #: Purposes ``derive_key`` serves. Closed: a new purpose is a code change.
-KeyPurpose = Literal["doc-link", "oidc-state"]
-KEY_PURPOSES: tuple[KeyPurpose, ...] = ("doc-link", "oidc-state")
+KeyPurpose = Literal["doc-link", "oidc-state", "instance-settings"]  # instance-settings: ADR-093 cl. 4
+KEY_PURPOSES: tuple[KeyPurpose, ...] = ("doc-link", "oidc-state", "instance-settings")
 
 DEFAULT_LINK_TTL_MINUTES = 60
 LINK_QUERY_PARAMS = ("exp", "uid", "sig")

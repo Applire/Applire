@@ -1,0 +1,111 @@
+{
+  "personal_info": {
+    "name": "Daniel Kovač",
+    "location": "Frankfurt am Main, Germany"
+  },
+  "work_experience": [
+    {
+      "company": "Cargonaut Logistics GmbH",
+      "role": "Senior Backend Engineer",
+      "start_date": "2021-03",
+      "is_current": true,
+      "location": "Frankfurt am Main",
+      "responsibilities": [
+        "Shipment-tracking platform: Python/Django services on PostgreSQL and AWS.",
+        "Pricing-model redesign (p95 1.8s → 240ms).",
+        "CI/CD ownership for four services.",
+        "Mentoring two engineers."
+      ]
+    },
+    {
+      "company": "Finleap Build GmbH",
+      "role": "Backend Engineer",
+      "start_date": "2017-06",
+      "end_date": "2021-02",
+      "location": "Berlin",
+      "responsibilities": [
+        "B2B invoicing product: Flask REST APIs, PostgreSQL, dunning workflow engine (~200k invoices/month), Stripe checkout integration, on-call and incident runbook."
+      ]
+    },
+    {
+      "company": "DATIS IT-Services",
+      "role": "Working Student Software Engineering",
+      "start_date": "2015-10",
+      "end_date": "2017-05",
+      "location": "Darmstadt"
+    }
+  ],
+  "education": [
+    {
+      "institution": "Technische Universität Darmstadt",
+      "degree": "B.Sc. Computer Science",
+      "end_date": "2016"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "AWS Certified Solutions Architect – Associate",
+      "date_obtained": "2022-01-01"
+    },
+    {
+      "name": "ISTQB® Certified Tester Foundation Level",
+      "date_obtained": "2018-01-01"
+    }
+  ],
+  "skills": [
+    {
+      "name": "Python",
+      "category": "technical"
+    },
+    {
+      "name": "Django",
+      "category": "technical"
+    },
+    {
+      "name": "Flask",
+      "category": "technical"
+    },
+    {
+      "name": "PostgreSQL",
+      "category": "technical"
+    },
+    {
+      "name": "Amazon Web Services (AWS)",
+      "category": "technical"
+    },
+    {
+      "name": "GitLab CI/CD",
+      "category": "technical"
+    },
+    {
+      "name": "REST APIs",
+      "category": "technical"
+    },
+    {
+      "name": "SQL",
+      "category": "technical"
+    },
+    {
+      "name": "Incident Management",
+      "category": "technical"
+    },
+    {
+      "name": "Mentoring",
+      "category": "technical"
+    },
+    {
+      "name": "Contract Testing",
+      "category": "technical"
+    }
+  ],
+  "languages": [
+    {
+      "language": "German",
+      "level": "Native or bilingual"
+    },
+    {
+      "language": "English",
+      "level": "Full professional"
+    }
+  ]
+}

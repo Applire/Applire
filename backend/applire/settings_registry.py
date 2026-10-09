@@ -58,7 +58,7 @@ Adding a variable:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 
 #: Section order in the generated file. An entry naming a section absent from
@@ -109,6 +109,9 @@ class SettingEntry:
     in_env_example: bool = True
     #: Free-text notes for a reader of this module. Never rendered.
     notes: str = ""
+    #: An admin may override it at runtime from the settings panel (ADR-093).
+    #: Set only through ``PANEL_KEYS`` below — one list, one review.
+    panel: bool = False
 
     def __post_init__(self) -> None:
         if self.source not in ("config", "constants", "compose", "frontend"):
@@ -688,8 +691,9 @@ _register_all(
                 "Developer-only: log every LLM call's full input/output to\n"
                 "<LLM_DEBUG_LOG_DIR>/<date>.jsonl (one JSON line per call: stage, model,\n"
                 "system, prompt, params, response, latency).\n"
-                "RECORDS CV PII — keep OFF in production. While it is on, the backend logs\n"
-                "a WARNING at every startup and GET /health reports debug_log_on: true.\n"
+                "RECORDS CV PII — keep OFF in production; since 0.43 that includes every\n"
+                "person on this instance, not only you. While it is on, the backend logs\n"
+                "a WARNING at every startup and GET /api/ops/health reports debug_log_on: true.\n"
                 "There is deliberately no size or age cap: a cap on a diagnostic tool\n"
                 "truncates evidence silently. Turn it off, and delete the files."
             ),
@@ -765,7 +769,7 @@ _register_all(
                 "published port) or 'dev' (docker-compose.override.yml is also applied — "
                 "builds from source, hot-reload backend, and 3000/8001/5433 published).\n"
                 "The override file sets it; leaving it unset is what makes 'production' "
-                "true. A 'dev' value logs a WARNING at startup and appears at GET /health "
+                "true. A 'dev' value logs a WARNING at startup and appears at GET /api/ops/health "
                 "— running a clone with a plain `docker compose up` silently applies the "
                 "override, which is a debugging topology."
             ),
@@ -1070,6 +1074,19 @@ _register_all(
             notes="Withheld: it belongs to the MCP client config, not the instance.",
         ),
         SettingEntry(
+            env_var="SCRAPER_FETCH_LINKEDIN_GUEST_PAGES",
+            source="config",
+            default="true",
+            section="Network and access",
+            introduced_in="0.43.0",
+            description=(
+                "Fetch LinkedIn's public guest posting pages when a job URL is given.\n"
+                "false = a LinkedIn URL is refused with the paste-the-text message at the web\n"
+                "and the agent door. The legal exposure of the fetch is yours to accept.\n"
+                "An admin can override it in the settings panel."
+            ),
+        ),
+        SettingEntry(
             env_var="CORS_ORIGINS",
             source="config",
             default="*",
@@ -1098,17 +1115,22 @@ _register_all(
         SettingEntry(
             env_var="APPLIRE_BASE_URL",
             source="config",
-            default="http://localhost:8001",
+            default="http://localhost",
             section="Network and access",
             introduced_in="0.31.0",
+            semantics_changed_in="0.43.0",
             description=(
-                "MCP / agent channel — the base URL used to build html_url / pdf_url in\n"
-                "tool responses (generate_cv, get_cv_status, generate_cover_letter, ...).\n"
-                "The default is correct only for a local, unproxied dev setup. Set this to\n"
-                "the externally reachable scheme://host:port of your reverse proxy for any\n"
-                "other deployment, or agent-fetched artifact links silently point at\n"
-                "localhost:8001 instead of your real host. Links in invitation and reset\n"
-                "mails are built ONLY from this value; left at the default, no mail is sent."
+                "The address people open Applire on, as scheme://host[:port] — e.g.\n"
+                "http://192.168.1.5 or https://applire.example.org. Unset, document links\n"
+                "for agents (html_url / pdf_url) point at http://localhost, which is right\n"
+                "only when the agent runs on this server. Set it, and:\n"
+                "- invitation and reset mails can be sent (with SMTP_HOST). They are built\n"
+                "  ONLY from this value, so unset = no mail, even with SMTP configured;\n"
+                "- sign-ins are accepted only for this host name and localhost, so set it\n"
+                "  to the one address everyone uses;\n"
+                "- OIDC can be turned on (it requires it).\n"
+                "\"Unset\" means the line is absent or empty. Writing the default out\n"
+                "(APPLIRE_BASE_URL=http://localhost) counts as set."
             ),
         ),
         SettingEntry(
@@ -1449,6 +1471,23 @@ _register_all(
             notes="Withheld: RD-8 fixed the value; tuning only.",
         ),
         SettingEntry(
+            env_var="RETENTION_ENABLED",
+            source="config",
+            default="true",
+            section="Retention (GDPR)",
+            introduced_in="0.43.0",
+            description=(
+                "Run the GDPR retention sweep of personal data (the TTLs above).\n"
+                "false suspends ONLY the calendar TTLs on personal data: uploads, interview\n"
+                "sessions, generated documents, orphan postings and the inactivity tombstones.\n"
+                "It never suspends account erasure, a cancelled application's purge,\n"
+                "login/link housekeeping or the audit-log age rule. Every change and every\n"
+                "skipped run is written to the audit log. If you host accounts for other\n"
+                "people you may be their controller: keep it on. Ignored by the Cloud Edition.\n"
+                "An admin can override it in the settings panel."
+            ),
+        ),
+        SettingEntry(
             env_var="AUDIT_LOG_RETENTION_DAYS",
             source="config",
             default="730",
@@ -1461,6 +1500,37 @@ _register_all(
         ),
     ]
 )
+
+
+# ---- ADR-093: what an admin may override at runtime -------------------------
+#: The closed panel set. Adding a key is a contract change
+#: (docs/dev/api-contract-admin.md §2.1) and an ADR-093 review: base URLs,
+#: timeouts and reasoning knobs are deliberately NOT here (cl. 2).
+PANEL_KEYS: tuple[str, ...] = (
+    "LLM_PROVIDER",
+    "MISTRAL_MODEL",
+    "MISTRAL_API_KEY",
+    "OPENROUTER_MODEL",
+    "OPENROUTER_API_KEY",
+    "REQUESTY_MODEL",
+    "REQUESTY_API_KEY",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_MODEL",
+    "OPENAI_API_KEY",
+    "OLLAMA_MODEL",
+    "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES",
+    "RETENTION_ENABLED",
+)
+
+for _key in PANEL_KEYS:
+    _REGISTRY[_key] = replace(_REGISTRY[_key], panel=True)
+del _key
+
+
+def panel_settings() -> list[SettingEntry]:
+    """The panel-editable entries, in ``PANEL_KEYS`` order."""
+    return [_REGISTRY[k] for k in PANEL_KEYS]
 
 
 # ADR-086 — the ops layer's own settings, defined next to their defaults so a

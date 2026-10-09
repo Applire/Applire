@@ -131,3 +131,44 @@ describe("CVActionsTab", () => {
     );
   });
 });
+
+describe("CVActionsTab — #737 'Neue Fassung erstellen' (RULING E-1 = A)", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("groups regenerate, other template, language switch and pins in one block", () => {
+    const onChooseTemplate = vi.fn();
+    render(
+      withIntl(
+        <CVActionsTab
+          {...BASE}
+          onChooseTemplate={onChooseTemplate}
+          languageSwitch={<div data-testid="lang-slot" />}
+          pins={<div data-testid="pins-slot" />}
+        />,
+        "de",
+      ),
+    );
+    const block = screen.getByTestId("cv-new-version");
+    expect(block.textContent).toContain("Neue Fassung erstellen");
+    for (const id of ["cv-actions-regenerate", "cv-actions-other-template", "lang-slot", "pins-slot"]) {
+      expect(block.contains(screen.getByTestId(id))).toBe(true);
+    }
+    expect(screen.getByTestId("cv-new-version-pins").textContent).toContain("kommt in jede neue Fassung");
+    fireEvent.click(screen.getByTestId("cv-actions-other-template"));
+    expect(onChooseTemplate).toHaveBeenCalledOnce();
+    // Lifecycle actions are outside the new-version block.
+    expect(block.contains(screen.getByTestId("cv-actions-next"))).toBe(false);
+  });
+
+  it("names the edited sections that a new version will not carry", () => {
+    render(withIntl(<CVActionsTab {...BASE} editedSections={["Einleitung"]} />, "de"));
+    expect(screen.getByTestId("cv-new-version-loss").textContent).toBe(
+      "Nicht übernommen wird Deine Bearbeitung in: Einleitung.",
+    );
+  });
+
+  it("says nothing about losses when nothing was edited", () => {
+    render(withIntl(<CVActionsTab {...BASE} />));
+    expect(screen.queryByTestId("cv-new-version-loss")).toBeNull();
+  });
+});

@@ -59,7 +59,31 @@ async def _startup() -> None:
         await engine.dispose()
 
 
+def _install_stderr_logging() -> None:
+    """One stderr handler on the root logger, with the secret-redaction filter.
+
+    stdout is the protocol channel, so every record goes to stderr. Installed
+    before anything logs: FastMCP's own ``logging.basicConfig`` (run when the
+    server module is imported) is then a no-op, and every record of this
+    process — ``applire.*``, ``mcp.*`` and an exception escaping a tool —
+    passes the same scrub ``main.py`` installs for the HTTP process.
+    """
+    import logging
+
+    from applire.config import settings
+    from applire.redaction import install_secret_redaction
+
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
+        root.addHandler(handler)
+        root.setLevel(settings.log_level.upper())
+    install_secret_redaction(*root.handlers)
+
+
 def main() -> None:
+    _install_stderr_logging()
     transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
     if transport != "stdio":
         print(

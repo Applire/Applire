@@ -315,10 +315,15 @@ describe("WorkExperienceEditor", () => {
   });
 
   // F8 — internal plumbing never leaks into the read-only list.
-  it("never renders internal fields (id, role_aliases) in the list view", () => {
+  it("never renders the internal id; role_aliases only as removable 'also known as' chips", () => {
+    // Strawberry WP-V (#716, founder ruling V-3 = A, 2026-10-07): alternate
+    // titles are now shown — inside the alias-chip row, never as a heading.
     renderEditor([FULL_ENTRY]);
     expect(screen.queryByText(/w1/)).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/Tech Lead/);
+    const chips = screen.getByTestId("alias-chips-work_experience");
+    expect(chips).toHaveTextContent(/Tech Lead/);
+    const outside = document.body.textContent?.replace(chips.textContent ?? "", "") ?? "";
+    expect(outside).not.toMatch(/Tech Lead/);
   });
 
   it("shows the empty state and an add button when there are no entries", () => {

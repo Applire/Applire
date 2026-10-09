@@ -72,9 +72,11 @@ Never an LLM call. Reads a settle report and returns a report row; changes no dr
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import logging
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import Any, Iterable, Sequence
 
 from applire.schemas.ats import ATSCheck
 from applire.services.review_issues import ReviewSettle
@@ -155,6 +157,184 @@ class CorrectionFacts:
         return self.implemented + self.not_implemented + self.indeterminate
 
 
+#: #703 — a term the loop demanded in at least this many rounds of ONE delivery is
+#: reported to the candidate. Two is the smallest number that is a repetition.
+REPEATED_DEMAND_MIN_ROUNDS = 2
+
+
+@dataclass(frozen=True)
+class RepeatedDemand:
+    """#703 (ADR-076 amended 2026-10-07) — one term the writing loop asked for again and
+    again. Facts only: how many rounds demanded it, out of how many, and whether the
+    DELIVERED document now carries it (the shared presence predicate,
+    ``ats_audit.surface_present``, over the term's ledger forms).
+
+    ``weight``: ``open`` — still absent from the delivered document after repeated
+    demands (the posting asks for it, the profile backs it, the writer could not fit
+    it); ``landed`` — it arrived, late, and the sentence it landed in deserves a re-read
+    (2026-09-13: the late arrivals sit in a keyword-dump sentence the HR panelist called
+    "eine reine ATS-Schlagwortliste").
+    """
+
+    term: str
+    rounds: int
+    total_rounds: int
+    in_document: bool
+
+    @property
+    def weight(self) -> str:
+        return "landed" if self.in_document else "open"
+
+    def as_signal(self) -> dict[str, Any]:
+        return {
+            "kind": "repeated_demand",
+            "term": self.term,
+            "rounds": self.rounds,
+            "total_rounds": self.total_rounds,
+            "in_document": self.in_document,
+            "weight": self.weight,
+        }
+
+
+#: Adv-review finding 12 (2026-10-07): the round a reviewer prompt just recorded,
+#: until the reviewer ANSWERS it. ``on_demand`` fires while the prompt is built,
+#: before the provider call; a call that then times out, truncates or returns
+#: malformed JSON ships the draft un-reviewed, and that round was never answered —
+#: it must not count toward "N× nachgefordert". ``review_and_refine`` opens each
+#: reviewer call with ``reviewer_round_begins`` and calls ``reviewer_round_unanswered``
+#: on its un-reviewed exits; a parsed verdict needs no hook (the next call's
+#: ``begins`` clears the mark). Outside a reviewer call both are no-ops.
+_OPEN_ROUND: ContextVar["DemandRecord | None"] = ContextVar("demand_record_open_round", default=None)
+
+
+def reviewer_round_begins() -> None:
+    """A reviewer call is about to build its prompt: nothing is open yet."""
+    _OPEN_ROUND.set(None)
+
+
+def reviewer_round_unanswered() -> None:
+    """The reviewer call failed: drop the round its prompt recorded, if any."""
+    record = _OPEN_ROUND.get()
+    _OPEN_ROUND.set(None)
+    if record is not None:
+        record.drop_last_round()
+
+
+class DemandRecord:
+    """#703 — the per-delivery record of what each reviewer round DEMANDED.
+
+    Fed by ``keyword_ledger.coverage_reviewer_prompt_fn(on_demand=…)`` — the
+    deterministic VERIFIED COVERAGE block's own report of the entries one round puts in
+    front of the reviewer, after the rank gate and the per-round bound (#415). One call
+    = one round (``on_demand`` fires on every evaluation, the empty one included, so a
+    round that demanded nothing is still counted).
+
+    **This is not reviewer memory** (ADR-021 cl. 6, 2026-07-26): nothing here reaches a
+    prompt. It is deterministic Python over the loop's own rounds, read once after
+    delivery to build the report — "the record says", never "you said" (ADR-021
+    amended 2026-08-14, clause 7). No verdict text is parsed.
+    """
+
+    def __init__(self) -> None:
+        self._rounds: list[tuple[str, ...]] = []
+        self._forms: dict[str, tuple[str, ...]] = {}
+
+    def record_round(self, entries: Iterable[dict[str, Any]] | None) -> None:
+        """``on_demand`` callback: append one round with the concepts it demanded."""
+        concepts: list[str] = []
+        for entry in entries or ():
+            if not isinstance(entry, dict):
+                continue
+            concept = str(entry.get("concept") or "").strip()
+            if not concept:
+                continue
+            concepts.append(concept)
+            forms = [f for f in (entry.get("surface_forms") or []) if f]
+            self._forms.setdefault(concept, tuple(dict.fromkeys([*forms, concept])))
+        self._rounds.append(tuple(dict.fromkeys(concepts)))
+        _OPEN_ROUND.set(self)
+
+    def drop_last_round(self) -> None:
+        """Forget the most recent round (its reviewer never answered it)."""
+        if self._rounds:
+            self._rounds.pop()
+
+    @property
+    def rounds(self) -> tuple[tuple[str, ...], ...]:
+        return tuple(self._rounds)
+
+    def forms(self, term: str) -> tuple[str, ...]:
+        return self._forms.get(term, (term,))
+
+    def repeated(self, delivered_draft: dict | None) -> tuple[RepeatedDemand, ...]:
+        """Every term demanded in ≥ ``REPEATED_DEMAND_MIN_ROUNDS`` rounds, with its
+        presence on ``delivered_draft``. Never raises (a reporting layer, ADR-039)."""
+        try:
+            return detect_repeated_demands(
+                self._rounds,
+                present=_presence_on(delivered_draft, self.forms),
+            )
+        except Exception:  # pragma: no cover - fail-safe
+            logger.exception("terminal_review_outcome: repeated-demand detection failed")
+            return ()
+
+
+def _presence_on(delivered_draft: dict | None, forms_of):
+    """The shared presence predicate (``ats_audit.surface_present`` — the one the ATS
+    panel and the coverage block grade with) over the delivered draft's strings."""
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.keyword_ledger import _draft_strings
+
+    text = _norm(" \n ".join(_draft_strings(delivered_draft or {}))) if delivered_draft else ""
+
+    def present(term: str) -> bool:
+        return bool(text) and any(surface_present(f, text) for f in forms_of(term))
+
+    return present
+
+
+def detect_repeated_demands(
+    rounds: Sequence[Sequence[str]],
+    *,
+    present,
+    min_rounds: int = REPEATED_DEMAND_MIN_ROUNDS,
+) -> tuple[RepeatedDemand, ...]:
+    """#703 — the repeat detector. Pure.
+
+    ``rounds`` is the demand record in round order (one sequence of demanded terms per
+    reviewer round); ``present(term) -> bool`` answers whether the delivered document
+    carries the term. A term counts once per round however often a round lists it.
+    Ordered: open before landed, then most rounds first, then first-demanded first.
+    """
+    counts: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for index, demanded in enumerate(rounds):
+        for term in dict.fromkeys(t for t in demanded if t):
+            counts[term] = counts.get(term, 0) + 1
+            first_seen.setdefault(term, index)
+    total = len(rounds)
+    found = [
+        RepeatedDemand(term=t, rounds=n, total_rounds=total, in_document=bool(present(t)))
+        for t, n in counts.items()
+        if n >= min_rounds
+    ]
+    found.sort(key=lambda d: (d.in_document, -d.rounds, first_seen[d.term]))
+    return tuple(found)
+
+
+def with_repeated_demands(
+    outcome: "TerminalReviewOutcome | None",
+    record: DemandRecord | None,
+    delivered_draft: dict | None,
+) -> "TerminalReviewOutcome | None":
+    """Attach the delivery's repeated demands to its folded terminal outcome, measured
+    against the draft that is ABOUT TO BE AUDITED (the delivered one). ``None`` in, the
+    same out: a review layer that did not run reports ``not_applicable`` and no signal."""
+    if outcome is None or record is None:
+        return outcome
+    return replace(outcome, repeated_demands=record.repeated(delivered_draft))
+
+
 @dataclass(frozen=True)
 class TerminalReviewOutcome:
     """A terminal review's settle, reduced to what the report needs.
@@ -184,6 +364,10 @@ class TerminalReviewOutcome:
     #: findings. ``None`` = not measured by this producer; the status then falls back to
     #: :data:`_CORRECTED_AFTER_VERDICT_PATHS`, so every existing producer keeps working.
     correction: CorrectionFacts | None = None
+    #: #703 — terms the delivery's loop demanded in ≥ 2 rounds (see :class:`DemandRecord`).
+    #: A statement about the delivery, never about one verdict: it never affects
+    #: :attr:`status`, and :meth:`worse_of` keeps whichever side carries it.
+    repeated_demands: tuple[RepeatedDemand, ...] = field(default=())
 
     @property
     def findings_stand_against_delivered(self) -> bool:
@@ -269,6 +453,7 @@ class TerminalReviewOutcome:
                     rounds=self.rounds + other.rounds,
                     notes=tuple(dict.fromkeys(winner.notes + loser.notes)),
                     correction=winner.correction,
+                    repeated_demands=self.repeated_demands or other.repeated_demands,
                 )
         order = {"fail": 2, "not_applicable": 1, "pass": 0}
 
@@ -296,6 +481,7 @@ class TerminalReviewOutcome:
             # invocations' notes survive, deduped, order kept.
             notes=tuple(dict.fromkeys(keep.notes + drop.notes)),
             correction=keep.correction,
+            repeated_demands=self.repeated_demands or other.repeated_demands,
         )
 
 
@@ -448,7 +634,7 @@ def _findings_budget(outcome: "TerminalReviewOutcome", preamble: str) -> int:
     them AFTER this body returns, so they must be budgeted for here or the
     outer `_truncate` could still cut a finding to make room for them.
     """
-    notes_text = " ".join(outcome.notes)
+    notes_text = " ".join(_all_notes(outcome))
     reserved = len(preamble) + (len(notes_text) + 1 if notes_text else 0)
     return max(_DETAILS_MAX_CHARS - reserved, _MIN_FINDING_EXCERPT_CHARS)
 
@@ -499,7 +685,26 @@ def _details(outcome: TerminalReviewOutcome) -> str:
     ``notes`` (#664) are appended on EVERY status: a sentence the delivery
     pipeline removed from the letter is something the candidate must be told
     regardless of how the verdict itself settled."""
-    return _truncate(_with_notes(_body(outcome), outcome.notes))
+    return _truncate(_with_notes(_body(outcome), _all_notes(outcome)))
+
+
+def _repeated_demand_sentence(outcome: TerminalReviewOutcome) -> str:
+    """#703 — the EN sentence naming every repeated demand with its count. Locale-
+    neutral data rides ``signals``; this sentence is the agent door's / legacy
+    reader's fallback, like every ``details``."""
+    demands = outcome.repeated_demands
+    if not demands:
+        return ""
+    parts = []
+    for d in demands:
+        where = "now in the document" if d.in_document else "not in the document"
+        parts.append(f"{d.term} ({d.rounds} of {d.total_rounds} rounds, {where})")
+    return "Asked for again and again while writing: " + "; ".join(parts) + "."
+
+
+def _all_notes(outcome: TerminalReviewOutcome) -> tuple[str, ...]:
+    sentence = _repeated_demand_sentence(outcome)
+    return outcome.notes + ((sentence,) if sentence else ())
 
 
 def _with_notes(body: str, notes: tuple[str, ...]) -> str:
@@ -658,6 +863,7 @@ def build_terminal_review_check(
             id=TERMINAL_REVIEW_CHECK_ID,
             status=outcome.status,
             details=_details(outcome),
+            **_repeated_demand_fields(outcome),
         )
     if previous:
         try:
@@ -674,6 +880,25 @@ def build_terminal_review_check(
             "unknown — not clean."
         ),
     )
+
+
+def _repeated_demand_fields(outcome: TerminalReviewOutcome) -> dict[str, Any]:
+    """#703 — the machine-readable half: ``driver`` counts (the existing slot, read the
+    key, never assume the single one) and the structured ``signals`` list when the
+    schema carries it. Empty when nothing repeated, so every pre-#703 report shape is
+    byte-identical."""
+    demands = outcome.repeated_demands
+    if not demands:
+        return {}
+    fields: dict[str, Any] = {
+        "driver": {
+            "repeated_demands": len(demands),
+            "open": sum(1 for d in demands if not d.in_document),
+        }
+    }
+    if "signals" in ATSCheck.model_fields:
+        fields["signals"] = [d.as_signal() for d in demands]
+    return fields
 
 
 def previous_check(report: dict | None, check_id: str) -> dict | None:

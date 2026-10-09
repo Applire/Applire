@@ -37,7 +37,9 @@ import {
   CVImportError,
   type CVUploadResult,
   type ImportNotAppliedItem,
+  type MatchReceiptItem,
 } from "@/lib/import-cv";
+import { RecognisedMatches } from "@/components/profile/RecognisedMatches";
 import { analyzeGapsAsync } from "@/lib/gap-analysis";
 import { STEP_ROUTE } from "@/lib/flow-routing";
 
@@ -106,6 +108,8 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   const [uploadSuccess, setUploadSuccess] = useState(false);
   // #615 — the merge's own carried-predicate fact for the strip below.
   const [notApplied, setNotApplied] = useState<ImportNotAppliedItem[]>([]);
+  // #717 — the merge's recognised pairs ("Schon in deinem Profil").
+  const [matched, setMatched] = useState<MatchReceiptItem[]>([]);
   const [history, setHistory] = useState<UploadHistoryItem[]>([]);
   const [gateInfo, setGateInfo] = useState<GateInfo | null>(null);
 
@@ -152,6 +156,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setUploadSuccess(false);
     setCompletenessScore(null);
     setNotApplied([]);
+    setMatched([]);
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
@@ -198,7 +203,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
         return;
       }
 
-      await proceedAfterUpdate(data.completeness_score ?? null, data.not_applied);
+      await proceedAfterUpdate(data.completeness_score ?? null, data.not_applied, data.matched);
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return; // unmounted
       if (e instanceof CVImportError) {
@@ -221,9 +226,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   async function proceedAfterUpdate(
     completeness: number | null,
     notAppliedItems?: ImportNotAppliedItem[],
+    matchedItems?: MatchReceiptItem[],
   ) {
     setCompletenessScore(completeness);
     setNotApplied(notAppliedItems ?? []);
+    setMatched(matchedItems ?? []);
     setUploadSuccess(true);
     refreshHistory();
     onImported?.();
@@ -252,7 +259,7 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
   async function handleGateResolved(action: ResolveAction, _data: StagedResolveResult) {
     setGateInfo(null);
     if (action === "merge") {
-      await proceedAfterUpdate(_data.completeness_score ?? null, _data.not_applied);
+      await proceedAfterUpdate(_data.completeness_score ?? null, _data.not_applied, _data.matched);
     } else {
       refreshHistory();
     }
@@ -514,6 +521,11 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
                     : ""),
               })}
             </p>
+          )}
+
+          {/* #717 — entries recognised as already in the profile, with undo. */}
+          {uploadSuccess && !error && matched.length > 0 && (
+            <RecognisedMatches matched={matched} onSeparated={() => onImported?.()} />
           )}
 
           {/* Upload error strip */}

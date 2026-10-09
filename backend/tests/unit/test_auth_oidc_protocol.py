@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from applire.auth import oidc
-from applire.config import settings
+from applire.config import SHIPPED_DEFAULT_BASE_URL, settings
 from tests.support.fake_idp import CLIENT_ID, ISSUER, FakeIdP, configure
 
 
@@ -65,7 +65,7 @@ def test_validate_config_off_when_issuer_empty(fake, monkeypatch):
         ("oidc_client_secret", "   "),
         ("oidc_client_id", ""),
         ("applire_base_url", ""),
-        ("applire_base_url", "http://localhost:8001"),  # the shipped default
+        ("applire_base_url", SHIPPED_DEFAULT_BASE_URL),  # the shipped default (S-1: a marker, not a value)
     ],
 )
 def test_validate_config_refuses(fake, monkeypatch, field, value):

@@ -36,11 +36,12 @@ Public API:
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from applire.services.safe_fetch import UnsafeFetchRefused, resolve_checked, safe_get
+from applire.services.safe_fetch import PolicyRefused, UnsafeFetchRefused, resolve_checked, safe_get
 
 _MIN_TEXT_LENGTH = 200
 
@@ -141,6 +142,73 @@ def _validate_url(url: str) -> None:
         )
     if not parsed.netloc:
         raise ValueError(f"Not a valid URL: {url!r}")
+
+
+#: #726 / ADR-001 amended 2026-10-07: the hosts the LinkedIn guest-page switch
+#: governs — linkedin.com, any subdomain, and its ``lnkd.in`` short link.
+_LINKEDIN_HOSTS: frozenset[str] = frozenset({"linkedin.com", "lnkd.in"})
+LINKEDIN_DISABLED_CODE = "linkedin_guest_fetch_disabled"
+_LINKEDIN_DISABLED_REASON = (
+    "This instance does not fetch LinkedIn pages "
+    "(SCRAPER_FETCH_LINKEDIN_GUEST_PAGES is off). "
+    "Please paste the job description manually."
+)
+
+
+_C0_AND_SPACE = "".join(chr(c) for c in range(0x21))
+
+
+def _candidate_hosts(url: str) -> set[str]:
+    """Every host a fetcher may connect to for ``url`` (adv-admin ADM-2c).
+
+    Python's ``urlsplit`` (tier 1, httpx) and Chromium's WHATWG parser (tier 2)
+    disagree on some spellings: WHATWG strips leading/trailing C0 controls and
+    spaces, removes tab/CR/LF anywhere, reads ``\\`` as ``/`` in http(s) URLs and
+    percent-decodes the host — so ``https://www.linkedin.com\\@evil.example/``
+    is evil.example to one and www.linkedin.com to the other. A URL is judged
+    by EVERY reading.
+    """
+    from urllib.parse import unquote
+
+    readings = {url}
+    whatwg = url.strip(_C0_AND_SPACE)
+    for ch in "\t\n\r":
+        whatwg = whatwg.replace(ch, "")
+    if whatwg.lower().startswith(("http:", "https:")):
+        whatwg = whatwg.replace("\\", "/")
+    readings.add(whatwg)
+    hosts: set[str] = set()
+    for reading in readings:
+        try:
+            host = urlparse(reading).hostname or ""
+        except ValueError:
+            continue
+        hosts.add(unquote(host).lower().rstrip("."))
+    return hosts
+
+
+def is_linkedin_url(url: str) -> bool:
+    """True for ``linkedin.com``, ``*.linkedin.com`` and ``lnkd.in`` URLs — under
+    any reading of the URL a fetcher may make (:func:`_candidate_hosts`)."""
+    return any(
+        host == h or host.endswith("." + h)
+        for host in _candidate_hosts(url)
+        for h in _LINKEDIN_HOSTS
+    )
+
+
+def _linkedin_refusal(url: str) -> str | None:
+    """The per-hop policy of #726: the refusal code while the switch is off."""
+    from applire.config import settings
+
+    if not settings.scraper_fetch_linkedin_guest_pages and is_linkedin_url(url):
+        return LINKEDIN_DISABLED_CODE
+    return None
+
+
+#: Tier 2: set while a render runs; a refused main-frame navigation is recorded
+#: so the scrape ends with the switch's reason, not a generic render failure.
+_tier2_refusals: ContextVar[list[str] | None] = ContextVar("applire_tier2_refusals", default=None)
 
 
 def _requires_js(url: str) -> bool:
@@ -311,7 +379,9 @@ async def _fetch_tier1(url: str) -> str | None:
     a refused address must END the scrape, never fall through to tier 2.
     """
     try:
-        response = await safe_get(url, timeout=15.0, headers={"User-Agent": _USER_AGENT})
+        response = await safe_get(
+            url, timeout=15.0, headers={"User-Agent": _USER_AGENT}, refuse=_linkedin_refusal
+        )
         response.raise_for_status()
         return _extract_text(response.text)
     except UnsafeFetchRefused:
@@ -334,10 +404,25 @@ async def _tier2_route(route) -> None:  # noqa: ANN001 — playwright Route
     if request.resource_type in _TIER2_SKIPPED_RESOURCES or request.method != "GET":
         await route.abort()
         return
+    # #726 / adv-admin ADM-2b: Chromium's own requests (a JS or meta-refresh
+    # navigation, an iframe) are judged by the switch too, on Chromium's URL.
+    if (code := _linkedin_refusal(request.url)) is not None:
+        hits = _tier2_refusals.get()
+        if hits is not None and request.resource_type == "document":
+            hits.append(code)
+        await route.abort()
+        return
     try:
         response = await safe_get(
-            request.url, timeout=15.0, headers={"User-Agent": _USER_AGENT}
+            request.url, timeout=15.0, headers={"User-Agent": _USER_AGENT},
+            refuse=_linkedin_refusal,
         )
+    except PolicyRefused as exc:
+        hits = _tier2_refusals.get()
+        if hits is not None and request.resource_type == "document":
+            hits.append(exc.code)
+        await route.abort()
+        return
     except Exception:  # noqa: BLE001 — refused, unreachable, timed out: never let it through
         await route.abort()
         return
@@ -355,21 +440,34 @@ async def _fetch_tier2(url: str) -> str | None:
 
     await resolve_checked(url)  # raises UnsafeFetchRefused before any browser work
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.route("**/*", _tier2_route)
-        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        try:
-            await page.wait_for_selector(
-                _TIER2_WAIT_SELECTOR,
-                timeout=10_000,
-            )
-        except Exception:
-            pass  # proceed with whatever is rendered
-        html = await page.content()
-        await browser.close()
-
+    hits: list[str] = []
+    token = _tier2_refusals.set(hits)
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.route("**/*", _tier2_route)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                try:
+                    await page.wait_for_selector(
+                        _TIER2_WAIT_SELECTOR,
+                        timeout=10_000,
+                    )
+                except Exception:
+                    pass  # proceed with whatever is rendered
+                html = await page.content()
+                final_url = page.url
+            except Exception:
+                if hits:  # the navigation died on the switch, say so
+                    raise PolicyRefused(url, hits[0]) from None
+                raise
+            finally:
+                await browser.close()
+    finally:
+        _tier2_refusals.reset(token)
+    if hits or _linkedin_refusal(final_url):
+        raise PolicyRefused(final_url, hits[0] if hits else LINKEDIN_DISABLED_CODE)
     return _extract_text(html)
 
 
@@ -388,6 +486,12 @@ async def scrape_job_url(url: str) -> str:
             a redirect hop) resolves to a refused address (RD-7, SF-SCRAPER.2).
     """
     _validate_url(url)
+    # #726: the operator's switch is read per call (ADR-093 overlay), BEFORE any
+    # fetch, at the one function both doors share.
+    from applire.config import settings
+
+    if _linkedin_refusal(url) is not None:
+        raise ScraperError(url, _LINKEDIN_DISABLED_REASON, code=LINKEDIN_DISABLED_CODE)
 
     try:
         if not _requires_js(url):
@@ -397,6 +501,9 @@ async def scrape_job_url(url: str) -> str:
         text = await _fetch_tier2(url)
         if text:
             return text
+    except PolicyRefused as exc:
+        # #726: a redirect hop or a tier-2 navigation reached LinkedIn while off.
+        raise ScraperError(url, _LINKEDIN_DISABLED_REASON, code=exc.code) from exc
     except UnsafeFetchRefused as exc:
         # RD-7: an internal / refused address ends here, on both tiers.
         raise ScraperError(url, _REFUSED_REASON) from exc

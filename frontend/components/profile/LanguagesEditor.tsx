@@ -36,6 +36,7 @@ import {
   type ProfileSectionsResponse,
 } from "@/lib/profile-entries";
 import { saveProfileSection } from "@/lib/sectionSave";
+import { AliasChips } from "@/components/profile/AliasChips";
 import { StatusBadge } from "./StatusBadge";
 
 const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
@@ -297,6 +298,16 @@ export function LanguagesEditor({ entries, apiBase, profileUpdatedAt, onProfileU
           })}
         </div>
       )}
+      {entries.map((l, i) => (
+        <AliasChips
+          key={`aka-${i}`}
+          section="languages"
+          entries={entries}
+          index={i}
+          prefix={l.language}
+          apiBase={apiBase} profileUpdatedAt={profileUpdatedAt} onProfileUpdated={onProfileUpdated}
+        />
+      ))}
 
       <button
         type="button"

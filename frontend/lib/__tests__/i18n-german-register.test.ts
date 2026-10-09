@@ -158,6 +158,16 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   // #705 not-applied group heading — same pattern: "{section} ({count})" is
   // pure ICU placeholders with punctuation, no prose to translate.
   "health.notAppliedGroupHeading",
+  // C2 Epic C admin (MD2-5): legit identical words, a file name and an ICU pattern
+  "adminDashboard.versionTitle",
+  "adminDashboard.colPerson",
+  "adminAudit.filterPerson",
+  "adminUsage.colPerson",
+  "adminAudit.colDetail",
+  "adminAudit.actorSystem",
+  "adminUsage.colTotal",
+  "adminSettings.sourceEnv",
+  "adminAudit.detail.setting",
 ]);
 
 describe("German UI register (BRAND.md §2.3)", () => {

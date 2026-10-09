@@ -206,6 +206,10 @@ from applire.providers.llm.debug_log import (
     log_signal_fallback_applied,
     set_review_call_meta,
 )
+from applire.services.terminal_review_outcome import (
+    reviewer_round_begins,
+    reviewer_round_unanswered,
+)
 from applire.providers.llm.debug_log import set_stage as set_llm_log_stage
 from applire.services.corrector_feedback import fold_issues_into_feedback
 from applire.services.load_bearing import stringify_draft
@@ -727,6 +731,9 @@ async def review_and_refine(
             # alone can't tell a reviewer-verdict call apart from a corrector-retry
             # call in the same chain.
             set_review_call_meta("reviewer", attempt + 1)
+            # #703 / adv-review finding 12: a demand round counts only once the
+            # reviewer answers it (terminal_review_outcome's open-round hooks).
+            reviewer_round_begins()
             try:
                 review: dict = await provider.aparse_json(
                     reviewer_prompt_fn(source, current_draft),
@@ -746,6 +753,7 @@ async def review_and_refine(
                     type(exc).__name__,
                     attempt + 1,
                 )
+                reviewer_round_unanswered()
                 return _settle(current_draft, path="reviewer_call_failed")
             except json.JSONDecodeError as exc:
                 # #688: a weak model's verdict can also be malformed JSON (an unquoted
@@ -763,6 +771,7 @@ async def review_and_refine(
                     type(exc).__name__,
                     attempt + 1,
                 )
+                reviewer_round_unanswered()
                 return _settle(current_draft, path="review_malformed")
 
             approved = bool(review.get("approved", False))

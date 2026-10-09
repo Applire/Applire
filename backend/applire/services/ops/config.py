@@ -267,7 +267,7 @@ def ops_registry_entries() -> list[dict[str, object]]:
             "source": "constants",
             "description": (
                 "How often the backend recomputes its own health picture in "
-                "the background, so the log warning and /health's ops summary "
+                "the background, so the log warning and /api/ops/health's summary "
                 "do not wait for someone to open the dashboard."
             ),
         },

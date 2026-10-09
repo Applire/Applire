@@ -84,6 +84,8 @@ from applire.services.profile.reconcile.attribution import (
     plan_attribution_resolution,
 )
 from applire.services.profile.reconcile.witness import compute_no_write
+from applire.services.profile.reconcile import aliases as _aliases
+from applire.services.profile.language_names import canonical_language, same_language
 from applire.services.profile.reconcile.ops import (
     AddBullets,
     AddRole,
@@ -96,6 +98,7 @@ from applire.services.profile.reconcile.ops import (
     MarkProbeAsked,
     MatchExisting,
     ReplaceSection,
+    SeparateMatch,
     RequestConfirmation,
     ResolveConfirmation,
     ResolveField,
@@ -619,7 +622,7 @@ def apply_ops(
         if isinstance(op, UpsertWork):
             _apply_upsert_work(
                 op, new_profile, ref_map, changes, pending, source,
-                conflicts, user_confirmed_engagement,
+                conflicts, user_confirmed_engagement, matched=matched,
             )
         elif isinstance(op, UpsertProject):
             _apply_upsert_project(
@@ -629,7 +632,7 @@ def apply_ops(
         elif isinstance(op, UpsertVolunteer):
             _apply_upsert_volunteer(
                 op, new_profile, ref_map, changes, pending,
-                conflicts, user_confirmed_engagement,
+                conflicts, user_confirmed_engagement, matched=matched,
             )
         elif isinstance(op, AddBullets):
             _apply_add_bullets(op, resolve, changes, pending)
@@ -649,15 +652,16 @@ def apply_ops(
                     and _norm(user_confirmed_skill.name) == _norm(op.name)
                     else None
                 ),
+                matched=matched,
             )
         elif isinstance(op, DemoteSkill):
             _apply_demote_skill(op, new_profile, demotions)
         elif isinstance(op, UpsertCertification):
             _apply_upsert_certification(op, new_profile, changes, pending)
         elif isinstance(op, UpsertLanguage):
-            _apply_upsert_language(op, new_profile, changes, pending)
+            _apply_upsert_language(op, new_profile, changes, pending, matched)
         elif isinstance(op, UpsertEducation):
-            _apply_upsert_education(op, new_profile, changes, pending)
+            _apply_upsert_education(op, new_profile, changes, pending, matched)
         elif isinstance(op, UpsertPublication):
             _apply_upsert_publication(op, new_profile, changes, pending)
         elif isinstance(op, UpsertStory):
@@ -679,6 +683,10 @@ def apply_ops(
             # resolved to None: no exception, no conflicts entry, no witness —
             # a silently discarded dispute. See resolve_any's own docstring.
             _apply_flag_conflict(op, resolve_any, source, conflicts)
+        elif isinstance(op, SeparateMatch):
+            # #717 (ADR-063 amended 2026-10-07 cl. 4, ruling V-2) — the
+            # candidate's "Nicht dasselbe". Raises when no receipt may be undone.
+            _apply_separate_match(op, new_profile, changes)
         elif isinstance(op, MatchExisting):
             # #707 (ADR-046 amended 2026-09-16) — the model's "already there":
             # a receipt on `matched`, never a change, never a write.
@@ -1229,6 +1237,37 @@ def _preserve_entry_ids(section: str, before, incoming):
     return preserved
 
 
+def _keep_alias_subset(section: str, before: Any, after: Any) -> Any:
+    """ADR-046 am. 2026-10-07 cl. 2 — exactly three alias writers; the candidate
+    may only REMOVE an alternate name (adversarial finding 8, 2026-10-07). On
+    the section door (PATCH, MCP ``update_profile``) each entry's alias lists
+    are kept to a SUBSET of what the entry with that id held before: removal and
+    an echo of ``get_profile`` work, a new free-text name is dropped (it would
+    silently carry a later import's entry of that name at the witness)."""
+    alias_fields = set(_aliases.ALIAS_FIELDS.get(section, {}).values())
+    if not alias_fields or not isinstance(after, list):
+        return after
+    held: dict[str, dict[str, set[str]]] = {}
+    for entry in before or []:
+        if isinstance(entry, dict) and entry.get("id"):
+            held[str(entry["id"])] = {
+                f: {_norm(a) for a in (entry.get(f) or []) if isinstance(a, str)} for f in alias_fields
+            }
+    result = []
+    for entry in after:
+        if isinstance(entry, dict):
+            entry = dict(entry)
+            allowed = held.get(str(entry.get("id") or ""), {})
+            for f in alias_fields:
+                if f in entry and isinstance(entry[f], list):
+                    entry[f] = [
+                        a for a in entry[f]
+                        if isinstance(a, str) and _norm(a) in allowed.get(f, set())
+                    ]
+        result.append(entry)
+    return result
+
+
 def _apply_replace_section(
     op: ReplaceSection, profile: MasterProfileData, changes: list[FieldChange]
 ) -> MasterProfileData:
@@ -1271,6 +1310,7 @@ def _apply_replace_section(
         dumped[op.section] = _preserve_entry_ids(
             op.section, before, op.value
         )
+        dumped[op.section] = _keep_alias_subset(op.section, before, dumped[op.section])
 
     # The same round-trip the PATCH intake always performed — a payload the
     # schema rejects raises here (pydantic's ValidationError IS a ValueError,
@@ -2007,7 +2047,7 @@ def _record_merge_divergence(op, entity, section, fields, conflicts) -> None:
 
 def _apply_upsert_work(
     op, profile, ref_map, changes, pending, source="",
-    conflicts=None, confirmed=None,
+    conflicts=None, confirmed=None, matched=None,
 ):
     target = None
     if op.target is not None:
@@ -2045,10 +2085,28 @@ def _apply_upsert_work(
             # losing the candidate's answer a second time.
             verdict = DupeVerdict()
         else:
-            verdict = classify_engagement_dupe(
-                org=op.company, role=op.role, start_date=op.start_date,
-                existing=profile.work_experience, org_getter=lambda w: w.company,
+            # ADR-046 amended 2026-10-07 (#716) — a RECORDED other name of one
+            # employer, plus the same stated start month, is that stint. Any
+            # weaker evidence runs the guard below unchanged (incl. its ask).
+            alias_match = _aliases.engagement_alias_entry(
+                profile.work_experience, "work_experience", "company",
+                op.company, op.start_date,
             )
+            verdict = (
+                DupeVerdict(match=alias_match) if alias_match is not None
+                else classify_engagement_dupe(
+                    org=op.company, role=op.role, start_date=op.start_date,
+                    existing=profile.work_experience, org_getter=lambda w: w.company,
+                )
+            )
+            if alias_match is not None and matched is not None:
+                # ADR-046 am. cl. 7 — an alias-driven match is receipted, so the
+                # import summary shows it and "Nicht dasselbe" reaches it
+                # (adversarial finding 2, 2026-10-07).
+                matched.append(_match_receipt(
+                    "work_experience", alias_match,
+                    " / ".join(p for p in (op.company, op.role) if p), "alias",
+                ))
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
@@ -2146,6 +2204,11 @@ def _apply_upsert_work(
     ):
         target.role_aliases.append(op.role)
         changes.append(_merged("work_experience", "role_aliases", None, op.role))
+    # ADR-046 amended 2026-10-07 (#716), writer (b) — the employer's other name
+    # from a targeted upsert — lives in the IMPORT bridge
+    # (`alias_writer.record_targeted_upsert_aliases`), never here: this applier
+    # also serves the turn doors, and the op's `company` is the model's text,
+    # not the document's (adversarial finding 6, 2026-10-07).
     # #602/#620 — identity is already settled (this IS `target`); prefer a
     # mixed-case employer rendering over an ALL-CAPS one from a layout
     # source. Deliberately BEFORE _fill_empties, which never overwrites a
@@ -2280,7 +2343,7 @@ def _apply_upsert_project(
 
 
 def _apply_upsert_volunteer(
-    op, profile, ref_map, changes, pending, conflicts=None, confirmed=None,
+    op, profile, ref_map, changes, pending, conflicts=None, confirmed=None, matched=None,
 ):
     target = None
     if op.target is not None:
@@ -2313,10 +2376,22 @@ def _apply_upsert_volunteer(
             # losing the candidate's answer a second time.
             verdict = DupeVerdict()
         else:
-            verdict = classify_engagement_dupe(
-                org=op.organization, role=op.role, start_date=op.start_date,
-                existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+            alias_match = _aliases.engagement_alias_entry(
+                profile.volunteer_activities, "volunteer_activities", "organization",
+                op.organization, op.start_date,
             )
+            verdict = (
+                DupeVerdict(match=alias_match) if alias_match is not None
+                else classify_engagement_dupe(
+                    org=op.organization, role=op.role, start_date=op.start_date,
+                    existing=profile.volunteer_activities, org_getter=lambda v: v.organization,
+                )
+            )
+            if alias_match is not None and matched is not None:
+                matched.append(_match_receipt(
+                    "volunteer_activities", alias_match,
+                    " / ".join(p for p in (op.organization, op.role) if p), "alias",
+                ))
         if verdict.match is not None:
             target = verdict.match
         elif verdict.ambiguous:
@@ -2346,6 +2421,8 @@ def _apply_upsert_volunteer(
         return
 
     ref_map[op.ref] = target
+    # Writer (b) for `organization_aliases`: import bridge only (finding 6),
+    # see `_apply_upsert_work`.
     # VolunteerActivity has no role_aliases — a differing role can only fill an
     # empty role; it is never folded into an alias list (ADR-013 Rule 1 is
     # WorkEntry-specific).
@@ -2480,7 +2557,9 @@ def _new_skill_kwargs(op, evidence_ids: list[str]) -> dict[str, Any]:
     return kwargs
 
 
-def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirmed=None):
+def _apply_upsert_skill(
+    op, profile, resolve, changes, pending, *, user_confirmed=None, matched=None,
+):
     # #172: match on the SHARED near-dupe predicate (ats_audit), not just exact
     # _norm equality — so 'Team Leadership and Mentorship' merges into an existing
     # 'Team Leadership' instead of littering the profile with morphological twins.
@@ -2524,7 +2603,30 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
                 evidence_ids.append(ent_id)
         # else: leave unresolved handles out (defensive)
 
-    near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+    # RULING V-6 = A (ADR-046 amended 2026-10-08) — the model bound this op to
+    # an existing skill by id. Merge into it (the merge branch below) and
+    # receipt the pair; the alias is the import bridge's to record (writer b,
+    # document text only). A missing/unknown target falls through to today's
+    # path, and so does a target when ANOTHER skill already carries the
+    # incoming name exactly (a fact: "Java" never folds into JavaScript while
+    # "Java" is its own entry).
+    targeted = _targeted_skill(op, profile) if user_confirmed is None else None
+    if targeted is not None:
+        if matched is not None and not _same_words(op.name, targeted.name):
+            matched.append(_match_receipt("skills", targeted, op.name))
+        near = [targeted]
+    else:
+        near = [s for s in profile.skills if skills_near_dupe(s.name, op.name)]
+    # ADR-046 amended 2026-10-07 (#709) — a RECORDED other name of exactly one
+    # skill is that skill (an exact name compare, never fuzzy). Only when the
+    # near-dupe instrument found nothing: an alias never overrides a question
+    # the instrument would raise about several atoms.
+    if not near and user_confirmed is None:
+        alias_skill = _aliases.unique_entry_by_names(profile.skills, "skills", {"name": op.name})
+        if alias_skill is not None:
+            near = [alias_skill]
+            if matched is not None:
+                matched.append(_match_receipt("skills", alias_skill, op.name, "alias"))
 
     # #187 — the user has RESOLVED a deferred dedupe confirmation for this skill.
     # Apply their choice directly and never re-emit the confirmation: the guards
@@ -2619,13 +2721,35 @@ def _apply_upsert_skill(op, profile, resolve, changes, pending, *, user_confirme
         _promote_to_confirmed(existing, op.status)
         # Keep the more-specific/longer name ONLY when the incoming strictly
         # contains the existing tokens; otherwise the existing name stays.
-        if skill_tokens(op.name) > skill_tokens(existing.name):
+        # (Never on an alias hit: the incoming IS one of the entry's names.)
+        if (
+            targeted is None
+            and skill_tokens(op.name) > skill_tokens(existing.name)
+            and not _aliases.alias_hit(existing, "name", "skills", op.name)
+        ):
             existing.name = op.name
         changes.append(_merged("skills", "name", None, existing.name))
         return
 
     profile.skills.append(Skill(**_new_skill_kwargs(op, evidence_ids)))
     changes.append(_added("skills", "name", op.name))
+
+
+def _targeted_skill(op, profile):
+    """The existing skill ``op.target`` names, or ``None`` (V-6). ``None`` also
+    when another skill already carries ``op.name`` as its own name or a recorded
+    alias — the target never overrides that fact."""
+    if not getattr(op, "target", None):
+        return None
+    target = next((s for s in profile.skills if getattr(s, "id", None) == op.target), None)
+    if target is None:
+        return None
+    if any(
+        s is not target and _norm(op.name) in _aliases.names_of(s, "name", "skills")
+        for s in profile.skills
+    ):
+        return None
+    return target
 
 
 def _apply_demote_skill(op, profile, demotions):
@@ -2723,13 +2847,40 @@ def _apply_upsert_certification(op, profile, changes, pending):
     changes.append(_added("certifications", "name", op.name))
 
 
-def _apply_upsert_language(op, profile, changes, pending):
+def _language_identity(language: str, entries: list) -> tuple[Any | None, str]:
+    """ADR-046 amended 2026-10-07 (#709) — the ONE existing language that is
+    ``language`` by a FACT: a recorded alias of it, or the whole-string DE/EN
+    name table (``services/profile/language_names``). Returns (entry, basis);
+    ``(None, "")`` when no single entry qualifies (two candidates -> none)."""
+    alias_entry = _aliases.unique_entry_by_names(entries, "languages", {"language": language})
+    if alias_entry is not None:
+        return alias_entry, "alias"
+    canon = canonical_language(language)
+    if canon is None:
+        return None, ""
+    hits = [
+        e for e in entries
+        if canonical_language(e.language) == canon
+        or any(canonical_language(a) == canon for a in (getattr(e, "aliases", None) or []))
+    ]
+    if len(hits) == 1:
+        return hits[0], "name_table"
+    return None, ""
+
+
+def _apply_upsert_language(op, profile, changes, pending, matched=None):
     # Languages are a closed domain — 'German' ⊂ 'German (Native)' IS the same
     # language, so containment auto-merges instead of asking (#177).
     verdict = classify_dupe(
         {"language": op.language}, profile.languages,
         {"language": lambda l: l.language}, containment_is_same=True,
     )
+    if verdict.match is None and not verdict.ambiguous:  # never over a question (MD2-15)
+        entry, basis = _language_identity(op.language, profile.languages)
+        if entry is not None:
+            verdict = DupeVerdict(match=entry)
+            if matched is not None and _norm(entry.language) != _norm(op.language):
+                matched.append(_match_receipt("languages", entry, op.language, basis))
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {"level": op.level})
         # ADR-061 clause 3: promote-only, same rule as certifications.
@@ -2742,7 +2893,7 @@ def _apply_upsert_language(op, profile, changes, pending):
     changes.append(_added("languages", "language", op.language))
 
 
-def _apply_upsert_education(op, profile, changes, pending):
+def _apply_upsert_education(op, profile, changes, pending, matched=None):
     # #618 (education half) — was plain classify_dupe on (institution, degree)
     # alone: no institution-alias fold, no date-range signal. A two-source
     # import naming the SAME qualification via a long-legal-form institution
@@ -2764,6 +2915,22 @@ def _apply_upsert_education(op, profile, changes, pending):
         start_date_getter=lambda e: e.start_date,
         end_date_getter=lambda e: e.end_date,
     )
+    if verdict.match is None and not verdict.ambiguous:
+        # ADR-046 amended 2026-10-07 (#716) — both names are recorded names of
+        # exactly ONE entry (its own value or an alias, at least one an alias).
+        # Ruling adv-vault-1 = B (MD2-15): never over the guard's question,
+        # never on an empty key, and only with the same stated years.
+        alias_entry = _aliases.unique_entry_by_names(
+            [e for e in profile.education if _aliases.dates_allow("education", op, e)],
+            "education",
+            {"institution": op.institution, "degree": op.degree},
+        )
+        if alias_entry is not None:
+            verdict = DupeVerdict(match=alias_entry)
+            if matched is not None:
+                matched.append(_match_receipt(
+                    "education", alias_entry, f"{op.institution} / {op.degree}", "alias",
+                ))
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {
             "field": op.field,
@@ -2873,6 +3040,21 @@ def _apply_upsert_story(op, profile, resolve, source, changes):
     ))
 
 
+def _match_receipt(section: str, entity: Any, incoming: str, basis: str = "model") -> MatchReceipt:
+    """One `MatchReceipt` naming the existing entry by its own natural-key label
+    ("English -> Englisch", "TU Munich / M.Sc. -> TU München / M.Sc.")."""
+    fields = _ENTRY_NATURAL_KEYS.get(section, ())
+    parts = [str(getattr(entity, f, "") or "").strip() for f in fields]
+    existing = " / ".join(p for p in parts if p) or str(getattr(entity, "id", ""))
+    return MatchReceipt(
+        section=section,
+        entity_id=str(getattr(entity, "id", "")),
+        incoming=incoming,
+        existing=existing,
+        basis=basis,
+    )
+
+
 def _apply_match_existing(op, resolve, matched):
     """#707 (ADR-046 amended 2026-09-16, clause 3) — record the model's binding
     of an incoming entry to an existing entity; write nothing.
@@ -2891,18 +3073,182 @@ def _apply_match_existing(op, resolve, matched):
             "binding for %r recorded nowhere (#707)", op.target, op.incoming,
         )
         return
-    section = _section_for(entity)
-    fields = _ENTRY_NATURAL_KEYS.get(section, ())
-    parts = [str(getattr(entity, f, "") or "").strip() for f in fields]
-    existing = " / ".join(p for p in parts if p) or str(op.target)
-    matched.append(
-        MatchReceipt(
-            section=section,
-            entity_id=str(op.target),
-            incoming=op.incoming,
-            existing=existing,
+    receipt = _match_receipt(_section_for(entity), entity, op.incoming)
+    receipt.entity_id = str(op.target)
+    if _same_words(receipt.incoming, receipt.existing):
+        # E2E-3 (b), 2026-10-08 — the model also matches word-for-word
+        # restatements (Django -> Django). That is no rename: no receipt, so
+        # the import summary never claims one and never offers an undo that
+        # would add a second copy. The witness still carries the entry
+        # through the op itself (arm (c), sub-clause 3).
+        return
+    matched.append(receipt)
+
+
+def _same_words(a: str, b: str) -> bool:
+    """Equal after the committer's ``_norm`` with internal whitespace collapsed."""
+    return " ".join(_norm(a).split()) == " ".join(_norm(b).split())
+
+
+_SECTION_MODEL: dict[str, type] = {
+    "skills": Skill,
+    "languages": Language,
+    "certifications": Certification,
+    "education": EducationEntry,
+    "publications": Publication,
+    "signature_stories": SignatureStory,
+    "work_experience": WorkEntry,
+    "projects": ProjectEntry,
+    "volunteer_activities": VolunteerActivity,
+}
+
+
+class MatchNotSeparableError(ValueError):
+    """`SeparateMatch` named no receipt it may undo (#717). ``code`` is the
+    door's machine-readable reason: ``unknown`` (no such pair, or the record was
+    rolled back by ADR-042), ``already_undone``, ``name_table`` (a fact)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _pair_receipts(profile: MasterProfileData, entity_id: str, incoming: str) -> list[MatchReceipt]:
+    """Every receipt naming this (entity, incoming name) pair, NEWEST first."""
+    history = profile.metadata.enrichment_history if profile.metadata else []
+    wanted = _norm(incoming)
+    return [
+        receipt
+        for record in reversed(history)
+        for receipt in reversed(record.matched)
+        if receipt.entity_id == entity_id and _norm(receipt.incoming) == wanted
+    ]
+
+
+def _separation_entry(receipt: MatchReceipt) -> Any:
+    """The entry an undo appends: the receipt's stored ``incoming_entry``, or one
+    built from the name alone. A section whose entry the name alone cannot
+    build (a signature story needs challenge/mechanism/outcome) is refused as
+    ``unknown`` -> 409, never a ValidationError -> 500 (finding 7)."""
+    model = _SECTION_MODEL.get(receipt.section)
+    if model is None:
+        raise MatchNotSeparableError("unknown")
+    payload = dict(receipt.incoming_entry or _minimal_entry(receipt.section, receipt.incoming))
+    payload.pop("id", None)
+    try:
+        return model.model_validate(payload)
+    except ValueError as exc:  # pydantic's ValidationError is a ValueError
+        raise MatchNotSeparableError("unknown") from exc
+
+
+def find_separable_receipt(profile: MasterProfileData, entity_id: str, incoming: str) -> MatchReceipt:
+    """The NEWEST receipt for this pair, when `SeparateMatch` may undo it, or
+    raise :class:`MatchNotSeparableError`. Shared by the service's pre-check and
+    the applier (one predicate, ADR-066).
+
+    Adversarial pass 2026-10-07: only the NEWEST receipt decides — an undone
+    newest receipt answers ``already_undone`` and never walks on to an older
+    receipt of the same pair (finding 3: a replay appended a second entry). A
+    pair the DE/EN language table names is a fact and never undoable, whatever
+    basis its receipt carries (finding 5)."""
+    receipts = _pair_receipts(profile, entity_id, incoming)
+    if not receipts:
+        raise MatchNotSeparableError("unknown")
+    newest = receipts[0]
+    if newest.basis == "name_table":
+        raise MatchNotSeparableError("name_table")
+    if newest.section == "languages":
+        target = next(
+            (e for e in profile.languages if getattr(e, "id", None) == entity_id), None
         )
+        if target is not None and same_language(incoming, target.language):
+            raise MatchNotSeparableError("name_table")
+    if newest.undone_at is not None:
+        raise MatchNotSeparableError("already_undone")
+    _separation_entry(newest)
+    return newest
+
+
+def _minimal_entry(section: str, incoming: str) -> dict[str, Any]:
+    """An entry built from the receipt's `incoming` name alone — for a receipt
+    with no `incoming_entry` (persisted before 2026-10-07, or written by a turn
+    door). Two-key sections split on the ONE " / " the op format prescribes;
+    anything else puts the whole name on the first key field."""
+    fields = _ENTRY_NATURAL_KEYS.get(section, ())
+    parts = incoming.split(" / ")
+    if len(fields) == 2 and len(parts) == 2:
+        return {fields[0]: parts[0].strip(), fields[1]: parts[1].strip()}
+    entry: dict[str, Any] = {fields[0]: incoming.strip()} if fields else {}
+    if section == "education":
+        entry.setdefault("degree", "")
+    return entry
+
+
+def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldChange]) -> None:
+    """#717 / ADR-063 amended 2026-10-07 cl. 4 — see :class:`SeparateMatch`.
+
+    Adversarial pass 2026-10-07 (findings 3/4): the alternate names come off
+    BY VALUE — every alias of the target that the incoming entry names (its
+    ``incoming`` string, any natural-key value of a stored ``incoming_entry``,
+    any ``aliases_added`` of any receipt of the pair), so an undo on a match
+    made THROUGH an alias takes that alias back too; every receipt of the pair
+    is stamped ``undone_at`` in this one commit; and the entry is appended only
+    when no entry with exactly its natural key is already there."""
+    from datetime import datetime, timezone
+
+    receipt = find_separable_receipt(profile, op.entity_id, op.incoming)
+    pair = [r for r in _pair_receipts(profile, op.entity_id, op.incoming) if r.undone_at is None]
+    section = receipt.section
+    entries = getattr(profile, section, None)
+    if entries is None:
+        raise MatchNotSeparableError("unknown")
+    entry = _separation_entry(receipt)
+    keys = _ENTRY_NATURAL_KEYS.get(section, ())
+    target = next((e for e in entries if getattr(e, "id", None) == receipt.entity_id), None)
+    # (ii) take back every name the incoming entry put on the target
+    if target is not None:
+        names: set[str] = {_norm(op.incoming)}
+        for r in pair:
+            names |= {_norm(v) for v in r.aliases_added.values()}
+            if r.incoming_entry:
+                names |= {_norm(r.incoming_entry.get(f) or "") for f in keys}
+        names |= {_norm(getattr(entry, f, "") or "") for f in keys}
+        names.discard("")
+        for alias_field in _aliases.ALIAS_FIELDS.get(section, {}).values():
+            current = list(getattr(target, alias_field, None) or [])
+            kept = [a for a in current if _norm(a) not in names]
+            for value in (a for a in current if _norm(a) in names):
+                changes.append(FieldChange(
+                    section=section, field=alias_field, action="removed",
+                    old_value=value, new_value=None,
+                    rationale=f"Removed {value!r} as another name: the candidate said it is not the same entry.",
+                    rationale_key="match_separated",
+                ))
+            if len(kept) != len(current):
+                setattr(target, alias_field, kept)
+    # (iii) the incoming entry, as its own entry — no identity instrument runs,
+    # but never a second copy of an entry that is already there (finding 4)
+    own_key = tuple(_norm(getattr(entry, f, "") or "") for f in keys)
+    already_there = any(
+        tuple(_norm(getattr(e, f, "") or "") for f in keys) == own_key for e in entries
     )
+    label = " / ".join(
+        str(getattr(entry, f, "") or "").strip()
+        for f in keys
+        if str(getattr(entry, f, "") or "").strip()
+    ) or receipt.incoming
+    if not already_there:
+        entries.append(entry)
+        changes.append(FieldChange(
+            section=section, field=(keys or ("name",))[0],
+            action="added", old_value=None, new_value=label,
+            rationale=f"Added {label!r} as its own entry: the candidate said it is not {receipt.existing!r}.",
+            rationale_key="match_separated",
+        ))
+    # (iv) every receipt of the pair, so a replay answers already_undone
+    now = datetime.now(timezone.utc)
+    for r in pair:
+        r.undone_at = now
 
 
 def _apply_set_field(op, resolve, changes):

@@ -170,7 +170,10 @@ def test_the_707_shape_is_carried_when_the_model_binds_the_translations():
 def test_without_the_binding_the_707_shape_is_listed():
     """The control group — the same merge with silent ops is what #707 saw."""
     items = compute_import_not_applied(_incoming_en(), _vault_de(), ops=[])
-    assert sorted(i.label for i in items) == ["English", "German", "Machine Learning"]
+    # #709 (ADR-046 am. 2026-10-07): the two LANGUAGE names are now carried by
+    # the closed DE/EN name table (a fact) — only the open-domain skill needs
+    # the model's binding.
+    assert sorted(i.label for i in items) == ["Machine Learning"]
     assert {i.reason for i in items} == {"no_op_carried_entry"}
 
 
@@ -217,24 +220,26 @@ def test_a_binding_that_fits_two_entries_and_agrees_with_neither_rescues_none():
 
 def test_a_target_in_another_section_rescues_nothing():
     """A language bound to a SKILL id is a mis-binding; the language stays listed."""
-    incoming = MasterProfileData(languages=[Language(language="English")])
+    # A pair the #709 language-name table does not know, so only the binding
+    # could carry it.
+    incoming = MasterProfileData(languages=[Language(language="Swiss German")])
     merged = MasterProfileData(
-        skills=[Skill(id="sk-en", name="Englisch")],
-        languages=[Language(id="lang-en", language="Englisch")],
+        skills=[Skill(id="sk-en", name="Schweizerdeutsch")],
+        languages=[Language(id="lang-en", language="Schweizerdeutsch")],
     )
     items = compute_import_not_applied(
-        incoming, merged, [MatchExisting(target="sk-en", incoming="English")]
+        incoming, merged, [MatchExisting(target="sk-en", incoming="Swiss German")]
     )
-    assert [i.label for i in items] == ["English"]
+    assert [i.label for i in items] == ["Swiss German"]
 
 
 def test_an_unresolvable_target_rescues_nothing_at_the_witness():
     items = compute_import_not_applied(
-        MasterProfileData(languages=[Language(language="English")]),
-        MasterProfileData(languages=[Language(id="lang-en", language="Englisch")]),
-        [MatchExisting(target="ghost", incoming="English")],
+        MasterProfileData(languages=[Language(language="Swiss German")]),
+        MasterProfileData(languages=[Language(id="lang-en", language="Schweizerdeutsch")]),
+        [MatchExisting(target="ghost", incoming="Swiss German")],
     )
-    assert [i.label for i in items] == ["English"]
+    assert [i.label for i in items] == ["Swiss German"]
 
 
 def test_binding_by_the_formatted_label_works_for_two_field_keys():

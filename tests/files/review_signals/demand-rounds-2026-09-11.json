@@ -1,0 +1,379 @@
+{
+ "run": "2026-09-11",
+ "source_log": "2026-09-11.jsonl",
+ "stages": [
+  "cover_letter",
+  "cover_letter",
+  "cover_letter",
+  "cover_letter",
+  "cover_letter",
+  "letter_terminal_review",
+  "letter_terminal_review",
+  "letter_terminal_review"
+ ],
+ "rounds": [
+  [
+   {
+    "concept": "5S",
+    "surface_forms": [
+     "5S"
+    ]
+   },
+   {
+    "concept": "Sehr gutes Deutsch",
+    "surface_forms": [
+     "Sehr gutes Deutsch",
+     "Deutsch",
+     "Muttersprache"
+    ]
+   },
+   {
+    "concept": "Gutes Englisch",
+    "surface_forms": [
+     "Gutes Englisch",
+     "Englisch",
+     "B2"
+    ]
+   },
+   {
+    "concept": "Arbeitssicherheitsmanagementsysteme",
+    "surface_forms": [
+     "Arbeitssicherheitsmanagementsysteme",
+     "Arbeitssicherheitsmanagement",
+     "Arbeitssicherheit"
+    ]
+   },
+   {
+    "concept": "Instandhaltung",
+    "surface_forms": [
+     "Instandhaltung",
+     "Maintenance"
+    ]
+   },
+   {
+    "concept": "Arbeitsvorbereitung",
+    "surface_forms": [
+     "Arbeitsvorbereitung",
+     "AVO"
+    ]
+   },
+   {
+    "concept": "Lean-Produktion",
+    "surface_forms": [
+     "Lean-Produktion",
+     "Lean Production",
+     "Lean Management"
+    ]
+   },
+   {
+    "concept": "OEE",
+    "surface_forms": [
+     "OEE",
+     "Overall Equipment Effectiveness"
+    ]
+   },
+   {
+    "concept": "Industrie 4.0",
+    "surface_forms": [
+     "Industrie 4.0",
+     "Industry 4.0"
+    ]
+   },
+   {
+    "concept": "Budgetplanung",
+    "surface_forms": [
+     "Budgetplanung",
+     "Budgetplanung und -steuerung"
+    ]
+   },
+   {
+    "concept": "Supply Chain",
+    "surface_forms": [
+     "Supply Chain",
+     "Lieferkette"
+    ]
+   },
+   {
+    "concept": "Qualität",
+    "surface_forms": [
+     "Qualität",
+     "Qualitätssicherung",
+     "QS"
+    ]
+   }
+  ],
+  [
+   {
+    "concept": "Sehr gutes Deutsch",
+    "surface_forms": [
+     "Sehr gutes Deutsch",
+     "Deutsch",
+     "Muttersprache"
+    ]
+   },
+   {
+    "concept": "Gutes Englisch",
+    "surface_forms": [
+     "Gutes Englisch",
+     "Englisch",
+     "B2"
+    ]
+   },
+   {
+    "concept": "Lean-Produktion",
+    "surface_forms": [
+     "Lean-Produktion",
+     "Lean Production",
+     "Lean Management"
+    ]
+   }
+  ],
+  [
+   {
+    "concept": "Budgetverantwortung",
+    "surface_forms": [
+     "Budgetverantwortung",
+     "Budget",
+     "Budgetmanagement"
+    ]
+   }
+  ],
+  [
+   {
+    "concept": "Budgetverantwortung",
+    "surface_forms": [
+     "Budgetverantwortung",
+     "Budget",
+     "Budgetmanagement"
+    ]
+   },
+   {
+    "concept": "Sehr gutes Deutsch",
+    "surface_forms": [
+     "Sehr gutes Deutsch",
+     "Deutsch",
+     "Muttersprache"
+    ]
+   },
+   {
+    "concept": "Gutes Englisch",
+    "surface_forms": [
+     "Gutes Englisch",
+     "Englisch",
+     "B2"
+    ]
+   }
+  ],
+  [],
+  [
+   {
+    "concept": "Shopfloor-Management",
+    "surface_forms": [
+     "Shopfloor-Management",
+     "Shopfloor Management"
+    ]
+   },
+   {
+    "concept": "Instandhaltung",
+    "surface_forms": [
+     "Instandhaltung",
+     "Maintenance"
+    ]
+   },
+   {
+    "concept": "Arbeitsvorbereitung",
+    "surface_forms": [
+     "Arbeitsvorbereitung",
+     "AVO"
+    ]
+   },
+   {
+    "concept": "Mehrschichtbetrieb",
+    "surface_forms": [
+     "Mehrschichtbetrieb",
+     "Dreischichtbetrieb",
+     "Schichtbetrieb"
+    ]
+   },
+   {
+    "concept": "Industrie 4.0",
+    "surface_forms": [
+     "Industrie 4.0",
+     "Industry 4.0"
+    ]
+   },
+   {
+    "concept": "Budgetplanung",
+    "surface_forms": [
+     "Budgetplanung",
+     "Budgetplanung und -steuerung"
+    ]
+   }
+  ],
+  [
+   {
+    "concept": "Arbeitsvorbereitung",
+    "surface_forms": [
+     "Arbeitsvorbereitung",
+     "AVO"
+    ]
+   },
+   {
+    "concept": "Mehrschichtbetrieb",
+    "surface_forms": [
+     "Mehrschichtbetrieb",
+     "Dreischichtbetrieb",
+     "Schichtbetrieb"
+    ]
+   },
+   {
+    "concept": "Budgetplanung",
+    "surface_forms": [
+     "Budgetplanung",
+     "Budgetplanung und -steuerung"
+    ]
+   }
+  ],
+  [
+   {
+    "concept": "Sehr gutes Deutsch",
+    "surface_forms": [
+     "Sehr gutes Deutsch",
+     "Deutsch",
+     "Muttersprache"
+    ]
+   },
+   {
+    "concept": "Gutes Englisch",
+    "surface_forms": [
+     "Gutes Englisch",
+     "Englisch",
+     "B2"
+    ]
+   },
+   {
+    "concept": "Arbeitssicherheitsmanagementsysteme",
+    "surface_forms": [
+     "Arbeitssicherheitsmanagementsysteme",
+     "Arbeitssicherheitsmanagement",
+     "Arbeitssicherheit"
+    ]
+   },
+   {
+    "concept": "Instandhaltung",
+    "surface_forms": [
+     "Instandhaltung",
+     "Maintenance"
+    ]
+   },
+   {
+    "concept": "Arbeitsvorbereitung",
+    "surface_forms": [
+     "Arbeitsvorbereitung",
+     "AVO"
+    ]
+   },
+   {
+    "concept": "Mehrschichtbetrieb",
+    "surface_forms": [
+     "Mehrschichtbetrieb",
+     "Dreischichtbetrieb",
+     "Schichtbetrieb"
+    ]
+   },
+   {
+    "concept": "Industrie 4.0",
+    "surface_forms": [
+     "Industrie 4.0",
+     "Industry 4.0"
+    ]
+   },
+   {
+    "concept": "Budgetplanung",
+    "surface_forms": [
+     "Budgetplanung",
+     "Budgetplanung und -steuerung"
+    ]
+   }
+  ]
+ ],
+ "named_in_verdict": [
+  [
+   "5S",
+   "Instandhaltung",
+   "Arbeitsvorbereitung",
+   "OEE",
+   "Industrie 4.0",
+   "Budgetplanung",
+   "Supply Chain",
+   "Qualität"
+  ],
+  [
+   "Sehr gutes Deutsch",
+   "Gutes Englisch",
+   "Lean-Produktion"
+  ],
+  [
+   "Budgetverantwortung"
+  ],
+  [
+   "Budgetverantwortung",
+   "Sehr gutes Deutsch",
+   "Gutes Englisch"
+  ],
+  [],
+  [
+   "Shopfloor-Management",
+   "Instandhaltung",
+   "Arbeitsvorbereitung",
+   "Mehrschichtbetrieb",
+   "Industrie 4.0",
+   "Budgetplanung"
+  ],
+  [
+   "Arbeitsvorbereitung",
+   "Budgetplanung"
+  ],
+  [
+   "Sehr gutes Deutsch",
+   "Gutes Englisch",
+   "Instandhaltung",
+   "Arbeitsvorbereitung",
+   "Industrie 4.0",
+   "Budgetplanung"
+  ]
+ ],
+ "delivered_letter_data": {
+  "body": {
+   "signature": {
+    "name": "STEFAN BRANDT",
+    "closing": null
+   },
+   "paragraphs": [
+    "Sehr geehrte Damen und Herren,",
+    "hiermit bewerbe ich mich als Leiter Operations (m/w/d) bei der Rheinwerk Verpackungen GmbH. Die Fertigung hochwertiger Kunststoff- und Verbundverpackungen für Konsumgüter- und Lebensmittelkunden in Europa spricht mich an.",
+    "Bei Weberit führte ich als Produktionsleiter zwei Fertigungsbereiche mit 38 Mitarbeitenden über drei Schichtleiter und vertrat den Betriebsleiter am Gesamtstandort mit rund 90 Mitarbeitenden. Zudem trug ich operative Budgetverantwortung für rund 6 Mio. €. Dort führte ich Shopfloor-Management und KVP ein und arbeitete mit Lean-Produktion, SMED, OEE, MES, SAP PP und SAP MM an der Schnittstelle zu Supply Chain und Qualitätssicherung. Bei Rasselstein führte ich als Fertigungsmeister / Schichtleiter eine Schicht mit 14 Mitarbeitenden und moderierte 5S- und Kaizen-Workshops.",
+    "Die breitere Gesamtverantwortung für Produktion ist für mich eine Entwicklungsperspektive. Bei Weberit wirkte ich an der ISO-45001-Zertifizierung mit, überarbeitete Gefährdungsbeurteilungen und setzte das Unterweisungssystem neu auf; die LTIF sank in meinem Bereich über fünf Jahre von 8,2 auf 3,1. Mit IFS oder BRC habe ich keine Erfahrung und produzierte nie direkt für Lebensmittelkunden. Als Transfer bringe ich jedoch Hygiene- und Dokumentationsdisziplin aus der Kosmetik-Verpackungsfertigung sowie zehn Jahre ISO-9001-Auditpraxis mit.",
+    "Gern erläutere ich Ihnen im persönlichen Gespräch, wie ich meine Führungserfahrung, Lean-Produktion und MES-Praxis in die Weiterentwicklung Ihres Standorts einbringen kann. Ich freue mich auf Ihre Einladung zu einem Gespräch."
+   ]
+  },
+  "header": {
+   "name": "STEFAN BRANDT",
+   "email": "stefan.brandt@example.com",
+   "phone": "+49 261 0000000",
+   "address": "Koblenz",
+   "photo_url": null
+  },
+  "recipient": {
+   "date": "11. September 2026",
+   "name": null,
+   "title": null,
+   "address": null,
+   "company": "Rheinwerk Verpackungen GmbH"
+  },
+  "signature": {
+   "name": "STEFAN BRANDT",
+   "closing": "Mit freundlichen Grüßen"
+  }
+ }
+}

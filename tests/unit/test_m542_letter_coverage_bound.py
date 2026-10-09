@@ -250,10 +250,12 @@ async def test_the_letter_wiring_point_passes_the_bound_and_the_cv_sites_do_not(
     seen: list[dict] = []
     real = kl.coverage_reviewer_prompt_fn
 
-    def spy(base_fn, keyword_ledger, budget=None, max_terms_per_round=None):
+    def spy(base_fn, keyword_ledger, budget=None, max_terms_per_round=None, **kw):
+        # `**kw` passes `on_demand=` (#703: the letter chain records each round's
+        # demand) through — the spy pins the bound, not the factory's signature.
         seen.append({"budget": budget, "max_terms_per_round": max_terms_per_round})
         return real(base_fn, keyword_ledger, budget=budget,
-                    max_terms_per_round=max_terms_per_round)
+                    max_terms_per_round=max_terms_per_round, **kw)
 
     job, cl = db_m542
 

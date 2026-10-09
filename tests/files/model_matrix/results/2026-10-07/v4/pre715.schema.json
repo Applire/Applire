@@ -1,0 +1,900 @@
+{
+  "name": "applire_reconcile_batch",
+  "strict": false,
+  "schema": {
+    "$defs": {
+      "AddBullets": {
+        "properties": {
+          "op": {
+            "const": "add_bullets",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "responsibilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "achievements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "type": "object"
+      },
+      "FlagConflict": {
+        "description": "A two-value dispute the model raises instead of overwriting.\n\n``field`` names either a SCALAR field of the ``target`` entity (``company``,\n``end_date``, …) or — #218 — one of its BULLET LISTS (``responsibilities`` /\n``achievements``), in which case ``existing``/``incoming`` carry the two\ncontradicting bullet texts verbatim rather than field values. Both shapes\nland on the same ``Conflict`` channel; the applier attaches the resolved\nentity's id so the resolution endpoint can write back to that bullet.\n\nDeciding that two differently-worded bullets contradict is the reconciler\nmodel's judgement (ADR-062 clause 1) — no deterministic matcher may make it,\nwhich is why this is an op the model emits and not a post-pass.",
+        "properties": {
+          "op": {
+            "const": "flag_conflict",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "existing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incoming": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "field",
+          "existing",
+          "incoming"
+        ],
+        "type": "object"
+      },
+      "MatchExisting": {
+        "description": "The reconciler's way to SAY \"already there\" (#707, ADR-046 amended\n2026-09-16) — model-emittable, writes nothing.\n\nThe new information names an entity the profile already holds under another\nsurface form — a translation (\"English\" for \"Englisch\"), a synonym, an\nabbreviation — and adds nothing new about it. Before this op the model's only\nchannel for that judgement was SILENCE, and the import witness\n(``reconcile/import_witness.py``) cannot tell silence from dropping: on a\nDE→EN second-source import it listed nearly every entry of the second CV as\n``no_op_carried_entry`` while the vault held every one of them (#707).\n\n``target`` is the existing entity's id (the profile view the model reads keeps\nids on EXISTING entries — ADR-078 strips them from the INCOMING block only);\n``incoming`` is the incoming entry's name exactly as the new information\nwrites it. Scope: the six flat sections, whose upsert ops carry no\n``target``; engagements keep rule 7's ``upsert_*(target=…)`` mechanism, and\na ``match_existing`` aimed at an engagement id records its receipt and\nrescues nothing at the witness.\n\nThe applier (``_apply_match_existing``) resolves ``target`` through\n``resolve_any``, records ONE :class:`applire.schemas.profile.MatchReceipt`\non ``ApplyResult.matched`` and mutates nothing. Never a ``set_field``: it\nfills nothing, overwrites nothing, creates no alias.",
+        "properties": {
+          "op": {
+            "const": "match_existing",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "incoming": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "incoming"
+        ],
+        "type": "object"
+      },
+      "RequestConfirmation": {
+        "description": "A targeted question the reconciler asks instead of guessing (US185).\n\n**Two emitters, and only one of them may fill the localized half.** The\nmodel emits this op (prompt rule 6) with a plain ``question`` and plain\n``options`` in the session's language — that is its whole vocabulary. The\nnine DETERMINISTIC builders (``apply.py`` x8, ``attribution.py`` x1) fill\n``question_i18n`` / ``options_i18n`` / ``option_keys`` instead, and those\nthree fields are **stripped from raw model output before validation**\n(``engine._parse_ops``), so a hallucinated ``option_keys`` cannot exist.\n\nThat is ADR-063's own governing rule — *never widen an op the model can emit\nwith a more powerful parameter* — applied to the 2026-09-05 amendment. The\namendment's sketch said ``question``/``options`` \"become {de, en} payloads\";\nwritten that way the model would be filling a locale payload it cannot be\nheld to, and ``option_keys`` (the identity a vault WRITE resolves on) would\nbe model-supplied. The three decided clauses are unchanged: stable keys, a\nlanguage-independent persisted form, door parity.\n\n``options`` and ``options_i18n``/``option_keys`` are positionally paired\nwhen the localized half is present: index *i* of each names the same choice.",
+        "properties": {
+          "op": {
+            "const": "request_confirmation",
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ],
+        "type": "object"
+      },
+      "SetField": {
+        "properties": {
+          "op": {
+            "const": "set_field",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "field",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetPersonalInfo": {
+        "properties": {
+          "op": {
+            "const": "set_personal_info",
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetSummary": {
+        "properties": {
+          "op": {
+            "const": "set_summary",
+            "type": "string"
+          },
+          "lang": {
+            "enum": [
+              "de",
+              "en"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lang",
+          "text"
+        ],
+        "type": "object"
+      },
+      "UpsertCertification": {
+        "properties": {
+          "op": {
+            "const": "upsert_certification",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "issuing_organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "date_obtained": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiry_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertEducation": {
+        "properties": {
+          "op": {
+            "const": "upsert_education",
+            "type": "string"
+          },
+          "institution": {
+            "type": "string"
+          },
+          "degree": {
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "institution",
+          "degree"
+        ],
+        "type": "object"
+      },
+      "UpsertLanguage": {
+        "properties": {
+          "op": {
+            "const": "upsert_language",
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "language"
+        ],
+        "type": "object"
+      },
+      "UpsertProject": {
+        "properties": {
+          "op": {
+            "const": "upsert_project",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertPublication": {
+        "properties": {
+          "op": {
+            "const": "upsert_publication",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "publication",
+              "patent"
+            ],
+            "type": "string"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "patent_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "co_authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "UpsertSkill": {
+        "properties": {
+          "op": {
+            "const": "upsert_skill",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proficiency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertStory": {
+        "description": "ADR-055 — a signature story: challenge → mechanism → outcome → benchmark.\n\nPrompt rules only allow this when the SOURCE MATERIAL itself narrates the\narc (never synthesized from a bare skill/tag). ``evidence`` references the\nexperience the story happened in (existing ids or local refs), mirroring\n``UpsertSkill.evidence``.",
+        "properties": {
+          "op": {
+            "const": "upsert_story",
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "benchmark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "challenge",
+          "mechanism",
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "UpsertVolunteer": {
+        "properties": {
+          "op": {
+            "const": "upsert_volunteer",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "organization": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "organization",
+          "role"
+        ],
+        "type": "object"
+      },
+      "UpsertWork": {
+        "properties": {
+          "op": {
+            "const": "upsert_work",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "company": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_current": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "industry_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budget_managed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "company"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "object",
+    "properties": {
+      "ops": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpsertWork"
+            },
+            {
+              "$ref": "#/$defs/UpsertProject"
+            },
+            {
+              "$ref": "#/$defs/UpsertVolunteer"
+            },
+            {
+              "$ref": "#/$defs/AddBullets"
+            },
+            {
+              "$ref": "#/$defs/UpsertSkill"
+            },
+            {
+              "$ref": "#/$defs/UpsertCertification"
+            },
+            {
+              "$ref": "#/$defs/UpsertLanguage"
+            },
+            {
+              "$ref": "#/$defs/UpsertEducation"
+            },
+            {
+              "$ref": "#/$defs/UpsertPublication"
+            },
+            {
+              "$ref": "#/$defs/UpsertStory"
+            },
+            {
+              "$ref": "#/$defs/SetField"
+            },
+            {
+              "$ref": "#/$defs/SetPersonalInfo"
+            },
+            {
+              "$ref": "#/$defs/SetSummary"
+            },
+            {
+              "$ref": "#/$defs/FlagConflict"
+            },
+            {
+              "$ref": "#/$defs/MatchExisting"
+            },
+            {
+              "$ref": "#/$defs/RequestConfirmation"
+            }
+          ]
+        }
+      },
+      "ambiguities": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RequestConfirmation"
+        }
+      },
+      "denials": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "empty_reason": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "already_known",
+          "question_only",
+          "nothing_actionable",
+          null
+        ]
+      }
+    },
+    "required": [
+      "ops",
+      "ambiguities",
+      "denials"
+    ]
+  }
+}

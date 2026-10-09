@@ -1,0 +1,369 @@
+# Copyright (C) 2026 Tobias Rosenbaum
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""#702 — *So lassen* / *Keep it as is* on a cross-document item, through the REAL
+review router + ``services/review_signals.py`` + ``review_state`` over an in-memory
+SQLite DB (same harness shape as ``test_review_endpoints.py``).
+
+Also pins the review_state invariants the ``critic:`` producer must not break:
+a cross-document decision never counts as a group-1 row (ADR-090 cl. 6's
+"k of n decided") and never collides with a group-1 decision of equal fold.
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from applire.auth import get_auth_provider
+from applire.auth.no_auth import NoAuthProvider
+from applire.db.session import get_db
+from tests.support.profile_factory import make_master_profile
+
+import applire.routers.review as review_router
+import applire.services.review_state as rs
+
+FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "tests" / "files" / "review_signals" / "critic-report-2026-09-13-marcus.json"
+)
+
+
+@pytest_asyncio.fixture
+async def db():
+    from applire.db.session import Base  # noqa: F401
+    import applire.models.user  # noqa: F401
+    import applire.models.job  # noqa: F401
+    import applire.models.profile  # noqa: F401
+    import applire.models.gap  # noqa: F401
+    import applire.models.cv  # noqa: F401
+    import applire.models.session  # noqa: F401
+    import applire.models.flow  # noqa: F401
+    import applire.models.uploads  # noqa: F401
+    import applire.models.application  # noqa: F401
+    import applire.models.cover_letter  # noqa: F401
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+def _client(db) -> TestClient:
+    async def _override_get_db():
+        yield db
+
+    app = FastAPI()
+    app.dependency_overrides[get_auth_provider] = lambda: NoAuthProvider()
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[review_router._get_provider] = lambda: object()
+    app.include_router(review_router.router)
+    return TestClient(app, raise_server_exceptions=True)
+
+
+async def _seed_letter(db, *, critic_report=None, review_state=None) -> uuid.UUID:
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.models.job import JobAnalysis
+
+    job_id, profile_id, cl_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    db.add(JobAnalysis(
+        id=job_id, raw_text_hash=str(job_id), raw_text="JD text", role_title="Leiter Operations",
+        required_skills=[], nice_to_have_skills=[], keywords=[], seniority_level="lead",
+        company_culture_signals=[], language_requirement="de",
+    ))
+    db.add(make_master_profile(id=profile_id, profile_json={}))
+    db.add(GeneratedCoverLetter(
+        id=cl_id, job_analysis_id=job_id, profile_id=profile_id, template="classic_german",
+        letter_data={"body": {"paragraphs": ["Absatz."]}}, status="ready", document_language="de",
+        critic_report=critic_report, review_state=review_state,
+    ))
+    await db.commit()
+    return cl_id
+
+
+def _report() -> dict:
+    return json.loads(FIXTURE.read_text())["report"]
+
+
+def _transfer_key() -> str:
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+
+    return OutcomeCriticReport.model_validate(_report()).cross_document[0].key
+
+
+@pytest.mark.asyncio
+async def test_kept_records_the_decision_on_a_listed_item(db):
+    cl_id = await _seed_letter(db, critic_report=_report())
+    key = _transfer_key()
+    resp = _client(db).post(f"/api/cover-letter/{cl_id}/review/kept", json={"finding_key": key})
+    assert resp.status_code == 200, resp.text
+    (decision,) = resp.json()["review_state"]["decisions"]
+    assert decision["action"] == "kept"
+    assert decision["finding_key"] == key
+    assert decision["label"].startswith("Hygiene- und Dokumentationsdisziplin")
+
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    assert row.review_state["decisions"][0]["action"] == "kept"
+
+
+@pytest.mark.asyncio
+async def test_kept_false_withdraws_it(db):
+    key = _transfer_key()
+    state = rs.with_decision({}, key, "x", "kept")
+    cl_id = await _seed_letter(db, critic_report=_report(), review_state=state)
+    resp = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/kept", json={"finding_key": key, "keep": False}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["review_state"]["decisions"] == []
+
+
+@pytest.mark.asyncio
+async def test_kept_on_an_unlisted_item_is_409_and_writes_nothing(db):
+    cl_id = await _seed_letter(db, critic_report=_report())
+    resp = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/kept", json={"finding_key": "critic:a sentence nobody wrote"}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "finding_not_listed"
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    assert (await db.get(GeneratedCoverLetter, cl_id)).review_state is None
+
+
+@pytest.mark.asyncio
+async def test_kept_with_a_group_one_key_is_422(db):
+    cl_id = await _seed_letter(db, critic_report=_report())
+    resp = _client(db).post(f"/api/cover-letter/{cl_id}/review/kept", json={"finding_key": "ats:kubernetes"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_kept_on_a_foreign_document_is_404(db):
+    resp = _client(db).post(
+        f"/api/cover-letter/{uuid.uuid4()}/review/kept", json={"finding_key": _transfer_key()}
+    )
+    assert resp.status_code == 404
+
+
+# ── review_state invariants with the `critic` producer ───────────────────────
+
+
+def test_a_critic_decision_never_counts_as_a_group_one_row():
+    state = rs.with_decision({}, "critic:some sentence", "x", "kept")
+    derived = rs.derive_review(state, {"keywords": {}}, {"claims": []})
+    assert derived["decided"] == [] and derived["total"] == 0
+
+
+def test_a_critic_decision_and_a_group_one_decision_of_equal_fold_do_not_collide():
+    state = rs.with_decision({}, "ats:supply chain", "Supply Chain", "taken_out")
+    state = rs.with_decision(state, "critic:supply chain", "Supply Chain.", "kept")
+    actions = sorted(d["action"] for d in state["decisions"])
+    assert actions == ["kept", "taken_out"]
+    assert rs.get_decision(state, "ats:supply chain")["action"] == "taken_out"
+    assert rs.get_decision(state, "critic:supply chain")["action"] == "kept"
+
+
+def test_a_critic_key_never_names_a_group_one_finding():
+    finding = rs.GroupOneFinding(key="ats:supply chain", producer="ats", norm="supply chain", label="Supply Chain")
+    assert rs.find_listed([finding], "critic:supply chain") is None
+    assert rs.find_listed([finding], "ats:supply chain") is finding
+
+
+# ── RULING R-2 = A: take-out on a cross-document item ───────────────────────
+
+TRANSFER = (
+    "Hygiene- und Dokumentationsdisziplin aus Kosmetik-Verpackungen, einem "
+    "Sauberraumbereich seit 2021 und zehn Jahren ISO-9001-Audit-Praxis sowie neun "
+    "Jahre Kunststofftechnik mit Spritzguss und Montage sind jedoch übertragbare "
+    "Grundlagen."
+)
+
+
+class _Rewrite:
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, kind, record, section_id, section_text, forms, provider, *, language,
+                       figures_only=False):
+        from types import SimpleNamespace
+
+        self.calls.append({"section_id": section_id, "forms": list(forms), "figures_only": figures_only})
+        after = section_text
+        for f in forms:
+            after = after.replace(f, "").replace("  ", " ")
+        return SimpleNamespace(section_id=section_id, before=section_text, after=after,
+                               changed=after != section_text, llm_calls=1)
+
+
+async def _noop_reaudit(kind, record, db, **kw):
+    await db.commit()
+    await db.refresh(record)
+
+
+async def _seed_transfer_letter(db):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", TRANSFER]}}
+    await db.commit()
+    return cl_id
+
+
+@pytest.mark.asyncio
+async def test_take_out_on_a_cross_document_item_removes_its_literal_concepts(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_transfer_letter(db)
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    (call,) = rewrite.calls
+    # letter-only concepts that literally stand in the sentence — never the
+    # paraphrased label "Kunststofftechnik-Erfahrung", never the whole sentence
+    assert call["forms"] == ["Kosmetik-Verpackungen", "Sauberraumbereich seit 2021", "ISO-9001-Audit-Praxis"]
+    assert call["figures_only"] is False
+    body = resp.json()
+    assert body["changes"] and body["still_listed"] is False
+    (decision,) = body["review_state"]["decisions"]
+    assert decision["action"] == "taken_out" and decision["finding_key"] == _transfer_key()
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_cross_document_take_out_restores_and_reports_it_present(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_transfer_letter(db)
+    with patch.object(ra, "_rewriter", return_value=_Rewrite()), patch.object(ra, "reaudit", _noop_reaudit):
+        client = _client(db)
+        client.post(f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()})
+        out = await ra.undo("cover_letter", cl_id, _transfer_key(), db)
+    assert out.still_listed is True
+    assert rs.load_state(out.record.review_state)["decisions"] == []
+
+
+@pytest.mark.asyncio
+async def test_take_out_on_an_unlisted_cross_document_key_is_409(db):
+    cl_id = await _seed_transfer_letter(db)
+    resp = _client(db).post(
+        f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": "critic:not a sentence of this letter"}
+    )
+    assert resp.status_code == 409
+
+
+def test_a_paraphrased_label_falls_back_to_the_whole_sentence():
+    from types import SimpleNamespace
+
+    from applire.services.review_signals import cross_document_target
+
+    report = {"ran": True, "mount": "letter", "advisories": [
+        {"kind": "letter_only", "concept": "Englische Werksbesuche",
+         "letter_state": "Ich begleite Werksbesuche auf Englisch."},
+    ]}
+    from applire.schemas.outcome_critic import OutcomeCriticReport
+
+    key = OutcomeCriticReport.model_validate(report).cross_document[0].key
+    label, wording = cross_document_target(SimpleNamespace(critic_report=report), key)
+    assert wording == ["Ich begleite Werksbesuche auf Englisch."]
+
+
+# ── adv-review finding 7 (2026-10-07): the take-out is the item's SENTENCE ────
+OTHER = "Für Kosmetik-Verpackungen habe ich 2022 die Prüfpläne überarbeitet."
+
+
+async def _seed_two_sentence_letter(db):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    # The same paragraph holds a second sentence naming the same fact.
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", f"{OTHER} {TRANSFER}"]}}
+    await db.commit()
+    return cl_id
+
+
+@pytest.mark.asyncio
+async def test_take_out_hands_the_rewriter_only_the_sentence_and_splices_it_back(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_two_sentence_letter(db)
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    (call,) = rewrite.calls
+    assert call["section_id"] == "body"
+    body = resp.json()
+    (change,) = body["changes"]
+    # before/after are the WHOLE section (undo restores it), only the sentence moved
+    assert change["before"] == f"Erster Absatz.\n\n{OTHER} {TRANSFER}"
+    assert change["after"].startswith(f"Erster Absatz.\n\n{OTHER} ")
+    assert "Kosmetik-Verpackungen" not in change["after"][len(f"Erster Absatz.\n\n{OTHER} "):]
+    # the other sentence still names the fact — that is NOT this item still standing
+    assert body["still_listed"] is False
+
+
+@pytest.mark.asyncio
+async def test_undo_restores_the_whole_section_and_the_item_stands_again(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+
+    cl_id = await _seed_two_sentence_letter(db)
+    with patch.object(ra, "_rewriter", return_value=_Rewrite()), patch.object(ra, "reaudit", _noop_reaudit):
+        _client(db).post(f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()})
+        out = await ra.undo("cover_letter", cl_id, _transfer_key(), db)
+    assert out.still_listed is True
+    paragraphs = (out.record.section_overrides or {}).get("body") or ""
+    assert f"{OTHER} {TRANSFER}" in paragraphs
+
+
+@pytest.mark.asyncio
+async def test_a_sentence_no_longer_in_the_letter_changes_nothing(db):
+    from unittest.mock import patch
+
+    import applire.services.review_actions as ra
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    cl_id = await _seed_letter(db, critic_report=_report())
+    row = await db.get(GeneratedCoverLetter, cl_id)
+    row.letter_data = {"body": {"paragraphs": ["Erster Absatz.", OTHER]}}
+    await db.commit()
+    rewrite = _Rewrite()
+    with patch.object(ra, "_rewriter", return_value=rewrite), patch.object(ra, "reaudit", _noop_reaudit):
+        resp = _client(db).post(
+            f"/api/cover-letter/{cl_id}/review/take-out", json={"finding_key": _transfer_key()}
+        )
+    assert resp.status_code == 200, resp.text
+    assert rewrite.calls == [] and resp.json()["changes"] == []
+    assert resp.json()["still_listed"] is False
+
+
+def test_a_whitespace_variant_of_the_quote_is_still_located():
+    from applire.services.review_signals import locate_sentence
+
+    text = "Erster Absatz.\n\nHygiene- und\nDokumentationsdisziplin   aus X."
+    hit = locate_sentence([("body", text)], "Hygiene- und Dokumentationsdisziplin aus X.")
+    assert hit is not None and text[hit[2]:hit[3]].startswith("Hygiene-")

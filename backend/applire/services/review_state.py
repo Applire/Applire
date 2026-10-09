@@ -41,11 +41,17 @@ from typing import Any, Literal
 
 from applire.services.scope_requirements import _norm_quote
 
-Producer = Literal["ats", "oracle"]
-Action = Literal["added", "taken_out", "edited"]
+Producer = Literal["ats", "oracle", "critic"]
+Action = Literal["added", "taken_out", "edited", "kept"]
 
-PRODUCERS: tuple[str, ...] = ("ats", "oracle")
-ACTIONS: tuple[str, ...] = ("added", "taken_out", "edited")
+PRODUCERS: tuple[str, ...] = ("ats", "oracle", "critic")
+#: ADR-090 cl. 6's group-1 producers. `critic` (#702, ADR-060 amended 2026-10-07) keys a
+#: CROSS-DOCUMENT item (`critic:<norm letter sentence>`): its decisions live in the same
+#: state but never count toward group 1's "k of n decided", and never collide with a
+#: group-1 decision whose fold happens to be equal.
+GROUP_ONE_PRODUCERS: tuple[str, ...] = ("ats", "oracle")
+# #702: `kept` — the candidate decided a cross-document item stays as it is.
+ACTIONS: tuple[str, ...] = ("added", "taken_out", "edited", "kept")
 # frontend lib/truthfulness-display.ts FLAG_VERDICTS
 FLAG_VERDICTS: frozenset[str] = frozenset({"inflated", "misattributed", "unbacked"})
 
@@ -192,7 +198,9 @@ def group_one_findings(ats_report: dict | None, truth_report: dict | None) -> li
 def find_listed(findings: list[GroupOneFinding], key: str) -> GroupOneFinding | None:
     """The listed finding for ``key`` — matched on the normalised text, either
     producer (a merged row is accepted under ``ats:`` or ``oracle:``)."""
-    _, n = split_key(key)
+    producer, n = split_key(key)
+    if producer not in GROUP_ONE_PRODUCERS:
+        return None  # #702: a `critic:` key never names a group-1 row
     for f in findings:
         if f.norm == n:
             return f
@@ -217,11 +225,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _same_finding(a: tuple[str, str], b: tuple[str, str]) -> bool:
+    """Two keys name one finding when their folds are equal AND they belong to the
+    same surface: a group-1 row may be recorded under either of its producers
+    (ADR-081 cl. 2's merge), a cross-document item (#702) only under `critic`."""
+    if a[1] != b[1]:
+        return False
+    return (a[0] == "critic") == (b[0] == "critic")
+
+
 def get_decision(state: dict, key: str) -> dict | None:
-    _, n = split_key(key)
+    k = split_key(key)
     for d in state.get("decisions") or []:
         try:
-            if split_key(d["finding_key"])[1] == n:
+            if _same_finding(split_key(d["finding_key"]), k):
                 return d
         except ValueError:
             continue
@@ -229,12 +246,12 @@ def get_decision(state: dict, key: str) -> dict | None:
 
 
 def without_decision(state: dict, key: str) -> dict:
-    _, n = split_key(key)
+    k = split_key(key)
     out = load_state(state)
     kept = []
     for d in out["decisions"]:
         try:
-            same = split_key(d["finding_key"])[1] == n
+            same = _same_finding(split_key(d["finding_key"]), k)
         except ValueError:
             same = False
         if not same:
@@ -293,9 +310,11 @@ def derive_review(state: Any, ats_report: dict | None, truth_report: dict | None
     decided = []
     for d in st["decisions"]:
         try:
-            n = split_key(d["finding_key"])[1]
+            producer, n = split_key(d["finding_key"])
         except ValueError:
             continue
+        if producer not in GROUP_ONE_PRODUCERS:
+            continue  # #702: a cross-document decision is not a group-1 row
         if n not in listed_norms:
             decided.append({k: d.get(k) for k in ("finding_key", "label", "action", "at")})
     unknown = [p for p, r in (("ats", ats_report), ("oracle", truth_report)) if r is None]

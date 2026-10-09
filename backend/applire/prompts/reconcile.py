@@ -161,6 +161,62 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   from 3 extra rows per run to 3/1/0. The model also matches word-for-word
   restatements the paragraph exempts (a receipt line, no write). Records:
   ``Documents/Runs/Nougat/uat-fixes-2/``; $0.32 for the arm.
+* **20,320 (#715, 2026-10-07).** Shipped after ruling V-4/MD2-10's n=10
+  measurement (WP-M, below). ``match_existing`` now
+  also names jobs ("Company / Role") and volunteering ("Organization / Role"),
+  and projects by title — for an engagement only when the employer is named
+  differently and the title is the same (a different TITLE stays rule 7). The
+  ALREADY THERE paragraph names "project or job" and "a shorter or older
+  employer name". Why: the #715 shape (same title, the employer written
+  "Labvantage" for "Labvantage Solutions GmbH") had no way to say "already
+  there" except silence, and the witness listed it. The engagement binding is
+  deterministic (same stated start month), and alternate names are recorded
+  only from that binding (ADR-046/063 amended 2026-10-07). *Measured:* use, on
+  the synthetic Strawberry-V replays (luna, n=5 per arm): the #715 shape was
+  listed in 4/5 runs before and 0/5 after; the C arm (one Kolping entry fewer)
+  2/5 → 0/5; the #707 case unchanged at 0/5. The negative case (Novartis Pharma
+  AG / Data Scientist, other start month) was created as its own job 5/5 in
+  both arms. Matrix S6–S10 n=5: ``gpt-5.6-luna`` 0.00 on every rate (S10
+  zero-op 100 % — correct). ``glm-5.3-flash`` S6/S9 malformed 3/9 and 2/10
+  valid turns over two arms against 0/4 and 0/5 on the old prompt the same day
+  (ops without an ``op`` key, union_tag_not_found ×10; one ``upsert_publication``
+  without a title) — n too small to separate from noise (≈p 0.15), and it is
+  the precedent-M5.1.1(2) question M answers. Records:
+  ``Documents/Runs/Strawberry/build-2/v/runs/``. *V-4, measured (WP-M,
+  2026-10-07):* the B arm is this tree with the three prompt hunks AND the
+  ``MatchExisting`` schema description reverted (``schema_out`` sends op
+  docstrings to the model, so the commit changed both). ``glm-5.3-flash`` n=10:
+  malformed 0/15 valid S6 (120 s + 180 s timeout arms) and 0/10 S9 on this
+  prompt, 0/14 and 0/10 on the old one; ``gpt-5.6-luna`` 0.00 on every rate in
+  both arms. No threshold crossed, so the wording stays. Pooled with V's arms:
+  5/44 vs 0/33 turns (one-sided Fisher p≈0.055), and the op-less-op shape did
+  not recur in 49 valid glm turns; the full S1–S8 matrix then showed it once on
+  S3 (1/9), and an S3 re-measure at n=10 gave 0/9 after vs 0/8 before (1/18, under
+  the bar). Records: ``tests/files/model_matrix/results/2026-10-07/``.
+* **20,543 (V-6, 2026-10-08).** ``upsert_skill`` gains an optional ``target``
+  (one sentence in its op description: the id of the profile's skill when the
+  new information names it differently — never a second skill under the new
+  name), and rule 5's ONE-WRITE list of ops that "record that decision via
+  target" names ``upsert_skill`` beside the engagement upserts. Why (E2E-3 a): with reasoning OFF (the stack's setting) luna linked
+  translated skills to their jobs through a TARGET-LESS ``upsert_skill`` under
+  the incoming name in 6/10 replays of the captured delivery prompt (real path
+  3/3) — the op had no way to name the existing skill, so each link created a
+  duplicate; jobs never duplicated because ``upsert_work`` has a target. The
+  applier merges a targeted op into its skill and receipts it; the import
+  bridge records the document's name as the alias (ADR-046/063 amended
+  2026-10-08). *Measured* on the captured delivery prompt, luna, with
+  OPENROUTER_DISABLE_THINKING=true read from the stack's own ``.env`` (n=10
+  per arm): runs with a translated duplicate 6/10 on the old prompt → 3/10
+  with the op sentence alone (the model still re-created three skills
+  untargeted in 3 runs) → 0/10 with the sentence AND the rule-5 list entry;
+  that arm recorded all 4 skill aliases 10/10 and left ``not_applied`` empty
+  10/10. Negative case (two genuinely new skills added to the same input,
+  n=3): both created 3/3, never targeted; one run re-created REST APIs
+  untargeted (1/3, so 1 in 13 on this input overall). Case B (Strawberry-V
+  synthetic, n=3): unchanged — 0 not carried, Novartis Pharma AG still its
+  own job, the employer and skill aliases as before. With reasoning ON the old
+  prompt already showed 0/15 — the thinking setting must be stated on every
+  measurement of this prompt. Records: ``Documents/Runs/Strawberry/build-2/fix-e2e3/runs/``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -244,6 +300,9 @@ Operations:
   demonstrate this skill — a list even for a single id, never a bare string and
   never null: omit the field instead. On the profile side the same links are
   rendered under the name "experience_refs"; on an OP the field is "evidence").
+  target: the `id` of the profile's skill when the new information names THAT
+  skill differently (translation, synonym, abbreviation) — never a second
+  skill under the new name; omit it for a new skill.
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
@@ -310,11 +369,13 @@ Operations:
   under another surface form — a translation ("English" for "Englisch"), a
   synonym, an abbreviation — and adds nothing new about it. Fields: target (that
   existing entity's id), incoming (the name EXACTLY as the new information
-  writes it: the skill / certification / language name, the publication or
-  story title, "Institution / Degree" for education). REQUIRED: target,
+  writes it: the skill / certification / language name, the publication,
+  story or project title, "Institution / Degree" for education, "Company /
+  Role" for a job, "Organization / Role" for volunteering). REQUIRED: target,
   incoming. Writes nothing — it records that you SAW the entry and where it
-  already lives. Not for jobs, projects or volunteering (rule 7). A
-  WORD-FOR-WORD restatement needs no op.
+  already lives. For a job or volunteering role only when the employer is
+  named differently and the title is the same; a different TITLE is rule 7.
+  A WORD-FOR-WORD restatement needs no op.
 
 - request_confirmation — a targeted yes/no (or short-choice) question for the
   user. Fields: question, options (list of short answers), context (a dict with
@@ -367,7 +428,8 @@ Operations:
    ONE WRITE (#618): once this batch has already decided a fact belongs to an
    EXISTING entity, that entity is handled — never ALSO emit a target-less
    upsert_* that re-creates it under a different-sounding name. upsert_work /
-   upsert_project / upsert_volunteer record that decision via target: <id>.
+   upsert_project / upsert_volunteer / upsert_skill record that decision via
+   target: <id>.
    upsert_education / upsert_certification / upsert_language / upsert_publication
    carry no target of their own — so to add a fact to one of those, either name
    it with set_field against its id, or restate the entity with its EXISTING
@@ -375,8 +437,9 @@ Operations:
    genuinely new field(s). Never a second entry under the new source's
    alternate phrasing.
    ALREADY THERE, NOTHING NEW (#707): when the new information names a skill,
-   language, certification, degree, publication or story the profile already
-   has under a different name — a translation, a synonym, an abbreviation —
+   language, certification, degree, publication, story, project or job the
+   profile already has under a different name — a translation, a synonym, an
+   abbreviation, a shorter or older employer name —
    and adds no new field, emit match_existing with "target" = that entry's
    `id` and "incoming" = the name as written. Never an upsert for it (that
    creates a second entry) and never silence (silence reads as dropped).

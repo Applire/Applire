@@ -56,8 +56,14 @@ def verdict_of(results: list[ProbeResult]) -> str:
     return _VERDICT_BY_RANK[max(_RANK.get(r.status, 1) for r in results)]
 
 
-async def collect(db: AsyncSession, *, with_usage: bool = True) -> dict[str, Any]:
+async def collect(
+    db: AsyncSession, *, with_usage: bool = True, provider_inline: bool = True
+) -> dict[str, Any]:
     """Run every probe and return the full ops report.
+
+    ``provider_inline=False`` (the admin dashboard, adv-admin ADM-5): the
+    provider component is the last known result and never a provider call in
+    this request; a stale or missing one starts one background check.
 
     The database probe runs first and gates the other three DB probes: once the
     session is broken, running them would only produce three copies of the same
@@ -80,6 +86,8 @@ async def collect(db: AsyncSession, *, with_usage: bool = True) -> dict[str, Any
             continue
         results.append(await run_probe(name, fn, db))
     for name, fn in probe_module.PLAIN_PROBES.items():
+        if name == "provider" and not provider_inline and fn is probe_module.probe_provider:
+            fn = probe_module.provider_result_without_probing
         results.append(await run_probe(name, fn))
 
     verdict = verdict_of(results)
@@ -176,6 +184,11 @@ async def _refresh_loop() -> None:
 
     while True:
         try:
+            # ADR-093 cl. 6: an idle web worker sees no request, so the loop
+            # refreshes the admin overrides itself before probing the provider.
+            from applire.services.instance_settings import refresh as _refresh_settings
+
+            await _refresh_settings(max_age=2.0)
             # ADR-092 cl. 7: the refresher is created in the lifespan and has no
             # owner; it reads instance tables only (adversarial re-check §1 (c)).
             with unscoped("ops-aggregate"):

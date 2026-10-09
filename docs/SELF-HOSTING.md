@@ -22,8 +22,9 @@ Everything here talks about the **production** topology (`docker-compose.yml` al
 14. [Single sign-on (OIDC)](#14-single-sign-on-oidc)
 15. [Outgoing mail (SMTP)](#15-outgoing-mail-smtp)
 16. [Tokens: agents and scripts](#16-tokens-agents-and-scripts)
-17. [You are the controller of other people's data](#17-you-are-the-controller-of-other-peoples-data)
-18. [What Applire does not do for you](#18-what-applire-does-not-do-for-you)
+17. [Settings an administrator can change without a restart](#17-settings-an-administrator-can-change-without-a-restart)
+18. [You are the controller of other people's data](#18-you-are-the-controller-of-other-peoples-data)
+19. [What Applire does not do for you](#19-what-applire-does-not-do-for-you)
 
 ---
 
@@ -82,11 +83,20 @@ scripts/backup.sh                      # writes into ./backups
 scripts/backup.sh /mnt/nas/applire     # write somewhere else instead
 ```
 
-Run it from the directory that holds `docker-compose.yml`, with the stack up. It reads `COMPOSE_PROJECT_NAME` and `POSTGRES_USER`/`POSTGRES_DB` from your environment (or from `.env`) the same way `docker compose` does, so it works under whatever project name or credentials your install actually uses:
+Run it with the stack up, from the directory that holds your install's `docker-compose.yml`. The script itself can live anywhere, for example in a checkout of the repository or in `/opt/applire-scripts/`:
 
 ```bash
-COMPOSE_PROJECT_NAME=myapplire scripts/backup.sh
+cd /path/to/your/applire                  # the folder with docker-compose.yml and .env
+/opt/applire-scripts/backup.sh /mnt/nas/applire
 ```
+
+The script backs up the stack that `docker compose` in that folder means. That is `COMPOSE_PROJECT_NAME` from your shell or `.env`, else the `name:` in the compose file, else the folder's name, and it prints the project it picked. You only need to name the project yourself if you started the stack with `docker compose -p <name>` or with a `COMPOSE_PROJECT_NAME` that you exported in a shell and did not put in `.env`. With the name set, the script also works from a folder that has no compose file:
+
+```bash
+COMPOSE_PROJECT_NAME=myapplire /opt/applire-scripts/backup.sh
+```
+
+If the project it picked has no running database, the script stops and lists the Applire stacks that *are* running on the host, so you can see which name to set. The database name and user come from your shell, else from the running database container, else from `.env`, else the compose defaults.
 
 The archive it writes (`applire-backup-<timestamp>.tar.gz`) contains:
 
@@ -125,7 +135,7 @@ scripts/restore.sh applire-backup-20260908-030000.tar.gz
 scripts/restore.sh --force applire-backup-20260908-030000.tar.gz   # overwrite an install that already has data
 ```
 
-Run it from the directory that holds `docker-compose.yml`, on a stack that is either down or freshly created. It walks through six steps, in order:
+Run it from the directory that holds `docker-compose.yml`, on a stack that is either down or freshly created. Unlike `backup.sh`, `restore.sh` starts services itself with `docker compose`, so it restores into the project that `docker compose` in that folder means. If you started your stack with `docker compose -p <name>`, set `COMPOSE_PROJECT_NAME=<name>` for the restore too. Otherwise the restore goes into a new, empty project named after the folder, and your real stack stays as it was. It walks through six steps, in order:
 
 1. **Verifies the archive first** — the same check as `scripts/backup.sh --verify`. Nothing is touched if the archive itself is bad.
 2. **Starts only `postgres`**, which creates the named volumes if they don't exist yet.
@@ -166,10 +176,10 @@ Database credentials are `${POSTGRES_USER:-applire}` / `${POSTGRES_PASSWORD:-app
 Other secrets to mind:
 
 - **`chmod 600 .env`** — it holds your database credentials and your LLM provider's API key.
-- The provider API key lives only in `.env` and is never written to a log.
+- The provider API key lives in `.env`, or, if an administrator entered one in the settings panel, encrypted in the database (Section 17). It is never written to a log and never shown again.
 - **The session secret** (it signs document links for agents) is generated on first start and stored in the database (`instance_state`) — there is nothing to configure, and it travels with your backup. Passwords are stored hashed (scrypt); tokens are stored hashed and shown once.
 - **The setup code** is printed in the backend log until the instance is claimed (Section 13). Treat the log as sensitive until then.
-- **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /api/ops/health` reports `"debug_log_on": true`. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging.
+- **`LLM_DEBUG_LOG=true`** writes every prompt and completion — including CV and interview PII — to JSONL files inside the backend container, with **no size or age cap**. The backend logs a WARNING at every startup while it's on, and `GET /api/ops/health` reports `"debug_log_on": true`. Since 0.43 one instance can serve several people, so the file then holds **other people's** CVs and interview answers as well as yours. Turn it off (`LLM_DEBUG_LOG=false` or delete the line) and delete the accumulated files when you're done debugging. In the shipped `docker-compose.yml` the files live inside the backend container, not on a volume, so recreating the container (for example on an upgrade) also deletes them.
 
 ## 8. TLS and a reverse proxy in front
 
@@ -190,7 +200,11 @@ If you go the second route, **two things are mandatory**:
 1. **Your proxy must forward the `Host` header unchanged** (including a non-default port) — **or** you set `APPLIRE_BASE_URL` in `.env` to your proxy's externally reachable `scheme://host` (or `scheme://host:port`). Every sign-in, setup and other state-changing request is checked: the browser's `Origin` must match the `Host` Applire receives (or the host of `APPLIRE_BASE_URL`). If it does not, the request is refused with 403 `origin_mismatch`, and the message names both remedies. Applire's own nginx already forwards `Host $http_host`; a bind-mounted config of your own must do the same (the shipped default is `nginx/self-hosted.conf`).
 2. **Set `COOKIE_SECURE=true`** as soon as people reach Applire over https. It marks the sign-in cookie `Secure`. The default is `false` so plain-http LAN installs keep working — browsers drop `Secure` cookies on http, so setting it on a plain-http install locks everybody out.
 
-`APPLIRE_BASE_URL` is also what builds the `html_url`/`pdf_url` links the MCP/agent channel returns — left unset, those links point at `http://localhost:8001`, which is only correct on an unproxied local dev box. Links in invitation and reset **mails** are built from `APPLIRE_BASE_URL` only, so mail needs it (Section 15). OIDC (Section 14) requires it.
+`APPLIRE_BASE_URL` is also what builds the `html_url`/`pdf_url` links the MCP/agent channel returns. Left unset, those links point at `http://localhost`, which is right only when the agent runs on the server itself. "Unset" means the line is absent from `.env` or empty. Writing the default out (`APPLIRE_BASE_URL=http://localhost`) counts as a setting, with the consequences below. Links in invitation and reset **mails** are built from `APPLIRE_BASE_URL` only, so mail needs it (Section 15). OIDC (Section 14) requires it.
+
+**Set it to the one address people open Applire on.** Once `APPLIRE_BASE_URL` is set, Applire accepts sign-ins only for that host name and for `localhost`. A request for any other name is refused with 403 `origin_mismatch`, which protects `/setup` against DNS-rebinding. So `APPLIRE_BASE_URL=http://localhost` on a server that people reach as `http://192.168.1.5` locks out every device except the server itself. If people reach the instance under two names, pick the one in your links and use only that.
+
+**Your proxy's timeouts.** Applire's own nginx waits up to 300 seconds for the backend (Section 11). Many proxies give up much earlier; nginx's default `proxy_read_timeout`, for example, is 60 seconds. A long request then fails at your proxy with a 504 while Applire is still working. Give your proxy at least the same 300 seconds for Applire's address.
 
 **The login throttle and your proxy.** The login throttle is keyed on the email and the client address that Applire's nginx sees. By default nginx trusts **no** `X-Forwarded-For` header from anyone, because a device on your network could otherwise give itself a fresh address on every attempt and never be slowed down. Without a proxy you need nothing. Behind your own TLS proxy, every request arrives from the proxy's address and everyone shares one throttle key. To fix that, name the proxy with one line in `.env`:
 
@@ -200,7 +214,12 @@ APPLIRE_TRUSTED_PROXY=172.18.0.1        # your proxy's address as nginx sees it 
 
 Then run `docker compose up -d`. To find the address, look at the first field of `docker compose logs nginx` while you open Applire through the proxy. nginx refuses to start on a value that is not an IP address or CIDR range, and `docker compose logs nginx` names the entry. A bind-mounted config of your own trusts nobody unless it contains `include /etc/nginx/applire/*.conf;` (the shipped default does).
 
-What nginx sees without a proxy: Docker's port publishing keeps the real IPv4 address of a client on your network. Requests to `localhost`, over IPv6, or from another container on the same host arrive from the Docker bridge gateway (for example `172.17.0.1`), so those clients share one throttle key. That is harmless for a household. Under an active attack from the same path, though, the owner's sign-in on that path waits behind the attacker's attempts.
+What nginx sees without a proxy: Docker's port publishing keeps the real IPv4 address of a client on your network. Requests to `localhost`, over IPv6, or from another container on the same host arrive from the Docker bridge gateway (for example `172.17.0.1`), so those clients share one throttle key. That is harmless for a household. Under an active attack on the same account from the same path, though, the owner's sign-in on that path waits behind the attacker's attempts. The wait is at most 30 seconds. An attempt that cannot start within those 30 seconds is turned away unchecked, with the same "several failed attempts" message the delay shows. In that one case the correct password does **not** get the owner in. The owner then tries again once the attack stops, or from another path. The cure is the `APPLIRE_TRUSTED_PROXY` line above, not a lockout: Applire never locks an account.
+
+Two ways to get the setting wrong without any message:
+
+- **An address nginx never sees.** Behind Docker's port publishing, your proxy may reach nginx from the Docker bridge gateway, not from its LAN address. The setting then matches nothing, and every client still shares one key. Take the address from `docker compose logs nginx`, as above, not from your proxy's own configuration.
+- **A range that is too wide.** Every address in the range may set `X-Forwarded-For` and choose its own throttle key, which removes the throttle for that whole range. Name the proxy's single address (or its container network), never your whole LAN or `0.0.0.0/0`.
 
 ## 9. Disk and pruning
 
@@ -227,7 +246,20 @@ docker compose pull && docker compose up -d
 
 Migrations run automatically when the backend container starts — there's no separate migration step to remember.
 
-**Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*.
+**Upgrading from 0.42 or earlier to 0.43 (accounts):** the first start stops at the setup screen. Read the one-time code from `docker compose logs backend`, open `/setup`, and claim the instance — your existing vault becomes the administrator's account (Section 13). Also: delete `AUTH_PROVIDER=none` from `.env` (it now means `local`), add `APPLIRE_AGENT_TOKEN` to your MCP client configs (Section 16), and move any uptime probe that read more than the status from `/health` to `/api/ops/health` (Section 12). If your database held more than one live Master Profile for a user, the migration keeps the newest and retires the others; the administrator's upgrade notice names how many. Usage recorded before the upgrade is not attributed to a person, so AI usage per person starts at 0. The full list is in the `CHANGELOG.md` *Upgrade notes*. Four checks in an old `.env` that the notes are easy to miss on:
+
+- **The comment above `AUTH_PROVIDER=none` is no longer true.** Older `.env` files carry a comment block that begins `# 'none' disables authentication` (or `# Auth — 'none' disables authentication`). It describes the pre-0.43 behaviour, so delete it together with the line.
+- **`LLM_DEBUG_LOG=true`** now writes other people's CVs and interview answers to the debug log as well as yours, and the backend warns about it at every start (Section 7). Unless you are debugging right now, set it to `false`.
+- **Variables your `.env` does not set.** The upgrade notice (below) names the new and changed ones. To compare by hand, fetch the release's `env.example` next to your `.env` and list the variable names it has and your `.env` lacks:
+
+  ```bash
+  curl -L -o env.example.new https://github.com/Applire/Applire/releases/latest/download/env.example
+  comm -23 <(sed -n 's/^#\{0,1\}\([A-Z][A-Z0-9_]*\)=.*/\1/p' env.example.new | sort -u) \
+           <(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' .env | sort -u)
+  ```
+
+  Most of them are optional with a working default. Read the comment above each one in `env.example.new`.
+- **Your compose file.** If you wrote or trimmed `docker-compose.yml` yourself, compare it with the release's file. The agent setup in Section 16, for example, uses its `mcp` service.
 
 The instance tells you what an upgrade actually changed, in three places:
 
@@ -406,7 +438,13 @@ SETUP REQUIRED — open /setup on the address where you normally open Applire �
 docker compose logs backend | grep "SETUP REQUIRED"
 ```
 
-Open `/setup`, enter the code, your email and a password (12–256 characters), and the instance is yours. Only a person with access to the server can read the code, which is the point: a stranger who finds the URL cannot claim your instance. On an **upgraded** install, the existing vault becomes the administrator's account — same data, now behind a login. The `create-admin` command does the same from the shell and refuses once the instance is claimed.
+**Only the code from the latest start works.** Every start replaces the code, so after a few restarts the log holds several codes and only the last one is valid. The code is the six groups of four letters and digits after `enter:` (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; case and dashes do not matter). To print only the newest:
+
+```bash
+docker compose logs backend | grep "SETUP REQUIRED" | tail -1
+```
+
+Open `/setup`, enter the code, your email and a password (12–256 characters, typed twice), and the instance is yours. Only a person with access to the server can read the code, which is the point: a stranger who finds the URL cannot claim your instance. On an **upgraded** install, the existing vault becomes the administrator's account — same data, now behind a login. The `create-admin` command does the same from the shell and refuses once the instance is claimed. It asks for the password twice, or reads it from standard input with `--password-stdin` (for scripts).
 
 **Adding people.** Sign in as the administrator and open Administration → People. *Add person* creates a pending account and an **invite link** (valid 7 days, single use) which you hand over — or, with SMTP configured (Section 15), Applire mails it. The person opens the link and chooses a password. There is no open sign-up. You can also re-invite, issue a **reset link** (valid 1 hour; you never see the new password), change a role, disable or delete an account, and revoke all of a person's tokens. The last administrator cannot be demoted, disabled or deleted. Every one of these actions is written to an audit log (who, what, when, target — no IP address), kept `AUDIT_LOG_RETENTION_DAYS` days (730; `0` = forever).
 
@@ -434,7 +472,7 @@ APPLIRE_BASE_URL=https://applire.example.org
 #OIDC_BUTTON_LABEL=Single sign-on
 ```
 
-- **https only.** `OIDC_ISSUER` and every endpoint the provider's discovery document names must be `https` (only `localhost` may use `http`). The backend refuses to start with an unusable OIDC configuration: a missing client id or secret, or an `APPLIRE_BASE_URL` left at its default.
+- **https only.** `OIDC_ISSUER` and every endpoint the provider's discovery document names must be `https` (only `localhost` may use `http`). The backend refuses to start with an unusable OIDC configuration: a missing client id or secret, or an unset `APPLIRE_BASE_URL`.
 - **Single sign-on binds to invited accounts.** A first-time identity is matched to a *pending, invited* account by email, and only when the provider reports that email as verified (`email_verified` is the boolean `true`). So the sequence is: an administrator invites the person by email; the person signs in with the provider instead of choosing a password. There is no automatic account creation. Existing accounts link single sign-on from Settings → Account. The account is identified afterwards by (issuer, subject), not by email.
 - **Destructive actions ask for a fresh sign-in.** A person without a password confirms self-deletion or an unlink by signing in again at the provider. This needs the provider to send an **`auth_time`** claim in the ID token. A provider that sends none makes that confirmation fail closed: **an SSO-only person cannot delete their own account, and an administrator deletes it for them** (Administration → People). Nothing else is affected.
 - An account cannot unlink single sign-on while it has no password (it would lock the person out).
@@ -462,9 +500,17 @@ Everybody creates their own tokens under **Settings → Tokens**. A token is sho
 
 | Scope | Used for | How |
 |---|---|---|
-| **agent** | the MCP stdio server (`python -m applire.mcp`) — acts as that person only | environment variable `APPLIRE_AGENT_TOKEN` |
-| **api** | scripts against the REST API | `Authorization: Bearer apl_…` instead of a login cookie |
+| **agent** | the MCP stdio server (`python -m applire.mcp`) only — acts as that person. The REST API answers it with 401. | environment variable `APPLIRE_AGENT_TOKEN` |
+| **api** | scripts against the REST API only. The MCP server refuses it. | `Authorization: Bearer apl_…` instead of a login cookie |
 | **monitoring** | `GET /api/ops/health` only | created by an administrator under Administration → Monitoring |
+
+**Copy the token from the dialog, all of it.** After *Create*, the full token is shown once, in a dialog with a copy button. The token list behind it shows only the start of each token (`apl_xxxxxxxx_…`), and nothing can be read from that. A complete token is 56 characters: `apl_`, 8 lowercase letters or digits, `_`, then 43 characters. Check a stored token before you put it into a client config:
+
+```bash
+printf '%s' "$APPLIRE_AGENT_TOKEN" | grep -Eq '^apl_[a-z0-9]{8}_[A-Za-z0-9_-]{43}$' && echo "format ok" || echo "truncated or mistyped"
+```
+
+A token you lost or truncated cannot be shown again: revoke it in the list and create a new one.
 
 A **script** needs no cookie jar:
 
@@ -489,13 +535,54 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
 }
 ```
 
+The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file you wrote or trimmed yourself may lack it. Then copy the service from the release's file, or start the server inside your running backend container instead:
+
+```json
+"args": ["compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
+         "exec", "-T", "-e", "APPLIRE_AGENT_TOKEN", "backend", "python", "-m", "applire.mcp"]
+```
+
+Either way, set `APPLIRE_BASE_URL` in `.env` to the address you open Applire on (Section 8), so the document links your agent receives open in your browser.
+
 Without a valid token (missing, malformed, revoked, wrong scope, or the owner is disabled or deleted) `python -m applire.mcp` prints one line naming Settings → Tokens and exits. A revoked token is refused on its next call, and the document links it handed out stop working. Those `html_url` / `pdf_url` links are signed and expire after 60 minutes.
 
-## 17. You are the controller of other people's data
+## 17. Settings an administrator can change without a restart
 
-If other people keep their CV data on your instance, you are the one who decides how long it is kept and who can reach it. The retention worker deletes data on a schedule — the five TTLs in `.env.example` (`GENERATED_DOCUMENTS_TTL_DAYS`, `CANCELLED_APPLICATION_TTL_DAYS`, `INTERVIEW_SESSION_TTL_DAYS`, `UPLOAD_TTL_DAYS`, `PROFILE_INACTIVITY_TTL_DAYS`) — and tombstones an account after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity (last sign-in or write; never an administrator). The defaults did not change in 0.43. Read them, decide whether they fit the people you invited, and tell those people. Applire does not encrypt the database for you; run it on an encrypted volume if your context requires it.
+Administration → Settings lets an administrator change a short, fixed list of settings while the instance runs. There is no file to edit and no container to recreate:
 
-## 18. What Applire does not do for you
+| Setting | What it does |
+|---|---|
+| `LLM_PROVIDER`, `<PROVIDER>_MODEL`, `<PROVIDER>_API_KEY` | Which provider and model every LLM call uses, and that provider's key. Use it when a provider is slow or down. |
+| `SCRAPER_FETCH_LINKEDIN_GUEST_PAGES` | Whether a LinkedIn job URL is fetched (default **on**). Off means a LinkedIn URL is refused at the web page and at the agent door with "paste the job description", and the message names this setting. Whether fetching LinkedIn's public guest pages is acceptable is your decision. |
+| `RETENTION_ENABLED` | Whether the nightly GDPR clean-up deletes personal data on its schedule (default **on**). See below. |
+
+Everything else, including provider base URLs, timeouts and the retention periods themselves, stays in `.env`.
+
+**Which value wins.** A value set in the panel wins over `.env`. Each field shows where its value comes from ("from the environment" or "set by an administrator"), and *Reset to environment value* removes the panel value. If you edit `.env` and restart and nothing changes, check that badge first.
+
+**When it takes effect.** The next request uses the new value. The agent (MCP) door uses it from its next tool call, and the nightly clean-up uses it from its next run. Work already running keeps the settings it started with: a CV or letter generation that started before a provider switch finishes, including its review rounds, on the provider it started with. One document is never written by one model and checked by another.
+
+**API keys entered in the panel** are never shown again, not even partly. The panel only says whether a key is stored. The key is stored encrypted in the database, under a key derived from the instance secret. **That secret is in the same database**, so anyone who has a full database dump or a `scripts/backup.sh` archive can recover the key. Treat backups like the `.env` file, because they hold the same secrets. Database encryption is planned and not built yet. If you rotate the instance secret (Section 7), panel-entered keys can no longer be read. The dashboard then shows a critical notice, and you enter the key again.
+
+**Dependencies.** Image uploads use Mistral for OCR (`OCR_BACKEND=mistral_vision`) whatever the LLM provider is. The panel warns when no Mistral key is available. Switching the LLM provider never removes the Mistral key.
+
+**Every change is on the audit log** (Administration → Audit log): who, what, when, and the old and new value. Keys appear only as "changed", never with a value. A change made through `.env` is recorded at the next start.
+
+**GDPR retention switch (`RETENTION_ENABLED`).** If the instance holds only your own data, you may not want it deleted automatically. Switching retention off suspends **only** the scheduled deletion of personal data: uploads, interview sessions, generated CVs and cover letters, unused job postings, and the inactivity clean-up of profiles, applications and accounts. It **never** suspends:
+- account deletion, by the person or by an administrator;
+- the deletion of a cancelled application's documents;
+- the clean-up of expired sign-in links and sessions;
+- background-job housekeeping;
+- the orphan-file scan;
+- the audit-log and usage-record age limits.
+
+While it is off, the administration dashboard shows a permanent notice, and every nightly run records that it skipped and why. Switching it back on catches up in the next nightly run: everything past its retention period is then deleted at once. If other people keep their data on your instance, read Section 18 before you switch it off.
+
+## 18. You are the controller of other people's data
+
+If other people keep their CV data on your instance, you are the one who decides how long it is kept and who can reach it. The retention worker deletes data on a schedule — the five TTLs in `.env.example` (`GENERATED_DOCUMENTS_TTL_DAYS`, `CANCELLED_APPLICATION_TTL_DAYS`, `INTERVIEW_SESSION_TTL_DAYS`, `UPLOAD_TTL_DAYS`, `PROFILE_INACTIVITY_TTL_DAYS`) — and tombstones an account after `PROFILE_INACTIVITY_TTL_DAYS` of inactivity (last sign-in or write; never an administrator). The defaults did not change in 0.43. Read them, decide whether they fit the people you invited, and tell those people. Applire does not encrypt the database for you; run it on an encrypted volume if your context requires it. The retention switch in Section 17 is meant for instances that hold only your own data. While it is off, the TTLs above do not run, and the audit log and the nightly run records show for how long they did not.
+
+## 19. What Applire does not do for you
 
 - No automated off-host backup. `scripts/backup.sh` writes an archive; getting it off this machine (a NAS, object storage, another host) is on you.
 - No alerting. `GET /api/ops/health` ([Section 12](#12-monitoring-from-outside)) tells you the state of the database, the disk, the nightly cleanup, your backups and your provider — but nothing pages you; point your own monitoring at it.

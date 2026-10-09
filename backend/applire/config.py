@@ -16,9 +16,12 @@
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import os
+from contextvars import ContextVar, Token
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from applire.constants import (
@@ -47,6 +50,101 @@ def resolve_static_dir() -> Path:
     return _BACKEND_ROOT / "data" / "static"
 
 
+# --- ADR-093: runtime instance settings (the admin override overlay) ---------
+#
+# A closed set of settings an admin may override at runtime (the registry's
+# ``panel=True`` entries; ``settings_registry.PANEL_KEYS``). Their FIELD names
+# are resolved by ``Settings.__getattribute__`` through an overlay snapshot, so
+# every existing reader (``settings.openrouter_model`` in a provider constructor,
+# the OCR factory, the ops probes) sees the effective value without being
+# edited. Two sources, in order:
+#
+# 1. the PIN — a ContextVar set per web request (middleware) and per MCP tool
+#    call (``_agent_call``). Background tasks inherit the context they were
+#    created in, so work already running keeps the settings it started with
+#    (ADR-093 cl. 5, ruling C1-4);
+# 2. the process-wide LATEST snapshot, refreshed from ``instance_settings``.
+#
+# Only names in ``PANEL_FIELDS`` take the slow path; every other attribute is a
+# plain lookup. The overlay never holds a key that is not a panel field.
+
+_EMPTY: Mapping[str, Any] = MappingProxyType({})
+_overlay_pin: ContextVar[Mapping[str, Any] | None] = ContextVar(
+    "applire_settings_pin", default=None
+)
+_overlay_latest: list[Mapping[str, Any]] = [_EMPTY]
+
+
+def _panel_fields() -> frozenset[str]:
+    from applire.settings_registry import PANEL_KEYS
+
+    return frozenset(k.lower() for k in PANEL_KEYS)
+
+
+PANEL_FIELDS: frozenset[str] = _panel_fields()
+
+
+def overlay_latest() -> Mapping[str, Any]:
+    """The process-wide latest override snapshot (field name -> value)."""
+    return _overlay_latest[0]
+
+
+def set_overlay_latest(snapshot: Mapping[str, Any]) -> None:
+    """Replace the process-wide snapshot (atomic: one list-slot assignment)."""
+    unknown = set(snapshot) - PANEL_FIELDS
+    if unknown:
+        raise ValueError(f"not panel fields: {sorted(unknown)}")
+    _overlay_latest[0] = MappingProxyType(dict(snapshot))
+
+
+def pin_overlay(snapshot: Mapping[str, Any] | None = None) -> Token:
+    """Pin ``snapshot`` (default: the latest) for the current context."""
+    return _overlay_pin.set(overlay_latest() if snapshot is None else snapshot)
+
+
+def unpin_overlay(token: Token) -> None:
+    _overlay_pin.reset(token)
+
+
+def active_overlay() -> Mapping[str, Any]:
+    """The snapshot a read in this context resolves through."""
+    pinned = _overlay_pin.get()
+    return overlay_latest() if pinned is None else pinned
+
+
+class ShippedDefaultBaseUrl(str):
+    """Marks the code default of ``APPLIRE_BASE_URL`` (founder ruling S-1, 2026-10-07).
+
+    "The operator left APPLIRE_BASE_URL unset" is decided by whether the
+    environment or ``.env`` supplied the field, never by comparing strings: a
+    value read from a source is a plain ``str``, the code default is this marker
+    (the field skips default validation, so pydantic keeps the object). An
+    operator who sets exactly ``http://localhost`` has therefore configured it.
+    """
+
+    __slots__ = ()
+
+
+#: The shipped default: the stock install's nginx on port 80 (S-1; was
+#: ``http://localhost:8001``, a port only the dev override publishes). Links built
+#: from it are right when the agent or browser runs on the server itself.
+SHIPPED_DEFAULT_BASE_URL = ShippedDefaultBaseUrl("http://localhost")
+
+
+def configured_base_url(value: object = None) -> str | None:
+    """The operator's ``APPLIRE_BASE_URL`` (stripped, no trailing slash), or ``None``
+    when it is unset: no source supplied it, or it is empty.
+
+    The ONE predicate behind MD-32 (no mail without an explicit base URL), the
+    origin check's Host allow-list and OIDC's redirect-URI check. ``value``
+    defaults to the live setting; tests pass a value to probe the rule.
+    """
+    raw = settings.applire_base_url if value is None else value
+    if not isinstance(raw, str) or isinstance(raw, ShippedDefaultBaseUrl):
+        return None
+    base = raw.strip().rstrip("/")
+    return base or None
+
 #: Provider API keys travel in an HTTP request header, so a usable key is
 #: printable ASCII without spaces (``\x21``-``\x7e``).
 PROVIDER_API_KEY_FIELDS = (
@@ -73,6 +171,20 @@ class InvalidSettingError(Exception):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in PANEL_FIELDS:
+            snapshot = _overlay_pin.get()
+            if snapshot is None:
+                snapshot = _overlay_latest[0]
+            if name in snapshot:
+                return snapshot[name]
+        return super().__getattribute__(name)
+
+    def env_value(self, name: str) -> Any:
+        """The value from the environment / ``.env`` / code default — never the
+        admin override (ADR-093 cl. 3: what "reset to environment value" restores)."""
+        return super().__getattribute__(name)
 
     @field_validator(*PROVIDER_API_KEY_FIELDS, mode="before")
     @classmethod
@@ -177,7 +289,21 @@ class Settings(BaseSettings):
     audit_log_retention_days: int = 730     # 0 = keep forever
     applire_agent_token: str = ""           # MCP stdio process only (S-5)
     mcp_transport: str = "stdio"
-    applire_base_url: str = "http://localhost:8001"
+    # S-1: unset is decided by presence, see ShippedDefaultBaseUrl. validate_default
+    # must stay False, or pydantic turns the marker into a plain str and every
+    # install reads as "configured" (mail on with localhost links, MD-32 broken).
+    applire_base_url: str = Field(default=SHIPPED_DEFAULT_BASE_URL, validate_default=False)
+
+    @field_validator("applire_base_url", mode="after")
+    @classmethod
+    def _blank_base_url_is_the_shipped_default(cls, value: str) -> str:
+        """adv-admin ADM-6: ``APPLIRE_BASE_URL=`` (present, blank) is UNSET — for
+        ``configured_base_url()`` and for every link builder alike. Mapping it to the
+        marker gives both readers one answer: the S-1 default origin for links,
+        "unset" for MD-32 / the origin check / OIDC."""
+        if isinstance(value, str) and not value.strip():
+            return SHIPPED_DEFAULT_BASE_URL
+        return value
     upload_dir: str = "./data/uploads"
     storage_backend: str = "local"
     ocr_backend: str = "mistral_vision"
@@ -209,6 +335,14 @@ class Settings(BaseSettings):
     # fixes) rather than editing constants.py.
     interview_max_questions_targeted: int = INTERVIEW_HARD_CEILING_TARGETED  # MODE A
     interview_max_questions_guided: int = INTERVIEW_HARD_CEILING_GUIDED     # MODE B
+    # ADR-093 / ADR-001 amended 2026-10-07 (#726, ruling E-3): fetch LinkedIn's
+    # guest posting pages. Off -> both doors refuse a LinkedIn URL with the
+    # manual-paste message. Panel-editable.
+    scraper_fetch_linkedin_guest_pages: bool = True
+    # ADR-093 / ADR-005 amended 2026-10-07 (#738): the GDPR retention sweep of
+    # personal-data TTLs. Off suspends the calendar TTLs only, never erasure,
+    # the cancelled-application path or housekeeping. Cloud ignores False.
+    retention_enabled: bool = True
 
 
 settings = Settings()

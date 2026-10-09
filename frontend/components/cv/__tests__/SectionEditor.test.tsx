@@ -153,7 +153,9 @@ describe("SectionEditor", () => {
     });
     fireEvent.click(screen.getByTestId("section-save"));
 
-    await screen.findByText("Speichern fehlgeschlagen. Bitte erneut versuchen.");
+    // #737: the message comes from the catalog (it was a hard-coded German
+    // literal, shown to English users too).
+    await screen.findByText("Saving failed. Please try again.");
   });
 
   it("renders gap hints", () => {

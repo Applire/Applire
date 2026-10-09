@@ -132,8 +132,14 @@ export function QuickTailorWidget() {
         body: JSON.stringify(jdPayload),
       });
       if (!analyzeRes.ok) {
-        const err = await analyzeRes.json();
-        setError(typeof err.detail === "string" ? err.detail : tDash("errorAnalysisFailed"));
+        const err = await analyzeRes.json().catch(() => null);
+        const detail = err?.detail;
+        // #726: a structured 422 (`{error_code, message}`) is never rendered raw.
+        if (detail && typeof detail === "object" && detail.error_code === "linkedin_guest_fetch_disabled") {
+          setError(tDash("errorLinkedinOff"));
+        } else {
+          setError(typeof detail === "string" ? detail : tDash("errorAnalysisFailed"));
+        }
         return;
       }
       const jobData = await analyzeRes.json();
