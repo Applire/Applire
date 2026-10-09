@@ -726,3 +726,31 @@ def test_every_stored_error_message_is_scrubbed(path):
             found += 1
             assert "scrub_secrets(" in ast.unparse(node.value), ast.unparse(node)
     assert found == 1
+
+
+def test_mcp_entrypoint_scrubs_every_logger_it_writes(configured_secret, monkeypatch, capsys):
+    """The stdio process installs no handler of its own before this; a record
+    from ``applire.*`` or ``mcp.*`` (and an exception escaping a tool) reached
+    stderr through Python's last-resort handler, unscrubbed."""
+    import logging
+
+    from applire.mcp import __main__ as entry
+
+    root = logging.getLogger()
+    monkeypatch.setattr(root, "handlers", [])
+    entry._install_stderr_logging()
+    try:
+        logging.getLogger("mcp.server.lowlevel").warning("provider said %s", SENTINEL)
+        try:
+            raise RuntimeError(f"upstream refused {SENTINEL}")
+        except RuntimeError:
+            logging.getLogger("applire.mcp.server").exception("tool failed")
+        for h in root.handlers:
+            h.flush()
+        err = capsys.readouterr().err
+        assert "provider said" in err and "tool failed" in err
+        assert SENTINEL not in err
+    finally:
+        for h in list(root.handlers):
+            root.removeHandler(h)
+
