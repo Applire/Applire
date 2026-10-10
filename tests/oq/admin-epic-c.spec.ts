@@ -42,7 +42,9 @@ test.describe("Administration — Epic C", () => {
     const log = await stubEpicC(page);
     await page.goto("/admin/settings");
     await expect(page.getByTestId("admin-settings-provider-source")).toHaveAttribute("data-source", "env");
-    await expect(page.getByTestId("admin-settings-qualification")).toHaveAttribute("data-qualification", "qualified");
+    // ADR-093 amended 2026-10-10: a link to the model guide, no per-model verdict.
+    await expect(page.getByTestId("admin-settings-model-guide").locator("a")).toHaveAttribute("href", /docs\/llm-models\.md$/);
+    await expect(page.getByTestId("admin-settings-qualification")).toHaveCount(0);
     await expect(page.getByTestId("admin-settings-dep-ocr")).toHaveAttribute("data-satisfied", "false");
     await page.getByTestId("admin-settings-provider-select").selectOption("openrouter");
     await page.getByTestId("admin-settings-key-input").fill("sk-or-v1-SYNTHETIC");

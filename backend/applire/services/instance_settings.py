@@ -403,47 +403,6 @@ def _refuse_unready(unready: tuple[str, str] | None) -> None:
         )
 
 
-_QUALIFICATION_FILE = "model_qualification.json"
-_qualification_cache: dict[str, Any] | None = None
-
-
-def _qualification_data() -> dict[str, Any]:
-    """``data/model_qualification.json`` (CONTRACT-CHANGE MD2-6; #688 owns it)."""
-    global _qualification_cache
-    if _qualification_cache is None:
-        import json
-        from pathlib import Path
-
-        path = Path(__file__).resolve().parent.parent / "data" / _QUALIFICATION_FILE
-        try:
-            _qualification_cache = json.loads(path.read_text("utf-8"))
-        except (OSError, ValueError):
-            logger.warning("model qualification data unreadable — every model reads as unmeasured")
-            _qualification_cache = {"entries": []}
-    return _qualification_cache
-
-
-def qualification_for(provider: str, model: str) -> dict[str, Any]:
-    """``{qualification, qualification_reason, qualification_as_of}`` for a model."""
-    data = _qualification_data()
-    wanted = (model or "").strip().lower()
-    for entry in data.get("entries", []):
-        if entry.get("provider") != provider:
-            continue
-        pattern = str(entry.get("model", "")).lower()
-        hit = wanted == pattern if entry.get("match") == "exact" else bool(pattern) and pattern in wanted
-        if wanted and hit:
-            return {
-                "qualification": entry.get("qualification", "unmeasured"),
-                "qualification_reason": entry.get("reason"),
-                # #688 (MD2-13): each entry carries the date IT was measured;
-                # the file-level date is the newest and would misdate the rest.
-                "qualification_as_of": entry.get("as_of") or data.get("as_of"),
-            }
-    return {"qualification": "unmeasured", "qualification_reason": None,
-            "qualification_as_of": data.get("as_of")}
-
-
 def providers_status() -> list[dict[str, Any]]:
     active = (effective("llm_provider") or "").strip().lower()
     out = []
@@ -457,7 +416,6 @@ def providers_status() -> list[dict[str, Any]]:
                 "has_key": _has_effective_key(p),
                 "ready": provider_ready(p),
                 "active": p == active,
-                **qualification_for(p, model),
             }
         )
     return out

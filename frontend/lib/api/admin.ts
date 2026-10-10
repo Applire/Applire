@@ -92,8 +92,6 @@ export interface InstanceSettingItem {
   updated_by_email?: string | null;
 }
 
-export type ModelQualification = "qualified" | "not_qualified" | "unmeasured";
-
 export interface ProviderStatus {
   id: string;
   model: string;
@@ -101,10 +99,6 @@ export interface ProviderStatus {
   has_key: boolean;
   ready: boolean;
   active: boolean;
-  /** Requested additively from C1 (C2 contract request #1) — may be absent. */
-  qualification?: ModelQualification;
-  qualification_reason?: string | null;
-  qualification_as_of?: string | null;
 }
 
 export interface SettingDependency {

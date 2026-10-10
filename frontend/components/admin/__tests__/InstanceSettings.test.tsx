@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withIntl } from "@/lib/test-utils/with-intl";
 import en from "@/messages/en.json";
 import { InstanceSettings } from "../settings/InstanceSettings";
+import { MODEL_GUIDE_URL } from "../settings/ProviderCard";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/admin/settings" }));
 
@@ -43,7 +44,7 @@ function settings(over: { provider?: string; source?: string; retention?: boolea
       item("RETENTION_ENABLED", { group: "retention", kind: "bool", value: over.retention ?? true, source: "default" }),
     ],
     providers: [
-      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty", qualification: "qualified", qualification_as_of: "2026-09-16" },
+      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty" },
       { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: over.openrouterKey ?? false, ready: over.openrouterKey ?? false, active: active === "openrouter" },
     ],
     dependencies: [{ code: "ocr_needs_mistral_key", satisfied: false, keys: ["OCR_BACKEND", "MISTRAL_API_KEY"] }],
@@ -83,12 +84,14 @@ afterEach(() => {
 });
 
 describe("Einstellungen → KI-Anbieter (#710)", () => {
-  it("shows the source badge and the qualification, and never a key value", async () => {
+  it("shows the source badge and the model-guide link, no per-model verdict, and never a key value", async () => {
     route({});
     render(withIntl(<InstanceSettings />));
     await screen.findByTestId("admin-settings-provider");
     expect(screen.getByTestId("admin-settings-provider-source")).toHaveAttribute("data-source", "env");
-    expect(screen.getByTestId("admin-settings-qualification")).toHaveAttribute("data-qualification", "qualified");
+    // ADR-093 amended 2026-10-10: the panel links the model guide and judges no model.
+    expect(screen.getByTestId("admin-settings-model-guide").querySelector("a")).toHaveAttribute("href", MODEL_GUIDE_URL);
+    expect(screen.queryByTestId("admin-settings-qualification")).toBeNull();
     expect(screen.getByTestId("admin-settings-key-state")).toHaveTextContent(T.keyStoredEnv);
     expect(screen.queryByTestId("admin-settings-key-input")).toBeNull(); // write-only: no field until "replace"
     expect(screen.getByTestId("admin-settings-dep-ocr")).toHaveAttribute("data-satisfied", "false");

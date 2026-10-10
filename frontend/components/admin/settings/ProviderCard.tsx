@@ -14,7 +14,7 @@
 
 import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { CircleCheck, CircleAlert, Key, KeyRound, RefreshCw, ShieldAlert, ShieldCheck, CircleHelp } from "lucide-react";
+import { CircleCheck, CircleAlert, ExternalLink, Key, KeyRound, RefreshCw } from "lucide-react";
 
 import { ActionButton, Dialog } from "@/components/account/Dialog";
 import { formatDate } from "@/components/account/format";
@@ -44,40 +44,20 @@ export function settingsErrorText(r: AdminResult<unknown>, t: T, provider: strin
   return t("errorGeneric");
 }
 
-function Qualification({ p }: { p: ProviderStatus | undefined }) {
+/** The model guide is the only place a model is judged (ADR-093 amended
+ * 2026-10-10, clause 10): the panel links it and shows no per-model verdict. */
+export const MODEL_GUIDE_URL = "https://github.com/Applire/Applire/blob/main/docs/llm-models.md";
+
+function ModelGuideLink() {
   const t = useTranslations("adminSettings");
-  const locale = useLocale();
-  if (!p?.qualification) return null;
-  const box = "mt-2 flex items-start gap-2 rounded-lg px-3 py-2 text-[12.5px] leading-snug";
-  if (p.qualification === "qualified") {
-    return (
-      <div data-testid="admin-settings-qualification" data-qualification="qualified" className={`${box} bg-success-container text-on-surface`}>
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
-        <div>
-          <b>{t("qualifiedYes")}</b>
-          {p.qualification_as_of ? [" —", t("qualifiedYesHint", { date: formatDate(p.qualification_as_of, locale) })].join(" ") : null}
-        </div>
-      </div>
-    );
-  }
-  if (p.qualification === "not_qualified") {
-    return (
-      <div data-testid="admin-settings-qualification" data-qualification="not_qualified" className={`${box} bg-critical-container text-on-surface`}>
-        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-critical" aria-hidden />
-        <div>
-          <b>{t("qualifiedNo")}</b>
-          {p.qualification_reason ? [" —", t("qualifiedNoHint", { reason: p.qualification_reason })].join(" ") : null}
-        </div>
-      </div>
-    );
-  }
   return (
-    <div data-testid="admin-settings-qualification" data-qualification="unmeasured" className={`${box} bg-surface-container text-on-surface-variant`}>
-      <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-      <div>
-        <b>{t("qualifiedUnknown")}</b> {["—", t("qualifiedUnknownHint")].join(" ")}
-      </div>
-    </div>
+    <p data-testid="admin-settings-model-guide" className="mt-2 text-[12.5px] leading-snug text-on-surface-variant">
+      {t("modelGuideHint")}{" "}
+      <a href={MODEL_GUIDE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-teal hover:underline">
+        {t("modelGuideLink")}
+        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+      </a>
+    </p>
   );
 }
 
@@ -229,7 +209,7 @@ export function ProviderCard({
           />
           {modelItem && <SourceBadge source={modelItem.source} />}
         </div>
-        {!modelChanged && <Qualification p={sel} />}
+        <ModelGuideLink />
       </Row>
 
       <Row label={t("keyLabel")} htmlFor="admin-key">
