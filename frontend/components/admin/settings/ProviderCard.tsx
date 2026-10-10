@@ -26,7 +26,6 @@ import {
   updateInstanceSettings,
   type AdminResult,
   type InstanceSettingsResponse,
-  type ProviderStatus,
   type SettingValue,
 } from "@/lib/api/admin";
 import { AdminCard, NONE, SourceBadge } from "../common";
@@ -52,8 +51,8 @@ function ModelGuideLink() {
   const t = useTranslations("adminSettings");
   return (
     <p data-testid="admin-settings-model-guide" className="mt-2 text-[12.5px] leading-snug text-on-surface-variant">
-      {t("modelGuideHint")}{" "}
-      <a href={MODEL_GUIDE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-teal hover:underline">
+      {t("modelGuideHint")}
+      <a href={MODEL_GUIDE_URL} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-medium text-teal hover:underline">
         {t("modelGuideLink")}
         <ExternalLink className="h-3.5 w-3.5" aria-hidden />
       </a>
