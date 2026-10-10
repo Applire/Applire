@@ -462,13 +462,15 @@ _register_all(
         SettingEntry(
             env_var="OPENROUTER_DISABLE_THINKING",
             source="config",
-            default="false",
+            default="true",
             section="LLM provider",
             introduced_in="0.31.0",
             description=(
-                "Emit reasoning:{enabled:false} on every OpenRouter call (cross-vendor: "
-                "Gemini/Qwen/DeepSeek). A per-call override still wins. Some models "
-                "MANDATE reasoning and reject this — use OPENROUTER_REASONING_EFFORT there."
+                "Ask every OpenRouter model not to reason (reasoning:{enabled:false}; "
+                "default true since 0.43.0 — the configuration the model guide measures). "
+                "Set false to let models reason. A per-call override still wins; a model "
+                "that MANDATES reasoning rejects this once and is then called without it — "
+                "use OPENROUTER_REASONING_EFFORT to bound it there."
             ),
         ),
         SettingEntry(
@@ -525,10 +527,13 @@ _register_all(
         SettingEntry(
             env_var="REQUESTY_DISABLE_THINKING",
             source="config",
-            default="false",
+            default="true",
             section="LLM provider",
             introduced_in="0.38.0",
-            description="Emit reasoning_effort:\"none\"; a per-call override still wins.",
+            description=(
+                "Ask every Requesty model not to reason (reasoning_effort:\"none\"; default "
+                "true since 0.43.0). Set false to let models reason; a per-call override still wins."
+            ),
         ),
         SettingEntry(
             env_var="REQUESTY_REASONING_EFFORT",
