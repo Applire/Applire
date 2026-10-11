@@ -34,6 +34,11 @@ class ColorScheme(Base):
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ADR-023 amended 2026-10-11 (US357): the admin's offer list. People pick
+    # among offered schemes; the default (is_active) is always offered.
+    offered_to_users: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     seed_primary: Mapped[str] = mapped_column(String(7), nullable=False)
     seed_accent: Mapped[str] = mapped_column(String(7), nullable=False)
     seed_secondary: Mapped[str] = mapped_column(String(7), nullable=False)

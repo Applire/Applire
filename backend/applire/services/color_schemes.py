@@ -23,6 +23,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.color_scheme import ColorScheme
+from applire.models.user_settings import UserSettings
+from applire.services import audit
+from applire.services.profile.owner import resolve_owner
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +165,7 @@ async def create_scheme(
     seed_accent: str,
     seed_secondary: str,
     surface_lightness: float,
+    offered_to_users: bool = False,
 ) -> ColorScheme:
     derived = derive_scheme(seed_primary, seed_accent, seed_secondary, surface_lightness)
     scheme = ColorScheme(
@@ -173,6 +177,7 @@ async def create_scheme(
         seed_accent=seed_accent.lower(),
         seed_secondary=seed_secondary.lower(),
         surface_lightness=surface_lightness,
+        offered_to_users=offered_to_users,
         derived=derived,
     )
     db.add(scheme)
@@ -181,19 +186,127 @@ async def create_scheme(
     return scheme
 
 
-async def activate_scheme(db: AsyncSession, scheme_id: uuid.UUID) -> ColorScheme | None:
+async def activate_scheme(
+    db: AsyncSession, scheme_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+) -> ColorScheme | None:
+    """Make ``scheme_id`` the instance default (ADR-023 amended 2026-10-11).
+
+    The default is always offered, so activating also offers it. The change and
+    its audit row commit together.
+    """
     scheme = await db.get(ColorScheme, scheme_id)
     if scheme is None:
         return None
+    previous = await get_active_scheme(db)
     # Use two pure-SQL UPDATEs to avoid SQLAlchemy stale-object issues when
     # re-activating a scheme that is already marked active in the identity map.
     await db.execute(update(ColorScheme).values(is_active=False))
     await db.execute(
-        update(ColorScheme).where(ColorScheme.id == scheme_id).values(is_active=True)
+        update(ColorScheme)
+        .where(ColorScheme.id == scheme_id)
+        .values(is_active=True, offered_to_users=True)
     )
+    if previous is None or previous.id != scheme_id:
+        await audit.record(
+            db,
+            actor_id=actor_id,
+            action="appearance.default_changed",
+            target_type="color_scheme",
+            target_id=scheme_id,
+            details={"from_scheme_id": previous.id if previous else None},
+        )
     await db.commit()
     await db.refresh(scheme)
     return scheme
+
+
+async def set_offered(
+    db: AsyncSession,
+    scheme_id: uuid.UUID,
+    offered: bool,
+    *,
+    actor_id: uuid.UUID | None = None,
+) -> ColorScheme:
+    """Put a scheme on, or take it off, the offer list (ruling CS-1).
+
+    Raises :class:`SchemeNotFound`, or :class:`SchemeIsActive` when the default
+    would be taken off — the default is always offered. People who had picked a
+    scheme that leaves the list fall back to the default at read time (CS-2).
+    """
+    scheme = await db.get(ColorScheme, scheme_id)
+    if scheme is None:
+        raise SchemeNotFound(scheme_id)
+    default = await get_active_scheme(db)
+    if not offered and default is not None and default.id == scheme.id:
+        raise SchemeIsActive(scheme_id)
+    if bool(scheme.offered_to_users) != offered:
+        scheme.offered_to_users = offered
+        await audit.record(
+            db,
+            actor_id=actor_id,
+            action="appearance.offer_changed",
+            target_type="color_scheme",
+            target_id=scheme_id,
+            details={"offered": offered},
+        )
+    await db.commit()
+    await db.refresh(scheme)
+    return scheme
+
+
+# --- the person's choice (US357) ---------------------------------------------
+#
+# One predicate and one resolver (SF-THEME.5): the picker list, the settings
+# validator, the settings read and /effective all go through these, so "offered"
+# and "effective" cannot mean two different things in two places.
+
+
+def is_offered(scheme: ColorScheme, default: ColorScheme | None) -> bool:
+    """A scheme people may pick: on the offer list, or the default itself."""
+    return bool(scheme.offered_to_users) or (
+        default is not None and scheme.id == default.id
+    )
+
+
+async def list_offered_schemes(db: AsyncSession) -> list[ColorScheme]:
+    default = await get_active_scheme(db)
+    return [s for s in await list_schemes(db) if is_offered(s, default)]
+
+
+async def resolve_choice(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> tuple[ColorScheme | None, ColorScheme | None]:
+    """``(instance default, the person's choice)`` — the choice is ``None`` when
+    the person follows the default, or when the stored scheme was deleted or is
+    no longer offered (ruling CS-2: the fallback is silent)."""
+    default = await get_active_scheme(db)
+    result = await db.execute(
+        select(UserSettings.ui_color_scheme_id).where(
+            UserSettings.user_id == resolve_owner(user_id)
+        )
+    )
+    choice_id = result.scalar_one_or_none()
+    if choice_id is None:
+        return default, None
+    choice = await db.get(ColorScheme, choice_id)
+    if choice is None or not is_offered(choice, default):
+        return default, None
+    return default, choice
+
+
+async def resolve_effective_scheme(
+    db: AsyncSession, user_id: uuid.UUID | None = None
+) -> ColorScheme | None:
+    """The scheme that paints this person's UI: their choice, else the default."""
+    default, choice = await resolve_choice(db, user_id)
+    return choice or default
+
+
+async def validate_choice(db: AsyncSession, scheme_id: uuid.UUID) -> None:
+    """Raise ``ValueError`` unless ``scheme_id`` is a scheme people may pick."""
+    scheme = await db.get(ColorScheme, scheme_id)
+    if scheme is None or not is_offered(scheme, await get_active_scheme(db)):
+        raise ValueError(f"Colour scheme {scheme_id} is not offered on this instance.")
 
 
 async def delete_scheme(db: AsyncSession, scheme_id: uuid.UUID) -> None:

@@ -30,9 +30,16 @@ from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.services.color_detection import derive_tint
+from applire.services.color_schemes import resolve_choice, validate_choice
 from applire.services.profile.owner import resolve_owner
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+async def _resolved_scheme_id(db: AsyncSession, user_id: "uuid.UUID | None"):
+    """US357: the person's scheme as the resolver sees it (CS-2 fallback → None)."""
+    _default, choice = await resolve_choice(db, user_id)
+    return choice.id if choice else None
 
 
 def _uid(user: "User | None"):
@@ -79,6 +86,11 @@ class SettingsResponse(BaseModel):
     # cannot write it. Served on this payload rather than on a new endpoint
     # because the frontend already fetches this one on every page.
     notice_auto_dismiss_seconds: int = 30
+    # US357 (ADR-023 amended 2026-10-11): the person's app colour scheme, as
+    # RESOLVED — None when they follow the instance default, and also when the
+    # stored scheme was deleted or un-offered (ruling CS-2, SF-THEME.2). Not
+    # exposed over MCP (ADR-081 clause 8 precedent).
+    ui_color_scheme_id: uuid.UUID | None = None
 
 
 # #679 (US309) — the allowlist of first-use explainer ids a client may dismiss.
@@ -116,6 +128,9 @@ class SettingsPatchRequest(BaseModel):
     # None means "not provided", the shape every other toggle here uses.
     signature_in_letter: bool | None = None
     signature_in_cv: bool | None = None
+    # US357: an offered scheme id, or an explicit null = follow the instance
+    # default. Omitted = untouched (model_fields_set tells the two apart).
+    ui_color_scheme_id: uuid.UUID | None = None
 
 
 async def get_settings(db: AsyncSession, *, user_id: uuid.UUID | None = None) -> dict:
@@ -211,6 +226,8 @@ async def update_settings(
     dismiss_explainer: str | None = None,
     signature_in_letter: bool | None = None,
     signature_in_cv: bool | None = None,
+    ui_color_scheme_id: uuid.UUID | None = None,
+    clear_ui_color_scheme: bool = False,
     *,
     user_id: uuid.UUID | None = None,
 ) -> dict:
@@ -250,6 +267,10 @@ async def update_settings(
             f"Unknown explainer id: {dismiss_explainer!r}. "
             f"Must be one of {sorted(EXPLAINER_IDS)}."
         )
+
+    # US357: the same "offered" predicate the picker lists with (SF-THEME.5).
+    if ui_color_scheme_id is not None:
+        await validate_choice(db, ui_color_scheme_id)
 
     owner = resolve_owner(user_id)
     result = await db.execute(
@@ -295,6 +316,11 @@ async def update_settings(
         row.signature_in_letter = signature_in_letter
     if signature_in_cv is not None:
         row.signature_in_cv = signature_in_cv
+
+    if clear_ui_color_scheme:
+        row.ui_color_scheme_id = None
+    elif ui_color_scheme_id is not None:
+        row.ui_color_scheme_id = ui_color_scheme_id
 
     await db.commit()
 
@@ -380,6 +406,7 @@ async def api_get_settings(
 ) -> SettingsResponse:
     result = await get_settings(db, user_id=_uid(current_user))
     result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
+    result["ui_color_scheme_id"] = await _resolved_scheme_id(db, _uid(current_user))
     return SettingsResponse(**result)
 
 
@@ -396,6 +423,9 @@ async def api_patch_settings(
     clear_target_cv_pages = (
         "target_cv_pages" in body.model_fields_set and body.target_cv_pages is None
     )
+    clear_ui_color_scheme = (
+        "ui_color_scheme_id" in body.model_fields_set and body.ui_color_scheme_id is None
+    )
     try:
         result = await update_settings(
             db,
@@ -408,9 +438,12 @@ async def api_patch_settings(
             dismiss_explainer=body.dismiss_explainer,
             signature_in_letter=body.signature_in_letter,
             signature_in_cv=body.signature_in_cv,
+            ui_color_scheme_id=body.ui_color_scheme_id,
+            clear_ui_color_scheme=clear_ui_color_scheme,
             user_id=_uid(current_user),
         )
         result["notice_auto_dismiss_seconds"] = settings.notice_auto_dismiss_seconds
+        result["ui_color_scheme_id"] = await _resolved_scheme_id(db, _uid(current_user))
         return SettingsResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
