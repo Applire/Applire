@@ -2190,7 +2190,6 @@
     "detail": {
       "role": "Rolle: {value}",
       "roleChange": "Rolle: {from} → {to}",
-      "scheme": "Farbschema: {name}",
       "offeredYes": "jetzt auswählbar",
       "offeredNo": "nicht mehr auswählbar",
       "mailedYes": "per E-Mail verschickt",

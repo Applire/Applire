@@ -214,10 +214,7 @@ async def activate_scheme(
             action="appearance.default_changed",
             target_type="color_scheme",
             target_id=scheme_id,
-            details={
-                "from_scheme_id": previous.id if previous else None,
-                **_name_detail(scheme),
-            },
+            details={"from_scheme_id": previous.id if previous else None},
         )
     if not was_offered:
         # Making a scheme the default offers it — say so on the log too.
@@ -227,7 +224,7 @@ async def activate_scheme(
             action="appearance.offer_changed",
             target_type="color_scheme",
             target_id=scheme_id,
-            details={"offered": True, **_name_detail(scheme)},
+            details={"offered": True},
         )
     await db.commit()
     await db.refresh(scheme)
@@ -270,17 +267,11 @@ async def set_offered(
             action="appearance.offer_changed",
             target_type="color_scheme",
             target_id=scheme_id,
-            details={"offered": offered, **_name_detail(scheme)},
+            details={"offered": offered},
         )
     await db.commit()
     await db.refresh(scheme)
     return scheme
-
-
-def _name_detail(scheme: ColorScheme) -> dict:
-    """The scheme's name for the audit row — omitted when it could pass for an
-    email (the audit service refuses '@' outright; a name is admin free text)."""
-    return {} if "@" in scheme.name else {"scheme_name": scheme.name}
 
 
 # --- the person's choice (US357) ---------------------------------------------

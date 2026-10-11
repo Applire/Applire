@@ -76,13 +76,9 @@ describe("audit detail", () => {
 });
 
 describe("auditDetailParts — appearance (US357)", () => {
-  it("names the scheme and says which way the offer moved", () => {
-    expect(auditDetailParts("appearance.offer_changed", { offered: false, scheme_name: "Forest" })).toEqual([
-      { key: "detail.scheme", params: { name: "Forest" } },
-      { key: "detail.offeredNo" },
-    ]);
-    expect(auditDetailParts("appearance.default_changed", { scheme_name: "Forest", from_scheme_id: "x" })).toEqual([
-      { key: "detail.scheme", params: { name: "Forest" } },
-    ]);
+  it("says which way the offer moved, and never renders a name (RD-11: ids only)", () => {
+    expect(auditDetailParts("appearance.offer_changed", { offered: false })).toEqual([{ key: "detail.offeredNo" }]);
+    expect(auditDetailParts("appearance.offer_changed", { offered: true })).toEqual([{ key: "detail.offeredYes" }]);
+    expect(auditDetailParts("appearance.default_changed", { from_scheme_id: "x" })).toEqual([]);
   });
 });

@@ -240,14 +240,13 @@ async def test_activating_offers_and_both_changes_are_audited(world, call, async
     assert changed.actor_user_id == ADMIN
     assert changed.detail["target_id"] == draft
     assert changed.detail["from_scheme_id"] == str(world["default"].id)
-    assert changed.detail["scheme_name"] == "Draft"
     offers = sorted(
         (r.detail for r in by_action["appearance.offer_changed"]), key=lambda d: d["target_id"] == forest
     )
     # Activating the unoffered draft offered it — that is on the log too.
     assert offers == [
-        {"offered": True, "scheme_name": "Draft", "target_type": "color_scheme", "target_id": draft},
-        {"offered": False, "scheme_name": "Forest", "target_type": "color_scheme", "target_id": forest},
+        {"offered": True, "target_type": "color_scheme", "target_id": draft},
+        {"offered": False, "target_type": "color_scheme", "target_id": forest},
     ]
 
 
@@ -274,18 +273,6 @@ async def test_picking_the_default_stores_follow_the_default(world, call, async_
     await call(ADMIN, "PATCH", f"/api/admin/color-schemes/{world['forest'].id}/activate")
     eff = (await call(ALICE, "GET", "/api/color-schemes/effective")).json()
     assert eff["id"] == str(world["forest"].id)  # follows the NEW default
-
-
-@pytest.mark.asyncio
-async def test_a_name_that_could_pass_for_an_email_is_left_off_the_log(world, call, async_db):
-    world["forest"].name = "ops@example.org"
-    await async_db.commit()
-    r = await call(ADMIN, "PATCH", f"/api/admin/color-schemes/{world['forest'].id}/offer", {"offered": False})
-    assert r.status_code == 200, r.text  # the audit service would refuse the name
-    row = (await async_db.execute(
-        select(AuditEvent).where(AuditEvent.action == "appearance.offer_changed")
-    )).scalars().one()
-    assert "scheme_name" not in row.detail
 
 
 @pytest.mark.asyncio

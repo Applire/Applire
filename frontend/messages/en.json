@@ -2190,7 +2190,6 @@
     "detail": {
       "role": "Role: {value}",
       "roleChange": "Role: {from} → {to}",
-      "scheme": "Color scheme: {name}",
       "offeredYes": "now offered",
       "offeredNo": "no longer offered",
       "mailedYes": "sent by e-mail",

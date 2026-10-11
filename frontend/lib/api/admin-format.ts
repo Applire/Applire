@@ -120,10 +120,7 @@ export function auditDetailParts(action: string, detail: Record<string, unknown>
       out.push({ key: "detail.secret", params: { setting: detail.key } });
     }
   }
-  // US357: which colour scheme, and in which direction its offer moved.
-  if (action.startsWith("appearance.") && typeof detail.scheme_name === "string") {
-    out.push({ key: "detail.scheme", params: { name: detail.scheme_name } });
-  }
+  // US357: in which direction a colour scheme's offer moved (ids only, RD-11).
   if (action === "appearance.offer_changed" && typeof detail.offered === "boolean") {
     out.push({ key: detail.offered ? "detail.offeredYes" : "detail.offeredNo" });
   }
