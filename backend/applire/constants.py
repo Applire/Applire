@@ -164,9 +164,10 @@ INTERVIEW_QUESTION_MAX_TOKENS: int = 4096
 # Token ceiling for CV/LinkedIn → master-profile extraction (and its review/refine
 # retries). The output is a full structured profile, and on thinking models the
 # reasoning tokens share this budget — at the old 8192 a rich CV truncated mid-JSON
-# (finish=length → LLMTruncatedError → /api/profile/upload 500). Extraction keeps
-# thinking ON (accuracy matters), so it needs real headroom rather than a small
-# floor (ADR-009 amendment, F-B follow-up).
+# (finish=length → LLMTruncatedError → /api/profile/upload 500). Extraction passes
+# no per-call override, so the operator's setting applies (reasoning off on the
+# gateways since 0.43.0) — but a model that refuses the switch reasons anyway, so
+# it needs real headroom rather than a small floor (ADR-009 amendment, F-B follow-up).
 CV_EXTRACTION_MAX_TOKENS: int = 16384
 
 # Token ceiling for generated documents — CV tailoring, cover letter, and the

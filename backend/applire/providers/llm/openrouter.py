@@ -53,6 +53,7 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm.latches import ProcessLatch
 from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
@@ -66,6 +67,10 @@ _X_TITLE = "Applire"
 # retry once with reasoning left ON, raising the budget to this floor so the now
 # unavoidable reasoning tokens don't crowd out a short answer (→ truncation).
 _REASONING_FALLBACK_MIN_TOKENS = 4096
+
+
+def _asks_reasoning_off(extra_body: dict | None) -> bool:
+    return bool(extra_body and (extra_body.get("reasoning") or {}).get("enabled") is False)
 
 
 def _is_reasoning_mandatory_error(exc: Exception) -> bool:
@@ -96,9 +101,10 @@ class OpenRouterProvider(LLMProvider):
         reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
+        self._latch_scope = base_url or settings.openrouter_base_url or _DEFAULT_BASE_URL
         self._client = openai.AsyncOpenAI(
             api_key=api_key or settings.openrouter_api_key,
-            base_url=base_url or settings.openrouter_base_url or _DEFAULT_BASE_URL,
+            base_url=self._latch_scope,
             default_headers={
                 "HTTP-Referer": _HTTP_REFERER,
                 "X-Title": _X_TITLE,
@@ -130,10 +136,13 @@ class OpenRouterProvider(LLMProvider):
         # do — and the doubled wall-clock inside one `LLM_TIMEOUT` produced two
         # turns that never returned at all. The operator's switch was buying
         # latency and timeout risk in exchange for nothing.
-        self._reasoning_rejected = False
+        # The latch lives process-wide (`latches.py`): get_provider() builds a
+        # provider per request, so an instance attribute latched for one request.
+
+    _reasoning_rejected = ProcessLatch("reasoning_disable")
 
     # ── M-3: structured output, with the rejection latched ───────────────────
-    _json_schema_rejected = False
+    _json_schema_rejected = ProcessLatch("json_schema")
 
     @staticmethod
     def _response_format(json_schema: dict | None) -> dict:
@@ -328,22 +337,29 @@ class OpenRouterProvider(LLMProvider):
             return {"reasoning": {"effort": self._reasoning_effort}}
         return None
 
+    def _reasoning_fallback(self, extra_body: dict) -> dict | None:
+        """The extra body once the model has refused `reasoning:{enabled:false}`:
+        reasoning bounded to the configured effort, or no reasoning block at all."""
+        base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
+        if self._reasoning_effort:
+            base_extra["reasoning"] = {"effort": self._reasoning_effort}
+        return base_extra or None
+
     async def _create(self, *, max_tokens: int, extra_body: dict | None, **kwargs):
         """Call the chat-completions endpoint, degrading gracefully when the model
-        mandates reasoning. If we asked to disable reasoning and the model 400s for
-        that reason, retry once with reasoning left on and a budget floor — so a
-        thinking model the operator chose still works without any configuration.
+        will not turn reasoning off. If we asked to disable reasoning and the call
+        400s, retry once with reasoning left on (bounded to the configured effort)
+        and a budget floor, so a thinking model the operator chose still works
+        without any configuration.
 
-        The rejection is LATCHED (M-4): after the first 400 the disable is not
-        sent again for this provider instance, so the fallback costs one wasted
-        request in the life of the process instead of one per call."""
-        if self._reasoning_rejected and extra_body and (
-            extra_body.get("reasoning", {}).get("enabled") is False
-        ):
-            base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
-            if self._reasoning_effort:
-                base_extra["reasoning"] = {"effort": self._reasoning_effort}
-            extra_body = base_extra or None
+        The rejection is LATCHED process-wide (M-4, `latches.py`): after it, the
+        disable is not sent again for this model, so the fallback costs one wasted
+        request in the life of the process instead of one per call. A 400 that
+        names mandatory reasoning latches at once; any other 400 latches only if
+        the retry without the disable succeeds — so a 400 for another reason
+        (context length) never switches the disable off for good."""
+        if self._reasoning_rejected and _asks_reasoning_off(extra_body):
+            extra_body = self._reasoning_fallback(extra_body)
             max_tokens = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
         try:
             return await self._client.chat.completions.create(
@@ -363,29 +379,33 @@ class OpenRouterProvider(LLMProvider):
                 )
                 if response is not None:
                     return response
-            tried_disable = bool(
-                extra_body and extra_body.get("reasoning", {}).get("enabled") is False
-            )
-            if tried_disable and _is_reasoning_mandatory_error(exc):
+            if not _asks_reasoning_off(extra_body):
+                raise
+            # #688 review: since 0.43.0 the disable is sent by default, so a model
+            # that refuses it in other words (no "mandatory" in the message) must
+            # still work — not only the wordings the matcher knows.
+            mandatory = _is_reasoning_mandatory_error(exc)
+            if mandatory:
                 self._reasoning_rejected = True
-                # The model won't let us turn reasoning off. Retry with it bounded to
-                # the configured effort (so it doesn't run away), or — if no effort is
-                # configured — drop the block and rely on the raised budget floor.
-                base_extra = {k: v for k, v in extra_body.items() if k != "reasoning"}
-                if self._reasoning_effort:
-                    base_extra["reasoning"] = {"effort": self._reasoning_effort}
-                logger.warning(
-                    "model=%s mandates reasoning; retrying with thinking on "
-                    "(effort=%s), max_tokens>=%d (%s)",
-                    self._model, self._reasoning_effort or "model-default",
-                    _REASONING_FALLBACK_MIN_TOKENS, exc,
-                )
-                return await self._client.chat.completions.create(
+            logger.warning(
+                "model=%s refused reasoning:{enabled:false}; retrying with thinking on "
+                "(effort=%s), max_tokens>=%d (%s)",
+                self._model, self._reasoning_effort or "model-default",
+                _REASONING_FALLBACK_MIN_TOKENS, exc,
+            )
+            try:
+                response = await self._client.chat.completions.create(
                     max_tokens=max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS),
-                    extra_body=base_extra or None,
+                    extra_body=self._reasoning_fallback(extra_body),
                     **kwargs,
                 )
-            raise
+            except openai.BadRequestError:
+                if mandatory:
+                    raise
+                raise exc from None
+            # Without the disable the same call went through: that 400 was about it.
+            self._reasoning_rejected = True
+            return response
 
     @_retry
     async def _complete(

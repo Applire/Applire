@@ -143,7 +143,7 @@ def _extra_body_of(create_mock) -> dict | None:
 
 @pytest.mark.asyncio
 async def test_disable_thinking_per_call_emits_reasoning_off(monkeypatch):
-    provider = _openrouter(monkeypatch)  # default: thinking on (no reasoning block)
+    provider = _openrouter(monkeypatch)  # disable pinned off here: thinking on (no reasoning block)
     provider._client.chat.completions.create = AsyncMock(
         return_value=_openai_response("ok", "stop")
     )
@@ -154,8 +154,10 @@ async def test_disable_thinking_per_call_emits_reasoning_off(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_default_call_leaves_thinking_on(monkeypatch):
-    provider = _openrouter(monkeypatch)  # construction default = thinking on
+async def test_thinking_stays_on_when_the_operator_switches_the_disable_off(monkeypatch):
+    # `_openrouter` pins OPENROUTER_DISABLE_THINKING=false; the shipped default
+    # (true since 0.43.0) is pinned in test_688_reasoning_default_and_latches.py.
+    provider = _openrouter(monkeypatch)
     provider._client.chat.completions.create = AsyncMock(
         return_value=_openai_response("ok", "stop")
     )
@@ -330,7 +332,7 @@ async def test_no_fallback_when_reasoning_was_not_disabled(monkeypatch):
     from applire.exceptions import LLMProviderError
 
     with pytest.raises(LLMProviderError) as exc:
-        await provider.acomplete("ask")  # thinking on by default → no reasoning block sent
+        await provider.acomplete("ask")  # disable pinned off here → no reasoning block sent
     assert exc.value.status_code == 400
 
 

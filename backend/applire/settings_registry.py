@@ -469,8 +469,9 @@ _register_all(
                 "Ask every OpenRouter model not to reason (reasoning:{enabled:false}; "
                 "default true since 0.43.0 — the configuration the model guide measures). "
                 "Set false to let models reason. A per-call override still wins; a model "
-                "that MANDATES reasoning rejects this once and is then called without it — "
-                "use OPENROUTER_REASONING_EFFORT to bound it there."
+                "that refuses it is retried once with reasoning on and the refusal is "
+                "remembered for that model until restart — OPENROUTER_REASONING_EFFORT "
+                "bounds it there."
             ),
         ),
         SettingEntry(
@@ -532,7 +533,9 @@ _register_all(
             introduced_in="0.38.0",
             description=(
                 "Ask every Requesty model not to reason (reasoning_effort:\"none\"; default "
-                "true since 0.43.0). Set false to let models reason; a per-call override still wins."
+                "true since 0.43.0). Set false to let models reason; a per-call override still wins. "
+                "A model that refuses \"none\" gets REQUESTY_REASONING_EFFORT instead (or no effort "
+                "when unset), remembered for that model until restart."
             ),
         ),
         SettingEntry(

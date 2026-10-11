@@ -62,7 +62,9 @@ the default since 0.43.0) and every other setting at its shipped value (`LLM_STR
 **Prompt:** this release's reconcile prompt (20,543 characters) and response format. The bars are
 the ones in [How we measure](#how-we-measure); the worst situation decides. "Facts per employer" is
 the share of the employers an answer named that got a fact of their own (1.0 = all of them): below
-0.5 on any situation makes a model **usable, with caveats**.
+0.5 on any situation makes a model **usable, with caveats**. We apply that bar by hand from the
+harness output; the harness's own verdict label does not include it (it calls `claude-haiku-4.5`
+"qualified").
 
 | Model | Answers lost | Invalid output | Wrong employer | No answer | Facts per employer (lowest) | Time per answer (median) | Verdict | Cost per turn |
 |---|---|---|---|---|---|---|---|---|
@@ -76,7 +78,7 @@ the share of the employers an answer named that got a fact of their own (1.0 = a
 
 - **Reasoning off is how Applire now ships, and it helped every model we measured.** The same
   prompt with reasoning on (2026-10-07): `gpt-5.6-luna` was equally clean but took 11–18 s per
-  answer; `glm-5.3-flash` took 80–120 s and missed 10–20 % of answers on seven situations.
+  answer; `glm-5.3-flash` took 80–120 s and missed 10–20 % of answers on six of seven situations.
   `llama-3.2-3b` does not reason, so its 2026-10-07 row stands.
 - **`claude-haiku-4.5` loses nothing and keeps less.** On the two situations whose answer opens
   with a denial, it recorded one skill ("pharmaceutical manufacturing IT", backed by all three jobs)
@@ -90,7 +92,7 @@ the share of the employers an answer named that got a fact of their own (1.0 = a
   on those calls, so the setting is not the cause.
 - **A weaker model makes more calls, not fewer.** When a model records a skill the answer only
   implies, Applire checks it with a second short call. Per turn: 1.5 calls for `gpt-5.6-luna`,
-  1.4 for `mistral-medium-3-5`, 1.7 for `claude-haiku-4.5`, 1.6 for `glm-5.3-flash`, 2.8 for
+  1.4 for `mistral-medium-3-5`, 1.7 for `claude-haiku-4.5`, 1.5 for `glm-5.3-flash`, 2.8 for
   `llama-3.2-3b`.
 
 Every number above comes from the committed records in
@@ -156,8 +158,8 @@ applications. `LLM_PROVIDER=openai` also covers local servers such as LM Studio 
 | Setting | Shipped value | When to change it |
 |---|---|---|
 | `LLM_TIMEOUT` | `180` seconds per call | Raise it for slow models, a slow gateway or a CPU-only local model. `llm_timeout` in the backend log is the sign. |
-| `OPENROUTER_REASONING_EFFORT` / `REQUESTY_REASONING_EFFORT` | unset (model's own default) | Set `low` to limit a model that reasons heavily. |
-| `OPENROUTER_DISABLE_THINKING` / `REQUESTY_DISABLE_THINKING` | `true` (since 0.43.0) | Applire asks the model not to reason; every result on this page was measured this way, and it was as good or better and much faster for every model we measured. Set `false` to let models reason. It is a request, not a switch: a model that insists on reasoning refuses it once and is then called without it. |
+| `OPENROUTER_REASONING_EFFORT` / `REQUESTY_REASONING_EFFORT` | unset (model's own default) | Set `low` to limit a model that reasons heavily. With the shipped default (reasoning off) it applies only to a model that refuses to stop reasoning, or once you set the switch below to `false`. |
+| `OPENROUTER_DISABLE_THINKING` / `REQUESTY_DISABLE_THINKING` | `true` (since 0.43.0) | Applire asks the model not to reason. Every result in the *Model qualification* section below was measured this way, and on the profile step it was as good or better and much faster for every model we measured. Set `false` to let models reason. It is a request, not a switch: a model that insists on reasoning refuses it once, and from then on, until the backend restarts, it is called with reasoning on, bounded by the reasoning effort when you set one. |
 | `LLM_STRUCTURED_OUTPUT` | `auto` | Leave it. It hands the model the exact answer format for the profile-writing step, which made weaker models noticeably more accurate. It costs about 2,300 extra input tokens per interview turn; `off` removes that. If your model does not support it, Applire notices and falls back by itself. |
 
 ## Symptoms and what they mean
@@ -166,8 +168,8 @@ applications. `LLM_PROVIDER=openai` also covers local servers such as LM Studio 
 |---|---|---|
 | A CV import says *"We couldn't finish reading this CV in time — nothing was changed"* | Either the model or its gateway is too slow (`llm_timeout` in the backend log), or the model wrote past its output limit (`llm_truncated`) | For `llm_timeout`, raise `LLM_TIMEOUT`. If it keeps happening, or the log says `llm_truncated`, switch to a model from the first table |
 | Something you said in the interview never appears in your profile | The model recorded nothing for that answer | Switch to a model from the first table; this is exactly what the measurement looks for |
-| Generation takes several steps or is slow | The model has a small output limit, or reasons heavily | Nothing is broken. For fewer steps, choose a model with a larger output limit or set the reasoning effort to `low` |
-| A generated document is cut off | A model that always reasons spent its output limit on reasoning | Set the reasoning effort to `low`, or choose a model whose reasoning can be switched off |
+| Generation takes several steps or is slow | The model has a small output limit, or reasons heavily | Nothing is broken. For fewer steps, choose a model with a larger output limit, or set the reasoning effort to `low` (it applies when the model refuses to stop reasoning, or with the reasoning switch set to `false`) |
+| A generated document is cut off | A model that always reasons spent its output limit on reasoning | Set the reasoning effort to `low` (a model that refuses to stop reasoning is then held to it), or choose a model whose reasoning can be switched off |
 | Frequent broken output from a small local model | The model is too small for structured answers | Use a larger instruct model |
 
 When a quality check or a writing step gets an answer it cannot read, Applire does not stop: the
