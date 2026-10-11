@@ -30,22 +30,35 @@
  *   entry survives logout, a retention deletion and a GDPR erasure request
  *   without appearing anywhere in the erasure order (arc42 §6.4).
  *
- * So: cache-first for content-hashed build assets and the icon set, network-
- * first for navigations with one static offline page as the only fallback, and
- * everything else passed straight through untouched. `ALLOW_CACHE_PREFIXES` is
- * the entire privacy guard, and it is why `__tests__/sw.test.ts` exists.
+ * So: network-first for navigations with one static offline page as the only
+ * fallback, and everything else passed straight through untouched.
  *
- * System-FMEA SF-FE.3 (the worker retains what it must not) and SF-FE.4 (the
- * worker serves a shell that no longer matches its backend) are the two rows
- * this file is the control for.
+ * Amendment 2026-10-11 (Firefox, local-network access): the worker no longer
+ * answers ANY sub-resource request — it used to serve `/_next/static/` and
+ * `/icons/` cache-first. A request the worker fetches on a page's behalf is
+ * judged by the browser's network policy WITHOUT the page's context: Firefox's
+ * local-network-access check rejected every chunk fetch from the worker on an
+ * instance served from a Tailscale (100.x) address, while the same request from
+ * the page itself was allowed. The page then never hydrated — an endless
+ * "Loading", a login and setup form that submitted natively and reloaded. A
+ * worker that answers a sub-resource owns its failure, and the app works
+ * entirely without one, so sub-resources are the browser's again; Next's
+ * hashed `/_next/static/` URLs are `immutable` in the HTTP cache anyway.
+ *
+ * System-FMEA SF-FE.3 (the worker retains what it must not), SF-FE.4 (the
+ * worker serves a shell that no longer matches its backend) and SF-FE.5 (the
+ * worker's own fetch fails where the page's would not) are the rows this file
+ * is the control for.
  */
 
-// Bump on any change to PRECACHE or to the cache-first allowlist. `activate`
-// deletes every cache whose name is not this one, so a bump is also the eviction.
-const CACHE_NAME = "applire-shell-v1";
+// Bump on any change to PRECACHE or to what the fetch handler answers.
+// `activate` deletes every cache whose name is not this one, so a bump is also
+// the eviction (v2: the v1 cache held build chunks the worker no longer serves).
+const CACHE_NAME = "applire-shell-v2";
 
 const OFFLINE_URL = "/offline.html";
 
+// The offline page and the icon set — read only by the offline fallback.
 const PRECACHE = [
   OFFLINE_URL,
   "/icons/icon-192.png",
@@ -56,19 +69,9 @@ const PRECACHE = [
 ];
 
 /**
- * Cache-first is allowed ONLY over paths whose URLs are content-addressed or
- * static brand assets. `/_next/static/` is safe because Next hashes those URLs,
- * so a new build asks for new URLs and can never read a stale entry (SF-FE.4's
- * O=1 rests entirely on that property). Adding a path here that is NOT
- * content-hashed re-opens SF-FE.4 at O=3; adding one that can carry user
- * content re-opens SF-FE.3.
- */
-const ALLOW_CACHE_PREFIXES = ["/_next/static/", "/icons/"];
-
-/**
- * Checked BEFORE the allowlist, and before any cache read or write. Redundant
- * with the allowlist by construction — deliberately. A future edit that widens
- * `ALLOW_CACHE_PREFIXES` still cannot reach user content through these paths.
+ * Checked before the navigation branch, and before any cache read. A
+ * navigation to one of these (a PDF opened directly, the share-target landing)
+ * is left to the browser so its response can never meet the cache.
  */
 const NEVER_TOUCH_PREFIXES = ["/api/", "/static/", "/share-target"];
 
@@ -103,19 +106,6 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-async function cacheFirst(request) {
-  const hit = await caches.match(request);
-  if (hit) return hit;
-  const response = await fetch(request);
-  // `basic` = same-origin, fully readable. An opaque cross-origin response
-  // would be cached blind, and a non-2xx would pin an error page.
-  if (response && response.ok && response.type === "basic") {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
-  }
-  return response;
-}
-
 async function networkFirstNavigation(request) {
   try {
     // Deliberately NOT cached on success: navigation HTML is the one document
@@ -144,12 +134,9 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (startsWithAny(url.pathname, NEVER_TOUCH_PREFIXES)) return;
 
-  if (startsWithAny(url.pathname, ALLOW_CACHE_PREFIXES)) {
-    event.respondWith(cacheFirst(request));
-    return;
-  }
   if (request.mode === "navigate") {
     event.respondWith(networkFirstNavigation(request));
   }
-  // Anything else: the browser's own network path, no cache involvement.
+  // Anything else — scripts, styles, images, fonts: the browser's own network
+  // path, no worker fetch and no cache involvement (amendment 2026-10-11).
 });
