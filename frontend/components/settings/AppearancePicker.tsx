@@ -52,6 +52,7 @@ export function AppearancePicker() {
   const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +84,7 @@ export function AppearancePicker() {
   async function choose(id: string | null) {
     if (saving || id === selected) return;
     setSaving(true);
+    setSaveFailed(false);
     try {
       await setUiColorScheme(id);
       setChoices((c) => (c ? { ...c, selected_id: id } : c));
@@ -90,7 +92,10 @@ export function AppearancePicker() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
-      setFailed(true);
+      // E.g. the admin stopped offering the scheme since this page loaded (422):
+      // say so, and show the list as it is now — the picker stays usable.
+      setSaveFailed(true);
+      getSchemeChoices().then(setChoices).catch(() => {});
     } finally {
       setSaving(false);
     }
@@ -106,7 +111,7 @@ export function AppearancePicker() {
   return (
     <div>
       <div
-        role="radiogroup"
+        role="group"
         aria-label={t("appearance")}
         className="grid gap-2 sm:grid-cols-2"
         data-testid="appearance-picker"
@@ -114,8 +119,7 @@ export function AppearancePicker() {
         {defaultScheme && (
           <button
             type="button"
-            role="radio"
-            aria-checked={selected === null}
+            aria-pressed={selected === null}
             disabled={saving}
             onClick={() => void choose(null)}
             className={cardClass(selected === null)}
@@ -134,8 +138,7 @@ export function AppearancePicker() {
           <button
             key={scheme.id}
             type="button"
-            role="radio"
-            aria-checked={selected === scheme.id}
+            aria-pressed={selected === scheme.id}
             disabled={saving}
             onClick={() => void choose(scheme.id)}
             className={cardClass(selected === scheme.id)}
@@ -150,6 +153,7 @@ export function AppearancePicker() {
         <p className="mt-3 text-xs text-on-surface-variant">{t("appearanceNoChoices")}</p>
       )}
       {saved && <p className="mt-2 text-xs text-success">{t("saved")}</p>}
+      {saveFailed && <p className="mt-2 text-xs text-critical">{t("appearanceSaveFailed")}</p>}
     </div>
   );
 }

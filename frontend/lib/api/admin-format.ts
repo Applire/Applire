@@ -120,6 +120,13 @@ export function auditDetailParts(action: string, detail: Record<string, unknown>
       out.push({ key: "detail.secret", params: { setting: detail.key } });
     }
   }
+  // US357: which colour scheme, and in which direction its offer moved.
+  if (action.startsWith("appearance.") && typeof detail.scheme_name === "string") {
+    out.push({ key: "detail.scheme", params: { name: detail.scheme_name } });
+  }
+  if (action === "appearance.offer_changed" && typeof detail.offered === "boolean") {
+    out.push({ key: detail.offered ? "detail.offeredYes" : "detail.offeredNo" });
+  }
   if (typeof detail.mailed === "boolean") out.push({ key: detail.mailed ? "detail.mailedYes" : "detail.mailedNo" });
   if (typeof detail.scope === "string") out.push({ key: "detail.scope", params: { value: detail.scope } });
   if (typeof detail.count === "number") out.push({ key: "detail.count", params: { count: detail.count } });

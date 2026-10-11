@@ -240,10 +240,15 @@ async def test_activating_offers_and_both_changes_are_audited(world, call, async
     assert changed.actor_user_id == ADMIN
     assert changed.detail["target_id"] == draft
     assert changed.detail["from_scheme_id"] == str(world["default"].id)
-    assert len(by_action["appearance.offer_changed"]) == 1
-    assert by_action["appearance.offer_changed"][0].detail == {
-        "offered": False, "target_type": "color_scheme", "target_id": forest,
-    }
+    assert changed.detail["scheme_name"] == "Draft"
+    offers = sorted(
+        (r.detail for r in by_action["appearance.offer_changed"]), key=lambda d: d["target_id"] == forest
+    )
+    # Activating the unoffered draft offered it — that is on the log too.
+    assert offers == [
+        {"offered": True, "scheme_name": "Draft", "target_type": "color_scheme", "target_id": draft},
+        {"offered": False, "scheme_name": "Forest", "target_type": "color_scheme", "target_id": forest},
+    ]
 
 
 @pytest.mark.asyncio
@@ -257,3 +262,48 @@ async def test_new_schemes_are_not_offered_unless_asked(world, call):
     assert r.json()["offered_to_users"] is True
     names = {s["name"] for s in (await call(ALICE, "GET", "/api/color-schemes")).json()["schemes"]}
     assert "Sand 2" in names and "Sand" not in names
+
+
+@pytest.mark.asyncio
+async def test_picking_the_default_stores_follow_the_default(world, call, async_db):
+    """A pinned default would keep the person on an OLD default after the admin
+    changes it, while the picker shows 'default' (adversarial finding 5)."""
+    default = str(world["default"].id)
+    r = await call(ALICE, "PATCH", "/api/settings", {"ui_color_scheme_id": default})
+    assert r.status_code == 200 and r.json()["ui_color_scheme_id"] is None
+    await call(ADMIN, "PATCH", f"/api/admin/color-schemes/{world['forest'].id}/activate")
+    eff = (await call(ALICE, "GET", "/api/color-schemes/effective")).json()
+    assert eff["id"] == str(world["forest"].id)  # follows the NEW default
+
+
+@pytest.mark.asyncio
+async def test_a_name_that_could_pass_for_an_email_is_left_off_the_log(world, call, async_db):
+    world["forest"].name = "ops@example.org"
+    await async_db.commit()
+    r = await call(ADMIN, "PATCH", f"/api/admin/color-schemes/{world['forest'].id}/offer", {"offered": False})
+    assert r.status_code == 200, r.text  # the audit service would refuse the name
+    row = (await async_db.execute(
+        select(AuditEvent).where(AuditEvent.action == "appearance.offer_changed")
+    )).scalars().one()
+    assert "scheme_name" not in row.detail
+
+
+@pytest.mark.asyncio
+async def test_unoffer_cannot_land_on_a_scheme_that_just_became_the_default(world, async_db, monkeypatch):
+    """The race (adversarial finding 1): the un-offer read the default BEFORE a
+    concurrent activate committed. Simulated by a stale default view; the
+    conditional UPDATE must refuse instead of un-offering the new default."""
+    from applire.services import color_schemes as cs
+
+    forest = world["forest"]
+    forest.is_active, world["default"].is_active = True, False  # the activate that won
+    await async_db.commit()
+
+    async def stale_default(_db):
+        return world["default"]  # what the un-offer saw before the activate
+
+    monkeypatch.setattr(cs, "get_active_scheme", stale_default)
+    with pytest.raises(cs.SchemeIsActive):
+        await cs.set_offered(async_db, forest.id, False, actor_id=ADMIN)
+    await async_db.refresh(forest)
+    assert forest.offered_to_users is True

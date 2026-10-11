@@ -68,9 +68,9 @@ ACTIONS: dict[str, frozenset[str]] = {
     "settings.env_observed": frozenset({"key", "from_value", "to_value", "to_source"}),
     "retention.skipped": frozenset({"source"}),
     # ADR-023 amended 2026-10-11 (US357) — the app colour schemes people may pick.
-    # Ids only: a scheme name is admin free text and may not pass the email check.
-    "appearance.default_changed": frozenset({"from_scheme_id"}),
-    "appearance.offer_changed": frozenset({"offered"}),
+    # scheme_name only when it holds no '@' (color_schemes._name_detail).
+    "appearance.default_changed": frozenset({"from_scheme_id", "scheme_name"}),
+    "appearance.offer_changed": frozenset({"offered", "scheme_name"}),
 }
 
 #: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a

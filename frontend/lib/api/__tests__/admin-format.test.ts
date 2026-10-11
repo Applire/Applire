@@ -74,3 +74,15 @@ describe("audit detail", () => {
     expect(auditValueKey("requesty")).toBeNull();
   });
 });
+
+describe("auditDetailParts — appearance (US357)", () => {
+  it("names the scheme and says which way the offer moved", () => {
+    expect(auditDetailParts("appearance.offer_changed", { offered: false, scheme_name: "Forest" })).toEqual([
+      { key: "detail.scheme", params: { name: "Forest" } },
+      { key: "detail.offeredNo" },
+    ]);
+    expect(auditDetailParts("appearance.default_changed", { scheme_name: "Forest", from_scheme_id: "x" })).toEqual([
+      { key: "detail.scheme", params: { name: "Forest" } },
+    ]);
+  });
+});

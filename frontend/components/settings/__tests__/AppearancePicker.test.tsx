@@ -50,12 +50,12 @@ describe("AppearancePicker (US357)", () => {
   it("offers the instance default plus every other offered scheme — the default once", async () => {
     mockChoices(null);
     render(withIntl(<AppearancePicker />));
-    const radios = await screen.findAllByRole("radio");
+    const radios = await screen.findAllByRole("button");
     expect(radios).toHaveLength(2);
     expect(screen.getByText("Instance default")).toBeTruthy();
     expect(screen.getByText(/Currently EU Blue/)).toBeTruthy();
-    expect(screen.getByTestId("appearance-option-default").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByTestId("appearance-option-f").getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("appearance-option-default").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("appearance-option-f").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("choosing a scheme stores it and repaints at once", async () => {
@@ -65,7 +65,7 @@ describe("AppearancePicker (US357)", () => {
     await waitFor(() => expect(refreshTheme).toHaveBeenCalledTimes(1));
     const patch = spy.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
     expect(JSON.parse(String((patch![1] as RequestInit).body))).toEqual({ ui_color_scheme_id: "f" });
-    expect(screen.getByTestId("appearance-option-f").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("appearance-option-f").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("going back to the default stores null, so the person follows the admin's default", async () => {
@@ -80,7 +80,7 @@ describe("AppearancePicker (US357)", () => {
   it("a stored choice equal to the default reads as 'default' (SF-THEME.2)", async () => {
     mockChoices("d");
     render(withIntl(<AppearancePicker />));
-    expect((await screen.findByTestId("appearance-option-default")).getAttribute("aria-checked")).toBe("true");
+    expect((await screen.findByTestId("appearance-option-default")).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("renders in German", async () => {
@@ -95,5 +95,23 @@ describe("AppearancePicker — a malformed answer", () => {
     vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, status: 200, json: async () => [] } as Response);
     render(withIntl(<AppearancePicker />));
     expect(await screen.findByText("The color schemes could not be loaded.")).toBeTruthy();
+  });
+});
+
+describe("AppearancePicker — a refused save (adversarial finding 2)", () => {
+  it("keeps the picker, says the choice was not saved, and reloads the list", async () => {
+    let listCalls = 0;
+    vi.spyOn(global, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "PATCH") return { ok: false, status: 422, json: async () => ({}) } as Response;
+      listCalls += 1;
+      const schemes = [scheme("d", "EU Blue", true), ...(listCalls === 1 ? [scheme("f", "Forest")] : [])];
+      return { ok: true, status: 200, json: async () => ({ default_id: "d", selected_id: null, schemes }) } as Response;
+    });
+    render(withIntl(<AppearancePicker />));
+    await userEvent.click(await screen.findByTestId("appearance-option-f"));
+    expect(await screen.findByText(/could not be saved/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId("appearance-option-f")).toBeNull());
+    expect(screen.getByTestId("appearance-option-default").getAttribute("aria-pressed")).toBe("true");
+    expect(refreshTheme).not.toHaveBeenCalled();
   });
 });

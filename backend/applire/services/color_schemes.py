@@ -198,6 +198,7 @@ async def activate_scheme(
     if scheme is None:
         return None
     previous = await get_active_scheme(db)
+    was_offered = bool(scheme.offered_to_users)
     # Use two pure-SQL UPDATEs to avoid SQLAlchemy stale-object issues when
     # re-activating a scheme that is already marked active in the identity map.
     await db.execute(update(ColorScheme).values(is_active=False))
@@ -213,7 +214,20 @@ async def activate_scheme(
             action="appearance.default_changed",
             target_type="color_scheme",
             target_id=scheme_id,
-            details={"from_scheme_id": previous.id if previous else None},
+            details={
+                "from_scheme_id": previous.id if previous else None,
+                **_name_detail(scheme),
+            },
+        )
+    if not was_offered:
+        # Making a scheme the default offers it — say so on the log too.
+        await audit.record(
+            db,
+            actor_id=actor_id,
+            action="appearance.offer_changed",
+            target_type="color_scheme",
+            target_id=scheme_id,
+            details={"offered": True, **_name_detail(scheme)},
         )
     await db.commit()
     await db.refresh(scheme)
@@ -240,18 +254,33 @@ async def set_offered(
     if not offered and default is not None and default.id == scheme.id:
         raise SchemeIsActive(scheme_id)
     if bool(scheme.offered_to_users) != offered:
-        scheme.offered_to_users = offered
+        stmt = update(ColorScheme).where(ColorScheme.id == scheme_id)
+        if not offered:
+            # One conditional UPDATE, not check-then-write: under a concurrent
+            # "make this the default" the row lock makes Postgres re-check
+            # is_active, so the default can never end up un-offered.
+            stmt = stmt.where(ColorScheme.is_active == False)  # noqa: E712
+        result = await db.execute(stmt.values(offered_to_users=offered))
+        if result.rowcount == 0:
+            await db.rollback()
+            raise SchemeIsActive(scheme_id)
         await audit.record(
             db,
             actor_id=actor_id,
             action="appearance.offer_changed",
             target_type="color_scheme",
             target_id=scheme_id,
-            details={"offered": offered},
+            details={"offered": offered, **_name_detail(scheme)},
         )
     await db.commit()
     await db.refresh(scheme)
     return scheme
+
+
+def _name_detail(scheme: ColorScheme) -> dict:
+    """The scheme's name for the audit row — omitted when it could pass for an
+    email (the audit service refuses '@' outright; a name is admin free text)."""
+    return {} if "@" in scheme.name else {"scheme_name": scheme.name}
 
 
 # --- the person's choice (US357) ---------------------------------------------
@@ -302,11 +331,19 @@ async def resolve_effective_scheme(
     return choice or default
 
 
-async def validate_choice(db: AsyncSession, scheme_id: uuid.UUID) -> None:
-    """Raise ``ValueError`` unless ``scheme_id`` is a scheme people may pick."""
+async def normalize_choice(db: AsyncSession, scheme_id: uuid.UUID) -> uuid.UUID | None:
+    """The id to store for a person's pick, or ``None`` for the current default.
+
+    Raises ``ValueError`` unless ``scheme_id`` is a scheme people may pick.
+    Picking the current default stores ``None`` — "follow the default" — which
+    is what the picker shows for it; pinning the default's id would keep the
+    person on an old default after the admin changes it.
+    """
+    default = await get_active_scheme(db)
     scheme = await db.get(ColorScheme, scheme_id)
-    if scheme is None or not is_offered(scheme, await get_active_scheme(db)):
+    if scheme is None or not is_offered(scheme, default):
         raise ValueError(f"Colour scheme {scheme_id} is not offered on this instance.")
+    return None if default is not None and scheme.id == default.id else scheme.id
 
 
 async def delete_scheme(db: AsyncSession, scheme_id: uuid.UUID) -> None:

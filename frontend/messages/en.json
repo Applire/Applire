@@ -580,6 +580,7 @@
     "appearanceDefaultHint": "Currently {name} – follows the admin's choice",
     "appearanceNoChoices": "The admin offers no other color schemes at the moment.",
     "appearanceLoadFailed": "The color schemes could not be loaded.",
+    "appearanceSaveFailed": "Your choice could not be saved – the list has been refreshed.",
     "dataPrivacy": "Data & Privacy",
     "gdprHint": "Manage your personal data in accordance with GDPR (Art. 17 & 20).",
     "exportMyData": "Export My Data",
@@ -2189,6 +2190,9 @@
     "detail": {
       "role": "Role: {value}",
       "roleChange": "Role: {from} → {to}",
+      "scheme": "Color scheme: {name}",
+      "offeredYes": "now offered",
+      "offeredNo": "no longer offered",
       "mailedYes": "sent by e-mail",
       "mailedNo": "link passed on by hand",
       "scope": "Kind: {value}",

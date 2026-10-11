@@ -580,6 +580,7 @@
     "appearanceDefaultHint": "Derzeit {name} – folgt der Wahl der Administration",
     "appearanceNoChoices": "Die Administration bietet derzeit keine weiteren Farbschemata an.",
     "appearanceLoadFailed": "Die Farbschemata konnten nicht geladen werden.",
+    "appearanceSaveFailed": "Deine Wahl konnte nicht gespeichert werden – die Liste ist jetzt auf dem neuesten Stand.",
     "dataPrivacy": "Daten & Datenschutz",
     "gdprHint": "Verwalte deine persönlichen Daten gemäß DSGVO (Art. 17 & 20).",
     "exportMyData": "Meine Daten exportieren",
@@ -2189,6 +2190,9 @@
     "detail": {
       "role": "Rolle: {value}",
       "roleChange": "Rolle: {from} → {to}",
+      "scheme": "Farbschema: {name}",
+      "offeredYes": "jetzt auswählbar",
+      "offeredNo": "nicht mehr auswählbar",
       "mailedYes": "per E-Mail verschickt",
       "mailedNo": "Link selbst weitergegeben",
       "scope": "Art: {value}",

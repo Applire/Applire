@@ -30,7 +30,7 @@ from applire.models.user import User
 from applire.config import settings
 from applire.db.session import get_db
 from applire.services.color_detection import derive_tint
-from applire.services.color_schemes import resolve_choice, validate_choice
+from applire.services.color_schemes import normalize_choice, resolve_choice
 from applire.services.profile.owner import resolve_owner
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -268,9 +268,11 @@ async def update_settings(
             f"Must be one of {sorted(EXPLAINER_IDS)}."
         )
 
-    # US357: the same "offered" predicate the picker lists with (SF-THEME.5).
+    # US357: the same "offered" predicate the picker lists with (SF-THEME.5);
+    # picking the current default is stored as "follow the default" (None).
     if ui_color_scheme_id is not None:
-        await validate_choice(db, ui_color_scheme_id)
+        if await normalize_choice(db, ui_color_scheme_id) is None:
+            ui_color_scheme_id, clear_ui_color_scheme = None, True
 
     owner = resolve_owner(user_id)
     result = await db.execute(
