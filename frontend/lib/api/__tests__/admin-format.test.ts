@@ -74,3 +74,11 @@ describe("audit detail", () => {
     expect(auditValueKey("requesty")).toBeNull();
   });
 });
+
+describe("auditDetailParts — appearance (US357)", () => {
+  it("says which way the offer moved, and never renders a name (RD-11: ids only)", () => {
+    expect(auditDetailParts("appearance.offer_changed", { offered: false })).toEqual([{ key: "detail.offeredNo" }]);
+    expect(auditDetailParts("appearance.offer_changed", { offered: true })).toEqual([{ key: "detail.offeredYes" }]);
+    expect(auditDetailParts("appearance.default_changed", { from_scheme_id: "x" })).toEqual([]);
+  });
+});

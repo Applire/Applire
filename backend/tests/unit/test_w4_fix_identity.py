@@ -236,6 +236,7 @@ ADMIN_ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/admin/color-schemes/preview"): "bearer",
     ("POST", "/api/admin/color-schemes"): "bearer",
     ("PATCH", "/api/admin/color-schemes/{scheme_id}/activate"): "bearer",
+    ("PATCH", "/api/admin/color-schemes/{scheme_id}/offer"): "bearer",
     ("DELETE", "/api/admin/color-schemes/{scheme_id}"): "bearer",
     ("POST", "/api/settings/upgrade-notice/dismiss"): "bearer",
     ("GET", "/api/ops/health"): "bearer",                  # admin_or_probe (probe tokens by design)

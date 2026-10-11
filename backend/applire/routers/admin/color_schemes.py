@@ -26,6 +26,7 @@ from applire.models.user import User
 from applire.schemas.color_scheme import (
     ActiveSchemeResponse,
     ColorSchemeCreate,
+    ColorSchemeOfferRequest,
     ColorSchemePreviewRequest,
     ColorSchemeResponse,
 )
@@ -39,6 +40,7 @@ from applire.services.color_schemes import (
     derive_scheme,
     get_active_scheme,
     list_schemes,
+    set_offered,
 )
 
 router = APIRouter(prefix="/api/admin/color-schemes", tags=["admin"])
@@ -87,6 +89,7 @@ async def create(
         seed_accent=body.seed_accent,
         seed_secondary=body.seed_secondary,
         surface_lightness=body.surface_lightness,
+        offered_to_users=body.offered_to_users,
     )
 
 
@@ -96,10 +99,32 @@ async def activate(
     db: AsyncSession = Depends(get_db),
     _auth: User = Depends(require_admin),
 ):
-    scheme = await activate_scheme(db, scheme_id)
+    """Make the scheme the default for everyone — which also offers it (US357)."""
+    scheme = await activate_scheme(db, scheme_id, actor_id=getattr(_auth, "id", None))
     if scheme is None:
         raise HTTPException(status_code=404, detail="Color scheme not found")
     return scheme
+
+
+@router.patch("/{scheme_id}/offer", response_model=ColorSchemeResponse)
+async def offer(
+    scheme_id: uuid.UUID,
+    body: ColorSchemeOfferRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: User = Depends(require_admin),
+):
+    """Put a scheme on, or take it off, the list people pick from (CS-1)."""
+    try:
+        return await set_offered(
+            db, scheme_id, body.offered, actor_id=getattr(_auth, "id", None)
+        )
+    except SchemeNotFound:
+        raise HTTPException(status_code=404, detail="Color scheme not found")
+    except SchemeIsActive:
+        raise HTTPException(
+            status_code=409,
+            detail="The default scheme is always offered — make another scheme the default first",
+        )
 
 
 @router.delete("/{scheme_id}", status_code=status.HTTP_204_NO_CONTENT)

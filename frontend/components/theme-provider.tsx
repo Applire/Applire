@@ -20,6 +20,7 @@
 
 import { createContext, useCallback, useContext, useEffect } from "react";
 import { DERIVED_SCHEME_KEYS } from "@/lib/theme";
+import { useCurrentUser } from "@/lib/auth/current-user";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -33,7 +34,8 @@ function clearInlineScheme(): void {
 }
 
 interface ThemeContextValue {
-  /** Call after activating a scheme to propagate it immediately without a page reload. */
+  /** Call after activating or choosing a scheme to propagate it immediately
+   *  without a page reload. */
   refreshTheme: () => void;
 }
 
@@ -43,35 +45,53 @@ export function useTheme(): ThemeContextValue {
   return useContext(ThemeContext);
 }
 
-async function applyActiveScheme(): Promise<void> {
+async function fetchDerived(path: string): Promise<Record<string, string> | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/color-schemes/active`);
-    if (!res.ok) {
-      // No scheme to apply (e.g. an empty / freshly-reset DB). Strip any
-      // editor-applied overrides so we revert to the globals.css palette
-      // instead of stranding the editor's neutral placeholder app-wide.
-      clearInlineScheme();
-      return;
-    }
+    const res = await fetch(`${API_BASE}${path}`);
+    if (!res.ok) return null;
     const data = await res.json();
-    const derived: Record<string, string> = data.derived;
-    for (const [key, value] of Object.entries(derived)) {
-      document.documentElement.style.setProperty(key, value);
-    }
+    return (data.derived as Record<string, string>) ?? null;
   } catch {
-    // Network error or server not ready — revert to the globals.css palette.
+    return null;
+  }
+}
+
+/** US357 (ADR-023 amended 2026-10-11): a signed-in person gets their effective
+ *  scheme (`/api/color-schemes/effective`, require_user); everyone else the
+ *  instance default from the public `/api/admin/color-schemes/active`. The
+ *  person-scoped call is made ONLY when signed in — a 401 from it would trip the
+ *  global sign-in redirect (lib/auth/fetch-patch) on a signed-out page. */
+async function applyScheme(signedIn: boolean): Promise<void> {
+  const derived =
+    (signedIn ? await fetchDerived("/api/color-schemes/effective") : null) ??
+    (await fetchDerived("/api/admin/color-schemes/active"));
+  if (!derived) {
+    // No scheme to apply (e.g. an empty / freshly-reset DB, or the backend is
+    // not ready). Strip any editor-applied overrides so we revert to the
+    // globals.css palette instead of stranding the editor's neutral
+    // placeholder app-wide.
     clearInlineScheme();
+    return;
+  }
+  for (const [key, value] of Object.entries(derived)) {
+    document.documentElement.style.setProperty(key, value);
   }
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const { status } = useCurrentUser();
+  const signedIn = status === "authenticated";
+
   const refreshTheme = useCallback(() => {
-    applyActiveScheme();
-  }, []);
+    void applyScheme(signedIn);
+  }, [signedIn]);
 
   useEffect(() => {
-    applyActiveScheme();
-  }, []);
+    // While the session is still being read, the server-rendered palette on
+    // <html> is already the right one (lib/active-theme.ts) — don't guess.
+    if (status === "loading") return;
+    void applyScheme(signedIn);
+  }, [status, signedIn]);
 
   return (
     <ThemeContext.Provider value={{ refreshTheme }}>

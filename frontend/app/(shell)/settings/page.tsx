@@ -29,6 +29,7 @@ import { TargetPagesSelect } from "@/components/cv/TargetPagesSelect";
 import { getSettings, setTargetCvPages } from "@/lib/api/settings";
 import { AccountCard } from "@/components/account/AccountCard";
 import { TokensCard } from "@/components/account/TokensCard";
+import { AppearancePicker } from "@/components/settings/AppearancePicker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -249,6 +250,13 @@ export default function SettingsPage() {
 
           {/* Language switcher */}
           <LanguageSwitcher />
+
+          {/* App colour scheme (US357, ADR-023 amended 2026-10-11) */}
+          <section className="rounded-lg border border-outline-variant p-4" data-testid="appearance-section">
+            <h2 className="text-base font-semibold text-neutral-dark mb-1">{t("appearance")}</h2>
+            <p className="text-sm text-on-surface-variant mb-4">{t("appearanceHint")}</p>
+            <AppearancePicker />
+          </section>
 
           {/* GDPR Section */}
           <Card className="p-6">

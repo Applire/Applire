@@ -75,6 +75,8 @@ export const KNOWN_AUDIT_ACTIONS = [
   "settings.reset",
   "settings.env_observed",
   "retention.skipped",
+  "appearance.default_changed",
+  "appearance.offer_changed",
 ] as const;
 
 /** `adminAudit.*` label of an audit row. A write-only (key) change gets its own label (no values; detail key `write_only`, contract §3.2). */
@@ -117,6 +119,10 @@ export function auditDetailParts(action: string, detail: Record<string, unknown>
     } else {
       out.push({ key: "detail.secret", params: { setting: detail.key } });
     }
+  }
+  // US357: in which direction a colour scheme's offer moved (ids only, RD-11).
+  if (action === "appearance.offer_changed" && typeof detail.offered === "boolean") {
+    out.push({ key: detail.offered ? "detail.offeredYes" : "detail.offeredNo" });
   }
   if (typeof detail.mailed === "boolean") out.push({ key: detail.mailed ? "detail.mailedYes" : "detail.mailedNo" });
   if (typeof detail.scope === "string") out.push({ key: "detail.scope", params: { value: detail.scope } });

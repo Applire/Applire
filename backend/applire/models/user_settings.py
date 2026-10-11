@@ -46,6 +46,14 @@ class UserSettings(Base):
     # carries ui_language may set it; the 'en' default standing in for a choice
     # is what sent English interview questions into a German agent-channel run.
     ui_language: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    # ADR-023 amended 2026-10-11 (US357): the person's app colour scheme.
+    # NULL = follow the instance default. Read through
+    # services.color_schemes.resolve_effective_scheme only — a deleted or
+    # un-offered choice falls back to the default there (ruling CS-2). Like
+    # review_mode, deliberately NOT exposed over MCP (ADR-081 clause 8).
+    ui_color_scheme_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("system_color_schemes.id", ondelete="SET NULL"), nullable=True
+    )
     # ADR-040 (amended 2026-07-01): when true, suppress the clean-case pre-download
     # "AI content" notice across BOTH the CV and cover-letter surfaces. A real
     # red-flag notice is never suppressed by this.

@@ -34,7 +34,7 @@ from applire.models.audit import AuditEvent
 
 __all__ = ["ACTIONS", "AuditDetailRejected", "TargetType", "record"]
 
-TargetType = Literal["user", "token", "probe_token", "link", "instance"]
+TargetType = Literal["user", "token", "probe_token", "link", "instance", "color_scheme"]
 
 #: action -> allowed ``details`` keys. Adding an action is a reviewed change here.
 ACTIONS: dict[str, frozenset[str]] = {
@@ -67,6 +67,11 @@ ACTIONS: dict[str, frozenset[str]] = {
     "settings.reset": frozenset({"key", "write_only", "from_value", "to_source"}),
     "settings.env_observed": frozenset({"key", "from_value", "to_value", "to_source"}),
     "retention.skipped": frozenset({"source"}),
+    # ADR-023 amended 2026-10-11 (US357) — the app colour schemes people may pick.
+    # Ids only (RD-11): a scheme name is admin free text, and "name" is a
+    # forbidden detail-key fragment (test_audit_log).
+    "appearance.default_changed": frozenset({"from_scheme_id"}),
+    "appearance.offer_changed": frozenset({"offered"}),
 }
 
 #: Detail keys whose string may contain ``@`` unless it is EMAIL-shaped — a

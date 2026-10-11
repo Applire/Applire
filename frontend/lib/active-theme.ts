@@ -24,7 +24,18 @@
 // ThemeProvider swaps in the DB scheme a few frames later — a visible flash
 // (GitHub issue #30).
 
+//
+// US357 (ADR-023 amended 2026-10-11): with a session cookie on the incoming
+// request, the person's own scheme is painted — `GET /api/color-schemes/effective`
+// with that cookie forwarded. Without one, or on any failure, the instance
+// default from the public `GET /api/admin/color-schemes/active` (the login page).
+// The public endpoint never sees the cookie (SF-THEME.4).
+
+import { cookies } from "next/headers";
 import type { DerivedScheme } from "@/lib/theme";
+
+// Mirrors backend `applire.auth.sessions.SESSION_COOKIE`.
+export const SESSION_COOKIE = "applire_session";
 
 // Resolved per-call (not at module load) so tests and runtime env both apply.
 // Server-side fetches run inside the frontend container, so they cannot use the
@@ -37,14 +48,16 @@ function serverApiBase(): string {
   );
 }
 
-/** Fetch the active color scheme's derived CSS variables for pre-paint
- *  injection. Returns null when no scheme is active (404) or the backend is
- *  unreachable — in which case the static globals.css palette is used. */
-export async function loadActiveSchemeVars(): Promise<DerivedScheme | null> {
+async function fetchDerived(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<DerivedScheme | null> {
   try {
-    const res = await fetch(`${serverApiBase()}/api/admin/color-schemes/active`, {
-      // Always reflect the current active scheme; never serve a stale palette.
+    const res = await fetch(`${serverApiBase()}${path}`, {
+      // Always reflect the current scheme; never serve a stale palette — and
+      // `no-store` keeps the layout dynamic, so no per-person HTML is cached.
       cache: "no-store",
+      headers,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -52,4 +65,28 @@ export async function loadActiveSchemeVars(): Promise<DerivedScheme | null> {
   } catch {
     return null;
   }
+}
+
+/** The session cookie of the request being rendered, or null (no request
+ *  scope — tests, build — counts as signed out). */
+async function sessionCookie(): Promise<string | null> {
+  try {
+    return (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch the derived CSS variables to inline on <html> before first paint: the
+ *  signed-in person's effective scheme, else the instance default. Returns null
+ *  when neither resolves — the static globals.css palette is then used. */
+export async function loadActiveSchemeVars(): Promise<DerivedScheme | null> {
+  const session = await sessionCookie();
+  if (session) {
+    const own = await fetchDerived("/api/color-schemes/effective", {
+      Cookie: `${SESSION_COOKIE}=${session}`,
+    });
+    if (own) return own;
+  }
+  return fetchDerived("/api/admin/color-schemes/active");
 }

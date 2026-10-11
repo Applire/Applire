@@ -37,6 +37,8 @@ class ColorSchemeCreate(BaseModel):
     seed_accent: str
     seed_secondary: str
     surface_lightness: float = 0.97
+    # US357: a new scheme is not offered to people until the admin says so.
+    offered_to_users: bool = False
 
     @field_validator("seed_primary", "seed_accent", "seed_secondary", mode="before")
     @classmethod
@@ -85,6 +87,7 @@ class ColorSchemeResponse(BaseModel):
     name: str
     is_active: bool
     is_builtin: bool
+    offered_to_users: bool = False
     seed_primary: str
     seed_accent: str
     seed_secondary: str
@@ -101,3 +104,34 @@ class ActiveSchemeResponse(BaseModel):
     derived: dict[str, str]
 
     model_config = {"from_attributes": True}
+
+
+class ColorSchemeOfferRequest(BaseModel):
+    """``PATCH /api/admin/color-schemes/{id}/offer`` (US357, ruling CS-1)."""
+
+    offered: bool
+
+
+class OfferedSchemeResponse(BaseModel):
+    """One entry of the person's picker (``GET /api/color-schemes``)."""
+
+    id: uuid.UUID
+    name: str
+    seed_primary: str
+    seed_accent: str
+    seed_secondary: str
+    derived: dict[str, str]
+    is_default: bool
+
+
+class SchemeChoiceResponse(BaseModel):
+    """``GET /api/color-schemes`` — what the person may pick, and what applies.
+
+    ``selected_id`` is the RESOLVED choice: ``None`` when the person follows the
+    default, and also when the stored scheme was deleted or un-offered (CS-2) —
+    the picker then shows "Instance default" as selected (SF-THEME.2).
+    """
+
+    default_id: uuid.UUID | None
+    selected_id: uuid.UUID | None
+    schemes: list[OfferedSchemeResponse]

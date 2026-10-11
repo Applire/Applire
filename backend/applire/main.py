@@ -47,6 +47,7 @@ from applire.routers import application, cover_letter, cv, cv_color, documents a
 from applire.routers import settings as settings_router
 from applire.routers import review as review_router  # ADR-090
 from applire.routers.admin import color_schemes as admin_color_schemes
+from applire.routers import color_schemes as user_color_schemes
 from applire.routers import auth as auth_router
 from applire.routers import setup as setup_router
 from applire.routers import auth_links, me_account, me_tokens  # Strawberry W1 (1b, 1c)
@@ -345,6 +346,7 @@ app.include_router(settings_router.router)
 app.include_router(application.router)
 app.include_router(documents_router.router)
 app.include_router(admin_color_schemes.router)
+app.include_router(user_color_schemes.router)
 app.include_router(auth_links.router)
 app.include_router(me_account.router)
 app.include_router(me_tokens.router)
