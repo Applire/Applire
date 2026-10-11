@@ -75,6 +75,8 @@ export const KNOWN_AUDIT_ACTIONS = [
   "settings.reset",
   "settings.env_observed",
   "retention.skipped",
+  "appearance.default_changed",
+  "appearance.offer_changed",
 ] as const;
 
 /** `adminAudit.*` label of an audit row. A write-only (key) change gets its own label (no values; detail key `write_only`, contract §3.2). */

@@ -50,6 +50,45 @@ export interface AppSettings {
   // OFF, F-0) rather than treating an absent value as "off" for both.
   signature_in_letter?: boolean;
   signature_in_cv?: boolean;
+  // US357 (ADR-023 amended 2026-10-11) — the person's app colour scheme as the
+  // backend RESOLVES it: null = following the instance default, which is also
+  // what a deleted or no-longer-offered choice reads as (ruling CS-2).
+  ui_color_scheme_id?: string | null;
+}
+
+/** One scheme the admin offers (US357, `GET /api/color-schemes`). */
+export interface OfferedScheme {
+  id: string;
+  name: string;
+  seed_primary: string;
+  seed_accent: string;
+  seed_secondary: string;
+  derived: Record<string, string>;
+  is_default: boolean;
+}
+
+export interface SchemeChoices {
+  default_id: string | null;
+  /** The resolved choice; null = follows the instance default. */
+  selected_id: string | null;
+  schemes: OfferedScheme[];
+}
+
+/** GET /api/color-schemes — the schemes this person may pick. */
+export async function getSchemeChoices(): Promise<SchemeChoices> {
+  const res = await fetch(`${API_BASE}/api/color-schemes`);
+  if (!res.ok) throw new Error(`color-schemes ${res.status}`);
+  return (await res.json()) as SchemeChoices;
+}
+
+/** Persist the person's app colour scheme; `null` = follow the instance default. */
+export async function setUiColorScheme(schemeId: string | null): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ui_color_scheme_id: schemeId }),
+  });
+  if (!res.ok) throw new Error(`settings ${res.status}`);
 }
 
 /** GET /api/settings — the current user's preferences. */

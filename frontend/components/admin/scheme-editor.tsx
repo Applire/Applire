@@ -40,6 +40,8 @@ interface SavedScheme {
   name: string;
   is_active: boolean;
   is_builtin: boolean;
+  // US357: on the list people pick from (the default is always offered).
+  offered_to_users?: boolean;
   seed_primary: string;
   seed_accent: string;
   seed_secondary: string;
@@ -165,6 +167,21 @@ export function SchemeEditor() {
     finally { setActivating(false); }
   }
 
+  // US357 (ruling CS-1): put a scheme on, or take it off, the list people pick
+  // from under Settings → Appearance. The default is always offered.
+  async function setOffered(scheme: SavedScheme, offered: boolean) {
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/color-schemes/${scheme.id}/offer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offered }),
+      });
+      if (!res.ok) setError(t("errorOfferFailed"));
+      await fetchSchemes();
+    } catch { setError(t("errorOfferFailed")); }
+  }
+
   const seedColorRows = [
     { key: "primary" as const, label: t("labelPrimary"), desc: t("descPrimary") },
     { key: "accent" as const,  label: t("labelAccent"),  desc: t("descAccent")  },
@@ -217,6 +234,38 @@ export function SchemeEditor() {
             <span className="text-[10px] text-gray-400">{t("labelNew")}</span>
           </button>
         </div>
+      </div>
+
+      {/* Offered to people (US357) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4" data-testid="scheme-offer-list">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+          {t("sectionOffered")}
+        </div>
+        <p className="text-xs text-gray-500 mb-3">{t("descOffered")}</p>
+        <ul className="flex flex-col gap-2">
+          {schemes.map((scheme) => (
+            <li key={scheme.id}>
+              <label className="flex items-center gap-2 text-sm text-on-surface">
+                <input
+                  type="checkbox"
+                  checked={scheme.is_active || Boolean(scheme.offered_to_users)}
+                  disabled={scheme.is_active}
+                  onChange={(e) => void setOffered(scheme, e.target.checked)}
+                  data-testid={`scheme-offer-${scheme.id}`}
+                />
+                <span
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5 rounded-sm border border-outline-variant"
+                  style={{ background: scheme.seed_primary }}
+                />
+                <span className="truncate">{scheme.name}</span>
+                {scheme.is_active && (
+                  <span className="text-xs text-on-surface-variant">{t("offeredDefaultLocked")}</span>
+                )}
+              </label>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Seed Colors */}

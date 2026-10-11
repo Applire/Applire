@@ -36,15 +36,17 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <ThemeProvider>
-      <CurrentUserProvider>
+    // CurrentUserProvider wraps ThemeProvider (US357): the theme reads whether
+    // someone is signed in before it asks for a person's own scheme.
+    <CurrentUserProvider>
+      <ThemeProvider>
         <LocaleProvider>
           <ErrorBoundary>
             <OfflineBanner />
             {children}
           </ErrorBoundary>
         </LocaleProvider>
-      </CurrentUserProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </CurrentUserProvider>
   );
 }
