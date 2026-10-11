@@ -32,7 +32,12 @@ test.describe("Admin appearance page", () => {
     // Right panel
     await expect(page.getByText("Live Preview")).toBeVisible();
     // EU Blue scheme should be loaded in the preset picker
-    await expect(page.getByText("EU Blue")).toBeVisible();
+    await expect(page.getByText("EU Blue").first()).toBeVisible();
+    // US357: the offer list names it too — as the default, always offered.
+    const offer = page.getByTestId("scheme-offer-list");
+    await expect(offer.getByText("EU Blue")).toBeVisible();
+    await expect(offer.getByText("Default – always offered")).toBeVisible();
+    await expect(page.getByTestId("scheme-offer-scheme-eu-blue-0000-0000-0000-000000000001")).toBeDisabled();
   });
 
   test("sidebar Admin entry opens the admin area; the sub-nav reaches appearance", async ({ page }) => {

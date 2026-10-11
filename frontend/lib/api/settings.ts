@@ -78,7 +78,10 @@ export interface SchemeChoices {
 export async function getSchemeChoices(): Promise<SchemeChoices> {
   const res = await fetch(`${API_BASE}/api/color-schemes`);
   if (!res.ok) throw new Error(`color-schemes ${res.status}`);
-  return (await res.json()) as SchemeChoices;
+  const data = (await res.json()) as SchemeChoices;
+  // A malformed answer is a load failure, never a crash of the Settings page.
+  if (!data || !Array.isArray(data.schemes)) throw new Error("color-schemes: unexpected shape");
+  return data;
 }
 
 /** Persist the person's app colour scheme; `null` = follow the instance default. */

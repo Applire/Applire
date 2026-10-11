@@ -89,3 +89,11 @@ describe("AppearancePicker (US357)", () => {
     expect(await screen.findByText("Standard der Instanz")).toBeTruthy();
   });
 });
+
+describe("AppearancePicker — a malformed answer", () => {
+  it("shows the load-failed line instead of crashing the page", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, status: 200, json: async () => [] } as Response);
+    render(withIntl(<AppearancePicker />));
+    expect(await screen.findByText("The color schemes could not be loaded.")).toBeTruthy();
+  });
+});
