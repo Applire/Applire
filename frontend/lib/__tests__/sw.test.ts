@@ -172,37 +172,23 @@ describe("service worker — what it must never cache (SF-FE.3, ADR-050 cl. 4a)"
   });
 });
 
-describe("service worker — what it may cache", () => {
-  it("serves a hashed build asset from the cache when it has one", async () => {
+describe("service worker — sub-resources are the browser's (SF-FE.5, amendment 2026-10-11)", () => {
+  // The worker used to answer `/_next/static/` and `/icons/` cache-first. Its own
+  // fetch is judged without the page's context: Firefox's local-network-access
+  // check rejected every chunk on a Tailscale-served instance and the page never
+  // hydrated (UAT 2026-10-11). Restoring any sub-resource branch reddens these.
+  it.each([
+    ["a hashed build chunk", `${ORIGIN}/_next/static/chunks/app/(auth)/setup/page-48e6b797faa1b79d.js`],
+    ["a build stylesheet", `${ORIGIN}/_next/static/css/abc123.css`],
+    ["an icon", `${ORIGIN}/icons/icon-192.png`],
+    ["the sign-in card's logo", `${ORIGIN}/applire-icon.png`],
+  ])("leaves %s to the browser — no worker fetch, no cache", (_label, url) => {
     const h = loadWorker({ cacheHit: { body: "cached" } });
-    const { responded, promise } = fireFetch(h, `${ORIGIN}/_next/static/chunks/abc123.js`);
-    expect(responded).toBe(true);
-    await expect(promise).resolves.toEqual({ body: "cached" });
+    const { responded } = fireFetch(h, url);
+    expect(responded).toBe(false);
     expect(h.fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("fetches and stores a hashed build asset on a miss", async () => {
-    const h = loadWorker();
-    const { promise } = fireFetch(h, `${ORIGIN}/_next/static/chunks/abc123.js`);
-    await promise;
-    expect(h.fetchMock).toHaveBeenCalled();
-    expect(h.cachePut).toHaveBeenCalledTimes(1);
-  });
-
-  it("stores an icon on a miss", async () => {
-    const h = loadWorker();
-    const { promise } = fireFetch(h, `${ORIGIN}/icons/icon-192.png`);
-    await promise;
-    expect(h.cachePut).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not store a non-ok or opaque response", async () => {
-    const h = loadWorker();
-    h.fetchMock.mockResolvedValueOnce({ ok: false, type: "basic", clone: () => ({}) });
-    await fireFetch(h, `${ORIGIN}/_next/static/chunks/x.js`).promise;
-    h.fetchMock.mockResolvedValueOnce({ ok: true, type: "opaque", clone: () => ({}) });
-    await fireFetch(h, `${ORIGIN}/_next/static/chunks/y.js`).promise;
-    expect(h.cachePut).not.toHaveBeenCalled();
+    expect(h.cacheMatch).not.toHaveBeenCalled();
+    expect(h.cacheOpen).not.toHaveBeenCalled();
   });
 });
 
@@ -224,15 +210,15 @@ describe("service worker — offline fallback and version hygiene (SF-FE.4)", ()
   });
 
   it("takes over immediately and evicts every cache but the current one", async () => {
-    const h = loadWorker({ cacheNames: ["applire-shell-v0", "applire-shell-v1", "something-else"] });
+    const h = loadWorker({ cacheNames: ["applire-shell-v1", "applire-shell-v2", "something-else"] });
     let waited: Promise<unknown> | null = null;
     for (const fn of h.listeners.activate ?? []) {
       fn({ waitUntil: (p: Promise<unknown>) => (waited = p) });
     }
     await waited;
-    expect(h.cacheDelete).toHaveBeenCalledWith("applire-shell-v0");
+    expect(h.cacheDelete).toHaveBeenCalledWith("applire-shell-v1");
     expect(h.cacheDelete).toHaveBeenCalledWith("something-else");
-    expect(h.cacheDelete).not.toHaveBeenCalledWith("applire-shell-v1");
+    expect(h.cacheDelete).not.toHaveBeenCalledWith("applire-shell-v2");
     expect(h.clientsClaim).toHaveBeenCalled();
   });
 

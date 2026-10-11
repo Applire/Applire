@@ -63,7 +63,7 @@ Base URLs, timeouts, reasoning knobs and every other setting stay **env-only**. 
 
 One row per selectable provider: the effective `model`, plus `key_required`, `has_key`, `ready` (= `has_key or not key_required`) and `active`. The provider select should disable or warn for rows with `ready == false`.
 
-**Qualification (CONTRACT-CHANGE MD2-6 (1)):** `qualification` ∈ `qualified` | `not_qualified` | `unmeasured`, plus `qualification_reason` (English, one sentence, or `null`) and `qualification_as_of` (an ISO date, e.g. `"2026-09-16"`). These describe the row's **effective model** according to the published matrix (`docs/llm-models.md`, #688). The data lives in `backend/applire/data/model_qualification.json`, which wave-2 #688 maintains. A model that is not listed reads as `unmeasured`, which does not mean "bad".
+**No qualification fields (ADR-093 amended 2026-10-10).** `qualification`, `qualification_reason` and `qualification_as_of` (CONTRACT-CHANGE MD2-6 (1)) were removed: the panel links `docs/llm-models.md` and shows no per-model verdict. A client must not expect them.
 
 ### 2.4 `dependencies` (`SettingDependency[]`)
 
@@ -184,3 +184,4 @@ C1-2 **ruled A** (MD2-1): a panel override wins, with a source badge and a reset
 - 2026-10-07 `d7cb97c5`: first SEAM-READY.
 - 2026-10-07 (fix-admin, adversarial findings): `provider_not_ready` also on `DELETE`, with `detail.key`. `openai` needs a key without `OPENAI_BASE_URL`. A secret value must be printable ASCII without spaces (`\x21`-`\x7e`), otherwise 422 `invalid_setting_value` with `detail.key` only. `health.components[].checked_at` is new and the dashboard never pings the provider inline. `retention.enabled_since` never spans a skipped worker run, and `notices` carries `retention_disabled` when the newest run skipped. A write of the same key is an upsert (last write wins, both audited). The LinkedIn refusal also covers redirect hops, tier-2 requests and WHATWG/Python parser differences.
 - 2026-10-07 (second SEAM-READY): CONTRACT-CHANGE MD2-6 from C2 added `qualification*`, `by_document_kind`, `enabled_since`, `changed_by_email` and `updated_by_email`. Audit detail key `secret` → `write_only`, because the audit suite forbids "secret" as a detail key name. The `PUT` body is validated raw (no FastAPI 422 echo). The `failed_at` semantics are clarified. CONTRACT-CHANGE MD2-8 added `retention.ttl_days`.
+- 2026-10-10 (ADR-093 amended, founder ruling): `qualification`, `qualification_reason` and `qualification_as_of` removed from `ProviderStatus`; the provider card links `docs/llm-models.md` instead.

@@ -181,7 +181,8 @@ async def test_get_lists_the_closed_panel_set_and_never_a_secret_value(env, monk
     assert _item(body, "RETENTION_ENABLED")["value"] is True
     assert _item(body, "SCRAPER_FETCH_LINKEDIN_GUEST_PAGES")["value"] is True
     luna = next(p for p in body["providers"] if p["id"] == "openrouter")
-    assert set(luna) >= {"qualification", "qualification_reason", "qualification_as_of"}
+    # ADR-093 amended 2026-10-10 (clause 10 restored): no per-model verdict on the wire.
+    assert not {"qualification", "qualification_reason", "qualification_as_of"} & set(luna)
 
 
 # --- the switch (#710 acceptance) --------------------------------------------------
@@ -201,7 +202,7 @@ async def test_switch_provider_model_and_key_in_one_put(env):
     key = _item(body, "OPENROUTER_API_KEY")
     assert key["value"] is None and key["is_set"] is True and key["source"] == "panel"
     active = next(p for p in body["providers"] if p["active"])
-    assert active["id"] == "openrouter" and active["qualification"] == "qualified"
+    assert active["id"] == "openrouter"
 
     # The next call in this process resolves the new provider with the panel key.
     provider = unwrap_provider(get_provider())

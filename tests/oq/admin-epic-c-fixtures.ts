@@ -65,12 +65,12 @@ export function settingsBody(o: { provider?: "requesty" | "openrouter"; panel?: 
       item("RETENTION_ENABLED", { group: "retention", kind: "bool", value: o.retention ?? true, source: o.retention === false ? "panel" : "default", updated_at: o.retention === false ? ago(30) : null, updated_by_email: o.retention === false ? PEOPLE.anna.email : null }),
     ],
     providers: [
-      { id: "mistral", model: "mistral-small-latest", key_required: true, has_key: false, ready: false, active: active === ("mistral" as string), qualification: "qualified", qualification_as_of: "2026-09-16" },
-      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: !!o.openrouterKey, ready: !!o.openrouterKey, active: active === "openrouter", qualification: "qualified", qualification_as_of: "2026-09-16" },
-      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty", qualification: "qualified", qualification_as_of: "2026-09-16" },
-      { id: "anthropic", model: "claude-sonnet-4-6", key_required: true, has_key: false, ready: false, active: false, qualification: "unmeasured" },
-      { id: "openai", model: "gpt-4o", key_required: false, has_key: false, ready: true, active: false, qualification: "unmeasured" },
-      { id: "ollama", model: "llama3.2", key_required: false, has_key: false, ready: true, active: false, qualification: "unmeasured" },
+      { id: "mistral", model: "mistral-small-latest", key_required: true, has_key: false, ready: false, active: active === ("mistral" as string) },
+      { id: "openrouter", model: "openai/gpt-5.6-luna", key_required: true, has_key: !!o.openrouterKey, ready: !!o.openrouterKey, active: active === "openrouter" },
+      { id: "requesty", model: "openai/gpt-5.6-luna", key_required: true, has_key: true, ready: true, active: active === "requesty" },
+      { id: "anthropic", model: "claude-sonnet-4-6", key_required: true, has_key: false, ready: false, active: false },
+      { id: "openai", model: "gpt-4o", key_required: false, has_key: false, ready: true, active: false },
+      { id: "ollama", model: "llama3.2", key_required: false, has_key: false, ready: true, active: false },
     ],
     dependencies: [{ code: "ocr_needs_mistral_key", satisfied: false, keys: ["OCR_BACKEND", "MISTRAL_API_KEY"] }],
   };

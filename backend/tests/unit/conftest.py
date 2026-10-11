@@ -174,3 +174,14 @@ async def seed_application(async_db: AsyncSession):
         return app
 
     return _seed
+
+
+@pytest.fixture(autouse=True)
+def _reset_provider_latches():
+    """Provider rejection latches are process-wide (`providers/llm/latches.py`);
+    one test's refused schema or reasoning switch must not reach the next."""
+    from applire.providers.llm.latches import reset_latches
+
+    reset_latches()
+    yield
+    reset_latches()

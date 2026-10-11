@@ -54,6 +54,8 @@ from applire.providers.llm.base import (
     raise_if_truncated,
     retry_on_truncation,
 )
+from applire.providers.llm import latches
+from applire.providers.llm.latches import ProcessLatch
 from applire.providers.llm.reasoning import finalise_completion
 from applire.providers.llm.usage import note_usage
 
@@ -65,6 +67,14 @@ _X_TITLE = "Applire"
 # reasoning_effort we retry once without it, flooring the budget so the now
 # unavoidable reasoning tokens don't crowd out a short answer (→ truncation).
 _REASONING_FALLBACK_MIN_TOKENS = 4096
+
+def _with_effort(extra_body: dict | None, effort: str | None) -> dict | None:
+    """`extra_body` with its reasoning_effort replaced by `effort`, or removed."""
+    rest = {k: v for k, v in (extra_body or {}).items() if k != "reasoning_effort"}
+    if effort:
+        rest["reasoning_effort"] = effort
+    return rest or None
+
 
 _retry = retry(
     retry=retry_if_exception_type(openai.RateLimitError),
@@ -87,9 +97,10 @@ class RequestyProvider(LLMProvider):
         reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
+        self._latch_scope = base_url or settings.requesty_base_url or _DEFAULT_BASE_URL
         self._client = openai.AsyncOpenAI(
             api_key=api_key or settings.requesty_api_key,
-            base_url=base_url or settings.requesty_base_url or _DEFAULT_BASE_URL,
+            base_url=self._latch_scope,
             default_headers={
                 "HTTP-Referer": _HTTP_REFERER,
                 "X-Title": _X_TITLE,
@@ -110,14 +121,42 @@ class RequestyProvider(LLMProvider):
             reasoning_effort if reasoning_effort is not None
             else settings.requesty_reasoning_effort
         ) or ""
-        # #181: once the configured model has 400'd on reasoning_effort we know it
-        # never will, so cache the rejection and stop re-sending it. Without this the
-        # reject-then-retry round-trip repeats on every truncation-doubled attempt and
-        # on every subsequent call — a wasted API round-trip each time on that path.
-        self._reasoning_rejected = False
+        # #181: once the configured model has 400'd on a reasoning_effort value we
+        # know it always will, so remember the refused VALUE and stop re-sending it.
+        # Without this the reject-then-retry round-trip repeats on every
+        # truncation-doubled attempt and on every subsequent call. The memory is
+        # process-wide (`latches.py`): get_provider() builds a provider per request.
+
+    # ── #181 / #688 review: refused reasoning_effort values, per model ─────────
+    def _effort_refused(self, value: str) -> bool:
+        return latches.is_latched(self, f"reasoning_effort:{value}")
+
+    def _refuse_effort(self, value: str) -> None:
+        latches.latch(self, f"reasoning_effort:{value}")
+
+    @property
+    def _reasoning_rejected(self) -> bool:
+        """True once this model has refused any reasoning_effort value."""
+        return latches.any_latched(self, "reasoning_effort:")
+
+    @_reasoning_rejected.setter
+    def _reasoning_rejected(self, value: bool) -> None:
+        if value:
+            self._refuse_effort("none")
+        else:
+            latches.unlatch_prefix(self, "reasoning_effort:")
+
+    def _effort_after_refusal(self, refused: str) -> str | None:
+        """What to send once `refused` was refused: the operator's configured effort
+        in place of a refused "none" (the default since 0.43.0) — as OpenRouter
+        does — unless that was refused too; otherwise nothing."""
+        effort = self._reasoning_effort
+        if refused == "none" and effort and effort != "none" and not self._effort_refused(effort):
+            return effort
+        return None
 
     # ── M-3: structured output, with the rejection latched ───────────────────
-    _json_schema_rejected = False
+    _json_schema_rejected = ProcessLatch("json_schema")
 
     @staticmethod
     def _response_format(json_schema: dict | None) -> dict:
@@ -307,11 +346,13 @@ class RequestyProvider(LLMProvider):
         return None
 
     async def _create(self, *, max_tokens: int, extra_body: dict | None, **kwargs):
-        # #181: skip the doomed reasoning_effort request once this model has rejected
-        # it — strip it upfront and floor the budget, so neither a truncation retry nor
-        # a later call repeats the wasted reject-then-retry round-trip.
-        if self._reasoning_rejected and extra_body and "reasoning_effort" in extra_body:
-            extra_body = {k: v for k, v in extra_body.items() if k != "reasoning_effort"} or None
+        # #181: skip the doomed reasoning_effort request once this model has refused
+        # that value — swap it upfront (configured effort for a refused "none") or
+        # strip it, and floor the budget, so neither a truncation retry nor a later
+        # call repeats the wasted reject-then-retry round-trip.
+        sent = (extra_body or {}).get("reasoning_effort")
+        if sent and self._effort_refused(sent):
+            extra_body = _with_effort(extra_body, self._effort_after_refusal(sent))
             max_tokens = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
         try:
             return await self._client.chat.completions.create(
@@ -331,27 +372,36 @@ class RequestyProvider(LLMProvider):
                 )
                 if response is not None:
                     return response
-            if extra_body and "reasoning_effort" in extra_body:
-                # Latch the rejection only when the 400 is actually about reasoning —
-                # an unrelated 400 (context-length, bad response_format) that merely
-                # co-occurs with reasoning_effort must not permanently disable
-                # reasoning control for this instance. The one-shot stripped retry
-                # below still runs either way (harmless if the real cause persists).
-                if "reasoning" in str(exc).lower():
-                    self._reasoning_rejected = True
-                logger.warning(
-                    "model=%s rejected reasoning_effort=%s; retrying without it, "
-                    "max_tokens>=%d (%s)",
-                    self._model, extra_body["reasoning_effort"],
-                    _REASONING_FALLBACK_MIN_TOKENS, exc,
-                )
-                stripped = {k: v for k, v in extra_body.items() if k != "reasoning_effort"}
-                return await self._client.chat.completions.create(
-                    max_tokens=max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS),
-                    extra_body=stripped or None,
-                    **kwargs,
-                )
-            raise
+            sent = (extra_body or {}).get("reasoning_effort")
+            if not sent:
+                raise
+            # Latch the refusal only when the 400 is actually about reasoning —
+            # an unrelated 400 (context-length, bad response_format) that merely
+            # co-occurs with reasoning_effort must not permanently disable
+            # reasoning control for this model. The one-shot stripped retry
+            # below still runs either way (harmless if the real cause persists).
+            about_reasoning = "reasoning" in str(exc).lower()
+            if about_reasoning:
+                self._refuse_effort(sent)
+            fallback = self._effort_after_refusal(sent) if about_reasoning else None
+            logger.warning(
+                "model=%s rejected reasoning_effort=%s; retrying with %s, "
+                "max_tokens>=%d (%s)",
+                self._model, sent, fallback or "no reasoning_effort",
+                _REASONING_FALLBACK_MIN_TOKENS, exc,
+            )
+            floor = max(max_tokens, _REASONING_FALLBACK_MIN_TOKENS)
+            if fallback:
+                try:
+                    return await self._client.chat.completions.create(
+                        max_tokens=floor, extra_body=_with_effort(extra_body, fallback), **kwargs
+                    )
+                except openai.BadRequestError as exc2:
+                    if "reasoning" in str(exc2).lower():
+                        self._refuse_effort(fallback)
+            return await self._client.chat.completions.create(
+                max_tokens=floor, extra_body=_with_effort(extra_body, None), **kwargs
+            )
 
     @_retry
     async def _complete(

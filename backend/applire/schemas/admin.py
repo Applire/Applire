@@ -228,9 +228,6 @@ class InstanceSettingItem(BaseModel):
     updated_by_email: str | None = None
 
 
-Qualification = Literal["qualified", "not_qualified", "unmeasured"]
-
-
 class ProviderStatus(BaseModel):
     """One selectable LLM provider (ADR-009 list minus ``mock``)."""
 
@@ -244,13 +241,8 @@ class ProviderStatus(BaseModel):
     #: ``has_key or not key_required`` — the provider can be made active.
     ready: bool
     active: bool
-    #: CONTRACT-CHANGE MD2-6 (1): what the published matrix (docs/llm-models.md,
-    #: #688) says about THIS provider's effective model. Data:
-    #: ``backend/applire/data/model_qualification.json``.
-    qualification: Qualification = "unmeasured"
-    qualification_reason: str | None = None
-    #: The date the qualification data describes (ISO date), e.g. "2026-09-16".
-    qualification_as_of: str | None = None
+    # No per-model verdict (ADR-093 amended 2026-10-10, clause 10): the panel
+    # links docs/llm-models.md, which is the only place a model is judged.
 
 
 class SettingDependency(BaseModel):

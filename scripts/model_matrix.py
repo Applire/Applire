@@ -66,8 +66,8 @@ MODEL_FIELD = {
     provider: env.lower() for provider, env in MODEL_ENV.items() if env
 }
 
-# `--reasoning on|off` (WP-P, founder ruling M-4). The 11-model matrix ran every
-# row at the code default (reasoning ON) while the founder's own edge route
+# `--reasoning on|off` (WP-P, founder ruling M-4). The 2026-09 11-model matrix ran every
+# row at what was then the code default (reasoning ON; OFF since 0.43.0, ADR-009 amended) while the founder's own edge route
 # behaved as if reasoning were off, and the paired glm-5.3-flash rows differ by up
 # to 70 points on one shape (`o3/failure-taxonomy-2026-09-09.md` §4). Reasoning is
 # therefore a measured ARM of this harness, not an ambient condition: the flag

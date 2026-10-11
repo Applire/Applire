@@ -13,7 +13,6 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 export function AuthCard({ children, testId }: { children: React.ReactNode; testId?: string }) {
-  const t = useTranslations("shell");
   return (
     <div
       data-testid={testId}
@@ -22,7 +21,9 @@ export function AuthCard({ children, testId }: { children: React.ReactNode; test
       <div className="mb-6 flex items-center gap-2.5">
         <img
           src="/applire-icon.png"
-          alt={t("appLogoAlt")}
+          // Decorative: the wordmark beside it names the product. A named alt
+          // printed "Applire" over the wordmark whenever the image failed (UAT 2026-10-11).
+          alt=""
           className="h-[34px] w-[34px] rounded-[9px] object-contain"
         />
         {/* eslint-disable-next-line formatjs/no-literal-string-in-jsx -- brand name not translated */}

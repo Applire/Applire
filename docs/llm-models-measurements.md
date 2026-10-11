@@ -199,7 +199,7 @@ stack's default `LLM_TIMEOUT=180`, so the panel never ran. A clean vault write d
 the model finishes the application in time.
 
 The same model on the two gateways is the sharpest row in this table: over OpenRouter
-`z-ai/glm-5.3-flash` reasons on every call (the gateway will not let it stop) and is clean;
+`z-ai/glm-5.3-flash` reasons on every call (the gateway will not let it stop) and is clean (as measured with the disable off, the code default then);
 over Requesty it does not reason (about 110 output tokens per call, and `REQUESTY_REASONING_EFFORT`
 does not change that) and records nothing on 30–50 % of denial-opening answers with either
 prompt — the prompt fix moved that silence between shapes rather than removing it. The
@@ -354,13 +354,58 @@ run it, keep `LLM_TIMEOUT` at 180 or higher.
 
 All eight situations S1–S8, `n=10`, through OpenRouter at `LLM_TIMEOUT=180`, on this release's
 prompt; the current result per model is in the guide's
-[qualification section](llm-models.md#model-qualification-2026-10-07). Records and summaries:
+[qualification section](llm-models.md#model-qualification-2026-10-10). Records and summaries:
 `tests/files/model_matrix/results/2026-10-07/`. What moved against the earlier rows in this log:
 `claude-haiku-4.5` went from qualified (2026-09-14) to refused with the shipped settings — every
 host now rejects the response format (#756); `glm-5.3-flash` over OpenRouter went from qualified on
 S6–S8 (2026-09-09) to sub-par on no-answer (10–20 % at 180 s); `mistral-medium-3-5` and
 `llama-3.2-3b` are first measurements. The matrix also counts every model call a turn makes: the
 stance check's second call made a turn cost 1.4–2.8 calls depending on the model.
+
+The table as published on 2026-10-07, measured with the code default of that date (reasoning
+**on**):
+
+| Model | Answers lost | Invalid output | Wrong employer | No answer | Facts per employer (lowest) | Verdict | Cost per turn |
+|---|---|---|---|---|---|---|---|
+| `openai/gpt-5.6-luna` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.003 |
+| `mistralai/mistral-medium-3-5` | 0 % | 0 % | 0 % | 0 % | 1.0 | **qualified** | ≈ $0.012 |
+| `anthropic/claude-haiku-4.5`, **shipped settings** | — | — | — | **100 %** — every call refused (stopped after 75 turns) | — | **sub-par** before the [#756](https://github.com/Applire/Applire/issues/756) fix; from 0.43.0 Applire falls back to the row below | — |
+| `anthropic/claude-haiku-4.5`, `LLM_STRUCTURED_OUTPUT=off` | 0 % | 0 % | 0 % | 0 % | **0.0** (S6, S7) | passes the bars, see below | ≈ $0.009 |
+| `z-ai/glm-5.3-flash` | 0 % | up to 11 % (S3, 1 of 9) | 0 % | **10–20 %** | 0.9 | **sub-par** (no answer) | ≈ $0.005 |
+| `meta-llama/llama-3.2-3b-instruct` | **50 %** (S4) | 0 % | **100 %** (S7) | 0 % | 0.65 | **sub-par** | ≈ $0.0006 |
+
+### Re-measured with reasoning off (2026-10-10)
+
+The 2026-10-07 matrix ran at the code default, reasoning on. Every build-2 delivery run and every
+blind panel of that release ran with `OPENROUTER_DISABLE_THINKING=true`, so the published rows
+described a setting nobody had used for a full application. Re-measured: S1–S9, `n=10`, OpenRouter,
+`LLM_TIMEOUT=180`, `--reasoning off`, on the 0.43.0 reconcile prompt (sha256 `a741ec08…`, 20,543
+characters: the alternate-names wording of #715 plus the targeted `upsert_skill` of V-6). Records:
+`tests/files/model_matrix/results/2026-10-10/`. 544 calls, about $2.24.
+
+| Model | Reasoning on (2026-10-07) | Reasoning off (2026-10-10) |
+|---|---|---|
+| `gpt-5.6-luna` | qualified; 11–18 s per answer | qualified; 1.4–3.8 s per answer |
+| `mistral-medium-3-5` | qualified; 2–3 s | qualified; 0.9–2.5 s |
+| `glm-5.3-flash` | sub-par: 80–120 s, 10–20 % no answer on six of seven situations | sub-par: clean on eight of nine at 5–14 s, but 70 % no answer on S8 (five employers); no reasoning output in the log |
+
+For `glm-5.3-flash` the disable really reached the model on 2026-10-10. None of the 145 logged
+calls was refused or carried a reasoning trace, so the harness never fell back to reasoning on. On
+2026-09-09 the same route refused the disable as mandatory ("Reasoning is mandatory for this
+endpoint and cannot be disabled"), so the gateway's behaviour for this model changed between the
+two runs. The earlier paragraph that says the gateway will not let it stop describes 2026-09.
+| `claude-haiku-4.5`, shipped settings | refused: every call HTTP 400 (#756, before the fix) | no losses on S1–S9; facts per employer 0.0 on S6 and S7 |
+
+Two decisions followed (0.43.0): reasoning off became the shipped default for OpenRouter and
+Requesty (ADR-009 amended), and a model whose facts per employer fall below 0.5 on any situation
+is published as **usable, with caveats** rather than qualified. The admin panel no longer shows a
+per-model verdict; it links the guide (ADR-093 amended).
+
+The same evening, one wrong-target check on the import seam (luna, reasoning off, n=10): six
+genuinely different skills placed next to adjacent ones the profile already held (MySQL beside
+PostgreSQL, Azure beside AWS, Jenkins beside GitLab CI, FastAPI beside Django, GraphQL beside REST,
+Coaching beside Mentoring) were created as their own entries 60 of 60 times; none was attached to
+its neighbour.
 
 ### Reproduce it yourself
 
