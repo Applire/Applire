@@ -171,6 +171,9 @@ export function SchemeEditor() {
   // from under Settings → Appearance. The default is always offered.
   async function setOffered(scheme: SavedScheme, offered: boolean) {
     setError("");
+    // Optimistic: the checkbox follows the click at once; the refetch below
+    // puts the server's truth back if the write was refused.
+    setSchemes((list) => list.map((s) => (s.id === scheme.id ? { ...s, offered_to_users: offered } : s)));
     try {
       const res = await fetch(`${API_BASE}/api/admin/color-schemes/${scheme.id}/offer`, {
         method: "PATCH",
