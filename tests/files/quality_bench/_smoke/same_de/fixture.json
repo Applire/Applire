@@ -1,0 +1,13 @@
+{
+  "case": "_smoke",
+  "cell_type": "same",
+  "document_language": "de",
+  "letter_inputs": {
+    "tone": "formal"
+  },
+  "provenance": {
+    "how": "hand-built synthetic smoke fixture (harness plumbing only; not part of the corpus)",
+    "model": null,
+    "date": "2026-10-12"
+  }
+}

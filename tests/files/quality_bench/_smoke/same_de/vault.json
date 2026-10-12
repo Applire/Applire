@@ -1,0 +1,142 @@
+{
+  "personal_info": {
+    "name": "Mara Hellwig",
+    "email": "mara.hellwig@example.com",
+    "phone": "+49 151 00000000",
+    "location": "Stuttgart"
+  },
+  "professional_summary": {
+    "de": "Qualitätsingenieurin mit zehn Jahren Erfahrung in der Fertigung von Medizinprodukten, spezialisiert auf Prozessvalidierung und Lieferantenaudits.",
+    "en": ""
+  },
+  "work_experience": [
+    {
+      "id": "00000000-0000-0000-0000-00005eed0000",
+      "company": "Nordwerk Medizintechnik GmbH",
+      "role": "Leiterin Qualitätssicherung",
+      "start_date": "2020-03",
+      "end_date": null,
+      "is_current": true,
+      "responsibilities": [
+        "Leitung eines Teams von fünf Qualitätsingenieuren an zwei Fertigungsstandorten.",
+        "Verantwortlich für interne Audits nach ISO 13485 und die Vorbereitung externer Zertifizierungsaudits."
+      ],
+      "achievements": [
+        "Reduzierte die Reklamationsquote um 40 % durch die Einführung einer standardisierten 8D-Methodik."
+      ],
+      "technologies": [
+        "SAP QM",
+        "Minitab"
+      ],
+      "team_size": 5
+    },
+    {
+      "id": "00000000-0000-0000-0000-00005eed0001",
+      "company": "Nordwerk Medizintechnik GmbH",
+      "role": "Qualitätsingenieurin",
+      "start_date": "2016-04",
+      "end_date": "2020-02",
+      "is_current": false,
+      "responsibilities": [
+        "Planung und Durchführung von Prozessvalidierungen (IQ/OQ/PQ) für Spritzgussanlagen.",
+        "Durchführung von Lieferantenaudits bei zwölf Zulieferern."
+      ],
+      "achievements": [
+        "Verkürzte die Validierungsdauer neuer Anlagen von acht auf fünf Wochen."
+      ],
+      "technologies": [
+        "Minitab"
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00005eed0002",
+      "company": "Albtal Präzisionsteile AG",
+      "role": "Junior-Qualitätsingenieurin",
+      "start_date": "2013-09",
+      "end_date": "2016-03",
+      "is_current": false,
+      "responsibilities": [
+        "Erstellung von Prüfplänen und Messmittelfähigkeitsanalysen.",
+        "Pflege des Reklamationsmanagements."
+      ],
+      "achievements": [],
+      "technologies": [
+        "Excel"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Hochschule Esslingen",
+      "degree": "Dipl.-Ing. (FH) Maschinenbau",
+      "field": "Qualitätsmanagement",
+      "start_date": "2008-10",
+      "end_date": "2013-03"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Qualitätsmanagementbeauftragte (TÜV)",
+      "issuer": "TÜV Süd",
+      "date": "2017-06"
+    }
+  ],
+  "skills": [
+    {
+      "name": "Prozessvalidierung",
+      "category": "domain"
+    },
+    {
+      "name": "ISO 13485",
+      "category": "domain"
+    },
+    {
+      "name": "Lieferantenaudits",
+      "category": "domain"
+    },
+    {
+      "name": "8D-Methodik",
+      "category": "technical"
+    },
+    {
+      "name": "Statistische Prozesskontrolle",
+      "category": "technical"
+    },
+    {
+      "name": "SAP QM",
+      "category": "technical"
+    },
+    {
+      "name": "Teamführung",
+      "category": "soft"
+    }
+  ],
+  "languages": [
+    {
+      "language": "Deutsch",
+      "level": "Muttersprache",
+      "is_native": true
+    },
+    {
+      "language": "Englisch",
+      "level": "Fließend"
+    }
+  ],
+  "publications": [],
+  "projects": [],
+  "volunteer_activities": [],
+  "signature_stories": [],
+  "metadata": {
+    "completeness_score": 0.8,
+    "created_via": "manual",
+    "denied_concepts": [
+      {
+        "concept": "Six Sigma Black Belt",
+        "statement": "Ich habe keine Six-Sigma-Black-Belt-Zertifizierung.",
+        "source": "interview",
+        "date": "2026-09-01",
+        "denial_level": "direct"
+      }
+    ]
+  }
+}
