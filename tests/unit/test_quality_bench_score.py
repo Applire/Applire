@@ -437,12 +437,15 @@ def test_language_scorer_validates_locs_and_records_cross_check():
     assert out["issues"][0]["subclass"] == "en-in-de"
     assert out["issues"][0]["class"] == "L" and out["issues"][0]["stage"] is None
     assert out["dropped_unknown_loc"] == 1
-    assert out["exempt"][0]["reason"] == "job title"
+    # O-2 field exemption: the role is exempt by location and never reaches the judge
+    roles = [e for e in out["exempt"] if e["loc"] == "cv.work[0].role"]
+    assert roles and roles[0]["reason"] == "field exempt (O-2)"
     cc = out["cross_check"]
     assert cc is not None and "cv.work[0].bullets[1]" in cc["both"]   # the product predicate agrees on a 9-word English bullet
     system, user = judge.calls[0][1], judge.calls[0][2]
     assert "German" in system and "DOCUMENT LANGUAGE" in user
     assert '"loc": "cv.skills[3]"' in user
+    assert '"loc": "cv.work[0].role"' not in user
 
 
 def test_duplicate_group_of_k_counts_k_minus_1_and_merges_overlap():

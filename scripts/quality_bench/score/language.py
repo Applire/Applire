@@ -39,10 +39,20 @@ def deterministic_mismatch(text: str, language: str) -> bool | None:
     return bool(_item_language_mismatch(text, language))
 
 
+#: Item kinds exempt BY FIELD under founder ruling O-2 (2026-10-12): job titles as held,
+#: official degree and certificate names, project names. Decided by location, not by the
+#: judge — the pilot judge exempted "REFA-Grundschein" in one pass and flagged it in the
+#: next, so a judgement here would be instrument noise. Reported under ``exempt``.
+FIELD_EXEMPT_KINDS = frozenset({"role", "degree", "certification", "project_name"})
+
+
 def score_language(judge: Any, doc: str, items: list[Item], language: str) -> dict[str, Any]:
     items = [i for i in items if _HAS_LETTER.search(i.text)]
+    field_exempt = [i for i in items if i.kind in FIELD_EXEMPT_KINDS]
+    items = [i for i in items if i.kind not in FIELD_EXEMPT_KINDS]
     by_loc = {i.loc: i for i in items}
     out: dict[str, Any] = {"issues": [], "exempt": [], "dropped_unknown_loc": 0, "cross_check": None, "items_judged": len(items)}
+    out["exempt"] += [{"doc": doc, "loc": i.loc, "text": i.text, "reason": "field exempt (O-2)"} for i in field_exempt]
     if not items:
         return out
     ans = judge.complete_json(prompts.system_prompt("L", language), prompts.user_language(doc, language, items), cls="L")
