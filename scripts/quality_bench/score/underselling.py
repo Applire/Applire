@@ -31,12 +31,13 @@ dropped and counted — invented findings make the measurement worthless.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from . import prompts
 from .common import as_dicts, make_issue, truthy
 from .drafts import Draft
-from .inputs import jd_text, resolve_vault_ref, vault_lines, vault_text
+from .inputs import jd_requirements, jd_text, resolve_vault_ref, vault_lines, vault_text
 from .items import Item, TextIndex, norm
 
 REMOVABLE_KINDS = frozenset({"summary", "bullet", "skill", "sentence"})
@@ -113,6 +114,20 @@ def number_removals(removals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return removals[:MAX_REMOVALS]
 
 
+def _required_keys(job: dict | None, ledger: list[dict] | None) -> list[str]:
+    req = jd_requirements(job, ledger)
+    keys = [norm(str(r.get("item") or "")) for r in req["required"]]
+    for sr in req.get("scope_requirements") or []:
+        keys.append(norm(sr if isinstance(sr, str) else json.dumps(sr, ensure_ascii=False)))
+    return [k for k in keys if k]
+
+
+def _names_required(jd_item: str, required: list[str]) -> bool:
+    """True when the judge's cited JD item names a required item (containment either way)."""
+    cited = norm(jd_item)
+    return bool(cited) and any(cited in k or k in cited for k in required)
+
+
 def score_underselling(
     judge: Any,
     *,
@@ -134,6 +149,8 @@ def score_underselling(
         "dropped_unknown_loc": 0,
         "dropped_unknown_vault_ref": 0,
         "removals_unjudged": 0,
+        "removals_conveyed_elsewhere": 0,
+        "dropped_jd_item_not_required": 0,
     }
     if not cv_items and not letter_items:
         return out
@@ -151,8 +168,15 @@ def score_underselling(
             out["dropped_unknown_id"] += 1
             continue
         judged.add(r["id"])
-        r["judge"] = {"grounded": truthy(rec.get("grounded")), "relevant": truthy(rec.get("relevant")), "why": rec.get("why")}
-        if r["judge"]["grounded"] and r["judge"]["relevant"]:
+        r["judge"] = {"grounded": truthy(rec.get("grounded")), "relevant": truthy(rec.get("relevant")),
+                      "conveyed_elsewhere": truthy(rec.get("conveyed_elsewhere")),
+                      "conveyed_loc": rec.get("conveyed_loc"), "why": rec.get("why")}
+        # P-4 (calibration 2026-10-12): 11 of 14 invalid U findings were removals whose
+        # content the delivered document still carried (a skill label cut, its competence
+        # still in the summary). The judge now answers that question as a field.
+        if r["judge"]["conveyed_elsewhere"]:
+            out["removals_conveyed_elsewhere"] += 1
+        elif r["judge"]["grounded"] and r["judge"]["relevant"]:
             out["issues"].append(
                 make_issue(
                     "U", r["doc"], r["draft_loc"], r["text"],
@@ -165,6 +189,7 @@ def score_underselling(
     out["removals_unjudged"] = len([r for r in removals if r["id"] not in judged])
 
     lines = dict(vault_lines(vault))
+    required = _required_keys(job, ledger)
     seen_refs: set[str] = set()
     for rec in as_dicts(ans.get("omitted")):
         ref = str(rec.get("vault_ref") or "")
@@ -172,6 +197,12 @@ def score_underselling(
             continue
         if lines and ref not in lines and resolve_vault_ref(vault, ref) == ref:
             out["dropped_unknown_vault_ref"] += 1
+            continue
+        # P-4: an omission counts only against a REQUIRED item (A.2 part 2). The judge
+        # cited items absent from the JD list (calibration: "percentage-of-completion",
+        # "SAP CO/FI"); the cited item must name a required item — a fact, checked here.
+        if required and not _names_required(str(rec.get("jd_item") or ""), required):
+            out["dropped_jd_item_not_required"] += 1
             continue
         seen_refs.add(ref)
         out["issues"].append(

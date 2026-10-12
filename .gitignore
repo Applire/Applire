@@ -86,3 +86,6 @@ docs/superpowers/
 # Playwright MCP output (collects PDFs with real CV content — never commit)
 .playwright-mcp/
 **/.playwright-mcp/
+
+# E066 quality bench: judge answer cache (local, never committed)
+.quality-bench-judge-cache/

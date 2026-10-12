@@ -493,12 +493,16 @@ def test_upselling_scorer_and_oracle_agreement_table():
 def test_underselling_scorer_judges_removals_omissions_understatements():
     its_cv, its_l = items.flatten_cv(tailored_data()), items.flatten_letter(letter_data())
     removals = [{"doc": "cv", "draft_loc": "cv.work[0].bullets[1]", "text": B_CAPPED, "kind": "removed", "counterpart": None, "item_kind": "bullet"},
-                {"doc": "cv", "draft_loc": "cv.skills[7]", "text": "Machine Learning", "kind": "removed", "counterpart": None, "item_kind": "skill"}]
+                {"doc": "cv", "draft_loc": "cv.skills[7]", "text": "Machine Learning", "kind": "removed", "counterpart": None, "item_kind": "skill"},
+                {"doc": "cv", "draft_loc": "cv.skills[8]", "text": "Lean", "kind": "removed", "counterpart": None, "item_kind": "skill"}]
     judge = judge_mod.FakeJudge({"U": lambda s, u: {
         "removed": [{"id": "R1", "grounded": True, "relevant": True, "why": "measured scrap result"},
                     {"id": "R2", "grounded": False, "relevant": True, "why": "not in vault"},
+                    {"id": "R3", "grounded": True, "relevant": True, "conveyed_elsewhere": True,
+                     "conveyed_loc": "cv.skills[0]", "why": "Lean Management still listed"},
                     {"id": "R77", "grounded": True, "relevant": True, "why": "invented id"}],
         "omitted": [{"vault_ref": "work_experience[0].achievements[1]", "jd_item": "Lean Management", "why": "SMED result missing"},
+                    {"vault_ref": "work_experience[0].achievements[0]", "jd_item": "Kubernetes", "why": "not a required item"},
                     {"vault_ref": "work_experience[9].achievements[0]", "jd_item": "x", "why": "invented path"}],
         "understated": [{"loc": "cv.work[0].bullets[0]", "vault_ref": "work_experience[0]", "why": "weaker"},
                         {"loc": "cv.nowhere", "vault_ref": None, "why": ""}]}})
@@ -508,6 +512,8 @@ def test_underselling_scorer_judges_removals_omissions_understatements():
     assert kinds == {("del", "cv", "cv.work[0].bullets[1]"), ("omit", "both", "work_experience[0].achievements[1]"),
                      ("under", "cv", "cv.work[0].bullets[0]")}
     assert out["dropped_unknown_id"] == 1 and out["dropped_unknown_vault_ref"] == 1 and out["dropped_unknown_loc"] == 1
+    assert out["removals_conveyed_elsewhere"] == 1        # P-4: a cut label whose competence is still on the page
+    assert out["dropped_jd_item_not_required"] == 1       # P-4: an omission counts only against a required item
     omit = next(i for i in out["issues"] if i["subclass"] == "omit")
     assert omit["text"] == "Rüstzeiten um 35 % reduziert."          # vault_ref resolved to the vault text
     user = judge.calls[0][2]
@@ -516,7 +522,7 @@ def test_underselling_scorer_judges_removals_omissions_understatements():
 
 def test_prompts_carry_the_spec_wording_verbatim():
     for cls, needle in (("L", "NOT a defect (report under `exempt` instead, not `issues`)"),
-                        ("U", "Only grounded AND relevant removals are defects."),
+                        ("U", "Only grounded AND relevant AND not conveyed elsewhere removals are defects."),
                         ("D", "The same fact in the CV and in the letter is NOT a defect."),
                         ("S", "Statements about the hiring company are out of scope.")):
         sp = prompts.system_prompt(cls, "de")
