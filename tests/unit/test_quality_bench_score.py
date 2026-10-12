@@ -792,3 +792,24 @@ def test_ledger_source_order_effective_then_gap_then_ledger(tmp_path, fixture_di
     score_run(rd, fj, write=False)
     u_user = next(c[2] for c in fj.calls if c[0] == "U")
     assert "EffectiveOnly" in u_user and "Shopfloor-Management" in u_user  # job.json lists it; the ledger row now says gap
+
+
+def test_render_view_scores_the_page_not_the_row():
+    """The pilot (2026-10-12) counted "Deutsch · Muttersprache" in an English CV as
+    language mix; the page renders it "German · Native" (``localize_languages``).
+    The scorer must flatten the render view."""
+    from score.score_run import render_view
+
+    cv = {
+        "contact": {"name": "Stefan Brandt", "email": "stefan.brandt@example.com"},
+        "languages": [{"language": "Deutsch", "level": "Muttersprache"}],
+    }
+    page = render_view(cv, "en")
+    assert page["languages"] == [{"language": "German", "level": "Native"}]
+    assert cv["languages"][0]["language"] == "Deutsch"  # the row is not mutated
+
+
+def test_duplicate_class_is_the_founders_definition():
+    from score.score_run import D_STRUCTURES
+
+    assert D_STRUCTURES == {"skill~skill", "bullet~bullet"}

@@ -35,8 +35,26 @@ if __package__ in (None, ""):  # executed as a script: make the package importab
 
 from . import attribution, drafts as drafts_mod, inputs
 from .common import CLASSES
-from .duplicates import D_KINDS_CV, score_duplicates
+from .duplicates import score_duplicates
 from .items import flatten_cv, flatten_letter, index_by_id, select
+
+#: Duplicate structures inside the founder's D class (Q-1).
+D_STRUCTURES = frozenset({"skill~skill", "bullet~bullet"})
+
+
+def render_view(cv: dict, lang: str | None) -> dict:
+    """The CV as the renderer sees it — the product's own render-context steps."""
+    from applire.schemas.cv import TailoredCVData
+    from applire.services.cv import localize_languages, strip_empty_projects
+
+    try:
+        data = TailoredCVData.model_validate(cv)
+    except Exception:  # noqa: BLE001 — a row the schema rejects is scored as stored
+        return cv
+    data = localize_languages(strip_empty_projects(data), lang)
+    out = dict(cv)
+    out.update(data.model_dump(mode="json", include={"languages", "work_history", "projects"}))
+    return out
 from .judge import FakeJudge, JudgeClient, JudgeError
 from .language import score_language
 from .underselling import find_removals, score_underselling
@@ -86,7 +104,13 @@ def score_run(
         fx.ledger = [r for r in effective if isinstance(r, dict)]
     lang = run.language
 
-    cv_items = flatten_cv(run.cv) if run.cv else []
+    # Score what reaches the PAGE, not the persisted row: the product applies its
+    # render-context steps (``strip_empty_projects``, ``localize_languages`` — cv.py
+    # ``get_cv_html``) at every renderer, never in ``tailored_data`` (ADR-067). The
+    # pilot (2026-10-12) counted "Deutsch · Muttersprache" in an English CV as a
+    # language mix although the page reads "German · Native".
+    page_cv = render_view(run.cv, lang) if run.cv else None
+    cv_items = flatten_cv(page_cv) if page_cv else []
     letter_items = flatten_letter(run.letter, sentences=True) if run.letter else []
     docs = [d for d, payload in (("cv", run.cv), ("letter", run.letter)) if payload]
     result["docs"] = docs
@@ -110,8 +134,15 @@ def score_run(
 
     # D ---------------------------------------------------------------------
     for doc in docs:
-        pool = select(cv_items, D_KINDS_CV) if doc == "cv" else select(letter_items, {"sentence"})
+        # Founder definition Q-1 (2026-10-12): a duplicate is the same competence or
+        # fact listed twice in different wording — within the skills list, or the same
+        # achievement in two bullets. A summary that restates a bullet, and a letter
+        # that repeats a fact, are not in the class.
+        if doc != "cv":
+            continue
+        pool = select(cv_items, {"bullet", "skill"})
         d = score_duplicates(judge, doc, pool, lang)
+        d["issues"] = [i for i in d["issues"] if i.get("subclass") in D_STRUCTURES]
         issues += d["issues"]
         result["details"][f"D:{doc}"] = {"groups": d["groups"], "candidates": d["candidates"], "dropped_unknown_loc": d["dropped_unknown_loc"]}
 
