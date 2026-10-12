@@ -1,0 +1,1312 @@
+{
+  "skills": [
+    {
+      "id": "aa7b3c71-d0fb-43b1-a6b7-400c983b2392",
+      "name": "Werkscontrolling",
+      "source": "computed",
+      "status": "confirmed",
+      "aliases": [
+        "Plant Controlling"
+      ],
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "cbd01734-6e06-4fe8-a9e5-41910611bfb2",
+      "name": "Excel",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "Brauner & Söhne Maschinenbau GmbH",
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 10
+    },
+    {
+      "id": "e2528521-5a94-4f7e-b4e7-97dc011f32d9",
+      "name": "SAP CO/FI",
+      "source": "computed",
+      "status": "confirmed",
+      "aliases": [
+        "SAP CO"
+      ],
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "3d317fb2-bfee-437f-9629-25feea21621d",
+      "name": "Controlling",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "57de6eab-d079-4992-a9cb-d980a2cd2191",
+      "name": "SAP FI",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "d350ed26-5484-45ae-a13b-4a3d344a5733",
+      "name": "Intercompany-Abstimmung",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "80425a9f-ba43-449f-9238-a2bbe57c94d3",
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "17a19640-df2e-45d7-ae5b-dda1ce1008a7",
+      "name": "IFRS",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "ec07daf3-874a-413b-9b5f-b6fc5c166ac1",
+      "name": "Power BI",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "80425a9f-ba43-449f-9238-a2bbe57c94d3",
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "26372995-e7a1-4ab8-bfa4-115f29785c5c",
+      "name": "DAX",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "80425a9f-ba43-449f-9238-a2bbe57c94d3",
+        "Schwarzwald Präzision GmbH"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "ed064426-18df-4426-82a5-c56051d6ea5d",
+      "name": "HGB-Abschluss",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "9af302bd-2c8f-41bd-81f1-a9a93dc8d3a0",
+      "name": "Budgetierung & Forecast",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "76f25eb9-154b-43cc-ab43-20a17e198bb5",
+      "name": "Herstellkostenrechnung",
+      "source": "transcribed",
+      "status": "confirmed",
+      "aliases": [
+        "Manufacturing Costs"
+      ],
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "14feaf2d-b51c-4712-bf9f-4846cf230d81",
+      "name": "Abweichungsanalyse",
+      "source": "transcribed",
+      "status": "confirmed",
+      "aliases": [
+        "Variance Analysis"
+      ],
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "4ddbd3a1-1b3c-45a8-9773-9c763f99868e",
+      "name": "Investitionsrechnung",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "579d62aa-f3d7-4beb-83ad-9165d15538de",
+      "name": "Forecasting",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "1cbbdadc-cc42-47ea-be92-95d98f33a0d3",
+      "name": "Budgeting",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "883d8c52-6786-4e63-a3ee-7401f96a0ca7",
+      "name": "Konzernkonsolidierung",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "80425a9f-ba43-449f-9238-a2bbe57c94d3"
+      ],
+      "years_experience": null
+    }
+  ],
+  "metadata": {
+    "created_at": "2026-10-12T07:35:19.516578Z",
+    "created_via": "cv_paste",
+    "last_updated": "2026-10-12T07:39:43.914884Z",
+    "denied_concepts": [
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "US-GAAP",
+        "statement": "Zu IFRS: Ich habe 2024 den IFRS-Zertifikatskurs der Controller Akademie absolviert und im letzten Abschluss zwei Themen parallel nach IFRS bewertet, nämlich Leasing nach IFRS 16 und die Umsatzrealisierung für einen Servicevertrag. Das war eine Übungsrechnung für die Gruppe und nicht testiert. Hauptverantwortlich IFRS-Abschlüsse erstellt habe ich nicht. Zu US-GAAP: Nein, mit US-GAAP habe ich keine Erfahrung, weder im Abschluss noch im Reporting. Das ist eine ehrliche Lücke.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "Make-or-buy-Entscheidungen",
+        "statement": "Bei Brauner & Söhne Maschinenbau habe ich von 2016 bis 2019 als Junior Controllerin Investitionsrechnungen für Maschinenbeschaffungen erstellt. Zu Investitionsvolumen oder Ergebnissen habe ich keine Zahlen parat. Make-or-buy-Entscheidungen habe ich nicht selbst begleitet, dazu habe ich keine Erfahrung.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "Disziplinarische Führung",
+        "statement": "Bei Schwarzwald Präzision führe ich seit zwei Jahren die beiden Werkstudierenden fachlich und seit letztem Jahr zusätzlich eine Junior-Controllerin in der Einarbeitung. Ich betreue ihre Abschlussthemen und reviewe ihre Reports. Disziplinarische Führung hatte ich noch nicht. Die Entwicklungsperspektive in der Ausschreibung ist für mich der Hauptgrund zu wechseln.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      }
+    ],
+    "application_count": 0,
+    "pending_conflicts": [
+      {
+        "field": "location",
+        "source": "cv_paste",
+        "section": "personal_info",
+        "resolved": false,
+        "entity_id": null,
+        "conflict_id": "048cc40f-f90a-4ffa-9c50-9d3fea320a72",
+        "existing_value": "Stuttgart",
+        "incoming_value": "Stuttgart, Germany",
+        "suggested_resolution": null
+      }
+    ],
+    "completeness_score": 0.92,
+    "enrichment_history": [
+      {
+        "id": "a120a69a-e2ff-4c50-aa90-fd9e6375080a",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "*",
+            "action": "added",
+            "section": "*",
+            "new_value": "initial import",
+            "old_value": null,
+            "rationale": null,
+            "rationale_key": null
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:35:19.559602Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": null
+      },
+      {
+        "id": "7206ecbb-fec5-4520-b5ef-50a5eb7c0936",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "en",
+            "action": "added",
+            "section": "professional_summary",
+            "new_value": "Nine years of controlling experience in the mechanical-engineering Mittelstand, covering closing, planning and plant controlling.",
+            "old_value": null,
+            "rationale": "Set professional summary via reconciliation.",
+            "rationale_key": "reconcile_summary"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Monthly closing & reporting (HGB, 480 employees)",
+              "Planning & rolling forecast",
+              "Plant controlling for two sites",
+              "Support for external auditors",
+              "Key user SAP CO/FI",
+              "Functional guidance of two working students"
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "role_aliases",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": "Junior Controller",
+            "old_value": null,
+            "rationale": "Merged role_aliases into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Monthly closing",
+              "Cost accounting",
+              "Sales reporting",
+              "Investment appraisals"
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "role_aliases",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": "Internship / Working Student Controlling",
+            "old_value": null,
+            "rationale": "Merged role_aliases into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "SAP End-User Certificate Controlling (CO)",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "IHK Certificate Course: Fundamentals of Bilanzbuchhaltung (Financial Accounting)",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Controlling",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "SAP CO/FI",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "SAP FI",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Werkscontrolling",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Forecasting",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Budgeting",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Herstellkostenrechnung",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Abweichungsanalyse",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Excel",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "SAP CO",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Plant Controlling",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Manufacturing Costs",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Variance Analysis",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "institution_aliases",
+            "action": "merged",
+            "section": "education",
+            "new_value": "University of Stuttgart",
+            "old_value": null,
+            "rationale": "Merged institution_aliases into existing education via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "degree_aliases",
+            "action": "merged",
+            "section": "education",
+            "new_value": "M.Sc. Business Administration",
+            "old_value": null,
+            "rationale": "Merged degree_aliases into existing education via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "institution_aliases",
+            "action": "merged",
+            "section": "education",
+            "new_value": "DHBW Stuttgart (Baden-Württemberg Cooperative State University)",
+            "old_value": null,
+            "rationale": "Merged institution_aliases into existing education via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "degree_aliases",
+            "action": "merged",
+            "section": "education",
+            "new_value": "B.A. Business Administration",
+            "old_value": null,
+            "rationale": "Merged degree_aliases into existing education via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "SAP CO/FI",
+            "incoming": "SAP CO",
+            "entity_id": "e2528521-5a94-4f7e-b4e7-97dc011f32d9",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "SAP CO"
+            },
+            "incoming_entry": {
+              "name": "SAP CO",
+              "category": "technical",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "Werkscontrolling",
+            "incoming": "Plant Controlling",
+            "entity_id": "aa7b3c71-d0fb-43b1-a6b7-400c983b2392",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Plant Controlling"
+            },
+            "incoming_entry": {
+              "name": "Plant Controlling",
+              "category": "domain",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "Herstellkostenrechnung",
+            "incoming": "Manufacturing Costs",
+            "entity_id": "76f25eb9-154b-43cc-ab43-20a17e198bb5",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Manufacturing Costs"
+            },
+            "incoming_entry": {
+              "name": "Manufacturing Costs",
+              "category": "domain",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "Abweichungsanalyse",
+            "incoming": "Variance Analysis",
+            "entity_id": "14feaf2d-b51c-4712-bf9f-4846cf230d81",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Variance Analysis"
+            },
+            "incoming_entry": {
+              "name": "Variance Analysis",
+              "category": "domain",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "name_table",
+            "section": "languages",
+            "existing": "Deutsch",
+            "incoming": "German",
+            "entity_id": "fa52cfa4-9c86-41ca-9dba-1aad2500e53c",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": {
+              "level": "Native or bilingual",
+              "language": "German"
+            }
+          },
+          {
+            "basis": "name_table",
+            "section": "languages",
+            "existing": "Englisch",
+            "incoming": "English",
+            "entity_id": "d1bac10a-3c28-47dd-bf35-93b156cc62f1",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": {
+              "level": "Full professional; negotiation-level",
+              "language": "English"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "education",
+            "existing": "Universität Stuttgart / M.Sc.",
+            "incoming": "University of Stuttgart / M.Sc. Business Administration",
+            "entity_id": "fb923a58-9247-4538-8596-aaf282d5672b",
+            "undone_at": null,
+            "aliases_added": {
+              "degree_aliases": "M.Sc. Business Administration",
+              "institution_aliases": "University of Stuttgart"
+            },
+            "incoming_entry": {
+              "field": "Controlling",
+              "degree": "M.Sc. Business Administration",
+              "end_date": "2016",
+              "institution": "University of Stuttgart"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "education",
+            "existing": "DHBW Stuttgart / B.A.",
+            "incoming": "DHBW Stuttgart (Baden-Württemberg Cooperative State University) / B.A. Business Administration",
+            "entity_id": "1c9eb695-75d3-4831-82f6-df38ede6c4ab",
+            "undone_at": null,
+            "aliases_added": {
+              "degree_aliases": "B.A. Business Administration",
+              "institution_aliases": "DHBW Stuttgart (Baden-Württemberg Cooperative State University)"
+            },
+            "incoming_entry": {
+              "degree": "B.A. Business Administration",
+              "end_date": "2014",
+              "institution": "DHBW Stuttgart (Baden-Württemberg Cooperative State University)"
+            }
+          },
+          {
+            "basis": "alias",
+            "section": "work_experience",
+            "existing": "Brauner & Söhne Maschinenbau GmbH / Junior Controllerin",
+            "incoming": "Brauner & Söhne Maschinenbau GmbH / Junior Controller",
+            "entity_id": "86c027ef-a9ad-4631-b788-8150311ee5f0",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": {
+              "role": "Junior Controller",
+              "company": "Brauner & Söhne Maschinenbau GmbH",
+              "end_date": "2019-01",
+              "location": "Esslingen",
+              "is_current": false,
+              "start_date": "2016-09",
+              "industry_context": "Mechanical engineering manufacturing",
+              "responsibilities": [
+                "Monthly closing",
+                "Cost accounting",
+                "Sales reporting",
+                "Investment appraisals"
+              ],
+              "role_fact_projections": {}
+            }
+          }
+        ],
+        "timestamp": "2026-10-12T07:35:50.419284Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": {
+          "skills": {
+            "delta": 0,
+            "stored": 10,
+            "extracted": 10
+          },
+          "projects": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "education": {
+            "delta": 0,
+            "stored": 2,
+            "extracted": 2
+          },
+          "languages": {
+            "delta": 0,
+            "stored": 2,
+            "extracted": 2
+          },
+          "publications": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "certifications": {
+            "delta": 0,
+            "stored": 2,
+            "extracted": 2
+          },
+          "work_experience": {
+            "delta": 0,
+            "stored": 3,
+            "extracted": 3
+          },
+          "signature_stories": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "volunteer_activities": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          }
+        },
+        "source_session_id": null
+      },
+      {
+        "id": "5beec8d3-8a9a-4791-8365-8ad3a8cc4f8f",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Verantwortung für das Teilprojekt Intercompany-Abstimmung und Kapitalkonsolidierung bei der Einführung von LucaNet in der kleinen Gruppe (GmbH plus Vertriebsgesellschaft Schweiz).",
+              "Seit 2023 operative Mitarbeit bei der Erstellung der konsolidierten Quartalszahlen in LucaNet; operative Nummer zwei unter der Leitung der Leiterin Rechnungswesen."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "LucaNet"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Konzernkonsolidierung",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Intercompany-Abstimmung",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:43.614400Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "90230d70-4142-4cd7-a72a-d4b79c4d6576",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "IFRS-Zertifikatskurs",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "IFRS",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "2024 zwei Themen parallel nach IFRS bewertet: Leasing nach IFRS 16 und Umsatzrealisierung für einen Servicevertrag; Übungsrechnung für die Gruppe, nicht testiert."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "US-GAAP",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on US-GAAP (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:59.541928Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "b4a8067b-3c19-4adb-b978-b64b7c8989e3",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Management-Reporting von Excel auf Power BI umgestellt: 14 Dashboards zu Umsatz, Deckungsbeiträgen, Working Capital und Werkskennzahlen, angebunden an SAP über einen täglichen Datenexport.",
+              "Modellierung mit DAX und Datenmodell selbst umgesetzt."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Die Geschäftsführung arbeitet seit zwei Jahren ausschließlich mit den Power-BI-Dashboards; der Monatsberichtsversand per PDF ist komplett entfallen."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Power BI",
+              "DAX"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Power BI",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "DAX",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:16.147583Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "faa40377-eaf7-4a97-bb78-949e94c1589d",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Für unseren Sondermaschinenbereich habe ich 2022 die Bewertung langfristiger Aufträge nach Fertigstellungsgrad eingeführt, in der HGB-konformen Variante.",
+              "Ich habe mit der Projektleitung die Meilensteinlogik definiert, bewerte monatlich sechs Großprojekte nach POC und berichte die Abweichungen ans Management."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:34.723903Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "f58fd34f-89fb-4ef0-badb-5cccaeaef49a",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Investitionsrechnungen für Maschinenbeschaffungen erstellt."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "Make-or-buy-Entscheidungen",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on Make-or-buy-Entscheidungen (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:50.668618Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "dbbc26de-4fcb-4c62-bc5e-fb9d5301d165",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Die Meilensteinlogik gemeinsam mit der Projektleitung definiert; seit 2022 monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante und Berichterstattung der Abweichungen ans Management."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [
+          {
+            "basis": "model",
+            "section": "work_experience",
+            "existing": "Schwarzwald Präzision GmbH / Financial Controller",
+            "incoming": "Bewertung langfristiger Aufträge nach Fertigstellungsgrad in einer HGB-konformen Variante",
+            "entity_id": "80425a9f-ba43-449f-9238-a2bbe57c94d3",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": null
+          }
+        ],
+        "timestamp": "2026-10-12T07:39:07.701759Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "115f5cf2-3c9d-43b3-8c11-3f6154d755e7",
+        "source": "interview",
+        "changes": [],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:27.189135Z",
+        "confidence": null,
+        "not_applied": [
+          {
+            "label": "Ich kommentiere die Zahlen für Geschäftsführung und Beirat und betreue im Jahresabschluss die Wirtschaftsprüfer. Als Sys",
+            "reason": "no_write_already_known",
+            "section": null
+          }
+        ],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      },
+      {
+        "id": "1ab6c184-7505-4f4a-b8cc-6969c4788c25",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Fachliche Führung von zwei Werkstudierenden seit zwei Jahren sowie zusätzliche Einarbeitung einer Junior-Controllerin seit letztem Jahr; Betreuung ihrer Abschlussthemen und Review ihrer Reports."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "Disziplinarische Führung",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on Disziplinarische Führung (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:43.914884Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+      }
+    ],
+    "pending_confirmations": [
+      {
+        "source": "cv_paste",
+        "context": {
+          "category": "domain",
+          "proficiency": "intermediate",
+          "evidence_refs": [],
+          "incoming_skill": "HGB",
+          "related_skills": [
+            "HGB-Abschluss"
+          ]
+        },
+        "options": [
+          "Add 'HGB' as a separate skill",
+          "Merge into the existing skill",
+          "Neither — don't add it"
+        ],
+        "question": "'HGB' shares a word with skills already on your profile (HGB-Abschluss) but may be a distinct skill. Add it separately, merge it into an existing one — or not add it at all?",
+        "resolved": false,
+        "option_keys": [
+          "distinct",
+          "merge",
+          "keep"
+        ],
+        "options_i18n": [
+          {
+            "de": "„HGB“ als eigene Fähigkeit hinzufügen",
+            "en": "Add 'HGB' as a separate skill"
+          },
+          {
+            "de": "In die vorhandene Fähigkeit zusammenführen",
+            "en": "Merge into the existing skill"
+          },
+          {
+            "de": "Weder noch — nicht hinzufügen",
+            "en": "Neither — don't add it"
+          }
+        ],
+        "chosen_option": null,
+        "question_i18n": {
+          "de": "„HGB“ teilt ein Wort mit Fähigkeiten in deinem Profil (HGB-Abschluss), könnte aber eine eigene Fähigkeit sein. Separat hinzufügen, in eine vorhandene zusammenführen — oder gar nicht aufnehmen?",
+          "en": "'HGB' shares a word with skills already on your profile (HGB-Abschluss) but may be a distinct skill. Add it separately, merge it into an existing one — or not add it at all?"
+        },
+        "confirmation_id": "0c1e72da-46c5-4627-8b2f-58c5cc0880e7"
+      }
+    ]
+  },
+  "projects": [],
+  "education": [
+    {
+      "id": "fb923a58-9247-4538-8596-aaf282d5672b",
+      "field": "Betriebswirtschaftslehre (Schwerpunkt Controlling)",
+      "grade": null,
+      "degree": "M.Sc.",
+      "end_date": "2016",
+      "start_date": null,
+      "institution": "Universität Stuttgart",
+      "thesis_title": null,
+      "degree_aliases": [
+        "M.Sc. Business Administration"
+      ],
+      "institution_aliases": [
+        "University of Stuttgart"
+      ],
+      "relevant_coursework": []
+    },
+    {
+      "id": "1c9eb695-75d3-4831-82f6-df38ede6c4ab",
+      "field": "Betriebswirtschaft",
+      "grade": null,
+      "degree": "B.A.",
+      "end_date": "2014",
+      "start_date": null,
+      "institution": "DHBW Stuttgart",
+      "thesis_title": null,
+      "degree_aliases": [
+        "B.A. Business Administration"
+      ],
+      "institution_aliases": [
+        "DHBW Stuttgart (Baden-Württemberg Cooperative State University)"
+      ],
+      "relevant_coursework": []
+    }
+  ],
+  "languages": [
+    {
+      "id": "fa52cfa4-9c86-41ca-9dba-1aad2500e53c",
+      "level": "Muttersprache",
+      "status": "confirmed",
+      "language": "Deutsch"
+    },
+    {
+      "id": "d1bac10a-3c28-47dd-bf35-93b156cc62f1",
+      "level": "verhandlungssicher, C1",
+      "status": "confirmed",
+      "language": "Englisch"
+    }
+  ],
+  "publications": [],
+  "personal_info": {
+    "name": "Katrin Hoffmann",
+    "email": "katrin.hoffmann@example.com",
+    "phone": "+49 711 0000000",
+    "address": null,
+    "location": "Stuttgart",
+    "xing_url": null,
+    "photo_url": null,
+    "nationality": null,
+    "website_url": null,
+    "linkedin_url": null,
+    "date_of_birth": null
+  },
+  "certifications": [
+    {
+      "id": "ff748e81-8c7d-472a-8492-d04d6970e18c",
+      "name": "SAP End-User Certificate Controlling (CO)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2020-01-01",
+      "credential_url": null,
+      "issuing_organization": null
+    },
+    {
+      "id": "fe48c8ee-8085-4f7e-bbd3-2e2cbef9601a",
+      "name": "IHK Certificate Course: Fundamentals of Bilanzbuchhaltung (Financial Accounting)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2018-01-01",
+      "credential_url": null,
+      "issuing_organization": "IHK"
+    },
+    {
+      "id": "14b3f510-1ef5-4e7c-98d9-e10435e1df44",
+      "name": "IFRS-Zertifikatskurs",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2024-01-01",
+      "credential_url": null,
+      "issuing_organization": "Controller Akademie"
+    }
+  ],
+  "work_experience": [
+    {
+      "id": "80425a9f-ba43-449f-9238-a2bbe57c94d3",
+      "role": "Financial Controller",
+      "company": "Schwarzwald Präzision GmbH",
+      "end_date": null,
+      "location": "Stuttgart",
+      "team_size": null,
+      "is_current": true,
+      "start_date": "2019-02",
+      "achievements": [
+        "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+        "Die Geschäftsführung arbeitet seit zwei Jahren ausschließlich mit den Power-BI-Dashboards; der Monatsberichtsversand per PDF ist komplett entfallen."
+      ],
+      "role_aliases": [],
+      "technologies": [
+        "SAP CO",
+        "SAP FI",
+        "LucaNet",
+        "Power BI",
+        "DAX"
+      ],
+      "budget_managed": "Umsatz 78 Mio. €",
+      "expected_fields": [
+        "industry_context"
+      ],
+      "industry_context": "Industrieller Mittelstand",
+      "responsibilities": [
+        "Verantwortlich für Monatsabschluss und Reporting (HGB) der GmbH mit 480 Mitarbeitenden; Kommentierung für Geschäftsführung und Beirat.",
+        "Werkscontrolling für zwei Produktionsstandorte: Herstellkosten, Deckungsbeiträge, Bestandsbewertung.",
+        "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB).",
+        "Weiterentwicklung der Kostenstellenrechnung in SAP CO; Key-Userin CO/FI.",
+        "Fachliche Anleitung von zwei Werkstudierenden.",
+        "Monthly closing & reporting (HGB, 480 employees)",
+        "Planning & rolling forecast",
+        "Plant controlling for two sites",
+        "Support for external auditors",
+        "Key user SAP CO/FI",
+        "Functional guidance of two working students",
+        "Verantwortung für das Teilprojekt Intercompany-Abstimmung und Kapitalkonsolidierung bei der Einführung von LucaNet in der kleinen Gruppe (GmbH plus Vertriebsgesellschaft Schweiz).",
+        "Seit 2023 operative Mitarbeit bei der Erstellung der konsolidierten Quartalszahlen in LucaNet; operative Nummer zwei unter der Leitung der Leiterin Rechnungswesen.",
+        "2024 zwei Themen parallel nach IFRS bewertet: Leasing nach IFRS 16 und Umsatzrealisierung für einen Servicevertrag; Übungsrechnung für die Gruppe, nicht testiert.",
+        "Management-Reporting von Excel auf Power BI umgestellt: 14 Dashboards zu Umsatz, Deckungsbeiträgen, Working Capital und Werkskennzahlen, angebunden an SAP über einen täglichen Datenexport.",
+        "Modellierung mit DAX und Datenmodell selbst umgesetzt.",
+        "Für unseren Sondermaschinenbereich habe ich 2022 die Bewertung langfristiger Aufträge nach Fertigstellungsgrad eingeführt, in der HGB-konformen Variante.",
+        "Ich habe mit der Projektleitung die Meilensteinlogik definiert, bewerte monatlich sechs Großprojekte nach POC und berichte die Abweichungen ans Management.",
+        "Die Meilensteinlogik gemeinsam mit der Projektleitung definiert; seit 2022 monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante und Berichterstattung der Abweichungen ans Management.",
+        "Fachliche Führung von zwei Werkstudierenden seit zwei Jahren sowie zusätzliche Einarbeitung einer Junior-Controllerin seit letztem Jahr; Betreuung ihrer Abschlussthemen und Review ihrer Reports."
+      ],
+      "role_fact_projections": {
+        "budget_managed": {
+          "unit": "€",
+          "quote": "Jahresplanung und rollierender Forecast (Umsatz 78 Mio. €); Abweichungsanalysen je Werk und Produktlinie.",
+          "value": "Umsatz 78 Mio. €",
+          "provenance": "derived"
+        },
+        "industry_context": {
+          "unit": null,
+          "quote": null,
+          "value": "Industrieller Mittelstand",
+          "provenance": "uncorroborated"
+        }
+      }
+    },
+    {
+      "id": "86c027ef-a9ad-4631-b788-8150311ee5f0",
+      "role": "Junior Controllerin",
+      "company": "Brauner & Söhne Maschinenbau GmbH",
+      "end_date": "2019-01",
+      "location": "Esslingen",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2016-09",
+      "achievements": [],
+      "role_aliases": [
+        "Junior Controller"
+      ],
+      "technologies": [
+        "Excel"
+      ],
+      "budget_managed": null,
+      "expected_fields": [],
+      "industry_context": "Mechanical engineering manufacturing",
+      "responsibilities": [
+        "Mitarbeit im Monatsabschluss; Pflege der Kostenstellen- und Kostenträgerrechnung.",
+        "Aufbau des monatlichen Vertriebsreportings in Excel.",
+        "Investitionsrechnungen für Maschinenbeschaffungen.",
+        "Monthly closing",
+        "Cost accounting",
+        "Sales reporting",
+        "Investment appraisals",
+        "Investitionsrechnungen für Maschinenbeschaffungen erstellt."
+      ],
+      "role_fact_projections": {
+        "industry_context": {
+          "unit": null,
+          "quote": null,
+          "value": "Mechanical engineering manufacturing",
+          "provenance": "uncorroborated"
+        }
+      }
+    },
+    {
+      "id": "2f28d579-4eee-4911-8982-4cb39220642f",
+      "role": "Praktikum & Werkstudententätigkeit Controlling",
+      "company": "Diehl-Gruppe",
+      "end_date": "2016",
+      "location": "Nürnberg",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2014",
+      "achievements": [],
+      "role_aliases": [
+        "Internship / Working Student Controlling"
+      ],
+      "technologies": [],
+      "budget_managed": null,
+      "expected_fields": [],
+      "industry_context": null,
+      "responsibilities": [],
+      "role_fact_projections": {}
+    }
+  ],
+  "signature_stories": [],
+  "professional_summary": {
+    "de": "Controllerin mit 9 Jahren Erfahrung im industriellen Mittelstand. Zuhause in Monats- und Jahresabschluss, Planung und Werkscontrolling; überzeugt davon, dass gutes Controlling erklärt statt nur berichtet.",
+    "en": "Nine years of controlling experience in the mechanical-engineering Mittelstand, covering closing, planning and plant controlling."
+  },
+  "volunteer_activities": []
+}

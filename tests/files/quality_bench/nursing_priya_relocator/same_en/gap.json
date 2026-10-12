@@ -1,0 +1,972 @@
+{
+  "profile_id": "8636206d-65d6-49a2-9a39-9e11f73822ec",
+  "match_score": 0.7794117647058824,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "SBAR",
+    "Resuscitation"
+  ],
+  "minor_gaps": [
+    "Renal replacement therapy",
+    "ECMO",
+    "Paediatric intensive care",
+    "Team scope 32"
+  ],
+  "strengths": [
+    "Intensive care nursing",
+    "Adult ICU care",
+    "Mechanical ventilation",
+    "Invasive monitoring",
+    "Vasoactive therapy",
+    "CRRT",
+    "Electronic documentation",
+    "Emergency response",
+    "Resuscitation",
+    "Electronic patient records",
+    "ALS certification",
+    "Nursing registration",
+    "German recognition",
+    "Wound management",
+    "Mentoring",
+    "Registered Nurse",
+    "Intensive Care Unit",
+    "ICU",
+    "Bedside intensive care",
+    "Ventilated patients",
+    "Mechanical ventilation",
+    "Invasive monitoring",
+    "Vasoactive therapy",
+    "CRRT",
+    "Electronic documentation",
+    "Emergency response",
+    "Adult ICU",
+    "Nursing degree",
+    "Nursing registration",
+    "ICU experience",
+    "German recognition",
+    "Anerkennung",
+    "Anpassungslehrgang",
+    "ALS",
+    "Electronic patient records",
+    "Wound-management qualification"
+  ],
+  "keyword_gaps": [
+    "SBAR",
+    "SBAR handovers",
+    "Paediatric intensive care",
+    "3-shift rota",
+    "Academic teaching hospital"
+  ],
+  "category_a": [
+    "Intensive care nursing",
+    "Adult ICU",
+    "Mechanical ventilation",
+    "Invasive monitoring",
+    "Vasoactive therapy",
+    "CRRT",
+    "Electronic documentation",
+    "Emergency response",
+    "ALS",
+    "Nursing registration",
+    "Anerkennung",
+    "Wound management",
+    "Mentoring"
+  ],
+  "category_b": [
+    "Renal replacement therapy",
+    "ECMO",
+    "Team scope 32"
+  ],
+  "category_c": [
+    "SBAR",
+    "Resuscitation",
+    "Paediatric intensive care"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "direct",
+      "concept": "Intensive care nursing",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Seven years of acute-care nursing, including four years of adult intensive care.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Intensive care nursing",
+        "Critical Care Nursing",
+        "Adult intensive care",
+        "Adult intensive care nursing"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Adult ICU",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Four years of adult intensive care, including work in Level 3 adult ICUs.; Four years of adult intensive care experience in Level 3 and mixed adult ICUs.",
+      "claimable": true,
+      "jd_phrase": "At least 3 years of adult ICU experience.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Adult ICU care",
+        "Adult intensive care",
+        "Adult ICU"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Mechanical ventilation",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Six years of mechanical ventilation experience and care of ventilated patients.",
+      "claimable": true,
+      "jd_phrase": "Confident with mechanical ventilation and invasive monitoring.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Mechanical ventilation",
+        "Ventilation",
+        "Ventilated patient care"
+      ],
+      "evidence_owners": [
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Invasive monitoring",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Five years of invasive monitoring experience, including arterial and central venous catheter monitoring.",
+      "claimable": true,
+      "jd_phrase": "Invasive monitoring, vasoactive therapy, renal replacement therapy (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Invasive monitoring",
+        "Arterial monitoring",
+        "CVC monitoring"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Vasoactive therapy",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Five years of advanced experience with vasoactive infusions in adult intensive care.; Five years of advanced experience with vasoactive infusions.",
+      "claimable": true,
+      "jd_phrase": "Invasive monitoring, vasoactive therapy, renal replacement therapy (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Vasoactive therapy",
+        "Vasoactive infusions"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Renal replacement therapy",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "The candidate has CRRT experience in a Level 3 adult ICU.",
+      "claimable": true,
+      "jd_phrase": "Invasive monitoring, vasoactive therapy, renal replacement therapy (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Renal replacement therapy",
+        "CRRT"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "CRRT"
+    },
+    {
+      "status": "direct",
+      "concept": "CRRT",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Five years of advanced CRRT experience in a Level 3 adult ICU.; Five years of advanced CRRT experience.",
+      "claimable": true,
+      "jd_phrase": "Invasive monitoring, vasoactive therapy, renal replacement therapy (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "CRRT",
+        "Continuous renal replacement therapy",
+        "Renal replacement therapy"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "SBAR",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SBAR handovers",
+        "SBAR"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Electronic documentation",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Five years of electronic patient record documentation experience, including Cerner.; Five years of electronic patient record experience, including Cerner documentation.; Five years of electronic patient record experience, including Cerner.",
+      "claimable": true,
+      "jd_phrase": "Structured handovers (SBAR) and electronic documentation.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Electronic documentation",
+        "Electronic patient records",
+        "Cerner",
+        "Electronic patient record documentation",
+        "EPR",
+        "Electronic health records"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Emergency response",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Member of a deteriorating-patient response team, including NEWS2 escalation and resuscitation-team participation.; Member of the deteriorating-patient response team and regular member of the resuscitation team.",
+      "claimable": true,
+      "jd_phrase": "Participation in the unit's emergency response and resuscitation team.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Emergency response",
+        "Deteriorating-patient response",
+        "NEWS2 escalation",
+        "Rapid response",
+        "Resuscitation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Resuscitation",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Participation in the unit's emergency response and resuscitation team.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Resuscitation",
+        "Resus team",
+        "Code-team participation",
+        "Cardiopulmonary resuscitation",
+        "CPR",
+        "Resuscitation team",
+        "Code team",
+        "Resuscitation response team"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "ALS",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Confirmed Advanced Life Support (ALS) certification from the Resuscitation Council UK.",
+      "claimable": true,
+      "jd_phrase": "ALS or equivalent resuscitation certification.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "ALS certification",
+        "Advanced Life Support",
+        "ALS"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Nursing registration",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Confirmed NMC Registered Nurse (Adult) and Nursing Council of India registration.; Registered Nurse with confirmed adult nursing registration through the NMC and Nursing Council of India.",
+      "claimable": true,
+      "jd_phrase": "Nursing degree and an active nursing registration (EU or non-EU).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Nursing registration",
+        "Registered Nurse",
+        "NMC Registered Nurse (Adult)",
+        "Registered Nurse registration",
+        "RN",
+        "NMC registration"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Anerkennung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Confirmed German recognition application with a Defizitbescheid and an adaptation course.; Confirmed German recognition application with a Defizitbescheid.; Confirmed German recognition application and Defizitbescheid.",
+      "claimable": true,
+      "jd_phrase": "Recognition of your qualification in Germany (Anerkennung) completed or in",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "German recognition",
+        "Anerkennung",
+        "Defizitbescheid",
+        "Anpassungslehrgang"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "ECMO",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Provided bedside care for ECMO patients, including priming assistance and circuit observation, alongside perfusion-trained nurses.",
+      "claimable": true,
+      "jd_phrase": "ECMO experience.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "ECMO",
+        "ECMO patient care",
+        "ECMO circuit management",
+        "Extracorporeal membrane oxygenation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Paediatric intensive care",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Paediatric intensive care",
+        "Paediatric ICU",
+        "Pediatric intensive care"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Wound management",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Confirmed Tissue Viability & Wound Care in Critical Care training and acted as a link nurse for pressure-injury prevention.; Confirmed Tissue Viability & Wound Care in Critical Care training.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Wound management",
+        "Tissue viability",
+        "Wound care",
+        "Pressure-injury prevention",
+        "Wound-management qualification",
+        "Wound care qualification",
+        "Tissue Viability & Wound Care in Critical Care"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Mentoring",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Preceptor for six newly qualified nurses through their first ICU year since 2023.",
+      "claimable": true,
+      "jd_phrase": "Mentoring of trainees once established.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Mentoring",
+        "Preceptorship",
+        "Nurse preceptorship",
+        "Clinical supervision"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "ICU",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Current Staff Nurse, Adult Intensive Care Unit, in an 18-bed Level 3 ICU.; Four years of adult intensive care experience across Level 3 and mixed adult ICUs.; Four years of adult intensive care experience across the UK and India.",
+      "claimable": true,
+      "jd_phrase": "ICU (32 beds, levels 2–3) cares for ventilated and post-surgical patients.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Intensive Care Unit",
+        "ICU",
+        "Adult ICU",
+        "ICU experience",
+        "Intensive care experience",
+        "Critical care experience",
+        "Adult intensive care"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Bedside intensive care",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Provides bedside care for Level 3 adult ICU patients, including ventilated patients, invasive monitoring, vasoactive infusions and CRRT.",
+      "claimable": true,
+      "jd_phrase": "Bedside intensive care for ventilated and haemodynamically unstable adult patients.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Bedside intensive care",
+        "Adult intensive care",
+        "Ventilated patient care",
+        "Bedside critical care"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Ventilated patients",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Provides care for ventilated patients in a Level 3 adult ICU.",
+      "claimable": true,
+      "jd_phrase": "Confident with mechanical ventilation and invasive monitoring.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Ventilated patients",
+        "Ventilated patient care",
+        "Mechanical ventilation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Haemodynamically unstable patients",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Cares for critically ill patients requiring invasive monitoring, vasoactive infusions and deteriorating-patient response.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Haemodynamically unstable patients",
+        "Critically ill patients",
+        "Deteriorating patients",
+        "Hemodynamically unstable patients"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Invasive monitoring; Vasoactive infusions; Deteriorating-patient response"
+    },
+    {
+      "status": "direct",
+      "concept": "Nursing degree",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "B.Sc. Nursing from Rajiv Gandhi University of Health Sciences.",
+      "claimable": true,
+      "jd_phrase": "Nursing degree and an active nursing registration (EU or non-EU).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Nursing degree",
+        "B.Sc. Nursing",
+        "Bachelor of Science in Nursing"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Anpassungslehrgang",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Confirmed Anpassungslehrgang (adaptation course).",
+      "claimable": true,
+      "jd_phrase": "we support the process (Anpassungslehrgang possible in-house).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Anpassungslehrgang",
+        "Adaptation course"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "3-shift rota",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The candidate has shift-coordination experience on nights and ICU shift work, but the profile does not explicitly name a three-shift rota.",
+      "claimable": true,
+      "jd_phrase": "Rhein Klinikum Bonn · International Recruitment Programme · Full-time, shift work",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "3-shift rota",
+        "Three-shift rota",
+        "Shift work"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Night-shift coordination"
+    },
+    {
+      "status": "partial",
+      "concept": "Academic teaching hospital",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Worked at Manipal Hospital and taught ventilation basics on a critical-care study day.",
+      "claimable": true,
+      "jd_phrase": "Rhein Klinikum Bonn is a 900-bed academic teaching hospital.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Academic teaching hospital",
+        "Teaching hospital",
+        "Clinical teaching"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Critical-care study day teaching"
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Our interdisciplinary ICU (32 beds, levels 2–3) cares for ventilated and post-surgical patients.",
+        "value": 32.0,
+        "attested": {
+          "unit": "ICU bed capacity",
+          "entry": "Staff Nurse, Adult Intensive Care Unit @ St. Aldate's NHS Trust",
+          "quote": "Since September 2021, worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions."
+        },
+        "value_max": null,
+        "comparator": "exact",
+        "cited_entry": null,
+        "candidate_values": []
+      },
+      "status": "partial",
+      "concept": "Team scope 32",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Our interdisciplinary ICU (32 beds, levels 2–3) cares for ventilated and post-surgical patients.\". Vault: no typed vault value. Attested (ICU bed capacity): \"Since September 2021, worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions.\" (Staff Nurse, Adult Intensive Care Unit @ St. Aldate's NHS Trust). Judgement: The candidate has a documented 18-bed Level 3 adult ICU and coordinated shifts for a 28-bed ward; these are unit bed-capacity figures, while no candidate value establishes responsibility for an interdisciplinary 32-bed unit. The candidate also denied experience with a team of 32 and whole-unit leadership.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "7c79bfe010cae1d4740ea959a71c70a58a5f7d858bc7592ff1be9cccbc206327",
+  "gap_inputs_fingerprint": "e708384194fc113ed55099bbb525f829da03e1ae9b26362247ab7da2a6bbe06f",
+  "gap_clusters": [
+    {
+      "id": "cluster-registration-recognition",
+      "gaps": [
+        "Nursing registration",
+        "Anerkennung"
+      ],
+      "label": "Registration and Recognition",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "Anpassungslehrgang"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Nursing registration",
+        "German recognition"
+      ],
+      "jd_context": "I need recognized nursing registration and completion of the German adaptation pathway to practice effectively in this role."
+    },
+    {
+      "id": "cluster-intensive-care-practice",
+      "gaps": [
+        "Intensive care nursing",
+        "Renal replacement therapy"
+      ],
+      "label": "Intensive Care Practice",
+      "outcome": {
+        "asked": 2,
+        "covered": [
+          "Mechanical ventilation"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Intensive care nursing",
+        "Adult ICU care",
+        "Mechanical ventilation",
+        "Renal replacement therapy",
+        "CRRT"
+      ],
+      "jd_context": "I need strong intensive care expertise across ICU nursing, mechanical ventilation, and renal replacement therapy to care for critically ill adults."
+    },
+    {
+      "id": "cluster-emergency-resuscitation",
+      "gaps": [
+        "Resuscitation",
+        "ALS"
+      ],
+      "label": "Emergency Resuscitation",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Emergency response",
+        "Resuscitation",
+        "ALS certification"
+      ],
+      "jd_context": "I need advanced emergency and resuscitation capability to respond safely and rapidly to life-threatening deterioration."
+    },
+    {
+      "id": "cluster-ecmo-specialist-care",
+      "gaps": [
+        "Paediatric intensive care",
+        "ECMO"
+      ],
+      "label": "ECMO and Paediatric Care",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "ECMO",
+        "Paediatric intensive care"
+      ],
+      "jd_context": "I need exposure to ECMO and paediatric intensive care to contribute effectively when these specialist capabilities are required."
+    },
+    {
+      "id": "cluster-wound-care",
+      "gaps": [],
+      "label": "Wound Management",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "Wound management"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "B",
+      "coverage": "covered",
+      "jd_skills": [
+        "Wound management"
+      ],
+      "jd_context": "I need wound management skills to support comprehensive bedside care for intensive care patients."
+    },
+    {
+      "id": "cluster-clinical-communication",
+      "gaps": [
+        "SBAR"
+      ],
+      "label": "Clinical Communication",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "SBAR handovers"
+      ],
+      "jd_context": "I need structured SBAR handover skills to communicate critical patient information clearly across the care team."
+    },
+    {
+      "id": "cluster-team-leadership",
+      "gaps": [
+        "Team scope 32"
+      ],
+      "label": "Team Mentoring",
+      "outcome": {
+        "asked": 2,
+        "covered": [
+          "Mentoring"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Mentoring"
+      ],
+      "jd_context": "I need mentoring and appropriate team-scope experience to support colleagues and contribute effectively within the unit."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Seven years of acute-care nursing, including four years of adult intensive care.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Intensive care nursing"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Four years of adult intensive care, including work in Level 3 adult ICUs.; Four years of adult intensive care experience in Level 3 and mixed adult ICUs.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Adult ICU"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Six years of mechanical ventilation experience and care of ventilated patients.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Mechanical ventilation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Five years of invasive monitoring experience, including arterial and central venous catheter monitoring.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Invasive monitoring"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Five years of advanced experience with vasoactive infusions in adult intensive care.; Five years of advanced experience with vasoactive infusions.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Vasoactive therapy"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "The candidate has CRRT experience in a Level 3 adult ICU.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Renal replacement therapy"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Five years of advanced CRRT experience in a Level 3 adult ICU.; Five years of advanced CRRT experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "CRRT"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "SBAR"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Five years of electronic patient record documentation experience, including Cerner.; Five years of electronic patient record experience, including Cerner documentation.; Five years of electronic patient record experience, including Cerner.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Electronic documentation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Member of a deteriorating-patient response team, including NEWS2 escalation and resuscitation-team participation.; Member of the deteriorating-patient response team and regular member of the resuscitation team.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Emergency response"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Resuscitation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Confirmed Advanced Life Support (ALS) certification from the Resuscitation Council UK.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "ALS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Confirmed NMC Registered Nurse (Adult) and Nursing Council of India registration.; Registered Nurse with confirmed adult nursing registration through the NMC and Nursing Council of India.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Nursing registration"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Confirmed German recognition application with a Defizitbescheid and an adaptation course.; Confirmed German recognition application with a Defizitbescheid.; Confirmed German recognition application and Defizitbescheid.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Anerkennung"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "Provided bedside care for ECMO patients, including priming assistance and circuit observation, alongside perfusion-trained nurses.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "ECMO"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "nice_to_have",
+      "status": "gap",
+      "requirement": "Paediatric intensive care"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Confirmed Tissue Viability & Wound Care in Critical Care training and acted as a link nurse for pressure-injury prevention.; Confirmed Tissue Viability & Wound Care in Critical Care training.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Wound management"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Preceptor for six newly qualified nurses through their first ICU year since 2023.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Mentoring"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "JD bar (team_size): \"Our interdisciplinary ICU (32 beds, levels 2–3) cares for ventilated and post-surgical patients.\". Vault: no typed vault value. Attested (ICU bed capacity): \"Since September 2021, worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions.\" (Staff Nurse, Adult Intensive Care Unit @ St. Aldate's NHS Trust). Judgement: The candidate has a documented 18-bed Level 3 adult ICU and coordinated shifts for a 28-bed ward; these are unit bed-capacity figures, while no candidate value establishes responsibility for an interdisciplinary 32-bed unit. The candidate also denied experience with a team of 32 and whole-unit leadership.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Team scope 32"
+    }
+  ]
+}

@@ -1,0 +1,1155 @@
+{
+  "skills": [
+    {
+      "id": "5d59fa9c-bb2b-4a23-9f2c-611024dfae16",
+      "name": "Invasive monitoring",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "bd1f3313-6864-434f-8558-7b913d2983d9",
+      "name": "Vasoactive infusions",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "4d57a174-d968-445e-9228-caf0af5a4c78",
+      "name": "CRRT",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "b5a274df-76df-4783-9b69-faadfda95573",
+      "name": "Deteriorating-patient response",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "48911dc9-b82c-41d2-b221-aef8933b7afa",
+      "name": "NEWS2 escalation",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "bb768573-b52c-42ab-99e6-00aa77583252",
+      "name": "Pain management",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 2
+    },
+    {
+      "id": "780f5147-05d8-432c-974f-cfcc851658f4",
+      "name": "Early mobilisation",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 2
+    },
+    {
+      "id": "5b784434-2876-44b7-86a4-a61af56eba30",
+      "name": "Tracheostomy care",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "Manipal Hospital"
+      ],
+      "years_experience": 2
+    },
+    {
+      "id": "313118f9-54d9-4acd-a810-51f7b7a39582",
+      "name": "Cerner",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "1f321c73-4990-4fa2-88f4-89e508ed9d30",
+      "name": "Electronic Patient Records",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513",
+        "St. Aldate's NHS Trust"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "0ec5327a-dfc4-44cb-a2c3-c738a4307737",
+      "name": "Acute care nursing",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [],
+      "years_experience": 7
+    },
+    {
+      "id": "3ce29600-b247-45c3-83cb-9c707473992f",
+      "name": "Adult intensive care",
+      "source": "transcribed",
+      "status": "confirmed",
+      "aliases": [
+        "Critical Care Nursing"
+      ],
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [],
+      "years_experience": 4
+    },
+    {
+      "id": "5c389124-bae7-48ca-a0eb-7c0294497f29",
+      "name": "Evidence-based practice",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "788bd057-4dc0-4ecb-a3bd-bf8320dbb90d",
+      "name": "Ventilated patient care",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "8b040166-d91b-4f82-9ec3-fc65a2845f2d",
+      "name": "Preceptorship",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "soft",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513"
+      ],
+      "years_experience": 5
+    },
+    {
+      "id": "efccb3a0-6efd-42b7-9959-9486a41c9e41",
+      "name": "Patient Assessment",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513"
+      ],
+      "years_experience": null
+    },
+    {
+      "id": "c6fd675b-8fe9-4dc8-b25d-0fe39cdf3766",
+      "name": "Emergency Response",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513",
+        "bee01c2f-4fd3-4da8-a7cd-784e86bcc200"
+      ],
+      "years_experience": null
+    },
+    {
+      "id": "f64bb4e1-bc49-4c17-91d8-7d2920b86794",
+      "name": "Mechanical Ventilation",
+      "source": "llm_estimated",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513",
+        "bee01c2f-4fd3-4da8-a7cd-784e86bcc200"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "5432d323-3ed7-47ee-9ac4-28969bd02a07",
+      "name": "ECMO patient care",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2c08c9a0-5736-474c-8faf-518ef3b56513"
+      ],
+      "years_experience": null
+    }
+  ],
+  "metadata": {
+    "created_at": "2026-10-12T07:35:19.144226Z",
+    "created_via": "cv_paste",
+    "last_updated": "2026-10-12T07:39:40.703846Z",
+    "denied_concepts": [
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "formal SBAR experience",
+        "statement": "I am a member of the deteriorating-patient response team at my ICU, where we escalate according to NEWS2. On my surgical ward I coordinated the shifts for a 28-bed ward on nights. I do not have a specific SBAR example or a measurable outcome to quote, so I will not claim formal SBAR experience beyond that.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "team of 32",
+        "statement": "The largest scope I have coordinated is the shift coordination of a 28-bed surgical ward on nights, from June 2019 to August 2021. On my ICU I am a named nurse for one to two level-3 patients per shift, but I have not led a team of 32 or a whole unit. I have no further measurable outcome to add.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "whole unit leadership",
+        "statement": "The largest scope I have coordinated is the shift coordination of a 28-bed surgical ward on nights, from June 2019 to August 2021. On my ICU I am a named nurse for one to two level-3 patients per shift, but I have not led a team of 32 or a whole unit. I have no further measurable outcome to add.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "independent ECMO circuit management",
+        "statement": "On ECMO: my unit runs ECMO retrievals with a specialist team, and I have cared for ECMO patients alongside the perfusion-trained nurses - priming assistance, circuit observation and bedside care. But I have NOT independently managed an ECMO circuit and I am not ECMO-certified. On paediatric intensive care: No - I have no paediatric intensive care experience. All my ICU practice is with adults. That is an honest gap, and I would not want it recorded otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "ECMO certification",
+        "statement": "On ECMO: my unit runs ECMO retrievals with a specialist team, and I have cared for ECMO patients alongside the perfusion-trained nurses - priming assistance, circuit observation and bedside care. But I have NOT independently managed an ECMO circuit and I am not ECMO-certified. On paediatric intensive care: No - I have no paediatric intensive care experience. All my ICU practice is with adults. That is an honest gap, and I would not want it recorded otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "paediatric intensive care experience",
+        "statement": "On ECMO: my unit runs ECMO retrievals with a specialist team, and I have cared for ECMO patients alongside the perfusion-trained nurses - priming assistance, circuit observation and bedside care. But I have NOT independently managed an ECMO circuit and I am not ECMO-certified. On paediatric intensive care: No - I have no paediatric intensive care experience. All my ICU practice is with adults. That is an honest gap, and I would not want it recorded otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "number of CRRT treatments supported",
+        "statement": "Since September 2021 I have worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of my care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions. I am the named nurse for one to two level-3 patients per shift. I do not have figures for the number of CRRT treatments I have supported.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "number of resuscitations",
+        "statement": "I hold Advanced Life Support (ALS) from the Resuscitation Council UK, renewed in 2024. I took part in the code team at Manipal Hospital in Bengaluru from 2017 to 2019, and at St. Aldate's I am a member of the deteriorating-patient response team and a regular in the resus team. I do not have figures such as the number of resuscitations or team size to quote.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "resuscitation team size",
+        "statement": "I hold Advanced Life Support (ALS) from the Resuscitation Council UK, renewed in 2024. I took part in the code team at Manipal Hospital in Bengaluru from 2017 to 2019, and at St. Aldate's I am a member of the deteriorating-patient response team and a regular in the resus team. I do not have figures such as the number of resuscitations or team size to quote.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      }
+    ],
+    "application_count": 0,
+    "pending_conflicts": [
+      {
+        "field": "location",
+        "source": "cv_paste",
+        "section": "personal_info",
+        "resolved": false,
+        "entity_id": null,
+        "conflict_id": "6c4db38c-a915-4643-8a23-0f7de89baab7",
+        "existing_value": "Leeds, United Kingdom",
+        "incoming_value": "Leeds, England, United Kingdom",
+        "suggested_resolution": null
+      }
+    ],
+    "completeness_score": 0.94,
+    "enrichment_history": [
+      {
+        "id": "159a1f11-89d0-4c00-975b-7afcb1aec5f0",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "*",
+            "action": "added",
+            "section": "*",
+            "new_value": "initial import",
+            "old_value": null,
+            "rationale": null,
+            "rationale_key": null
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:35:19.172784Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": null
+      },
+      {
+        "id": "63165a6d-37de-4fe8-ad11-25d8b4453ce9",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "NMC Registered Nurse (Adult)",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "Goethe-Zertifikat B1 (German)",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Preceptorship",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Patient Assessment",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Emergency Response",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Mechanical Ventilation",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Electronic Patient Records",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Critical Care Nursing",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [
+          {
+            "basis": "model",
+            "section": "certifications",
+            "existing": "Intensive Care Course (Level 3 Adult Critical Care)",
+            "incoming": "Level 3 Adult Critical Care Course",
+            "entity_id": "1f596198-7df8-435c-9c92-06106d9c8ae7",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": {
+              "name": "Level 3 Adult Critical Care Course",
+              "issuing_organization": "Leeds Teaching Academy"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "Adult intensive care",
+            "incoming": "Critical Care Nursing",
+            "entity_id": "3ce29600-b247-45c3-83cb-9c707473992f",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Critical Care Nursing"
+            },
+            "incoming_entry": {
+              "name": "Critical Care Nursing",
+              "category": "domain",
+              "proficiency": "intermediate"
+            }
+          }
+        ],
+        "timestamp": "2026-10-12T07:35:47.716142Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": {
+          "skills": {
+            "delta": 0,
+            "stored": 8,
+            "extracted": 8
+          },
+          "projects": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "education": {
+            "delta": 0,
+            "stored": 1,
+            "extracted": 1
+          },
+          "languages": {
+            "delta": 0,
+            "stored": 4,
+            "extracted": 4
+          },
+          "publications": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "certifications": {
+            "delta": 0,
+            "stored": 4,
+            "extracted": 4
+          },
+          "work_experience": {
+            "delta": 0,
+            "stored": 3,
+            "extracted": 3
+          },
+          "signature_stories": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "volunteer_activities": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          }
+        },
+        "source_session_id": null
+      },
+      {
+        "id": "d77a3b9c-506c-492d-a5c7-8dc09b7b0663",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "certifications",
+            "new_value": "NMC Registered Nurse (Adult)",
+            "old_value": null,
+            "rationale": "Merged name into existing certifications via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "Nursing Council of India registration",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "German recognition application — Defizitbescheid",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "Anpassungslehrgang (adaptation course)",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:35.556155Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "079ea35d-ab9f-400f-a7a4-774f7f53a753",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Member of the deteriorating-patient response team, escalating according to NEWS2."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Coordinated the shifts for a 28-bed ward on nights."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "formal SBAR experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on formal SBAR experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:52.623770Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "fbf614e7-1b41-4aca-8eef-63aceafa920b",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Preceptor for six newly qualified nurses through their first ICU year since 2023.",
+              "Taught the ventilation-basics station twice on the trust's critical-care study day."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:06.698555Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "2854bc39-2983-4aaa-a435-a33631b2ef1f",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "team of 32",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on team of 32 (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "whole unit leadership",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on whole unit leadership (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [
+          {
+            "basis": "model",
+            "section": "work_experience",
+            "existing": "St. Aldate's NHS Trust / Senior Staff Nurse, Surgical Ward",
+            "incoming": "Senior Staff Nurse, Surgical Ward",
+            "entity_id": "2ee4d62d-f4fc-4ab4-8797-73057159e90d",
+            "undone_at": null,
+            "aliases_added": {},
+            "incoming_entry": null
+          }
+        ],
+        "timestamp": "2026-10-12T07:38:20.619873Z",
+        "confidence": null,
+        "not_applied": [
+          {
+            "label": "The largest scope I have coordinated is the shift coordination of a 28-bed surgical ward on nights, from June 2019 to Au",
+            "reason": "no_write_already_known",
+            "section": null
+          }
+        ],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "f5b3b37d-fdd6-48fa-8bfe-71c03ae5b7f6",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Cared for ECMO patients alongside perfusion-trained nurses, including priming assistance, circuit observation and bedside care."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "ECMO"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "ECMO patient care",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "independent ECMO circuit management",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on independent ECMO circuit management (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "ECMO certification",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on ECMO certification (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "paediatric intensive care experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on paediatric intensive care experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:37.178256Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "6345327d-4d37-4915-b28e-f2f053160acc",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "Tissue Viability & Wound Care in Critical Care",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Acted as the unit's link nurse for pressure-injury prevention."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Supported two audit cycles during which the unit's pressure-injury incidence dropped by about a third."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:51.796621Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "98be9f60-f835-4f04-8cb7-5727efc41f95",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Since September 2021, worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions.",
+              "Named nurse for one to two level-3 patients per shift."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "number of CRRT treatments supported",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on number of CRRT treatments supported (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:08.309070Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "8d466482-105d-4f9d-97e7-09db8490cc36",
+        "source": "interview",
+        "changes": [],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:25.043446Z",
+        "confidence": null,
+        "not_applied": [
+          {
+            "label": "On the Level 3 ICU I care for ventilated patients and manage invasive monitoring (arterial lines and CVC) and vasoactive",
+            "reason": "no_write_already_known",
+            "section": null
+          }
+        ],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      },
+      {
+        "id": "5a3dfe10-870a-4529-ae60-e05f08373d6f",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Participated in the code team at Manipal Hospital in Bengaluru from 2017 to 2019."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Member of the deteriorating-patient response team and regular member of the resus team at St. Aldate's NHS Trust."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "number of resuscitations",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on number of resuscitations (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "resuscitation team size",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on resuscitation team size (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:40.703846Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "1fe03e1a-eaa3-47a3-8f3f-18053f16ad70"
+      }
+    ],
+    "pending_confirmations": []
+  },
+  "projects": [],
+  "education": [
+    {
+      "id": "9a5bccca-09d8-4fc3-af9f-e39e90611398",
+      "field": "",
+      "grade": null,
+      "degree": "B.Sc. Nursing",
+      "end_date": "2017",
+      "start_date": null,
+      "institution": "Rajiv Gandhi University of Health Sciences",
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "languages": [
+    {
+      "id": "23e3118b-2107-42d9-9276-219d43827d14",
+      "level": "Fluent",
+      "status": "confirmed",
+      "language": "English"
+    },
+    {
+      "id": "88114d9e-f294-4fdc-867e-832c8cfd233c",
+      "level": "Native",
+      "status": "confirmed",
+      "language": "Malayalam"
+    },
+    {
+      "id": "c4cafc99-62d2-4b55-a52c-f703dcd9e82c",
+      "level": "Fluent",
+      "status": "confirmed",
+      "language": "Hindi"
+    },
+    {
+      "id": "f3c511cf-1649-4d66-a5fd-e389245e5a7c",
+      "level": "Learning",
+      "status": "confirmed",
+      "language": "German"
+    }
+  ],
+  "publications": [],
+  "personal_info": {
+    "name": "Ananya Nair, RN",
+    "email": "ananya.nair@example.com",
+    "phone": "+44 7700 000000",
+    "address": null,
+    "location": "Leeds, United Kingdom",
+    "xing_url": null,
+    "photo_url": null,
+    "nationality": null,
+    "website_url": null,
+    "linkedin_url": null,
+    "date_of_birth": null
+  },
+  "certifications": [
+    {
+      "id": "5126382a-3739-41db-8563-721f178f5335",
+      "name": "Advanced Life Support (ALS)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2024-01-01",
+      "credential_url": null,
+      "issuing_organization": "Resuscitation Council UK"
+    },
+    {
+      "id": "1f596198-7df8-435c-9c92-06106d9c8ae7",
+      "name": "Intensive Care Course (Level 3 Adult Critical Care)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2022-01-01",
+      "credential_url": null,
+      "issuing_organization": "Leeds Teaching Academy"
+    },
+    {
+      "id": "e7b20d03-bad8-438b-9893-5c49a0d76e8f",
+      "name": "NMC Registered Nurse (Adult)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2019-01-01",
+      "credential_url": null,
+      "issuing_organization": "NMC"
+    },
+    {
+      "id": "7f38ee90-fb5e-4456-abc6-9c596738380b",
+      "name": "Goethe-Zertifikat B1 (German)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2026-01-01",
+      "credential_url": null,
+      "issuing_organization": null
+    },
+    {
+      "id": "67e5ef0a-214f-4ee7-993c-82943e584e83",
+      "name": "Nursing Council of India registration",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2017-01-01",
+      "credential_url": null,
+      "issuing_organization": "Nursing Council of India"
+    },
+    {
+      "id": "9ad65aac-d45f-4201-8616-657ad0c809d0",
+      "name": "German recognition application — Defizitbescheid",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": null,
+      "credential_url": null,
+      "issuing_organization": "Bezirksregierung"
+    },
+    {
+      "id": "996ef153-833e-425d-af1e-c47cc502e4d2",
+      "name": "Anpassungslehrgang (adaptation course)",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": null,
+      "credential_url": null,
+      "issuing_organization": null
+    },
+    {
+      "id": "8fe5f1f1-820b-44d0-ad0c-96a6c8a5cce6",
+      "name": "Tissue Viability & Wound Care in Critical Care",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2023-01-01",
+      "credential_url": null,
+      "issuing_organization": null
+    }
+  ],
+  "work_experience": [
+    {
+      "id": "2c08c9a0-5736-474c-8faf-518ef3b56513",
+      "role": "Staff Nurse, Adult Intensive Care Unit",
+      "company": "St. Aldate's NHS Trust",
+      "end_date": null,
+      "location": "Leeds, UK",
+      "team_size": null,
+      "is_current": true,
+      "start_date": "2021-09",
+      "achievements": [
+        "Supported two audit cycles during which the unit's pressure-injury incidence dropped by about a third."
+      ],
+      "role_aliases": [],
+      "technologies": [
+        "Cerner",
+        "ECMO"
+      ],
+      "budget_managed": null,
+      "expected_fields": [
+        "industry_context"
+      ],
+      "industry_context": "Level 3 adult intensive care unit",
+      "responsibilities": [
+        "Care of ventilated patients, invasive monitoring (arterial/CVC), vasoactive infusions, and CRRT in a Level 3 ICU.",
+        "Named nurse for 1–2 level-3 patients per shift.",
+        "Preceptor for newly qualified nurses since 2023.",
+        "Member of the deteriorating-patient response team, including NEWS2 escalation.",
+        "Electronic patient record documentation.",
+        "Member of the deteriorating-patient response team, escalating according to NEWS2.",
+        "Preceptor for six newly qualified nurses through their first ICU year since 2023.",
+        "Taught the ventilation-basics station twice on the trust's critical-care study day.",
+        "Cared for ECMO patients alongside perfusion-trained nurses, including priming assistance, circuit observation and bedside care.",
+        "Acted as the unit's link nurse for pressure-injury prevention.",
+        "Since September 2021, worked on the 18-bed Level 3 adult ICU at St. Aldate's NHS Trust in Leeds, where CRRT is part of care of ventilated patients, alongside invasive monitoring (arterial/CVC) and vasoactive infusions.",
+        "Named nurse for one to two level-3 patients per shift.",
+        "Member of the deteriorating-patient response team and regular member of the resus team at St. Aldate's NHS Trust."
+      ],
+      "role_fact_projections": {
+        "industry_context": {
+          "unit": null,
+          "quote": null,
+          "value": "Level 3 adult intensive care unit",
+          "provenance": "uncorroborated"
+        }
+      }
+    },
+    {
+      "id": "2ee4d62d-f4fc-4ab4-8797-73057159e90d",
+      "role": "Senior Staff Nurse, Surgical Ward",
+      "company": "St. Aldate's NHS Trust",
+      "end_date": "2021-08",
+      "location": "Leeds, UK",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2019-06",
+      "achievements": [
+        "Shift coordination for a 28-bed ward on nights."
+      ],
+      "role_aliases": [],
+      "technologies": [],
+      "budget_managed": null,
+      "expected_fields": [
+        "industry_context"
+      ],
+      "industry_context": null,
+      "responsibilities": [
+        "Post-operative care for general and orthopaedic surgery.",
+        "Pain management.",
+        "Early-mobilisation protocols.",
+        "Shift coordination on nights.",
+        "Coordinated the shifts for a 28-bed ward on nights."
+      ],
+      "role_fact_projections": {}
+    },
+    {
+      "id": "bee01c2f-4fd3-4da8-a7cd-784e86bcc200",
+      "role": "Staff Nurse, Medical-Surgical ICU",
+      "company": "Manipal Hospital",
+      "end_date": "2019-05",
+      "location": "Bengaluru, India",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2017-07",
+      "achievements": [],
+      "role_aliases": [],
+      "technologies": [],
+      "budget_managed": null,
+      "expected_fields": [
+        "industry_context"
+      ],
+      "industry_context": "Mixed adult intensive care unit",
+      "responsibilities": [
+        "Care in a mixed adult ICU.",
+        "Ventilation.",
+        "Tracheostomy care.",
+        "Code-team participation.",
+        "Participated in the code team at Manipal Hospital in Bengaluru from 2017 to 2019."
+      ],
+      "role_fact_projections": {
+        "industry_context": {
+          "unit": null,
+          "quote": null,
+          "value": "Mixed adult intensive care unit",
+          "provenance": "uncorroborated"
+        }
+      }
+    }
+  ],
+  "signature_stories": [],
+  "professional_summary": {
+    "de": null,
+    "en": "Registered Nurse with 7 years of acute-care experience across India and the UK, including 4 years in adult intensive care. Passionate about evidence-based practice and calm, structured care under pressure. Relocating to Germany with my family in autumn; seeking an ICU position."
+  },
+  "volunteer_activities": []
+}

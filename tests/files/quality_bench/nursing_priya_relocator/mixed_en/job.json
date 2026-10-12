@@ -1,0 +1,82 @@
+{
+  "role_title": "Registered Nurse — Intensive Care Unit (m/f/d)",
+  "company_name": "Rhein Klinikum Bonn",
+  "required_skills": [
+    "Intensive care nursing",
+    "Adult ICU care",
+    "Mechanical ventilation",
+    "Invasive monitoring",
+    "Vasoactive therapy",
+    "Renal replacement therapy",
+    "CRRT",
+    "SBAR handovers",
+    "Electronic documentation",
+    "Emergency response",
+    "Resuscitation",
+    "Electronic patient records",
+    "ALS certification",
+    "Nursing registration",
+    "German recognition"
+  ],
+  "nice_to_have_skills": [
+    "ECMO",
+    "Paediatric intensive care",
+    "Wound management",
+    "Mentoring"
+  ],
+  "keywords": [
+    "Registered Nurse",
+    "Intensive Care Unit",
+    "ICU",
+    "Bedside intensive care",
+    "Ventilated patients",
+    "Haemodynamically unstable patients",
+    "Mechanical ventilation",
+    "Invasive monitoring",
+    "Vasoactive therapy",
+    "Renal replacement therapy",
+    "CRRT",
+    "SBAR",
+    "Electronic documentation",
+    "Emergency response",
+    "Resuscitation team",
+    "Adult ICU",
+    "Nursing degree",
+    "Nursing registration",
+    "ICU experience",
+    "German recognition",
+    "Anerkennung",
+    "Anpassungslehrgang",
+    "ALS",
+    "Electronic patient records",
+    "ECMO",
+    "Paediatric intensive care",
+    "Wound-management qualification",
+    "3-shift rota",
+    "Academic teaching hospital"
+  ],
+  "seniority_level": null,
+  "company_culture_signals": [
+    "interdisciplinary ICU",
+    "structured onboarding",
+    "International Recruitment Programme",
+    "3-shift rota"
+  ],
+  "language_requirement": "German (B1, commitment to reach B2 within 12 months; B2 preferred)",
+  "education_requirement": "Nursing degree",
+  "jd_language": "en",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Our interdisciplinary ICU (32 beds, levels 2–3) cares for ventilated and post-surgical patients.",
+      "value": 32.0,
+      "value_max": null,
+      "comparator": "exact"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Mentoring of trainees once established.",
+    "emphasis": "balanced"
+  }
+}

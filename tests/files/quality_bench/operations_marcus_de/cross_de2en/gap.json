@@ -1,0 +1,1273 @@
+{
+  "profile_id": "16bf7e89-bfaa-40cf-af7d-8ac40761ab42",
+  "match_score": 0.7222222222222222,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Investment planning"
+  ],
+  "minor_gaps": [
+    "Production management",
+    "Maintenance management",
+    "Lean production",
+    "Continuous improvement",
+    "Manufacturing digitalisation",
+    "SAP",
+    "Packaging industry",
+    "Food industry",
+    "Team scope ~120"
+  ],
+  "strengths": [
+    "Work preparation",
+    "Shopfloor management",
+    "KVP",
+    "OEE",
+    "MES systems",
+    "Machine data acquisition",
+    "Industry 4.0",
+    "Budget responsibility",
+    "Occupational health and safety",
+    "ISO 45001",
+    "Leadership",
+    "SAP PP",
+    "SAP MM",
+    "ISO 9001",
+    "Maintenance",
+    "Multi-shift operation",
+    "5S",
+    "SMED",
+    "MES",
+    "Supply Chain",
+    "Quality"
+  ],
+  "keyword_gaps": [
+    "Head of Operations",
+    "Manufacturing digitalisation",
+    "Investment planning",
+    "Sales",
+    "Food industry",
+    "IFS",
+    "BRC",
+    "Area managers"
+  ],
+  "category_a": [
+    "Work preparation",
+    "Shopfloor management",
+    "KVP",
+    "OEE",
+    "MES",
+    "Machine data acquisition",
+    "Industry 4.0",
+    "Budget responsibility",
+    "Occupational health and safety",
+    "ISO 45001",
+    "Leadership",
+    "SAP PP",
+    "SAP MM",
+    "ISO 9001"
+  ],
+  "category_b": [
+    "Production management",
+    "Maintenance management",
+    "Lean production",
+    "Continuous improvement",
+    "Manufacturing digitalisation",
+    "SAP",
+    "Packaging industry",
+    "Team scope ~120"
+  ],
+  "category_c": [
+    "Investment planning",
+    "Food industry"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "partial",
+      "concept": "Production management",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Production leadership of two manufacturing areas with 38 employees in three-shift operation as Produktionsleiter.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Production management",
+        "Production leadership",
+        "Produktionsleitung"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Produktionsleiter"
+    },
+    {
+      "status": "partial",
+      "concept": "Maintenance management",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Maintenance experience as an industrial mechanic and responsibility for maintenance-related budget costs and material requirements.",
+      "claimable": true,
+      "jd_phrase": "Overall responsibility for production, maintenance and work preparation",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Maintenance management",
+        "Instandhaltungsmanagement",
+        "Maintenance"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Instandhaltung"
+    },
+    {
+      "status": "direct",
+      "concept": "Work preparation",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Experience in Arbeitsvorbereitung, including production scheduling and master-data cleansing for SAP work plans.; Experience in Arbeitsvorbereitung and production scheduling, including SAP work-plan master-data activities.",
+      "claimable": true,
+      "jd_phrase": "Overall responsibility for production, maintenance and work preparation",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Work preparation",
+        "Arbeitsvorbereitung",
+        "Fertigungssteuerung"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Lean production",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Lean Management experience, including 5S, Kaizen, SMED and shopfloor routines in manufacturing.; Lean Management experience with 5S, Kaizen, SMED and shopfloor routines in manufacturing.",
+      "claimable": true,
+      "jd_phrase": "Further development of our lean production (shopfloor management, continuous",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Lean production",
+        "Lean manufacturing",
+        "Lean Management"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Lean Management"
+    },
+    {
+      "status": "direct",
+      "concept": "Shopfloor management",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Introduced Shopfloor-Management and KVP routines and established real-time OEE transparency on the shopfloor board.; Introduced Shopfloor-Management and established real-time OEE reporting on the shopfloor board.",
+      "claimable": true,
+      "jd_phrase": "Proven success with lean methods (5S, SMED, KVP, shopfloor management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Shopfloor management",
+        "Shopfloor-Management"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Continuous improvement",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Implemented KVP/Kaizen routines and improved scrap rate and delivery performance.",
+      "claimable": true,
+      "jd_phrase": "Proven success with lean methods (5S, SMED, KVP, shopfloor management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Continuous improvement",
+        "KVP",
+        "Kaizen",
+        "KVP/Kaizen"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "KVP/Kaizen"
+    },
+    {
+      "status": "direct",
+      "concept": "KVP",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Introduced KVP routines since 2017 and reduced the scrap rate from 4.1% to 2.3%.; Introduced KVP routines since 2017 and improved scrap and delivery performance.",
+      "claimable": true,
+      "jd_phrase": "Proven success with lean methods (5S, SMED, KVP, shopfloor management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "KVP",
+        "KVP/Kaizen",
+        "Kaizen"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "OEE",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Improved OEE in injection moulding from 61% to 73% within 18 months and established real-time OEE reporting.; Increased OEE from 61% to 73% and created real-time OEE transparency on the shopfloor board.",
+      "claimable": true,
+      "jd_phrase": "improvement/KVP, OEE).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "OEE",
+        "Overall Equipment Effectiveness"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Manufacturing digitalisation",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Led MES implementation with machine and operating data acquisition and developed an Industry 4.0 roadmap.; Implemented MES and machine data acquisition and contributed to an Industry 4.0 roadmap.",
+      "claimable": true,
+      "jd_phrase": "Experience with MES systems and/or the digitalisation of manufacturing processes.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Manufacturing digitalisation",
+        "Manufacturing digitisation",
+        "Digitalisierung der Fertigung",
+        "MES",
+        "Industrie 4.0"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "MES; Industrie 4.0"
+    },
+    {
+      "status": "direct",
+      "concept": "MES",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Responsible for MES system selection, pilot line and rollout across two manufacturing areas.; Led MES selection, pilot and rollout across two production areas.",
+      "claimable": true,
+      "jd_phrase": "Experience with MES systems and/or the digitalisation of manufacturing processes.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "MES systems",
+        "MES",
+        "Manufacturing Execution System"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Machine data acquisition",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Managed machine and operating data acquisition for 14 injection moulding machines during MES implementation.; Implemented machine and operating data acquisition for 14 injection moulding machines.",
+      "claimable": true,
+      "jd_phrase": "Driving the digitalisation of manufacturing (MES, machine data acquisition,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Machine data acquisition",
+        "Maschinen- und Betriebsdatenerfassung",
+        "BDE",
+        "MDE"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Industry 4.0",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Co-developed an Industry 4.0 roadmap with company management, with MES embedded in the roadmap.; Co-developed an Industry 4.0 roadmap with company management.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Industry 4.0",
+        "Industrie 4.0",
+        "Industry 4.0 roadmap"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Budget responsibility",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Held budget responsibility of approximately €6 million for personnel, maintenance and material overheads.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Budget responsibility",
+        "Budgetverantwortung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Investment planning",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Investment planning",
+        "Investitionsplanung"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Occupational health and safety",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Reworked risk assessments and the instruction system, supported ISO 45001 certification preparation and reduced LTIF from 8.2 to 3.1.; Experience with risk assessments, employee instruction systems, ISO 45001 preparation and LTIF reduction.",
+      "claimable": true,
+      "jd_phrase": "Responsibility for occupational health and safety and for implementing the",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Occupational health and safety",
+        "Arbeitssicherheit",
+        "Occupational safety"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "ISO 45001",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Supported preparation for ISO 45001 certification in production and reworked risk assessments and the instruction system.; Supported ISO 45001 certification preparation and reworked risk assessments and the instruction system.",
+      "claimable": true,
+      "jd_phrase": "safety management systems (ISO 45001) desirable.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "ISO 45001"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Leadership",
+      "sources": [
+        "required"
+      ],
+      "evidence": "15 years of employee leadership, including production leadership and shift leadership in manufacturing.",
+      "claimable": true,
+      "jd_phrase": "Several years of leadership experience in production at an industrial company",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Leadership",
+        "Mitarbeiterführung",
+        "Führung"
+      ],
+      "evidence_owners": [
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "SAP",
+      "sources": [
+        "required"
+      ],
+      "evidence": "15 years of SAP experience, including daily work with SAP PP and MM and SAP PP key-user responsibilities.",
+      "claimable": true,
+      "jd_phrase": "Confident use of SAP (ideally PP/MM).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SAP",
+        "SAP ERP"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SAP PP",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Daily SAP PP use and SAP PP key-user experience for production orders and confirmations.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "SAP PP",
+        "SAP Production Planning"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SAP MM",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Daily SAP MM use for disposition and purchase requisitions for maintenance materials.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "SAP MM",
+        "SAP Materials Management"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "ISO 9001",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Ten years of ISO 9001 audit practice and responsibility for the area during annual audits.; Ten years of ISO 9001 audit practice and area responsibility during annual audits.",
+      "claimable": true,
+      "jd_phrase": "Knowledge of the ISO 9001 quality standard;",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "ISO 9001"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "IFS",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "IFS",
+        "IFS Food"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "BRC",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "BRC",
+        "BRCGS"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Packaging industry",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Experience with hygiene and documentation discipline in the production of cosmetic packaging in a cleanroom area.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Packaging industry",
+        "Packaging manufacturing",
+        "Verpackungsindustrie"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Kosmetik-Verpackungen"
+    },
+    {
+      "status": "gap",
+      "concept": "Food industry",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Food industry",
+        "Lebensmittelindustrie",
+        "Food manufacturing"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Head of Operations",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Production leadership experience and repeated deputy responsibility for the overall site with approximately 90 employees.",
+      "claimable": true,
+      "jd_phrase": "Head of Operations (m/f/d)",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Head of Operations",
+        "Betriebsleiter",
+        "Operations Director"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Produktionsleiter"
+    },
+    {
+      "status": "gap",
+      "concept": "Production",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Several years of leadership experience in production at an industrial company",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Production",
+        "Produktion",
+        "Manufacturing"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Maintenance",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Worked as an industrial mechanic and foreman in maintenance and currently manages maintenance-related budget and material topics.",
+      "claimable": true,
+      "jd_phrase": "Overall responsibility for production, maintenance and work preparation",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Maintenance",
+        "Instandhaltung",
+        "Maintenance operations"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Multi-shift operation",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Responsible for two manufacturing areas with 38 employees operating in a three-shift system.",
+      "claimable": true,
+      "jd_phrase": "120 employees, multi-shift operation) at the Koblenz site.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Multi-shift operation",
+        "Three-shift operation",
+        "Dreischichtbetrieb",
+        "Mehrschichtbetrieb"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "5S",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Six years of confirmed 5S experience and moderation of 5S workshops.",
+      "claimable": true,
+      "jd_phrase": "Proven success with lean methods (5S, SMED, KVP, shopfloor management).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "5S",
+        "5S methodology"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SMED",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Ten years of confirmed SMED experience and use of SMED setup workshops to improve delivery performance.",
+      "claimable": true,
+      "jd_phrase": "Proven success with lean methods (5S, SMED, KVP, shopfloor management).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "SMED",
+        "Single-Minute Exchange of Die",
+        "Changeover reduction"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Budget planning",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Budget planning and responsibility for approximately €6 million covering personnel, maintenance and material overheads.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Budget planning",
+        "Budgetplanung",
+        "Budget responsibility"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Supply Chain",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Worked at the interface with Supply Chain in the Produktionsleiter role.",
+      "claimable": true,
+      "jd_phrase": "Close cooperation with Supply Chain, Quality and Sales.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Supply Chain",
+        "Supply Chain Management",
+        "Lieferkette"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Quality",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Worked with quality assurance, handled customer complaint escalations and held ISO 9001 area responsibility.",
+      "claimable": true,
+      "jd_phrase": "Rheinwerk Verpackungen manufactures high-quality plastic and composite packaging for",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Quality",
+        "Quality assurance",
+        "Qualität",
+        "Qualitätssicherung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Sales",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Sales",
+        "Vertrieb",
+        "Sales management"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Packaging",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Experience in the packaging or food industry (IFS/BRC) an advantage.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Packaging",
+        "Packaging industry",
+        "Verpackung",
+        "Verpackungsindustrie"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Shift managers",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Held the role of Fertigungsmeister / Schichtleiter and led a shift with 14 employees.",
+      "claimable": true,
+      "jd_phrase": "Leadership and development of the shift managers and area managers.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Shift managers",
+        "Shift leader",
+        "Schichtleiter",
+        "Schichtführung"
+      ],
+      "evidence_owners": [
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Schichtleiter"
+    },
+    {
+      "status": "partial",
+      "concept": "Area managers",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Led two production areas as Produktionsleiter and held area responsibility for ISO 9001 audits.",
+      "claimable": true,
+      "jd_phrase": "Leadership and development of the shift managers and area managers.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Area managers",
+        "Area management",
+        "Bereichsleiter",
+        "Bereichsverantwortung"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Produktionsleiter"
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Overall responsibility for production, maintenance and work preparation (Arbeitsvorbereitung) (approx. 120 employees, multi-shift operation) at the Koblenz site.",
+        "value": 120.0,
+        "attested": {
+          "unit": "site headcount covered as deputy",
+          "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+          "quote": "In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück."
+        },
+        "value_max": null,
+        "comparator": "approx",
+        "cited_entry": null,
+        "candidate_values": [
+          {
+            "unit": null,
+            "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+            "value": 38,
+            "semantics": "size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'",
+            "provenance": "derived"
+          },
+          {
+            "unit": null,
+            "entry": "Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH",
+            "value": 14,
+            "semantics": "size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'",
+            "provenance": "derived"
+          }
+        ]
+      },
+      "status": "partial",
+      "concept": "Team scope ~120",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Overall responsibility for production, maintenance and work preparation (Arbeitsvorbereitung) (approx. 120 employees, multi-shift operation) at the Koblenz site.\". Vault: 38 (Produktionsleiter @ Weberit Kunststofftechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'); 14 (Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Attested (site headcount covered as deputy): \"In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück.\" (Produktionsleiter @ Weberit Kunststofftechnik GmbH). Judgement: The job requires responsibility for approximately 120 employees. The candidate's typed values measure the team led in individual roles: 38 employees as Produktionsleiter and 14 employees as Fertigungsmeister / Schichtleiter. These are below 120 and are not documented as total organisational span. The prose additionally states temporary deputy leadership of a site with around 90 employees, which remains below the stated bar.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "64acecff3e5c57012874a52d48765605cb5e2c32d5b97688e699554456c82e49",
+  "gap_inputs_fingerprint": "7da9fdd70e7046e0eaee2a3a06287f1490a53d9e006c7dc3e71530b0c69864ed",
+  "gap_clusters": [
+    {
+      "id": "cluster-production-operations",
+      "gaps": [
+        "Production",
+        "Production management",
+        "Work preparation",
+        "Team scope ~120"
+      ],
+      "label": "Production Operations",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Production management",
+        "Work preparation",
+        "Shopfloor management",
+        "Leadership"
+      ],
+      "jd_context": "I need strong production operations capabilities to organize shopfloor execution, coordinate work preparation, and lead a large production team."
+    },
+    {
+      "id": "cluster-maintenance-reliability",
+      "gaps": [
+        "Maintenance management"
+      ],
+      "label": "Maintenance Management",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Maintenance management"
+      ],
+      "jd_context": "I need maintenance management expertise to ensure reliable equipment performance and stable production availability."
+    },
+    {
+      "id": "cluster-lean-continuous-improvement",
+      "gaps": [
+        "Lean production",
+        "Continuous improvement"
+      ],
+      "label": "Lean Improvement",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Lean production",
+        "Continuous improvement",
+        "KVP",
+        "OEE"
+      ],
+      "jd_context": "I need lean and continuous improvement skills to increase efficiency, reduce losses, and improve operational performance."
+    },
+    {
+      "id": "cluster-manufacturing-digitalisation",
+      "gaps": [
+        "Manufacturing digitalisation"
+      ],
+      "label": "Manufacturing Digitalisation",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Manufacturing digitalisation",
+        "MES systems",
+        "Machine data acquisition",
+        "Industry 4.0"
+      ],
+      "jd_context": "I need manufacturing digitalisation expertise to use connected systems and production data for better operational decisions."
+    },
+    {
+      "id": "cluster-sap-systems",
+      "gaps": [
+        "SAP"
+      ],
+      "label": "SAP Systems",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "SAP",
+        "SAP PP",
+        "SAP MM"
+      ],
+      "jd_context": "I need SAP knowledge to support integrated planning, materials management, and production processes."
+    },
+    {
+      "id": "cluster-investment-budgeting",
+      "gaps": [
+        "Investment planning"
+      ],
+      "label": "Investment Planning",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Investment planning",
+        "Budget responsibility"
+      ],
+      "jd_context": "I need investment planning capability to evaluate and prioritize production-related investments within budget responsibility."
+    },
+    {
+      "id": "cluster-industry-market-knowledge",
+      "gaps": [
+        "Food industry",
+        "Packaging industry"
+      ],
+      "label": "Industry Knowledge",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Food industry",
+        "Packaging industry"
+      ],
+      "jd_context": "I need food and packaging industry knowledge to understand the sector-specific operational, quality, and compliance requirements of the role."
+    },
+    {
+      "id": "cluster-sales-commercial",
+      "gaps": [
+        "Sales"
+      ],
+      "label": "Commercial Understanding",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [],
+      "jd_context": "I need commercial understanding to connect production priorities with customer and business requirements."
+    },
+    {
+      "id": "cluster-packaging-processes",
+      "gaps": [
+        "Packaging"
+      ],
+      "label": "Packaging Processes",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Packaging industry"
+      ],
+      "jd_context": "I need packaging process knowledge to manage production activities in a packaging-focused manufacturing environment."
+    },
+    {
+      "id": "cluster-workplace-safety",
+      "gaps": [
+        "Occupational health and safety"
+      ],
+      "label": "Occupational Safety",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Occupational health and safety",
+        "ISO 45001"
+      ],
+      "jd_context": "I need occupational safety expertise to protect employees and maintain compliance with workplace safety standards."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Production leadership of two manufacturing areas with 38 employees in three-shift operation as Produktionsleiter.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Production management"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Maintenance experience as an industrial mechanic and responsibility for maintenance-related budget costs and material requirements.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Maintenance management"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Experience in Arbeitsvorbereitung, including production scheduling and master-data cleansing for SAP work plans.; Experience in Arbeitsvorbereitung and production scheduling, including SAP work-plan master-data activities.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Work preparation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Lean Management experience, including 5S, Kaizen, SMED and shopfloor routines in manufacturing.; Lean Management experience with 5S, Kaizen, SMED and shopfloor routines in manufacturing.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Lean production"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Introduced Shopfloor-Management and KVP routines and established real-time OEE transparency on the shopfloor board.; Introduced Shopfloor-Management and established real-time OEE reporting on the shopfloor board.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Shopfloor management"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Implemented KVP/Kaizen routines and improved scrap rate and delivery performance.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Continuous improvement"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Introduced KVP routines since 2017 and reduced the scrap rate from 4.1% to 2.3%.; Introduced KVP routines since 2017 and improved scrap and delivery performance.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "KVP"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Improved OEE in injection moulding from 61% to 73% within 18 months and established real-time OEE reporting.; Increased OEE from 61% to 73% and created real-time OEE transparency on the shopfloor board.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "OEE"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Led MES implementation with machine and operating data acquisition and developed an Industry 4.0 roadmap.; Implemented MES and machine data acquisition and contributed to an Industry 4.0 roadmap.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Manufacturing digitalisation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Responsible for MES system selection, pilot line and rollout across two manufacturing areas.; Led MES selection, pilot and rollout across two production areas.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "MES"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Managed machine and operating data acquisition for 14 injection moulding machines during MES implementation.; Implemented machine and operating data acquisition for 14 injection moulding machines.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Machine data acquisition"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Co-developed an Industry 4.0 roadmap with company management, with MES embedded in the roadmap.; Co-developed an Industry 4.0 roadmap with company management.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Industry 4.0"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Held budget responsibility of approximately €6 million for personnel, maintenance and material overheads.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Budget responsibility"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Investment planning"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Reworked risk assessments and the instruction system, supported ISO 45001 certification preparation and reduced LTIF from 8.2 to 3.1.; Experience with risk assessments, employee instruction systems, ISO 45001 preparation and LTIF reduction.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Occupational health and safety"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Supported preparation for ISO 45001 certification in production and reworked risk assessments and the instruction system.; Supported ISO 45001 certification preparation and reworked risk assessments and the instruction system.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "ISO 45001"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "15 years of employee leadership, including production leadership and shift leadership in manufacturing.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Leadership"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "15 years of SAP experience, including daily work with SAP PP and MM and SAP PP key-user responsibilities.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "SAP"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Daily SAP PP use and SAP PP key-user experience for production orders and confirmations.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "SAP PP"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Daily SAP MM use for disposition and purchase requisitions for maintenance materials.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "SAP MM"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Ten years of ISO 9001 audit practice and responsibility for the area during annual audits.; Ten years of ISO 9001 audit practice and area responsibility during annual audits.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "ISO 9001"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "IFS"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "BRC"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "Experience with hygiene and documentation discipline in the production of cosmetic packaging in a cleanroom area.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "Packaging industry"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "",
+      "source": "nice_to_have",
+      "status": "gap",
+      "requirement": "Food industry"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "JD bar (team_size): \"Overall responsibility for production, maintenance and work preparation (Arbeitsvorbereitung) (approx. 120 employees, multi-shift operation) at the Koblenz site.\". Vault: 38 (Produktionsleiter @ Weberit Kunststofftechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'); 14 (Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Attested (site headcount covered as deputy): \"In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück.\" (Produktionsleiter @ Weberit Kunststofftechnik GmbH). Judgement: The job requires responsibility for approximately 120 employees. The candidate's typed values measure the team led in individual roles: 38 employees as Produktionsleiter and 14 employees as Fertigungsmeister / Schichtleiter. These are below 120 and are not documented as total organisational span. The prose additionally states temporary deputy leadership of a site with around 90 employees, which remains below the stated bar.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Team scope ~120"
+    }
+  ]
+}

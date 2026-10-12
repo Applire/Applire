@@ -1,0 +1,929 @@
+{
+  "profile_id": "8636206d-65d6-49a2-9a39-9e11f73822ec",
+  "match_score": 0.696969696969697,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Strukturierte Übergaben",
+    "SBAR",
+    "Reanimation",
+    "Aktive Berufsregistrierung"
+  ],
+  "minor_gaps": [
+    "ECMO",
+    "Pädiatrische Intensivpflege",
+    "Anerkennung der Qualifikation"
+  ],
+  "strengths": [
+    "Pflege am Bett",
+    "Intensivpflege Erwachsener",
+    "Invasives Monitoring",
+    "Vasoaktive Therapie",
+    "Nierenersatzverfahren",
+    "Maschinelle Beatmung",
+    "Elektronische Dokumentation",
+    "Notfallversorgung",
+    "Elektronische Patientenakten",
+    "ALS",
+    "CRRT",
+    "Wundmanagement",
+    "Anleitung von Auszubildenden",
+    "Intensivstation",
+    "Beatmete Patientinnen und Patienten",
+    "Erwachsene Patientinnen und Patienten",
+    "Pflegefachkraft",
+    "Anpassungslehrgang"
+  ],
+  "keyword_gaps": [
+    "Strukturierte Übergaben",
+    "SBAR",
+    "Pädiatrische Intensivpflege",
+    "TVöD",
+    "Internationales Rekrutierungsprogramm",
+    "Anerkennungscoaching"
+  ],
+  "category_a": [
+    "Pflege am Bett",
+    "Intensivpflege Erwachsener",
+    "Invasives Monitoring",
+    "Vasoaktive Therapie",
+    "Nierenersatzverfahren",
+    "Maschinelle Beatmung",
+    "Elektronische Dokumentation",
+    "Notfallversorgung",
+    "Elektronische Patientenakten",
+    "ALS",
+    "Wundmanagement",
+    "Anleitung von Auszubildenden"
+  ],
+  "category_b": [
+    "ECMO",
+    "Anerkennung der Qualifikation"
+  ],
+  "category_c": [
+    "Strukturierte Übergaben",
+    "SBAR",
+    "Reanimation",
+    "Aktive Berufsregistrierung",
+    "Pädiatrische Intensivpflege"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "direct",
+      "concept": "Pflege am Bett",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile shows bedside nursing through named-nurse responsibility for one to two Level 3 patients per shift and bedside care of ventilated and ECMO patients.",
+      "claimable": true,
+      "jd_phrase": "Pflege am Bett auf der Intensivstation für beatmete und hämodynamisch instabile",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Bedside nursing",
+        "Bedside care"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Intensivpflege Erwachsener",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile explicitly names Adult intensive care, with four years of experience, and includes current work in a Level 3 adult intensive care unit.",
+      "claimable": true,
+      "jd_phrase": "Mindestens 3 Jahre Erfahrung in der Intensivpflege Erwachsener.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Adult intensive care",
+        "Critical Care Nursing",
+        "Adult critical care"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Invasives Monitoring",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile explicitly names Invasive monitoring, with five years of experience, including arterial and central venous catheter monitoring.",
+      "claimable": true,
+      "jd_phrase": "Invasives Monitoring, vasoaktive Therapie, Nierenersatzverfahren (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Invasive monitoring",
+        "Arterial monitoring",
+        "CVC monitoring"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Vasoaktive Therapie",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile names Vasoactive infusions, with five years of experience, and describes care involving vasoactive infusions in a Level 3 ICU.",
+      "claimable": true,
+      "jd_phrase": "Invasives Monitoring, vasoaktive Therapie, Nierenersatzverfahren (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Vasoactive infusions",
+        "Vasoactive therapy"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Nierenersatzverfahren",
+      "sources": [
+        "nice_to_have",
+        "required"
+      ],
+      "evidence": "The profile explicitly names CRRT and describes CRRT as part of care for ventilated patients in a Level 3 ICU.; The profile explicitly names CRRT, with five years of experience, and describes CRRT care in a Level 3 ICU.",
+      "claimable": true,
+      "jd_phrase": "Invasives Monitoring, vasoaktive Therapie, Nierenersatzverfahren (CRRT).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Renal replacement therapy",
+        "CRRT",
+        "Continuous renal replacement therapy",
+        "Nierenersatzverfahren"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Maschinelle Beatmung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile names Mechanical Ventilation with six years of experience and Ventilated patient care, including care of ventilated patients in adult intensive care.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Mechanical ventilation",
+        "Ventilated patient care",
+        "Ventilation"
+      ],
+      "evidence_owners": [
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Strukturierte Übergaben",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Structured handovers",
+        "Structured shift handover"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "SBAR",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SBAR communication",
+        "Situation-Background-Assessment-Recommendation"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Elektronische Dokumentation",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile explicitly names Electronic Patient Records and Electronic patient record documentation, with five years of experience.",
+      "claimable": true,
+      "jd_phrase": "Strukturierte Übergaben (SBAR) und elektronische Dokumentation.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Electronic documentation",
+        "Electronic patient record documentation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Notfallversorgung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile names Emergency Response and describes membership of a deteriorating-patient response team and regular participation in a resuscitation team.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Emergency response",
+        "Emergency care",
+        "Deteriorating-patient response"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Reanimation",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Mitwirkung im Notfall- und Reanimationsteam der Station.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Resuscitation",
+        "Code-team participation",
+        "Resus team"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Aktive Berufsregistrierung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Pflegestudium (Nursing Degree) und aktive Berufsregistrierung als Pflegekraft",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Professional registration",
+        "Registered Nurse registration"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Nursing Council of India registration"
+    },
+    {
+      "status": "direct",
+      "concept": "Elektronische Patientenakten",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile explicitly names Electronic Patient Records, with five years of experience, and lists Cerner experience.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Electronic Patient Records",
+        "EPR",
+        "Electronic health records",
+        "Cerner"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "ALS",
+      "sources": [
+        "required"
+      ],
+      "evidence": "The profile lists a confirmed Advanced Life Support (ALS) certification issued by the Resuscitation Council UK in 2024.",
+      "claimable": true,
+      "jd_phrase": "Pflegestudium (Nursing Degree) und aktive Berufsregistrierung als Pflegekraft",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Advanced Life Support",
+        "Advanced Life Support certification"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "ECMO",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "The profile shows ECMO patient care, including priming assistance, circuit observation and bedside care alongside perfusion-trained nurses.",
+      "claimable": true,
+      "jd_phrase": "ECMO-Erfahrung.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "ECMO patient care",
+        "Extracorporeal membrane oxygenation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Pädiatrische Intensivpflege",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Paediatric intensive care",
+        "Pediatric intensive care"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Wundmanagement",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "The profile lists Tissue Viability & Wound Care in Critical Care and describes link-nurse responsibility for pressure-injury prevention and related audit cycles.",
+      "claimable": true,
+      "jd_phrase": "Qualifikation im Wundmanagement.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Wound care",
+        "Tissue viability",
+        "Pressure-injury prevention"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Anleitung von Auszubildenden",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "The profile describes preceptorship of six newly qualified nurses through their first ICU year and teaching a ventilation-basics station.",
+      "claimable": true,
+      "jd_phrase": "Anleitung von Auszubildenden nach erfolgter Einarbeitung.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Preceptorship",
+        "Nurse preceptorship",
+        "Training newly qualified nurses"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Anerkennung der Qualifikation",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "The profile shows a German recognition application with a Defizitbescheid and an Anpassungslehrgang.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Recognition of nursing qualification",
+        "German qualification recognition"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "German recognition application — Defizitbescheid"
+    },
+    {
+      "status": "direct",
+      "concept": "Intensivstation",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile describes current work as Staff Nurse, Adult Intensive Care Unit, in an 18-bed Level 3 adult ICU.",
+      "claimable": true,
+      "jd_phrase": "Pflege am Bett auf der Intensivstation für beatmete und hämodynamisch instabile",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Intensive care unit",
+        "ICU",
+        "Adult ICU"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Beatmete Patientinnen und Patienten",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile explicitly names Ventilated patient care and describes care of ventilated patients in a Level 3 ICU.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Ventilated patient care",
+        "Care of ventilated patients",
+        "Mechanical ventilation"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Hämodynamisch instabile Patientinnen und Patienten",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile shows invasive monitoring, vasoactive infusions and deteriorating-patient response in a Level 3 ICU, which are adjacent capabilities for caring for haemodynamically unstable patients.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Haemodynamically unstable patients",
+        "Hemodynamically unstable patients"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Invasive monitoring; Vasoactive infusions; Deteriorating-patient response"
+    },
+    {
+      "status": "direct",
+      "concept": "Erwachsene Patientinnen und Patienten",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile explicitly names Adult intensive care and describes experience in Level 3 adult and mixed adult intensive care units.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Adult patients",
+        "Adult critical care"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Pflegefachkraft",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile identifies the candidate as Ananya Nair, RN and lists confirmed Registered Nurse qualifications and registration.",
+      "claimable": true,
+      "jd_phrase": "Rhein Klinikum Bonn · Internationales Rekrutierungsprogramm · Vollzeit, Schichtdienst",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Registered Nurse",
+        "RN",
+        "Nurse"
+      ],
+      "evidence_owners": [
+        "St. Aldate's NHS Trust",
+        "Manipal Hospital"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Dreischichtsystem",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile shows shift-based ICU work and night-shift coordination, but does not explicitly name a three-shift system.",
+      "claimable": true,
+      "jd_phrase": "Teamgeist, Belastbarkeit und die Bereitschaft zum Dienst im Dreischichtsystem.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Three-shift system",
+        "Three-shift work",
+        "Rotating shifts"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Shift coordination on nights"
+    },
+    {
+      "status": "direct",
+      "concept": "Anpassungslehrgang",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile lists a confirmed Anpassungslehrgang (adaptation course).",
+      "claimable": true,
+      "jd_phrase": "wir unterstützen Sie dabei (Anpassungslehrgang auch im Haus möglich).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Adaptation course",
+        "Recognition adaptation course"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Reanimationszertifizierung",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile shows confirmed Advanced Life Support (ALS) certification and resuscitation-team experience.",
+      "claimable": true,
+      "jd_phrase": "ALS oder gleichwertige Reanimationszertifizierung.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Resuscitation certification",
+        "ALS certification"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Advanced Life Support (ALS)"
+    },
+    {
+      "status": "gap",
+      "concept": "TVöD",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Tarifvertrag für den öffentlichen Dienst",
+        "German public-sector pay scale"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Internationales Rekrutierungsprogramm",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "International recruitment programme",
+        "International nurse recruitment"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Anerkennungscoaching",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Recognition coaching",
+        "Qualification-recognition support"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Sprachkurse",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The profile shows German language learning and a Goethe-Zertifikat B1, but does not name participation in language courses.",
+      "claimable": true,
+      "jd_phrase": "bezahlte Sprachkurse, Vergütung auf Basis des TVöD.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Language courses",
+        "German language training"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Goethe-Zertifikat B1 (German)"
+    }
+  ],
+  "input_fingerprint": "37138c0481371c3d1699462e1958ad00353b97a85f0a0b4424099a6e46d90c14",
+  "gap_inputs_fingerprint": "f3a39c41fe10a8ba11347a8178524033a856b968c3e963e16a14d93745a8fd3b",
+  "gap_clusters": [
+    {
+      "id": "cluster-intensivpflege",
+      "gaps": [
+        "Pädiatrische Intensivpflege",
+        "Intensivpflege Erwachsener"
+      ],
+      "label": "Intensivpflege",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Intensivpflege Erwachsener",
+        "Pädiatrische Intensivpflege"
+      ],
+      "jd_context": "In dieser Rolle versorge ich intensivpflichtige erwachsene und pädiatrische Patientinnen und Patienten fachgerecht."
+    },
+    {
+      "id": "cluster-reanimation-notfallversorgung",
+      "gaps": [
+        "Reanimation",
+        "ALS"
+      ],
+      "label": "Notfall- und Reanimationsversorgung",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Notfallversorgung",
+        "Reanimation",
+        "ALS"
+      ],
+      "jd_context": "Für die Rolle muss ich Notfallsituationen sicher beherrschen und Reanimationsmaßnahmen nach ALS-Standards durchführen können."
+    },
+    {
+      "id": "cluster-uebergabe-kommunikation",
+      "gaps": [
+        "Strukturierte Übergaben",
+        "SBAR"
+      ],
+      "label": "Strukturierte Kommunikation",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Strukturierte Übergaben",
+        "SBAR"
+      ],
+      "jd_context": "Eine strukturierte Übergabe nach SBAR unterstützt mich dabei, kritische Informationen im Schichtwechsel zuverlässig weiterzugeben."
+    },
+    {
+      "id": "cluster-berufsregistrierung-anerkennung",
+      "gaps": [
+        "Aktive Berufsregistrierung",
+        "Anerkennung der Qualifikation"
+      ],
+      "label": "Berufliche Anerkennung",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Aktive Berufsregistrierung",
+        "Anerkennung der Qualifikation"
+      ],
+      "jd_context": "Für meinen Einsatz benötige ich eine aktive Berufsregistrierung und die formale Anerkennung meiner Qualifikation."
+    },
+    {
+      "id": "cluster-internationale-integration",
+      "gaps": [
+        "Internationales Rekrutierungsprogramm",
+        "Anerkennungscoaching"
+      ],
+      "label": "Internationale Integration",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [],
+      "jd_context": "Das internationale Rekrutierungsprogramm und Anerkennungscoaching erleichtern mir den beruflichen Einstieg und die Integration in den Arbeitgeber."
+    },
+    {
+      "id": "cluster-arbeitsrechtliche-rahmenbedingungen",
+      "gaps": [
+        "TVöD"
+      ],
+      "label": "Tarifliche Rahmenbedingungen",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [],
+      "jd_context": "Kenntnisse des TVöD helfen mir, die arbeitsrechtlichen und tariflichen Rahmenbedingungen der Stelle einzuordnen."
+    },
+    {
+      "id": "cluster-extrakorporale-verfahren",
+      "gaps": [
+        "ECMO"
+      ],
+      "label": "Extrakorporale Therapien",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "ECMO",
+        "CRRT"
+      ],
+      "jd_context": "Für die Versorgung kritisch kranker Patientinnen und Patienten sind Kompetenzen in extrakorporalen Verfahren wie ECMO und CRRT relevant."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile shows bedside nursing through named-nurse responsibility for one to two Level 3 patients per shift and bedside care of ventilated and ECMO patients.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Pflege am Bett"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile explicitly names Adult intensive care, with four years of experience, and includes current work in a Level 3 adult intensive care unit.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Intensivpflege Erwachsener"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile explicitly names Invasive monitoring, with five years of experience, including arterial and central venous catheter monitoring.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Invasives Monitoring"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile names Vasoactive infusions, with five years of experience, and describes care involving vasoactive infusions in a Level 3 ICU.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Vasoaktive Therapie"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile explicitly names CRRT and describes CRRT as part of care for ventilated patients in a Level 3 ICU.; The profile explicitly names CRRT, with five years of experience, and describes CRRT care in a Level 3 ICU.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Nierenersatzverfahren"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile names Mechanical Ventilation with six years of experience and Ventilated patient care, including care of ventilated patients in adult intensive care.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Maschinelle Beatmung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Strukturierte Übergaben"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "SBAR"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile explicitly names Electronic Patient Records and Electronic patient record documentation, with five years of experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Elektronische Dokumentation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile names Emergency Response and describes membership of a deteriorating-patient response team and regular participation in a resuscitation team.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Notfallversorgung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Reanimation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Aktive Berufsregistrierung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile explicitly names Electronic Patient Records, with five years of experience, and lists Cerner experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Elektronische Patientenakten"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "The profile lists a confirmed Advanced Life Support (ALS) certification issued by the Resuscitation Council UK in 2024.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "ALS"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "The profile shows ECMO patient care, including priming assistance, circuit observation and bedside care alongside perfusion-trained nurses.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "ECMO"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "nice_to_have",
+      "status": "gap",
+      "requirement": "Pädiatrische Intensivpflege"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "The profile lists Tissue Viability & Wound Care in Critical Care and describes link-nurse responsibility for pressure-injury prevention and related audit cycles.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Wundmanagement"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "The profile describes preceptorship of six newly qualified nurses through their first ICU year and teaching a ventilation-basics station.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Anleitung von Auszubildenden"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "The profile shows a German recognition application with a Defizitbescheid and an Anpassungslehrgang.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "Anerkennung der Qualifikation"
+    }
+  ]
+}

@@ -1,0 +1,1653 @@
+{
+  "profile_id": "af442873-492b-45e1-a97a-57e2d351a790",
+  "match_score": 0.45714285714285713,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Backend engineering",
+    "Auditability",
+    "Exactly-once processing",
+    "Incident reviews",
+    "Technical mentoring",
+    "Payments",
+    "PSD2",
+    "PCI DSS",
+    "Regulated environments",
+    "RFCs",
+    "ADRs",
+    "Hiring interviews",
+    "Team scope ~30",
+    "Team scope 4",
+    "Team scope 4"
+  ],
+  "minor_gaps": [
+    "Architecture",
+    "On-call design",
+    "Security engineering",
+    "Cross-team technical leadership"
+  ],
+  "strengths": [
+    "Python",
+    "FastAPI",
+    "Django",
+    "PostgreSQL",
+    "Financial data",
+    "Idempotency",
+    "Apache Kafka",
+    "Kubernetes",
+    "EKS",
+    "GitOps",
+    "Infrastructure as Code",
+    "Observability",
+    "SLOs",
+    "Error budgets",
+    "Idempotent processing",
+    "On-call",
+    "Production incidents",
+    "Checkout",
+    "Senior engineers"
+  ],
+  "keyword_gaps": [
+    "Auditability",
+    "Exactly-once processing",
+    "Incident reviews",
+    "PSD2",
+    "BaFin",
+    "PCI DSS",
+    "Regulated environments",
+    "RFCs",
+    "ADRs",
+    "Hiring interviews",
+    "Settlement",
+    "Payment institution",
+    "European e-commerce",
+    "Settlement events",
+    "Payout rails",
+    "Target architecture",
+    "Hiring decisions",
+    "Interview loops",
+    "Major incidents"
+  ],
+  "category_a": [
+    "Python",
+    "FastAPI",
+    "Django",
+    "PostgreSQL",
+    "Financial data",
+    "Idempotency",
+    "Apache Kafka",
+    "Kubernetes",
+    "EKS",
+    "GitOps",
+    "Infrastructure as Code",
+    "Observability",
+    "SLOs",
+    "Error budgets"
+  ],
+  "category_b": [
+    "Architecture",
+    "On-call design",
+    "Security engineering",
+    "Cross-team technical leadership"
+  ],
+  "category_c": [
+    "Backend engineering",
+    "Auditability",
+    "Exactly-once processing",
+    "Incident reviews",
+    "Technical mentoring",
+    "Payments",
+    "PSD2",
+    "PCI DSS",
+    "Regulated environments",
+    "RFCs",
+    "ADRs",
+    "Hiring interviews",
+    "Team scope ~30",
+    "Team scope 4",
+    "Team scope 4"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "gap",
+      "concept": "Backend engineering",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "8+ years of professional backend engineering, deep Python expertise (FastAPI or Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Backend development",
+        "Backend software engineering"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "designing and operating Python"
+    },
+    {
+      "status": "direct",
+      "concept": "Python",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Python is named in the profile with 11 years of experience.",
+      "claimable": true,
+      "jd_phrase": "8+ years of professional backend engineering, deep Python expertise (FastAPI or Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Python development"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH",
+        "DATIS IT-Services"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "FastAPI",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Migrated two services from Flask to FastAPI and operates FastAPI services.",
+      "claimable": true,
+      "jd_phrase": "8+ years of professional backend engineering, deep Python expertise (FastAPI or Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "FastAPI development"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Django",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Django is named in the profile with 6 years of experience.",
+      "claimable": true,
+      "jd_phrase": "8+ years of professional backend engineering, deep Python expertise (FastAPI or Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Django development"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Architecture",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Runs design reviews and designed production backend and event-processing solutions.; Designed backend services, event pipelines and a migration to Kubernetes on EKS.",
+      "claimable": true,
+      "jd_phrase": "You own its architecture, raise the engineering bar for senior engineers and tech leads, and",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Architecture decision-making",
+        "Technical design decisions",
+        "Software architecture",
+        "System architecture"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "REST API design"
+    },
+    {
+      "status": "direct",
+      "concept": "PostgreSQL",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "PostgreSQL is named in the profile with 9 years of experience.",
+      "claimable": true,
+      "jd_phrase": "Expert PostgreSQL experience for financial data (auditability, idempotency, performance",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Postgres"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Financial data",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Financial data modelling and idempotent financial data handling are named in the profile.",
+      "claimable": true,
+      "jd_phrase": "Expert PostgreSQL experience for financial data (auditability, idempotency, performance",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Financial data modelling",
+        "Financial data processing"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Auditability",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Audit trails",
+        "Audit logging"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Idempotency",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Idempotency is named in the profile; implemented idempotent Kafka consumers so replays did not double-bill.; Implemented idempotent Kafka consumers with PostgreSQL offset bookkeeping so replays did not double-bill.",
+      "claimable": true,
+      "jd_phrase": "Production experience with Apache Kafka at scale (exactly-once or idempotent processing).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Idempotent processing",
+        "Idempotent consumers",
+        "Idempotency"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Apache Kafka",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Apache Kafka is named in the profile with 6 years of experience; designed and operated a production event pipeline.",
+      "claimable": true,
+      "jd_phrase": "Production experience with Apache Kafka at scale (exactly-once or idempotent processing).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Kafka"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Exactly-once processing",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Exactly-once semantics",
+        "Exactly once delivery"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Kubernetes",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Kubernetes is named in the profile and the candidate led migration of 12 services to Kubernetes.",
+      "claimable": true,
+      "jd_phrase": "Led Kubernetes adoption or platform work in production (EKS, GitOps, IaC).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "K8s"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "EKS",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Amazon EKS is named in the profile; led migration of 12 services to EKS.",
+      "claimable": true,
+      "jd_phrase": "Led Kubernetes adoption or platform work in production (EKS, GitOps, IaC).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Amazon EKS"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "GitOps",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Introduced ArgoCD GitOps during the migration to EKS.",
+      "claimable": true,
+      "jd_phrase": "Led Kubernetes adoption or platform work in production (EKS, GitOps, IaC).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "ArgoCD GitOps"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Infrastructure as Code",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Infrastructure as code is named in the profile and supported by the Kubernetes, Helm and ArgoCD migration work.",
+      "claimable": true,
+      "jd_phrase": "Led Kubernetes adoption or platform work in production (EKS, GitOps, IaC).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "IaC",
+        "Infrastructure-as-code"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Observability",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Built Prometheus and Grafana dashboards, RED metrics, SLOs, error budgets and alert routing.",
+      "claimable": true,
+      "jd_phrase": "Observability and SLO practice that you have rolled out across several teams.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Monitoring",
+        "Prometheus",
+        "Grafana"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SLOs",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Defined SLOs for the tracking API with a 99.9% availability target.",
+      "claimable": true,
+      "jd_phrase": "SLOs and error budgets, incident-review culture,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Service-level objectives",
+        "Service level objectives"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Error budgets",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Defined error budgets for the tracking API alongside its SLOs.",
+      "claimable": true,
+      "jd_phrase": "SLOs and error budgets, incident-review culture,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Error budget management"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Incident reviews",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Post-incident reviews",
+        "Blameless postmortems"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "On-call design",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Participated in on-call rotations, wrote an incident runbook and built alert routing.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "On-call strategy",
+        "On-call operations design"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Incident management"
+    },
+    {
+      "status": "gap",
+      "concept": "Technical mentoring",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Engineering mentoring",
+        "Developer mentoring"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Payments",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "NovaPay operates a payments platform for European e-commerce merchants:",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Payment processing",
+        "Payment systems",
+        "Payment platform",
+        "Payments infrastructure"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "PSD2",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Payment Services Directive 2"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "BaFin",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "BaFin supervision"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "PCI DSS",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "PCI-DSS",
+        "Payment Card Industry Data Security Standard"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Regulated environments",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Regulated environment experience",
+        "Regulated financial services"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Security engineering",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Fixed authentication issues involving session fixation and IDOR and works with least-privilege IAM.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Application security",
+        "Secure software engineering"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Least-privilege IAM"
+    },
+    {
+      "status": "gap",
+      "concept": "RFCs",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Request for Comments documents"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "ADRs",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Architecture Decision Records"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Cross-team technical leadership",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Runs design reviews, mentors engineers and introduced contract tests between the API and three consumer teams.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Cross-team engineering leadership",
+        "Technical leadership across teams"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "REST API design"
+    },
+    {
+      "status": "gap",
+      "concept": "Hiring interviews",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Technical interviewing",
+        "Hiring interviews"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "Crypto settlement rails",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Cryptocurrency settlement",
+        "Crypto payment rails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "Blockchain settlement rails",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Blockchain settlement",
+        "On-chain settlement rails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Staff Backend Engineer",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Currently works as a Senior Backend Engineer with 8 years of backend engineering experience.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Staff-level backend engineer",
+        "Staff software engineer"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Senior Backend Engineer"
+    },
+    {
+      "status": "gap",
+      "concept": "Settlement",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Settlement processing",
+        "Financial settlement"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Payouts",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Payout processing",
+        "Payout reconciliation"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Payment institution",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Payment service provider",
+        "Payment institution environment"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "European e-commerce",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "European e-commerce",
+        "European online commerce"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Checkout",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Integrated a Stripe-based subscription checkout.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Payment checkout",
+        "Checkout integration"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Settlement events",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Designed and ran a Kafka shipment order-event pipeline with tracking state changes consumed by billing and notifications.",
+      "claimable": true,
+      "jd_phrase": "exactly-once settlement events on",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Settlement event processing",
+        "Settlement-domain events"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Apache Kafka"
+    },
+    {
+      "status": "denied",
+      "concept": "Payout rails",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Payout rail processing",
+        "Payment payout rails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Target architecture",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Led the target-state migration of 12 services from ECS to Kubernetes on EKS.",
+      "claimable": true,
+      "jd_phrase": "Define and own the target architecture of the settlement domain across four teams;",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Target-state architecture",
+        "Future-state architecture"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Kubernetes"
+    },
+    {
+      "status": "partial",
+      "concept": "Technical direction",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Leads design reviews and made technical decisions for backend, event-processing and infrastructure migrations.",
+      "claimable": true,
+      "jd_phrase": "You set the technical direction of our settlement and payout domain across all four teams.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Technical strategy",
+        "Engineering direction"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "REST API design"
+    },
+    {
+      "status": "partial",
+      "concept": "Cross-team initiatives",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Introduced contract tests between the tracking API and three consumer teams and operated integrations across billing and notification services.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Cross-team engineering initiatives",
+        "Multi-team initiatives"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Contract testing"
+    },
+    {
+      "status": "gap",
+      "concept": "Reliability",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Set reliability standards across teams:",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Service reliability",
+        "Production reliability"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "double-billing during replays"
+    },
+    {
+      "status": "direct",
+      "concept": "On-call",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Participated in on-call rotation for production services and wrote the incident runbook.",
+      "claimable": true,
+      "jd_phrase": "on-call design.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "On-call rotation",
+        "On-call operations"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Production incidents",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Handled production on-call, wrote an incident runbook and fixed externally reported authentication issues.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Production incident management",
+        "Incident response"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "Regulatory requirements",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Regulatory compliance requirements",
+        "Regulatory obligations"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "Compliance",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Compliance controls",
+        "Regulatory compliance"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "Regulated financial data",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Regulated financial information",
+        "Regulated payment data"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Engineering Managers",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Mentors engineers and runs design reviews, providing relevant collaboration with engineering leadership.",
+      "claimable": true,
+      "jd_phrase": "work with Engineering Managers, product, SRE and compliance.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Engineering management",
+        "Engineering managers"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Mentoring"
+    },
+    {
+      "status": "partial",
+      "concept": "Tech leads",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Leads design reviews and owns backend and infrastructure initiatives as a Senior Backend Engineer.",
+      "claimable": true,
+      "jd_phrase": "You own its architecture, raise the engineering bar for senior engineers and tech leads, and",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Technical leads",
+        "Tech leadership"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Senior Backend Engineer"
+    },
+    {
+      "status": "direct",
+      "concept": "Senior engineers",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "The current role is Senior Backend Engineer.",
+      "claimable": true,
+      "jd_phrase": "You own its architecture, raise the engineering bar for senior engineers and tech leads, and",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Senior Backend Engineer",
+        "Senior software engineers"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Hiring decisions",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Hiring decisions",
+        "Interview-based hiring decisions"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Interview loops",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Technical interview loops",
+        "Hiring interview loops"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Major incidents",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Handled production on-call, wrote an incident runbook and fixed externally reported authentication issues.",
+      "claimable": true,
+      "jd_phrase": "write and review critical code and lead the response to major incidents.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Major incident management",
+        "Critical incident response"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Incident management"
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Engineering is organised in four product teams (about 30 engineers) around the settlement domain.",
+        "value": 30.0,
+        "attested": null,
+        "value_max": null,
+        "comparator": "approx",
+        "cited_entry": null,
+        "candidate_values": []
+      },
+      "status": "gap",
+      "concept": "Team scope ~30",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Engineering is organised in four product teams (about 30 engineers) around the settlement domain.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "You set the technical direction of our settlement and payout domain across all four teams.",
+        "value": 4.0,
+        "attested": null,
+        "value_max": null,
+        "comparator": "exact",
+        "cited_entry": null,
+        "candidate_values": []
+      },
+      "status": "gap",
+      "concept": "Team scope 4",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"You set the technical direction of our settlement and payout domain across all four teams.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Define and own the target architecture of the settlement domain across four teams; write RFCs/ADRs and drive them to adoption without line authority.",
+        "value": 4.0,
+        "attested": null,
+        "value_max": null,
+        "comparator": "exact",
+        "cited_entry": null,
+        "candidate_values": []
+      },
+      "status": "gap",
+      "concept": "Team scope 4",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Define and own the target architecture of the settlement domain across four teams; write RFCs/ADRs and drive them to adoption without line authority.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "9831c6e714b54ff26dc0e1e00647ecf38ad989925c4c10f242932a60baf63377",
+  "gap_inputs_fingerprint": "d0b1fbeb11d16fe74237cfe6f6d0b524aae45dd5700e8873f8165aec34e54b71",
+  "gap_clusters": [
+    {
+      "id": "cluster-backend-architecture",
+      "gaps": [
+        "Backend engineering",
+        "Architecture",
+        "RFCs",
+        "ADRs"
+      ],
+      "label": "Backend Architecture",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Backend engineering",
+        "Architecture decisions",
+        "RFCs",
+        "ADRs"
+      ],
+      "jd_context": "I need strong backend architecture and decision-making practices to design maintainable systems for this role."
+    },
+    {
+      "id": "cluster-payment-compliance",
+      "gaps": [
+        "Payments",
+        "PSD2",
+        "PCI DSS",
+        "Regulated environments",
+        "Payment institution",
+        "European e-commerce"
+      ],
+      "label": "Payments Compliance",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Payments",
+        "PSD2",
+        "BaFin",
+        "PCI DSS",
+        "Regulated environments"
+      ],
+      "jd_context": "I need payments and regulatory expertise to build compliant services for a European e-commerce and payment-institution environment."
+    },
+    {
+      "id": "cluster-payment-operations",
+      "gaps": [
+        "Settlement",
+        "Payouts"
+      ],
+      "label": "Settlement And Payouts",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Payments",
+        "Financial data"
+      ],
+      "jd_context": "I need settlement and payout knowledge to support accurate financial flows and operational outcomes."
+    },
+    {
+      "id": "cluster-reliable-processing",
+      "gaps": [
+        "Auditability",
+        "Exactly-once processing",
+        "Reliability"
+      ],
+      "label": "Reliable Event Processing",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Auditability",
+        "Idempotency",
+        "Apache Kafka",
+        "Exactly-once processing"
+      ],
+      "jd_context": "I need reliable, auditable event processing to protect financial correctness and operational trust."
+    },
+    {
+      "id": "cluster-platform-operations",
+      "gaps": [
+        "Infrastructure as Code",
+        "On-call design"
+      ],
+      "label": "Platform Operations",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Kubernetes",
+        "EKS",
+        "GitOps",
+        "Infrastructure as Code",
+        "Observability",
+        "SLOs",
+        "Error budgets",
+        "On-call design"
+      ],
+      "jd_context": "I need robust platform and on-call practices to operate production services safely and consistently."
+    },
+    {
+      "id": "cluster-security-engineering",
+      "gaps": [
+        "Security engineering"
+      ],
+      "label": "Security Engineering",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Security engineering",
+        "PCI DSS",
+        "Regulated environments"
+      ],
+      "jd_context": "I need security engineering capability to protect systems and meet stringent compliance expectations."
+    },
+    {
+      "id": "cluster-incident-management",
+      "gaps": [
+        "Incident reviews"
+      ],
+      "label": "Incident Learning",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Incident reviews",
+        "Observability",
+        "SLOs",
+        "Error budgets"
+      ],
+      "jd_context": "I need structured incident reviews to improve reliability and prevent recurring production failures."
+    },
+    {
+      "id": "cluster-technical-leadership",
+      "gaps": [
+        "Technical mentoring",
+        "Cross-team technical leadership"
+      ],
+      "label": "Technical Leadership",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Technical mentoring",
+        "Cross-team technical leadership"
+      ],
+      "jd_context": "I need technical leadership and mentoring skills to align teams and raise engineering effectiveness."
+    },
+    {
+      "id": "cluster-hiring-team-scale",
+      "gaps": [
+        "Hiring interviews",
+        "Team scope ~30",
+        "Team scope 4",
+        "Hiring decisions",
+        "Interview loops"
+      ],
+      "label": "Hiring And Team Scale",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Hiring interviews"
+      ],
+      "jd_context": "I need hiring and team-scaling experience to build effective teams and make consistent talent decisions."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Backend engineering"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Python is named in the profile with 11 years of experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Python"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Migrated two services from Flask to FastAPI and operates FastAPI services.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "FastAPI"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Django is named in the profile with 6 years of experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Django"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Runs design reviews and designed production backend and event-processing solutions.; Designed backend services, event pipelines and a migration to Kubernetes on EKS.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Architecture"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "PostgreSQL is named in the profile with 9 years of experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "PostgreSQL"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Financial data modelling and idempotent financial data handling are named in the profile.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Financial data"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Auditability"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Idempotency is named in the profile; implemented idempotent Kafka consumers so replays did not double-bill.; Implemented idempotent Kafka consumers with PostgreSQL offset bookkeeping so replays did not double-bill.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Idempotency"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Apache Kafka is named in the profile with 6 years of experience; designed and operated a production event pipeline.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Apache Kafka"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Exactly-once processing"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Kubernetes is named in the profile and the candidate led migration of 12 services to Kubernetes.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Kubernetes"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Amazon EKS is named in the profile; led migration of 12 services to EKS.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "EKS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Introduced ArgoCD GitOps during the migration to EKS.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "GitOps"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Infrastructure as code is named in the profile and supported by the Kubernetes, Helm and ArgoCD migration work.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Infrastructure as Code"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Built Prometheus and Grafana dashboards, RED metrics, SLOs, error budgets and alert routing.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Observability"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Defined SLOs for the tracking API with a 99.9% availability target.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "SLOs"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Defined error budgets for the tracking API alongside its SLOs.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Error budgets"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Incident reviews"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Participated in on-call rotations, wrote an incident runbook and built alert routing.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "On-call design"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Technical mentoring"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Payments"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "PSD2"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "required",
+      "status": "denied",
+      "requirement": "BaFin"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "PCI DSS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Regulated environments"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Fixed authentication issues involving session fixation and IDOR and works with least-privilege IAM.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Security engineering"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "RFCs"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "ADRs"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Runs design reviews, mentors engineers and introduced contract tests between the API and three consumer teams.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Cross-team technical leadership"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Hiring interviews"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "Crypto settlement rails"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "Blockchain settlement rails"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "JD bar (team_size): \"Engineering is organised in four product teams (about 30 engineers) around the settlement domain.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Team scope ~30"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "JD bar (team_size): \"You set the technical direction of our settlement and payout domain across all four teams.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Team scope 4"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "JD bar (team_size): \"Define and own the target architecture of the settlement domain across four teams; write RFCs/ADRs and drive them to adoption without line authority.\". Vault: no typed vault value. Judgement: No typed candidate team-size value is provided, and no quantified team span is attested in work-entry prose.",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Team scope 4"
+    }
+  ]
+}

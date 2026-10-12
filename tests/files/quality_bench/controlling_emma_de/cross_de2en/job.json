@@ -1,0 +1,70 @@
+{
+  "role_title": "Senior Controller (m/f/d)",
+  "company_name": "Arnold Antriebstechnik GmbH",
+  "required_skills": [
+    "Financial reporting",
+    "HGB",
+    "German GAAP",
+    "Group consolidation",
+    "Management reporting",
+    "Power BI",
+    "Budgeting",
+    "Rolling forecast",
+    "Production controlling",
+    "Project controlling",
+    "Percentage-of-completion",
+    "SAP CO/FI",
+    "Cost accounting",
+    "Investment decisions",
+    "Make-or-buy decisions"
+  ],
+  "nice_to_have_skills": [
+    "IFRS",
+    "LucaNet",
+    "Consolidation software",
+    "US GAAP",
+    "Leadership experience"
+  ],
+  "keywords": [
+    "Controlling",
+    "Industrial company",
+    "Financial statements",
+    "Management reporting",
+    "Self-service dashboards",
+    "Sales",
+    "Production",
+    "Executive management",
+    "Plant engineering",
+    "POC valuation",
+    "Group level",
+    "SAP",
+    "BI tool",
+    "Investment",
+    "Make-or-buy",
+    "Mobile working"
+  ],
+  "seniority_level": "Senior",
+  "company_culture_signals": [
+    "Flexible working hours",
+    "Mobile working",
+    "Training budget",
+    "Canteen"
+  ],
+  "language_requirement": "Very good German and good English",
+  "education_requirement": "Completed university degree in business administration or economics",
+  "jd_language": "en",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Functional (professional) leadership of a small controlling team (2 people) with a development path towards team lead.",
+      "value": 2.0,
+      "value_max": null,
+      "comparator": "exact"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Functional (professional) leadership of a small controlling team (2 people) with a development path towards team lead.",
+    "emphasis": "balanced"
+  }
+}

@@ -1,0 +1,989 @@
+{
+  "profile_id": "4b4269c0-abe3-4b73-bc89-a9d8a6f07d1c",
+  "match_score": 0.7972972972972973,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Project controlling"
+  ],
+  "minor_gaps": [
+    "German GAAP",
+    "Investment decisions",
+    "Consolidation software"
+  ],
+  "strengths": [
+    "Financial reporting",
+    "HGB",
+    "Group consolidation",
+    "Management reporting",
+    "Power BI",
+    "Budgeting",
+    "Rolling forecast",
+    "Production controlling",
+    "Percentage-of-completion",
+    "SAP CO/FI",
+    "Cost accounting",
+    "IFRS",
+    "LucaNet",
+    "Leadership experience",
+    "Controlling",
+    "Industrial company",
+    "Financial statements",
+    "Self-service dashboards",
+    "Sales",
+    "Production",
+    "Executive management",
+    "POC valuation",
+    "SAP",
+    "Investment"
+  ],
+  "keyword_gaps": [
+    "German GAAP",
+    "Make-or-buy decisions",
+    "US GAAP",
+    "Plant engineering",
+    "BI tool",
+    "Make-or-buy",
+    "Mobile working"
+  ],
+  "category_a": [
+    "Financial reporting",
+    "HGB",
+    "Group consolidation",
+    "Management reporting",
+    "Power BI",
+    "Budgeting",
+    "Rolling forecast",
+    "Production",
+    "Percentage-of-completion",
+    "SAP",
+    "Cost accounting",
+    "IFRS",
+    "LucaNet",
+    "Leadership experience",
+    "Team scope 2"
+  ],
+  "category_b": [
+    "German GAAP",
+    "Investment decisions",
+    "Consolidation software"
+  ],
+  "category_c": [
+    "Project controlling"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "direct",
+      "concept": "Financial reporting",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Responsible for monthly closing and HGB reporting, including commentary for management and the advisory board.",
+      "claimable": true,
+      "jd_phrase": "Independent preparation of monthly and annual financial reporting (HGB, German GAAP)",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Financial reporting",
+        "Monatsabschluss und Reporting",
+        "Monats- und Jahresabschluss"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "HGB",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Has managed HGB monthly and annual financial statements since 2019, including auditor coordination.",
+      "claimable": true,
+      "jd_phrase": "Very good knowledge of HGB financial statements (German GAAP) and cost accounting.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "HGB",
+        "HGB-Abschluss"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "German GAAP",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Hands-on experience with HGB monthly and annual financial statements.",
+      "claimable": true,
+      "jd_phrase": "Very good knowledge of HGB financial statements (German GAAP) and cost accounting.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "German GAAP",
+        "HGB"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "HGB-Abschluss"
+    },
+    {
+      "status": "direct",
+      "concept": "Group consolidation",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Responsible for the intercompany reconciliation and equity consolidation subproject during the LucaNet implementation and for preparing consolidated quarterly figures.",
+      "claimable": true,
+      "jd_phrase": "Building up and further developing group consolidation (three companies).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Group consolidation",
+        "Konzernkonsolidierung",
+        "Intercompany reconciliation",
+        "Equity consolidation"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Management reporting",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Transferred management reporting from Excel to Power BI and produces reporting for management covering sales, contribution margins, working capital and plant KPIs.; Implemented management reporting in Power BI with 14 dashboards and reports variance information to management.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Management reporting",
+        "Management-Reporting",
+        "Management reporting dashboards"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Power BI",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Eight years of Power BI experience, including modelling DAX and data models and implementing 14 management dashboards.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Power BI",
+        "Power-BI-Dashboards",
+        "DAX"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Budgeting",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Performs annual planning and budgeting activities for an industrial business.",
+      "claimable": true,
+      "jd_phrase": "Budgeting process and rolling forecast at group level.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Budgeting",
+        "Budgetierung",
+        "Jahresplanung"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Rolling forecast",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Performs rolling forecasts as part of annual planning and variance analysis.",
+      "claimable": true,
+      "jd_phrase": "Budgeting process and rolling forecast at group level.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Rolling forecast",
+        "rollierender Forecast",
+        "Forecasting"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Production",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Eight years of Werkscontrolling for two production sites, including manufacturing costs, contribution margins and inventory valuation.; Performs plant controlling for two production sites and reports production-related plant KPIs.",
+      "claimable": true,
+      "jd_phrase": "Production and project controlling for plant engineering (POC valuation,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Production controlling",
+        "Werkscontrolling",
+        "Plant controlling",
+        "Production",
+        "Produktion",
+        "Produktionsstandorte"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Project controlling",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Production and project controlling for plant engineering (POC valuation,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Project controlling",
+        "Projektcontrolling",
+        "Project reporting"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Percentage-of-completion",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Introduced HGB-compliant valuation of long-term contracts according to percentage of completion and has assessed six major projects monthly since 2022.",
+      "claimable": true,
+      "jd_phrase": "Production and project controlling for plant engineering (POC valuation,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Percentage-of-completion",
+        "POC",
+        "Fertigstellungsgrad",
+        "Percentage-of-completion valuation"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SAP",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Six years of SAP CO/FI experience, including development of cost-center accounting in SAP CO and Key User responsibility for CO/FI.; Uses SAP CO and SAP FI and connected Power BI reporting to SAP data exports.",
+      "claimable": true,
+      "jd_phrase": "Confident use of SAP CO/FI.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SAP CO/FI",
+        "SAP CO",
+        "SAP FI",
+        "CO/FI",
+        "SAP"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Cost accounting",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Developed cost-center accounting in SAP CO and has hands-on experience with manufacturing cost accounting and cost-center and cost-object accounting.",
+      "claimable": true,
+      "jd_phrase": "Very good knowledge of HGB financial statements (German GAAP) and cost accounting.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Cost accounting",
+        "Kostenstellenrechnung",
+        "Kostenträgerrechnung",
+        "Herstellkostenrechnung"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Investment decisions",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Prepared investment calculations for machine procurement.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Investment decisions",
+        "Investitionsentscheidungen",
+        "Investment appraisal"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Investitionsrechnung"
+    },
+    {
+      "status": "denied",
+      "concept": "Make-or-buy",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Make-or-buy decisions",
+        "Make-or-buy-Entscheidungen",
+        "Make-or-buy"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "IFRS",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Has IFRS experience, including IFRS 16 leasing and revenue recognition assessment, supported by an IFRS certificate course.",
+      "claimable": true,
+      "jd_phrase": "Supporting the upcoming switch of selected reporting components to IFRS.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "IFRS",
+        "IFRS 16",
+        "International Financial Reporting Standards"
+      ],
+      "evidence_owners": [
+        "kleine Gruppe (GmbH plus Vertriebsgesellschaft Schweiz)"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "LucaNet",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Responsible for the intercompany reconciliation and equity consolidation subproject during LucaNet implementation and prepares consolidated quarterly figures in LucaNet.",
+      "claimable": true,
+      "jd_phrase": "LucaNet or similar) desirable.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "LucaNet"
+      ],
+      "evidence_owners": [
+        "kleine Gruppe (GmbH plus Vertriebsgesellschaft Schweiz)"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Consolidation software",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Uses LucaNet for intercompany reconciliation, equity consolidation and consolidated quarterly reporting.",
+      "claimable": true,
+      "jd_phrase": "LucaNet or similar) desirable.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Consolidation software",
+        "LucaNet"
+      ],
+      "evidence_owners": [
+        "kleine Gruppe (GmbH plus Vertriebsgesellschaft Schweiz)"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "LucaNet"
+    },
+    {
+      "status": "denied",
+      "concept": "US GAAP",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "US GAAP",
+        "US-GAAP"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Leadership experience",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Provides functional leadership and onboarding support for two working students and a junior controller, including review of their reports and support with closing topics.",
+      "claimable": true,
+      "jd_phrase": "First leadership experience desirable.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Leadership experience",
+        "Fachliche Führung",
+        "Fachliche Anleitung"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Controlling",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Nine years of controlling experience in industrial SMEs, including financial, plant and management controlling.",
+      "claimable": true,
+      "jd_phrase": "Functional (professional) leadership of a small controlling team (2 people) with a",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Controlling"
+      ],
+      "evidence_owners": [
+        "Diehl-Gruppe"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Industrial company",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Works in an industrial SME with production sites and previously worked in mechanical engineering.",
+      "claimable": true,
+      "jd_phrase": "At least 5 years of controlling experience in an industrial company.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Industrial company",
+        "industrieller Mittelstand",
+        "Maschinenbau",
+        "Industrial manufacturing"
+      ],
+      "evidence_owners": [
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Financial statements",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Responsible for HGB monthly and annual financial statements and auditor coordination since 2019.",
+      "claimable": true,
+      "jd_phrase": "Very good knowledge of HGB financial statements (German GAAP) and cost accounting.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Financial statements",
+        "Jahresabschluss",
+        "Monatsabschluss",
+        "HGB-Abschluss"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Self-service dashboards",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Built 14 Power BI dashboards used exclusively by executive management, eliminating monthly PDF report distribution.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Self-service dashboards",
+        "Power-BI-Dashboards",
+        "Management dashboards"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Sales",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Built monthly sales reporting in Excel and includes sales in Power BI dashboards.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Sales",
+        "Vertriebsreporting",
+        "Umsatzreporting"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Executive management",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Provides commentary for management and the advisory board, and executive management uses the Power BI dashboards.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Executive management",
+        "Geschäftsführung",
+        "Management"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "Plant engineering",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Plant engineering",
+        "Anlagenbau"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "POC valuation",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Introduced and performs monthly percentage-of-completion valuation for six major projects under HGB.",
+      "claimable": true,
+      "jd_phrase": "Production and project controlling for plant engineering (POC valuation,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "POC valuation",
+        "POC",
+        "Fertigstellungsgradbewertung",
+        "Percentage-of-completion valuation"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Group level",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Budgeting process and rolling forecast at group level.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Group level",
+        "Konzernebene",
+        "Gruppenebene",
+        "Konzernreporting"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "BI tool",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Uses Power BI to implement management reporting dashboards and data models.",
+      "claimable": true,
+      "jd_phrase": "Expanding our management reporting with Power BI (self-service dashboards for Sales,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "BI tool",
+        "Power BI",
+        "Business intelligence tool"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Power BI"
+    },
+    {
+      "status": "direct",
+      "concept": "Investment",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Prepared investment calculations for machine procurement from 2016 to 2019.",
+      "claimable": true,
+      "jd_phrase": "Sparring partner to executive management on investment and make-or-buy decisions.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Investment",
+        "Investitionsrechnung",
+        "Investment appraisal"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Mobile working",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Mobile working",
+        "Mobiles Arbeiten"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Functional (professional) leadership of a small controlling team (2 people) with a development path towards team lead.",
+        "value": 2.0,
+        "attested": null,
+        "value_max": null,
+        "comparator": "exact",
+        "cited_entry": "Financial Controller @ Schwarzwald Präzision GmbH",
+        "candidate_values": [
+          {
+            "unit": null,
+            "entry": "Financial Controller @ Schwarzwald Präzision GmbH",
+            "value": 3,
+            "semantics": "size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'",
+            "provenance": "uncorroborated"
+          }
+        ]
+      },
+      "status": "direct",
+      "concept": "Team scope 2",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Functional (professional) leadership of a small controlling team (2 people) with a development path towards team lead.\". Vault: 3 (Financial Controller @ Schwarzwald Präzision GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Judgement: The candidate value is a team size of 3 led in the Financial Controller role; this meets the job requirement of functional leadership for a team of 2. The quantities compared are team size in the role on both sides.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "0d15388f969d12a7d99ae3c1aa5581d930240e62576ff98da241bf574a7ee1b0",
+  "gap_inputs_fingerprint": "bcab94069f6ca3e32e87d04e61607d885e2b70b78b46a2399060fdb3838ab8b7",
+  "gap_clusters": [
+    {
+      "id": "cluster-project-investment-controlling",
+      "gaps": [
+        "Project controlling",
+        "Investment decisions"
+      ],
+      "label": "Project Investment Controlling",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Project controlling",
+        "Investment decisions",
+        "Percentage-of-completion",
+        "Make-or-buy decisions"
+      ],
+      "jd_context": "I need to connect project controlling with investment decisions, project profitability, and make-or-buy evaluations in this role."
+    },
+    {
+      "id": "cluster-group-consolidation",
+      "gaps": [
+        "Group level",
+        "Group consolidation",
+        "Consolidation software"
+      ],
+      "label": "Group Consolidation",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Group consolidation",
+        "LucaNet",
+        "Consolidation software",
+        "Financial reporting"
+      ],
+      "jd_context": "I need group-level consolidation expertise and suitable consolidation software knowledge to support reliable financial reporting across the organization."
+    },
+    {
+      "id": "cluster-german-gaap",
+      "gaps": [
+        "German GAAP"
+      ],
+      "label": "German GAAP Reporting",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "German GAAP",
+        "HGB",
+        "Financial reporting"
+      ],
+      "jd_context": "I need German GAAP and HGB expertise to prepare compliant financial reporting for the role."
+    },
+    {
+      "id": "cluster-mobile-working",
+      "gaps": [
+        "Mobile working"
+      ],
+      "label": "Mobile Working",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [],
+      "jd_context": "I need to work effectively in mobile settings to collaborate and deliver results across changing work locations."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Responsible for monthly closing and HGB reporting, including commentary for management and the advisory board.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Financial reporting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Has managed HGB monthly and annual financial statements since 2019, including auditor coordination.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "HGB"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Hands-on experience with HGB monthly and annual financial statements.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "German GAAP"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Responsible for the intercompany reconciliation and equity consolidation subproject during the LucaNet implementation and for preparing consolidated quarterly figures.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Group consolidation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Transferred management reporting from Excel to Power BI and produces reporting for management covering sales, contribution margins, working capital and plant KPIs.; Implemented management reporting in Power BI with 14 dashboards and reports variance information to management.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Management reporting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Eight years of Power BI experience, including modelling DAX and data models and implementing 14 management dashboards.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Power BI"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Performs annual planning and budgeting activities for an industrial business.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Budgeting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Performs rolling forecasts as part of annual planning and variance analysis.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Rolling forecast"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Eight years of Werkscontrolling for two production sites, including manufacturing costs, contribution margins and inventory valuation.; Performs plant controlling for two production sites and reports production-related plant KPIs.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Production"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Project controlling"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Introduced HGB-compliant valuation of long-term contracts according to percentage of completion and has assessed six major projects monthly since 2022.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Percentage-of-completion"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Six years of SAP CO/FI experience, including development of cost-center accounting in SAP CO and Key User responsibility for CO/FI.; Uses SAP CO and SAP FI and connected Power BI reporting to SAP data exports.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "SAP"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Developed cost-center accounting in SAP CO and has hands-on experience with manufacturing cost accounting and cost-center and cost-object accounting.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Cost accounting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Prepared investment calculations for machine procurement.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Investment decisions"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "required",
+      "status": "denied",
+      "requirement": "Make-or-buy"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Has IFRS experience, including IFRS 16 leasing and revenue recognition assessment, supported by an IFRS certificate course.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "IFRS"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Responsible for the intercompany reconciliation and equity consolidation subproject during LucaNet implementation and prepares consolidated quarterly figures in LucaNet.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "LucaNet"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "Uses LucaNet for intercompany reconciliation, equity consolidation and consolidated quarterly reporting.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "Consolidation software"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "US GAAP"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Provides functional leadership and onboarding support for two working students and a junior controller, including review of their reports and support with closing topics.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Leadership experience"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "JD bar (team_size): \"Functional (professional) leadership of a small controlling team (2 people) with a development path towards team lead.\". Vault: 3 (Financial Controller @ Schwarzwald Präzision GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Judgement: The candidate value is a team size of 3 led in the Financial Controller role; this meets the job requirement of functional leadership for a team of 2. The quantities compared are team size in the role on both sides.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Team scope 2"
+    }
+  ]
+}

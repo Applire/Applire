@@ -1,0 +1,10 @@
+{
+  "case": "it_backend_daniel",
+  "cell_type": "same",
+  "document_language": "en",
+  "provenance": {
+    "how": "real pipeline on the dev stack: import of both sources + interview from the case dossier (vault it_backend_daniel.native); job + gap analysis of posting_original.md; frozen by freeze.py",
+    "model": "openai/gpt-5.6-luna",
+    "date": "2026-10-12"
+  }
+}

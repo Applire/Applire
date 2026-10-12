@@ -1,0 +1,103 @@
+{
+  "role_title": "Werkleiter (m/w/d)",
+  "company_name": "Eifelpack Verpackungssysteme GmbH",
+  "required_skills": [
+    "Führungserfahrung",
+    "Ergebnisverantwortung",
+    "GuV",
+    "EBIT",
+    "Disziplinarische Führung",
+    "Führungskräfteentwicklung",
+    "Nachfolgeplanung",
+    "Werksstrategie",
+    "Lean-Methoden",
+    "5S",
+    "SMED",
+    "KVP",
+    "Shopfloor-Management",
+    "OEE",
+    "MES-Einführung",
+    "Digitalisierung von Fertigungsprozessen",
+    "SAP",
+    "Investitionsverantwortung",
+    "Business Cases",
+    "ISO 9001",
+    "Arbeitssicherheitsmanagement",
+    "ISO 45001",
+    "Kundenaudits",
+    "Verhandlungsführung",
+    "Berichterstattung",
+    "Veränderungsmanagement"
+  ],
+  "nice_to_have_skills": [
+    "Verpackungsindustrie",
+    "Lebensmittelindustrie",
+    "IFS",
+    "BRC",
+    "SAP PP",
+    "SAP MM"
+  ],
+  "keywords": [
+    "Werkleiter",
+    "Kunststoffverpackungen",
+    "Verbundverpackungen",
+    "Konsumgüter",
+    "Lebensmittelkunden",
+    "Mehrschichtbetrieb",
+    "Cash-Ziele",
+    "Kapazitätsplanung",
+    "Digitalisierung",
+    "MES",
+    "Industrie 4.0",
+    "Investitionsplanung",
+    "Projektsteuerung",
+    "Wirtschaftlichkeitskontrolle",
+    "Arbeitssicherheit",
+    "Qualitätsmanagement",
+    "Lean-Standards",
+    "MES-Standards",
+    "Geschäftsführung",
+    "Gruppenleitung"
+  ],
+  "seniority_level": "Lead",
+  "company_culture_signals": [
+    "Mehrschichtbetrieb",
+    "Wertschätzende Führung",
+    "Echte Gestaltungsspielräume",
+    "direkten Draht zur Geschäftsführung",
+    "strukturierte Einarbeitung"
+  ],
+  "language_requirement": "Sehr gutes Deutsch und sicheres Englisch",
+  "education_requirement": "Weiterbildung zum Techniker/Betriebswirt (IHK) oder technisches Studium",
+  "jd_language": "de",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Gesamt- und Ergebnisverantwortung (GuV) für das Werk Mayen: ca. 210 Mitarbeitende, ca. 48 Mio. € Umsatz, Mehrschichtbetrieb, Ergebnis- und Cash-Ziele gegenüber der Geschäftsführung.",
+      "value": 210.0,
+      "value_max": null,
+      "comparator": "approx"
+    },
+    {
+      "kind": "budget",
+      "level": "required",
+      "quote": "Investitionsplanung und -umsetzung (Investitionsbudget ca. 5 Mio. € p. a.): Business Cases, Freigabeprozess, Projektsteuerung und Wirtschaftlichkeitskontrolle.",
+      "value": 5000000.0,
+      "value_max": null,
+      "comparator": "approx"
+    },
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Disziplinarische Führung von Führungskräften über mindestens zwei Ebenen (Gesamtspanne 150+ Mitarbeitende).",
+      "value": 150.0,
+      "value_max": null,
+      "comparator": "min"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Disziplinarische Führung der vier Bereichsleiter (Produktion Spritzguss, Produktion Veredelung, Instandhaltung, Logistik/Arbeitsvorbereitung) sowie deren Entwicklung und Nachfolgeplanung; Personalentscheidungen auf Führungsebene.",
+    "emphasis": "balanced"
+  }
+}
