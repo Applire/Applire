@@ -717,8 +717,14 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.42.1-beta)
+### ✅ Current Release (v0.43.0-beta)
 
+- [x] Several people share one instance: built-in accounts with email + password (sign-in is always on), a one-time setup code that claims a fresh or upgraded instance, roles (admin, user), and every person's vault, applications and documents private to them
+- [x] An administration area: invite people by single-use link, change roles, disable, reset passwords, revoke a person's tokens, delete an account — plus instance health, AI usage per person and model, retention state and an audit log
+- [x] Optional single sign-on with any OIDC provider, and optional outgoing mail for invitations and password resets
+- [x] Personal tokens: agent tokens for the MCP server and API tokens for scripts, stored hashed and shown once; document links handed to an agent are signed and expire
+- [x] Administrators switch the LLM provider, model and API key at runtime from the panel — the key is stored encrypted — and each person picks a colour scheme from the ones the admin offers
+- [x] Backup and restore are tested end to end in CI on a multi-user instance: every table, every upload, logins, tokens and stored keys come back
 - [x] A self-hosting operator can see whether the instance is healthy and what it costs: `GET /api/ops/health` aggregates database, migration, retention, disk, backup and LLM-provider probes behind one verdict, and `scripts/backup.sh` / `restore.sh` script and document backup, verification and restore
 - [x] Every environment variable the backend reads is declared once in a settings registry, `.env.example` is generated from it, and an upgrade notice on `GET /health` and the dashboard names settings a release introduced that your `.env` does not set
 - [x] A published model-qualification matrix (`docs/llm-models.md`) measures which LLMs clear Applire's two-tier bar — correct vault writes, then whether the documents they produce actually get you invited — across the model table
@@ -784,7 +790,8 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 - [x] **Tiramisu** — shipped with v0.39.0-beta. **Truthfulness Oracle**: every generated document ships with a deterministic truthfulness report — is each claim grounded in your profile, is every number backed, did a "targets 70%" quietly become "achieved 70%"? In the UI and as the `audit_document` MCP tool, which also audits documents your agent wrote itself; likewise **`render_document`** (your agent's own content through Applire's norms-checked renderer, never rewritten), **`submit_claims`** / **`submit_testimony`** (agent-run interviews landing in the profile with receipts) and **`resolve_gap`**. The flavour closed on evidence *selection*: one write path into the profile, and a review loop whose verdict covers the document as composed
 - [x] **Stracciatella** — shipped with v0.41.1-beta. Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
 - [x] **Nougat** — shipped with v0.42.0-beta. The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
-- [ ] **Strawberry** — Multi-user capability: built-in accounts and optional single sign-on, roles, an administration area for people, personal tokens for agents and scripts, and every person's data private to them (unreleased — in the `[Unreleased]` section of the [changelog](CHANGELOG.md); defaults an admin sets for other users follow)
+- [x] **Strawberry** — shipped with v0.43.0-beta. Multi-user capability: built-in accounts and optional single sign-on, roles, an administration area for people, personal tokens for agents and scripts, and every person's data private to them
+- [ ] **Hazelnut** — Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
 
 Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 

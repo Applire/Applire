@@ -4,7 +4,9 @@ All notable changes to Applire are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 0.43.0-beta (Strawberry)
+## [Unreleased]
+
+## [0.43.0-beta] – 2026-10-13 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
 
