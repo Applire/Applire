@@ -74,9 +74,21 @@ A backup that only covers the database is not a backup. Two volumes have to trav
 - **`applire_uploads`** is every uploaded CV and profile photo, mounted into the backend container at `/app/data/uploads`.
 
 `scripts/backup.sh` captures both in one archive. If you installed the no-clone way — the
-two release assets and nothing else — you do not have the scripts yet; fetch them from the
-same release (`releases/latest/download/` has no `scripts/` bundle, so take them from the
-repository at the tag you are running) and `chmod +x` them.
+two release assets and nothing else — you do not have the scripts yet. Fetch them from the
+repository at the tag of the latest release (the one `:latest` runs), into the folder that
+holds `docker-compose.yml` (`restore.sh` calls `backup.sh --verify` from its own folder, so
+keep them together):
+
+```bash
+TAG=$(curl -fsSL https://api.github.com/repos/Applire/Applire/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+mkdir -p scripts
+for f in backup.sh restore.sh; do
+  curl -fsSL -o "scripts/$f" "https://raw.githubusercontent.com/Applire/Applire/$TAG/scripts/$f"
+done
+chmod +x scripts/backup.sh scripts/restore.sh
+```
+
+If you pinned an older image tag instead of `:latest`, set `TAG` to that release's tag.
 
 ```bash
 scripts/backup.sh                      # writes into ./backups
