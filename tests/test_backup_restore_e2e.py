@@ -26,8 +26,10 @@ an empty host, which is the case a backup exists for.
 
 What must come back, and why each is checked separately:
 
-* every table, row for row (content hash per table) — the vault, applications,
-  documents, accounts, tokens, sessions, audit;
+* every table, row for row (content hash per row) — the vault, applications,
+  documents, accounts, tokens, sessions, audit; the only rows allowed to go are the
+  ones the restored instance's retention pass reports purging (already-dead links
+  and sessions);
 * every uploaded file, byte for byte (sha256) — the second volume;
 * the instance stays CLAIMED — a restored instance that asked for a setup code
   would hand the admin role to whoever reads the log first;
@@ -43,6 +45,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -227,19 +230,23 @@ def test_every_table_comes_back_row_for_row(before, restored):
     assert set(before["tables"]) == set(after), f"tables differ: {set(before['tables']) ^ set(after)}"
     lost = {t: len(before["tables"][t] - after[t]) for t in tables if before["tables"][t] - after[t]}
     added = {t: len(after[t] - before["tables"][t]) for t in tables if after[t] - before["tables"][t]}
-    # The restored instance's own retention pass may purge invite/reset links that
-    # were used or expired before the backup — and must say so in its run record.
-    purged = sum(
-        int(n or 0) for n in lane.psql(
-            "SELECT report->>'auth_links_deleted' FROM retention_runs "
-            f"WHERE run_at > '{before['backed_up_at']}'"
-        ).split()
-    )
-    assert lost.get("auth_links", 0) <= purged, (
-        f"auth_links lost {lost.get('auth_links')} rows, the retention runs report {purged} purged"
-    )
-    lost.pop("auth_links", None)
-    added.pop("auth_links", None)
+    # The restored instance's own retention pass may purge rows that were already
+    # dead before the backup (used invite links, revoked or expired sessions) — and
+    # must say so in its run record as "<table>_deleted". A loss it does not report
+    # is a restore that dropped data.
+    reports = lane.psql(
+        "SELECT report::text FROM retention_runs "
+        f"WHERE run_at > '{before['backed_up_at']}'"
+    ).splitlines()
+    purged: dict[str, int] = {}
+    for line in reports:
+        for key, value in json.loads(line).items():
+            if key.endswith("_deleted") and isinstance(value, int):
+                purged[key[: -len("_deleted")]] = purged.get(key[: -len("_deleted")], 0) + value
+    for t in list(lost):
+        if lost[t] <= purged.get(t, 0):
+            lost.pop(t)
+            added.pop(t, None)
     assert not lost, f"rows lost in the restore (table: count): {lost}"
     unexpected = {t: n for t, n in added.items() if t not in APPEND_ONLY}
     assert not unexpected, f"rows appeared after the restore (table: count): {unexpected}"
