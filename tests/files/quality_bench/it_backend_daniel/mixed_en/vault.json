@@ -1,0 +1,2042 @@
+{
+  "skills": [
+    {
+      "id": "aa247abb-8bc3-4b37-b40b-44000957a48f",
+      "name": "Python",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH",
+        "DATIS IT-Services",
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "3d697325-0227-45da-951e-7172b20c0d02",
+        "c8f5ba91-17ec-4c28-b0eb-4e981facf17a"
+      ],
+      "years_experience": 8
+    },
+    {
+      "id": "0eaa979d-0ad0-4bd9-bfc8-e77f00386abd",
+      "name": "Django",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH",
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "a05d0ddc-f086-4398-b839-efcd67741543",
+      "name": "Flask",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Finleap Build GmbH",
+        "3d697325-0227-45da-951e-7172b20c0d02",
+        "Migration of two internal Cargonaut services from Flask to FastAPI"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "91580f0e-e385-4702-96c7-64eaf9ab6dad",
+      "name": "PostgreSQL",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH",
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "3d697325-0227-45da-951e-7172b20c0d02"
+      ],
+      "years_experience": 9
+    },
+    {
+      "id": "b4d348ff-f5f5-4b7e-8aed-f7bb58bf3718",
+      "name": "AWS",
+      "source": "computed",
+      "status": "confirmed",
+      "aliases": [
+        "Amazon Web Services (AWS)"
+      ],
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH",
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Finleap Build GmbH"
+      ],
+      "years_experience": 9
+    },
+    {
+      "id": "8f6283b7-8c20-4182-ad77-9052b767070c",
+      "name": "ECS",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "2d032bae-dc28-43b2-acad-e9027ac12313",
+      "name": "RDS",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "a932f6a4-7fcc-44e6-aa3d-fb82a59c1bae",
+      "name": "S3",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "1b0bb8c2-83ef-4ba9-89a0-1912d3446000",
+      "name": "GitLab CI/CD",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "Cargonaut Logistics GmbH",
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "e1879839-2aa0-4212-9064-6ffc53a80e98",
+      "name": "FastAPI",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "fe70a5a9-85d1-4b57-b25e-3309081f90fc",
+        "Migration of two internal Cargonaut services from Flask to FastAPI"
+      ],
+      "years_experience": 3
+    },
+    {
+      "id": "72472326-c628-489d-82dd-7067e4ef951f",
+      "name": "Pydantic",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "fe70a5a9-85d1-4b57-b25e-3309081f90fc",
+        "Migration of two internal Cargonaut services from Flask to FastAPI"
+      ],
+      "years_experience": 3
+    },
+    {
+      "id": "068eb01b-396e-4d5f-93a3-6791793a3685",
+      "name": "Apache Kafka",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "328e34e4-9bff-4d88-991d-b0e217376cbd",
+      "name": "Kubernetes",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "8cb11eb2-4ce5-4dcd-86f9-9768f0f1d571",
+      "name": "Amazon EKS",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "5812a4b7-1523-4fa0-85ae-76faf41b07f5",
+      "name": "Helm",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "68951aba-5869-4b5c-9573-1a3c29b34ce1",
+      "name": "ArgoCD",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "6a07602f-8e29-4872-b95c-eef9f370ae98",
+      "name": "GitOps",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "338f08dd-48fb-4446-aec6-fd8f993c1391",
+      "name": "Prometheus",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "b6f473b9-6420-4002-bd84-454c887f6599",
+      "name": "Grafana",
+      "source": "computed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+        "Cargonaut Logistics GmbH"
+      ],
+      "years_experience": 6
+    },
+    {
+      "id": "435c1636-d9d7-4fc9-8787-f5891946a793",
+      "name": "Incident management",
+      "source": "transcribed",
+      "status": "confirmed",
+      "aliases": [
+        "Incident-Management"
+      ],
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "3d697325-0227-45da-951e-7172b20c0d02"
+      ],
+      "years_experience": null
+    },
+    {
+      "id": "f37178d2-fa07-4092-8328-8281fc287f76",
+      "name": "REST API design",
+      "source": "llm_estimated",
+      "status": "confirmed",
+      "aliases": [
+        "REST-APIs"
+      ],
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "3d697325-0227-45da-951e-7172b20c0d02"
+      ],
+      "years_experience": 3
+    },
+    {
+      "id": "e0a93d41-9370-4448-ae2c-570e52fd7741",
+      "name": "SQL performance tuning",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [],
+      "years_experience": null
+    },
+    {
+      "id": "c4fccc50-cd63-4a8a-bac6-4f6163617a7a",
+      "name": "Contract testing",
+      "source": "llm_estimated",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": 1
+    },
+    {
+      "id": "9cf1f329-fe59-4b67-9d2a-e8eeecaad30b",
+      "name": "Mentoring",
+      "source": "llm_estimated",
+      "status": "confirmed",
+      "category": "soft",
+      "last_used": null,
+      "proficiency": "intermediate",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": 3
+    },
+    {
+      "id": "2388cda1-11f1-4393-90e6-d5644c35d1ed",
+      "name": "Event-driven architecture",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "technical",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": null
+    },
+    {
+      "id": "2d547c9f-b1a2-471e-98d7-16d784d07a08",
+      "name": "Service reliability",
+      "source": "transcribed",
+      "status": "confirmed",
+      "category": "domain",
+      "last_used": null,
+      "proficiency": "advanced",
+      "experience_refs": [
+        "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+      ],
+      "years_experience": null
+    }
+  ],
+  "metadata": {
+    "created_at": "2026-10-12T07:35:27.483443Z",
+    "created_via": "cv_paste",
+    "last_updated": "2026-10-12T07:41:20.743248Z",
+    "denied_concepts": [
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "formal exactly-once design",
+        "statement": "The guarantee I built was idempotent consumers with PostgreSQL offset bookkeeping, so that replays never double-bill. I do not want to claim a formal exactly-once design with transactional writes beyond that, because that is not what I can describe.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "transactional writes",
+        "statement": "The guarantee I built was idempotent consumers with PostgreSQL offset bookkeeping, so that replays never double-bill. I do not want to claim a formal exactly-once design with transactional writes beyond that, because that is not what I can describe.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "coordinated offset commits",
+        "statement": "The guarantee I built was idempotent consumers with PostgreSQL offset bookkeeping, so that replays never double-bill. I do not want to claim a formal exactly-once design with transactional writes beyond that, because that is not what I can describe.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "other infrastructure-as-code tooling",
+        "statement": "The closest I have is the Helm charts and ArgoCD GitOps setup from the Kubernetes migration, where the deployment configuration lives in Git and a rollback is one Git revert. I have no other infrastructure-as-code tooling experience to report, so I will not claim more than that.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "PSD2 licence",
+        "statement": "My payments exposure is the Stripe checkout integration at Finleap: PSP integration, webhooks, and reconciliation of payouts against invoices, plus the invoicing and dunning domain generally. I have not worked under a PSD2 licence or with BaFin supervision. What I bring is correctness-critical financial data modelling, with invoicing, reconciliation and idempotency as my daily work; the regulated wrapper is new to me, the engineering discipline is not.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "BaFin supervision",
+        "statement": "My payments exposure is the Stripe checkout integration at Finleap: PSP integration, webhooks, and reconciliation of payouts against invoices, plus the invoicing and dunning domain generally. I have not worked under a PSD2 licence or with BaFin supervision. What I bring is correctness-critical financial data modelling, with invoicing, reconciliation and idempotency as my daily work; the regulated wrapper is new to me, the engineering discipline is not.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "regulated payments wrapper",
+        "statement": "My payments exposure is the Stripe checkout integration at Finleap: PSP integration, webhooks, and reconciliation of payouts against invoices, plus the invoicing and dunning domain generally. I have not worked under a PSD2 licence or with BaFin supervision. What I bring is correctness-critical financial data modelling, with invoicing, reconciliation and idempotency as my daily work; the regulated wrapper is new to me, the engineering discipline is not.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "payout execution",
+        "statement": "No, I have not designed or operated payout execution, payment-provider routing or bank-transfer mechanisms. My closest experience is the Stripe checkout integration with webhooks and the reconciliation of Stripe payouts against invoices at Finleap, and I do not want to claim more than that.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "payment-provider routing",
+        "statement": "No, I have not designed or operated payout execution, payment-provider routing or bank-transfer mechanisms. My closest experience is the Stripe checkout integration with webhooks and the reconciliation of Stripe payouts against invoices at Finleap, and I do not want to claim more than that.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "bank-transfer mechanisms",
+        "statement": "No, I have not designed or operated payout execution, payment-provider routing or bank-transfer mechanisms. My closest experience is the Stripe checkout integration with webhooks and the reconciliation of Stripe payouts against invoices at Finleap, and I do not want to claim more than that.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "formal audit experience",
+        "statement": "At Finleap I implemented the invoice-dunning workflow engine processing about 200k invoices per month for the B2B invoicing product, on PostgreSQL. Correctness-critical financial data modelling, reconciliation and idempotency were part of that daily work. I have no formal audit or regulated-environment experience beyond that, and I have no figures for auditability beyond the 200k invoices per month.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "regulated-environment experience",
+        "statement": "At Finleap I implemented the invoice-dunning workflow engine processing about 200k invoices per month for the B2B invoicing product, on PostgreSQL. Correctness-critical financial data modelling, reconciliation and idempotency were part of that daily work. I have no formal audit or regulated-environment experience beyond that, and I have no figures for auditability beyond the 200k invoices per month.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "auditability figures",
+        "statement": "At Finleap I implemented the invoice-dunning workflow engine processing about 200k invoices per month for the B2B invoicing product, on PostgreSQL. Correctness-critical financial data modelling, reconciliation and idempotency were part of that daily work. I have no formal audit or regulated-environment experience beyond that, and I have no figures for auditability beyond the 200k invoices per month.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "formal security certification",
+        "statement": "On security, at Finleap I ran our quarterly dependency-audit rotation and fixed two externally-reported auth issues, a session fixation and an IDOR on invoice PDFs. I am also familiar with least-privilege IAM on AWS. I have no formal security certification, and no PSD2, BaFin or payment-institution experience, as I said before.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "PSD2",
+        "statement": "On security, at Finleap I ran our quarterly dependency-audit rotation and fixed two externally-reported auth issues, a session fixation and an IDOR on invoice PDFs. I am also familiar with least-privilege IAM on AWS. I have no formal security certification, and no PSD2, BaFin or payment-institution experience, as I said before.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "BaFin",
+        "statement": "On security, at Finleap I ran our quarterly dependency-audit rotation and fixed two externally-reported auth issues, a session fixation and an IDOR on invoice PDFs. I am also familiar with least-privilege IAM on AWS. I have no formal security certification, and no PSD2, BaFin or payment-institution experience, as I said before.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "payment-institution experience",
+        "statement": "On security, at Finleap I ran our quarterly dependency-audit rotation and fixed two externally-reported auth issues, a session fixation and an IDOR on invoice PDFs. I am also familiar with least-privilege IAM on AWS. I have no formal security certification, and no PSD2, BaFin or payment-institution experience, as I said before.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "formally regulated environment",
+        "statement": "No, I have not worked in a formally regulated environment. I have no BaFin or regulated-environment experience; the security work I can point to is the quarterly dependency-audit rotation and the two auth fixes at Finleap.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "blockchain",
+        "statement": "No, I have no blockchain or crypto experience at all. That's an honest gap; I haven't worked with settlement rails on chain and I don't want to claim otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "crypto",
+        "statement": "No, I have no blockchain or crypto experience at all. That's an honest gap; I haven't worked with settlement rails on chain and I don't want to claim otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "settlement rails on chain",
+        "statement": "No, I have no blockchain or crypto experience at all. That's an honest gap; I haven't worked with settlement rails on chain and I don't want to claim otherwise.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "dedicated e-commerce experience",
+        "statement": "I have no dedicated e-commerce experience. The closest are the shipment-tracking platform at Cargonaut for about 40k daily active logistics customers and the Stripe-based checkout for a subscription billing feature at Finleap. I would not call either e-commerce work.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "e-commerce work",
+        "statement": "I have no dedicated e-commerce experience. The closest are the shipment-tracking platform at Cargonaut for about 40k daily active logistics customers and the Stripe-based checkout for a subscription billing feature at Finleap. I would not call either e-commerce work.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "European e-commerce markets",
+        "statement": "No, I have no other experience with European e-commerce markets than what I already described.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "hybrid setup",
+        "statement": "I have no information to give on a hybrid setup or a learning budget, so I will not claim any experience there. What I can say on the learning side is that I mentor two mid-level engineers at Cargonaut and run the team's weekly design-review session.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "learning budget",
+        "statement": "I have no information to give on a hybrid setup or a learning budget, so I will not claim any experience there. What I can say on the learning side is that I mentor two mid-level engineers at Cargonaut and run the team's weekly design-review session.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      },
+      {
+        "date": "2026-10-12",
+        "source": "interview",
+        "concept": "structured learning support",
+        "statement": "I have no information to give on a hybrid setup or a learning budget, so I will not claim any experience there. What I can say on the learning side is that I mentor two mid-level engineers at Cargonaut and run the team's weekly design-review session.",
+        "probe_asked": false,
+        "denial_level": "direct"
+      }
+    ],
+    "application_count": 0,
+    "pending_conflicts": [
+      {
+        "field": "location",
+        "source": "cv_paste",
+        "section": "personal_info",
+        "resolved": false,
+        "entity_id": null,
+        "conflict_id": "49bc2640-b13a-4a90-9c61-d3544c9dafc4",
+        "existing_value": "Frankfurt am Main, Germany",
+        "incoming_value": "Frankfurt am Main, Deutschland",
+        "suggested_resolution": null
+      },
+      {
+        "field": "achievements",
+        "source": "interview",
+        "section": "work_experience",
+        "resolved": false,
+        "entity_id": "3d697325-0227-45da-951e-7172b20c0d02",
+        "conflict_id": "dafd1923-8d55-4243-abb3-a99b092ff2ca",
+        "existing_value": "Implemented the invoice-dunning workflow engine processing ~200k invoices/month.",
+        "incoming_value": "At Finleap I implemented the invoice-dunning workflow engine processing about 200k invoices per month for the B2B invoicing product.",
+        "suggested_resolution": null
+      }
+    ],
+    "completeness_score": 0.96,
+    "enrichment_history": [
+      {
+        "id": "9229eb0d-d998-4033-ae22-01cc6aa5b8c4",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "*",
+            "action": "added",
+            "section": "*",
+            "new_value": "initial import",
+            "old_value": null,
+            "rationale": null,
+            "rationale_key": null
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:35:27.603077Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": null
+      },
+      {
+        "id": "f7dffbd4-a672-4097-8ffc-89f3abb058b5",
+        "source": "cv_paste",
+        "changes": [
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Redesign des Preismodells (p95 1,8 s → 240 ms)",
+              "Aktuell halte ich bei Cargonaut die Sendungen von rund 40.000 Logistik-Nutzern in Bewegung"
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Flask-REST-APIs",
+              "PostgreSQL",
+              "On-Call-Dienst und Incident-Runbook"
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Stripe Checkout"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "field",
+            "action": "updated",
+            "section": "education",
+            "new_value": "Informatik",
+            "old_value": "",
+            "rationale": "Filled empty field on education via reconciliation.",
+            "rationale_key": "reconcile_updated"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "AWS Certified Solutions Architect – Associate",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "certifications",
+            "new_value": "ISTQB® Certified Tester Foundation Level",
+            "old_value": null,
+            "rationale": "Added name to certifications via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Python",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Django",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Flask",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "PostgreSQL",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "REST API design",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Mentoring",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Incident management",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "AWS",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "GitLab CI/CD",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Contract testing",
+            "old_value": null,
+            "rationale": "Merged name into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "REST-APIs",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Incident-Management",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "aliases",
+            "action": "merged",
+            "section": "skills",
+            "new_value": "Amazon Web Services (AWS)",
+            "old_value": null,
+            "rationale": "Merged aliases into existing skills via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "REST API design",
+            "incoming": "REST-APIs",
+            "entity_id": "f37178d2-fa07-4092-8328-8281fc287f76",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "REST-APIs"
+            },
+            "incoming_entry": {
+              "name": "REST-APIs",
+              "category": "technical",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "Incident management",
+            "incoming": "Incident-Management",
+            "entity_id": "435c1636-d9d7-4fc9-8787-f5891946a793",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Incident-Management"
+            },
+            "incoming_entry": {
+              "name": "Incident-Management",
+              "category": "domain",
+              "proficiency": "intermediate"
+            }
+          },
+          {
+            "basis": "model",
+            "section": "skills",
+            "existing": "AWS",
+            "incoming": "Amazon Web Services (AWS)",
+            "entity_id": "b4d348ff-f5f5-4b7e-8aed-f7bb58bf3718",
+            "undone_at": null,
+            "aliases_added": {
+              "aliases": "Amazon Web Services (AWS)"
+            },
+            "incoming_entry": {
+              "name": "Amazon Web Services (AWS)",
+              "category": "technical",
+              "proficiency": "intermediate"
+            }
+          }
+        ],
+        "timestamp": "2026-10-12T07:36:10.712532Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": {
+          "skills": {
+            "delta": 0,
+            "stored": 11,
+            "extracted": 11
+          },
+          "projects": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "education": {
+            "delta": 0,
+            "stored": 1,
+            "extracted": 1
+          },
+          "languages": {
+            "delta": 0,
+            "stored": 2,
+            "extracted": 2
+          },
+          "publications": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "certifications": {
+            "delta": 0,
+            "stored": 2,
+            "extracted": 2
+          },
+          "work_experience": {
+            "delta": 0,
+            "stored": 3,
+            "extracted": 3
+          },
+          "signature_stories": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          },
+          "volunteer_activities": {
+            "delta": 0,
+            "stored": 0,
+            "extracted": 0
+          }
+        },
+        "source_session_id": null
+      },
+      {
+        "id": "ab3e1153-442b-4274-aeed-d3fd6ac3e722",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Design and operate the shipment-tracking backend in Python with Django on PostgreSQL."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "The shipment-tracking backend serves about 40k daily active logistics customers.",
+              "I redesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Built REST APIs in Flask on PostgreSQL for a B2B invoicing product."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:39.871490Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "1fec4694-98f9-4c3b-a870-b1bce76af235",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "name",
+            "action": "added",
+            "section": "projects",
+            "new_value": "Migration of two internal Cargonaut services from Flask to FastAPI",
+            "old_value": null,
+            "rationale": "Added name to projects via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "projects",
+            "new_value": [
+              "Migrated two internal Cargonaut services from Flask to FastAPI.",
+              "Implemented async endpoints for webhook fan-out.",
+              "Shared Pydantic models with the consumer contract tests."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing projects via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "projects",
+            "new_value": [
+              "Shipped and operated FastAPI in production."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing projects via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "FastAPI",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Pydantic",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:37:56.210228Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "26cc33b1-0b0d-4bcf-b0a1-81d4673642af",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Apache Kafka",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Event-driven architecture",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Designed and ran the shipment order-event pipeline on Apache Kafka, publishing tracking state changes across 6 topics for billing and the customer notification service.",
+              "Implemented idempotent consumers with PostgreSQL offset bookkeeping so replays never double-bill.",
+              "Ran the event pipeline in production for three years, including two broker upgrades."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "The shipment order-event pipeline processes about 1.2M events per day across 6 topics without double-billing on replays."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Apache Kafka"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:13.311509Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "ef87248a-bd25-4edc-9544-9c3b122e76ba",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "formal exactly-once design",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on formal exactly-once design (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "transactional writes",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on transactional writes (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "coordinated offset commits",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on coordinated offset commits (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:25.450684Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "17b151b7-0cb7-45e1-a012-32f0f6a29620",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "I own the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services.",
+              "Led Cargonaut's migration from ECS to Kubernetes (EKS), 12 services over 9 months.",
+              "Containerised the remaining services, introduced Helm charts and ArgoCD GitOps, migrated one canary service first and then batches of three.",
+              "I still operate these workloads day-to-day."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Deploy time went from 45 to 8 minutes, staging and production are at parity, and rollbacks became one Git revert."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Amazon EKS",
+              "Kubernetes",
+              "Helm",
+              "ArgoCD",
+              "GitOps"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Kubernetes",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Amazon EKS",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Helm",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "ArgoCD",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "GitOps",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:44.378815Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "81d207fa-6e81-4a66-bf1e-a5940608e93a",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Containerised the remaining services, introduced Helm charts and ArgoCD GitOps, migrated one canary service first and then batches of three.",
+              "The deployment configuration lives in Git and a rollback is one Git revert."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "other infrastructure-as-code tooling",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on other infrastructure-as-code tooling (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:38:58.237214Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "99ae7bdf-70d0-43ef-8ead-cc7573f0e20f",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Built the Prometheus and Grafana setup for the settlement-adjacent parts of the stack, including RED-metrics dashboards for all four services.",
+              "Defined SLOs with error budgets for the tracking API with a 99.9% availability target.",
+              "Built alert routing, cutting pager noise roughly in half.",
+              "Deliver an internal \"reading your dashboards\" onboarding session."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Built alert routing that cut pager noise roughly in half."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Prometheus",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Grafana",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          },
+          {
+            "field": "name",
+            "action": "added",
+            "section": "skills",
+            "new_value": "Service reliability",
+            "old_value": null,
+            "rationale": "Added name to skills via reconciliation.",
+            "rationale_key": "reconcile_added"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:13.985297Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "fa101975-eb77-4124-8df4-f2311fcefd3c",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Integrated Stripe Checkout as a PSP integration, including webhooks and reconciliation of payouts against invoices.",
+              "Worked in the invoicing and dunning domain generally.",
+              "Applied correctness-critical financial data modelling, with invoicing, reconciliation and idempotency as daily work."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "PSD2 licence",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on PSD2 licence (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "BaFin supervision",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on BaFin supervision (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "regulated payments wrapper",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on regulated payments wrapper (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:30.555964Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "83205113-ceeb-4f06-932c-2c56c69b648f",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "payout execution",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on payout execution (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "payment-provider routing",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on payment-provider routing (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "bank-transfer mechanisms",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on bank-transfer mechanisms (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:44.641509Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "a1fa5178-b484-4d79-bfeb-97260b5cebaa",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Correctness-critical financial data modelling, reconciliation and idempotency were part of that daily work."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "formal audit experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on formal audit experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "regulated-environment experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on regulated-environment experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "auditability figures",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on auditability figures (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:39:58.338332Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "9332e37e-773b-44f3-b0c2-ef703f9cb7c6",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Ran the quarterly dependency-audit rotation.",
+              "Fixed two externally-reported authentication issues: a session fixation and an IDOR on invoice PDFs."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "technologies",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Least-privilege IAM on AWS"
+            ],
+            "old_value": null,
+            "rationale": "Merged technologies into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "formal security certification",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on formal security certification (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "PSD2",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on PSD2 (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "BaFin",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on BaFin (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "payment-institution experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on payment-institution experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:40:12.949596Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "d9ef97ec-5302-4a51-bc32-388cc795da2a",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "formally regulated environment",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on formally regulated environment (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "updated",
+            "section": "metadata",
+            "new_value": "BaFin",
+            "old_value": "BaFin",
+            "rationale": "Re-confirmed limit: no hands-on BaFin (candidate's own testimony)",
+            "rationale_key": null
+          },
+          {
+            "field": "denied_concepts",
+            "action": "updated",
+            "section": "metadata",
+            "new_value": "regulated-environment experience",
+            "old_value": "regulated-environment experience",
+            "rationale": "Re-confirmed limit: no hands-on regulated-environment experience (candidate's own testimony)",
+            "rationale_key": null
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:40:29.184026Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "75f2b403-94fc-4ef1-b2b3-68896b7060bb",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "blockchain",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on blockchain (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "crypto",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on crypto (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "settlement rails on chain",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on settlement rails on chain (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:40:42.240748Z",
+        "confidence": null,
+        "not_applied": [
+          {
+            "label": "That's an honest gap; I haven't worked with settlement rails on chain and I don't want to claim otherwise.",
+            "reason": "no_write",
+            "section": null
+          }
+        ],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "cf8f1f31-7cc7-4796-8ca7-ae84f817ee16",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "achievements",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "The shipment-tracking platform serves about 40k daily active logistics customers."
+            ],
+            "old_value": null,
+            "rationale": "Merged achievements into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "responsibilities",
+            "action": "merged",
+            "section": "work_experience",
+            "new_value": [
+              "Integrated Stripe-based checkout for a subscription billing feature."
+            ],
+            "old_value": null,
+            "rationale": "Merged responsibilities into existing work_experience via reconciliation.",
+            "rationale_key": "reconcile_merged"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "dedicated e-commerce experience",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on dedicated e-commerce experience (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "e-commerce work",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on e-commerce work (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:40:56.455636Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "657d04b3-1a20-4eb2-a75a-2cd90e3826a2",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "European e-commerce markets",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on European e-commerce markets (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:41:07.330690Z",
+        "confidence": null,
+        "not_applied": [],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      },
+      {
+        "id": "2f9b3346-bd97-46af-9952-af83e109342d",
+        "source": "interview",
+        "changes": [
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "hybrid setup",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on hybrid setup (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "learning budget",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on learning budget (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          },
+          {
+            "field": "denied_concepts",
+            "action": "added",
+            "section": "metadata",
+            "new_value": "structured learning support",
+            "old_value": null,
+            "rationale": "Noted limit: no hands-on structured learning support (candidate's own testimony)",
+            "rationale_key": "denial_noted"
+          }
+        ],
+        "matched": [],
+        "timestamp": "2026-10-12T07:41:20.743248Z",
+        "confidence": null,
+        "not_applied": [
+          {
+            "label": "What I can say on the learning side is that I mentor two mid-level engineers at Cargonaut and run the team's weekly desi",
+            "reason": "no_write",
+            "section": null
+          }
+        ],
+        "reconciliation": null,
+        "source_session_id": "e7aed41d-1ac6-415e-a97a-bce6288c884f"
+      }
+    ],
+    "pending_confirmations": [
+      {
+        "source": "cv_paste",
+        "context": {
+          "category": "technical",
+          "proficiency": "intermediate",
+          "evidence_refs": [
+            "c8f5ba91-17ec-4c28-b0eb-4e981facf17a"
+          ],
+          "incoming_skill": "SQL",
+          "related_skills": [
+            "SQL performance tuning"
+          ]
+        },
+        "options": [
+          "Add 'SQL' as a separate skill",
+          "Merge into the existing skill",
+          "Neither — don't add it"
+        ],
+        "question": "'SQL' shares a word with skills already on your profile (SQL performance tuning) but may be a distinct skill. Add it separately, merge it into an existing one — or not add it at all?",
+        "resolved": false,
+        "option_keys": [
+          "distinct",
+          "merge",
+          "keep"
+        ],
+        "options_i18n": [
+          {
+            "de": "„SQL“ als eigene Fähigkeit hinzufügen",
+            "en": "Add 'SQL' as a separate skill"
+          },
+          {
+            "de": "In die vorhandene Fähigkeit zusammenführen",
+            "en": "Merge into the existing skill"
+          },
+          {
+            "de": "Weder noch — nicht hinzufügen",
+            "en": "Neither — don't add it"
+          }
+        ],
+        "chosen_option": null,
+        "question_i18n": {
+          "de": "„SQL“ teilt ein Wort mit Fähigkeiten in deinem Profil (SQL performance tuning), könnte aber eine eigene Fähigkeit sein. Separat hinzufügen, in eine vorhandene zusammenführen — oder gar nicht aufnehmen?",
+          "en": "'SQL' shares a word with skills already on your profile (SQL performance tuning) but may be a distinct skill. Add it separately, merge it into an existing one — or not add it at all?"
+        },
+        "confirmation_id": "e264e072-bb1e-4f2d-b5f3-dfd4836b5f90"
+      }
+    ]
+  },
+  "projects": [
+    {
+      "id": "fe70a5a9-85d1-4b57-b25e-3309081f90fc",
+      "url": null,
+      "name": "Migration of two internal Cargonaut services from Flask to FastAPI",
+      "role": "",
+      "end_date": null,
+      "location": null,
+      "is_current": null,
+      "start_date": "2024",
+      "description": "Migrated two internal Cargonaut services from Flask to FastAPI, implementing async endpoints for webhook fan-out and sharing Pydantic models with consumer contract tests; shipped and operated FastAPI in production.",
+      "achievements": [
+        "Shipped and operated FastAPI in production."
+      ],
+      "technologies": [],
+      "expected_fields": null,
+      "responsibilities": [
+        "Migrated two internal Cargonaut services from Flask to FastAPI.",
+        "Implemented async endpoints for webhook fan-out.",
+        "Shared Pydantic models with the consumer contract tests."
+      ],
+      "associated_experience": "2fac2217-b79f-4e25-bf3d-ef8d43199836"
+    }
+  ],
+  "education": [
+    {
+      "id": "470d88f3-302b-4371-92c0-c085f9a6dc69",
+      "field": "Informatik",
+      "grade": null,
+      "degree": "B.Sc. Informatik",
+      "end_date": "2016",
+      "start_date": null,
+      "institution": "Technische Universität Darmstadt",
+      "thesis_title": null,
+      "relevant_coursework": []
+    }
+  ],
+  "languages": [
+    {
+      "id": "f2b86e5a-6ff1-440c-8cee-043731bb7cc2",
+      "level": "Muttersprache",
+      "status": "confirmed",
+      "language": "Deutsch"
+    },
+    {
+      "id": "633b1f18-a874-44a2-965a-a5c73ccee424",
+      "level": "fließend, C1",
+      "status": "confirmed",
+      "language": "Englisch"
+    }
+  ],
+  "publications": [],
+  "personal_info": {
+    "name": "DANIEL KOVAČ",
+    "email": "daniel.kovac@example.com",
+    "phone": "+49 170 0000000",
+    "address": null,
+    "location": "Frankfurt am Main, Germany",
+    "xing_url": null,
+    "photo_url": null,
+    "nationality": null,
+    "website_url": null,
+    "linkedin_url": null,
+    "date_of_birth": null
+  },
+  "certifications": [
+    {
+      "id": "4e48df56-1a2d-4371-9230-0b6f6c4e80c9",
+      "name": "AWS Certified Solutions Architect – Associate",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2022-01-01",
+      "credential_url": null,
+      "issuing_organization": null
+    },
+    {
+      "id": "23ff0340-7f7c-45fa-b1ee-1eabbeba2139",
+      "name": "ISTQB® Certified Tester Foundation Level",
+      "status": "confirmed",
+      "expiry_date": null,
+      "credential_id": null,
+      "date_obtained": "2018-01-01",
+      "credential_url": null,
+      "issuing_organization": null
+    }
+  ],
+  "work_experience": [
+    {
+      "id": "2fac2217-b79f-4e25-bf3d-ef8d43199836",
+      "role": "Senior Backend Engineer",
+      "company": "Cargonaut Logistics GmbH",
+      "end_date": null,
+      "location": "Frankfurt",
+      "team_size": null,
+      "is_current": true,
+      "start_date": "2021-03",
+      "achievements": [
+        "The shipment-tracking backend serves ~40k daily active logistics customers.",
+        "Redesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing.",
+        "Redesign des Preismodells (p95 1,8 s → 240 ms)",
+        "Aktuell halte ich bei Cargonaut die Sendungen von rund 40.000 Logistik-Nutzern in Bewegung",
+        "The shipment-tracking backend serves about 40k daily active logistics customers.",
+        "I redesigned the pricing data model and cut the p95 latency of quote calculation from 1.8s to 240ms through query optimisation and targeted PostgreSQL indexing.",
+        "The shipment order-event pipeline processes about 1.2M events per day across 6 topics without double-billing on replays.",
+        "Deploy time went from 45 to 8 minutes, staging and production are at parity, and rollbacks became one Git revert.",
+        "Built alert routing that cut pager noise roughly in half.",
+        "The shipment-tracking platform serves about 40k daily active logistics customers."
+      ],
+      "role_aliases": [],
+      "technologies": [
+        "Python",
+        "Django",
+        "PostgreSQL",
+        "AWS",
+        "ECS",
+        "RDS",
+        "S3",
+        "GitLab CI/CD",
+        "Apache Kafka",
+        "Amazon EKS",
+        "Kubernetes",
+        "Helm",
+        "ArgoCD",
+        "GitOps"
+      ],
+      "budget_managed": null,
+      "expected_fields": [],
+      "industry_context": "Logistics",
+      "responsibilities": [
+        "Design and operate the shipment-tracking backend.",
+        "Own the AWS deployment and the GitLab CI/CD pipelines for four services.",
+        "Mentor two mid-level engineers.",
+        "Run the team's weekly design-review session.",
+        "Introduced contract tests between the tracking API and three consumer teams.",
+        "Design and operate the shipment-tracking backend in Python with Django on PostgreSQL.",
+        "Designed and ran the shipment order-event pipeline on Apache Kafka, publishing tracking state changes across 6 topics for billing and the customer notification service.",
+        "Implemented idempotent consumers with PostgreSQL offset bookkeeping so replays never double-bill.",
+        "Ran the event pipeline in production for three years, including two broker upgrades.",
+        "I own the AWS deployment (ECS, RDS, S3) and the GitLab CI/CD pipelines for four services.",
+        "Led Cargonaut's migration from ECS to Kubernetes (EKS), 12 services over 9 months.",
+        "Containerised the remaining services, introduced Helm charts and ArgoCD GitOps, migrated one canary service first and then batches of three.",
+        "I still operate these workloads day-to-day.",
+        "The deployment configuration lives in Git and a rollback is one Git revert.",
+        "Built the Prometheus and Grafana setup for the settlement-adjacent parts of the stack, including RED-metrics dashboards for all four services.",
+        "Defined SLOs with error budgets for the tracking API with a 99.9% availability target.",
+        "Built alert routing, cutting pager noise roughly in half.",
+        "Deliver an internal \"reading your dashboards\" onboarding session."
+      ],
+      "role_fact_projections": {
+        "industry_context": {
+          "unit": null,
+          "quote": "Cargonaut Logistics GmbH",
+          "value": "Logistics",
+          "provenance": "derived"
+        }
+      }
+    },
+    {
+      "id": "3d697325-0227-45da-951e-7172b20c0d02",
+      "role": "Backend Engineer",
+      "company": "Finleap Build GmbH",
+      "end_date": "2021-02",
+      "location": "Berlin",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2017-06",
+      "achievements": [
+        "Implemented the invoice-dunning workflow engine processing ~200k invoices/month."
+      ],
+      "role_aliases": [],
+      "technologies": [
+        "Python",
+        "Flask",
+        "PostgreSQL",
+        "Stripe",
+        "Stripe Checkout",
+        "Least-privilege IAM on AWS"
+      ],
+      "budget_managed": null,
+      "expected_fields": [
+        "industry_context"
+      ],
+      "industry_context": "B2B invoicing and subscription billing",
+      "responsibilities": [
+        "Built REST APIs for a B2B invoicing product.",
+        "Integrated a Stripe-based checkout for a subscription billing feature.",
+        "Participated in the on-call rotation for production services.",
+        "Wrote the team's incident runbook.",
+        "Flask-REST-APIs",
+        "PostgreSQL",
+        "On-Call-Dienst und Incident-Runbook",
+        "Built REST APIs in Flask on PostgreSQL for a B2B invoicing product.",
+        "Integrated Stripe Checkout as a PSP integration, including webhooks and reconciliation of payouts against invoices.",
+        "Worked in the invoicing and dunning domain generally.",
+        "Applied correctness-critical financial data modelling, with invoicing, reconciliation and idempotency as daily work.",
+        "Correctness-critical financial data modelling, reconciliation and idempotency were part of that daily work.",
+        "Ran the quarterly dependency-audit rotation.",
+        "Fixed two externally-reported authentication issues: a session fixation and an IDOR on invoice PDFs.",
+        "Integrated Stripe-based checkout for a subscription billing feature."
+      ],
+      "role_fact_projections": {
+        "industry_context": {
+          "unit": null,
+          "quote": null,
+          "value": "B2B invoicing and subscription billing",
+          "provenance": "uncorroborated"
+        }
+      }
+    },
+    {
+      "id": "c8f5ba91-17ec-4c28-b0eb-4e981facf17a",
+      "role": "Werkstudent Software Engineering",
+      "company": "DATIS IT-Services",
+      "end_date": "2017-05",
+      "location": "Darmstadt",
+      "team_size": null,
+      "is_current": false,
+      "start_date": "2015-10",
+      "achievements": [],
+      "role_aliases": [],
+      "technologies": [
+        "Python",
+        "SQL"
+      ],
+      "budget_managed": null,
+      "expected_fields": [],
+      "industry_context": null,
+      "responsibilities": [
+        "Developed internal tooling in Python.",
+        "Created SQL reporting for operations."
+      ],
+      "role_fact_projections": {}
+    }
+  ],
+  "signature_stories": [],
+  "professional_summary": {
+    "de": null,
+    "en": "Backend engineer with 8 years of experience designing and operating Python services for data-heavy products. Strong focus on relational data modelling, API design and reliable delivery. Enjoys mentoring and pragmatic engineering culture."
+  },
+  "volunteer_activities": []
+}

@@ -1,0 +1,124 @@
+{
+  "match_score": 72.0,
+  "critical_gaps": [
+    "MDR"
+  ],
+  "minor_gaps": [],
+  "strengths": [
+    "ISO 13485",
+    "Prozessvalidierung",
+    "Lieferantenaudits",
+    "Teamführung"
+  ],
+  "keyword_gaps": [
+    "MDR",
+    "Six Sigma"
+  ],
+  "category_a": [
+    "ISO 13485",
+    "Prozessvalidierung",
+    "Lieferantenaudits",
+    "Teamführung",
+    "CAPA-Management"
+  ],
+  "category_b": [],
+  "category_c": [
+    "MDR"
+  ],
+  "keyword_ledger": [
+    {
+      "concept": "ISO 13485",
+      "surface_forms": [
+        "ISO 13485"
+      ],
+      "claimable": true,
+      "status": "direct",
+      "evidence": "Verantwortlich für interne Audits nach ISO 13485 und die Vorbereitung externer Zertifizierungsaudits.",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "Prozessvalidierung",
+      "surface_forms": [
+        "Prozessvalidierung"
+      ],
+      "claimable": true,
+      "status": "direct",
+      "evidence": "Planung und Durchführung von Prozessvalidierungen (IQ/OQ/PQ) für Spritzgussanlagen.",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "Lieferantenaudits",
+      "surface_forms": [
+        "Lieferantenaudits"
+      ],
+      "claimable": true,
+      "status": "direct",
+      "evidence": "Durchführung von Lieferantenaudits bei zwölf Zulieferern.",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "Teamführung",
+      "surface_forms": [
+        "Teamführung"
+      ],
+      "claimable": true,
+      "status": "direct",
+      "evidence": "Leitung eines Teams von fünf Qualitätsingenieuren an zwei Fertigungsstandorten.",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "CAPA-Management",
+      "surface_forms": [
+        "CAPA",
+        "8D-Methodik"
+      ],
+      "claimable": true,
+      "status": "partial",
+      "evidence": "Reduzierte die Reklamationsquote um 40 % durch die Einführung einer standardisierten 8D-Methodik.",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "MDR",
+      "surface_forms": [
+        "MDR"
+      ],
+      "claimable": false,
+      "status": "gap",
+      "evidence": "",
+      "sources": [
+        "required"
+      ],
+      "fit_weight": 1.0
+    },
+    {
+      "concept": "Six Sigma",
+      "surface_forms": [
+        "Six Sigma"
+      ],
+      "claimable": false,
+      "status": "denied",
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "sources": [
+        "nice_to_have"
+      ],
+      "fit_weight": 0.5
+    }
+  ],
+  "gap_clusters": [],
+  "requirement_breakdown": []
+}

@@ -1,0 +1,88 @@
+{
+  "role_title": "Leiter Operations (m/w/d)",
+  "company_name": "Rheinwerk Verpackungen GmbH",
+  "required_skills": [
+    "Instandhaltung",
+    "Arbeitsvorbereitung",
+    "Lean-Produktion",
+    "Shopfloor-Management",
+    "KVP",
+    "OEE",
+    "Digitalisierung der Fertigung",
+    "MES-Systeme",
+    "Maschinendatenerfassung",
+    "Industrie 4.0",
+    "Budgetverantwortung",
+    "Investitionsverantwortung",
+    "Arbeitssicherheit",
+    "ISO 45001",
+    "Führung",
+    "Lean-Methoden",
+    "5S",
+    "SMED",
+    "SAP",
+    "ISO 9001",
+    "Führungserfahrung in der Produktion"
+  ],
+  "nice_to_have_skills": [
+    "SAP PP",
+    "SAP MM",
+    "IFS",
+    "BRC",
+    "Verpackungsindustrie",
+    "Lebensmittelindustrie"
+  ],
+  "keywords": [
+    "Operations",
+    "Produktion",
+    "Instandhaltung",
+    "Arbeitsvorbereitung",
+    "Lean-Produktion",
+    "Shopfloor-Management",
+    "KVP",
+    "OEE",
+    "Digitalisierung der Fertigung",
+    "MES",
+    "Maschinendatenerfassung",
+    "Industrie 4.0",
+    "Investitionsplanung",
+    "Arbeitssicherheitsmanagementsysteme",
+    "ISO 45001",
+    "ISO 9001",
+    "SAP",
+    "SAP PP",
+    "SAP MM",
+    "5S",
+    "SMED",
+    "IFS",
+    "BRC",
+    "Verpackungsindustrie",
+    "Lebensmittelindustrie",
+    "Supply Chain",
+    "Qualität",
+    "Vertrieb"
+  ],
+  "seniority_level": "Lead",
+  "company_culture_signals": [
+    "Gestaltungsspielraum",
+    "kurze Wege",
+    "wertschätzende Führung"
+  ],
+  "language_requirement": "Sehr gutes Deutsch; gutes Englisch",
+  "education_requirement": null,
+  "jd_language": "de",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.",
+      "value": 120.0,
+      "value_max": null,
+      "comparator": "approx"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Führung und Entwicklung der Schicht- und Bereichsleiter.",
+    "emphasis": "balanced"
+  }
+}

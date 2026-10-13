@@ -4,7 +4,7 @@ Coverage:
   - Factory: correct class instantiated per LLM_PROVIDER value
   - Factory: ValueError on unknown provider
   - OpenRouterProvider: HTTP-Referer + X-Title headers present on client
-  - OpenRouterProvider: default model is mistralai/mistral-large-latest
+  - OpenRouterProvider: default model is mistralai/mistral-medium-3-5
   - LLMRateLimitError raised after retries exhausted (Mistral, OpenAI, Ollama, OpenRouter)
   - LLMTimeoutError raised when asyncio.wait_for fires
   - Config: openrouter_api_key / openrouter_model / openrouter_base_url fields present
@@ -58,7 +58,7 @@ def test_factory_returns_openrouter_provider(monkeypatch):
     monkeypatch.setattr(cfg.settings, "llm_debug_log", False)  # selection test: no logging wrapper
     monkeypatch.setattr(cfg.settings, "openrouter_api_key", "sk-test")
     monkeypatch.setattr(cfg.settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
-    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-large-latest")
+    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-medium-3-5")
     with patch("openai.AsyncOpenAI"):
         from applire.providers.llm import get_provider, unwrap_provider
         from applire.providers.llm.openrouter import OpenRouterProvider
@@ -124,14 +124,14 @@ def test_openrouter_headers_and_default_model(monkeypatch):
     headers = captured_kwargs.get("default_headers", {})
     assert headers.get("HTTP-Referer") == "https://applire.community"
     assert headers.get("X-Title") == "Applire"
-    assert p._model == "mistralai/mistral-large-latest"
+    assert p._model == "mistralai/mistral-medium-3-5"
 
 
 def test_openrouter_uses_default_base_url(monkeypatch):
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "openrouter_api_key", "sk-test-or")
     monkeypatch.setattr(cfg.settings, "openrouter_base_url", "")
-    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-large-latest")
+    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-medium-3-5")
 
     captured_kwargs: dict = {}
 
@@ -157,7 +157,7 @@ async def test_openrouter_rate_limit_raises_llm_rate_limit_error(monkeypatch):
 
     import applire.config as cfg
     monkeypatch.setattr(cfg.settings, "openrouter_api_key", "sk-test")
-    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-large-latest")
+    monkeypatch.setattr(cfg.settings, "openrouter_model", "mistralai/mistral-medium-3-5")
     monkeypatch.setattr(cfg.settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
 
     mock_client = MagicMock()
@@ -297,4 +297,4 @@ def test_config_has_openrouter_fields():
     assert "openrouter_api_key" in fields
     assert "openrouter_model" in fields
     assert "openrouter_base_url" in fields
-    assert fields["openrouter_model"].default == "mistralai/mistral-large-latest"
+    assert fields["openrouter_model"].default == "mistralai/mistral-medium-3-5"

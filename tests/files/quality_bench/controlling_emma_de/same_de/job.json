@@ -1,0 +1,82 @@
+{
+  "role_title": "Senior Controller (m/w/d)",
+  "company_name": "Arnold Antriebstechnik GmbH",
+  "required_skills": [
+    "Monatsabschluss-Reporting",
+    "Jahresabschluss-Reporting",
+    "HGB-Abschluss",
+    "Konzernkonsolidierung",
+    "Management-Reporting",
+    "Power BI",
+    "Budgetprozess",
+    "Rollierender Forecast",
+    "Produktionscontrolling",
+    "Projektcontrolling",
+    "POC-Bewertung",
+    "SAP CO/FI",
+    "Kostenrechnung",
+    "Investitionsentscheidungen",
+    "Make-or-buy-Entscheidungen",
+    "Fachliche Führung"
+  ],
+  "nice_to_have_skills": [
+    "Konsolidierung",
+    "LucaNet",
+    "IFRS",
+    "IFRS-Grundkenntnisse",
+    "Erste Führungserfahrung",
+    "US-GAAP",
+    "BI-Werkzeug"
+  ],
+  "keywords": [
+    "Controlling",
+    "Industrieunternehmen",
+    "Unternehmensgruppe",
+    "Konzernkonsolidierung",
+    "Management-Reporting",
+    "Self-Service-Dashboards",
+    "Vertrieb",
+    "Produktion",
+    "Geschäftsführung",
+    "Budgetprozess",
+    "Forecast",
+    "Anlagenbau",
+    "POC-Bewertung",
+    "HGB",
+    "IFRS",
+    "SAP CO/FI",
+    "Kostenrechnung",
+    "Power BI",
+    "Konsolidierung",
+    "LucaNet",
+    "US-GAAP",
+    "Investitionsentscheidungen",
+    "Make-or-buy-Entscheidungen",
+    "Führungserfahrung",
+    "Controlling-Team"
+  ],
+  "seniority_level": "Senior",
+  "company_culture_signals": [
+    "Flexible Arbeitszeiten",
+    "mobiles Arbeiten (60 %)",
+    "Weiterbildungsbudget",
+    "Kantine"
+  ],
+  "language_requirement": "Sehr gutes Deutsch und gutes Englisch",
+  "education_requirement": "Abgeschlossenes wirtschaftswissenschaftliches Studium",
+  "jd_language": "de",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.",
+      "value": 2.0,
+      "value_max": null,
+      "comparator": "exact"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.",
+    "emphasis": "balanced"
+  }
+}

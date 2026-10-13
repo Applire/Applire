@@ -1,0 +1,87 @@
+{
+  "role_title": "Head of Operations",
+  "company_name": "Rheinwerk Verpackungen GmbH",
+  "required_skills": [
+    "Production management",
+    "Maintenance management",
+    "Work preparation",
+    "Lean production",
+    "Shopfloor management",
+    "Continuous improvement",
+    "KVP",
+    "OEE",
+    "Manufacturing digitalisation",
+    "MES systems",
+    "Machine data acquisition",
+    "Industry 4.0",
+    "Budget responsibility",
+    "Investment planning",
+    "Occupational health and safety",
+    "ISO 45001",
+    "Leadership",
+    "SAP"
+  ],
+  "nice_to_have_skills": [
+    "SAP PP",
+    "SAP MM",
+    "ISO 9001",
+    "IFS",
+    "BRC",
+    "Packaging industry",
+    "Food industry"
+  ],
+  "keywords": [
+    "Head of Operations",
+    "Production",
+    "Maintenance",
+    "Work preparation",
+    "Multi-shift operation",
+    "Lean production",
+    "5S",
+    "SMED",
+    "KVP",
+    "Shopfloor management",
+    "OEE",
+    "MES",
+    "Manufacturing digitalisation",
+    "Machine data acquisition",
+    "Industry 4.0",
+    "Budget planning",
+    "Investment planning",
+    "Supply Chain",
+    "Quality",
+    "Sales",
+    "Occupational health and safety",
+    "ISO 45001",
+    "ISO 9001",
+    "Packaging",
+    "Food industry",
+    "IFS",
+    "BRC",
+    "Shift managers",
+    "Area managers"
+  ],
+  "seniority_level": "Lead",
+  "company_culture_signals": [
+    "Room to shape",
+    "Short decision paths",
+    "Appreciative leader"
+  ],
+  "language_requirement": "Very good German; good English",
+  "education_requirement": null,
+  "jd_language": "en",
+  "scope_requirements": [
+    {
+      "kind": "team_size",
+      "level": "required",
+      "quote": "Overall responsibility for production, maintenance and work preparation (Arbeitsvorbereitung) (approx. 120 employees, multi-shift operation) at the Koblenz site.",
+      "value": 120.0,
+      "value_max": null,
+      "comparator": "approx"
+    }
+  ],
+  "leadership_emphasis": {
+    "quote": "Leadership and development of the shift managers and area managers.",
+    "emphasis": "balanced"
+  }
+}

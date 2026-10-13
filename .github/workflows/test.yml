@@ -550,6 +550,21 @@ jobs:
           pip install pytest requests
           pytest tests/test_auth_e2e.py tests/integration/test_auth_races.py -v --tb=short
 
+      # Last, because it deletes the lane's volumes: two people with content,
+      # tokens and an encrypted panel setting are backed up with scripts/backup.sh,
+      # the stack and BOTH volumes are removed, and scripts/restore.sh brings them
+      # back on the empty host. Every table row for row, every upload byte for byte,
+      # the claim, both logins, both token kinds and the stored key must survive
+      # (JF-O-7.2 — a backup that has never been restored is a hope).
+      - name: Backup and restore round trip
+        if: hashFiles('tests/test_backup_restore_e2e.py') != ''
+        env:
+          APPLIRE_E2E_AUTH: "1"
+          APPLIRE_E2E_BACKUP: "1"
+          APPLIRE_API_BASE: http://localhost:8091
+          APPLIRE_E2E_COMPOSE_ARGS: -p applire-ci-auth -f docker-compose.yml -f docker-compose.ci-auth.yml
+        run: pytest tests/test_backup_restore_e2e.py -v --tb=short
+
       - name: Show logs on failure
         if: failure()
         run: $CI_AUTH_COMPOSE logs --no-color

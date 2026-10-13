@@ -1,0 +1,1225 @@
+{
+  "profile_id": "16bf7e89-bfaa-40cf-af7d-8ac40761ab42",
+  "match_score": 0.77,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Investitionsverantwortung",
+    "Führungserfahrung in der Produktion"
+  ],
+  "minor_gaps": [
+    "Lean-Produktion",
+    "Digitalisierung der Fertigung",
+    "SAP",
+    "Verpackungsindustrie",
+    "Lebensmittelindustrie",
+    "Führungsspanne ~120 MA"
+  ],
+  "strengths": [
+    "Instandhaltung",
+    "Arbeitsvorbereitung",
+    "Shopfloor-Management",
+    "KVP",
+    "OEE",
+    "MES-Systeme",
+    "Maschinendatenerfassung",
+    "Industrie 4.0",
+    "Budgetverantwortung",
+    "Arbeitssicherheit",
+    "ISO 45001",
+    "Führung",
+    "5S",
+    "SMED",
+    "ISO 9001",
+    "SAP PP",
+    "SAP MM",
+    "MES",
+    "Supply Chain",
+    "Qualität"
+  ],
+  "keyword_gaps": [
+    "Lean-Produktion",
+    "Digitalisierung der Fertigung",
+    "Investitionsplanung",
+    "Arbeitssicherheitsmanagementsysteme",
+    "IFS",
+    "BRC",
+    "Lebensmittelindustrie",
+    "Vertrieb"
+  ],
+  "category_a": [
+    "Instandhaltung",
+    "Arbeitsvorbereitung",
+    "Shopfloor-Management",
+    "KVP",
+    "OEE",
+    "MES",
+    "Maschinendatenerfassung",
+    "Industrie 4.0",
+    "Budgetverantwortung",
+    "Arbeitssicherheit",
+    "ISO 45001",
+    "Führung",
+    "Lean-Methoden",
+    "5S",
+    "SMED",
+    "ISO 9001",
+    "SAP PP",
+    "SAP MM"
+  ],
+  "category_b": [
+    "Lean-Produktion",
+    "Digitalisierung der Fertigung",
+    "SAP",
+    "Verpackungsindustrie",
+    "Führungsspanne ~120 MA"
+  ],
+  "category_c": [
+    "Investitionsverantwortung",
+    "Führungserfahrung in der Produktion",
+    "Lebensmittelindustrie"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "direct",
+      "concept": "Instandhaltung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Facharbeiter in der Instandhaltung und Vorarbeiter; zudem Budgetverantwortung für Instandhaltung sowie Bestellanforderungen für Instandhaltungsmaterial.; Facharbeiter in der Instandhaltung und Vorarbeiter; zusätzlich Verantwortung für Instandhaltungskosten und Beschaffung von Instandhaltungsmaterial.",
+      "claimable": true,
+      "jd_phrase": "Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Instandhaltung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Arbeitsvorbereitung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Arbeitsvorbereitung ist im Profil benannt; zusätzlich Leitung der Stammdatenbereinigung für Arbeitspläne und Feinplanung der Fertigung.; Arbeitsvorbereitung ist im Profil benannt; zusätzlich Stammdatenbereinigung für Arbeitspläne und Feinplanung der Fertigung geleitet.",
+      "claimable": true,
+      "jd_phrase": "Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Arbeitsvorbereitung",
+        "Feinplanung/Fertigungssteuerung",
+        "Fertigungssteuerung"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Lean-Produktion",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Lean Management sowie die Einführung von Shopfloor-Management, KVP-Routinen, 5S-, Kaizen- und SMED-Workshops in der Produktion.; Lean Management und konkrete Lean-Praktiken wie Shopfloor-Management, KVP, 5S, Kaizen und SMED in der Produktion umgesetzt.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Lean-Produktion",
+        "Lean Management",
+        "Lean-Methoden"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Lean Management"
+    },
+    {
+      "status": "direct",
+      "concept": "Shopfloor-Management",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Shopfloor-Management seit 2017 eingeführt und mit Echtzeit-OEE-Transparenz am Shopfloor-Board umgesetzt.; Shopfloor-Management und KVP-Routinen seit 2017 eingeführt; OEE-Kennzahlen am Shopfloor-Board etabliert.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Shopfloor-Management",
+        "Shopfloor-Board"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "KVP",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "KVP/Kaizen ist im Profil benannt; KVP-Routinen wurden seit 2017 eingeführt und zur Ausschussreduzierung eingesetzt.; KVP/Kaizen ist im Profil genannt und wurde als KVP-Routine in der Fertigung eingeführt.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "KVP",
+        "KVP/Kaizen",
+        "Kaizen"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "OEE",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "OEE-Transparenz in Echtzeit am Shopfloor-Board geschaffen und OEE im Spritzguss von 61 % auf 73 % gesteigert.; OEE-Kennzahlen in Echtzeit am Shopfloor-Board etabliert und OEE von 61 % auf 73 % gesteigert.",
+      "claimable": true,
+      "jd_phrase": "Weiterentwicklung unserer Lean-Produktion (Shopfloor-Management, KVP, OEE).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "OEE",
+        "Overall Equipment Effectiveness"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Digitalisierung der Fertigung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Einführung eines MES-Systems einschließlich Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen sowie Erarbeitung einer Industrie-4.0-Roadmap.; MES-Einführung, Maschinen- und Betriebsdatenerfassung an 14 Maschinen und Industrie-4.0-Roadmap umgesetzt.",
+      "claimable": true,
+      "jd_phrase": "Vorantreiben der Digitalisierung der Fertigung (MES, Maschinendatenerfassung,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Digitalisierung der Fertigung",
+        "MES-Systeme",
+        "Maschinendatenerfassung",
+        "Industrie 4.0",
+        "MES"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "MES-Systeme"
+    },
+    {
+      "status": "direct",
+      "concept": "MES",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "2023 die Einführung eines MES-Systems von der Systemauswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet.; MES-Systemeinführung von der Auswahl und Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet.",
+      "claimable": true,
+      "jd_phrase": "Vorantreiben der Digitalisierung der Fertigung (MES, Maschinendatenerfassung,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "MES-Systeme",
+        "MES"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Maschinendatenerfassung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen im Rahmen der MES-Einführung verantwortet.; Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen umgesetzt.",
+      "claimable": true,
+      "jd_phrase": "Vorantreiben der Digitalisierung der Fertigung (MES, Maschinendatenerfassung,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Maschinendatenerfassung",
+        "Maschinen- und Betriebsdatenerfassung",
+        "Betriebsdatenerfassung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Industrie 4.0",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Industrie-4.0-Roadmap gemeinsam mit der Geschäftsführung erarbeitet und das MES darin eingebettet.; Industrie-4.0-Roadmap erarbeitet und das MES darin eingebettet.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Industrie 4.0",
+        "Industrie-4.0-Roadmap"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Budgetverantwortung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Budgetverantwortung von ca. 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Budgetverantwortung",
+        "Budgetplanung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Investitionsverantwortung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Investitionsverantwortung"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Arbeitssicherheit",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Arbeitssicherheit ist im Profil benannt; als Sicherheitsbeauftragter Gefährdungsbeurteilungen und das Unterweisungssystem überarbeitet sowie die LTIF-Unfallquote gesenkt.",
+      "claimable": true,
+      "jd_phrase": "Verantwortung für Arbeitssicherheit und Umsetzung der ISO-45001-Anforderungen.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Arbeitssicherheit",
+        "Sicherheitsmanagement"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "ISO 45001",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet.; Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet und Gefährdungsbeurteilungen sowie Unterweisungssystem überarbeitet.",
+      "claimable": true,
+      "jd_phrase": "managementsystemen (ISO 45001) wünschenswert.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "ISO 45001"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Führung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "15 Jahre Mitarbeiterführung sowie Führung von Fertigungsbereichen und Schichten im Mehrschichtbetrieb.",
+      "claimable": true,
+      "jd_phrase": "Führung und Entwicklung der Schicht- und Bereichsleiter.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Führung",
+        "Mitarbeiterführung",
+        "Führungskompetenz"
+      ],
+      "evidence_owners": [
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Lean-Methoden",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Lean Management, 5S, Kaizen/KVP, Shopfloor-Management und SMED sind im Profil belegt.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Lean-Methoden",
+        "5S",
+        "SMED",
+        "Kaizen",
+        "KVP",
+        "Lean Management",
+        "Shopfloor-Management"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "5S",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Ausbildung zum Lean-Multiplikator sowie Moderation von 5S- und Kaizen-Workshops.; 5S- und Kaizen-Workshops als Lean-Multiplikator moderiert.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "5S",
+        "5S-Methode"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SMED",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Rüstworkshops nach SMED durchgeführt und damit die Termintreue von 87 % auf 96 % verbessert.",
+      "claimable": true,
+      "jd_phrase": "Nachweisbare Erfolge mit Lean-Methoden (5S, SMED, KVP, Shopfloor-Management).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SMED",
+        "Single-Minute Exchange of Die",
+        "Rüstzeitoptimierung",
+        "Rüstworkshops"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "SAP",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "15 Jahre SAP-Erfahrung, tägliche Arbeit mit SAP PP und MM sowie Key-User-Tätigkeit im PP-Rollout.; SAP PP und SAP MM täglich genutzt; zusätzlich Key-User-Erfahrung im SAP-PP-Rollout.",
+      "claimable": true,
+      "jd_phrase": "Sicherer Umgang mit SAP (idealerweise PP/MM).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SAP",
+        "SAP ERP",
+        "SAP PP",
+        "SAP MM"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "ISO 9001",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Zehn Jahre ISO-9001-Audit-Praxis und Bereichsverantwortung bei jährlichen ISO-9001-Audits.; Zehn Jahre ISO-9001-Audit-Praxis und Bereichsverantwortung bei jährlichen Audits.",
+      "claimable": true,
+      "jd_phrase": "Kenntnisse der Qualitätsstandards ISO 9001;",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "ISO 9001",
+        "Qualitätsmanagementsystem nach ISO 9001"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Führungserfahrung in der Produktion",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Mehrjährige Führungserfahrung in der Produktion eines Industrieunternehmens",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Führungserfahrung in der Produktion",
+        "Produktionsführung",
+        "Fertigungsleitung",
+        "Produktionsleitung"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Führung einer Schicht mit 14 Mitarbeitenden"
+    },
+    {
+      "status": "direct",
+      "concept": "SAP PP",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Täglich mit SAP PP gearbeitet und beim SAP-Rollout als Key-User für Fertigungsaufträge und Rückmeldungen tätig.; SAP PP täglich genutzt und als Key-User für Fertigungsaufträge und Rückmeldungen eingesetzt.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "SAP PP",
+        "SAP Production Planning"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SAP MM",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Täglich mit SAP MM gearbeitet, insbesondere für Disposition und Bestellanforderungen für Instandhaltungsmaterial.; SAP MM täglich für Disposition und Bestellanforderungen für Instandhaltungsmaterial genutzt.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "SAP MM",
+        "SAP Materials Management"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "IFS",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "IFS"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "BRC",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "BRC",
+        "BRCGS"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Verpackungsindustrie",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Hygiene- und Dokumentationsdisziplin in der Fertigung von Kosmetik-Verpackungen im Sauberraumbereich.; Erfahrung mit Kosmetik-Verpackungen im Sauberraumbereich und entsprechender Hygiene- und Dokumentationsdisziplin.",
+      "claimable": true,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Verpackungsindustrie",
+        "Verpackungsfertigung",
+        "Kosmetik-Verpackungen"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Kosmetik-Verpackungen"
+    },
+    {
+      "status": "gap",
+      "concept": "Lebensmittelindustrie",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Lebensmittelindustrie",
+        "Lebensmittelproduktion"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Operations",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Produktions- und Betriebsleiter mit Verantwortung für Fertigungsbereiche, Instandhaltungsschnittstellen, Qualität und Supply Chain.",
+      "claimable": true,
+      "jd_phrase": "Leiter Operations (m/w/d)",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Operations",
+        "Operations Management",
+        "Betriebsleitung"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Produktions- und Betriebsleiter"
+    },
+    {
+      "status": "gap",
+      "concept": "Produktion",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Vorantreiben der Digitalisierung der Fertigung (MES, Maschinendatenerfassung,",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Produktion",
+        "Fertigung",
+        "Serienfertigung",
+        "Fertigungsleitung"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH",
+        "Rasselstein Umformtechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "Investitionsplanung",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Investitionsplanung",
+        "Investitionsplanung für Maschinen",
+        "Anlageninvestitionsplanung"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Arbeitssicherheitsmanagementsysteme",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Arbeitssicherheitsmanagementsysteme",
+        "Arbeitsschutzmanagementsysteme",
+        "Arbeitssicherheit"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Supply Chain",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Schnittstelle zu Einkauf, Qualitätssicherung und Supply Chain in der Serienfertigung.",
+      "claimable": true,
+      "jd_phrase": "Enge Zusammenarbeit mit Supply Chain, Qualität und Vertrieb.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Supply Chain",
+        "Supply-Chain-Management"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Qualität",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Schnittstelle zur Qualitätssicherung, Eskalationsinstanz für Kundenreklamationen und zehn Jahre ISO-9001-Audit-Praxis.",
+      "claimable": true,
+      "jd_phrase": "Enge Zusammenarbeit mit Supply Chain, Qualität und Vertrieb.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Qualität",
+        "Qualitätssicherung",
+        "Qualitätsmanagement"
+      ],
+      "evidence_owners": [
+        "Weberit Kunststofftechnik GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Vertrieb",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Vertrieb",
+        "Sales"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.",
+        "value": 120.0,
+        "attested": {
+          "unit": "Gesamtstandort während Vertretung",
+          "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+          "quote": "In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück."
+        },
+        "value_max": null,
+        "comparator": "approx",
+        "cited_entry": null,
+        "candidate_values": [
+          {
+            "unit": null,
+            "entry": "Produktionsleiter @ Weberit Kunststofftechnik GmbH",
+            "value": 38,
+            "semantics": "size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'",
+            "provenance": "derived"
+          },
+          {
+            "unit": null,
+            "entry": "Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH",
+            "value": 14,
+            "semantics": "size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'",
+            "provenance": "derived"
+          }
+        ]
+      },
+      "status": "partial",
+      "concept": "Führungsspanne ~120 MA",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.\". Vault: 38 (Produktionsleiter @ Weberit Kunststofftechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'); 14 (Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Attested (Gesamtstandort während Vertretung): \"In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück.\" (Produktionsleiter @ Weberit Kunststofftechnik GmbH). Judgement: Verglichen wurden die größten belegten Führungsspannen von 38 Mitarbeitenden als Produktionsleiter und 14 Mitarbeitenden als Schichtleiter mit der geforderten Gesamtverantwortung für ca. 120 Mitarbeitende. Die Werte messen jeweils die Teamgröße in einer einzelnen Rolle und nicht die geforderte dauerhafte Gesamtspanne; die Interviewaussagen bestätigen keine dauerhafte Führung von 120 Mitarbeitenden.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "47dd997acc62b99f70b0c85b94daa5e695edd62b91ace1d51656d3a73387d941",
+  "gap_inputs_fingerprint": "87e17122ebfd554901f7e6ea615b3375b097ab821a6f5946c2b6f4eb409a18e7",
+  "gap_clusters": [
+    {
+      "id": "cluster-produktionsdigitalisierung",
+      "gaps": [
+        "Digitalisierung der Fertigung"
+      ],
+      "label": "Produktionsdigitalisierung",
+      "outcome": {
+        "asked": 2,
+        "covered": [
+          "OEE",
+          "MES",
+          "Maschinendatenerfassung",
+          "Industrie 4.0"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "OEE",
+        "Digitalisierung der Fertigung",
+        "MES-Systeme",
+        "Maschinendatenerfassung",
+        "Industrie 4.0"
+      ],
+      "jd_context": "In dieser Rolle nutze ich Produktionsdaten, MES-Systeme und Industrie-4.0-Lösungen, um Transparenz und Leistung in der Fertigung zu steigern."
+    },
+    {
+      "id": "cluster-investitionen-und-budget",
+      "gaps": [
+        "Investitionsverantwortung"
+      ],
+      "label": "Investitionen und Budget",
+      "outcome": {
+        "asked": 2,
+        "covered": [],
+        "declined": [
+          "Investitionsplanung"
+        ],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Budgetverantwortung",
+        "Investitionsverantwortung"
+      ],
+      "jd_context": "In dieser Rolle plane und verantworte ich Investitionen, die die technische und wirtschaftliche Weiterentwicklung des Standorts sichern."
+    },
+    {
+      "id": "cluster-arbeitssicherheit",
+      "gaps": [
+        "Arbeitssicherheit",
+        "Arbeitssicherheitsmanagementsysteme"
+      ],
+      "label": "Arbeitssicherheit",
+      "outcome": {
+        "asked": 2,
+        "covered": [
+          "ISO 45001"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Arbeitssicherheit",
+        "ISO 45001"
+      ],
+      "jd_context": "In dieser Rolle stelle ich sichere Arbeitsbedingungen und die wirksame Umsetzung eines Arbeitssicherheitsmanagementsystems nach ISO 45001 sicher."
+    },
+    {
+      "id": "cluster-produktionsführung",
+      "gaps": [
+        "Führungserfahrung in der Produktion",
+        "Führungsspanne ~120 MA"
+      ],
+      "label": "Produktionsführung",
+      "outcome": {
+        "asked": 2,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Führung",
+        "Führungserfahrung in der Produktion"
+      ],
+      "jd_context": "In dieser Rolle führe ich große Produktionsteams zielorientiert und entwickle Mitarbeitende sowie Abläufe im täglichen Betrieb weiter."
+    },
+    {
+      "id": "cluster-qualitaets-und-branchenstandards",
+      "gaps": [
+        "Verpackungsindustrie",
+        "Lebensmittelindustrie"
+      ],
+      "label": "Qualität und Branchenstandards",
+      "outcome": {
+        "asked": 2,
+        "covered": [],
+        "declined": [
+          "IFS",
+          "BRC"
+        ],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "IFS",
+        "BRC",
+        "Verpackungsindustrie",
+        "Lebensmittelindustrie"
+      ],
+      "jd_context": "In dieser Rolle berücksichtige ich branchenspezifische Qualitäts- und Hygienestandards der Verpackungs- und Lebensmittelindustrie."
+    },
+    {
+      "id": "cluster-lean-und-prozessverbesserung",
+      "gaps": [
+        "Lean-Produktion"
+      ],
+      "label": "Lean und Verbesserung",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Lean-Produktion",
+        "Shopfloor-Management",
+        "KVP",
+        "Lean-Methoden",
+        "5S",
+        "SMED"
+      ],
+      "jd_context": "In dieser Rolle verbessere ich Produktionsprozesse mit Lean-Methoden, Shopfloor-Management und kontinuierlicher Verbesserung."
+    },
+    {
+      "id": "cluster-produktionsplanung",
+      "gaps": [
+        "Arbeitsvorbereitung"
+      ],
+      "label": "Produktionsplanung",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Arbeitsvorbereitung"
+      ],
+      "jd_context": "In dieser Rolle koordiniere ich die Arbeitsvorbereitung, damit Produktionsabläufe effizient, termingerecht und stabil umgesetzt werden."
+    },
+    {
+      "id": "cluster-erp-und-materialplanung",
+      "gaps": [
+        "SAP"
+      ],
+      "label": "ERP und Materialplanung",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "SAP",
+        "SAP PP",
+        "SAP MM"
+      ],
+      "jd_context": "In dieser Rolle nutze ich SAP zur integrierten Planung von Produktion, Materialflüssen und betrieblichen Abläufen."
+    },
+    {
+      "id": "cluster-vertrieb",
+      "gaps": [
+        "Vertrieb"
+      ],
+      "label": "Vertrieb",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "50562fd6-bdb7-4c24-ad54-6948d861379a"
+        ]
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [],
+      "jd_context": "In dieser Rolle unterstütze ich die Schnittstelle zu Kunden und Markt, auch wenn der Schwerpunkt auf der Produktion liegt."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Facharbeiter in der Instandhaltung und Vorarbeiter; zudem Budgetverantwortung für Instandhaltung sowie Bestellanforderungen für Instandhaltungsmaterial.; Facharbeiter in der Instandhaltung und Vorarbeiter; zusätzlich Verantwortung für Instandhaltungskosten und Beschaffung von Instandhaltungsmaterial.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Instandhaltung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Arbeitsvorbereitung ist im Profil benannt; zusätzlich Leitung der Stammdatenbereinigung für Arbeitspläne und Feinplanung der Fertigung.; Arbeitsvorbereitung ist im Profil benannt; zusätzlich Stammdatenbereinigung für Arbeitspläne und Feinplanung der Fertigung geleitet.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Arbeitsvorbereitung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Lean Management sowie die Einführung von Shopfloor-Management, KVP-Routinen, 5S-, Kaizen- und SMED-Workshops in der Produktion.; Lean Management und konkrete Lean-Praktiken wie Shopfloor-Management, KVP, 5S, Kaizen und SMED in der Produktion umgesetzt.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Lean-Produktion"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Shopfloor-Management seit 2017 eingeführt und mit Echtzeit-OEE-Transparenz am Shopfloor-Board umgesetzt.; Shopfloor-Management und KVP-Routinen seit 2017 eingeführt; OEE-Kennzahlen am Shopfloor-Board etabliert.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Shopfloor-Management"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "KVP/Kaizen ist im Profil benannt; KVP-Routinen wurden seit 2017 eingeführt und zur Ausschussreduzierung eingesetzt.; KVP/Kaizen ist im Profil genannt und wurde als KVP-Routine in der Fertigung eingeführt.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "KVP"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "OEE-Transparenz in Echtzeit am Shopfloor-Board geschaffen und OEE im Spritzguss von 61 % auf 73 % gesteigert.; OEE-Kennzahlen in Echtzeit am Shopfloor-Board etabliert und OEE von 61 % auf 73 % gesteigert.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "OEE"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Einführung eines MES-Systems einschließlich Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen sowie Erarbeitung einer Industrie-4.0-Roadmap.; MES-Einführung, Maschinen- und Betriebsdatenerfassung an 14 Maschinen und Industrie-4.0-Roadmap umgesetzt.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Digitalisierung der Fertigung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "2023 die Einführung eines MES-Systems von der Systemauswahl über die Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet.; MES-Systemeinführung von der Auswahl und Pilotlinie bis zum Rollout in beide Fertigungsbereiche verantwortet.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "MES"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen im Rahmen der MES-Einführung verantwortet.; Maschinen- und Betriebsdatenerfassung an 14 Spritzgussmaschinen umgesetzt.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Maschinendatenerfassung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Industrie-4.0-Roadmap gemeinsam mit der Geschäftsführung erarbeitet und das MES darin eingebettet.; Industrie-4.0-Roadmap erarbeitet und das MES darin eingebettet.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Industrie 4.0"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Budgetverantwortung von ca. 6 Mio. € für Personal, Instandhaltung und Material-Gemeinkosten.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Budgetverantwortung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Investitionsverantwortung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Arbeitssicherheit ist im Profil benannt; als Sicherheitsbeauftragter Gefährdungsbeurteilungen und das Unterweisungssystem überarbeitet sowie die LTIF-Unfallquote gesenkt.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Arbeitssicherheit"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet.; Vorbereitung der ISO-45001-Zertifizierung für die Produktion begleitet und Gefährdungsbeurteilungen sowie Unterweisungssystem überarbeitet.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "ISO 45001"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "15 Jahre Mitarbeiterführung sowie Führung von Fertigungsbereichen und Schichten im Mehrschichtbetrieb.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Führung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Lean Management, 5S, Kaizen/KVP, Shopfloor-Management und SMED sind im Profil belegt.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Lean-Methoden"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Ausbildung zum Lean-Multiplikator sowie Moderation von 5S- und Kaizen-Workshops.; 5S- und Kaizen-Workshops als Lean-Multiplikator moderiert.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "5S"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Rüstworkshops nach SMED durchgeführt und damit die Termintreue von 87 % auf 96 % verbessert.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "SMED"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "15 Jahre SAP-Erfahrung, tägliche Arbeit mit SAP PP und MM sowie Key-User-Tätigkeit im PP-Rollout.; SAP PP und SAP MM täglich genutzt; zusätzlich Key-User-Erfahrung im SAP-PP-Rollout.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "SAP"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Zehn Jahre ISO-9001-Audit-Praxis und Bereichsverantwortung bei jährlichen ISO-9001-Audits.; Zehn Jahre ISO-9001-Audit-Praxis und Bereichsverantwortung bei jährlichen Audits.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "ISO 9001"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Führungserfahrung in der Produktion"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Täglich mit SAP PP gearbeitet und beim SAP-Rollout als Key-User für Fertigungsaufträge und Rückmeldungen tätig.; SAP PP täglich genutzt und als Key-User für Fertigungsaufträge und Rückmeldungen eingesetzt.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "SAP PP"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Täglich mit SAP MM gearbeitet, insbesondere für Disposition und Bestellanforderungen für Instandhaltungsmaterial.; SAP MM täglich für Disposition und Bestellanforderungen für Instandhaltungsmaterial genutzt.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "SAP MM"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "IFS"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "BRC"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.25,
+      "reason": "Hygiene- und Dokumentationsdisziplin in der Fertigung von Kosmetik-Verpackungen im Sauberraumbereich.; Erfahrung mit Kosmetik-Verpackungen im Sauberraumbereich und entsprechender Hygiene- und Dokumentationsdisziplin.",
+      "source": "nice_to_have",
+      "status": "partial",
+      "requirement": "Verpackungsindustrie"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "",
+      "source": "nice_to_have",
+      "status": "gap",
+      "requirement": "Lebensmittelindustrie"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "JD bar (team_size): \"Gesamtverantwortung für Produktion, Instandhaltung und Arbeitsvorbereitung (ca. 120 Mitarbeitende, Mehrschichtbetrieb) am Standort Koblenz.\". Vault: 38 (Produktionsleiter @ Weberit Kunststofftechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'); 14 (Fertigungsmeister / Schichtleiter @ Rasselstein Umformtechnik GmbH — size of the team the candidate led in that one role — functional or disciplinary leadership, the vault does not record which; never the organisation's total headcount, and not to be upgraded to 'direct reports'). Attested (Gesamtstandort während Vertretung): \"In Urlaubs- und Krankheitsvertretung des Betriebsleiters mehrfach den Gesamtstandort mit rund 90 Mitarbeitenden geführt, jeweils 2 bis 4 Wochen am Stück.\" (Produktionsleiter @ Weberit Kunststofftechnik GmbH). Judgement: Verglichen wurden die größten belegten Führungsspannen von 38 Mitarbeitenden als Produktionsleiter und 14 Mitarbeitenden als Schichtleiter mit der geforderten Gesamtverantwortung für ca. 120 Mitarbeitende. Die Werte messen jeweils die Teamgröße in einer einzelnen Rolle und nicht die geforderte dauerhafte Gesamtspanne; die Interviewaussagen bestätigen keine dauerhafte Führung von 120 Mitarbeitenden.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Führungsspanne ~120 MA"
+    }
+  ]
+}

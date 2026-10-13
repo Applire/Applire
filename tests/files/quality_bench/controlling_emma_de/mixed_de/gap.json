@@ -1,0 +1,1151 @@
+{
+  "profile_id": "5ea34eb9-61fa-4b02-b61f-c72d49826778",
+  "match_score": 0.8,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Projektcontrolling",
+    "Führungsspanne 2 MA"
+  ],
+  "minor_gaps": [
+    "Investitionsentscheidungen"
+  ],
+  "strengths": [
+    "Monatsabschluss-Reporting",
+    "Jahresabschluss-Reporting",
+    "HGB-Abschluss",
+    "Konzernkonsolidierung",
+    "Management-Reporting",
+    "Power BI",
+    "Budgetprozess",
+    "Rollierender Forecast",
+    "Produktionscontrolling",
+    "POC-Bewertung",
+    "SAP CO/FI",
+    "Kostenrechnung",
+    "Fachliche Führung",
+    "Konsolidierung",
+    "LucaNet",
+    "IFRS",
+    "IFRS-Grundkenntnisse",
+    "Erste Führungserfahrung",
+    "BI-Werkzeug",
+    "Controlling",
+    "Industrieunternehmen",
+    "Unternehmensgruppe",
+    "Vertrieb",
+    "Produktion",
+    "Geschäftsführung",
+    "Forecast",
+    "HGB",
+    "Führungserfahrung",
+    "Controlling-Team"
+  ],
+  "keyword_gaps": [
+    "Self-Service-Dashboards",
+    "Anlagenbau",
+    "US-GAAP",
+    "Investitionsentscheidungen",
+    "Make-or-buy-Entscheidungen"
+  ],
+  "category_a": [
+    "Monatsabschluss-Reporting",
+    "Jahresabschluss-Reporting",
+    "HGB",
+    "Konzernkonsolidierung",
+    "Management-Reporting",
+    "Power BI",
+    "Budgetprozess",
+    "Rollierender Forecast",
+    "Produktionscontrolling",
+    "POC-Bewertung",
+    "SAP CO/FI",
+    "Kostenrechnung",
+    "Fachliche Führung",
+    "Konsolidierung",
+    "LucaNet",
+    "IFRS",
+    "Führungserfahrung",
+    "BI-Werkzeug"
+  ],
+  "category_b": [
+    "Investitionsentscheidungen"
+  ],
+  "category_c": [
+    "Projektcontrolling",
+    "Führungsspanne 2 MA"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "direct",
+      "concept": "Monatsabschluss-Reporting",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Verantwortung für Monatsabschluss und Reporting (HGB) sowie monatliches Closing und Reporting.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Monatsabschluss",
+        "Monthly closing & reporting",
+        "Monthly closing"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Jahresabschluss-Reporting",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB) und Erfahrung im Jahresabschluss-Reporting.",
+      "claimable": true,
+      "jd_phrase": "Eigenverantwortliche Erstellung von Monats- und Jahresabschluss-Reporting (HGB)",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Jahresabschluss",
+        "Annual closing reporting",
+        "Annual closing"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "HGB",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Erfahrung mit HGB-Abschlüssen im Monats- und Jahresabschluss.; Monats- und Jahresabschluss-Reporting nach HGB sowie HGB-konforme POC-Bewertung.",
+      "claimable": true,
+      "jd_phrase": "Eigenverantwortliche Erstellung von Monats- und Jahresabschluss-Reporting (HGB)",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "HGB",
+        "HGB-Abschluss",
+        "HGB-Rechnungslegung",
+        "German GAAP",
+        "HGB reporting"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Konzernkonsolidierung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Verantwortung für das Teilprojekt Intercompany-Abstimmung und Kapitalkonsolidierung sowie operative Mitarbeit an konsolidierten Quartalszahlen in LucaNet.; Teilprojektverantwortung für Intercompany-Abstimmung und Kapitalkonsolidierung sowie operative Mitarbeit an konsolidierten Quartalszahlen.; Kapitalkonsolidierung, Intercompany-Abstimmung und Erstellung konsolidierter Quartalszahlen in LucaNet.",
+      "claimable": true,
+      "jd_phrase": "Aufbau und Weiterentwicklung der Konzernkonsolidierung (drei Gesellschaften).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Kapitalkonsolidierung",
+        "Intercompany-Abstimmung",
+        "Group consolidation",
+        "Consolidation of group accounts",
+        "Konsolidierung",
+        "Konzernkonsolidierung",
+        "Consolidation"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Management-Reporting",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Management-Reporting für Geschäftsführung, Beirat und Management; Aufbau von Power-BI-Dashboards.; Management-Reporting für Geschäftsführung und Beirat sowie 14 Power-BI-Dashboards für Umsatz, Deckungsbeiträge, Working Capital und Werkskennzahlen.",
+      "claimable": true,
+      "jd_phrase": "Ausbau unseres Management-Reportings mit Power BI (Self-Service-Dashboards für",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Management Reporting",
+        "Reporting an das Management",
+        "Reporting für Geschäftsführung",
+        "Reporting an die Geschäftsführung",
+        "Power-BI-Dashboards"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Power BI",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Management-Reporting von Excel auf Power BI umgestellt, 14 Dashboards erstellt sowie DAX-Modellierung und Datenmodell selbst umgesetzt.; Erstellung und Einführung von 14 Power-BI-Dashboards mit DAX und eigenem Datenmodell.",
+      "claimable": true,
+      "jd_phrase": "Ausbau unseres Management-Reportings mit Power BI (Self-Service-Dashboards für",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Power BI",
+        "DAX",
+        "Power-BI-Dashboards",
+        "Microsoft Power BI",
+        "Business Intelligence"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Budgetprozess",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Durchführung der Jahresplanung und Budgetierung mit Abweichungsanalysen je Werk und Produktlinie.; Jahresplanung und rollierender Forecast mit Abweichungsanalysen je Werk und Produktlinie.",
+      "claimable": true,
+      "jd_phrase": "Budgetprozess und rollierender Forecast auf Gruppenebene.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Jahresplanung",
+        "Budgetierung",
+        "Budgetplanung",
+        "Budgeting",
+        "Budget process"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Rollierender Forecast",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Erfahrung mit Jahresplanung und rollierendem Forecast für einen Umsatz von 78 Mio. €.",
+      "claimable": true,
+      "jd_phrase": "Budgetprozess und rollierender Forecast auf Gruppenebene.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Rolling Forecast",
+        "rollierender Forecast",
+        "Forecasting",
+        "Budgetierung & Forecast",
+        "Rolling forecast"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Produktionscontrolling",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Werkscontrolling für zwei Produktionsstandorte mit Herstellkosten, Deckungsbeiträgen und Bestandsbewertung.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Werkscontrolling",
+        "Plant Controlling",
+        "Produktionscontrolling",
+        "Production controlling"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Projektcontrolling",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Produktions- und Projektcontrolling für den Anlagenbau (POC-Bewertung).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Projektsteuerung im Controlling",
+        "Großprojektcontrolling",
+        "Project controlling"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad"
+    },
+    {
+      "status": "direct",
+      "concept": "POC-Bewertung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Seit 2022 monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante.; Monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante.",
+      "claimable": true,
+      "jd_phrase": "Produktions- und Projektcontrolling für den Anlagenbau (POC-Bewertung).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Percentage of Completion",
+        "Fertigstellungsgrad",
+        "POC",
+        "Percentage-of-completion assessment",
+        "PoC assessment"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SAP CO/FI",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Key-Userin für SAP CO/FI mit Weiterentwicklung der Kostenstellenrechnung in SAP CO.; Bestätigte Erfahrung als Key-Userin für SAP CO/FI.",
+      "claimable": true,
+      "jd_phrase": "Sicherer Umgang mit SAP CO/FI.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SAP CO",
+        "SAP FI",
+        "SAP CO/FI",
+        "SAP Controlling",
+        "SAP Financial Accounting"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Kostenrechnung",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Weiterentwicklung der Kostenstellenrechnung in SAP CO sowie Erfahrung mit Kostenstellen- und Kostenträgerrechnung.",
+      "claimable": true,
+      "jd_phrase": "Sehr gute Kenntnisse in HGB-Abschluss und Kostenrechnung.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Kostenstellenrechnung",
+        "Kostenträgerrechnung",
+        "Herstellkostenrechnung",
+        "Cost accounting"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Investitionsentscheidungen",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Erstellung von Investitionsrechnungen für Maschinenbeschaffungen.",
+      "claimable": true,
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Investitionsrechnung",
+        "Investment appraisals",
+        "Investment decisions"
+      ],
+      "evidence_owners": [
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Investitionsrechnung"
+    },
+    {
+      "status": "denied",
+      "concept": "Make-or-buy-Entscheidungen",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Make-or-buy",
+        "Eigenfertigung-oder-Fremdbezug-Entscheidungen",
+        "Make-or-buy decisions",
+        "Make-or-buy-Analyse"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Fachliche Führung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Fachliche Führung von zwei Werkstudierenden sowie Einarbeitung und fachliche Betreuung einer Junior-Controllerin.",
+      "claimable": true,
+      "jd_phrase": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Fachliche Anleitung",
+        "Functional guidance",
+        "Mitarbeiterentwicklung",
+        "Functional leadership"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Konsolidierung",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Erfahrung mit Kapitalkonsolidierung und konsolidierten Quartalszahlen in LucaNet.",
+      "claimable": true,
+      "jd_phrase": "Aufbau und Weiterentwicklung der Konzernkonsolidierung (drei Gesellschaften).",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Kapitalkonsolidierung",
+        "Konzernkonsolidierung",
+        "Intercompany-Abstimmung",
+        "Consolidation"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "LucaNet",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Teilprojektverantwortung bei der Einführung von LucaNet und operative Mitarbeit an konsolidierten Quartalszahlen in LucaNet.; Einführung und operative Nutzung von LucaNet für Konsolidierungsaufgaben.",
+      "claimable": true,
+      "jd_phrase": "LucaNet o.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "LucaNet",
+        "LucaNet software"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "IFRS",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "IFRS-Zertifikatskurs und Bewertung von Leasing nach IFRS 16 sowie Umsatzrealisierung für einen Servicevertrag.; IFRS-Zertifikatskurs und praktische Bewertung zweier IFRS-Themen.; IFRS-Zertifikatskurs und praktische Bewertung von IFRS 16 sowie Umsatzrealisierung nach IFRS.",
+      "claimable": true,
+      "jd_phrase": "Begleitung der anstehenden Umstellung ausgewählter Berichtsteile auf IFRS.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "IFRS",
+        "IFRS 16",
+        "International Financial Reporting Standards",
+        "IFRS basics",
+        "Basic IFRS knowledge",
+        "IFRS-Kenntnisse",
+        "IFRS fundamentals"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Führungserfahrung",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Fachliche Führung von zwei Werkstudierenden sowie Einarbeitung und Betreuung einer Junior-Controllerin.",
+      "claimable": true,
+      "jd_phrase": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Fachliche Führung",
+        "Führungserfahrung",
+        "Functional guidance",
+        "Fachliche Anleitung",
+        "First leadership experience",
+        "Erste Führungserfahrung",
+        "Functional leadership"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "US-GAAP",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "US GAAP",
+        "United States Generally Accepted Accounting Principles",
+        "US Generally Accepted Accounting Principles"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "BI-Werkzeug",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Umfassende praktische Erfahrung mit Power BI, einschließlich Dashboard-Erstellung, DAX-Modellierung und Datenmodellierung.",
+      "claimable": true,
+      "jd_phrase": "Ausbau unseres Management-Reportings mit Power BI (Self-Service-Dashboards für",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "Power BI",
+        "Business Intelligence Tool",
+        "BI-Tool",
+        "Business intelligence tool",
+        "BI tool"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Controlling",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Neun Jahre Controlling-Erfahrung im industriellen Mittelstand, einschließlich Abschluss, Planung und Werkscontrolling.; Fachliche Führung und Betreuung von zwei Werkstudierenden sowie einer Junior-Controllerin im Controlling.",
+      "claimable": true,
+      "jd_phrase": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Controlling",
+        "Financial Controlling",
+        "Werkscontrolling",
+        "Plant Controlling",
+        "Controlling-Team",
+        "Controlling-Mannschaft",
+        "Team im Controlling",
+        "Controlling team",
+        "Controlling department"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Diehl-Gruppe"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Industrieunternehmen",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Erfahrung im industriellen Mittelstand sowie in der mechanischen Fertigung ist ausgewiesen.",
+      "claimable": true,
+      "jd_phrase": "Mindestens 5 Jahre Controlling-Erfahrung in einem Industrieunternehmen.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Industrieller Mittelstand",
+        "Industrial company",
+        "Manufacturing company"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Industrieller Mittelstand"
+    },
+    {
+      "status": "direct",
+      "concept": "Unternehmensgruppe",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Mitarbeit an Konsolidierung und konsolidierten Quartalszahlen in einer Gruppe aus GmbH und Schweizer Vertriebsgesellschaft.",
+      "claimable": true,
+      "jd_phrase": "Aufbau und Weiterentwicklung der Konzernkonsolidierung (drei Gesellschaften).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Gruppe",
+        "Unternehmensgruppe",
+        "Konzern",
+        "Corporate group",
+        "Group company"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Self-Service-Dashboards",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Selbstständig erstellte und von der Geschäftsführung genutzte 14 Power-BI-Dashboards.",
+      "claimable": true,
+      "jd_phrase": "Ausbau unseres Management-Reportings mit Power BI (Self-Service-Dashboards für",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Self-Service BI",
+        "Power-BI-Dashboards",
+        "Interactive dashboards",
+        "Self-service reporting dashboards",
+        "Self-service BI dashboards"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Power-BI-Dashboards"
+    },
+    {
+      "status": "direct",
+      "concept": "Vertrieb",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Erfahrung mit Vertriebsreporting und Konsolidierung einer Schweizer Vertriebsgesellschaft.",
+      "claimable": true,
+      "jd_phrase": "Vertrieb, Produktion und Geschäftsführung).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Vertriebsreporting",
+        "Sales reporting",
+        "Vertriebsgesellschaft",
+        "Sales controlling"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH",
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Produktion",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Werkscontrolling für zwei Produktionsstandorte im industriellen Umfeld.",
+      "claimable": true,
+      "jd_phrase": "Produktions- und Projektcontrolling für den Anlagenbau (POC-Bewertung).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Produktionscontrolling",
+        "Produktionsstandorte",
+        "Werkscontrolling",
+        "Production",
+        "Manufacturing"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Geschäftsführung",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Kommentierung von Reports für die Geschäftsführung sowie Nutzung der Power-BI-Dashboards durch die Geschäftsführung.",
+      "claimable": true,
+      "jd_phrase": "Ausbau unseres Management-Reportings mit Power BI (Self-Service-Dashboards für",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Management",
+        "Geschäftsleitung",
+        "Executive reporting",
+        "Executive management"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Forecast",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Erfahrung mit Jahresplanung und rollierendem Forecast.",
+      "claimable": true,
+      "jd_phrase": "Budgetprozess und rollierender Forecast auf Gruppenebene.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Rollierender Forecast",
+        "Rolling Forecast",
+        "Forecasting",
+        "Rolling forecast"
+      ],
+      "evidence_owners": [
+        "Schwarzwald Präzision GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Anlagenbau",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Erfahrung bei einem Maschinenbauunternehmen und im Sondermaschinenbereich.",
+      "claimable": true,
+      "jd_phrase": "Produktions- und Projektcontrolling für den Anlagenbau (POC-Bewertung).",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Maschinenbau",
+        "Sondermaschinenbau",
+        "Mechanical engineering manufacturing",
+        "Mechanical engineering",
+        "Plant engineering"
+      ],
+      "evidence_owners": [
+        "Brauner & Söhne Maschinenbau GmbH"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Maschinenbau"
+    },
+    {
+      "bar": {
+        "kind": "team_size",
+        "level": "required",
+        "quote": "Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.",
+        "value": 2.0,
+        "attested": null,
+        "value_max": null,
+        "comparator": "exact",
+        "cited_entry": null,
+        "candidate_values": []
+      },
+      "status": "gap",
+      "concept": "Führungsspanne 2 MA",
+      "sources": [
+        "required"
+      ],
+      "evidence": "JD bar (team_size): \"Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.\". Vault: no typed vault value. Judgement: Die Kandidatin führt fachlich zwei Werkstudierende; diese typed scope value entspricht der geforderten Führungsspanne von 2 Personen auf derselben quantity.",
+      "claimable": false,
+      "fit_weight": 1.0,
+      "surface_forms": [],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "e9a04d6f28dc29fd72ef34b582293be94a3b64e76928a27dcd412e1925e3d197",
+  "gap_inputs_fingerprint": "f4e263ccd374d4abaf796c82aa64896b191f27e908cdec831ece4e82c67394ad",
+  "gap_clusters": [
+    {
+      "id": "cluster-konzernabschluss",
+      "gaps": [],
+      "label": "Konzernabschluss und Rechnungslegung",
+      "outcome": {
+        "asked": 2,
+        "covered": [
+          "Konzernkonsolidierung",
+          "Konsolidierung",
+          "LucaNet",
+          "IFRS",
+          "Unternehmensgruppe"
+        ],
+        "declined": [
+          "US-GAAP"
+        ],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "B",
+      "coverage": "covered",
+      "jd_skills": [
+        "Konzernkonsolidierung",
+        "Konsolidierung",
+        "LucaNet",
+        "IFRS",
+        "IFRS-Grundkenntnisse",
+        "US-GAAP"
+      ],
+      "jd_context": "In dieser Rolle sichere ich die konsistente Konzernkonsolidierung und Rechnungslegung über mehrere Gesellschaften hinweg ab."
+    },
+    {
+      "id": "cluster-abschlussreporting",
+      "gaps": [],
+      "label": "Abschluss- und Managementreporting",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "Jahresabschluss-Reporting",
+          "HGB-Abschluss",
+          "Management-Reporting"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "B",
+      "coverage": "covered",
+      "jd_skills": [
+        "Monatsabschluss-Reporting",
+        "Jahresabschluss-Reporting",
+        "HGB-Abschluss",
+        "Management-Reporting"
+      ],
+      "jd_context": "Ich erstelle verlässliche Abschluss- und Managementberichte als Grundlage für die Unternehmenssteuerung."
+    },
+    {
+      "id": "cluster-bi-dashboards",
+      "gaps": [
+        "Self-Service-Dashboards"
+      ],
+      "label": "BI und Dashboards",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "Power BI",
+          "BI-Werkzeug"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Power BI",
+        "BI-Werkzeug"
+      ],
+      "jd_context": "Ich entwickle mit BI-Werkzeugen aussagekräftige Self-Service-Dashboards für schnelle und datenbasierte Entscheidungen."
+    },
+    {
+      "id": "cluster-controlling",
+      "gaps": [
+        "Projektcontrolling"
+      ],
+      "label": "Operatives Controlling",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "Produktionscontrolling"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Produktionscontrolling",
+        "Projektcontrolling"
+      ],
+      "jd_context": "Ich steuere Produktions- und Projektleistungen durch transparente Kennzahlen, Analysen und Abweichungsbewertungen."
+    },
+    {
+      "id": "cluster-planung-investitionen",
+      "gaps": [
+        "Investitionsentscheidungen"
+      ],
+      "label": "Planung und Investitionen",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [
+          "Make-or-buy-Entscheidungen"
+        ],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Investitionsentscheidungen",
+        "Make-or-buy-Entscheidungen"
+      ],
+      "jd_context": "Ich unterstütze Investitions- und Make-or-buy-Entscheidungen mit fundierten Wirtschaftlichkeitsanalysen."
+    },
+    {
+      "id": "cluster-poc-bewertung",
+      "gaps": [],
+      "label": "POC-Bewertung",
+      "outcome": {
+        "asked": 1,
+        "covered": [
+          "POC-Bewertung"
+        ],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "B",
+      "coverage": "covered",
+      "jd_skills": [
+        "POC-Bewertung"
+      ],
+      "jd_context": "Ich bewerte den Fertigstellungsgrad von Projekten sachgerecht für eine korrekte Ergebnis- und Umsatzdarstellung."
+    },
+    {
+      "id": "cluster-fuehrung",
+      "gaps": [
+        "Führungsspanne 2 MA"
+      ],
+      "label": "Fachliche Führung",
+      "outcome": {
+        "asked": 1,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": [
+          "72eaa681-efeb-40c3-b6f8-fda82685e5bb"
+        ]
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Fachliche Führung",
+        "Erste Führungserfahrung"
+      ],
+      "jd_context": "Ich übernehme die fachliche Führung eines kleinen Teams und stelle eine effiziente Zusammenarbeit sicher."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Verantwortung für Monatsabschluss und Reporting (HGB) sowie monatliches Closing und Reporting.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Monatsabschluss-Reporting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Betreuung der Wirtschaftsprüfer im Jahresabschluss (HGB) und Erfahrung im Jahresabschluss-Reporting.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Jahresabschluss-Reporting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Erfahrung mit HGB-Abschlüssen im Monats- und Jahresabschluss.; Monats- und Jahresabschluss-Reporting nach HGB sowie HGB-konforme POC-Bewertung.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "HGB"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Verantwortung für das Teilprojekt Intercompany-Abstimmung und Kapitalkonsolidierung sowie operative Mitarbeit an konsolidierten Quartalszahlen in LucaNet.; Teilprojektverantwortung für Intercompany-Abstimmung und Kapitalkonsolidierung sowie operative Mitarbeit an konsolidierten Quartalszahlen.; Kapitalkonsolidierung, Intercompany-Abstimmung und Erstellung konsolidierter Quartalszahlen in LucaNet.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Konzernkonsolidierung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Management-Reporting für Geschäftsführung, Beirat und Management; Aufbau von Power-BI-Dashboards.; Management-Reporting für Geschäftsführung und Beirat sowie 14 Power-BI-Dashboards für Umsatz, Deckungsbeiträge, Working Capital und Werkskennzahlen.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Management-Reporting"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Management-Reporting von Excel auf Power BI umgestellt, 14 Dashboards erstellt sowie DAX-Modellierung und Datenmodell selbst umgesetzt.; Erstellung und Einführung von 14 Power-BI-Dashboards mit DAX und eigenem Datenmodell.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Power BI"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Durchführung der Jahresplanung und Budgetierung mit Abweichungsanalysen je Werk und Produktlinie.; Jahresplanung und rollierender Forecast mit Abweichungsanalysen je Werk und Produktlinie.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Budgetprozess"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Erfahrung mit Jahresplanung und rollierendem Forecast für einen Umsatz von 78 Mio. €.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Rollierender Forecast"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Werkscontrolling für zwei Produktionsstandorte mit Herstellkosten, Deckungsbeiträgen und Bestandsbewertung.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Produktionscontrolling"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Projektcontrolling"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Seit 2022 monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante.; Monatliche Bewertung von sechs Großprojekten nach Fertigstellungsgrad in einer HGB-konformen Variante.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "POC-Bewertung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Key-Userin für SAP CO/FI mit Weiterentwicklung der Kostenstellenrechnung in SAP CO.; Bestätigte Erfahrung als Key-Userin für SAP CO/FI.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "SAP CO/FI"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Weiterentwicklung der Kostenstellenrechnung in SAP CO sowie Erfahrung mit Kostenstellen- und Kostenträgerrechnung.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Kostenrechnung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Erstellung von Investitionsrechnungen für Maschinenbeschaffungen.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Investitionsentscheidungen"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "required",
+      "status": "denied",
+      "requirement": "Make-or-buy-Entscheidungen"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Fachliche Führung von zwei Werkstudierenden sowie Einarbeitung und fachliche Betreuung einer Junior-Controllerin.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Fachliche Führung"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Erfahrung mit Kapitalkonsolidierung und konsolidierten Quartalszahlen in LucaNet.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Konsolidierung"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Teilprojektverantwortung bei der Einführung von LucaNet und operative Mitarbeit an konsolidierten Quartalszahlen in LucaNet.; Einführung und operative Nutzung von LucaNet für Konsolidierungsaufgaben.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "LucaNet"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "IFRS-Zertifikatskurs und Bewertung von Leasing nach IFRS 16 sowie Umsatzrealisierung für einen Servicevertrag.; IFRS-Zertifikatskurs und praktische Bewertung zweier IFRS-Themen.; IFRS-Zertifikatskurs und praktische Bewertung von IFRS 16 sowie Umsatzrealisierung nach IFRS.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "IFRS"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Fachliche Führung von zwei Werkstudierenden sowie Einarbeitung und Betreuung einer Junior-Controllerin.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "Führungserfahrung"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "US-GAAP"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Umfassende praktische Erfahrung mit Power BI, einschließlich Dashboard-Erstellung, DAX-Modellierung und Datenmodellierung.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "BI-Werkzeug"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "JD bar (team_size): \"Fachliche Führung eines kleinen Controlling-Teams (2 Personen) mit Entwicklungsperspektive zur Teamleitung.\". Vault: no typed vault value. Judgement: Die Kandidatin führt fachlich zwei Werkstudierende; diese typed scope value entspricht der geforderten Führungsspanne von 2 Personen auf derselben quantity.",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Führungsspanne 2 MA"
+    }
+  ]
+}

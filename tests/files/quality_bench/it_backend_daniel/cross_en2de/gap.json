@@ -1,0 +1,1305 @@
+{
+  "profile_id": "af442873-492b-45e1-a97a-57e2d351a790",
+  "match_score": 0.7777777777777778,
+  "embedding_similarity_score": null,
+  "critical_gaps": [
+    "Backend-Entwicklung",
+    "Event Streaming",
+    "Payments"
+  ],
+  "minor_gaps": [
+    "Testkultur",
+    "Sicherheitsbewusste Entwicklung",
+    "Technische Kommunikation",
+    "PSD2"
+  ],
+  "strengths": [
+    "Python",
+    "FastAPI",
+    "Django",
+    "PostgreSQL",
+    "Performance-Optimierung",
+    "Apache Kafka",
+    "Kubernetes",
+    "AWS",
+    "EKS",
+    "RDS",
+    "S3",
+    "Infrastructure as Code",
+    "CI/CD",
+    "Observability",
+    "Prometheus",
+    "Grafana",
+    "SLOs",
+    "Finanzdaten",
+    "Mentoring",
+    "PSP-Integrationen",
+    "PostgreSQL-Schemata",
+    "Idempotenz",
+    "Prometheus-Metriken",
+    "Grafana-Dashboards",
+    "SLO-Denken",
+    "Produktivbetrieb",
+    "Checkout",
+    "Design-Reviews"
+  ],
+  "keyword_gaps": [
+    "PSD2-Integrationen",
+    "Krypto-/Blockchain-Settlement-Rails",
+    "BaFin-reguliertes Umfeld",
+    "Payout Rails",
+    "Exactly-once-Settlement-Events",
+    "Auditierbarkeit",
+    "Regulierte Finanzdaten",
+    "PSD2",
+    "BaFin",
+    "E-Commerce-Händler",
+    "Auszahlungswege"
+  ],
+  "category_a": [
+    "Python",
+    "FastAPI",
+    "Django",
+    "PostgreSQL",
+    "Performance-Optimierung",
+    "Apache Kafka",
+    "Kubernetes",
+    "AWS",
+    "EKS",
+    "RDS",
+    "S3",
+    "Infrastructure as Code",
+    "CI/CD",
+    "Observability",
+    "Prometheus",
+    "Grafana",
+    "SLOs",
+    "Finanzdaten",
+    "Mentoring",
+    "PSP-Integrationen"
+  ],
+  "category_b": [
+    "Testkultur",
+    "Sicherheitsbewusste Entwicklung",
+    "Technische Kommunikation"
+  ],
+  "category_c": [
+    "Backend-Entwicklung",
+    "Event Streaming",
+    "Payments",
+    "PSD2"
+  ],
+  "keyword_ledger": [
+    {
+      "status": "gap",
+      "concept": "Backend-Entwicklung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Mindestens 5 Jahre professionelle Backend-Entwicklung mit Python (FastAPI oder Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Backend-Entwicklung",
+        "Backend Engineering",
+        "Backend services"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "services for data-heavy products"
+    },
+    {
+      "status": "direct",
+      "concept": "Python",
+      "sources": [
+        "required"
+      ],
+      "evidence": "11 years of Python experience across backend engineering roles and internal tooling.",
+      "claimable": true,
+      "jd_phrase": "Mindestens 5 Jahre professionelle Backend-Entwicklung mit Python (FastAPI oder Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Python",
+        "Python-Entwicklung"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH",
+        "DATIS IT-Services"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "FastAPI",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Migrated two internal services from Flask to FastAPI with async endpoints and Pydantic models.",
+      "claimable": true,
+      "jd_phrase": "Mindestens 5 Jahre professionelle Backend-Entwicklung mit Python (FastAPI oder Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "FastAPI"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Django",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Six years of Django experience in backend services.",
+      "claimable": true,
+      "jd_phrase": "Mindestens 5 Jahre professionelle Backend-Entwicklung mit Python (FastAPI oder Django).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Django"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "PostgreSQL",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Nine years of PostgreSQL experience, including data modelling, indexing and offset bookkeeping.; Redesigned a PostgreSQL pricing data model and uses PostgreSQL for financial and event-offset bookkeeping.",
+      "claimable": true,
+      "jd_phrase": "Modellierung und Tuning von PostgreSQL-Schemata für Finanzdaten (Auditierbarkeit,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "PostgreSQL",
+        "Postgres",
+        "PostgreSQL-Schemata",
+        "PostgreSQL schemas",
+        "PostgreSQL data modelling"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH",
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Performance-Optimierung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Reduced quote-calculation p95 latency from 1.8 seconds to 240 milliseconds through query optimisation and PostgreSQL indexing.",
+      "claimable": true,
+      "jd_phrase": "Fundierte PostgreSQL-Erfahrung, einschließlich Performance-Optimierung auf großen",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Performance-Optimierung",
+        "Query Optimierung",
+        "SQL performance tuning"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Apache Kafka",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Designed and operated a Kafka event pipeline in production for three years across six topics, processing about 1.2 million events per day.",
+      "claimable": true,
+      "jd_phrase": "Produktionserfahrung mit Apache Kafka oder vergleichbarem Event Streaming.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Apache Kafka",
+        "Kafka"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Event Streaming",
+      "sources": [
+        "required"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "jd_phrase": "Produktionserfahrung mit Apache Kafka oder vergleichbarem Event Streaming.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Event Streaming",
+        "Event-driven messaging",
+        "Streaming Events"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Kubernetes",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Led migration of 12 services from ECS to Kubernetes and continues to operate the workloads.",
+      "claimable": true,
+      "jd_phrase": "Betrieb deiner Services auf Kubernetes (EKS) mit Infrastructure as Code.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Kubernetes",
+        "K8s"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "AWS",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Owns AWS deployments using ECS, RDS and S3 and holds an AWS Solutions Architect certification.",
+      "claimable": true,
+      "jd_phrase": "AWS-Erfahrung (wir arbeiten mit EKS, RDS, S3).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "AWS",
+        "Amazon Web Services"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "EKS",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Led migration of 12 services to Kubernetes on Amazon EKS and operates them day to day.",
+      "claimable": true,
+      "jd_phrase": "Betrieb deiner Services auf Kubernetes (EKS) mit Infrastructure as Code.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "EKS",
+        "Amazon EKS"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "RDS",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Owns AWS deployments using RDS.",
+      "claimable": true,
+      "jd_phrase": "AWS-Erfahrung (wir arbeiten mit EKS, RDS, S3).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "RDS",
+        "Amazon RDS"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "S3",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Owns AWS deployments using S3.",
+      "claimable": true,
+      "jd_phrase": "AWS-Erfahrung (wir arbeiten mit EKS, RDS, S3).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "S3",
+        "Amazon S3"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Infrastructure as Code",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Introduced Helm charts and ArgoCD GitOps during the Kubernetes and EKS migration.",
+      "claimable": true,
+      "jd_phrase": "Betrieb deiner Services auf Kubernetes (EKS) mit Infrastructure as Code.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Infrastructure as Code",
+        "IaC",
+        "Helm",
+        "GitOps",
+        "ArgoCD"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "CI/CD",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Owns GitLab CI/CD pipelines for four services and improved deployment workflows through GitOps.; Owns GitLab CI/CD pipelines for four services.",
+      "claimable": true,
+      "jd_phrase": "Verantwortung für CI/CD und eine Testkultur, die du klar darlegen kannst.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "CI/CD",
+        "Continuous Integration",
+        "Continuous Delivery",
+        "GitLab CI/CD"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Testkultur",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Introduced contract tests between the tracking API and three consumer teams and used consumer contract tests in the FastAPI migration.",
+      "claimable": true,
+      "jd_phrase": "Verantwortung für CI/CD und eine Testkultur, die du klar darlegen kannst.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Testkultur",
+        "Testing practices",
+        "Contract testing"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Contract testing"
+    },
+    {
+      "status": "direct",
+      "concept": "Observability",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Built Prometheus and Grafana RED-metrics dashboards, SLOs, error budgets and alert routing for production services.",
+      "claimable": true,
+      "jd_phrase": "Aufbau der Observability für das, was du auslieferst:",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Observability",
+        "Monitoring",
+        "RED metrics",
+        "Prometheus",
+        "Grafana"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Prometheus",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Built Prometheus RED-metrics dashboards and alerting for four services.; Built Prometheus RED-metrics dashboards and alert routing for four services.",
+      "claimable": true,
+      "jd_phrase": "Prometheus/Grafana oder Vergleichbares, SLO-Denken.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Prometheus",
+        "Prometheus metrics",
+        "Prometheus-Metriken",
+        "RED metrics"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Grafana",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Built Grafana dashboards for four services and delivers internal onboarding on dashboard use.; Built Grafana dashboards for all four services and provides internal dashboard onboarding.",
+      "claimable": true,
+      "jd_phrase": "Prometheus/Grafana oder Vergleichbares, SLO-Denken.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Grafana",
+        "Grafana dashboards",
+        "Grafana-Dashboards"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "SLOs",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Defined SLOs with error budgets for the tracking API with a 99.9% availability target.",
+      "claimable": true,
+      "jd_phrase": "Grafana-Dashboards, SLOs.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "SLOs",
+        "Service Level Objectives",
+        "Error budgets"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "Payments",
+      "sources": [
+        "keyword",
+        "required"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Design-Reviews und Mentoring von Engineers in der gesamten Payments-Gruppe.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Payments",
+        "Payment systems",
+        "Payment processing",
+        "Payments-Plattform",
+        "Payments platform",
+        "Payment platform"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Sicherheitsbewusste Entwicklung",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Fixed session-fixation and IDOR authentication issues, ran dependency audits and applied least-privilege IAM.",
+      "claimable": true,
+      "jd_phrase": "Sicherheitsbewusste Entwicklung (wir verarbeiten regulierte Finanzdaten).",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Sicherheitsbewusste Entwicklung",
+        "Secure development",
+        "Application security"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Least-privilege IAM"
+    },
+    {
+      "status": "direct",
+      "concept": "Finanzdaten",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Worked with financial data modelling, invoice workflows, Stripe payout reconciliation and idempotent financial data handling.",
+      "claimable": true,
+      "jd_phrase": "Modellierung und Tuning von PostgreSQL-Schemata für Finanzdaten (Auditierbarkeit,",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Finanzdaten",
+        "Financial data",
+        "Financial data modelling"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Technische Kommunikation",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Runs weekly design-review sessions, wrote an incident runbook and delivers internal dashboard onboarding.",
+      "claimable": true,
+      "jd_phrase": "Mentoring-Erfahrung und klare technische Kommunikation.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Technische Kommunikation",
+        "Technical communication",
+        "Design reviews"
+      ],
+      "narrative_backed": true,
+      "adjacent_evidence": "Design-review session"
+    },
+    {
+      "status": "direct",
+      "concept": "Mentoring",
+      "sources": [
+        "required"
+      ],
+      "evidence": "Mentors two mid-level engineers and has six years of mentoring experience.",
+      "claimable": true,
+      "jd_phrase": "Design-Reviews und Mentoring von Engineers in der gesamten Payments-Gruppe.",
+      "fit_weight": 1.0,
+      "surface_forms": [
+        "Mentoring",
+        "Coaching"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "gap",
+      "concept": "PSD2",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "PSD2-Integrationen",
+        "PSD2 integrations",
+        "PSD2",
+        "Payment Services Directive 2"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "PSP-Integrationen",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Integrated Stripe as a payment service provider, including webhooks and payout reconciliation.",
+      "claimable": true,
+      "jd_phrase": "Erfahrung mit PSD2-/PSP-Integrationen ist ein starkes Plus.",
+      "fit_weight": 0.5,
+      "surface_forms": [
+        "PSP-Integrationen",
+        "PSP integrations",
+        "Stripe integration"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "Krypto-/Blockchain-Settlement-Rails",
+      "sources": [
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Krypto-/Blockchain-Settlement-Rails",
+        "Crypto settlement rails",
+        "Blockchain settlement rails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "denied",
+      "concept": "BaFin",
+      "sources": [
+        "keyword",
+        "nice_to_have"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.5,
+      "denial_level": "direct",
+      "surface_forms": [
+        "BaFin-reguliertes Umfeld",
+        "BaFin-regulated environment",
+        "BaFin supervision",
+        "BaFin"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Settlement",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "jd_phrase": "Settlement und Auszahlungswege (Payout Rails) mit Millionen von Transaktionen pro Monat.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Settlement",
+        "Payment settlement"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Payout-Flows",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Integrated Stripe checkout with payout reconciliation against invoices.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Payout-Flows",
+        "Payout flows",
+        "Payout processing"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Stripe payout reconciliation"
+    },
+    {
+      "status": "denied",
+      "concept": "Payout Rails",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Payout Rails",
+        "Payout rails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "partial",
+      "concept": "Eventgetriebene Architektur",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Designed and ran a Kafka order-event pipeline with event publication to six topics and downstream consumers.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Eventgetriebene Architektur",
+        "Event-driven architecture",
+        "Event-driven systems"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Apache Kafka"
+    },
+    {
+      "status": "gap",
+      "concept": "Exactly-once-Settlement-Events",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Exactly-once-Settlement-Events",
+        "Exactly-once settlement events",
+        "Exactly-once semantics"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "Auditierbarkeit",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Auditierbarkeit",
+        "Auditability",
+        "Audit trails"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Idempotenz",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Implemented idempotent Kafka consumers with PostgreSQL offset bookkeeping so replays never double-billed, and handled idempotent financial data.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Idempotenz",
+        "Idempotency",
+        "Idempotent processing"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "SLO-Denken",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Defined SLOs and error budgets for the tracking API with a 99.9% availability target.",
+      "claimable": true,
+      "jd_phrase": "Prometheus/Grafana oder Vergleichbares, SLO-Denken.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "SLO-Denken",
+        "SLO thinking",
+        "Service Level Objectives",
+        "Error budgets"
+      ],
+      "evidence_owners": [
+        "Cargonaut Logistics GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "direct",
+      "concept": "Produktivbetrieb",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Designs and operates production backend services, ran the Kafka pipeline in production for three years and operates Kubernetes workloads day to day.",
+      "claimable": true,
+      "jd_phrase": "Praktische Kubernetes-Erfahrung im Produktivbetrieb.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Produktivbetrieb",
+        "Production operations",
+        "Production support",
+        "On-call"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "denied",
+      "concept": "Regulierte Finanzdaten",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Candidate explicitly stated a limit here (interview).",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "denial_level": "direct",
+      "surface_forms": [
+        "Regulierte Finanzdaten",
+        "Regulated financial data"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "gap",
+      "concept": "E-Commerce-Händler",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "",
+      "claimable": false,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "E-Commerce-Händler",
+        "E-commerce merchants",
+        "Online merchants"
+      ],
+      "narrative_backed": false
+    },
+    {
+      "status": "direct",
+      "concept": "Checkout",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Integrated a Stripe-based subscription checkout for a B2B invoicing product.",
+      "claimable": true,
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Checkout",
+        "Payment checkout",
+        "Stripe checkout"
+      ],
+      "evidence_owners": [
+        "Finleap Build GmbH"
+      ],
+      "narrative_backed": true
+    },
+    {
+      "status": "partial",
+      "concept": "Auszahlungswege",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Reconciled Stripe payouts against invoices, demonstrating adjacent payout-processing experience.",
+      "claimable": true,
+      "jd_phrase": "Settlement und Auszahlungswege (Payout Rails) mit Millionen von Transaktionen pro Monat.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Auszahlungswege",
+        "Payout methods",
+        "Payout channels"
+      ],
+      "narrative_backed": false,
+      "adjacent_evidence": "Stripe payout reconciliation"
+    },
+    {
+      "status": "direct",
+      "concept": "Design-Reviews",
+      "sources": [
+        "keyword"
+      ],
+      "evidence": "Runs the team's weekly design-review session.",
+      "claimable": true,
+      "jd_phrase": "Design-Reviews und Mentoring von Engineers in der gesamten Payments-Gruppe.",
+      "fit_weight": 0.0,
+      "surface_forms": [
+        "Design-Reviews",
+        "Design reviews",
+        "Architecture reviews"
+      ],
+      "narrative_backed": true
+    }
+  ],
+  "input_fingerprint": "80bec86e029424d12fa0fa0e0a3937cfe4a79f9c97cd2c0beedb6ac60f0dcbf2",
+  "gap_inputs_fingerprint": "19f6d44a8b0846e8a534c69c41c52c0a30688b8a483f876430a3f950c1a4f4a0",
+  "gap_clusters": [
+    {
+      "id": "cluster-backend-entwicklung",
+      "gaps": [
+        "Backend-Entwicklung"
+      ],
+      "label": "Backend-Entwicklung",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Backend-Entwicklung",
+        "Python",
+        "FastAPI",
+        "Django",
+        "PostgreSQL"
+      ],
+      "jd_context": "Ich entwickle robuste Backend-Dienste mit den im Rollenprofil geforderten Python- und Web-Frameworks."
+    },
+    {
+      "id": "cluster-event-und-settlement",
+      "gaps": [
+        "Event Streaming",
+        "Settlement",
+        "Exactly-once-Settlement-Events"
+      ],
+      "label": "Event- und Settlement-Systeme",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Event Streaming",
+        "Apache Kafka",
+        "Payments",
+        "Finanzdaten"
+      ],
+      "jd_context": "Ich muss Zahlungs- und Settlement-Ereignisse über Kafka zuverlässig, nachvollziehbar und genau einmal verarbeiten."
+    },
+    {
+      "id": "cluster-zahlungsverkehr-und-regulierung",
+      "gaps": [
+        "Payments",
+        "PSD2",
+        "E-Commerce-Händler"
+      ],
+      "label": "Zahlungsverkehr und Regulierung",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "open",
+      "jd_skills": [
+        "Payments",
+        "PSD2-Integrationen",
+        "PSP-Integrationen",
+        "Krypto-/Blockchain-Settlement-Rails",
+        "BaFin-reguliertes Umfeld"
+      ],
+      "jd_context": "Ich unterstütze sichere Zahlungsintegrationen für Händler und berücksichtige dabei PSD2 sowie regulatorische Anforderungen."
+    },
+    {
+      "id": "cluster-audit-und-sicherheit",
+      "gaps": [
+        "Auditierbarkeit",
+        "Sicherheitsbewusste Entwicklung"
+      ],
+      "label": "Audit und Sicherheit",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "C",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Sicherheitsbewusste Entwicklung",
+        "Finanzdaten",
+        "BaFin-reguliertes Umfeld"
+      ],
+      "jd_context": "Ich entwickle sicherheitsbewusst und stelle die Auditierbarkeit sensibler Finanzdaten im regulierten Umfeld sicher."
+    },
+    {
+      "id": "cluster-performance-und-betrieb",
+      "gaps": [
+        "Performance-Optimierung"
+      ],
+      "label": "Performance und Betrieb",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Performance-Optimierung",
+        "Kubernetes",
+        "AWS",
+        "EKS",
+        "RDS",
+        "S3",
+        "Infrastructure as Code",
+        "Observability",
+        "Prometheus",
+        "Grafana",
+        "SLOs"
+      ],
+      "jd_context": "Ich optimiere die Systemleistung und überwache den zuverlässigen Betrieb cloudbasierter Services anhand klarer SLOs."
+    },
+    {
+      "id": "cluster-testqualitaet",
+      "gaps": [
+        "Testkultur"
+      ],
+      "label": "Testqualität",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Testkultur",
+        "CI/CD"
+      ],
+      "jd_context": "Ich etabliere eine konsequente Testkultur, damit Änderungen sicher und kontinuierlich ausgeliefert werden können."
+    },
+    {
+      "id": "cluster-technische-zusammenarbeit",
+      "gaps": [
+        "Technische Kommunikation"
+      ],
+      "label": "Technische Zusammenarbeit",
+      "outcome": {
+        "asked": 0,
+        "covered": [],
+        "declined": [],
+        "left_open": false,
+        "session_ids": []
+      },
+      "category": "B",
+      "coverage": "partly_covered",
+      "jd_skills": [
+        "Technische Kommunikation",
+        "Mentoring"
+      ],
+      "jd_context": "Ich kommuniziere technische Entscheidungen klar und unterstütze andere durch strukturierte Zusammenarbeit und Mentoring."
+    }
+  ],
+  "requirement_breakdown": [
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Backend-Entwicklung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "11 years of Python experience across backend engineering roles and internal tooling.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Python"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Migrated two internal services from Flask to FastAPI with async endpoints and Pydantic models.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "FastAPI"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Six years of Django experience in backend services.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Django"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Nine years of PostgreSQL experience, including data modelling, indexing and offset bookkeeping.; Redesigned a PostgreSQL pricing data model and uses PostgreSQL for financial and event-offset bookkeeping.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "PostgreSQL"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Reduced quote-calculation p95 latency from 1.8 seconds to 240 milliseconds through query optimisation and PostgreSQL indexing.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Performance-Optimierung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Designed and operated a Kafka event pipeline in production for three years across six topics, processing about 1.2 million events per day.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Apache Kafka"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Event Streaming"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Led migration of 12 services from ECS to Kubernetes and continues to operate the workloads.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Kubernetes"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Owns AWS deployments using ECS, RDS and S3 and holds an AWS Solutions Architect certification.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "AWS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Led migration of 12 services to Kubernetes on Amazon EKS and operates them day to day.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "EKS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Owns AWS deployments using RDS.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "RDS"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Owns AWS deployments using S3.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "S3"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Introduced Helm charts and ArgoCD GitOps during the Kubernetes and EKS migration.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Infrastructure as Code"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Owns GitLab CI/CD pipelines for four services and improved deployment workflows through GitOps.; Owns GitLab CI/CD pipelines for four services.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "CI/CD"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Introduced contract tests between the tracking API and three consumer teams and used consumer contract tests in the FastAPI migration.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Testkultur"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Built Prometheus and Grafana RED-metrics dashboards, SLOs, error budgets and alert routing for production services.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Observability"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Built Prometheus RED-metrics dashboards and alerting for four services.; Built Prometheus RED-metrics dashboards and alert routing for four services.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Prometheus"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Built Grafana dashboards for four services and delivers internal onboarding on dashboard use.; Built Grafana dashboards for all four services and provides internal dashboard onboarding.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Grafana"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Defined SLOs with error budgets for the tracking API with a 99.9% availability target.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "SLOs"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "required",
+      "status": "gap",
+      "requirement": "Payments"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Fixed session-fixation and IDOR authentication issues, ran dependency audits and applied least-privilege IAM.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Sicherheitsbewusste Entwicklung"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Worked with financial data modelling, invoice workflows, Stripe payout reconciliation and idempotent financial data handling.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Finanzdaten"
+    },
+    {
+      "slot": 1.0,
+      "earned": 0.5,
+      "reason": "Runs weekly design-review sessions, wrote an incident runbook and delivers internal dashboard onboarding.",
+      "source": "required",
+      "status": "partial",
+      "requirement": "Technische Kommunikation"
+    },
+    {
+      "slot": 1.0,
+      "earned": 1.0,
+      "reason": "Mentors two mid-level engineers and has six years of mentoring experience.",
+      "source": "required",
+      "status": "direct",
+      "requirement": "Mentoring"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Not claimable: no vault evidence for this concept outside a related limit the candidate stated (no statement was made about this term itself).",
+      "source": "nice_to_have",
+      "status": "gap",
+      "requirement": "PSD2"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.5,
+      "reason": "Integrated Stripe as a payment service provider, including webhooks and payout reconciliation.",
+      "source": "nice_to_have",
+      "status": "direct",
+      "requirement": "PSP-Integrationen"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "Krypto-/Blockchain-Settlement-Rails"
+    },
+    {
+      "slot": 0.5,
+      "earned": 0.0,
+      "reason": "Candidate explicitly stated a limit here (interview).",
+      "source": "nice_to_have",
+      "status": "denied",
+      "requirement": "BaFin"
+    }
+  ]
+}

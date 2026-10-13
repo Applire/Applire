@@ -348,7 +348,18 @@ scripts/backup.sh --verify backups/applire-backup-<timestamp>.tar.gz
 scripts/restore.sh backups/applire-backup-<timestamp>.tar.gz
 ```
 
-Aus den Release-Assets installiert, ohne zu klonen? Die Skripte liegen im Repository, nicht im Release-Archiv — hole sie dir oder klone das Repo, bevor du sie brauchst; siehe das Runbook unten.
+Aus den Release-Assets installiert, ohne zu klonen? Die Skripte liegen im Repository, nicht in den Release-Assets. Hol sie dir einmal, bevor du sie brauchst:
+
+```bash
+# Ohne Klonen aus den Release-Assets installiert? Hol beide Skripte einmal aus demselben
+# Release wie deine Images, in den Ordner mit der docker-compose.yml:
+TAG=$(curl -fsSL https://api.github.com/repos/Applire/Applire/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+mkdir -p scripts
+for f in backup.sh restore.sh; do
+  curl -fsSL -o "scripts/$f" "https://raw.githubusercontent.com/Applire/Applire/$TAG/scripts/$f"
+done
+chmod +x scripts/backup.sh scripts/restore.sh
+```
 
 Vollständiges Runbook — Datensicherung, Wiederherstellung, Secrets, TLS, Speicherplatz, Fehlerbehebung: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
@@ -375,7 +386,7 @@ MISTRAL_MODEL=mistral-medium-latest
 
 # Requesty — EU-gehostetes Gateway (Frankfurt); zugleich ein EU-residenter Weg zu Claude/GPT/Gemini
 REQUESTY_API_KEY=your-requesty-api-key-here
-REQUESTY_MODEL=mistralai/mistral-large-latest   # EU-Region-Modell für volle Datenresidenz
+REQUESTY_MODEL=mistral/mistral-medium-3-5   # EU-Region-Modell für volle Datenresidenz
 
 # OpenRouter — Multi-Modell-Gateway: ein Schlüssel für Mistral, Claude und mehr (nicht EU-gehostet)
 # Schlüssel unter https://openrouter.ai/keys

@@ -214,7 +214,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.2"
     openrouter_api_key: str = ""
-    openrouter_model: str = "mistralai/mistral-large-latest"
+    openrouter_model: str = "mistralai/mistral-medium-3-5"
     openrouter_base_url: str = ""          # empty = use https://openrouter.ai/api/v1
     openrouter_disable_thinking: bool = True  # global default ON since 2026-10-10 (ADR-009 amended, #688 re-measure); emits reasoning:{enabled:false} (cross-vendor: Gemini/Qwen/DeepSeek). A route that rejects it is latched and retried without it. Per-call disable_thinking overrides it (F-B)
     # Reasoning ("thinking") effort for models that keep reasoning ON. Reasoning tokens
@@ -226,7 +226,7 @@ class Settings(BaseSettings):
     openrouter_reasoning_effort: str = ""  # "" = unset; "low" | "medium" | "high"
     # Requesty — EU-hosted OpenAI-compat gateway (ADR-009 amended 2026-06-14)
     requesty_api_key: str = ""
-    requesty_model: str = "mistralai/mistral-large-latest"  # set an EU-region model for full residency
+    requesty_model: str = "mistral/mistral-medium-3-5"  # set an EU-region model for full residency
     requesty_base_url: str = ""            # empty = use https://router.eu.requesty.ai/v1 (EU residency)
     requesty_disable_thinking: bool = True  # default ON since 2026-10-10 (ADR-009 amended); emits reasoning_effort:"none"; per-call disable_thinking overrides (#179)
     requesty_reasoning_effort: str = ""      # "" = model default; "low"|"medium"|"high"|"max" bound reasoning when it stays on

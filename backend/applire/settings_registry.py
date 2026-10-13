@@ -445,7 +445,7 @@ _register_all(
         SettingEntry(
             env_var="OPENROUTER_MODEL",
             source="config",
-            default="mistralai/mistral-large-latest",
+            default="mistralai/mistral-medium-3-5",
             section="LLM provider",
             commented=False,
             introduced_in="0.31.0",
@@ -505,7 +505,7 @@ _register_all(
         SettingEntry(
             env_var="REQUESTY_MODEL",
             source="config",
-            default="mistralai/mistral-large-latest",
+            default="mistral/mistral-medium-3-5",
             section="LLM provider",
             commented=False,
             introduced_in="0.37.0",

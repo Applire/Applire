@@ -22,13 +22,13 @@ Two required headers identify us to OpenRouter's usage-ranking and abuse-detecti
   HTTP-Referer  — canonical URL of the application
   X-Title       — human-readable application name
 
-Default model: mistralai/mistral-large-latest
+Default model: mistralai/mistral-medium-3-5
   Rationale: keeps model parity with the direct Mistral provider so our prompts
   behave identically. Switch OPENROUTER_MODEL once the plumbing is validated.
 
 Env vars consumed (see applire/config.py):
   OPENROUTER_API_KEY   — required
-  OPENROUTER_MODEL     — optional, defaults to mistralai/mistral-large-latest
+  OPENROUTER_MODEL     — optional, defaults to mistralai/mistral-medium-3-5
   OPENROUTER_BASE_URL  — optional override (default: https://openrouter.ai/api/v1)
 """
 
@@ -110,7 +110,7 @@ class OpenRouterProvider(LLMProvider):
                 "X-Title": _X_TITLE,
             },
         )
-        self._model = model or settings.openrouter_model or "mistralai/mistral-large-latest"
+        self._model = model or settings.openrouter_model or "mistralai/mistral-medium-3-5"
         # When True, passes enable_thinking=False via extra_body — suppresses Qwen3/DeepSeek-R1
         # chain-of-thought overhead on deterministic structured-extraction tasks.
         self._disable_thinking = (

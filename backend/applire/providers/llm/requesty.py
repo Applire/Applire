@@ -29,7 +29,7 @@ residency the configured model must itself be an EU-region deployment
 
 Env vars consumed (see applire/config.py):
   REQUESTY_API_KEY   — required
-  REQUESTY_MODEL     — optional, defaults to mistralai/mistral-large-latest
+  REQUESTY_MODEL     — optional, defaults to mistral/mistral-medium-3-5
   REQUESTY_BASE_URL  — optional override (default: https://router.eu.requesty.ai/v1)
 """
 
@@ -106,7 +106,7 @@ class RequestyProvider(LLMProvider):
                 "X-Title": _X_TITLE,
             },
         )
-        self._model = model or settings.requesty_model or "mistralai/mistral-large-latest"
+        self._model = model or settings.requesty_model or "mistral/mistral-medium-3-5"
         # #179: Requesty accepted disable_thinking in the signature but never sent
         # anything — a reasoning model burned the whole output budget on hidden
         # chain-of-thought. Requesty's router takes a TOP-LEVEL reasoning_effort;
