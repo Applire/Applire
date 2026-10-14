@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.43.0-beta] – 2026-10-13 (Strawberry)
+## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
 
@@ -52,6 +52,7 @@ Applire Community now has **built-in accounts**: several people can share one in
 - Sign-in, setup and link endpoints check the request origin on every state-changing request; invite and reset tokens travel only in the URL fragment and POST bodies; document responses carry `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`; the backend access log redacts signatures and tokens.
 - **Error detail hardening.** Unexpected errors no longer echo internal exception text. A REST error that the route does not classify answers `500 {"error_code": "internal_error", "message": …, "error_id": …}`; the full error is in the backend log under that id. The MCP server answers such an error with a fixed message and the same kind of error id. Provider SDK errors leave the provider layer as Applire's own error type with a short message (provider, error type, HTTP status). Error details, stored job error texts and backend log lines are scrubbed of configured secret values. Provider API keys (`MISTRAL_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `REQUESTY_API_KEY`, `ANTHROPIC_API_KEY`) must be printable ASCII: surrounding whitespace is stripped, and a key with a space, control character or non-ASCII character inside stops the start with an error that names the setting (never the value).
 - The NoAuth mode is retired as a product mode. It survives only as a **test harness** (`AUTH_HARNESS=true`) that the backend refuses to start unless the database is a throwaway test database (SQLite in memory, or a name ending in `_test` / `_ci`, with no profile at boot).
+- **Dependency updates (#752, #762, #755, #753, #761, #751).** pypdf 6.19.0 closes three high-severity advisories in which a crafted PDF could keep the backend in an endless loop or exhaust its memory while the file is read — reachable, because you upload PDFs. Next.js 15.5.27 closes the open Next.js advisories, among them cache poisoning in self-hosted apps. sharp 0.35.5 brings the patched libvips and librsvg for photo processing, and source-map-js 1.2.2 closes a denial-of-service advisory. cryptography moves to 50.0.0; brace-expansion is a development-only dependency.
 
 ### Fixed
 - **A new OpenRouter or Requesty install named a model the gateway does not offer.** The suggested `OPENROUTER_MODEL` in `.env.example`, and the code default for both gateways, was `mistralai/mistral-large-latest`, which OpenRouter rejects ("not a valid model ID") and which Requesty does not list. Every call failed while `/health` stayed ok. The suggestion and the defaults are now `mistralai/mistral-medium-3-5` (OpenRouter) and `mistral/mistral-medium-3-5` (Requesty), the Mistral model qualified in `docs/llm-models.md`. If your `.env` still names `mistralai/mistral-large-latest`, change it to a model id from your gateway's list.
