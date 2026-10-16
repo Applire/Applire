@@ -6,6 +6,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Health hub: a skill duration you never stated (#764).** A profile could hold a skill duration marked as your own words although Applire had calculated it from your role dates. An import before 0.43 could relabel it that way. The Health hub now names such a duration, for example "SAP CO: 8 years is marked as something you said, but nothing you wrote or told us states it". *Recalculate from role dates* then fixes it in one click, and your cover letter states it as an approximate figure from then on. A figure the role dates would raise is never flagged. Agents see the same item in `get_profile_health`.
+
+### Fixed
+- **Truthfulness check: a standard you never mentioned is no longer "backed" (#701).** Before this fix, a CV bullet or letter sentence naming a standard such as "ISO 45001" that your profile never mentions could still be graded *backed* when the same sentence also carried a true figure. It is now *unbacked*, and the reason names the standard. A standard named in your own "no experience with …" statement is not counted. Measured on 1,219 earlier documents: 3 claims change, each a mistyped version of the profile's own "ISO 45001".
+
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
