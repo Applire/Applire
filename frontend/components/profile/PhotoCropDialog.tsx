@@ -149,9 +149,6 @@ export function PhotoCropDialog({ src, initialCrop: startCrop, busy = false, onC
   const [crop, setCrop] = useState<CropState | null>(null);
   const [frameW, setFrameW] = useState(240);
   const [failed, setFailed] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
 
   // Load the source once to learn its natural size (EXIF orientation is
   // already applied by the browser to both `naturalWidth` and `drawImage`).
@@ -261,7 +258,8 @@ export function PhotoCropDialog({ src, initialCrop: startCrop, busy = false, onC
     if (crop) onConfirm(crop);
   }
 
-  if (!mounted) return null;
+  // Opened only by a user action, so the document exists; guard SSR anyway.
+  if (typeof document === "undefined") return null;
 
   const ready = size !== null && crop !== null;
 
