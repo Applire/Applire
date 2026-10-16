@@ -20,7 +20,13 @@
 upload_photo:  Validate, store, update personal_info.photo_url, record GDPR consent.
 delete_photo:  Remove stored file, clear photo_url and consent.
 get_photo:     Return raw bytes for the current user photo (GDPR portability).
+set_photo_crop / frame_photo / photo_crop_for: the photo's framing (#781,
+               founder ruling F-2) — geometry in the profile JSON, applied at
+               render by ONE helper every CV template and the DOCX export read
+               their photo bytes through (`services.cv._resolve_photo_data_uri`).
 """
+import io
+import logging
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -30,8 +36,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.profile import MasterProfile
 from applire.models.user import User
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, PhotoCrop
 from applire.storage.base import StorageProvider
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAX_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -62,11 +70,17 @@ async def upload_photo(
     content_type: str,
     db: AsyncSession,
     storage: StorageProvider,
+    crop: PhotoCrop | None = None,
 ) -> dict[str, str]:
     """Validate, store, and record GDPR consent for a profile photo.
 
     Returns ``{"photo_url": str, "consent_at": str}`` on success.
     Raises ``ValueError`` for invalid format or size.
+
+    #781 (ruling F-2): the upload is stored unmodified. ``crop`` is the framing
+    the candidate chose in the adjuster for THIS file; a framing belongs to one
+    image, so an upload without one clears whatever framing the previous photo
+    had rather than applying it to a different picture.
     """
     if content_type not in _ALLOWED_CONTENT_TYPES:
         raise ValueError(
@@ -95,7 +109,9 @@ async def upload_photo(
             pass
 
     # Persist photo_url in master profile JSONB
-    updated_pi = profile_data.personal_info.model_copy(update={"photo_url": path})
+    updated_pi = profile_data.personal_info.model_copy(
+        update={"photo_url": path, "photo_crop": crop}
+    )
     profile_data = profile_data.model_copy(update={"personal_info": updated_pi})
     profile.profile_json = profile_data.model_dump(mode="json")
 
@@ -121,7 +137,9 @@ async def delete_photo(
     profile_data = MasterProfileData.model_validate(profile.profile_json)
     if profile_data.personal_info.photo_url:
         await storage.delete(profile_data.personal_info.photo_url)
-        updated_pi = profile_data.personal_info.model_copy(update={"photo_url": None})
+        updated_pi = profile_data.personal_info.model_copy(
+            update={"photo_url": None, "photo_crop": None}
+        )
         profile.profile_json = profile_data.model_copy(
             update={"personal_info": updated_pi}
         ).model_dump(mode="json")
@@ -152,3 +170,124 @@ async def get_photo_bytes(
         raise LookupError("No profile photo on file") from exc
     content_type = mimetypes.guess_type(path)[0] or "image/jpeg"
     return raw, content_type
+
+
+# ─── #781 — framing (founder ruling F-2, 2026-10-16) ──────────────────────────
+#
+# The geometry mirrors `frontend/lib/photo-crop.ts` exactly; the parity table in
+# `tests/unit/test_photo_framing.py` and `lib/__tests__/photo-crop.test.ts` pins
+# that both compute the same rectangle for the same input.
+
+#: Width ÷ height of the framed photo. The templates' boxes are 1:1 circles
+#: (executive, modern_swiss, creative_sidebar) and a 45×55 mm portrait
+#: (lebenslauf), all `object-fit: cover; object-position: center top`: a 4:5
+#: frame fills the portrait within 2 % and the circles show its top square.
+PHOTO_ASPECT = 4 / 5
+MAX_ZOOM = 4.0
+#: The widest side of a framed photo; a smaller crop is never upscaled.
+FRAMED_MAX_WIDTH = 800
+
+_PIL_FORMAT = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return min(max(v, lo), hi)
+
+
+def crop_rect(width: int, height: int, crop: PhotoCrop) -> tuple[float, float, float, float]:
+    """The framing's rectangle ``(sx, sy, sw, sh)`` in source pixels.
+
+    Zoom 1 is the largest 4:5 rectangle the image holds; the centre is clamped
+    so the rectangle never leaves the image (a stored framing can therefore
+    never render a strip outside the photo, whatever the JSON says).
+    """
+    zoom = _clamp(crop.zoom, 1.0, MAX_ZOOM)
+    if width / height > PHOTO_ASPECT:
+        sw, sh = height * PHOTO_ASPECT, float(height)
+    else:
+        sw, sh = float(width), width / PHOTO_ASPECT
+    sw, sh = sw / zoom, sh / zoom
+    cx = _clamp(crop.cx, sw / 2 / width, 1 - sw / 2 / width)
+    cy = _clamp(crop.cy, sh / 2 / height, 1 - sh / 2 / height)
+    return cx * width - sw / 2, cy * height - sh / 2, sw, sh
+
+
+def frame_photo(raw: bytes, crop: PhotoCrop | None, content_type: str) -> bytes:
+    """The photo as it is shown: ``raw`` framed by ``crop``, same format.
+
+    ``crop`` None → ``raw`` unchanged (a photo nobody framed renders exactly as
+    before #781). The EXIF orientation is applied first, because the browser
+    adjuster measured the image as the browser displays it. An image Pillow
+    cannot read is returned unchanged — the render must never lose the photo
+    over its framing.
+    """
+    if crop is None:
+        return raw
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(io.BytesIO(raw)) as opened:
+            img = ImageOps.exif_transpose(opened)
+            sx, sy, sw, sh = crop_rect(img.width, img.height, crop)
+            box = (round(sx), round(sy), round(sx + sw), round(sy + sh))
+            framed = img.crop(box)
+            out_w = max(1, round(min(FRAMED_MAX_WIDTH, sw)))
+            out_h = max(1, round(out_w / PHOTO_ASPECT))
+            framed = framed.resize((out_w, out_h), Image.Resampling.LANCZOS)
+            fmt = _PIL_FORMAT.get(content_type, "JPEG")
+            if fmt == "JPEG" and framed.mode not in ("RGB", "L"):
+                framed = framed.convert("RGB")
+            buf = io.BytesIO()
+            framed.save(buf, format=fmt, **({"quality": 90} if fmt in ("JPEG", "WEBP") else {}))
+            return buf.getvalue()
+    except Exception:  # noqa: BLE001 — never lose the photo over its framing
+        logger.warning("photo framing failed; rendering the photo unframed", exc_info=True)
+        return raw
+
+
+async def photo_crop_for(
+    db: AsyncSession, user_id: uuid.UUID | None, photo_path: str | None
+) -> PhotoCrop | None:
+    """The owner's framing — but only for the photo it was chosen for.
+
+    A document stores the photo path it was generated with; once a newer photo
+    replaced it, that path is no longer ``personal_info.photo_url`` and the
+    current framing (chosen for the NEW image) must not be applied to it.
+    """
+    if not photo_path or user_id is None:
+        return None
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, user_id)
+    if profile is None:
+        return None
+    pi = (profile.profile_json or {}).get("personal_info") or {}
+    if pi.get("photo_url") != photo_path or not pi.get("photo_crop"):
+        return None
+    try:
+        return PhotoCrop.model_validate(pi["photo_crop"])
+    except ValueError:
+        return None
+
+
+async def set_photo_crop(
+    *,
+    user_id: uuid.UUID,
+    crop: PhotoCrop | None,
+    db: AsyncSession,
+) -> dict:
+    """Store (or, with None, clear) the framing of the photo on file.
+
+    Raises ``LookupError`` when there is no photo to frame. Every document that
+    shows this photo picks the new framing up at its next render.
+    """
+    profile = await _get_profile(db, user_id)
+    profile_data = MasterProfileData.model_validate(profile.profile_json)
+    if not profile_data.personal_info.photo_url:
+        raise LookupError("No profile photo on file")
+    updated_pi = profile_data.personal_info.model_copy(update={"photo_crop": crop})
+    profile.profile_json = profile_data.model_copy(
+        update={"personal_info": updated_pi}
+    ).model_dump(mode="json")
+    await db.commit()
+    return {"photo_crop": crop.model_dump(mode="json") if crop else None}
