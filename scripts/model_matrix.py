@@ -140,6 +140,16 @@ _reject_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.
 # Process-wide, not per-task: the provider latches the rejection once for the
 # whole process, so the fact belongs to the RUN, not to the turn that hit it.
 _schema_rejections: list[str] = []
+# #766: the review loop's own always-on lines (providers/llm/debug_log.py) — how
+# the analysis seams count rounds and see an exhausted or cycling loop without
+# touching the loop.
+_REVIEW_RE = re.compile(
+    r"REVIEW_(?P<kind>VERDICT|EXHAUSTED|CYCLE_DETECTED|CALL_FAILED) chain=(?P<chain>\S+)"
+    r"(?:.*?attempt=(?P<attempt>\d+))?(?:.*?approved=(?P<approved>True|False))?"
+)
+_review_sink: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
+    "model_matrix_review_sink", default=None
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -403,6 +413,19 @@ class _LogReader(logging.Handler):
             return
         if _SCHEMA_REJECT_RE.search(message):
             _schema_rejections.append(message[:300])
+            return
+        review = _REVIEW_RE.search(message)
+        if review:
+            sink = _review_sink.get()
+            if sink is not None:
+                sink.append(
+                    {
+                        "kind": review.group("kind").lower(),
+                        "chain": review.group("chain"),
+                        "attempt": int(review.group("attempt")) if review.group("attempt") else None,
+                        "approved": None if review.group("approved") is None else review.group("approved") == "True",
+                    }
+                )
             return
         reject = _REJECT_RE.search(message)
         if reject:
@@ -993,6 +1016,8 @@ def install_log_readers() -> None:
         # The dropped-op WARNING stays visible: an operator watching a live run
         # should see it, and it is the finding, not noise.
         ("applire.services.profile.reconcile.engine", logging.WARNING, True),
+        # #766: REVIEW_VERDICT / _EXHAUSTED / _CYCLE_DETECTED / _CALL_FAILED.
+        ("applire.llm.review", logging.INFO, False),
     ):
         logger = logging.getLogger(name)
         if not any(isinstance(h, _LogReader) for h in logger.handlers):
@@ -1053,6 +1078,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--fixtures", default=str(FIXTURE_DIR))
+    parser.add_argument(
+        "--seam",
+        choices=("reconcile", *ANALYSIS_SEAMS),
+        default="reconcile",
+        help=(
+            "which LLM seam to measure: the reconcile turn (default, shapes S1-S10), "
+            "or #766's job analysis ('jd') / gap analysis ('gap') on the frozen E066 "
+            "bench cells (--cells)"
+        ),
+    )
+    parser.add_argument(
+        "--cells",
+        default="same",
+        help=(
+            "jd/gap seams: comma list of bench cell ids (case.cell), cell types "
+            "(same, cross, mixed, upward) or 'all' (default: same)"
+        ),
+    )
     parser.add_argument(
         "--max-calls",
         type=int,
@@ -1350,9 +1393,371 @@ def _tooling_context():
     return unscoped("tooling")
 
 
+# --------------------------------------------------------------------------- #
+# Analysis seams (#766): job analysis and gap analysis
+# --------------------------------------------------------------------------- #
+#: #688 prompt sitting rows 3 and 5: `gap_analysis` and `job_analysis` are
+#: simplified only with a before/after row. Inputs are the E066 bench's frozen
+#: cells (real-pipeline vaults + postings, synthetic people): the JD seam reads
+#: `posting.md`; the gap seam reads `vault.json` + `job.json`. Each run calls the
+#: PRODUCT entry point (`services.job.analyze_jd`, `services.gap.analyze_gaps`)
+#: on its own throwaway SQLite database — the whole chain is measured, review
+#: loop and clustering call included, never a re-implementation of it.
+ANALYSIS_SEAMS = ("jd", "gap")
+BENCH_FIXTURE_DIR = REPO_ROOT / "tests" / "files" / "quality_bench"
+
+
+def analysis_cells(spec: str, root: Path = BENCH_FIXTURE_DIR) -> list[Path]:
+    """Bench cell directories named by ``--cells`` (ids, cell types or ``all``)."""
+    dirs = sorted(
+        d for d in root.glob("*/*") if d.is_dir() and not d.parent.name.startswith("_") and (d / "fixture.json").exists()
+    )
+    wanted = [w.strip() for w in spec.split(",") if w.strip()]
+    picked: list[Path] = []
+    for w in wanted:
+        for d in dirs:
+            cell_id, cell_type = f"{d.parent.name}.{d.name}", d.name.split("_", 1)[0]
+            if (w == "all" or w in (cell_id, cell_type)) and d not in picked:
+                picked.append(d)
+    if not picked:
+        raise SystemExit(f"--cells {spec!r} matched no bench cell under {root}")
+    return picked
+
+
+def analysis_prompt_identity(seam: str) -> dict[str, Any]:
+    """Which prompts a jd/gap row measured — the before/after pair key (#766)."""
+    if seam == "jd":
+        from applire.prompts import job_analysis, review_job_analysis
+
+        texts = {
+            "job_analysis": job_analysis.SYSTEM_PROMPT,
+            "job_analysis_refinement": review_job_analysis.JOB_ANALYSIS_REFINEMENT_PROMPT,
+            "job_analysis_review": review_job_analysis.JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT,
+        }
+    else:
+        from applire.prompts import gap_analysis, gap_clustering
+
+        texts = {
+            "gap_analysis": gap_analysis.SYSTEM_PROMPT,
+            "gap_clustering": gap_clustering.CLUSTERING_SYSTEM_PROMPT,
+        }
+    return {name: {"sha256": _sha(text), "chars": len(text)} for name, text in texts.items()}
+
+
+def _norm_term(term: Any) -> str:
+    return re.sub(r"\s+", " ", str(term or "")).strip().casefold()
+
+
+def _jaccard(a: list[Any], b: list[Any]) -> float | None:
+    sa, sb = {_norm_term(x) for x in a if _norm_term(x)}, {_norm_term(x) for x in b if _norm_term(x)}
+    if not sa and not sb:
+        return None
+    return round(len(sa & sb) / len(sa | sb), 3)
+
+
+def review_outcome(events: list[dict[str, Any]], chain: str) -> dict[str, Any]:
+    """Rounds and settle path of one review chain, from its REVIEW_* lines."""
+    mine = [e for e in events if e["chain"] == chain]
+    verdicts = [e for e in mine if e["kind"] == "verdict"]
+    kinds = {e["kind"] for e in mine}
+    if "exhausted" in kinds:
+        path = "exhausted"
+    elif "cycle_detected" in kinds:
+        path = "cycle"
+    elif "call_failed" in kinds:
+        path = "call_failed"
+    elif verdicts and verdicts[-1]["approved"]:
+        path = "approved"
+    elif verdicts:
+        path = "settled_unapproved"  # the severity gate shipped a minor-only rejection
+    else:
+        path = "no_review"
+    return {"rounds": len(verdicts), "path": path, "first_round_approved": bool(verdicts and verdicts[0]["approved"])}
+
+
+def score_jd(result: dict[str, Any], reference: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The job-analysis properties a before/after row compares (#766)."""
+    req, nice = result.get("required_skills") or [], result.get("nice_to_have_skills") or []
+    return {
+        "role_title_present": bool((result.get("role_title") or "").strip()),
+        "company_present": bool((result.get("company_name") or "").strip()),
+        "n_required": len(req),
+        "n_nice": len(nice),
+        "n_keywords": len(result.get("keywords") or []),
+        "seniority_level": result.get("seniority_level"),
+        # agreement with the frozen Luna analysis of the same posting — stability,
+        # not truth: the reference is one earlier run of the same prompt
+        "required_jaccard_vs_reference": _jaccard(req, reference.get("required_skills") or []),
+        "nice_jaccard_vs_reference": _jaccard(nice, reference.get("nice_to_have_skills") or []),
+        "review": review_outcome(events, "job_analysis"),
+    }
+
+
+def _ledger_status(rows: list[Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for row in rows:
+        r = row if isinstance(row, dict) else getattr(row, "model_dump", lambda: {})()
+        name = _norm_term(r.get("concept") or r.get("keyword"))
+        if name:
+            out[name] = str(r.get("status"))
+    return out
+
+
+def score_gap(result: dict[str, Any], reference: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The gap-analysis properties a before/after row compares (#766)."""
+    ledger = _ledger_status(result.get("keyword_ledger") or [])
+    ref = _ledger_status(reference.get("keyword_ledger") or [])
+    shared = sorted(set(ledger) & set(ref))
+    statuses: dict[str, int] = {}
+    for st in ledger.values():
+        statuses[st] = statuses.get(st, 0) + 1
+    return {
+        "n_ledger": len(ledger),
+        "ledger_statuses": dict(sorted(statuses.items())),
+        "match_score": result.get("match_score"),
+        "n_clusters": len(result.get("gap_clusters") or []),
+        "n_category_c": len(result.get("category_c") or []),
+        "concepts_jaccard_vs_reference": _jaccard(list(ledger), list(ref)),
+        "status_agreement_vs_reference": round(sum(ledger[c] == ref[c] for c in shared) / len(shared), 3) if shared else None,
+        "review": {chain: review_outcome(events, chain) for chain in sorted({e["chain"] for e in events})},
+    }
+
+
+async def run_analysis_one(
+    seam: str,
+    provider: Any,
+    cell_dir: Path,
+    index: int,
+    semaphore: asyncio.Semaphore,
+    budget: "CallBudget | None" = None,
+) -> dict[str, Any]:
+    """One job or gap analysis on a fresh database, measured. Never raises."""
+    import tempfile
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import applire.models  # noqa: F401 — registers every table on Base.metadata
+    from applire import ownership
+    from applire.db.session import Base
+    from quality_bench.fixture import load_fixture as load_bench_fixture
+    from quality_bench.seed import seed_fixture, seed_user
+
+    async with semaphore:
+        if budget is not None and budget.exhausted():
+            return {"shape": cell_dir.parent.name + "." + cell_dir.name, "run": index, "skipped": "call_budget"}
+        fx = load_bench_fixture(cell_dir)
+        usage: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        _usage_sink.set(usage)
+        _review_sink.set(events)
+        _reject_sink.set(None)
+        record: dict[str, Any] = {"seam": seam, "shape": fx.cell_id, "run": index}
+        started = time.time()
+        with tempfile.TemporaryDirectory(prefix="mm-seam-") as td:
+            engine = create_async_engine(f"sqlite+aiosqlite:///{td}/seam.sqlite3", echo=False)
+            try:
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                from applire.ownership import install_guard
+
+                install_guard(engine)
+                factory = async_sessionmaker(engine, expire_on_commit=False)
+                if seam == "jd":
+                    from applire.services.job import analyze_jd
+
+                    uid = await seed_user(factory)
+                    with ownership.owner_context(uid):
+                        async with factory() as db:
+                            resp = await analyze_jd(fx.posting, db, provider, user_id=uid)
+                            await db.commit()
+                    result = resp.model_dump(mode="json")
+                    record["result"] = {k: result.get(k) for k in (
+                        "role_title", "company_name", "required_skills", "nice_to_have_skills",
+                        "keywords", "seniority_level", "language_requirement", "education_requirement")}
+                    record["metrics"] = score_jd(result, fx.job, events)
+                else:
+                    from applire.services.gap import analyze_gaps
+
+                    seeded = await seed_fixture(factory, fx, with_gap=False)
+                    with ownership.owner_context(seeded.user_id):
+                        async with factory() as db:
+                            resp = await analyze_gaps(seeded.job_id, db, provider, user_id=seeded.user_id)
+                    result = resp.model_dump(mode="json")
+                    record["result"] = {
+                        "keyword_ledger": [
+                            {k: r.get(k) for k in ("concept", "status", "sources", "claimable")}
+                            for r in result.get("keyword_ledger") or []
+                        ],
+                        "match_score": result.get("match_score"),
+                        "category_c": result.get("category_c"),
+                        "gap_clusters": [c.get("label") for c in result.get("gap_clusters") or []],
+                    }
+                    record["metrics"] = score_gap(result, {"keyword_ledger": fx.ledger}, events)
+            except Exception as exc:  # noqa: BLE001 — a failed analysis is data, not a crash
+                record["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+                record["review_events"] = events
+            finally:
+                await engine.dispose()
+        record["elapsed_s"] = round(time.time() - started, 2)
+        record["usage"] = {
+            "calls": len(usage),
+            "prompt_tokens": sum(u["prompt_tokens"] or 0 for u in usage),
+            "completion_tokens": sum(u["completion_tokens"] or 0 for u in usage),
+            "detail": usage,
+        }
+        return record
+
+
+def _mean(values: list[Any]) -> float | None:
+    vals = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return round(sum(vals) / len(vals), 3) if vals else None
+
+
+def summarise_analysis(records: list[dict[str, Any]], seam: str) -> dict[str, Any]:
+    """Per cell and overall: error rate, review outcome, calls, tokens, agreement."""
+
+    def block(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        ok = [r for r in rows if not r.get("error")]
+        out: dict[str, Any] = {
+            "runs": len(rows),
+            "errors": len(rows) - len(ok),
+            "error_rate": round((len(rows) - len(ok)) / len(rows), 3) if rows else None,
+            "mean_elapsed_s": _mean([r.get("elapsed_s") for r in rows]),
+            "mean_calls": _mean([(r.get("usage") or {}).get("calls") for r in rows]),
+            "mean_prompt_tokens": _mean([(r.get("usage") or {}).get("prompt_tokens") for r in rows]),
+            "mean_completion_tokens": _mean([(r.get("usage") or {}).get("completion_tokens") for r in rows]),
+        }
+        m = [r["metrics"] for r in ok if r.get("metrics")]
+        if seam == "jd":
+            paths: dict[str, int] = {}
+            for x in m:
+                paths[x["review"]["path"]] = paths.get(x["review"]["path"], 0) + 1
+            out.update({
+                "review_paths": dict(sorted(paths.items())),
+                "review_exhausted_rate": round(paths.get("exhausted", 0) / len(m), 3) if m else None,
+                "first_round_approved_rate": round(sum(x["review"]["first_round_approved"] for x in m) / len(m), 3) if m else None,
+                "mean_review_rounds": _mean([x["review"]["rounds"] for x in m]),
+                "role_title_rate": round(sum(x["role_title_present"] for x in m) / len(m), 3) if m else None,
+                "mean_n_required": _mean([x["n_required"] for x in m]),
+                "mean_required_jaccard_vs_reference": _mean([x["required_jaccard_vs_reference"] for x in m]),
+            })
+        else:
+            out.update({
+                "mean_n_ledger": _mean([x["n_ledger"] for x in m]),
+                "mean_n_clusters": _mean([x["n_clusters"] for x in m]),
+                "mean_concepts_jaccard_vs_reference": _mean([x["concepts_jaccard_vs_reference"] for x in m]),
+                "mean_status_agreement_vs_reference": _mean([x["status_agreement_vs_reference"] for x in m]),
+            })
+        return out
+
+    cells = sorted({r["shape"] for r in records})
+    usage = {
+        "calls": sum((r.get("usage") or {}).get("calls") or 0 for r in records),
+        "prompt_tokens": sum((r.get("usage") or {}).get("prompt_tokens") or 0 for r in records),
+        "completion_tokens": sum((r.get("usage") or {}).get("completion_tokens") or 0 for r in records),
+    }
+    return {
+        "seam": seam,
+        "overall": block(records),
+        "per_cell": {c: block([r for r in records if r["shape"] == c]) for c in cells},
+        "usage": usage,
+    }
+
+
+async def run_analysis_matrix(args: argparse.Namespace, cells: list[Path]) -> dict[str, Any]:
+    from applire.providers.llm import get_provider
+
+    provider = get_provider()
+    print(f"provider: {type(provider).__name__} model={args.model or '<env default>'} seam={args.seam}", flush=True)
+    semaphore = asyncio.Semaphore(max(1, args.concurrency))
+    budget = CallBudget(Path(args.llm_log_dir), args.max_calls) if args.max_calls is not None else None
+    tasks = [
+        run_analysis_one(args.seam, provider, cell, index, semaphore, budget)
+        for index in range(1, args.n + 1)
+        for cell in cells
+    ]
+    handle = open(args.out, "w", encoding="utf-8") if args.out else None
+    records: list[dict[str, Any]] = []
+    skipped = 0
+    try:
+        futures = [asyncio.ensure_future(t) for t in tasks]
+        for coro in asyncio.as_completed(futures):
+            record = await coro
+            if record.get("skipped"):
+                skipped += 1
+                continue
+            records.append(record)
+            if handle:
+                handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                handle.flush()
+            m = record.get("metrics") or {}
+            print(f"[{args.seam} {record['shape']} #{record['run']}] {record['elapsed_s']}s "
+                  f"calls={(record.get('usage') or {}).get('calls')} "
+                  f"review={m.get('review') if args.seam == 'jd' else '-'} "
+                  f"err={record.get('error') or '-'}", flush=True)
+    finally:
+        if handle:
+            handle.close()
+    return {"records": records, "skipped_for_budget": skipped}
+
+
+def analysis_main(args: argparse.Namespace) -> int:
+    """``--seam jd|gap``: measure one model on the analysis seams, write records + summary."""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    cells = analysis_cells(args.cells)
+    if args.dry_run:
+        for c in cells:
+            print(f"{c.parent.name}.{c.name}")
+        print(json.dumps(analysis_prompt_identity(args.seam), indent=2))
+        return 0
+    from applire.config import settings as _settings
+
+    saved_log = (_settings.llm_debug_log, _settings.llm_debug_log_dir)
+    try:
+        force_settings(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
+        if args.max_calls is not None and not args.llm_log_dir:
+            raise SystemExit("--max-calls counts from the debug log; pass --llm-log-dir too")
+        install_log_readers()
+        started = time.time()
+        outcome = asyncio.run(run_analysis_matrix(args, cells))
+        records = sorted(outcome["records"], key=lambda r: (r["shape"], r["run"]))
+        summary = summarise_analysis(records, args.seam)
+        summary["meta"] = {
+            "seam": args.seam,
+            "provider": args.provider,
+            "model": args.model,
+            "n": args.n,
+            "cells": [f"{c.parent.name}.{c.name}" for c in cells],
+            "reasoning_arm": args.reasoning,
+            "wall_s": round(time.time() - started, 1),
+            "settings": settings_snapshot(),
+            "schema_rejected": bool(_schema_rejections),
+            "prompts": analysis_prompt_identity(args.seam),
+            "max_calls": args.max_calls,
+            "skipped_for_budget": outcome.get("skipped_for_budget", 0),
+        }
+        if args.llm_log_dir:
+            summary["meta"]["llm_log"] = llm_log_calls(Path(args.llm_log_dir))
+        cost = token_cost(summary["usage"], args.price_in, args.price_out)
+        if cost:
+            summary["cost"] = cost
+        print(json.dumps({k: summary[k] for k in ("overall", "usage")}, indent=1))
+        if args.out:
+            path = Path(args.out).with_suffix(".summary.json")
+            path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            print(f"records: {args.out}\nsummary: {path}")
+        return 0
+    finally:
+        _settings.llm_debug_log, _settings.llm_debug_log_dir = saved_log
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_env(args.provider, args.model, args.timeout, args.reasoning, args.llm_log_dir)
+    if args.seam in ANALYSIS_SEAMS:
+        return analysis_main(args)
     fixtures = Fixtures(Path(args.fixtures))
     shapes = resolve_shapes(fixtures, args.shapes)
 
