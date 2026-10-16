@@ -1268,6 +1268,7 @@ async def _ask_confirmation(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
@@ -3163,6 +3164,7 @@ async def _ask_denial_probe(
         # #380: the probe is issued ON the denial turn — the caller must see
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
@@ -3582,6 +3584,7 @@ async def send_message(
             conflict_summaries=conflict_summaries or None,
             changes_applied=turn.addressed,
             denial_recorded=turn.denial_recorded,
+            no_write_receipt=turn.no_write_receipt,  # #763
             cluster_coverage=cluster_coverage,
         )
 
@@ -3730,6 +3733,7 @@ async def send_message(
                 conflict_summaries=conflict_summaries or None,
                 changes_applied=turn.addressed,
                 denial_recorded=turn.denial_recorded,
+                no_write_receipt=turn.no_write_receipt,  # #763
                 cluster_coverage=cluster_coverage,
             )
 
@@ -3776,6 +3780,7 @@ async def send_message(
             # turn's fact — False is "no denial this turn", None is reserved
             # for responses with no reconciled turn behind them.
             denial_recorded=turn.denial_recorded,
+            no_write_receipt=turn.no_write_receipt,  # #763
             # ADR-089 — the same holds for `changes_applied` now that a turn
             # may be followed by a follow-up rather than a completion: the
             # agent door's addressed/partly_covered/no_change split reads it.
@@ -3830,6 +3835,7 @@ async def send_message(
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
+            no_write_receipt=turn.no_write_receipt,  # #763
             changes_applied=turn.addressed,  # ADR-089
             cluster_coverage=cluster_coverage,
         )
@@ -3940,6 +3946,7 @@ async def _ask_no_change_retry(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
@@ -4039,6 +4046,7 @@ async def _ask_partial_coverage_follow_up(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
@@ -4125,6 +4133,7 @@ async def _complete_session(
     changes_applied: bool | None = None,
     denial_recorded: bool | None = None,
     cluster_coverage: ClusterCoverage | None = None,
+    no_write_receipt: str | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -4271,6 +4280,9 @@ async def _complete_session(
         changes_applied=changes_applied,
         denial_recorded=denial_recorded,
         cluster_coverage=cluster_coverage,
+        # #763 — the terminal turn's no-write receipt rides the completion too
+        # (the ceiling-hit and gaps-resolved completions are reconciled turns).
+        no_write_receipt=no_write_receipt,
     )
 
 

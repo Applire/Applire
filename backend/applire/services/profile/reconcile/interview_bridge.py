@@ -79,6 +79,33 @@ class InterviewTurnResult:
     # transfer-probe trigger (session.py) reads this to find WHICH concept to
     # check for JD-criticality / probed-state — never re-parses the answer.
     denied_concepts: list[str] = field(default_factory=list)
+    # #763 (SF-LLM.7 / SF-LLM.3) — the turn's "nothing was recorded" receipt,
+    # read off the very `not_applied` item the committer persisted for the
+    # Health hub (`witness.compute_no_write`, M-1c). One of the three
+    # `no_write*` reasons, or None when the turn wrote something or stated
+    # nothing positive. NO new judgement: this only carries what the
+    # applier's own predicate already decided to the interview's response.
+    no_write_receipt: str | None = None
+
+
+#: The `ImportNotApplied.reason` values `witness.compute_no_write` emits — the
+#: closed set the interview receipt (#763) may carry. Every other reason on the
+#: channel (an import's figure/op items, an attribution answer's outcome) has
+#: its own surface and is not an interview receipt.
+NO_WRITE_REASONS = frozenset({"no_write", "no_write_already_known", "no_write_question_only"})
+
+
+def no_write_receipt_of(not_applied) -> str | None:
+    """The turn's no-write receipt reason, or None (#763).
+
+    Reads the committed record's `not_applied`, never recomputes it: the Health
+    hub and the interview must say the same thing about the same turn, so both
+    read the one item the applier wrote (`apply.py`'s M-1c block).
+    """
+    for item in not_applied or ():
+        if item.reason in NO_WRITE_REASONS:
+            return item.reason
+    return None
 
 
 def _to_summary(conflict: Conflict, profile: MasterProfileData | None) -> ConflictSummary:
@@ -186,4 +213,5 @@ async def reconcile_interview_turn(
         pending_confirmations=committed.pending_confirmations,
         denial_recorded=bool(committed.denials),
         denied_concepts=[d.strip() for d in result.denials if d and d.strip()],
+        no_write_receipt=no_write_receipt_of(committed.enrichment_record.not_applied),
     )
