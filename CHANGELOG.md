@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Cover letter pipeline v2, behind an internal switch (`LETTER_PIPELINE=v2`, default `v1`; ADR-094 clause L, #779, #773).** The model writes the letter and code only checks it: the writer is told the document language in its first line (a weak model wrote 17 of 18 English letters in German), the sender's name, address, phone and email come from your profile instead of the model, and the steps that used to delete or insert sentences after the last review — the figure floor, the invented-limit cut, the salutation and sign-off fixes, the extra length passes — now report what they find to the review loop and on the letter's report instead. A letter not written in its language shows the same red language row the CV has in the pre-download review. Your recorded alternate names for employers, titles, institutions and degrees reach the writer so it can use the form that fits the letter's language (#709, #716). Not yet the default; the v1 letter is unchanged.
+
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
