@@ -2260,8 +2260,7 @@ async def _render_cover_letter_body(
                     keyword_ledger=keyword_ledger,
                     denied_concepts=denied_concepts,
                     # ADR-094 clause L (ruling W2-1, B3): v2 has no post-loop
-                    # final length floor.
-                    final_floor=not is_v2,
+                    # final length floor — enforced inside, from ``pipeline``.
                     pipeline=pipeline,
                     v2_signal_fn=v2_signal_fn,
                 )
