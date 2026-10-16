@@ -6,9 +6,16 @@ the item says (ADR-061 cl. 7 amended 2026-10-16, ruling H-2).
 Drives the real door (`routers/profile_health.recompute_span_endpoint`) against
 a FILE-backed database and re-reads over a separate connection (the #480 PR 3
 pattern: `commit_ops` flushes, the door commits — a forgotten commit is a
-silent no-write). Pins: the span is re-derived and labelled `computed`; only
-that one skill moves; the write is an ordinary receipted `manual_edit`; the
-Health item is gone afterwards; a stale click is a 409 and writes nothing.
+silent no-write). Pins: the span is re-derived and labelled `computed`; another
+skill's TRANSCRIBED span is untouched; the write is an ordinary receipted
+`manual_edit`; the Health item is gone afterwards; a stale click is a 409 and
+writes nothing.
+
+Not pinned, by design (adversarial review 2026-10-16, finding 4): like EVERY
+vault write, the committer's deterministic enrichment (invariant 6) refreshes
+the other DERIVED spans (`computed` re-dated, an `llm_estimated` span a role now
+names becomes `computed`) and only the addressed skill is in the receipt. That
+is the write path's standing behaviour, not this action's (collector line).
 """
 import sys
 import uuid
@@ -111,7 +118,7 @@ async def test_recompute_rederives_the_span_labels_it_computed_and_survives(dura
     assert co["source"] == "computed"
     assert co["years_experience"] == expected
     assert co["id"] == "s-co"
-    # Only the addressed skill moved — the candidate's own Python span is untouched.
+    # The candidate's own transcribed Python span is untouched.
     py = _skill(stored, "Python")
     assert (py["years_experience"], py["source"], py["proficiency"]) == (3, "transcribed", "advanced")
     record = stored["metadata"]["enrichment_history"][-1]

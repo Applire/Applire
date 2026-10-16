@@ -16,17 +16,17 @@ the letter's hedge view (a transcribed span is stated flat) and the Oracle's
 contract, ADR-041) flags a non-language skill whose span N is ``transcribed``
 when BOTH hold:
 
-(i) **no source text states N years** — no vault evidence unit, denial
-    statement, or string in ``metadata.enrichment_history`` (old/new values,
-    never the system-written rationale) carries a duration the Oracle's
-    ``extract_tenure_claims`` reads within half a year of N; and no
-    ``manual_edit`` record set this skill's span to N (the candidate typing it
-    IS a statement);
-(ii) **N is the re-derivation's fingerprint** — phase 1's own stored arithmetic
-    (``skill_enrichment.stored_span_years``) gives c with c − 1 − d ≤ N ≤ c,
-    d = whole years since 2026-09-08 (#684: the first day a reconcile op could
-    stamp a span ``transcribed``). A laundered value only LAGS the growing
-    derivation; it never exceeds it.
+(i) **no source text states N years for this skill** — no vault evidence
+    unit, denial statement, or string in ``metadata.enrichment_history``
+    (old/new values, never the system-written rationale) carries a duration
+    the Oracle's ``extract_tenure_claims`` reads within half a year of N with
+    the skill named next to it (``skills_near_duration``, the #747 subject
+    window); and no ``manual_edit`` record set this skill's span to N (the
+    candidate typing it IS a statement);
+(ii) **N is a value phase 1 could have stored while laundering was possible**
+    — ``skill_enrichment.stored_span_years`` evaluated on 2026-09-08 (#684:
+    the first day a reconcile op could stamp a span ``transcribed``) and today
+    bounds it: lo ≤ N ≤ c. A closed role gives lo = c, so only N = c.
 
 (ii) is what keeps the recompute safe (founder ruling H-2, option A): on the
 captured corpus 17 of 36 unstated transcribed spans did NOT match the
@@ -116,14 +116,11 @@ def _manually_set(profile: MasterProfileData, name: str, years: int) -> bool:
     return False
 
 
-def _drift_years(today: date) -> int:
-    return max(0, int((today - LAUNDERING_POSSIBLE_FROM).days // 365.25))
-
-
 def laundered_spans(
     profile: MasterProfileData, today: date | None = None
 ) -> list[LaunderedSpan]:
     """Transcribed skill spans no source states and that equal the re-derivation."""
+    from applire.services.oracle.matchers import skills_near_duration
     from applire.services.oracle.matchers.figures import extract_tenure_claims
     from applire.services.skill_enrichment import stored_span_years
 
@@ -138,19 +135,31 @@ def laundered_spans(
     ]
     if not candidates:
         return []
-    stated = [
-        t.years for text in _source_texts(profile) for t in extract_tenure_claims(text)
-    ]
-    drift = _drift_years(today)
+    # (i) Subject-scoped, the #747 instrument (``skills_near_duration``: the
+    # skill named within ~8 words of the duration, never across a list or
+    # clause boundary — ADR-066). A vault-wide pool of bare durations let an
+    # employer tenure ("Meine neun Jahre bei Weberit …", a denial dossier)
+    # silence five laundered nines (adversarial review 2026-10-16, finding 2).
+    names = [s.name for s in candidates]
+    stated: dict[str, list[float]] = {}
+    for text in _source_texts(profile):
+        for tenure in extract_tenure_claims(text):
+            for name, _distance in skills_near_duration(text, tenure.raw, names):
+                stated.setdefault(name, []).append(tenure.years)
     out: list[LaunderedSpan] = []
     for skill in candidates:
         n = skill.years_experience
-        if any(abs(y - n) <= STATED_TOLERANCE_YEARS for y in stated):
+        if any(abs(y - n) <= STATED_TOLERANCE_YEARS for y in stated.get(skill.name, [])):
             continue
         if _manually_set(profile, skill.name, n):
             continue
+        # (ii) Exactly the values phase 1 could have STORED while laundering
+        # was possible: from the anchor day to today. A closed role gives one
+        # value, so an honest N = c − 1 is never flagged and never inflated
+        # (adversarial review 2026-10-16, finding 5).
         c = stored_span_years(profile, skill.name, today)
-        if c is None or not (c - 1 - drift <= n <= c):
+        lo = stored_span_years(profile, skill.name, min(today, LAUNDERING_POSSIBLE_FROM))
+        if c is None or lo is None or not (lo <= n <= c):
             continue
         out.append(LaunderedSpan(skill.id, skill.name, n, c))
     return out

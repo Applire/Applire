@@ -63,8 +63,9 @@ def _skill(name, years, source, **kw):
 
 
 def test_seeded_laundered_span_is_found():
-    """SAP CO: roles naming it span 02/2019 → today = 7.7 y, phase 1 stores 8;
-    the vault says 8 'transcribed' and no text states eight."""
+    """SAP CO: roles naming it span 02/2019 → 7.6 y on 2026-09-08 and 7.7 y
+    today, phase 1 stores 8 at both ends; the vault says 8 'transcribed' and no
+    text states eight."""
     p = _profile([_skill("SAP CO", 8, "transcribed")])
     (span,) = laundered_spans(p, TODAY)
     assert (span.skill_id, span.skill_name, span.span_years, span.recomputed_years) == (
@@ -72,10 +73,57 @@ def test_seeded_laundered_span_is_found():
     )
 
 
+def _kvp_profile(years, *, bullets=None, denied=None, start="2017-04", end=None):
+    blob = {
+        "personal_info": {"name": "Lena Brandt"},
+        "work_experience": [{
+            "id": "w1", "company": "Weberit Kunststofftechnik GmbH", "role": "Produktionsleiterin",
+            "start_date": start, "end_date": end,
+            "responsibilities": bullets or ["KVP-Routinen und SMED-Workshops eingefuehrt."],
+        }],
+        "skills": [_skill("KVP", years, "transcribed")],
+    }
+    if denied:
+        blob["metadata"] = {"denied_concepts": denied}
+    return MasterProfileData.model_validate(blob)
+
+
 def test_a_lagging_laundered_value_is_found():
-    """Laundered at 7 a while ago, the growing role span re-derives 8 today."""
+    """The corpus shape: an open role since 04/2017 stored 9 when laundering
+    was possible (2026-09-08: 9.4 y) and re-derives 10 today (9.5 y)."""
+    (span,) = laundered_spans(_kvp_profile(9), TODAY)
+    assert (span.span_years, span.recomputed_years) == (9, 10)
+
+
+def test_an_honest_value_one_below_a_closed_roles_span_is_never_flagged():
+    """Adversarial finding 5: a closed role's derivation never moved, so N = c − 1
+    cannot be a lag — flagging it would raise the candidate's own number."""
+    p = _kvp_profile(5, start="2011-08", end="2017-03")
+    assert laundered_spans(p, TODAY) == []
+    assert [s.span_years for s in laundered_spans(_kvp_profile(6, start="2011-08", end="2017-03"), TODAY)] == [6]
+
+
+def test_an_open_roles_value_below_anything_storable_since_the_anchor_is_silent():
+    """02/2019 → 2026-09-08 already rounds to 8; a stored 7 was never phase 1's."""
     p = _profile([_skill("SAP CO", 7, "transcribed")])
-    assert [s.span_years for s in laundered_spans(p, TODAY)] == [7]
+    assert laundered_spans(p, TODAY) == []
+
+
+def test_an_employer_tenure_in_a_denial_dossier_does_not_silence_a_skill():
+    """Adversarial finding 2 (corpus vault 2026-09-13): "Meine neun Jahre bei
+    Weberit …" is about the employer, not KVP; it silenced five laundered nines."""
+    denied = [{
+        "concept": "Lebensmittelverpackung",
+        "statement": "Meine neun Jahre bei Weberit sind Kunststofftechnik, keine Lebensmittel.",
+        "source": "interview",
+        "date": "2026-09-01T00:00:00+00:00",
+    }]
+    assert [s.skill_name for s in laundered_spans(_kvp_profile(9, denied=denied), TODAY)] == ["KVP"]
+
+
+def test_a_statement_naming_the_skill_next_to_the_duration_silences_it():
+    p = _kvp_profile(9, bullets=["Seit neun Jahren verantworte ich KVP an der Linie."])
+    assert laundered_spans(p, TODAY) == []
 
 
 def test_captured_pre_fix_vault_flags_the_two_laundered_spans():
