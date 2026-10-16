@@ -217,3 +217,40 @@ def test_render_checks_block_is_empty_for_no_findings():
     assert render_checks_block([]) == ""
     block = render_checks_block([CheckFinding(check="c.x", text="fact one")])
     assert "CODE CHECKS" in block and "fact one" in block and "c.x" in block
+
+
+@pytest.mark.asyncio
+async def test_an_advisory_finding_never_opens_a_round(provider):
+    provider.aparse_json.side_effect = [APPROVE]
+
+    def advisory(_d):
+        return [CheckFinding(check="toy.dupe", text="A / B may be one competence", blocking=False)]
+
+    prompts: list[str] = []
+
+    def rev(s, d):
+        return "REVIEW"
+
+    out = await _call(provider, {"bullets": ["a"]}, checks_fn=advisory, rev=rev)
+    assert out == {"bullets": ["a"]}
+    assert provider.aparse_json.await_count == 1
+    sent = provider.aparse_json.await_args_list[0].args[0]
+    assert "advisory" in sent and "A / B may be one competence" in sent
+
+
+@pytest.mark.asyncio
+async def test_an_advisory_finding_rides_along_when_a_round_runs(provider):
+    seen: list[str] = []
+    provider.aparse_json.side_effect = [APPROVE, {"bullets": ["a"]}, APPROVE]
+
+    def both(d):
+        out = list(_over_budget(d))
+        out.append(CheckFinding(check="toy.dupe", text="A / B may be one", blocking=False))
+        return out
+
+    def gen(d, feedback, s):
+        seen.append(feedback)
+        return "retry"
+
+    await _call(provider, {"bullets": ["a", "b", "c"]}, checks_fn=both, gen=gen)
+    assert "budget 2" in seen[0] and "A / B may be one" in seen[0] and "judge it" in seen[0]
