@@ -1284,6 +1284,21 @@ _register_all(
             description="The cover letter's twin of CV_TERMINAL_REENTRY_MAX.",
         ),
         SettingEntry(
+            env_var="LETTER_PIPELINE",
+            source="constants",
+            default="v1",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            in_env_example=False,
+            description=(
+                "v1 | v2. Internal development switch for the cover-letter pipeline v2 "
+                "(ADR-094 clause L: the model writes, code checks). Read per generation "
+                "in services/letter_v2.py. Not operator surface until the US368 bench "
+                "gate flips the default."
+            ),
+            notes="WP-W2, Hazelnut build 1 — withheld from .env.example (internal switch).",
+        ),
+        SettingEntry(
             env_var="CV_LANGUAGE_REVIEW_MAX_RETRIES",
             source="constants",
             default="2",
