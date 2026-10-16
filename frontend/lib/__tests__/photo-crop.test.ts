@@ -23,7 +23,6 @@ import {
   cropRect,
   imageLayout,
   initialCrop,
-  outputSize,
   panCrop,
   zoomCrop,
 } from "@/lib/photo-crop";
@@ -103,10 +102,5 @@ describe("photo-crop geometry (#781)", () => {
     expect(l.width).toBeCloseTo(1800 * scale);
     expect(-l.left / scale).toBeCloseTo(r.sx);
     expect(-l.top / scale).toBeCloseTo(r.sy);
-  });
-
-  it("caps the upload at 800 px wide and never upscales a small crop", () => {
-    expect(outputSize({ sx: 0, sy: 0, sw: 1600, sh: 2000 })).toEqual({ w: 800, h: 1000 });
-    expect(outputSize({ sx: 0, sy: 0, sw: 200, sh: 250 })).toEqual({ w: 200, h: 250 });
   });
 });

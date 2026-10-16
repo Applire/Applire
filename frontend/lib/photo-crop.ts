@@ -20,12 +20,13 @@
  *
  * Pure functions, no DOM: the dialog (`components/profile/PhotoCropDialog.tsx`)
  * keeps a {@link CropState} and asks this module where the crop lies in the
- * SOURCE image and where the image sits on screen. The browser then draws that
- * source rectangle onto a canvas and uploads only the cropped portrait, so the
- * server, every template and the Word export receive one framing and nothing
- * downstream changes (founder question F-2, option A).
+ * SOURCE image and where the image sits on screen. Only the state is saved
+ * (founder ruling F-2): the stored photo stays the uploaded original and the
+ * server applies the same rectangle at render — `services/photo.crop_rect` is
+ * this module's twin, and a parity table in both test suites pins that they
+ * agree.
  *
- * The output is a 4:5 portrait. The templates' photo boxes are 1:1 circles
+ * The framing is a 4:5 portrait. The templates' photo boxes are 1:1 circles
  * (executive, modern_swiss, creative_sidebar) and a 45×55 mm portrait
  * (lebenslauf), all `object-fit: cover; object-position: center top` — a 4:5
  * crop fills the portrait box within 2 % and the circles show its top 80 %,
@@ -36,8 +37,6 @@
 export const PHOTO_ASPECT = 4 / 5;
 /** The tightest zoom the slider offers (crop side = 1/4 of the cover crop). */
 export const MAX_ZOOM = 4;
-/** The widest side of the uploaded crop; smaller sources are never upscaled. */
-export const OUTPUT_MAX_WIDTH = 800;
 
 export interface ImageSize {
   w: number;
@@ -156,10 +155,4 @@ export function imageLayout(
   const r = cropRect(img, state, aspect);
   const scale = frameWidthPx / r.sw;
   return { left: -r.sx * scale, top: -r.sy * scale, width: img.w * scale, height: img.h * scale };
-}
-
-/** The pixel size of the uploaded crop: at most {@link OUTPUT_MAX_WIDTH} wide, never upscaled. */
-export function outputSize(rect: CropRect, aspect = PHOTO_ASPECT): { w: number; h: number } {
-  const w = Math.max(1, Math.round(Math.min(OUTPUT_MAX_WIDTH, rect.sw)));
-  return { w, h: Math.max(1, Math.round(w / aspect)) };
 }

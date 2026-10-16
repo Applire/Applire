@@ -784,7 +784,8 @@
         "cancel": "Abbrechen",
         "confirm": "Ausschnitt übernehmen",
         "saving": "Wird gespeichert …",
-        "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei."
+        "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei.",
+        "saveError": "Der Ausschnitt konnte nicht gespeichert werden."
       }
     },
     "signature": {

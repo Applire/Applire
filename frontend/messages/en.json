@@ -784,7 +784,8 @@
         "cancel": "Cancel",
         "confirm": "Use this framing",
         "saving": "Saving …",
-        "loadError": "The photo could not be opened. Try a JPEG, PNG or WebP file."
+        "loadError": "The photo could not be opened. Try a JPEG, PNG or WebP file.",
+        "saveError": "The framing could not be saved."
       }
     },
     "signature": {

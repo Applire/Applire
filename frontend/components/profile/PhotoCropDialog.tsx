@@ -18,14 +18,15 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * #781 — choose the framing of the profile photo before it is stored.
+ * #781 — choose the framing of the profile photo.
  *
  * The templates crop every photo `object-fit: cover; object-position: center
  * top`, so a landscape shot with the face off-centre lost the face. This
- * dialog opens on exactly that automatic framing, lets the candidate drag and
- * zoom, and hands back a 4:5 JPEG of the chosen rectangle; the caller uploads
- * it through the unchanged `POST /api/profile/photo`. The original never
- * leaves the browser (F-2 option A). Geometry: `lib/photo-crop.ts`.
+ * dialog opens on the stored framing (or on exactly that automatic one), lets
+ * the candidate drag and zoom, and hands back the GEOMETRY — never a cropped
+ * file (founder ruling F-2): the original stays stored as uploaded and the
+ * server applies the framing at render (`services/photo.frame_photo`), so
+ * re-framing is lossless. Geometry: `lib/photo-crop.ts`.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -36,10 +37,9 @@ import { Button } from "@/components/ui/button";
 import {
   MAX_ZOOM,
   PHOTO_ASPECT,
-  cropRect,
+  clampCrop,
   imageLayout,
   initialCrop,
-  outputSize,
   panCrop,
   zoomCrop,
   type CropState,
@@ -49,10 +49,12 @@ import {
 interface PhotoCropDialogProps {
   /** An object URL (or any same-origin URL) of the photo to frame. */
   src: string;
-  /** True while the caller uploads the result — disables the buttons. */
+  /** The stored framing to start from; null/undefined = the automatic one. */
+  initialCrop?: CropState | null;
+  /** True while the caller saves the result — disables the buttons. */
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (cropped: Blob) => void;
+  onConfirm: (crop: CropState) => void;
 }
 
 const KEY_STEP_PX = 8;
@@ -92,9 +94,52 @@ function FramedImage({
   );
 }
 
-export function PhotoCropDialog({ src, busy = false, onCancel, onConfirm }: PhotoCropDialogProps) {
+/**
+ * The photo as the documents show it: `src` framed by `crop` (null = the
+ * automatic framing) in a 4:5 box `widthPx` wide. Used for the profile
+ * thumbnail so it never shows a framing the CV does not.
+ */
+export function FramedPhoto({
+  src,
+  crop,
+  widthPx,
+  alt,
+  className,
+}: {
+  src: string;
+  crop: CropState | null;
+  widthPx: number;
+  alt: string;
+  className?: string;
+}) {
+  const [size, setSize] = useState<ImageSize | null>(null);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setSize({ w: img.naturalWidth, h: img.naturalHeight });
+    img.src = src;
+  }, [src]);
+  return (
+    <div
+      role="img"
+      aria-label={alt}
+      data-testid="framed-photo"
+      className={`relative shrink-0 overflow-hidden bg-surface-container ${className ?? ""}`}
+      style={{ width: widthPx, height: widthPx / PHOTO_ASPECT }}
+    >
+      {size && (
+        <FramedImage
+          src={src}
+          size={size}
+          crop={crop ? clampCrop(size, crop) : initialCrop(size)}
+          frameW={widthPx}
+        />
+      )}
+    </div>
+  );
+}
+
+export function PhotoCropDialog({ src, initialCrop: startCrop, busy = false, onCancel, onConfirm }: PhotoCropDialogProps) {
   const t = useTranslations("profile.photo.crop");
-  const imgRef = useRef<HTMLImageElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -113,13 +158,13 @@ export function PhotoCropDialog({ src, busy = false, onCancel, onConfirm }: Phot
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
-      imgRef.current = img;
       const s = { w: img.naturalWidth, h: img.naturalHeight };
       setSize(s);
-      setCrop(initialCrop(s));
+      setCrop(startCrop ? clampCrop(s, startCrop) : initialCrop(s));
     };
     img.onerror = () => setFailed(true);
     img.src = src;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the start framing is read once per image
   }, [src]);
 
   // The frame's on-screen width drives the drag scale and the image layout.
@@ -213,30 +258,7 @@ export function PhotoCropDialog({ src, busy = false, onCancel, onConfirm }: Phot
   }
 
   function confirm() {
-    const img = imgRef.current;
-    if (!img || !size || !crop) return;
-    const r = cropRect(size, crop);
-    const out = outputSize(r);
-    const canvas = document.createElement("canvas");
-    canvas.width = out.w;
-    canvas.height = out.h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      setFailed(true);
-      return;
-    }
-    // JPEG has no alpha: a transparent PNG would otherwise turn black.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, out.w, out.h);
-    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, out.w, out.h);
-    canvas.toBlob(
-      (blob) => {
-        if (blob) onConfirm(blob);
-        else setFailed(true);
-      },
-      "image/jpeg",
-      0.9,
-    );
+    if (crop) onConfirm(crop);
   }
 
   if (!mounted) return null;
