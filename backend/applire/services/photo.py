@@ -88,6 +88,9 @@ async def upload_photo(
         )
     if len(file_bytes) > _MAX_BYTES:
         raise ValueError("Photo exceeds the 5 MB limit. Please use a smaller file.")
+    # The bytes must BE the declared kind of image, within the pixel bound —
+    # every render decodes this file (#781 framing), so it is checked once here.
+    check_photo_image(file_bytes, content_type)
 
     user = await _get_user(user_id, db)
     profile = await _get_profile(db, user_id)
@@ -188,6 +191,53 @@ MAX_ZOOM = 4.0
 FRAMED_MAX_WIDTH = 800
 
 _PIL_FORMAT = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
+#: The largest photo (in pixels) the service decodes — a 48 MP phone camera
+#: fits; anything larger is refused on upload and rendered unframed.
+MAX_PHOTO_PIXELS = 50_000_000
+MAX_PHOTO_SIDE = 12_000
+
+
+def _open_checked(raw: bytes, content_type: str):
+    """Open ``raw`` as exactly the declared format, refusing oversize images.
+
+    Only the header is read here (Pillow decodes lazily), so the dimension
+    check runs BEFORE any pixel is decoded. Raises ``ValueError`` with a
+    candidate-facing message for anything that is not a JPEG/PNG/WebP of the
+    declared type within the pixel bound.
+    """
+    from PIL import Image
+
+    fmt = _PIL_FORMAT.get(content_type)
+    if fmt is None:
+        raise ValueError("Unsupported format. Upload a JPEG, PNG, or WebP image.")
+    try:
+        img = Image.open(io.BytesIO(raw), formats=[fmt])
+    except Exception as exc:  # noqa: BLE001 — Pillow raises several types here
+        raise ValueError(
+            "The file is not a readable JPEG, PNG, or WebP image."
+        ) from exc
+    width, height = img.size
+    if (
+        width < 1
+        or height < 1
+        or width > MAX_PHOTO_SIDE
+        or height > MAX_PHOTO_SIDE
+        or width * height > MAX_PHOTO_PIXELS
+    ):
+        img.close()
+        raise ValueError("The photo's dimensions are too large. Please use a smaller image.")
+    return img
+
+
+def check_photo_image(raw: bytes, content_type: str) -> None:
+    """Upload-time check: the declared type, a readable image, within bounds."""
+    img = _open_checked(raw, content_type)
+    try:
+        img.verify()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("The file is not a readable JPEG, PNG, or WebP image.") from exc
+    finally:
+        img.close()
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -218,7 +268,8 @@ def frame_photo(raw: bytes, crop: PhotoCrop | None, content_type: str) -> bytes:
     ``crop`` None → ``raw`` unchanged (a photo nobody framed renders exactly as
     before #781). The EXIF orientation is applied first, because the browser
     adjuster measured the image as the browser displays it. An image Pillow
-    cannot read is returned unchanged — the render must never lose the photo
+    cannot read, of another format than declared, or beyond the pixel bound
+    is returned unchanged — the render must never lose the photo, or crash,
     over its framing.
     """
     if crop is None:
@@ -226,7 +277,7 @@ def frame_photo(raw: bytes, crop: PhotoCrop | None, content_type: str) -> bytes:
     try:
         from PIL import Image, ImageOps
 
-        with Image.open(io.BytesIO(raw)) as opened:
+        with _open_checked(raw, content_type) as opened:
             img = ImageOps.exif_transpose(opened)
             sx, sy, sw, sh = crop_rect(img.width, img.height, crop)
             box = (round(sx), round(sy), round(sx + sw), round(sy + sh))
