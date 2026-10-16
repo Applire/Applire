@@ -323,7 +323,13 @@
     "advancingToCV": "Preparing…",
     "viewHistory": "View conversation history ({count} {count, plural, one {exchange} other {exchanges}})",
     "matchScorePercent": "{score}%",
-    "confirmHint": "Quick check — which is it? We won't merge these on our own."
+    "confirmHint": "Quick check — which is it? We won't merge these on our own.",
+    "noWriteReceipt": {
+      "label": "Your last answer",
+      "nothingRecorded": "Nothing was recorded from what you said — say it again in one sentence, or enter it in your profile.",
+      "alreadyKnown": "That is already in your profile, as stated.",
+      "questionOnly": "Your question arrived — nothing was changed for it."
+    }
   },
   "cv": {
     "generating": "Generating CV…",
