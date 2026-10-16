@@ -1675,7 +1675,15 @@ class HealthIssue(BaseModel):
     # say so and say WHY. It must never be counted as a decision (the gaps
     # page's popup stack filters on `conflict`/`confirmation` for that reason) —
     # there is nothing here to pick between.
-    thread: Literal["conflict", "accuracy", "confirmation", "unit", "not_applied"]
+    # ``span_provenance`` (#764, ADR-061 cl. 7 amended 2026-10-16) is its own
+    # thread because it is neither a mismatch nor a lost item: a skill span is
+    # labelled as the candidate's own statement although no source text states
+    # it and it equals the role-date derivation — the fingerprint of a span
+    # laundered across the import seam before the 2026-10-07 fix. It carries
+    # its own one-click action (recompute), never a decision to pick between.
+    thread: Literal[
+        "conflict", "accuracy", "confirmation", "unit", "not_applied", "span_provenance"
+    ]
     profile_mismatch_severity: Literal["info", "review", "critical"]
     # A server-built, English-only fallback (kept for any consumer #626
     # (conflict legibility) could not reach; every updated reader composes its
@@ -1769,6 +1777,15 @@ class HealthIssue(BaseModel):
     incoming_value_display: str | None = None
     existing_source: str | None = None
     incoming_source: str | None = None
+    # ── #764 — structured fields for the ``span_provenance`` thread, so the
+    #    reader composes the sentence in the candidate's language (the V-7
+    #    doctrine above). ``skill_id`` is what the recompute action addresses;
+    #    ``span_years`` is the stored (transcribed) value, ``recomputed_years``
+    #    what phase 1's arithmetic gives today. ``None`` on every other thread.
+    skill_id: str | None = None
+    skill_name: str | None = None
+    span_years: int | None = None
+    recomputed_years: int | None = None
 
 
 class CompletenessBlock(BaseModel):

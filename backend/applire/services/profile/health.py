@@ -35,6 +35,12 @@ Sources (epic Task 5):
   - **unit** thread      ← #382 (PO decision 2026-08-08): a work entry whose
                            ``budget_managed`` states no unit, and which the CV
                            therefore omits. Always ``review``.
+  - **span_provenance**  ← #764 (ADR-061 cl. 7 amended 2026-10-16): a skill span
+                           labelled ``transcribed`` that no source text states
+                           and that equals the role-date re-derivation — the
+                           fingerprint of a span laundered before the
+                           2026-10-07 fix (``span_provenance.laundered_spans``).
+                           Always ``review``; carries its own recompute action.
   - **completeness**     ← ``calculate_completeness`` score + ``completeness_gaps``
                            (E026 / US104) — score-only, never severity-tagged.
 
@@ -63,6 +69,7 @@ from applire.services.profile.completeness import field_gaps as completeness_fie
 # (see `entity_label.py`'s docstring). Imported, never re-derived.
 from applire.services.profile.entity_label import entity_label as _entity_label
 from applire.services.profile.entity_label import resolve_entity as _resolve_entity
+from applire.services.profile.span_provenance import laundered_spans
 from applire.services.profile.severity import (
     classify_conflict,
     classify_confidence,
@@ -186,6 +193,38 @@ def _unit_issues(profile: MasterProfileData) -> list[HealthIssue]:
             )
         )
     return issues
+
+
+def _span_provenance_issues(profile: MasterProfileData) -> list[HealthIssue]:
+    """#764 — one ``review`` issue per laundered transcribed skill span.
+
+    ``id`` is keyed on the skill NAME, not ``Skill.id``: an id minted by the
+    default factory on a blob that never persisted one would re-key on every
+    load (the ``_unit_issues`` reasoning). ``skill_id`` still rides along — it
+    is what the recompute action addresses, and the action re-checks the
+    detector on the current vault, so a stale id is refused, never written.
+    The English ``summary`` is the server fallback; the hub composes the
+    sentence from the structured fields (``profileHealth.launderedSpan.*``).
+    """
+    return [
+        HealthIssue(
+            id=f"span_provenance:{span.skill_name}",
+            thread="span_provenance",
+            profile_mismatch_severity="review",
+            summary=(
+                f"{span.skill_name}: {span.span_years} years is marked as something you "
+                f"said, but nothing you wrote or told us states it. Your role dates "
+                f"give {span.recomputed_years} years."
+            ),
+            field_ref="skills.years_experience",
+            source_record_ref=span.skill_name,
+            skill_id=span.skill_id,
+            skill_name=span.skill_name,
+            span_years=span.span_years,
+            recomputed_years=span.recomputed_years,
+        )
+        for span in laundered_spans(profile)
+    ]
 
 
 def _reconciliation_loss(reconciliation: dict[str, dict[str, int]] | None) -> int:
@@ -383,6 +422,7 @@ def assess_health(
     whatever the profile carries.
     """
     issues: list[HealthIssue] = _unit_issues(profile)
+    issues.extend(_span_provenance_issues(profile))
 
     metadata = profile.metadata
     if metadata is not None:
