@@ -182,7 +182,10 @@ def score_run(
         iss.pop("removal", None)  # full removal records live in details["U"]
         result["counts"][iss["class"]][iss["doc"]] += 1
     result["issues"] = issues
-    result["instrument"] = {"judge_model": getattr(judge, "model", None), **_delta(judge.stats.snapshot(), base_stats)}
+    result["instrument"] = {
+        "judge_model": getattr(judge, "descriptor", None) or getattr(judge, "model", None),
+        **_delta(judge.stats.snapshot(), base_stats),
+    }
     result["drafts_captured"] = {d: [x.label for x in drafts[d]] for d in ("cv", "letter")}
 
     if write:
