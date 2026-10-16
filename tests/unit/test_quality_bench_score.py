@@ -841,3 +841,41 @@ def test_stale_absolute_fixture_dir_resolves_by_its_corpus_suffix(tmp_path):
     # an absolute path with no corpus suffix still reports not-found
     gone = inputs.load_fixture({"fixture_dir": "/gone/elsewhere/case_x"}, [repo])
     assert gone.fixture_dir is None and gone.warnings
+
+
+def test_judge_model_per_class_override_routes_cache_and_instrument(tmp_path, monkeypatch):
+    """R-0 / W3-1 (Hazelnut): Haiku failed calibration on L and D, so a class can be
+    routed to another judge model (``JUDGE_MODEL_<CLASS>``) without touching the
+    prompts. The request, the cache key and the instrument descriptor carry the
+    model actually used per class."""
+    monkeypatch.setenv("JUDGE_MODEL_L", "big/sonnet")
+    monkeypatch.setenv("JUDGE_MODEL_D", "big/sonnet")
+    monkeypatch.delenv("JUDGE_MODEL_S", raising=False)
+    monkeypatch.delenv("JUDGE_MODEL_U", raising=False)
+    seen = []
+
+    def handler(req):
+        seen.append(json.loads(req.content)["model"])
+        return _ok('{"issues": []}', {"prompt_tokens": 100, "completion_tokens": 10})
+
+    c = _client(handler, tmp_path, model="small/haiku")
+    for cls in ("L", "D", "S", "U"):
+        c.complete_json("sys", f"usr-{cls}", cls=cls)
+    assert seen == ["big/sonnet", "big/sonnet", "small/haiku", "small/haiku"]
+    assert c.model_for("L") == "big/sonnet" and c.model_for("S") == "small/haiku" and c.model_for("") == "small/haiku"
+    assert c.descriptor == "small/haiku; D=big/sonnet; L=big/sonnet"
+    by_model = c.stats.snapshot()["by_model"]
+    assert by_model["big/sonnet"]["calls"] == 2 and by_model["small/haiku"]["prompt_tokens"] == 200
+    # the same prompt for a class routed elsewhere never hits the other model's cache
+    monkeypatch.delenv("JUDGE_MODEL_L")
+    c2 = _client(handler, tmp_path, model="small/haiku")
+    c2.complete_json("sys", "usr-L", cls="L")
+    assert seen[-1] == "small/haiku" and len(seen) == 5 and c2.descriptor == "small/haiku; D=big/sonnet"
+
+
+def test_score_run_instrument_names_the_routed_judge(tmp_path, fixture_dir):
+    rd = make_run(tmp_path / "out", fixture=fixture_dir)
+    fj = canned_judge()
+    fj.descriptor = "small/haiku; L=big/sonnet"
+    res = score_run(rd, fj, write=False)
+    assert res["instrument"]["judge_model"] == "small/haiku; L=big/sonnet"
