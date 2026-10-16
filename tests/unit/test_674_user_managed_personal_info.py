@@ -51,6 +51,18 @@ def test_the_section_door_still_accepts_a_clean_personal_info_edit():
     assert op.value["name"] == "Marcus Schmidt"
 
 
+#: A stored value of each user-managed field's own shape (#781 added the
+#: photo's framing geometry next to its path).
+_STORED = {
+    "photo_url": "/uploads/mine.png",
+    "photo_crop": {"cx": 0.7, "cy": 0.35, "zoom": 1.6},
+}
+
+
+def test_every_user_managed_field_has_a_stored_value_here():
+    assert set(_STORED) == set(USER_MANAGED_PERSONAL_INFO_FIELDS)
+
+
 @pytest.mark.parametrize("field", sorted(USER_MANAGED_PERSONAL_INFO_FIELDS))
 def test_the_import_door_drops_every_user_managed_field_without_a_dispute(field):
     from applire.schemas.profile import MasterProfileData
@@ -58,8 +70,9 @@ def test_the_import_door_drops_every_user_managed_field_without_a_dispute(field)
     from applire.services.profile.reconcile.ops import SetPersonalInfo
 
     profile = MasterProfileData.model_validate(
-        {"personal_info": {"name": "Marcus Schmidt", field: "/uploads/mine.png"}}
+        {"personal_info": {"name": "Marcus Schmidt", field: _STORED[field]}}
     )
+    before = profile.personal_info.model_dump(mode="json")[field]
     changes: list = []
     conflicts: list = []
     _apply_set_personal_info(
@@ -67,7 +80,7 @@ def test_the_import_door_drops_every_user_managed_field_without_a_dispute(field)
         profile, "cv_upload", changes, conflicts,
     )
 
-    assert getattr(profile.personal_info, field) == "/uploads/mine.png", "the import overwrote it"
+    assert profile.personal_info.model_dump(mode="json")[field] == before, "the import overwrote it"
     assert changes == [], "a field the import may not write must leave no change receipt"
     assert conflicts == [], (
         "and no dispute either — the candidate is not the party who would answer it"
