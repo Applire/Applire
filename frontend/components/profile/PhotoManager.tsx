@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
+import { PhotoCropDialog } from "@/components/profile/PhotoCropDialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -41,6 +42,10 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   const [error, setError] = useState<string | null>(null);
   const [uploadedAt, setUploadedAt] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // #781 — the photo waiting in the framing dialog: a just-picked file, or the
+  // stored photo when the candidate re-frames it. Nothing is uploaded until
+  // the dialog hands back the cropped portrait.
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
 
   const hasPhoto = !!(currentPhotoUrl || previewSrc);
 
@@ -63,11 +68,33 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
     };
   }, [currentPhotoUrl]);
 
-  async function handleUpload(file: File) {
+  function closeCrop() {
+    setCropSrc((prev) => {
+      if (prev && prev !== previewSrc) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }
+
+  /** #781 — a picked file is framed first; only the crop is uploaded. */
+  function handlePick(file: File) {
     setError(null);
     if (!consent) {
       setError(t("consentError"));
       return;
+    }
+    setCropSrc(URL.createObjectURL(file));
+  }
+
+  async function handleCropped(blob: Blob) {
+    const ok = await handleUpload(new File([blob], "photo.jpg", { type: "image/jpeg" }));
+    if (ok) closeCrop();
+  }
+
+  async function handleUpload(file: File): Promise<boolean> {
+    setError(null);
+    if (!consent) {
+      setError(t("consentError"));
+      return false;
     }
     setUploading(true);
     try {
@@ -95,8 +122,10 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         return URL.createObjectURL(file);
       });
       onPhotoChange?.(data.photo_url);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("uploadError"));
+      return false;
     } finally {
       setUploading(false);
     }
@@ -152,7 +181,18 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
             {uploadedAt && (
               <p className="text-xs text-gray-500 mt-0.5">{t("uploadedLabel", { date: uploadedAt })}</p>
             )}
-            <div className="flex gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-2">
+              {previewSrc && (
+                <Button
+                  data-testid="photo-adjust"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCropSrc(previewSrc)}
+                  disabled={uploading}
+                >
+                  {t("adjustCta")}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -224,10 +264,19 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) void handleUpload(file);
+          if (file) handlePick(file);
           e.target.value = "";
         }}
       />
+
+      {cropSrc && (
+        <PhotoCropDialog
+          src={cropSrc}
+          busy={uploading}
+          onCancel={closeCrop}
+          onConfirm={(blob) => void handleCropped(blob)}
+        />
+      )}
 
       {hasPhoto && (
         <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">

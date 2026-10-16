@@ -768,7 +768,24 @@
       "uploadError": "Upload fehlgeschlagen",
       "deleteError": "Löschen fehlgeschlagen",
       "uploadCta": "Foto hochladen",
-      "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
+      "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt.",
+      "adjustCta": "Ausschnitt anpassen",
+      "crop": {
+        "title": "Bildausschnitt wählen",
+        "hint": "Ziehe das Foto, bis dein Gesicht im Rahmen sitzt. Mit dem Regler zoomst du hinein.",
+        "stageLabel": "Fotoausschnitt — mit den Pfeiltasten verschieben, mit Plus und Minus zoomen",
+        "zoomLabel": "Zoom",
+        "zoomIn": "Vergrößern",
+        "zoomOut": "Verkleinern",
+        "previewRound": "Rund",
+        "previewPortrait": "Hochformat",
+        "guide": "Runde Vorlagen zeigen den gestrichelten Kreis, die Vorlage „Lebenslauf“ das ganze Hochformat.",
+        "reset": "Zurücksetzen",
+        "cancel": "Abbrechen",
+        "confirm": "Ausschnitt übernehmen",
+        "saving": "Wird gespeichert …",
+        "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei."
+      }
     },
     "signature": {
       "title": "Unterschrift",

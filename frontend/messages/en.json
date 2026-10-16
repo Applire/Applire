@@ -768,7 +768,24 @@
       "uploadError": "Upload failed",
       "deleteError": "Delete failed",
       "uploadCta": "Upload photo",
-      "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications."
+      "successMessage": "✓ Photo will appear in your Lebenslauf and Swiss CV templates for DACH applications.",
+      "adjustCta": "Adjust framing",
+      "crop": {
+        "title": "Choose the framing",
+        "hint": "Drag the photo until your face sits in the frame. Use the slider to zoom in.",
+        "stageLabel": "Photo framing — move with the arrow keys, zoom with plus and minus",
+        "zoomLabel": "Zoom",
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out",
+        "previewRound": "Round",
+        "previewPortrait": "Portrait",
+        "guide": "Round templates show the dashed circle; the “Lebenslauf” template shows the whole portrait.",
+        "reset": "Reset",
+        "cancel": "Cancel",
+        "confirm": "Use this framing",
+        "saving": "Saving …",
+        "loadError": "The photo could not be opened. Try a JPEG, PNG or WebP file."
+      }
     },
     "signature": {
       "title": "Signature",
