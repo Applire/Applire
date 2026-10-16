@@ -672,3 +672,23 @@ async def test_seam_v1_still_runs_the_final_length_floor(db, v1):
     assert len(condenses) >= 2
     assert all(s is SYSTEM_PROMPT for _p, s in condenses)
     assert all("the same language" in p for p, _s in condenses)
+
+
+def test_v2_compose_survives_a_malformed_recipient_from_the_corrector():
+    """v2 bench 2026-10-16: a terminal corrector returned ``"recipient": "recipient"``
+    and the date stamp raised ('str' object does not support item assignment)."""
+    from types import SimpleNamespace
+
+    from applire.services.cover_letter import _compose_letter
+
+    letter = _draft(_ENGLISH_BODY)
+    letter["recipient"] = "recipient"
+    out = _compose_letter(
+        letter, profile_json=_PROFILE_JSON, cv_data={},
+        profile=SimpleNamespace(profile_json=_PROFILE_JSON),
+        pre_gen={"recipient_company": "Arnold Antriebstechnik GmbH"},
+        language="en", pipeline="v2",
+    )
+    assert out["recipient"]["company"] == "Arnold Antriebstechnik GmbH"
+    assert out["recipient"]["date"]
+    assert out["body"]["paragraphs"] == _ENGLISH_BODY

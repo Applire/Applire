@@ -2456,6 +2456,15 @@ def _compose_letter(
     (:func:`_letter_v2_findings`) or are deleted. v1 is unchanged.
     """
     v1 = pipeline != "v2"
+    if not v1 and not isinstance(letter_data.get("recipient"), dict):
+        # v2 bench, 2026-10-16 (luna, controlling_emma_de.cross_de2en run 1): a
+        # terminal corrector returned ``"recipient": "recipient"`` and the date
+        # stamp below raised on the string, failing the generation. The recipient
+        # block is assembled by code from the user's input / the posting (the
+        # override step), so a malformed one is replaced by an empty block for
+        # that step to fill — a shape repair, no prose involved. (v1 keeps its
+        # behaviour; the same crash there is a Letter collector line.)
+        letter_data = {**letter_data, "recipient": {}}
     # #254 — deterministic figure-attribution guard, run on the settled output
     # of a review/corrector loop (never mid-loop): the ADR-021 corrector sees
     # the whole profile and can mint a figure borrowed from an unrelated
