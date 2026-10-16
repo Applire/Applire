@@ -108,6 +108,46 @@ _PROMPT_REQUIRED_EXTRA: dict[str, tuple[str, ...]] = {
 }
 
 
+#: #765 (#688 prompt sitting, row 1, founder 2026-10-10): what the MODEL reads as
+#: an op's schema description. pydantic renders each op's class docstring as its
+#: ``description`` — written for developers (file paths, ADR clauses, issue
+#: numbers, applier internals; 4.1k chars on four ops), and sent to the model on
+#: every reconcile call. Each line below restates, in the prompt's own words,
+#: the op's entry under "# Operations" in ``prompts/reconcile.py`` — never a rule
+#: the prompt does not state (the schema is a second specification of the same
+#: output). An op without an entry gets NO description: a docstring added to
+#: ``ops.py`` later cannot leak to the model. Keyed by ``$defs`` name.
+MODEL_FACING_DESCRIPTIONS: dict[str, str] = {
+    "FlagConflict": (
+        "The new information contradicts a value or bullet the profile already states; "
+        "copy both sides verbatim, the user picks one."
+    ),
+    "MatchExisting": (
+        "The new information names an entity the profile already holds under another "
+        "surface form and adds nothing new about it; writes nothing."
+    ),
+    "RequestConfirmation": (
+        "A targeted yes/no or short-choice question for the user, when you cannot "
+        "confidently decide."
+    ),
+    "UpsertStory": (
+        "A signature story (challenge, mechanism, outcome, benchmark), only when the "
+        "new information itself narrates that arc."
+    ),
+}
+
+
+def _describe(defs: dict[str, Any]) -> None:
+    """Replace every op's docstring description with its model-facing line (#765)."""
+    for name, definition in defs.items():
+        if not isinstance(definition, dict):
+            continue
+        definition.pop("description", None)
+        line = MODEL_FACING_DESCRIPTIONS.get(name)
+        if line:
+            definition["description"] = line
+
+
 def _add_prompt_required_fields(defs: dict[str, Any]) -> None:
     """Add each ``_PROMPT_REQUIRED_EXTRA`` field to its op's ``required`` list.
 
@@ -211,6 +251,7 @@ def reconcile_response_schema() -> dict[str, Any]:
     # The other half of the "second specification" discipline `_hide` already
     # applies — see `_PROMPT_REQUIRED_EXTRA`'s docstring.
     _add_prompt_required_fields(defs)
+    _describe(defs)
 
     return {
         "$defs": defs,
