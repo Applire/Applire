@@ -22,6 +22,10 @@ one number per defect class:
   denominator;
 * the **stage histogram** per class (where issues are introduced, from
   ``attribution.py``);
+* **page length vs template budget** per document type (US368): rendered pages
+  (``pages.json``) against the budget the product applies (CV: the row's
+  resolved ``target_pages``; letter: the region's ``letter_pages``), as % over
+  budget with a run-bootstrap CI;
 * the **arm-diff table**: per class, ``rate(arm B) - rate(arm A)`` with an
   independent-resample bootstrap CI; a difference is called only when the CI
   excludes zero.
@@ -89,8 +93,13 @@ def load_runs(patterns: list[str]) -> dict[str, Any]:
             continue
         docs = {d: d in score.get("docs", []) for d in ("cv", "letter")}
         issues = score.get("issues", [])
+        pages = read_json(rd / "pages.json", {}) or {}
+        reports = read_json(rd / "reports.json", {}) or {}
         scored.append({**base, "docs": docs, "issues": issues, "exempt": len(score.get("exempt", [])),
-                       "cross_checks": score.get("cross_checks", {}), "oracle": score.get("oracle_agreement", {})})
+                       "cross_checks": score.get("cross_checks", {}), "oracle": score.get("oracle_agreement", {}),
+                       "pages": {d: pages.get(d) for d in ("cv", "letter")},
+                       "target_pages": (reports.get("cv") or {}).get("target_pages"),
+                       "judge_model": (score.get("instrument") or {}).get("judge_model")})
     return {"scored": scored, "failed": failed, "unscored": unscored}
 
 
@@ -204,6 +213,54 @@ def _group_stats(runs: list[dict[str, Any]], key: str) -> dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Page length vs the template budget (US368)
+# --------------------------------------------------------------------------- #
+
+
+def page_budget(run: dict[str, Any], doc: str) -> int | None:
+    """The page budget the product itself applies (ADR-051 §1: never a literal here).
+
+    CV: the row's resolved ``target_pages`` (``reports.json``), else the region
+    standard; letter: the region's ``letter_pages``. ``None`` when the product's
+    norms are not importable (run with ``PYTHONPATH=backend``)."""
+    try:
+        from applire.norms import DEFAULT_REGION, REGION_NORMS
+    except ImportError:
+        return None
+    norm = REGION_NORMS[DEFAULT_REGION]
+    if doc == "cv":
+        tp = run.get("target_pages")
+        return int(tp) if isinstance(tp, int) and tp > 0 else norm.cv_standard_pages
+    return norm.letter_pages
+
+
+def page_length(runs: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    """Per document type: rendered pages vs budget — % over budget with a run-bootstrap CI.
+
+    A document whose page count was not measured (``pages.json`` null — no
+    browser) is listed as unmeasured and is in no denominator."""
+    out: dict[str, Any] = {}
+    for doc in ("cv", "letter"):
+        present = [r for r in runs if r["docs"].get(doc)]
+        measured = [r for r in present if isinstance((r.get("pages") or {}).get(doc), int)]
+        budgets = [page_budget(r, doc) for r in measured]
+        known = [(r, b) for r, b in zip(measured, budgets) if b is not None]
+        over = [float(r["pages"][doc] > b) for r, b in known]
+        dens = [1.0] * len(known)
+        pct, lo, hi = ratio_ci(over, dens, _indices(len(known), f"{key}|pages|{doc}")) if known else (None, None, None)
+        hist = Counter(r["pages"][doc] for r in measured)
+        out[doc] = {
+            "documents": len(present), "measured": len(measured), "unmeasured": len(present) - len(measured),
+            "budget_unknown": len(measured) - len(known),
+            "budgets": dict(sorted(Counter(b for _, b in known).items())),
+            "over_budget": int(sum(over)), "pct_over": pct, "pct_lo": lo, "pct_hi": hi,
+            "mean_pages": (sum(r["pages"][doc] for r in measured) / len(measured)) if measured else None,
+            "pages_histogram": {str(k): v for k, v in sorted(hist.items())},
+        }
+    return out
+
+
 def aggregate(scored: list[dict[str, Any]]) -> dict[str, Any]:
     arms: dict[str, Any] = {}
     for arm in sorted({r["arm"] for r in scored}):
@@ -236,6 +293,8 @@ def aggregate(scored: list[dict[str, Any]]) -> dict[str, Any]:
             "exempt_per_100_docs": (100 * sum(r["exempt"] for r in runs) / docs_total) if docs_total else None,
             "oracle_agreement": dict(oracle),
             "language_cross_check": dict(cross),
+            "page_length": page_length(runs, arm),
+            "judge_models": sorted({str(r.get("judge_model")) for r in runs}),
         }
     return arms
 
@@ -296,6 +355,17 @@ def _table(group: dict[str, Any], doc: str, untrusted: set[str]) -> str:
     return "\n".join([head, sep, row])
 
 
+def _page_table(pl: dict[str, Any]) -> str:
+    rows = ["| doc | measured | budget (pages: docs) | over budget | % over [95% CI] | mean pages | pages histogram |",
+            "|---|---|---|---|---|---|---|"]
+    for doc, b in pl.items():
+        budgets = ", ".join(f"{k}: {v}" for k, v in b["budgets"].items()) or "unknown"
+        pct = "n/a" if b["pct_over"] is None else f"{_f(b['pct_over'])} [{_f(b['pct_lo'])}-{_f(b['pct_hi'])}]"
+        hist = ", ".join(f"{k}p: {v}" for k, v in b["pages_histogram"].items()) or "-"
+        rows.append(f"| {doc} | {b['measured']}/{b['documents']} | {budgets} | {b['over_budget']} | {pct} | {_f(b['mean_pages'], 2)} | {hist} |")
+    return "\n".join(rows)
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     untrusted = set(report.get("untrusted_classes", []))
     L: list[str] = ["# E066 Document Quality Bench — report", ""]
@@ -327,6 +397,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             L.append(f"L cross-check vs `item_language_mismatch`: {a['language_cross_check']}. ")
         if a["oracle_agreement"]:
             L.append(f"S vs the product's Oracle (items): {a['oracle_agreement']}.")
+        L += ["", "### Page length vs template budget", "", _page_table(a["page_length"]), ""]
+        L.append(f"Judge model(s): {', '.join(a['judge_models'])}.")
         L.append("")
     if report["arm_diffs"]:
         L += ["## Arm diff (B - A, issues per 100 documents)", "",
