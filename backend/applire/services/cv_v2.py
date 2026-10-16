@@ -323,13 +323,6 @@ def _fmt(items: Sequence[str]) -> str:
     return shown + (f" (+{more} more)" if more > 0 else "")
 
 
-def _skills_delta(before: Sequence[str], after: Sequence[str]) -> tuple[list[str], list[str]]:
-    b, a = list(before), list(after)
-    removed = [s for s in b if s not in a]
-    added = [s for s in a if s not in b]
-    return added, removed
-
-
 def v2_checks(
     prose: dict,
     composed: "TailoredCVData",
@@ -366,6 +359,7 @@ def v2_checks(
                     + ". Swap, do not add: keep the strongest evidence for this job, merge "
                     "two related facts into one bullet, or drop the weakest — never a "
                     "pinned fact or a measured outcome."
+                    + _budget_candidates(composed, ctx)
                 ),
             ))
 
@@ -406,81 +400,12 @@ def v2_checks(
             ),
         ))
 
-    # 5–8. the skill passes as detectors
-    def _run(fn, *args, **kwargs) -> list[str] | None:
-        try:
-            return list(fn(composed.model_copy(deep=True), *args, **kwargs).skills)
-        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
-            logger.exception("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn))
-            return None
-
-    skills = list(composed.skills)
-    after = _run(cv_mod._drop_ungrounded_jd_echo_skills, ctx.profile_json, ctx.job_dict,
-                 ctx.keyword_ledger, pins=ctx.pins)
-    if after is not None:
-        _added, removed = _skills_delta(skills, after)
-        if removed:
-            findings.append(CheckFinding(
-                check="cv.skill_untied",
-                text=(
-                    f"Skills entries with no tie to the profile (a posting phrase, not a "
-                    f"competence the profile records): {_fmt(removed)}. Remove them from "
-                    "the skills list; where the profile backs the substance, say it in "
-                    "the bullet that owns the evidence."
-                ),
-            ))
-    after = _run(cv_mod._restore_skill_spelling, ctx.profile_json)
-    if after is not None:
-        changed = [(b, a) for b, a in zip(skills, after) if b != a]
-        if changed:
-            findings.append(CheckFinding(
-                check="cv.skill_spelling",
-                text=(
-                    "Skills entries that alter a name the profile records: "
-                    + "; ".join(f"“{b}” — the profile's name is “{a}”" for b, a in changed[:_MAX_ITEMS_PER_FINDING])
-                    + ". Names are copied exactly."
-                ),
-            ))
-    after = _run(cv_mod._dedup_skills, pins=ctx.pins)
-    if after is not None:
-        _added, removed = _skills_delta(skills, after)
-        if removed:
-            findings.append(CheckFinding(
-                check="cv.skill_duplicate",
-                blocking=False,
-                text=(
-                    f"These skills entries repeat another entry on the page (one is "
-                    f"contained in the other): {_fmt(removed)}. If they name one "
-                    "competence, keep one form."
-                ),
-            ))
-    after = _run(cv_mod._restore_narrative_named_skills, ctx.profile_json,
-                 ctx.keyword_ledger, document_language=ctx.language)
-    if after is not None:
-        added, _removed = _skills_delta(skills, after)
-        if added:
-            findings.append(CheckFinding(
-                check="cv.skill_named_in_bullet",
-                blocking=False,
-                text=(
-                    f"Named in a bullet but absent from the skills list: {_fmt(added)}. "
-                    "Add the ones a recruiter should find in the list, in the document "
-                    "language — unless the list already carries the same competence."
-                ),
-            ))
-    after = _run(cv_mod._tailor_skills_to_jd, ctx.profile_json, ctx.job_dict,
-                 ctx.keyword_ledger, pins=ctx.pins)
-    if after is not None:
-        _added, removed = _skills_delta(skills, after)
-        if removed:
-            findings.append(CheckFinding(
-                check="cv.skills_cap",
-                text=(
-                    f"The skills list is over its cap of {cv_mod.CV_MAX_SKILLS} entries; the least "
-                    f"relevant to this posting are {_fmt(removed)}. Drop entries until it "
-                    "fits; keep every skill the posting requires."
-                ),
-            ))
+    # 5–8. the v1 skill passes as detectors — run IN v1's ORDER on one copy, so the
+    #    findings describe v1's own final skills decision and can never contradict each
+    #    other (v1's echo-drop removes a chip that its narrative-restore re-adds — the
+    #    SF-WRITE.37 shape; measured on the first v2 smoke run, where "SLOs" was both
+    #    "remove" and "add"). A chip v1 would remove and then re-add yields no finding.
+    findings.extend(_skill_findings(composed, ctx, cv_mod))
 
     # 9. a project heading with nothing under it
     empty = [
@@ -495,6 +420,125 @@ def v2_checks(
     blocking = [f for f in findings if f.blocking]
     advisory = [f for f in findings if not f.blocking]
     return (blocking + advisory)[:MAX_FINDINGS_PER_ROUND]
+
+
+def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any) -> list[CheckFinding]:
+    """The v1 skills tail (dedup → echo-drop → JD tailoring → spelling → narrative
+    restore, ``_compose_document``'s order) run on a copy; each step's would-be edit,
+    filtered against the chain's FINAL list, is one finding."""
+    def step(fn, data, *args, **kwargs):
+        try:
+            return fn(data.model_copy(deep=True), *args, **kwargs)
+        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.exception("v2 check detector %s raised; finding skipped", getattr(fn, "__name__", fn))
+            return data
+
+    s0 = composed.model_copy(deep=True)
+    s1 = step(cv_mod._dedup_skills, s0, pins=ctx.pins)
+    s2 = step(cv_mod._drop_ungrounded_jd_echo_skills, s1, ctx.profile_json, ctx.job_dict,
+              ctx.keyword_ledger, pins=ctx.pins)
+    s3 = step(cv_mod._tailor_skills_to_jd, s2, ctx.profile_json, ctx.job_dict,
+              ctx.keyword_ledger, pins=ctx.pins)
+    s4 = step(cv_mod._restore_skill_spelling, s3, ctx.profile_json)
+    s5 = step(cv_mod._restore_narrative_named_skills, s4, ctx.profile_json,
+              ctx.keyword_ledger, document_language=ctx.language)
+    original = list(s0.skills)
+    final = set(s5.skills)
+
+    def removed(a, b):
+        return [x for x in a.skills if x not in b.skills and x not in final]
+
+    def added(a, b):
+        return [x for x in b.skills if x not in a.skills and x not in original]
+
+    out: list[CheckFinding] = []
+    untied = removed(s1, s2)
+    if untied:
+        out.append(CheckFinding(
+            check="cv.skill_untied",
+            text=(
+                f"Skills entries with no tie to the profile (a posting phrase, not a "
+                f"competence the profile records): {_fmt(untied)}. Remove them from the "
+                "skills list; where the profile backs the substance, say it in the "
+                "bullet that owns the evidence."
+            ),
+        ))
+    respelled = [(b, a) for b, a in zip(s3.skills, s4.skills) if b != a and b in original]
+    if respelled:
+        out.append(CheckFinding(
+            check="cv.skill_spelling",
+            text=(
+                "Skills entries that alter a name the profile records: "
+                + "; ".join(f"“{b}” — the profile's name is “{a}”" for b, a in respelled[:_MAX_ITEMS_PER_FINDING])
+                + ". Names are copied exactly."
+            ),
+        ))
+    over_cap = removed(s2, s3)
+    if over_cap:
+        out.append(CheckFinding(
+            check="cv.skills_cap",
+            text=(
+                f"The skills list is over its cap of {cv_mod.CV_MAX_SKILLS} entries; the "
+                f"least relevant to this posting are {_fmt(over_cap)}. Drop entries until "
+                "it fits; keep every skill the posting requires."
+            ),
+        ))
+    dupes = removed(s0, s1)
+    if dupes:
+        out.append(CheckFinding(
+            check="cv.skill_duplicate",
+            blocking=False,
+            text=(
+                f"These skills entries repeat another entry on the page (one is contained "
+                f"in the other): {_fmt(dupes)}. If they name one competence, keep one form."
+            ),
+        ))
+    narrated = added(s4, s5)
+    if narrated:
+        out.append(CheckFinding(
+            check="cv.skill_named_in_bullet",
+            blocking=False,
+            text=(
+                f"Named in a bullet but absent from the skills list: {_fmt(narrated)}. Add "
+                "the ones a recruiter should find in the list, in the document language — "
+                "unless the list already carries the same competence."
+            ),
+        ))
+    return out
+
+
+def _budget_candidates(composed: "TailoredCVData", ctx: V2CheckContext) -> str:
+    """ADR-076 cl. 2's split fate for the cap: the deterministic RANKING stays
+    (``condense_to_budget`` — sole carriers of a claimable concept last, figure-bearing
+    bullets last, later-listed first; the same ``rank_cuts`` ``_cap_bullets`` uses) and
+    is handed over as candidates; the corrector decides. Fact: the ranking's output."""
+    try:
+        from applire.services.cv_budget import condense_to_budget
+
+        before = composed.model_dump(mode="json")
+        after, changed = condense_to_budget(before, ctx.budget, 1, pins=ctx.pins)
+        if not changed:
+            return ""
+        kept = {
+            b for w in after.get("work_history") or [] for b in (w.get("bullets") or [])
+        } | {
+            b for w in after.get("work_history") or [] for p in (w.get("projects") or [])
+            for b in (p.get("bullets") or [])
+        }
+        cut = [
+            b for w in before.get("work_history") or []
+            for b in (w.get("bullets") or []) + [x for p in (w.get("projects") or []) for x in (p.get("bullets") or [])]
+            if b not in kept
+        ]
+        if not cut:
+            return ""
+        return (
+            " Lowest-ranked by the budget ranking (candidates to merge or drop; your call): "
+            + _fmt([c[:120] for c in cut])
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("v2 budget-candidate ranking failed; finding without candidates")
+        return ""
 
 
 # --------------------------------------------------------------------------- #

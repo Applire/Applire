@@ -477,14 +477,11 @@ def test_skill_untied_finding_is_silent_without_the_jd_phrase():
     assert "cv.skill_untied" not in _by_check(_checks(prose, job_dict={"keywords": ["Other"]}))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="PRODUCT DEFECT (W1): v2_checks 'cv.skills_cap' runs _tailor_skills_to_jd, which "
-    "ALSO collapses page duplicates in its pool, so a 3-entry list with one duplicate pair "
-    "is reported as 'over its cap of 24 entries' — a false, BLOCKING finding that turns "
-    "the advisory cv.skill_duplicate into a mandatory corrector round.",
-)
 def test_skills_cap_finding_is_silent_for_a_list_under_the_cap():
+    """Found by the helper as a strict xfail: the cap detector once read
+    ``_tailor_skills_to_jd``'s own page-dupe collapse as a cap overflow. Fixed by running
+    the v1 skills tail in v1's order on one copy (dedup first), so the cap step only
+    sees what is left after the duplicate step."""
     prose = _prose()
     prose["skills"] = ["SPS", "MES", "MES (Maschinendatenerfassung)"]
 
@@ -1036,3 +1033,59 @@ async def test_v2_delivery_keeps_every_bullet_and_does_not_condense_a_long_rende
     assert (edu["degree"], edu["field"]) == ("Master of Engineering", "Mechanical engineering")
     assert [l["language"] for l in record.tailored_data["languages"]] == ["German", "Englisch"]
     assert record.tailored_data["skills"] == ["SPS", "MES"]
+
+
+# =============================================================================
+# 11. Lead additions after the first real v2 smoke run (2026-10-16)
+# =============================================================================
+
+def test_no_chip_is_both_remove_and_add():
+    """Smoke run it_backend_daniel.same_en (2026-10-16): "SLOs"/"Observability" were
+    reported as cv.skill_untied (remove) AND cv.skill_named_in_bullet (add) in one
+    round — v1's echo-drop and narrative-restore disagree (SF-WRITE.37). The detectors
+    now run in v1's order on one copy and are filtered against v1's FINAL list, so a
+    chip v1 drops and re-adds yields no finding. Shape: the committed bench fixture
+    (synthetic), its own ledger, one bullet narrating both chips."""
+    import json
+    from pathlib import Path
+
+    from applire.schemas.cv import TailoredCVData
+
+    fx = Path(__file__).resolve().parents[1] / "files/quality_bench/it_backend_daniel/same_en"
+    vault = json.loads((fx / "vault.json").read_text())
+    job = json.loads((fx / "job.json").read_text())
+    ledger = json.loads((fx / "gap.json").read_text()).get("keyword_ledger") or []
+    w = vault["work_experience"][0]
+    composed = TailoredCVData.model_validate({
+        "contact": {"name": "x"},
+        "summary": "Backend engineer.",
+        "work_history": [{
+            "id": w["id"], "company": w["company"], "role": w["role"],
+            "start_date": w.get("start_date") or "",
+            "bullets": ["Defined SLOs with error budgets and built Observability dashboards in Grafana."],
+        }],
+        "skills": ["Python", "SLOs", "Observability"],
+    })
+    jd = {k: job.get(k) for k in ("role_title", "required_skills", "nice_to_have_skills", "keywords", "seniority_level")}
+    ctx = V2CheckContext(profile_json=vault, keyword_ledger=ledger, job_dict=jd, language="en")
+    findings = _by_check(v2_checks({}, composed, ComposeNotes(), ctx))
+    assert "cv.skill_untied" not in findings, findings["cv.skill_untied"].text
+    narrated = findings.get("cv.skill_named_in_bullet")
+    assert narrated is None or ("SLOs" not in narrated.text and "Observability" not in narrated.text)
+
+
+def test_role_budget_finding_carries_the_ranking_candidates():
+    """ADR-076 cl. 2 split fate: the cut RANKING stays deterministic and is handed over
+    as candidates; the bullet the ranking would cut first (figure-less, later-listed)
+    is named, a figure-bearing one is not."""
+    prose = _prose()
+    prose["work"][0]["bullets"] = [
+        "Senkte die Ausschussquote um 18 Prozent.",
+        "Führte Schichtübergaben ein.",
+        "Moderierte Teamrunden.",
+    ]
+    findings = _by_check(_checks(prose, budget=_budget(**{W1: 2, W2: 3})))
+    text = findings["cv.role_budget"].text
+    assert "Lowest-ranked by the budget ranking" in text
+    assert "Moderierte Teamrunden." in text
+    assert "18 Prozent" not in text.split("Lowest-ranked")[1]
