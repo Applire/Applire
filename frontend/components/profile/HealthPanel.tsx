@@ -40,7 +40,10 @@ export type HealthThread =
   | "accuracy"
   | "confirmation"
   | "unit"
-  | "not_applied";
+  | "not_applied"
+  // #764 — a transcribed skill duration no source states (the Oracle's
+  // "laundered span"); fixed by one deterministic recompute, not a decision.
+  | "span_provenance";
 export type HealthSeverity = "info" | "review" | "critical";
 
 export interface HealthIssue {
@@ -76,6 +79,13 @@ export interface HealthIssue {
   // single-summary rendering); `null` never sent by the backend but accepted
   // defensively.
   not_applied_items?: { section: string | null; label: string; reason: string }[] | null;
+  // #764 — the pieces the `span_provenance` sentence is composed from (its
+  // server `summary` is an English fallback and is never rendered). Null/absent
+  // on every other thread.
+  skill_id?: string | null;
+  skill_name?: string | null;
+  span_years?: number | null;
+  recomputed_years?: number | null;
 }
 
 export interface ProfileHealth {
@@ -231,8 +241,10 @@ export function groupNotAppliedItems(
   });
 }
 
+// `span_provenance` is absent on purpose: its label lives in the
+// `profileHealth.launderedSpan` namespace (see IssueCard), not in `health`.
 const THREAD_LABEL: Record<
-  HealthThread,
+  Exclude<HealthThread, "span_provenance">,
   | "threadConflict"
   | "threadAccuracy"
   | "threadConfirmation"
@@ -271,15 +283,32 @@ export function describeConflictIssue(
 function IssueCard({
   issue,
   onResolve,
+  onRecomputeSpan,
   prominent,
 }: {
   issue: HealthIssue;
   onResolve: (issue: HealthIssue) => void;
+  onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
   prominent?: boolean;
 }) {
   const t = useTranslations("health");
   const tProfile = useTranslations("profile");
+  const tSpan = useTranslations("profileHealth.launderedSpan");
+  const [recomputing, setRecomputing] = useState(false);
   const conflict = describeConflictIssue(issue, t, tProfile);
+  const isSpan = issue.thread === "span_provenance";
+  // The one-click recompute needs a handler; without one the card degrades to
+  // the ordinary Resolve button (and the server summary is not the sentence).
+  const canRecompute = isSpan && !!onRecomputeSpan;
+  const handleRecompute = async () => {
+    if (!onRecomputeSpan || recomputing) return;
+    setRecomputing(true);
+    try {
+      await onRecomputeSpan(issue);
+    } finally {
+      setRecomputing(false);
+    }
+  };
   return (
     <div
       data-testid="health-issue"
@@ -291,7 +320,11 @@ function IssueCard({
         <Badge variant={SEVERITY_BADGE[issue.profile_mismatch_severity]}>
           {t(SEVERITY_LABEL[issue.profile_mismatch_severity])}
         </Badge>
-        <span className="text-xs text-gray-500">{t(THREAD_LABEL[issue.thread])}</span>
+        <span className="text-xs text-gray-500">
+          {issue.thread === "span_provenance"
+            ? tSpan("thread")
+            : t(THREAD_LABEL[issue.thread])}
+        </span>
       </div>
       {/* #626: a `conflict` issue composes a localized heading (naming the
           entry the dispute belongs to) + two provenance-labeled value rows,
@@ -321,6 +354,14 @@ function IssueCard({
           <p className="text-xs text-on-surface-variant mt-1">{conflict.existingRow}</p>
           <p className="text-xs text-on-surface-variant">{conflict.incomingRow}</p>
         </div>
+      ) : isSpan ? (
+        <p className="text-sm text-neutral-dark" data-testid="health-issue-span-provenance">
+          {tSpan("summary", {
+            skill: issue.skill_name ?? issue.source_record_ref ?? "",
+            years: issue.span_years ?? 0,
+            recomputed: issue.recomputed_years ?? 0,
+          })}
+        </p>
       ) : (
         <p className="text-sm text-neutral-dark" data-testid="health-issue-summary">
           {issue.thread === "unit"
@@ -331,14 +372,26 @@ function IssueCard({
         </p>
       )}
       <div className="mt-2 flex justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          data-testid="health-resolve"
-          onClick={() => onResolve(issue)}
-        >
-          {t("resolve")}
-        </Button>
+        {canRecompute ? (
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="health-recompute-span"
+            disabled={recomputing}
+            onClick={handleRecompute}
+          >
+            {recomputing ? tSpan("recomputing") : tSpan("recompute")}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="health-resolve"
+            onClick={() => onResolve(issue)}
+          >
+            {t("resolve")}
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -348,9 +401,13 @@ export function HealthPanel({
   health,
   onResolve,
   onImprove,
+  onRecomputeSpan,
 }: {
   health: ProfileHealth;
   onResolve: (issue: HealthIssue) => void;
+  // #764 — one-click recompute of a `span_provenance` issue. Optional: without
+  // it that thread falls back to the ordinary Resolve button.
+  onRecomputeSpan?: (issue: HealthIssue) => Promise<void> | void;
   // US166 — launch the standalone Mode C (ADR-028) enrichment conversation in
   // context from the completeness block. Optional: growth, never blocking.
   onImprove?: () => void;
@@ -404,7 +461,13 @@ export function HealthPanel({
         <div data-testid="health-critical" className="space-y-2 mb-3">
           <p className="text-sm font-medium text-critical">{t("criticalHeading")}</p>
           {critical.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} onResolve={onResolve} prominent />
+            <IssueCard
+              key={issue.id}
+              issue={issue}
+              onResolve={onResolve}
+              onRecomputeSpan={onRecomputeSpan}
+              prominent
+            />
           ))}
         </div>
       )}
@@ -412,7 +475,12 @@ export function HealthPanel({
       {nudgeable.length > 0 && (
         <div className="space-y-2">
           {nudgeable.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} onResolve={onResolve} />
+            <IssueCard
+              key={issue.id}
+              issue={issue}
+              onResolve={onResolve}
+              onRecomputeSpan={onRecomputeSpan}
+            />
           ))}
         </div>
       )}

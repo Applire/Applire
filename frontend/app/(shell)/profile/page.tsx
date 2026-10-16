@@ -219,11 +219,16 @@ export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
   const tHealth = useTranslations("health");
+  const tSpan = useTranslations("profileHealth.launderedSpan");
   const { locale } = useLocale();
   const uiLanguage: UiLanguage = locale === "de" ? "de" : "en";
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [health, setHealth] = useState<ProfileHealth | null>(null);
+  // #764 — outcome note of a "recalculate from role dates" click. Lives outside
+  // the HealthPanel's render condition: the panel unmounts once its last issue
+  // is gone, and the note must outlive it.
+  const [recomputeNote, setRecomputeNote] = useState("");
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
   const [error, setError] = useState("");
   // #704 (founder UAT, 2026-09-15) — true only for a genuine "no Master
@@ -357,6 +362,30 @@ export default function ProfilePage() {
     loadProfile();
   }, [loadProfile]);
 
+  // #764 — recompute a laundered skill span from the role dates. 409 = the item
+  // was already recomputed/edited elsewhere: say so and refresh.
+  const handleRecomputeSpan = async (issue: HealthIssue) => {
+    setRecomputeNote("");
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/health/recompute-span`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill_id: issue.skill_id }),
+      });
+      if (res.ok) {
+        await loadProfile();
+        setRecomputeNote(tSpan("done", { skill: issue.skill_name ?? "" }));
+      } else if (res.status === 409) {
+        await loadProfile();
+        setRecomputeNote(tSpan("stale"));
+      } else {
+        setRecomputeNote(tSpan("failed"));
+      }
+    } catch {
+      setRecomputeNote(tSpan("failed"));
+    }
+  };
+
   const completenessScore = profile?.completeness ?? 0;
 
   // #382 — the work entries whose budget figure states no unit, as decided by
@@ -428,10 +457,20 @@ export default function ProfilePage() {
           {/* US164: Master Profile Health panel — health read + nudge + Resolve.
               US165: Resolve launches the standalone profile-review interview.
               US166: Improve launches the standalone Mode C enrichment conversation. */}
+          {recomputeNote && (
+            <p
+              role="status"
+              data-testid="health-recompute-note"
+              className="text-sm text-neutral-dark"
+            >
+              {recomputeNote}
+            </p>
+          )}
           {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
             <HealthPanel
               health={health}
               onResolve={handleResolve}
+              onRecomputeSpan={handleRecomputeSpan}
               onImprove={openEnrichForAll}
             />
           )}
