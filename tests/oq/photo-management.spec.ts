@@ -38,13 +38,21 @@ const MOCK_PROFILE_WITH_PHOTO = {
 };
 
 // 1×1 white JPEG (minimal valid JPEG bytes)
+// #781: a real, decodable 16x9 JPEG — the framing dialog opens the picked file.
 const TINY_JPEG_BASE64 =
-  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8U' +
-  'HRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgN' +
-  'DRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy' +
-  'MjL/wAARCAABAAEDASIAAhEBAxEB/8QAFgABAQEAAAAAAAAAAAAAAAAABgUEB' +
-  '/8QAHhAAAQQDAQEBAAAAAAAAAAAAAQACAxEEBRIhMf/EABUBAQEAAAAAAAAAAAAAAAAAAAAB' +
-  '/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Amk2ta5rIKzG3HEQH9AAAASUVORK5CYII=';
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx' +
+  '8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7' +
+  'KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Oz' +
+  'v/wAARCAAJABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL' +
+  '/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0f' +
+  'AkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1' +
+  'dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1N' +
+  'XW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQF' +
+  'BgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRob' +
+  'HBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVm' +
+  'Z2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExc' +
+  'bHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDUooor1jzT' +
+  '/9k=';
 
 test.describe('Sprint 14: Profile Photo — CV flow photo prompt', () => {
   test('shows photo prompt step when user has no photo, skipping goes to template select', async ({
@@ -194,6 +202,18 @@ test.describe('Sprint 14: Profile Photo — Profile page PhotoManager', () => {
       buffer: jpegBuffer,
     });
 
+    // #781 (ruling F-2): the picked file opens the framing dialog first; the
+    // original is uploaded unmodified, WITH the chosen framing as geometry.
+    await expect(page.getByTestId('photo-crop-dialog')).toBeVisible();
+    const uploadReq = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/profile/photo'),
+    );
+    await page.getByTestId('photo-crop-confirm').click();
+    const url = new URL((await uploadReq).url());
+    expect(url.searchParams.get('consent')).toBe('true');
+    for (const k of ['cx', 'cy', 'zoom']) expect(url.searchParams.get(k)).not.toBeNull();
+    await expect(page.getByTestId('photo-crop-dialog')).toHaveCount(0);
+
     // After upload, filled state appears
     await expect(page.getByRole('button', { name: 'Replace' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
@@ -247,5 +267,48 @@ test.describe('Sprint 14: Profile Photo — Profile page PhotoManager', () => {
     // Reverts to empty state
     await expect(page.getByText('Upload a photo')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete' })).not.toBeVisible();
+  });
+
+  test('#781: "Adjust framing" re-frames the stored photo and saves only geometry', async ({ page }) => {
+    await page.route(`**/api/profile`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_PROFILE_WITH_PHOTO),
+      });
+    });
+    await page.route(`**/api/profile/enrichment-history`, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.route(`**/api/profile/photo`, async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'image/jpeg', body: Buffer.from(TINY_JPEG_BASE64, 'base64') });
+      } else {
+        await route.continue();
+      }
+    });
+    let putBody: Record<string, number> | null = null;
+    let postSeen = false;
+    await page.route(`**/api/profile/photo/crop`, async (route) => {
+      putBody = JSON.parse(route.request().postData() ?? 'null');
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ photo_crop: putBody }) });
+    });
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().includes('/api/profile/photo')) postSeen = true;
+    });
+
+    await page.goto('/profile');
+    await page.getByRole('button', { name: 'Adjust framing' }).click();
+    await expect(page.getByTestId('photo-crop-dialog')).toBeVisible();
+    await page.getByTestId('photo-crop-zoom').fill('2');
+    await page.getByTestId('photo-crop-confirm').click();
+    await expect(page.getByTestId('photo-crop-dialog')).toHaveCount(0);
+
+    expect(putBody).not.toBeNull();
+    expect(putBody!.zoom).toBeCloseTo(2, 2);
+    expect(putBody!.cx).toBeGreaterThanOrEqual(0);
+    expect(putBody!.cy).toBeGreaterThanOrEqual(0);
+    // No file was re-uploaded: the stored original is untouched.
+    expect(postSeen).toBe(false);
   });
 });
