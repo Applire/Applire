@@ -1296,6 +1296,20 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="CV_PIPELINE",
+            source="constants",
+            default="v1",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            in_env_example=False,
+            description=(
+                "v1 | v2. Internal development switch for the CV generation pipeline v2 "
+                "(E068 / ADR-094: the model writes, code checks). Not operator surface "
+                "until the US368 bench gate flips the default."
+            ),
+            notes="Hazelnut W1. Read at call time by services/cv_v2.cv_pipeline().",
+        ),
+        SettingEntry(
             env_var="CRITIC_ENABLED",
             source="constants",
             default="true",

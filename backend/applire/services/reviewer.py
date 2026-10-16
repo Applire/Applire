@@ -340,6 +340,7 @@ async def review_and_refine(
     on_settle: Callable[[ReviewSettle], None] | None = None,
     checks_fn: ChecksFn | None = None,
     on_checks_settle: Callable[[ChecksSettle], None] | None = None,
+    generator_json_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -506,6 +507,10 @@ async def review_and_refine(
                   with a ``ChecksSettle`` describing the findings still open on the
                   draft that ships. The caller ships-and-reports or blocks on it; the
                   loop never does either. A raising hook is logged and swallowed.
+        generator_json_schema: Optional (#767) OpenAI-style ``json_schema`` block for
+                  the corrector calls, passed as ``aparse_json(json_schema=…)``; a host
+                  that refuses it falls back to JSON mode on its own (#756). ``None``
+                  passes nothing — the call is byte-identical to before.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -1086,6 +1091,9 @@ async def review_and_refine(
             draft_reviewed_this_round = current_draft
 
             set_review_call_meta("generator", attempt + 1)
+            schema_kwargs: dict[str, Any] = (
+                {"json_schema": generator_json_schema} if generator_json_schema else {}
+            )
             try:
                 current_draft = await provider.aparse_json(
                     retry_prompt,
@@ -1093,6 +1101,7 @@ async def review_and_refine(
                     temperature=0.1,
                     max_tokens=generator_max_tokens,
                     disable_thinking=disable_thinking,
+                    **schema_kwargs,
                 )
             except (LLMTruncatedError, LLMTimeoutError) as exc:
                 # The refiner regenerates the document and can blow a small output cap.

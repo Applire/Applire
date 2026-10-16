@@ -535,3 +535,92 @@ def build_terminal_review_prompt(
         "as well as its index (this composed shape includes joined entries). "
         "Return your review JSON."
     )
+
+
+# ---------------------------------------------------------------------------
+# E068 / ADR-094 (draft) — CV pipeline v2 reviewer variants (CV_PIPELINE=v2 only).
+# v1's prompts above are untouched (RULING R-3). v2 differs in what the draft
+# carries (the writer now returns the vault-sourced LANGUAGE fields by id) and in
+# the budget rule (US365: nothing trims after the loop, so the reviewer asks for a
+# swap, never for an extra bullet in a role at its ceiling).
+# ---------------------------------------------------------------------------
+
+_V2_BUDGET_RULE = """\
+BUDGET RULE (v2): ROLE BULLET BUDGETS in the source are per-role ceilings that count the
+role's bullets PLUS its nested project bullets, and nothing trims the document after this
+review. Never demand an additional bullet for a role at its ceiling: when evidence is
+missing there, demand a SWAP — name the weaker bullet it should replace, or the related
+bullet it should be merged into. Length is measured by code and raised as a CODE CHECK
+when it is over; never raise a length finding yourself.
+
+"""
+
+_V2_SHAPE_NOTE_PROSE = """\
+SHAPE NOTE (v2, ADR-094): the draft contains the prose — `summary`, `work` (each entry an
+`id` plus `bullets`/`projects`), `skills` — AND the vault-sourced language fields the writer
+returns by id: per work entry `role`, `company`, `industry_context`; the `education` rows and
+the `languages` rows (see the VAULT FIELDS block in the source). Dates, certifications and
+contact details are joined by code and are NOT in this draft; their absence is correct.
+Check the returned fields like any claim: a role, company, degree or institution must be
+one of its RECORDED NAMES (never an upgraded title); an industry line, field of study or
+language level must render the profile's value faithfully.
+
+"""
+
+_V2_SHAPE_NOTE_TERMINAL = """\
+SHAPE NOTE — TERMINAL ROUND (v2, ADR-094): the subject is the COMPOSED document, exactly as
+it will be delivered. Dates, certifications, quantified role figures (team_size /
+budget_managed) and contact details were joined from the profile by code — ground truth BY
+CONSTRUCTION, never an issue. Everything else was WRITTEN by the writer, including role and
+company names, industry lines, education rows and language rows: check those against the
+profile like any claim (a name must be one of its recorded names; never accept an inflated
+title). Nested projects are the writer's own; nothing re-adds a project after this round.
+
+POSITION NOTE for check 2 (role ownership): in THIS terminal round the deterministic,
+id-anchored attribution audit has ALREADY run (it precedes composition); after this
+round only advisory reports follow — no further enforcement round. Check 2's severity
+instruction is unchanged (report ownership suspicions as "minor", never blocking —
+you are reading prose and can misread entry ids), but do report them: here the
+visibility itself is the last in-pipeline signal, not a preview of a later fix.
+
+"""
+
+V2_REVIEW_SYSTEM_PROMPT = (
+    _AUDITOR_INTRO
+    + _V2_SHAPE_NOTE_PROSE
+    + _V2_BUDGET_RULE
+    + _CHECKS
+    + "\n"
+    + _MANDATE_PROSE
+    + _schema_and_closer(structural_fields=False)
+)
+
+V2_TERMINAL_REVIEW_SYSTEM_PROMPT = (
+    _AUDITOR_INTRO
+    + _V2_SHAPE_NOTE_TERMINAL
+    + _V2_BUDGET_RULE
+    + _CHECKS
+    + "\n"
+    + _TERMINAL_CHECKS
+    + _TERMINAL_BLOCKING_CHECKS
+    + _MANDATE_TERMINAL
+    + _schema_and_closer(structural_fields=True)
+)
+
+_V1_LENGTH_SENTENCE = (
+    "Length is enforced by a "
+    "deterministic condense mechanism that has already run — NEVER raise a "
+    "length, page-count or 'too long / too short' finding.\n\n"
+)
+_V2_LENGTH_SENTENCE = (
+    "Length is measured by code and raised as a CODE CHECK when it is over the target — "
+    "NEVER raise a length, page-count or 'too long / too short' finding yourself.\n\n"
+)
+
+
+def build_v2_terminal_review_prompt(source_material: str, composed_json: dict, **kwargs) -> str:
+    """The v1 terminal user prompt with its one v2-false sentence replaced (the
+    condense mechanism no longer runs under v2 — the page count is a check)."""
+    text = build_terminal_review_prompt(source_material, composed_json, **kwargs)
+    assert _V1_LENGTH_SENTENCE in text, "v1 terminal length sentence moved — update the v2 variant"
+    return text.replace(_V1_LENGTH_SENTENCE, _V2_LENGTH_SENTENCE)
