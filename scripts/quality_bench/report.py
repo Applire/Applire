@@ -299,7 +299,17 @@ def aggregate(scored: list[dict[str, Any]]) -> dict[str, Any]:
     return arms
 
 
-def arm_diffs(scored: list[dict[str, Any]], baseline: str | None) -> list[dict[str, Any]]:
+def judge_instruments(scored: list[dict[str, Any]], arm: str) -> set[str]:
+    return {str(r.get("judge_model")) for r in scored if r["arm"] == arm}
+
+
+def arm_diffs(
+    scored: list[dict[str, Any]], baseline: str | None, *, allow_mixed_judge: bool = False,
+    refused: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Per-class arm differences. An arm pair scored by different judge instruments
+    is refused (listed in ``refused``) unless ``allow_mixed_judge``: a Haiku-scored
+    arm against a Sonnet-scored baseline measures the judge, not the pipeline."""
     arms = sorted({r["arm"] for r in scored})
     if len(arms) < 2:
         return []
@@ -307,6 +317,11 @@ def arm_diffs(scored: list[dict[str, Any]], baseline: str | None) -> list[dict[s
     out = []
     for other in arms:
         if other == base:
+            continue
+        ja, jb = judge_instruments(scored, base), judge_instruments(scored, other)
+        if len(ja | jb) > 1 and not allow_mixed_judge:
+            if refused is not None:
+                refused.append({"arm_a": base, "arm_b": other, "judge_a": sorted(ja), "judge_b": sorted(jb)})
             continue
         a_runs = [r for r in scored if r["arm"] == base]
         b_runs = [r for r in scored if r["arm"] == other]
@@ -413,6 +428,9 @@ def render_markdown(report: dict[str, Any]) -> str:
                     cells.append(f"{d['diff']:+.1f} [{_f(d['lo'])}, {_f(d['hi'])}]" + (" *" if d["significant"] else ""))
             L.append(f"| {row['arm_a']} | {row['arm_b']} | {row['scope']} | " + " | ".join(cells) + " |")
         L += ["", "`*` = the interval excludes zero (a difference is reported only then).", ""]
+    for x in report.get("arm_diffs_refused") or []:
+        L += [f"**Arm diff `{x['arm_a']}` vs `{x['arm_b']}` refused:** scored by different judge instruments "
+              f"({', '.join(x['judge_a'])} vs {', '.join(x['judge_b'])}) — re-score one arm with the other's judge env.", ""]
     L += ["## Failed runs (not scored, never counted as zero)", ""]
     if report["failed_runs"]:
         L += ["| arm | model | cell | run | failed stage | error |", "|---|---|---|---|---|---|"]
@@ -429,8 +447,12 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(L) + "\n"
 
 
-def build_report(patterns: list[str], *, baseline_arm: str | None = None, calibration: str | None = None) -> dict[str, Any]:
+def build_report(
+    patterns: list[str], *, baseline_arm: str | None = None, calibration: str | None = None,
+    allow_mixed_judge: bool = False,
+) -> dict[str, Any]:
     runs = load_runs(patterns)
+    refused: list[dict[str, Any]] = []
     untrusted: list[str] = []
     if calibration:
         cal = read_json(Path(calibration), {}) or {}
@@ -443,7 +465,8 @@ def build_report(patterns: list[str], *, baseline_arm: str | None = None, calibr
         "unscored_runs": runs["unscored"],
         "untrusted_classes": untrusted,
         "arms": aggregate(runs["scored"]),
-        "arm_diffs": arm_diffs(runs["scored"], baseline_arm),
+        "arm_diffs": arm_diffs(runs["scored"], baseline_arm, allow_mixed_judge=allow_mixed_judge, refused=refused),
+        "arm_diffs_refused": refused,
     }
 
 
@@ -453,8 +476,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=".", help="directory for report.md and report.json")
     ap.add_argument("--baseline-arm", default=None, help="arm A of the diff table (default: 'baseline', else first)")
     ap.add_argument("--calibration", default=None, help="calibration.json from calibrate.py")
+    ap.add_argument("--allow-mixed-judge", action="store_true", help="diff arms scored by different judge instruments")
     args = ap.parse_args(argv)
-    report = build_report(args.runs, baseline_arm=args.baseline_arm, calibration=args.calibration)
+    report = build_report(args.runs, baseline_arm=args.baseline_arm, calibration=args.calibration,
+                          allow_mixed_judge=args.allow_mixed_judge)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")

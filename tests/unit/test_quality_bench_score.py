@@ -1043,3 +1043,14 @@ def test_gate_literal_reading_is_stricter_than_the_difference_interval(tmp_path)
     row = next(r for r in g["rows"] if (r["metric"], r["doc"]) == ("L", "all"))
     assert row["verdict"] == "improved" and row["arm_cis_overlap"] is True
     assert g["us368"]["diff_ci"]["checks"]["L better"] is True and g["us368"]["literal"]["checks"]["L better"] is False
+
+
+def test_report_refuses_an_arm_diff_across_judge_instruments(tmp_path):
+    out = tmp_path / "out"
+    for i in range(3):
+        _judged(make_run(out, arm="baseline", idx=i, with_log=False), [_issue("L")] * 3, judge="j/sonnet")
+        _judged(make_run(out, arm="v2", idx=i, with_log=False), [_issue("L")], judge="j/haiku")
+    rep = report_mod.build_report([str(out)])
+    assert rep["arm_diffs"] == [] and rep["arm_diffs_refused"][0]["judge_b"] == ["j/haiku"]
+    assert "refused" in report_mod.render_markdown(rep)
+    assert report_mod.build_report([str(out)], allow_mixed_judge=True)["arm_diffs"]
