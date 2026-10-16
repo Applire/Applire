@@ -1004,3 +1004,42 @@ def test_gate_pairs_by_cell_so_between_cell_spread_cancels(tmp_path):
     row = next(r for r in g["rows"] if (r["metric"], r["doc"]) == ("L", "all"))
     assert row["diff"] == pytest.approx(50.0) and row["lo"] == pytest.approx(50.0) and row["hi"] == pytest.approx(50.0)
     assert row["verdict"] == "regressed"
+
+
+def test_gate_us368_criterion_in_both_readings(tmp_path):
+    out = tmp_path / "out"
+    # v2 better on L, D and S, U unchanged: passes in the diff reading
+    for c in ("c1", "c2", "c3", "c4", "c5", "c6"):
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False),
+                    [_issue("L")] * 3 + [_issue("D")] * 2 + [_issue("S")] * (2 + i % 2) + [_issue("U")])
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False),
+                    [_issue("L")] * (i % 2) + [_issue("S")] * (i % 2) + [_issue("U")])
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    assert g["us368"]["diff_ci"]["pass"] is True and g["us368"]["literal"]["pass"] is True
+    assert set(g["us368"]["diff_ci"]["checks"]) == {"L better", "D better", "S better", "U no worse",
+                                                    "page length held (cv)", "page length held (letter)", "failed runs no worse"}
+    # D unchanged -> the criterion fails although nothing regressed
+    out2 = tmp_path / "out2"
+    for c in ("c1", "c2", "c3"):
+        for i in range(5):
+            _judged(make_run(out2, arm="v1", cell=c, idx=i, with_log=False), [_issue("L")] * 3 + [_issue("D")])
+            _judged(make_run(out2, arm="v2", cell=c, idx=i, with_log=False), [_issue("D")])
+    g2 = gate_mod.build_gate([str(out2 / "v1")], [str(out2 / "v2")])
+    assert g2["mechanical_verdict"] == "no regression" and g2["us368"]["diff_ci"]["pass"] is False
+    assert g2["us368"]["diff_ci"]["checks"]["L better"] is True and g2["us368"]["diff_ci"]["checks"]["D better"] is False
+    assert "US368 criterion" in gate_mod.render_markdown(g2)
+
+
+def test_gate_literal_reading_is_stricter_than_the_difference_interval(tmp_path):
+    """A small consistent improvement on spread-out cells: the paired difference
+    excludes zero, the arms' own intervals still overlap."""
+    out = tmp_path / "out"
+    for c, n in {"c1": 0, "c2": 2, "c3": 6, "c4": 10}.items():
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False), [_issue("L")] * (n + 1))
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False), [_issue("L")] * n)
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = next(r for r in g["rows"] if (r["metric"], r["doc"]) == ("L", "all"))
+    assert row["verdict"] == "improved" and row["arm_cis_overlap"] is True
+    assert g["us368"]["diff_ci"]["checks"]["L better"] is True and g["us368"]["literal"]["checks"]["L better"] is False
