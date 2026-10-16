@@ -104,3 +104,34 @@ describe("photo-crop geometry (#781)", () => {
     expect(-l.top / scale).toBeCloseTo(r.sy);
   });
 });
+
+// #781 — the server applies the stored framing with `services/photo.crop_rect`,
+// this module's twin. The SAME table is pinned in
+// `tests/unit/test_photo_framing.py` (`PARITY_TABLE`): the expected rectangles
+// were worked out from this algorithm by hand, so a drift in EITHER twin fails
+// its own suite. Rows: [w, h, cx, cy, zoom] -> [sx, sy, sw, sh].
+describe("parity with services/photo.crop_rect", () => {
+  const PARITY_TABLE: Array<[number[], number[]]> = [
+    // landscape 1800x1012: the 4:5 cover rectangle is 809.6 x 1012
+    [[1800, 1012, 0.5, 0, 1], [495.2, 0, 809.6, 1012]], // centred, cy clamps to the only fit
+    [[1800, 1012, 0, 0.5, 1], [0, 0, 809.6, 1012]], // cx=0 clamps to the left edge
+    [[1800, 1012, 1, 0.5, 1], [990.4, 0, 809.6, 1012]], // cx=1 clamps to the right edge
+    [[1800, 1012, 0.8, 0.5, 2], [1237.6, 253, 404.8, 506]], // face in the right third, zoom 2
+    [[1800, 1012, 0.8, 0.1, 4], [1338.8, 0, 202.4, 253]], // zoom 4, cy clamps to the top
+    // portrait / square sources
+    [[480, 600, 0.3, 0.7, 1], [0, 0, 480, 600]], // exactly 4:5 — the whole image
+    [[600, 1000, 0.9, 0.2, 1.5], [200, 0, 400, 500]], // taller than 4:5 — full width, both clamp
+    [[600, 1000, 0.5, 0, 1], [0, 0, 600, 750]],
+    [[1000, 1000, 0.5, 0.5, 1], [100, 0, 800, 1000]],
+    [[1000, 1000, 0.5, 0.5, 3], [366.6666667, 333.3333333, 266.6666667, 333.3333333]],
+    [[4000, 3000, 0.25, 0.25, 2], [400, 0, 1200, 1500]],
+  ];
+
+  it.each(PARITY_TABLE)("cropRect(%j) -> %j", ([w, h, cx, cy, zoom], [sx, sy, sw, sh]) => {
+    const r = cropRect({ w, h }, { cx, cy, zoom });
+    expect(r.sx).toBeCloseTo(sx, 5);
+    expect(r.sy).toBeCloseTo(sy, 5);
+    expect(r.sw).toBeCloseTo(sw, 5);
+    expect(r.sh).toBeCloseTo(sh, 5);
+  });
+});
