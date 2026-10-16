@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **CV pipeline v2, behind a development switch (E068, ADR-094 proposed; #773–#777, #767; the CV half of #709/#716).** With `CV_PIPELINE=v2` the CV writer also writes the role's industry line, the field of study and the language levels in the document's language, and picks a job title, employer, institution or degree from the names your own documents recorded (so an English CV can show "Working Student" where your German CV said "Werkstudent"). Nothing changes the CV's text after the last review any more: the former clean-up steps report what they found into the review loop instead of editing. The model sees short ids instead of internal identifiers, and the writer's answer follows a JSON schema when `LLM_STRUCTURED_OUTPUT=auto`. The default stays `v1` until the quality bench shows v2 better.
+
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
