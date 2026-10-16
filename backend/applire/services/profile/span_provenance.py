@@ -37,8 +37,8 @@ ADR-061 cl. 5 forbids, so they are never flagged.
 
 **The repair** (:func:`recompute_span`) is the ordinary manual skills edit —
 ``patch_profile_section`` → ``ReplaceSection`` → ``commit_ops`` (ADR-063: no new
-op, no new write path) — with that one skill's span and label cleared; the
-committer's deterministic enrichment (invariant 6) re-derives it as
+op, no new write path) — with that one skill's span cleared; the committer's
+deterministic enrichment (invariant 6) re-derives it and labels it
 ``computed``. ADR-062: FACTS throughout.
 """
 from __future__ import annotations
@@ -178,11 +178,12 @@ async def recompute_span(
     for skill in profile.skills:
         entry = skill.model_dump(mode="json")
         if skill.id == skill_id:
-            # Cleared together: a bare span with no source reads as the
-            # extractor's own reading (transcribed), so the label must go too
-            # for phase 1 to re-derive it (``_match_and_enrich``).
+            # Only the number is cleared: with no span, phase 1 re-derives it
+            # from the dated roles and writes the label with it — ``computed``
+            # (``_match_and_enrich``). A stale ``transcribed`` label cannot
+            # survive that write (mutation-checked 2026-10-16: clearing the
+            # label as well is an equivalent mutant).
             entry["years_experience"] = None
-            entry["source"] = None
         skills.append(entry)
     return await patch_profile_section(
         "skills",
