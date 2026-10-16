@@ -259,9 +259,20 @@ class CheckFinding:
 
     check: str
     text: str
+    #: False = ADVISORY: a fact whose consequence is a judgement (a candidate
+    #: duplicate pair — whether the two are one competence is the model's call,
+    #: ADR-076 cl. 4). It is shown to the reviewer and handed to the corrector when a
+    #: round runs, but it never opens a round by itself, so a finding the model rightly
+    #: declines cannot spin the loop to exhaustion (SF-WRITE.45).
+    blocking: bool = True
 
     def as_issue(self) -> ReviewIssue:
-        return ReviewIssue(text=f"[{self.check}] {self.text}", severity=SEVERITY_BLOCKING)
+        if self.blocking:
+            return ReviewIssue(text=f"[{self.check}] {self.text}", severity=SEVERITY_BLOCKING)
+        return ReviewIssue(
+            text=f"[{self.check}] (judge it: act only if it holds) {self.text}",
+            severity=SEVERITY_BLOCKING,
+        )
 
 
 @dataclass(frozen=True)
@@ -286,8 +297,9 @@ ChecksFn = Callable[[dict[str, Any]], Sequence[CheckFinding]]
 
 _CHECKS_HEADER = (
     "CODE CHECKS — facts computed deterministically from THIS draft (not opinions). "
-    "Each one is already raised as a blocking finding; you need not repeat it, and "
-    "do not contradict it."
+    "Each non-advisory one is already raised as a blocking finding; you need not repeat "
+    "it, and do not contradict it. An advisory one is a fact whose consequence is your "
+    "judgement."
 )
 
 
@@ -297,7 +309,10 @@ def render_checks_block(findings: Sequence[CheckFinding]) -> str:
     if not findings:
         return ""
     lines = [_CHECKS_HEADER]
-    lines += [f"- [{f.check}] {f.text}" for f in findings]
+    lines += [
+        f"- [{f.check}] {f.text}" if f.blocking else f"- [{f.check}] (advisory — a fact for you to judge) {f.text}"
+        for f in findings
+    ]
     return "\n".join(lines)
 
 
@@ -877,6 +892,8 @@ async def review_and_refine(
             # E068 / ADR-094: the deterministic facts about THIS draft, computed before
             # the reviewer reads it so both seats see the same findings.
             findings = _run_checks(current_draft) or []
+            # Only a BLOCKING finding opens a round; an advisory one rides along.
+            opening = [f for f in findings if f.blocking]
             if findings:
                 checks_cell["rounds_with"] += 1
                 logger.info(
@@ -959,10 +976,10 @@ async def review_and_refine(
                 chain_id, attempt + 1, raised=len(issues), survived=len(issues) - unsound
             )
 
-            if approved and not findings:
+            if approved and not opening:
                 return _settle(current_draft, path="approved")
 
-            if issues and not blocking and not findings:
+            if issues and not blocking and not opening:
                 # ADR-021 amended 2026-07-28: the writer runs again only for a
                 # BLOCKING issue. A round that rejected the draft over nothing but
                 # minor observations ships it instead — every rewrite is a memoryless
