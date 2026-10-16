@@ -822,3 +822,22 @@ def test_duplicate_class_is_the_founders_definition():
     from score.score_run import D_STRUCTURES
 
     assert D_STRUCTURES == {"skill~skill", "bullet~bullet"}
+
+
+def test_stale_absolute_fixture_dir_resolves_by_its_corpus_suffix(tmp_path):
+    """The harness records ``fixture_dir`` absolute (``run.py`` ``str(fx.dir)``). The
+    10-12 baseline was generated in a worktree that no longer exists, so a re-score
+    found no vault and silently skipped S and U (Hazelnut, R-0 calibration). A stale
+    absolute path resolves by its ``tests/files/quality_bench/<case>/<cell>`` suffix
+    against the bases."""
+    repo = tmp_path / "repo"
+    cell = repo / "tests" / "files" / "quality_bench" / "case_x" / "same_de"
+    cell.mkdir(parents=True)
+    (cell / "vault.json").write_text(json.dumps({"profile": {"name": "X"}}))
+    stale = "/gone/wt-old/tests/files/quality_bench/case_x/same_de"
+    fx = inputs.load_fixture({"fixture_dir": stale}, [repo])
+    assert fx.fixture_dir == cell and fx.vault == {"profile": {"name": "X"}}
+    assert not fx.warnings
+    # an absolute path with no corpus suffix still reports not-found
+    gone = inputs.load_fixture({"fixture_dir": "/gone/elsewhere/case_x"}, [repo])
+    assert gone.fixture_dir is None and gone.warnings
