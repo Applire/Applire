@@ -337,3 +337,57 @@ async def test_SEAM_cv_assist_withholds_a_suggestion_naming_an_unmentioned_stand
         session_evidence=[("session.answer", "Ich habe 2022 das ISO-45001-Lead-Auditor-Zertifikat erworben.")],
     )
     assert withheld == 0, kept
+
+
+# ── adversarial pass on the integrated tree (2026-10-17) ─────────────────────
+# (a) honest ENGLISH denials were accused; (b) a substring marker let a
+# non-negation ("not only", "did not stop at") exempt a fabricated standard.
+
+_TAIL_EN = "I led two production areas with 38 employees."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"I have no experience with ISO 13485, but {_TAIL_EN}",
+        f"I am not familiar with ISO 13485, but {_TAIL_EN}",
+        f"No hands-on exposure to ISO 13485, but {_TAIL_EN}",
+        f"Without ISO 13485 experience, {_TAIL_EN}",
+        "Mit ISO 13485 habe ich keine Erfahrung, aber ich habe zwei "
+        "Fertigungsbereiche mit 38 Mitarbeitenden gefuehrt.",
+        "Keine Erfahrung mit ISO 13485; zwei Fertigungsbereiche mit 38 Mitarbeitenden gefuehrt.",
+    ],
+    ids=["en-no-experience", "en-not-familiar", "en-no-hands-on", "en-without", "de-verb-final", "de-keine"],
+)
+async def test_an_honest_denial_of_the_standard_is_never_accused(text):
+    assert _unmentioned_identifiers(text, build_vault_index(PROFILE)) == []
+    v = await verify_claim(text, PROFILE)
+    assert v.verdict != "unbacked" or "never mentions" not in (v.detail or ""), v
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I have not only introduced ISO 13485 aligned access controls but also "
+        "led two production areas with 38 employees.",
+        "I did not stop at ISO 13485: I led two production areas with 38 employees.",
+        "I didn't stop at ISO 13485 and led two production areas with 38 employees.",
+        "Nicht nur ISO-13485-Audits begleitet, sondern zwei Fertigungsbereiche mit "
+        "38 Mitarbeitenden gefuehrt.",
+        "Introduced ISO 13485 controls with no downtime across two production areas "
+        "with 38 employees.",
+    ],
+    ids=["not-only", "did-not-stop-at", "didnt-stop-at", "nicht-nur", "negation-after-the-id"],
+)
+async def test_a_non_negation_never_exempts_a_fabricated_standard(text):
+    assert _unmentioned_identifiers(text, build_vault_index(PROFILE)), text
+
+
+async def test_not_only_shape_is_unbacked_when_it_would_otherwise_be_grounded():
+    text = "Not only introduced ISO 13485 controls: led two production areas with 38 employees."
+    base = await _baseline(text)
+    v = await verify_claim(text, PROFILE)
+    if base.verdict == "grounded":
+        assert v.verdict == "unbacked" and "ISO 13485" in v.detail
+    else:
+        assert v.verdict == base.verdict

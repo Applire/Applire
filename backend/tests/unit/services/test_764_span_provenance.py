@@ -88,23 +88,35 @@ def _kvp_profile(years, *, bullets=None, denied=None, start="2017-04", end=None)
     return MasterProfileData.model_validate(blob)
 
 
-def test_a_lagging_laundered_value_is_found():
-    """The corpus shape: an open role since 04/2017 stored 9 when laundering
-    was possible (2026-09-08: 9.4 y) and re-derives 10 today (9.5 y)."""
-    (span,) = laundered_spans(_kvp_profile(9), TODAY)
-    assert (span.span_years, span.recomputed_years) == (9, 10)
+def test_a_value_one_below_an_open_roles_rederivation_is_not_flagged():
+    """Ruling ADV-2 (exact match only): KVP since 04/2017 re-derives 10 today;
+    a stored 9 — laundered or honest — is not flagged, because its recompute
+    would RAISE the number (the adversarial pass's Django 7 → 8)."""
+    assert laundered_spans(_kvp_profile(9), TODAY) == []
+    assert [s.span_years for s in laundered_spans(_kvp_profile(10), TODAY)] == [10]
 
 
 def test_an_honest_value_one_below_a_closed_roles_span_is_never_flagged():
-    """Adversarial finding 5: a closed role's derivation never moved, so N = c − 1
-    cannot be a lag — flagging it would raise the candidate's own number."""
     p = _kvp_profile(5, start="2011-08", end="2017-03")
     assert laundered_spans(p, TODAY) == []
     assert [s.span_years for s in laundered_spans(_kvp_profile(6, start="2011-08", end="2017-03"), TODAY)] == [6]
 
 
-def test_an_open_roles_value_below_anything_storable_since_the_anchor_is_silent():
-    """02/2019 → 2026-09-08 already rounds to 8; a stored 7 was never phase 1's."""
+@pytest.mark.parametrize("start,end", [("2017-04", None), ("2019-02", None), ("2011-08", "2017-03"), ("2020-01", "2024-06")])
+@pytest.mark.parametrize("delta", [-2, -1, 0, 1, 2])
+def test_PROPERTY_a_flag_never_moves_the_number(start, end, delta):
+    """ADV-2: whatever N is, a flagged span's recompute target equals N —
+    open and closed roles alike — so the action can only change the label."""
+    from applire.services.skill_enrichment import stored_span_years
+
+    probe = _kvp_profile(1, start=start, end=end)
+    c = stored_span_years(probe, "KVP", TODAY)
+    n = max(1, c + delta)
+    for span in laundered_spans(_kvp_profile(n, start=start, end=end), TODAY):
+        assert span.recomputed_years == span.span_years == n
+
+
+def test_an_open_roles_value_below_todays_rederivation_is_silent():
     p = _profile([_skill("SAP CO", 7, "transcribed")])
     assert laundered_spans(p, TODAY) == []
 
@@ -114,15 +126,15 @@ def test_an_employer_tenure_in_a_denial_dossier_does_not_silence_a_skill():
     Weberit …" is about the employer, not KVP; it silenced five laundered nines."""
     denied = [{
         "concept": "Lebensmittelverpackung",
-        "statement": "Meine neun Jahre bei Weberit sind Kunststofftechnik, keine Lebensmittel.",
+        "statement": "Meine zehn Jahre bei Weberit sind Kunststofftechnik, keine Lebensmittel.",
         "source": "interview",
         "date": "2026-09-01T00:00:00+00:00",
     }]
-    assert [s.skill_name for s in laundered_spans(_kvp_profile(9, denied=denied), TODAY)] == ["KVP"]
+    assert [s.skill_name for s in laundered_spans(_kvp_profile(10, denied=denied), TODAY)] == ["KVP"]
 
 
 def test_a_statement_naming_the_skill_next_to_the_duration_silences_it():
-    p = _kvp_profile(9, bullets=["Seit neun Jahren verantworte ich KVP an der Linie."])
+    p = _kvp_profile(10, bullets=["Seit zehn Jahren verantworte ich KVP an der Linie."])
     assert laundered_spans(p, TODAY) == []
 
 

@@ -23,10 +23,11 @@ when BOTH hold:
     the skill named next to it (``skills_near_duration``, the #747 subject
     window); and no ``manual_edit`` record set this skill's span to N (the
     candidate typing it IS a statement);
-(ii) **N is a value phase 1 could have stored while laundering was possible**
-    — ``skill_enrichment.stored_span_years`` evaluated on 2026-09-08 (#684:
-    the first day a reconcile op could stamp a span ``transcribed``) and today
-    bounds it: lo ≤ N ≤ c. A closed role gives lo = c, so only N = c.
+(ii) **N equals today's re-derivation exactly** —
+    ``skill_enrichment.stored_span_years`` today gives c and N == c (founder
+    ruling ADV-2, 2026-10-17: exact match only, open or closed role, so a
+    recompute changes only the LABEL, never the number; the earlier
+    "storable since 2026-09-08" window let an open role's 7 become 8).
 
 (ii) is what keeps the recompute safe (founder ruling H-2, option A): on the
 captured corpus 17 of 36 unstated transcribed spans did NOT match the
@@ -50,9 +51,6 @@ from typing import Any, Iterator
 
 from applire.schemas.profile import MasterProfileData
 
-#: #684 (ADR-061 amended 2026-09-08) — the first day the reconcile applier
-#: could stamp a span ``transcribed``; laundering is impossible before it.
-LAUNDERING_POSSIBLE_FROM = date(2026, 9, 8)
 #: A stated duration counts as stating N when it reads within this of N.
 STATED_TOLERANCE_YEARS = 0.5
 
@@ -153,13 +151,13 @@ def laundered_spans(
             continue
         if _manually_set(profile, skill.name, n):
             continue
-        # (ii) Exactly the values phase 1 could have STORED while laundering
-        # was possible: from the anchor day to today. A closed role gives one
-        # value, so an honest N = c − 1 is never flagged and never inflated
-        # (adversarial review 2026-10-16, finding 5).
+        # (ii) Exact match with today's re-derivation (ruling ADV-2): the
+        # recompute then rewrites only the label, so it can never move — let
+        # alone raise — a number the candidate may have stated. Residual,
+        # named: a value laundered while an open role's span was one year
+        # shorter no longer matches and stays unflagged.
         c = stored_span_years(profile, skill.name, today)
-        lo = stored_span_years(profile, skill.name, min(today, LAUNDERING_POSSIBLE_FROM))
-        if c is None or lo is None or not (lo <= n <= c):
+        if c is None or n != c:
             continue
         out.append(LaunderedSpan(skill.id, skill.name, n, c))
     return out
