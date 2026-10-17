@@ -669,6 +669,9 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     # the post-loop condense is reviewed: one terminal loop, then ONE more review round
     # over the condensed draft (never shipped unreviewed)
     assert len(terminal) == 2
+    # RULING W2-6b (C): only the post-condense corrector carries the word cap
+    assert "WORD CAP (computed by code)" in terminal[-1]["corrector_prompt"]
+    assert "WORD CAP (computed by code)" not in terminal[0]["corrector_prompt"]
     assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
     assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
 
@@ -801,3 +804,33 @@ def test_letter_name_findings_decide_membership_by_w1s_norm_name():
                                      "company_aliases": ["Schwarzwald  Präzision"]}]}
     letter = {"body": {"paragraphs": ["At Schwarzwald Präzision I closed the books."]}}
     assert letter_name_findings(letter, profile) == []
+
+
+# ── adversarial probe B (2026-10-17): the v2 condense keeps facts with their
+#    employer and keeps the coverage terms the letter already carries ──────────
+def test_condense_prompt_v2_names_the_employer_rule_and_the_retained_terms():
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Text."]}}
+    v1 = build_condense_prompt(letter, 250, 2, letter_pages=1)
+    v2 = build_condense_prompt(letter, 250, 2, letter_pages=1, language="de",
+                               retained_terms_block="COVERAGE ALREADY ACHIEVED x")
+    rule = "Never move a fact to another employer's sentence"
+    assert rule not in v1 and "COVERAGE ALREADY ACHIEVED" not in v1
+    assert rule in v2
+    assert v2.index("COVERAGE ALREADY ACHIEVED") < v2.index("=== CURRENT LETTER (JSON) ===")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", ["v1", "v2"])
+async def test_seam_condenses_carry_the_retained_terms_on_v2_only(db, monkeypatch, pipeline):
+    monkeypatch.setenv("LETTER_PIPELINE", pipeline)
+    entry = {"concept": "HGB", "surface_forms": ["HGB"], "status": "claimable"}
+    with patch("applire.services.keyword_ledger.claimable_present_entries",
+               return_value=[entry]):
+        rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
+    condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    assert condenses
+    for p in condenses:
+        has = "COVERAGE ALREADY ACHIEVED" in p and "- HGB [forms: HGB]" in p
+        assert has is (pipeline == "v2")
