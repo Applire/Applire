@@ -237,6 +237,15 @@ def settings_snapshot() -> dict[str, Any]:
 
     snap: dict[str, Any] = {k: getattr(settings, k, None) for k in _SETTINGS_SNAPSHOT}
     snap.update({k: getattr(constants, k, None) for k in _CONSTANTS_SNAPSHOT})
+    # US368: an arm is only readable with the pipeline switches it ran under
+    # (CV_PIPELINE and the letter's own switch, E068) — every *_PIPELINE value the
+    # process saw, from the environment and from the settings singleton.
+    for name, value in sorted(os.environ.items()):
+        if name.endswith("_PIPELINE"):
+            snap[name] = value
+    for name in dir(settings):
+        if name.endswith("_pipeline") and not name.startswith("_"):
+            snap[f"settings.{name}"] = getattr(settings, name, None)
     return snap
 
 

@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - **Photo uploads are checked to be the image type they claim to be** (JPEG, PNG or WebP) and within a size bound before they are stored.
+- **Job analysis and reconcile prompts, measured (#765, #766).** The reconcile response schema sends one plain line per operation instead of developer docstrings (schema 11.8k → 8.1k chars, no change on the measured models). The job-description analysis keeps the posting's own wording for language requirements (no invented CEFR levels), asks only for KldB codes the lookup holds, and its correction rounds are told the posting's language. Before/after rows: `tests/files/model_matrix/results/2026-10-16/`.
 
 ### Fixed
 - **Truthfulness check: a standard you never mentioned is no longer "backed" (#701).** Before this fix, a CV bullet or letter sentence naming a standard such as "ISO 45001" that your profile never mentions could still be graded *backed* when the same sentence also carried a true figure. It is now *unbacked*, and the reason names the standard. A standard named in your own "no experience with …" statement is not counted. Measured on 1,219 earlier documents: 3 claims change, each a mistyped version of the profile's own "ISO 45001".

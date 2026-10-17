@@ -54,8 +54,25 @@ def _pick(source: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return {k: source[k] for k in keys if k in source}
 
 
-async def seed_fixture(session_factory, fx: Fixture) -> Seeded:
-    """Insert the fixture's rows and return their ids. Commits."""
+async def seed_user(session_factory) -> uuid.UUID:
+    """Only the synthetic owner — the JD-analysis seam (#766) creates the posting itself."""
+    from applire import ownership
+    from applire.models.user import User
+
+    user_id = uuid.uuid4()
+    async with session_factory() as db:
+        with ownership.owner_context(user_id):
+            db.add(User(id=user_id, email=BENCH_USER_EMAIL))
+            await db.commit()
+    return user_id
+
+
+async def seed_fixture(session_factory, fx: Fixture, *, with_gap: bool = True) -> Seeded:
+    """Insert the fixture's rows and return their ids. Commits.
+
+    ``with_gap=False`` (the gap-analysis seam, #766) seeds no ``GapAnalysis``:
+    ``analyze_gaps`` reuses a stored row for unchanged inputs, so a seeded one
+    would turn the measured call into a cache hit. The flow then points at none."""
     from applire import ownership
     from applire.models.application import Application
     from applire.models.flow import FlowSession
@@ -114,17 +131,18 @@ async def seed_fixture(session_factory, fx: Fixture) -> Seeded:
                     )
                 )
             await db.flush()
-            db.add(
-                GapAnalysis(
-                    id=gap_id,
-                    job_analysis_id=job_id,
-                    profile_id=profile_id,
-                    user_id=user_id,
-                    created_at=now,
-                    **gap_fields,
+            if with_gap:
+                db.add(
+                    GapAnalysis(
+                        id=gap_id,
+                        job_analysis_id=job_id,
+                        profile_id=profile_id,
+                        user_id=user_id,
+                        created_at=now,
+                        **gap_fields,
+                    )
                 )
-            )
-            await db.flush()
+                await db.flush()
             db.add(
                 FlowSession(
                     id=flow_id,
@@ -132,7 +150,7 @@ async def seed_fixture(session_factory, fx: Fixture) -> Seeded:
                     job_id=job_id,
                     current_step="cv_generation",
                     user_type="returning",
-                    gap_analysis_id=gap_id,
+                    gap_analysis_id=gap_id if with_gap else None,
                     application_id=app_id,
                 )
             )

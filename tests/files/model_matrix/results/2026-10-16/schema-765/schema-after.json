@@ -1,0 +1,906 @@
+{
+  "name": "applire_reconcile_batch",
+  "strict": false,
+  "schema": {
+    "$defs": {
+      "AddBullets": {
+        "properties": {
+          "op": {
+            "const": "add_bullets",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "responsibilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "achievements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "type": "object"
+      },
+      "FlagConflict": {
+        "properties": {
+          "op": {
+            "const": "flag_conflict",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "existing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "incoming": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "field",
+          "existing",
+          "incoming"
+        ],
+        "type": "object",
+        "description": "The new information contradicts a value or bullet the profile already states; copy both sides verbatim, the user picks one."
+      },
+      "MatchExisting": {
+        "properties": {
+          "op": {
+            "const": "match_existing",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "incoming": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "incoming"
+        ],
+        "type": "object",
+        "description": "The new information names an entity the profile already holds under another surface form and adds nothing new about it; writes nothing."
+      },
+      "RequestConfirmation": {
+        "properties": {
+          "op": {
+            "const": "request_confirmation",
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ],
+        "type": "object",
+        "description": "A targeted yes/no or short-choice question for the user, when you cannot confidently decide."
+      },
+      "SetField": {
+        "properties": {
+          "op": {
+            "const": "set_field",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "target",
+          "field",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetPersonalInfo": {
+        "properties": {
+          "op": {
+            "const": "set_personal_info",
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetSummary": {
+        "properties": {
+          "op": {
+            "const": "set_summary",
+            "type": "string"
+          },
+          "lang": {
+            "enum": [
+              "de",
+              "en"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lang",
+          "text"
+        ],
+        "type": "object"
+      },
+      "UpsertCertification": {
+        "properties": {
+          "op": {
+            "const": "upsert_certification",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "issuing_organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "date_obtained": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiry_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertEducation": {
+        "properties": {
+          "op": {
+            "const": "upsert_education",
+            "type": "string"
+          },
+          "institution": {
+            "type": "string"
+          },
+          "degree": {
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "institution",
+          "degree"
+        ],
+        "type": "object"
+      },
+      "UpsertLanguage": {
+        "properties": {
+          "op": {
+            "const": "upsert_language",
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "language"
+        ],
+        "type": "object"
+      },
+      "UpsertProject": {
+        "properties": {
+          "op": {
+            "const": "upsert_project",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertPublication": {
+        "properties": {
+          "op": {
+            "const": "upsert_publication",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "publication",
+              "patent"
+            ],
+            "type": "string"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "patent_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "co_authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
+      "UpsertSkill": {
+        "properties": {
+          "op": {
+            "const": "upsert_skill",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proficiency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "UpsertStory": {
+        "properties": {
+          "op": {
+            "const": "upsert_story",
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "benchmark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "challenge",
+          "mechanism",
+          "outcome"
+        ],
+        "type": "object",
+        "description": "A signature story (challenge, mechanism, outcome, benchmark), only when the new information itself narrates that arc."
+      },
+      "UpsertVolunteer": {
+        "properties": {
+          "op": {
+            "const": "upsert_volunteer",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "organization": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "organization",
+          "role"
+        ],
+        "type": "object"
+      },
+      "UpsertWork": {
+        "properties": {
+          "op": {
+            "const": "upsert_work",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "company": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_current": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "industry_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budget_managed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "company"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "object",
+    "properties": {
+      "ops": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpsertWork"
+            },
+            {
+              "$ref": "#/$defs/UpsertProject"
+            },
+            {
+              "$ref": "#/$defs/UpsertVolunteer"
+            },
+            {
+              "$ref": "#/$defs/AddBullets"
+            },
+            {
+              "$ref": "#/$defs/UpsertSkill"
+            },
+            {
+              "$ref": "#/$defs/UpsertCertification"
+            },
+            {
+              "$ref": "#/$defs/UpsertLanguage"
+            },
+            {
+              "$ref": "#/$defs/UpsertEducation"
+            },
+            {
+              "$ref": "#/$defs/UpsertPublication"
+            },
+            {
+              "$ref": "#/$defs/UpsertStory"
+            },
+            {
+              "$ref": "#/$defs/SetField"
+            },
+            {
+              "$ref": "#/$defs/SetPersonalInfo"
+            },
+            {
+              "$ref": "#/$defs/SetSummary"
+            },
+            {
+              "$ref": "#/$defs/FlagConflict"
+            },
+            {
+              "$ref": "#/$defs/MatchExisting"
+            },
+            {
+              "$ref": "#/$defs/RequestConfirmation"
+            }
+          ]
+        }
+      },
+      "ambiguities": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RequestConfirmation"
+        }
+      },
+      "denials": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "empty_reason": {
+        "type": "string",
+        "enum": [
+          "already_known",
+          "question_only",
+          "nothing_actionable"
+        ]
+      }
+    },
+    "required": [
+      "ops",
+      "ambiguities",
+      "denials"
+    ]
+  }
+}
