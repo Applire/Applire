@@ -1291,3 +1291,138 @@ async def test_terminal_language_recheck_carries_the_shape_check_only_under_v2(v
             provider=AsyncMock(), keyword_ledger=None, budget=None, v2_shape_check=v2,
         )
     assert (seen["checks_fn"] is not None) is v2
+
+
+# =============================================================================
+# 13. Generation adversarial pass (2026-10-17, tree ccf714ca): findings 4–7
+# =============================================================================
+
+def _tpm_vault() -> dict:
+    """Finding 4's shape: the claim lives ONLY in a role's responsibilities — no
+    skill, no project, nothing else carries it."""
+    vault = _vault()
+    vault["work_experience"][0]["responsibilities"].append(
+        "TPM-Programm für 14 Spritzgussmaschinen eingeführt; Stillstand um 22 % gesenkt.")
+    return vault
+
+
+def _tpm_ledger(status: str = "direct") -> list[dict]:
+    return [{
+        "concept": "Total Productive Maintenance", "surface_forms": ["Total Productive Maintenance", "TPM"],
+        "claimable": True, "status": status, "sources": ["required"], "fit_weight": 1.0,
+        "evidence": "TPM-Programm für 14 Spritzgussmaschinen eingeführt",
+    }]
+
+
+def test_responsibilities_only_claim_reaches_the_terminal_loop_through_v2terminal():
+    """Finding 4 regression: the claim only in responsibilities, through the SAME
+    object the terminal loop calls (`V2Terminal.checks_fn`), not the bare helper."""
+    term = cv_v2.V2Terminal(ctx=_ctx(profile_json=_tpm_vault(), keyword_ledger=_tpm_ledger()))
+    prose = _prose()
+    composed = term.compose(prose, _tpm_vault(), None)
+    found = _by_check(term.checks_fn(lambda d: composed)(prose))
+    assert "TPM" in found["cv.claim_missing"].text and W1 in found["cv.claim_missing"].text
+
+
+def test_a_ledger_row_with_a_non_claimable_status_raises_no_claim_finding():
+    """Finding 4's pinned vector (provider-free replay of the Luna probe-A run): the
+    fixture row said status "covered", which `assert_claimable_backed` heals to a gap
+    before the CV is written (ADR-061/#318) — the detector then rightly sees no claim.
+    `ledger_effective.json` is written AFTER a later refresh re-scored it to direct."""
+    from applire.services.keyword_ledger import assert_claimable_backed  # noqa: F401
+
+    found = _by_check(_checks(_prose(), _tpm_vault(),
+                              keyword_ledger=[dict(_tpm_ledger()[0], status="gap", claimable=False)]))
+    assert "cv.claim_missing" not in found
+
+
+def _project_vault() -> dict:
+    vault = _vault()
+    vault["projects"] = [{
+        "id": "pppppppp-0000-4000-8000-000000000001", "name": "Umstellung auf FastAPI",
+        "associated_experience": W1,
+        "description": "Zwei interne Dienste von Flask auf FastAPI migriert.",
+    }]
+    return vault
+
+
+def _fastapi_ledger() -> list[dict]:
+    return [{
+        "concept": "FastAPI", "surface_forms": ["FastAPI"], "claimable": True, "status": "direct",
+        "sources": ["required"], "fit_weight": 1.0, "evidence": "FastAPI-Migration",
+    }]
+
+
+def test_project_missing_fires_for_a_required_concept_only_a_vault_project_evidences():
+    """Finding 5 (C2, ruling W1-1 r2): probe B delivered no FastAPI project although
+    FastAPI is required and the vault project is its evidence; the skills chip alone
+    is not evidence (the `narrative-evidence` instrument)."""
+    prose = _prose()
+    prose["skills"] = ["SPS", "MES", "FastAPI"]
+    found = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger()))
+    f = found["cv.project_missing"]
+    assert f.blocking and "Umstellung auf FastAPI" in f.text and W1 in f.text
+
+
+def test_project_missing_is_silent_when_a_bullet_states_the_concept():
+    prose = _prose()
+    prose["work"][0]["projects"] = [{"name": "Migration", "bullets": ["Migrierte zwei Dienste auf FastAPI."]}]
+    found = _by_check(_checks(prose, _project_vault(), keyword_ledger=_fastapi_ledger()))
+    assert "cv.project_missing" not in found
+
+
+def test_project_not_mentioned_is_advisory_and_only_in_the_vaults_language():
+    found = _by_check(_checks(_prose(), _project_vault()))  # language="de", vault German
+    f = found["cv.project_not_mentioned"]
+    assert not f.blocking and "Umstellung auf FastAPI" in f.text
+    assert "cv.project_not_mentioned" not in _by_check(
+        _checks(_prose(), _project_vault(), language="en")), "a translated heading cannot be matched"
+
+
+def _outcome():
+    from applire.services.terminal_review_outcome import TerminalReviewOutcome
+
+    return TerminalReviewOutcome(chain_id="cv_terminal_review", path="exhausted", approved=False,
+                                 blocking_issues=("x",), minor_issues=(), rounds=2)
+
+
+def test_delivered_draft_open_findings_reach_the_terminal_review_row():
+    """Finding 6: the unreviewed last corrector shipped 6 bullets vs a budget of 5 and
+    nothing reported it. The checks run once on the SHIPPED draft; open blocking
+    findings become a note on the ATS `terminal-review` row — no rewrite, no round."""
+    from applire.services.terminal_review_outcome import build_terminal_review_check
+
+    prose = _prose()
+    term = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1})))
+    composed = term.compose(prose, _vault(), None)
+    out = term.report_delivered(_outcome(), prose, composed.model_dump(mode="json"))
+    assert any("cv.role_budget" in n for n in out.notes)
+    assert "cv.role_budget" in build_terminal_review_check(out).details
+    assert composed.work_history[0].bullets == prose["work"][0]["bullets"], "nothing rewritten"
+
+
+def test_delivered_draft_clean_or_without_outcome_is_unchanged():
+    term = cv_v2.V2Terminal(ctx=_ctx())
+    prose = _prose()
+    composed = term.compose(prose, _vault(), None).model_dump(mode="json")
+    o = _outcome()
+    assert term.report_delivered(o, prose, composed) is o
+    assert term.report_delivered(None, prose, composed) is None
+    no_verdict = cv_v2.V2Terminal(ctx=_ctx(budget=_budget(**{W1: 1}))).report_delivered(None, prose, composed)
+    assert no_verdict.status == "not_applicable" and "cv.role_budget" in no_verdict.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_v2_delivery_reports_the_shipped_over_budget_role_in_the_ats_report(db, monkeypatch):
+    """Finding 6 at delivery: nine bullets ship (no cap, ruling W1-3) and the ATS
+    report says so — the terminal-review row names the open `cv.role_budget`."""
+    record, _c, _i, _e = await _run(db, monkeypatch, pipeline="v2")
+    tr = next(c for c in record.ats_report["checks"] if c["id"] == "terminal-review")
+    assert "cv.role_budget" in (tr.get("details") or "")
+
+
+@pytest.mark.asyncio
+async def test_v1_delivery_report_carries_no_code_check_note(db, monkeypatch):
+    record, _c, _i, _e = await _run(db, monkeypatch, pipeline=None)
+    tr = next(c for c in (record.ats_report or {}).get("checks", []) if c["id"] == "terminal-review")
+    assert "Code checks still open" not in (tr.get("details") or "")
