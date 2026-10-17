@@ -3045,7 +3045,35 @@ async def _terminal_review_letter(
     if is_v2 and v2_signal_fn is not None:
         # The v2 signal carries the ``limit`` family itself (and composes its own
         # subject with the same code-owned-only compose as ``_subject_of``).
-        _limit_signal_fn = v2_signal_fn
+        from applire.services.letter_v2 import combine_signal_fns
+
+        def _page_signal(_d: dict) -> list:
+            """ADR-094 clause L (W2-4, B): a render over the page norm is a
+            BLOCKING finding every terminal round — the measure of the composition
+            under review, a fact (ADR-051 §6). Never a rewrite."""
+            from applire.prompts.review_severity import SEVERITY_BLOCKING
+            from applire.services.review_issues import ReviewIssue
+
+            m = measure_cell["measured"]
+            if m.page_count is None or m.page_count <= norm.letter_pages:
+                return []
+            fits = [
+                mm.word_count for mm in all_measures
+                if mm.page_count is not None and mm.page_count <= norm.letter_pages
+            ]
+            target = max(fits) if fits else norm.letter_body_word_budget
+            return [ReviewIssue(
+                text=(
+                    f"Length (computed by code): the letter renders to {m.page_count} pages "
+                    f"at {m.word_count} body words; the norm is {norm.letter_pages}. Shorten "
+                    f"the body to at most {target} words by tightening wording — keep every "
+                    "fact the letter needs, never drop the closing, the employer anchors or "
+                    "a requested positioning paragraph."
+                ),
+                severity=SEVERITY_BLOCKING,
+            )]
+
+        _limit_signal_fn = combine_signal_fns(v2_signal_fn, _page_signal)
 
     async def _finish(
         *, current, rounds, reentry_exhausted, condense_state, floor_hits,
@@ -3397,6 +3425,80 @@ async def _terminal_review_letter(
     # still-over-norm re-entry stays an accepted, logged residual.
     final_floor_fired = False
     final_floor_selection = "none"
+    if is_v2:
+        # ADR-094 clause L (W2-4, C — pending the founder's ruling, built
+        # meanwhile): ONE post-loop condense when the delivered render is still over
+        # the page norm, calibrated to the largest body word count this delivery
+        # measured on one page (else the region budget), followed by ONE review
+        # round whose settle ships. No code selection, no revert, no re-condense —
+        # the model writes, the loop reviews (v1's B3 tail stays deleted).
+        m = measure_cell["measured"]
+        pages_before = m.page_count
+        if (
+            m.page_count is not None
+            and m.page_count > norm.letter_pages
+            and not (cl.section_overrides or {})
+            and reviews_enabled
+        ):
+            final_floor_fired = True
+            fits = [
+                mm.word_count for mm in all_measures
+                if mm.page_count is not None and mm.page_count <= norm.letter_pages
+            ]
+            target = max(fits) if fits else norm.letter_body_word_budget
+            previous = current
+            try:
+                current = await _condense_call(
+                    provider,
+                    build_condense_prompt(
+                        _subject_of(current),
+                        target,
+                        m.page_count,
+                        letter_pages=norm.letter_pages,
+                        pinned_quotes=[pn.quote for pn in pins] or None,
+                        language=language,
+                    ),
+                    stage="letter_condense_final_floor",
+                    system=build_system_prompt(language, pipeline=pipeline),
+                )
+                await _apply(current)
+            except Exception as floor_err:
+                logger.warning(
+                    "LETTER_V2_LENGTH condense failed for CL %s — keeping the terminal "
+                    "composition: %s", cl.id, floor_err,
+                )
+                try:
+                    await db.rollback()
+                    await db.refresh(cl)
+                except Exception as restore_err:  # pragma: no cover - defensive
+                    logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
+                current = previous
+                final_floor_selection = "condense_failed"
+            else:
+                rounds += 1
+                settled = await review_and_refine(
+                    source=grounding_source,
+                    draft=current,
+                    generator_prompt_fn=_terminal_corrector_prompt_fn,
+                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                    reviewer_prompt_fn=_reviewer_prompt,
+                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                    provider=provider,
+                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+                    chain_id="letter_terminal_review",
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+                    signal_issues_fn=_limit_signal_fn,
+                    on_settle=_record_settle,
+                )
+                if _canon(settled) != _canon(current):
+                    current = settled
+                    await _apply(current)
+                final_floor_selection = "v2_condensed_then_reviewed"
+            logger.info(
+                "LETTER_V2_LENGTH cl_id=%s pages_before=%s pages_after=%s target_words=%s "
+                "outcome=%s", cl.id, pages_before, measure_cell["measured"].page_count,
+                target, final_floor_selection,
+            )
     if final_floor:
         m = measure_cell["measured"]
         pages_before = m.page_count

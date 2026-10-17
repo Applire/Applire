@@ -652,15 +652,19 @@ async def test_seam_v2_delivers_unrepaired_text_with_a_report_note(db, v2):
 
 @pytest.mark.asyncio
 async def test_seam_v2_has_no_final_length_floor(db, v2):
+    """W2-1 B3 deleted the v1 floor (selection / revert / unreviewed re-condense);
+    W2-4 (C, built pending ruling): at most ONE post-loop condense, language-named,
+    always followed by a review round."""
     rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
-    stages_with_condense = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
-    # ONE condense (pre-verdict, kept — B4), never the floor's second or third
-    assert len(stages_with_condense) == 1
-    condense_prompt, condense_system = next(
-        (p, s) for p, s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p
-    )
-    assert "Write every sentence in ENGLISH." in condense_prompt
-    assert "document language is ENGLISH" in condense_system.splitlines()[0]
+    condenses = [(p, s) for p, s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    assert len(condenses) == 2  # pre-verdict (B4) + the one reviewed post-loop condense
+    for p, s in condenses:
+        assert "Write every sentence in ENGLISH." in p
+        assert "document language is ENGLISH" in s.splitlines()[0]
+    terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
+    # the post-loop condense is reviewed: the last terminal round reviews its output
+    assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
+    assert any(i.text.startswith("Length (computed by code)") for i in terminal[-1]["signal_issues"])
 
 
 @pytest.mark.asyncio
