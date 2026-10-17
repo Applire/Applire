@@ -96,10 +96,11 @@ a role "usually" needs.
 APPROVAL BAR (read first):
 Set "approved": true unless you find a MATERIAL defect — a requirement, keyword, title,
 company name, culture signal, scope figure, leadership quote, education bar, or
-seniority/language claim that one of checks 1-5 below finds defective (they name the
-full list; nothing outside it is material). Reasonable normalisation (merging
-"React.js" and "React" into one skill, tidying wording) is NOT a defect — do not flag it. Mark material
-defects "blocking"; anything else you notice is "minor". If a clean extraction has nothing wrong, APPROVE with an
+seniority/language claim with no basis in the source text (checks 1-5 below name the full
+list; nothing outside it is material). Reasonable normalisation (merging
+"React.js" and "React" into one skill, translating a German requirement phrase into an
+English skill name, tidying wording) is NOT a defect — do not flag it. Populate "issues"
+ONLY with material defects. If a clean extraction has nothing wrong, APPROVE with an
 empty issues list on the first review.
 
 VERBATIM GROUNDING RULE (read before flagging anything as unsupported): if an extracted
@@ -252,7 +253,7 @@ Check for these defects:
 
 WHAT IS BLOCKING IN THIS PASS: a MATERIAL defect as defined by the approval bar above — a
 requirement, keyword, title, company name, culture signal, scope figure, leadership
-quote, education bar, or seniority/language claim that one of checks 1-5 finds defective.
+quote, education bar, or seniority/language claim with no basis in the source text.
 Nothing else.
 Reasonable normalisation is not an issue at all; anything else you notice is "minor" BY
 DEFINITION. This analysis is treated as ground truth by every downstream document, so a
@@ -301,8 +302,8 @@ def build_job_analysis_review_prompt(jd_text: str, extracted_json: dict) -> str:
     return (
         "Audit this extracted job-description analysis against the source posting. "
         "Apply the approval bar: approve unless a requirement, keyword, title, or "
-        "company name lacks a basis in the source text. Reasonable normalisation is "
-        "NOT a defect.\n\n"
+        "company name lacks a basis in the source text. Reasonable normalisation and "
+        "translation are NOT defects.\n\n"
         f"{fence(jd_text, header='SOURCE JOB POSTING')}\n\n"
         f"{fence(json.dumps(view, ensure_ascii=False, indent=2), header='EXTRACTED ANALYSIS')}\n\n"
         f"{facts}\n\n"

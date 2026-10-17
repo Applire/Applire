@@ -12,11 +12,13 @@ because a later edit to ONE of the three prompts re-opens it silently:
   a posting that says "Sehr gutes Deutsch und gutes Englisch").
 * KldB — the writer asked for a "4- or 5-digit" code; the lookup holds none of 5
   digits, so every 5-digit answer was nulled with its label.
-* C1-1 — the writer keeps concept terms in the posting's language; the reviewer
-  called translation acceptable and the corrector was never told the language.
-* C1-2 — the approval bar said "no basis in the source text … nothing else" while
-  checks 1b, 2, 2b-2e and 5 block for other reasons, and "populate issues ONLY with
-  material defects" contradicted the shared severity contract.
+* C1-1 (corrector half) — the writer keeps concept terms in the posting's language;
+  the corrector rewrites every list and was never told the language.
+
+The reviewer-side halves of C1-1 (translation named acceptable) and C1-2 (approval bar
+vs severity contract) were measured as an arm and NOT shipped: no convergence change
+on luna / ministral-8b at n=12 (ministral's own unchanged-prompt re-run moved 6 -> 10
+exhausted of 12 overnight, so the day-1 baseline is noise). They stay collector lines.
 """
 from __future__ import annotations
 
@@ -27,7 +29,6 @@ from applire.prompts.job_analysis import SYSTEM_PROMPT as WRITER
 from applire.prompts.review_job_analysis import (
     JOB_ANALYSIS_REVIEW_SYSTEM_PROMPT as REVIEWER,
     build_job_analysis_retry_prompt,
-    build_job_analysis_review_prompt,
 )
 
 KLDB = Path(__file__).resolve().parents[2] / "backend" / "applire" / "data" / "kldb2020.json"
@@ -47,12 +48,6 @@ def test_kldb_digits_asked_for_exist_in_the_lookup():
     assert f"{longest + 1}-digit" not in line and "5-digit" not in line
 
 
-def test_reviewer_no_longer_names_translation_as_acceptable_normalisation():
-    assert "translating a German requirement phrase into an\nEnglish skill name" not in REVIEWER
-    user = build_job_analysis_review_prompt("Wir suchen eine Controllerin (m/w/d).", {"role_title": "Controllerin"})
-    assert "translation are NOT defects" not in user
-
-
 def test_the_corrector_is_told_the_postings_language():
     de = build_job_analysis_retry_prompt({"role_title": "Controller"}, "fix it",
                                          "Wir suchen eine erfahrene Controllerin für unser Werk in Freiburg. "
@@ -62,16 +57,6 @@ def test_the_corrector_is_told_the_postings_language():
                                          "You will design and operate the services.")
     assert "POSTING LANGUAGE: German" in de and "POSTING LANGUAGE: English" in en
     assert de.index("POSTING LANGUAGE") < de.index("REVIEW FEEDBACK")
-
-
-def test_the_approval_bar_defers_to_the_checks_and_the_severity_contract():
-    bar = REVIEWER.split("APPROVAL BAR", 1)[1].split("VERBATIM GROUNDING RULE", 1)[0]
-    assert "checks 1-5" in bar and "with no basis in the source text" not in bar
-    assert 'Populate "issues"\nONLY with material defects' not in REVIEWER
-    assert '"minor"' in bar
-    tail = REVIEWER.split("WHAT IS BLOCKING IN THIS PASS", 1)[1][:400]
-    assert "checks 1-5" in tail and "with no basis in the source text" not in tail
-    assert REVIEWER.count("education bar") >= 2  # test_uat_education_requirement's pin
 
 
 def test_gap_prompt_carries_no_developer_prose_or_duplicate_guideline():
