@@ -1106,3 +1106,188 @@ def test_budget_line_is_model_written_only_when_every_figure_survives():
     tailored, notes = _compose(prose, vault)
     assert tailored.work_history[0].budget_managed == "ca. 6 Mio. €"
     assert any("budget_managed" in n[0] for n in notes.names_not_recorded)
+
+
+# =============================================================================
+# 12. W1-1 follow-up (2026-10-17): C5 and B as v2 findings
+# =============================================================================
+
+KANBAN_BULLET = "Führte Kanban für die Montagelinie ein und halbierte die Durchlaufzeit."
+
+
+def _kanban_ledger() -> list[dict]:
+    return [{
+        "concept": "Kanban", "surface_forms": ["Kanban"], "claimable": True,
+        "status": "direct", "sources": ["required"], "fit_weight": 1.0,
+        "evidence": "vault evidence for Kanban",
+    }]
+
+
+def _kanban_vault() -> dict:
+    vault = _vault()
+    vault["work_experience"][1]["responsibilities"].append(KANBAN_BULLET)
+    return vault
+
+
+def test_claim_missing_finding_names_concept_vault_sentence_and_role_id():
+    """C5 (ruling W1-1 r1, #234): the concept the vault evidences is absent → one
+    blocking finding carrying the vault sentence and the role id; code adds nothing."""
+    prose = _prose()
+    found = _by_check(_checks(prose, _kanban_vault(), keyword_ledger=_kanban_ledger()))
+    f = found["cv.claim_missing"]
+    assert f.blocking
+    assert "“Kanban”" in f.text and KANBAN_BULLET in f.text and W2 in f.text
+    tailored, _ = _compose(prose, _kanban_vault())
+    assert not any("Kanban" in b for w in tailored.work_history for b in w.bullets), \
+        "no verbatim append: the corrector writes it"
+
+
+def test_claim_missing_finding_is_silent_when_the_draft_carries_the_concept():
+    prose = _prose()
+    prose["work"][1]["bullets"].append("Steuerte die Linie per Kanban.")
+    assert "cv.claim_missing" not in _by_check(
+        _checks(prose, _kanban_vault(), keyword_ledger=_kanban_ledger()))
+
+
+def test_claim_missing_finding_names_exactly_what_the_v1_restore_would_append():
+    """ADR-066: one selection. The v1 tail (`_restore_ledger_bullets`) run on the
+    same composed draft appends exactly the vault sentence the v2 finding names."""
+    from applire.services.cv import _restore_ledger_bullets
+
+    tailored, _ = _compose(_prose(), _kanban_vault())
+    restored = _restore_ledger_bullets(tailored, _kanban_vault(), _kanban_ledger(), None)
+    added = [b for w in restored.work_history for b in w.bullets
+             if b not in {x for t in tailored.work_history for x in t.bullets}]
+    assert added == [KANBAN_BULLET]
+    assert KANBAN_BULLET in _by_check(
+        _checks(_prose(), _kanban_vault(), keyword_ledger=_kanban_ledger()))["cv.claim_missing"].text
+
+
+def _lang_handed() -> dict:
+    return {
+        "summary": "Head of production.",
+        "work": [
+            {"id": W1, "bullets": ["Led production.", "Cut scrap by 18 %."], "projects": []},
+            {"id": W2, "bullets": ["Optimised the line."], "projects": []},
+        ],
+        "projects": [],
+        "skills": ["PLC", "MES"],
+    }
+
+
+def _lang_translated(*, drop_bullet: bool) -> dict:
+    d = {
+        "summary": "Produktionsleiter.",
+        "work": [
+            {"id": W1, "bullets": ["Leitete die Produktion.", "Senkte Ausschuss um 18 %."],
+             "projects": []},
+            {"id": W2, "bullets": ["Optimierte die Linie."], "projects": []},
+        ],
+        "projects": [],
+        "skills": ["SPS", "MES"],
+    }
+    if drop_bullet:
+        d["work"][0]["bullets"] = d["work"][0]["bullets"][:1]
+    return d
+
+
+def test_language_shape_finding_fires_on_a_dropped_bullet_and_is_silent_on_the_same_shape():
+    checks = cv_v2.language_shape_checks(_lang_handed())
+    assert checks(_lang_handed()) == []
+    assert checks(_lang_translated(drop_bullet=False)) == []
+    (f,) = checks(_lang_translated(drop_bullet=True))
+    assert f.check == "cv.language_shape" and f.blocking and f"work[{W1}].bullets" in f.text
+    nested = _lang_translated(drop_bullet=False)
+    nested["work"][0][W2] = nested["work"].pop(1)  # the #759 nesting shape
+    (f,) = checks(nested)
+    assert f"work[{W2}] missing" in f.text
+
+
+MAJOR_LANG = {"approved": False, "issues": [{"severity": "major", "issue": "English prose"}],
+              "feedback": "translate"}
+APPROVE_LANG = {"approved": True, "issues": [], "feedback": ""}
+
+
+@pytest.mark.asyncio
+async def test_v2_language_shape_finding_opens_a_round_after_the_reviewer_approved():
+    """Inventory B (ruling W1-1 r2) at the seam: the refiner drops a bullet, the
+    reviewer approves the translation — the shape finding opens one more refiner
+    round, and the refiner's second, intact draft is delivered."""
+    from applire.services.cv import _review_cv_language
+
+    provider = AsyncMock()
+    provider.aparse_json.side_effect = [
+        MAJOR_LANG, _lang_translated(drop_bullet=True),
+        APPROVE_LANG, _lang_translated(drop_bullet=False),
+    ]
+    out = await _review_cv_language(
+        _lang_handed(), "de", provider,
+        checks_fn=cv_v2.language_shape_checks(_lang_handed()),
+    )
+    assert out["work"][0]["bullets"] == _lang_translated(drop_bullet=False)["work"][0]["bullets"]
+    # review → refine (broken) → review APPROVES → the finding opens refine #2 (cap 2)
+    assert provider.aparse_json.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_v1_language_pass_settles_the_same_broken_draft_without_a_round():
+    """The control: without the v2 check the approved broken draft settles at once and
+    the #759 settle guard takes the handed container (v1 behaviour, unchanged)."""
+    from applire.services.cv import _review_cv_language
+
+    provider = AsyncMock()
+    provider.aparse_json.side_effect = [MAJOR_LANG, _lang_translated(drop_bullet=True), APPROVE_LANG]
+    out = await _review_cv_language(_lang_handed(), "de", provider)
+    assert provider.aparse_json.await_count == 3
+    assert out["work"][0]["bullets"] == _lang_handed()["work"][0]["bullets"]
+
+
+@pytest.mark.asyncio
+async def test_v2_language_shape_at_exhaustion_ships_the_handed_model_container():
+    """Exhaustion: every refiner draft drops the bullet. The container ships as the
+    handed MODEL draft had it — a selection between model outputs, no code text."""
+    from applire.services.cv import _review_cv_language
+
+    provider = AsyncMock()
+    provider.aparse_json.side_effect = [
+        MAJOR_LANG, _lang_translated(drop_bullet=True),
+        APPROVE_LANG, _lang_translated(drop_bullet=True),
+    ]
+    out = await _review_cv_language(
+        _lang_handed(), "de", provider,
+        checks_fn=cv_v2.language_shape_checks(_lang_handed()),
+    )
+    assert out["work"][0]["bullets"] == _lang_handed()["work"][0]["bullets"]
+    assert out["work"][1]["bullets"] == ["Optimierte die Linie."], "intact containers keep the translation"
+
+
+@pytest.mark.asyncio
+async def test_v2_wiring_hands_the_language_pass_the_shape_check(db, monkeypatch):
+    _r, calls, _i, _e = await _run(db, monkeypatch, pipeline="v2")
+    assert callable(_chain(calls, "cv_language")["kwargs"]["checks_fn"])
+
+
+@pytest.mark.asyncio
+async def test_v1_wiring_hands_the_language_pass_no_check(db, monkeypatch):
+    calls = (await _run(db, monkeypatch, pipeline=None))[1]
+    assert _chain(calls, "cv_language")["kwargs"].get("checks_fn") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("v2", [True, False])
+async def test_terminal_language_recheck_carries_the_shape_check_only_under_v2(v2):
+    from applire.services import cv as cv_mod
+
+    seen: dict = {}
+
+    async def fake_language(draft, *_a, **kw):
+        seen["checks_fn"] = kw.get("checks_fn")
+        return draft
+    trig = cv_mod.TerminalLanguageTrigger(foreign_prose=[("x", "y")], new_skills=[], cross_language=False)
+    with patch.object(cv_mod, "_terminal_language_trigger", return_value=trig), \
+            patch.object(cv_mod, "_review_cv_language", side_effect=fake_language):
+        await cv_mod._terminal_language_recheck(
+            _lang_handed(), _lang_handed(), profile_json=_vault(), document_language="de",
+            provider=AsyncMock(), keyword_ledger=None, budget=None, v2_shape_check=v2,
+        )
+    assert (seen["checks_fn"] is not None) is v2

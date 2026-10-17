@@ -420,6 +420,13 @@ def v2_checks(
             ),
         ))
 
+    # 4b. C5 (ruling W1-1 r1, #234): a claimable concept the vault evidences is absent
+    #     from the CV. Detection and the vault-sentence selection are v1's own
+    #     (``ledger_restore.select_restore_candidates`` — ADR-066, one definition); the
+    #     corrector writes the bullet. No verbatim append; on exhaustion the CV ships
+    #     and the ATS ``narrative-evidence`` check reports the absence (ADR-039).
+    findings.extend(_claim_missing_findings(composed, ctx))
+
     # 5–8. the v1 skill passes as detectors — run IN v1's ORDER on one copy, so the
     #    findings describe v1's own final skills decision and can never contradict each
     #    other (v1's echo-drop removes a chip that its narrative-restore re-adds — the
@@ -440,6 +447,70 @@ def v2_checks(
     blocking = [f for f in findings if f.blocking]
     advisory = [f for f in findings if not f.blocking]
     return (blocking + advisory)[:MAX_FINDINGS_PER_ROUND]
+
+
+def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """C5 as a finding: what ``_restore_ledger_bullets`` would append verbatim becomes
+    one blocking finding naming the concept, the vault sentence and the role id."""
+    if not ctx.keyword_ledger:
+        return []
+    from applire.services.ledger_restore import select_restore_candidates
+
+    try:
+        candidates = select_restore_candidates(
+            composed.model_dump(mode="json"), ctx.profile_json, ctx.keyword_ledger, ctx.budget,
+        )
+    except Exception:  # noqa: BLE001 — a detector failure loses its finding only
+        logger.exception("v2 check detector select_restore_candidates raised; finding skipped")
+        return []
+    companies = {w.id: w.company for w in composed.work_history}
+    parts = [
+        f"claimable concept “{c.concept}” is absent from the CV — the vault says: "
+        f"“{c.vault_text}”, under {eid} ({companies.get(eid, '')})"
+        for eid, cands in candidates.items()
+        for c in cands
+    ]
+    if not parts:
+        return []
+    return [CheckFinding(
+        check="cv.claim_missing",
+        text=(
+            "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
+            + (f" (+{len(parts) - _MAX_ITEMS_PER_FINDING} more)" if len(parts) > _MAX_ITEMS_PER_FINDING else "")
+            + ". Write each into that role as one bullet in the document language, naming "
+            "the concept as the posting does; if the role is at its bullet budget, replace "
+            "its weakest bullet instead of adding."
+        ),
+    )]
+
+
+def language_shape_checks(handed: dict):
+    """Inventory B under v2 (ruling W1-1 r2): the ``cv_language`` refiner must keep
+    the shape of the draft it was HANDED (#759: it once nested three work entries in
+    the first and dropped the skills). A shape change is a blocking finding — it opens
+    a refiner round; on exhaustion the existing settle guard
+    (``cv._settle_language_shape``) ships each changed container as the handed MODEL
+    draft had it — a selection between two model outputs, no code-authored text. The
+    comparison is v1's own (``cv._language_shape_fallbacks``, ADR-066)."""
+    from applire.services import cv as cv_mod
+
+    def _checks(draft: dict) -> list[CheckFinding]:
+        _, changed = cv_mod._language_shape_fallbacks(draft, handed)
+        if not changed:
+            return []
+        return [CheckFinding(
+            check="cv.language_shape",
+            text=(
+                "The translation changed the document's structure: "
+                + ", ".join(changed)
+                + ". Translate in place: return every work entry by id at the top level, "
+                "with the same number of bullets, the same projects with the same bullet "
+                "counts, the same number of skills, and the summary — never add, drop, "
+                "merge, nest or reorder an entry."
+            ),
+        )]
+
+    return _checks
 
 
 def _skill_findings(composed: "TailoredCVData", ctx: V2CheckContext, cv_mod: Any) -> list[CheckFinding]:

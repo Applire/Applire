@@ -984,6 +984,7 @@ async def _review_cv_language(
     preseed: "PreseedPlan | None" = None,
     *,
     chain_id: str = "cv_language",
+    checks_fn=None,
 ) -> dict:
     """Enforce that the tailored CV's prose + skill tags are entirely in the target-job
     language (ADR-038), retrying via the ADR-021 review_and_refine loop. The tailoring
@@ -1033,6 +1034,10 @@ async def _review_cv_language(
         settle_guard=lambda settled, _history: _settle_after_language_pass(
             settled, draft, preseed
         ),
+        # ADR-094 (inventory B, ruling W1-1 r2): under CV_PIPELINE=v2 a shape change is
+        # a finding that opens a refiner round; the settle guard above stays the
+        # exhaustion disposition. v1 passes None — the loop is unchanged.
+        checks_fn=checks_fn,
     )
 
 
@@ -1145,6 +1150,22 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
     the review surface — a lost translation is reported, a lost fact would be a
     silent ADR-072 cut, which is the worse defect.
     """
+    out, fallbacks = _language_shape_fallbacks(settled, corrected)
+    if fallbacks:
+        logger.warning(
+            "LANGUAGE_RECHECK_SETTLE_FALLBACK (#759, ADR-072): the language pass "
+            "changed the shape of %s — those containers keep the text the pass was "
+            "handed (left to the document-language check, never dropped)",
+            ", ".join(fallbacks),
+        )
+    return out
+
+
+def _language_shape_fallbacks(settled: dict, corrected: dict) -> tuple[dict, list[str]]:
+    """The #759 shape comparison itself (ADR-066: one definition): the settled draft
+    with every changed container taken from ``corrected``, and the containers' names.
+    Used by :func:`_settle_language_shape` (both pipelines) and, under
+    ``CV_PIPELINE=v2``, as the ``cv.language_shape`` finding (ADR-094, inventory B)."""
     import copy as _copy
 
     out = _copy.deepcopy(settled) if isinstance(settled, dict) else {}
@@ -1157,7 +1178,7 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
         ]
 
     if not isinstance(corrected, dict):
-        return settled
+        return settled, []
     settled_by_id = {
         str(w.get("id") or ""): w
         for w in (out.get("work") or []) if isinstance(w, dict)
@@ -1194,15 +1215,7 @@ def _settle_language_shape(settled: dict, corrected: dict) -> dict:
     if not (isinstance(out.get("summary"), str) and out["summary"].strip()) and corrected.get("summary"):
         fallbacks.append("summary")
         out["summary"] = corrected["summary"]
-
-    if fallbacks:
-        logger.warning(
-            "LANGUAGE_RECHECK_SETTLE_FALLBACK (#759, ADR-072): the language pass "
-            "changed the shape of %s — those containers keep the text the pass was "
-            "handed (left to the document-language check, never dropped)",
-            ", ".join(fallbacks),
-        )
-    return out
+    return out, fallbacks
 
 
 async def _terminal_language_recheck(
@@ -1216,6 +1229,7 @@ async def _terminal_language_recheck(
     budget: Any,
     cv_id: Any = None,
     round_no: int = 0,
+    v2_shape_check: bool = False,
 ) -> dict:
     """#759 (ADR-076 clause 3 / ADR-038 amended 2026-10-08) — the language pass is
     the LAST prose writer again.
@@ -1249,11 +1263,17 @@ async def _terminal_language_recheck(
     if not trig.fired:
         return after
     try:
+        checks_fn = None
+        if v2_shape_check:
+            from applire.services.cv_v2 import language_shape_checks
+
+            checks_fn = language_shape_checks(after)
         return await _review_cv_language(
             after, document_language, provider,
             keyword_ledger=keyword_ledger,
             budget=budget,
             chain_id="cv_language_recheck",
+            checks_fn=checks_fn,
         )
     except Exception:
         logger.exception(
@@ -4562,11 +4582,17 @@ async def _render_cv_background(
                         document_language=document_language,
                     )
                 pre_language_draft = prose_draft
+                language_checks = None
+                if pipeline == PIPELINE_V2:
+                    from applire.services.cv_v2 import language_shape_checks
+
+                    language_checks = language_shape_checks(pre_language_draft)
                 prose_draft = await _review_cv_language(
                     prose_draft, document_language, provider,
                     keyword_ledger=keyword_ledger,
                     budget=budget,
                     preseed=preseed_plan,
+                    checks_fn=language_checks,
                 )
                 v2_terminal = None
                 if pipeline == PIPELINE_V2:
@@ -5760,6 +5786,7 @@ async def _terminal_review(
             budget=_budget_for_round(),
             cv_id=record.id,
             round_no=rounds,
+            v2_shape_check=v2 is not None,
         )
         if v2 is not None:
             settled = carry_v2_fields(settled, handed_to_recheck)
