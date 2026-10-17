@@ -1017,7 +1017,9 @@ def install_log_readers() -> None:
         # should see it, and it is the finding, not noise.
         ("applire.services.profile.reconcile.engine", logging.WARNING, True),
         # #766: REVIEW_VERDICT / _EXHAUSTED / _CYCLE_DETECTED / _CALL_FAILED.
-        ("applire.llm.review", logging.INFO, False),
+        # Propagation stays ON: caplog-based tests of these lines (test_reviewer.py)
+        # read them through the root logger in the same process.
+        ("applire.llm.review", logging.INFO, True),
     ):
         logger = logging.getLogger(name)
         if not any(isinstance(h, _LogReader) for h in logger.handlers):
