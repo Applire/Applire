@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Job analysis and reconcile prompts, measured (#765, #766).** The reconcile response schema sends one plain line per operation instead of developer docstrings (schema 11.8k → 8.1k chars, no change on the measured models). The job-description analysis keeps the posting's own wording for language requirements (no invented CEFR levels), asks only for KldB codes the lookup holds, and its correction rounds are told the posting's language. Before/after rows: `tests/files/model_matrix/results/2026-10-16/`.
+
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
