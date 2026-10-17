@@ -33,6 +33,22 @@ def _load_harness():
 
 mm = _load_harness()
 
+_LOGGERS = ("applire.providers.llm", "applire.services.profile.reconcile.engine", "applire.llm.review")
+
+
+@pytest.fixture(autouse=True)
+def _restore_loggers():
+    """``install_log_readers`` turns propagation off on the review logger; leaving it
+    off would blind every later ``caplog`` test of REVIEW_* lines in this process."""
+    saved = {n: (logging.getLogger(n).level, logging.getLogger(n).propagate, list(logging.getLogger(n).handlers))
+             for n in _LOGGERS}
+    yield
+    for n, (level, propagate, handlers) in saved.items():
+        lg = logging.getLogger(n)
+        lg.setLevel(level)
+        lg.propagate = propagate
+        lg.handlers[:] = handlers
+
 
 def test_cells_resolve_by_type_id_and_all_and_skip_the_smoke_fixture():
     same = mm.analysis_cells("same")
