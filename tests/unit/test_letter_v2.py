@@ -871,20 +871,22 @@ def _m(pages, words, overflow=None):
                           word_budget=300, overflow_words=overflow)
 
 
-def test_v2_page_target_prefers_a_measured_fit():
+def test_v2_page_target_prefers_this_renders_overflow_over_another_compositions_fit():
     from applire.services.cover_letter import _v2_page_target
 
     over = _m(2, 310, overflow=40)
-    assert _v2_page_target(over, [_m(1, 262), over, _m(1, 248)], _norm()) == 262
+    assert _v2_page_target(over, [_m(1, 295), over], _norm()) == 310 - 40 - 25  # 8 % of 310
+    unmeasured = _m(2, 310, overflow=None)
+    assert _v2_page_target(unmeasured, [_m(1, 262), unmeasured, _m(1, 248)], _norm()) == 262
 
 
 def test_v2_page_target_sizes_from_the_overflow_with_a_margin():
     from applire.services.cover_letter import _v2_page_target
 
     over = _m(2, 289, overflow=12)          # the Luna shape: 289 words on 2 pages
-    assert _v2_page_target(over, [over], _norm()) == 289 - 12 - 14  # 5 % of 289
+    assert _v2_page_target(over, [over], _norm()) == 289 - 12 - 23  # 8 % of 289
     small = _m(2, 150, overflow=5)
-    assert _v2_page_target(small, [small], _norm()) == 150 - 5 - 10  # margin floor
+    assert _v2_page_target(small, [small], _norm()) == 150 - 5 - 15  # margin floor
     big = _m(2, 420, overflow=30)
     assert _v2_page_target(big, [big], _norm()) == 300                # never above budget
 
@@ -906,7 +908,7 @@ async def test_seam_v2_condense_target_comes_from_the_render_overflow(db, v2):
                return_value=["x " * 200, "y " * 30]):
         rec = await _run(db, await _seed(db), payload=_draft(body), pages=2)
     condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
-    expected = max(1, min(words - 30 - max(10, round(0.05 * words)), 300))
+    expected = max(1, min(words - 30 - max(15, round(0.08 * words)), 300))
     assert len(condenses) == 2  # pre-verdict + the W2-4 post-loop condense
     assert all(f"AT MOST {expected} words" in p for p in condenses)
 
@@ -918,3 +920,29 @@ async def test_seam_v1_condense_target_stays_the_region_budget(db, v1):
         rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
     condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
     assert condenses and "AT MOST 300 words" in condenses[0]
+
+
+def test_v2_compose_flattens_object_paragraphs_from_the_corrector():
+    """W3-3 re-measure: a corrector returned body paragraphs as objects and the
+    v2 generation failed on ``.split``; the text is kept, the shape repaired."""
+    from applire.services.cover_letter import _v2_coerce_paragraphs
+
+    d = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Erster Absatz.",
+                                 {"text": "Zweiter Absatz.", "note": "mit Zusatz."}, {}, ["Dritter", "Absatz."]]}}
+    out = _v2_coerce_paragraphs(d)
+    assert out["body"]["paragraphs"] == ["Sehr geehrte Damen und Herren,", "Erster Absatz.",
+                                         "Zweiter Absatz. mit Zusatz.", "Dritter Absatz."]
+    clean = {"body": {"paragraphs": ["a", "b"]}}
+    assert _v2_coerce_paragraphs(clean) is clean
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_survives_object_paragraphs(db, v2):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    body = list(_ENGLISH_BODY[:-1]) + [{"text": _ENGLISH_BODY[-1]}]
+    ids = await _seed(db)
+    await _run(db, ids, payload=_draft(body))
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.status == "ready"
+    assert cl.letter_data["body"]["paragraphs"][-1] == _ENGLISH_BODY[-1]

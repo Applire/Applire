@@ -2462,6 +2462,8 @@ def _compose_letter(
         # that step to fill — a shape repair, no prose involved. (v1 keeps its
         # behaviour; the same crash there is a Letter collector line.)
         letter_data = {**letter_data, "recipient": {}}
+    if not v1:
+        letter_data = _v2_coerce_paragraphs(letter_data)
     # #254 — deterministic figure-attribution guard, run on the settled output
     # of a review/corrector loop (never mid-loop): the ADR-021 corrector sees
     # the whole profile and can mint a figure borrowed from an unrelated
@@ -2540,6 +2542,32 @@ class LetterFinding:
 
     family: str  # salutation | signoff | closing | figure | limit | names
     text: str
+
+
+def _v2_coerce_paragraphs(letter_data: dict) -> dict:
+    """v2 shape repair (W3-3 re-measure, 2026-10-17, ministral
+    it_backend_daniel.mixed_en run 0): a terminal corrector returned two body
+    paragraphs as JSON objects, and the generation failed on ``.split``. A body
+    paragraph is a string by schema; an object or list carrying the model's own
+    text is flattened to that text (its string values, in order) — no word is
+    added or removed — and an empty one is dropped. (v1 keeps its behaviour; the
+    same crash there is a Letter collector line.)"""
+    body = letter_data.get("body")
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list) or all(isinstance(p, str) for p in paragraphs):
+        return letter_data
+
+    def _text(v) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, dict):
+            return " ".join(t for t in (_text(x) for x in v.values()) if t)
+        if isinstance(v, (list, tuple)):
+            return " ".join(t for t in (_text(x) for x in v) if t)
+        return ""
+
+    fixed = [t for t in (_text(p) for p in paragraphs) if t]
+    return {**letter_data, "body": {**body, "paragraphs": fixed}}
 
 
 def _letter_format_findings(letter_data: dict) -> list[LetterFinding]:
@@ -2813,20 +2841,23 @@ async def _persist_and_measure(
 
 
 def _v2_page_target(m: "MeasuredLetter", all_measures, norm) -> int:
-    """RULING W3-3: the body word count this delivery's OWN render says fits the page
-    norm. The largest composition measured on the norm wins (a measured fit); else the
-    over-norm render's words minus what it put past the norm, minus a margin for line
-    wrap (5 %, at least 10 words). Never above the region budget. The 300-word budget
-    alone is not a page proxy (gate 3a451106: v2 letters of 260–300 words on 2 pages)."""
+    """RULING W3-3: the body word count THIS render says fits the page norm — the
+    over-norm render's body words minus the words it put past the norm, minus a margin
+    for line wrap and condense overshoot (8 %, at least 15 words); never above the
+    region budget. Only when this render's overflow is unmeasured does the largest
+    composition measured on the norm stand in: another composition's fit is a weak
+    proxy (W3-3a arm: one fit at 295 words while this one ran to 2 pages at 265 —
+    paragraph layout differs). The 300-word budget alone is no page proxy either
+    (gate 3a451106: v2 letters of 260–300 words on 2 pages)."""
+    if m.overflow_words is not None and m.page_count is not None and m.page_count > norm.letter_pages:
+        margin = max(15, round(0.08 * m.word_count))
+        return max(1, min(m.word_count - m.overflow_words - margin, norm.letter_body_word_budget))
     fits = [
         mm.word_count for mm in all_measures
         if mm.page_count is not None and mm.page_count <= norm.letter_pages
     ]
     if fits:
         return min(max(fits), norm.letter_body_word_budget)
-    if m.overflow_words is not None and m.page_count is not None and m.page_count > norm.letter_pages:
-        margin = max(10, round(0.05 * m.word_count))
-        return max(1, min(m.word_count - m.overflow_words - margin, norm.letter_body_word_budget))
     return norm.letter_body_word_budget
 
 
