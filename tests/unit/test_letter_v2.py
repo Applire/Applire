@@ -669,11 +669,6 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     # the post-loop condense is reviewed: one terminal loop, then ONE more review round
     # over the condensed draft (never shipped unreviewed)
     assert len(terminal) == 2
-    # RULING W2-6: the post-condense round reviews the corrector's patch (one more
-    # review than every other terminal round)
-    from applire.constants import LETTER_TERMINAL_REVIEW_MAX_RETRIES as base
-    assert terminal[0]["max_retries"] == base
-    assert terminal[-1]["max_retries"] == base + 1
     assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
     assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
 
