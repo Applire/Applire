@@ -19,8 +19,8 @@ the same for
 * **page length** — % of documents over the template budget, per document type
   (``report.page_length``; the budget is the product's own, ADR-051 §1).
 
-**The #778 criterion** (``us368``): L, D and S better, U no worse, page length
-held, failed runs no worse — evaluated in two readings of "better" (the paired
+**The #778 criterion** (``us368``): L, D and S better, U no worse, no class
+worse in the CV or in the letter on its own, page length held, failed runs no worse — evaluated in two readings of "better" (the paired
 difference interval below zero, and #778's literal "the arms' intervals do not
 overlap"); both are shown, neither is chosen here.
 
@@ -178,6 +178,13 @@ def us368_criterion(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 checks[f"{cls} better"] = (not r["arm_cis_overlap"]) and r["diff"] < 0
         for cls in MUST_NOT_REGRESS:
             checks[f"{cls} no worse"] = by[(cls, "all")]["verdict"] != "regressed"
+        # A CV gain must not hide a letter loss (the letter reads the delivered CV:
+        # W1's paired run moved the v1 letter's L 10 -> 45 per 100 under CV v2).
+        for doc in ("cv", "letter"):
+            for cls in (*MUST_IMPROVE, *MUST_NOT_REGRESS):
+                r = by.get((cls, doc))
+                if r is not None and r["diff"] is not None:
+                    checks[f"{cls} no worse ({doc})"] = r["verdict"] != "regressed"
         for doc in ("cv", "letter"):
             checks[f"page length held ({doc})"] = by[("over_page_budget", doc)]["verdict"] != "regressed"
         checks["failed runs no worse"] = by[("failed_runs", "runs")]["verdict"] != "regressed"

@@ -1017,8 +1017,9 @@ def test_gate_us368_criterion_in_both_readings(tmp_path):
                     [_issue("L")] * (i % 2) + [_issue("S")] * (i % 2) + [_issue("U")])
     g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
     assert g["us368"]["diff_ci"]["pass"] is True and g["us368"]["literal"]["pass"] is True
-    assert set(g["us368"]["diff_ci"]["checks"]) == {"L better", "D better", "S better", "U no worse",
-                                                    "page length held (cv)", "page length held (letter)", "failed runs no worse"}
+    assert {"L better", "D better", "S better", "U no worse", "page length held (cv)", "page length held (letter)",
+            "failed runs no worse", "L no worse (letter)", "S no worse (cv)"} <= set(g["us368"]["diff_ci"]["checks"])
+    assert "D no worse (letter)" in g["us368"]["diff_ci"]["checks"]           # D is 0 = 0 in the letter, still checked
     # D unchanged -> the criterion fails although nothing regressed
     out2 = tmp_path / "out2"
     for c in ("c1", "c2", "c3"):
@@ -1054,3 +1055,17 @@ def test_report_refuses_an_arm_diff_across_judge_instruments(tmp_path):
     assert rep["arm_diffs"] == [] and rep["arm_diffs_refused"][0]["judge_b"] == ["j/haiku"]
     assert "refused" in report_mod.render_markdown(rep)
     assert report_mod.build_report([str(out)], allow_mixed_judge=True)["arm_diffs"]
+
+
+def test_gate_criterion_fails_when_a_cv_gain_hides_a_letter_loss(tmp_path):
+    out = tmp_path / "out"
+    for c in ("c1", "c2", "c3", "c4"):
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False),
+                    [_issue("L", "cv")] * 6 + [_issue("D")] * 2 + [_issue("S")] * 2)
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False),
+                    [_issue("L", "letter")] * 2 + [_issue("S", "letter")] * (i % 2))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    checks = g["us368"]["diff_ci"]["checks"]
+    assert checks["L better"] is True and checks["L no worse (letter)"] is False
+    assert g["us368"]["diff_ci"]["pass"] is False
