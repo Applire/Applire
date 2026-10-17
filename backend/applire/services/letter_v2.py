@@ -527,6 +527,17 @@ def letter_name_findings(
         if span is None:
             continue
         _name, member = pick_recorded(span, stored, aliases)
+        if not member:
+            # RULING W2-5: a recorded name WITHOUT its legal form is the same name —
+            # the Oracle's own legal-form handling (one implementation, ADR-066)
+            # strips both sides before W1's membership comparison.
+            # (the located span never carries a legal form: a span that did
+            # would contain the stored name itself, located as a member above)
+            _name, member = pick_recorded(
+                span,
+                _core_company_name(stored),
+                [_core_company_name(a) for a in recorded_names(stored, aliases)[1:]],
+            )
         if member or (eid, span.casefold()) in seen:
             continue
         seen.add((eid, span.casefold()))
