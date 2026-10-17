@@ -444,18 +444,20 @@ def test_figure_finding_detects_without_deleting():
     assert [x.family for x in _findings(letter, profile_json=pj)] == ["figure"]
 
 
-def test_v2_signal_fn_caps_each_family_and_includes_language():
-    from applire.services.cover_letter import _v2_signal_issues_fn
+def test_v2_checks_fn_language_and_format_block_figure_and_limit_advise():
+    from applire.services.cover_letter import _v2_checks_fn
 
-    fn = _v2_signal_issues_fn(
-        lambda d: d, profile_json=_PROFILE_JSON, keyword_ledger=None,
-        denied_concepts=None, language="en",
+    ledger = [{"concept": "Observability", "surface_forms": [], "status": "claimable"}]
+    fn = _v2_checks_fn(
+        lambda d: d, profile_json=_PROFILE_JSON, keyword_ledger=ledger,
+        denied_concepts=[], language="en",
     )
-    issues = fn(_draft(_GERMAN_BODY[1:]))  # German AND no salutation
-    texts = [i.text for i in issues]
-    assert all(i.is_blocking for i in issues)
-    assert any(t.startswith("Letter language") for t in texts)
-    assert any("no salutation" in t for t in texts)
+    body = list(_GERMAN_BODY[1:])  # German AND no salutation
+    body.append("I do not have Observability experience, but I would welcome an interview with you.")
+    found = {f.check: f for f in fn(_draft(body))}
+    assert found["letter.language"].blocking
+    assert found["letter.salutation"].blocking
+    assert found["letter.limit"].blocking is False  # advisory: 9/12 false on the baseline
 
 
 # ── 8. recorded name forms (#709/#716 letter half, W1-2 / W2-3) ──────────────
@@ -549,6 +551,8 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None):
         entry["reviewer_prompt"] = kw["reviewer_prompt_fn"](kw["source"], kw["draft"])
         sig = kw.get("signal_issues_fn")
         entry["signal_issues"] = list(sig(kw["draft"])) if sig else []
+        chk = kw.get("checks_fn")
+        entry["checks"] = list(chk(kw["draft"])) if chk else []
         entry["corrector_prompt"] = kw["generator_prompt_fn"](kw["draft"], "fb", kw["source"])
         record["loops"].append(entry)
         if kw.get("chain_id") == "letter_terminal_review" and script:
@@ -602,9 +606,9 @@ async def test_seam_v2_drafting_loop_reads_the_code_owned_draft_and_the_facts(db
     # code-owned fields assembled BEFORE the first review round
     assert drafting["draft"]["header"]["address"] == "Stuttgart"
     assert drafting["draft"]["signature"]["name"] == "Katrin Hoffmann"
-    # the language fact reaches the reviewer and the corrector
-    assert "LETTER LANGUAGE CHECK" in drafting["reviewer_prompt"]
-    assert any(i.text.startswith("Letter language") for i in drafting["signal_issues"])
+    # the language fact reaches the loop through W1's checks_fn (the loop renders it
+    # for the reviewer and opens a corrector round on it)
+    assert any(f.check == "letter.language" and f.blocking for f in drafting["checks"])
     assert "DOCUMENT LANGUAGE: ENGLISH" in drafting["corrector_prompt"]
     # no draft selected by code (W2-1 B5/B6)
     assert drafting["retain_if"] is None and drafting["load_bearing_fn"] is None
@@ -619,7 +623,7 @@ async def test_seam_v1_drafting_loop_is_unchanged(db, v1):
     drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
     assert drafting["retain_if"] is has_closing_paragraph
     assert drafting.get("signal_issues_fn") is None
-    assert "LETTER LANGUAGE CHECK" not in drafting["reviewer_prompt"]
+    assert drafting.get("checks_fn") is None
     assert "DOCUMENT LANGUAGE:" not in drafting["corrector_prompt"]
     assert drafting["draft"]["header"]["address"] == "Musterstraße 123, 70563 Stuttgart"
 
@@ -631,8 +635,8 @@ async def test_seam_v2_terminal_mount_reads_findings_and_selects_nothing(db, v2)
     assert terminal
     t = terminal[0]
     assert t["retain_if"] is None and t["prefer_if"] is None and t["load_bearing_fn"] is None
-    assert "LETTER FORMAT CHECK" in t["reviewer_prompt"]
-    assert any("no salutation" in i.text for i in t["signal_issues"])
+    assert any(f.check == "letter.salutation" for f in t["checks"])
+    assert t.get("signal_issues_fn") is None
 
 
 @pytest.mark.asyncio
@@ -664,7 +668,7 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
     # the post-loop condense is reviewed: the last terminal round reviews its output
     assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
-    assert any(i.text.startswith("Length (computed by code)") for i in terminal[-1]["signal_issues"])
+    assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
 
 
 @pytest.mark.asyncio

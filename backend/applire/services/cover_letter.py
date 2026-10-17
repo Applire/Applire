@@ -2009,11 +2009,6 @@ async def _render_cover_letter_body(
                     # the fold is English-only, so a term the scan misses stays
                     # raisable, at the price of a quote.
                     fn = forbidden_presence_reviewer_prompt_fn(fn, keyword_ledger)
-                    if is_v2:
-                        # ADR-094 clause L4: the language and format facts of the
-                        # composed draft, every round, both mounts (this closure is
-                        # the one wiring point for every letter reviewer).
-                        fn = _v2_reviewer_wrapper(fn, _compose_v2, language=detected_language)
                     # #731 (2026-09-20 founder UAT): a SIXTH deterministic wrapper —
                     # the CLAIMABLE-side twin of the wrapper above. A denial of
                     # "vector databases" cannot floor a ledger row labelled "RAG
@@ -2117,7 +2112,7 @@ async def _render_cover_letter_body(
                 # ADR-094 clause L4: the v2 corrector-side signal (language, format,
                 # figure ownership, invented limit), on the composed draft.
                 v2_signal_fn = (
-                    _v2_signal_issues_fn(
+                    _v2_checks_fn(
                         _compose_v2,
                         profile_json=profile.profile_json if profile else {},
                         keyword_ledger=keyword_ledger,
@@ -2158,7 +2153,9 @@ async def _render_cover_letter_body(
                     # a missing closing paragraph is a finding (v2_signal_fn) instead.
                     retain_if=None if is_v2 else has_closing_paragraph,
                     load_bearing_fn=None if is_v2 else load_bearing_fn,
-                    signal_issues_fn=v2_signal_fn,
+                    # ADR-094 L4: v2 findings through W1's checks_fn (a blocking
+                    # finding opens a round even after an approval).
+                    checks_fn=v2_signal_fn,
                 )
 
                 # #420 (ADR-021 amended 2026-08-02): with prefer_if gone from this
@@ -2623,39 +2620,46 @@ def _letter_v2_findings(
     return out
 
 
-def _render_v2_findings_block(findings: list[LetterFinding]) -> str:
-    """The reviewer-facing fact block for the FORMAT families (salutation,
-    sign-off, closing). Figure ownership already reaches the reviewer through
-    ``figure_ownership_reviewer_prompt_fn`` and invented limits through the
-    corrector signal (v1 wiring, kept)."""
-    fmt = [f for f in findings if f.family in ("salutation", "signoff", "closing")]
-    if not fmt:
-        return ""
-    return "\n".join(
-        ["LETTER FORMAT CHECK (computed by code on the draft under review — facts, "
-         "each a blocking issue; the system does NOT repair them for you):"]
-        + [f"  - {f.text}" for f in fmt]
-    )
+#: v2 finding families whose CONSEQUENCE is a judgement: the fact is computed by
+#: code, but whether the sentence must change is the model's call. They ride the
+#: loop as ADVISORY check findings (W1's ``CheckFinding.blocking=False``): shown to
+#: the reviewer, handed to the corrector when a round runs, never opening a round by
+#: themselves. Measured reason (10-12 baseline): the invented-limit predicate was
+#: wrong on 9 of 12 delivered cuts, the figure floor on 11 of 13 firings ("IFRS 16").
+_V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
 
 
-def _v2_signal_issues_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language):
-    """The corrector side: the language issue plus every other v2 finding as a
-    BLOCKING ``ReviewIssue``, capped per family, computed on the COMPOSED draft
-    of the round (what ships). Replaces — on v2 only — the terminal mount's
-    ``limit_signal_issues_fn`` (its finding is the ``limit`` family here)."""
-    from applire.prompts.review_severity import SEVERITY_BLOCKING
-    from applire.services.letter_v2 import letter_language_issues_fn
-    from applire.services.review_issues import ReviewIssue
-
-    language_fn = letter_language_issues_fn(language, compose_fn)
+def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language):
+    """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
+    ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
+    draft of the round. Language, salutation, sign-off and closing are BLOCKING
+    facts — a round carrying one runs the corrector even after an approval; figure
+    ownership and invented limits are ADVISORY. Capped per family (exhaustion fuel)."""
+    from applire.services.letter_v2 import letter_language_fact, language_name
+    from applire.services.reviewer import CheckFinding
 
     def fn(draft: dict) -> list:
         try:
             composed = compose_fn(draft)
         except Exception:  # pragma: no cover - defensive
-            logger.warning("letter v2: compose failed for the signal", exc_info=True)
+            logger.warning("letter v2: compose failed for the checks", exc_info=True)
             return []
-        issues = list(language_fn(draft))
+        out: list = []
+        fact = letter_language_fact(composed, language)
+        if not fact.clean:
+            name = language_name(fact.language)
+            quotes = " ".join(f'"{f.sentence}"' for f in fact.foreign[:3])
+            remedy = (
+                f"The whole letter is not written in {name}: rewrite every sentence in "
+                f"{name}, keeping every fact, figure and paragraph."
+                if fact.majority_foreign
+                else f"Rewrite these sentence(s) in {name}, same facts: {quotes}"
+            )
+            out.append(CheckFinding(
+                check="letter.language",
+                text=(f"{len(fact.foreign)} of {fact.checked} body sentences are not in "
+                      f"{name}. {remedy}"),
+            ))
         per_family: dict[str, int] = {}
         for f in _letter_v2_findings(
             composed, profile_json=profile_json,
@@ -2664,26 +2668,11 @@ def _v2_signal_issues_fn(compose_fn, *, profile_json, keyword_ledger, denied_con
             if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
                 continue
             per_family[f.family] = per_family.get(f.family, 0) + 1
-            issues.append(ReviewIssue(text=f.text, severity=SEVERITY_BLOCKING))
-        return issues
-
-    return fn
-
-
-def _v2_reviewer_wrapper(base_fn, compose_fn, *, language):
-    """Compose the v2 fact blocks (language + format) onto a reviewer prompt fn,
-    computed on the composed subject of the round."""
-    from applire.services.letter_v2 import letter_language_reviewer_prompt_fn
-
-    lang_fn = letter_language_reviewer_prompt_fn(base_fn, language)
-
-    def fn(source: str, draft: dict) -> str:
-        prompt = lang_fn(source, draft)
-        try:
-            block = _render_v2_findings_block(_letter_format_findings(compose_fn(draft)))
-        except Exception:  # pragma: no cover - defensive
-            block = ""
-        return f"{prompt}\n\n{block}" if block else prompt
+            out.append(CheckFinding(
+                check=f"letter.{f.family}", text=f.text,
+                blocking=f.family not in _V2_ADVISORY_FAMILIES,
+            ))
+        return out
 
     return fn
 
@@ -3042,17 +3031,17 @@ async def _terminal_review_letter(
     _limit_signal_fn = limit_signal_issues_fn(
         keyword_ledger, denied_concepts, _subject_of
     )
+    _v2_checks = None
     if is_v2 and v2_signal_fn is not None:
         # The v2 signal carries the ``limit`` family itself (and composes its own
         # subject with the same code-owned-only compose as ``_subject_of``).
         from applire.services.letter_v2 import combine_signal_fns
 
-        def _page_signal(_d: dict) -> list:
-            """ADR-094 clause L (W2-4, B): a render over the page norm is a
-            BLOCKING finding every terminal round — the measure of the composition
-            under review, a fact (ADR-051 §6). Never a rewrite."""
-            from applire.prompts.review_severity import SEVERITY_BLOCKING
-            from applire.services.review_issues import ReviewIssue
+        def _page_check(_d: dict) -> list:
+            """ADR-094 clause L (W2-4, B): a render over the page norm is a BLOCKING
+            check finding every terminal round — the measure of the composition under
+            review, a fact (ADR-051 §6). Never a rewrite."""
+            from applire.services.reviewer import CheckFinding
 
             m = measure_cell["measured"]
             if m.page_count is None or m.page_count <= norm.letter_pages:
@@ -3062,18 +3051,19 @@ async def _terminal_review_letter(
                 if mm.page_count is not None and mm.page_count <= norm.letter_pages
             ]
             target = max(fits) if fits else norm.letter_body_word_budget
-            return [ReviewIssue(
+            return [CheckFinding(
+                check="letter.page_length",
                 text=(
-                    f"Length (computed by code): the letter renders to {m.page_count} pages "
-                    f"at {m.word_count} body words; the norm is {norm.letter_pages}. Shorten "
-                    f"the body to at most {target} words by tightening wording — keep every "
-                    "fact the letter needs, never drop the closing, the employer anchors or "
-                    "a requested positioning paragraph."
+                    f"The letter renders to {m.page_count} pages at {m.word_count} body "
+                    f"words; the norm is {norm.letter_pages}. Shorten the body to at most "
+                    f"{target} words by tightening wording — keep every fact the letter "
+                    "needs, never drop the closing, the employer anchors or a requested "
+                    "positioning paragraph."
                 ),
-                severity=SEVERITY_BLOCKING,
             )]
 
-        _limit_signal_fn = combine_signal_fns(v2_signal_fn, _page_signal)
+        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check)
+        _limit_signal_fn = None
 
     async def _finish(
         *, current, rounds, reentry_exhausted, condense_state, floor_hits,
@@ -3384,6 +3374,7 @@ async def _terminal_review_letter(
             # only among CONDENSE-descendant drafts, never on a content round.
             prefer_if=(within_budget_fn if (entered_via_condense and not is_v2) else None),
             signal_issues_fn=_limit_signal_fn,
+            checks_fn=_v2_checks,
             on_settle=_record_settle,
         )
         entered_via_condense = False
@@ -3488,6 +3479,7 @@ async def _terminal_review_letter(
                     chain_id="letter_terminal_review",
                     generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     signal_issues_fn=_limit_signal_fn,
+                    checks_fn=_v2_checks,
                     on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
@@ -3595,6 +3587,7 @@ async def _terminal_review_letter(
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
                     signal_issues_fn=_limit_signal_fn,
+                    checks_fn=_v2_checks,
                     on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
