@@ -434,10 +434,11 @@ _V1_FACTS_PARAGRAPH = (
 )
 
 _V2_FACTS_PARAGRAPH = (
-    "Dates, certifications, contact details and the role figures (team size, budget) are "
+    "Dates, certifications, contact details and the team size are "
     "joined from the candidate's profile by the system — they are not yours to emit. Everything "
     "a reader reads as LANGUAGE is yours, in the OUTPUT LANGUAGE, and is returned by id from the "
-    "VAULT FIELDS block: each work entry's `role` and `company`, its `industry_context`, every "
+    "VAULT FIELDS block: each work entry's `role` and `company`, its `industry_context` and "
+    "`budget_managed` line, every "
     "`education` row and every `languages` row. NAMES are never translated or invented: a job "
     "title, an employer, an institution or a degree is written as one of the RECORDED NAMES the "
     "block lists for it (the stored name or a name the candidate used in another document) — "
@@ -469,6 +470,7 @@ _V2_SCHEMA = """{
       "role": string,
       "company": string,
       "industry_context": string or null,
+      "budget_managed": string or null,
       "bullets": [string],
       "projects": [{"name": string, "bullets": [string]}]
     }
@@ -525,6 +527,7 @@ V2_WRITER_JSON_SCHEMA: dict = {
             "role": _STR,
             "company": _STR,
             "industry_context": {"type": ["string", "null"]},
+            "budget_managed": {"type": ["string", "null"]},
             "bullets": _STR_LIST,
             "projects": {"type": "array", "items": _PROJECT},
         })},
@@ -575,6 +578,13 @@ def build_v2_fields_block(
             line += f"; industry_context — \"{w['industry_context']}\" (translate)"
         else:
             line += "; industry_context — null (the profile states none)"
+        if w.get("budget_managed"):
+            line += (
+                f"; budget_managed — \"{w['budget_managed']}\" (translate the words, keep "
+                "every number and the currency exactly)"
+            )
+        else:
+            line += "; budget_managed — null"
         lines.append(line)
     for e in profile.get("education") or []:
         if not isinstance(e, dict) or not e.get("id"):

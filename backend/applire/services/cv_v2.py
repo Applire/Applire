@@ -111,7 +111,7 @@ def pick_recorded(model_value: object, stored: object, aliases: object) -> tuple
 # --------------------------------------------------------------------------- #
 # carry: a later model pass must not silently drop a v2 field
 # --------------------------------------------------------------------------- #
-_V2_WORK_FIELDS = ("role", "company", "industry_context")
+_V2_WORK_FIELDS = ("role", "company", "industry_context", "budget_managed")
 _V2_TOP_FIELDS = ("education", "languages")
 
 
@@ -215,6 +215,26 @@ def compose_v2(
                 notes.rows_not_returned.append(
                     (f"work {entry.id} industry_context",
                      "the role's industry line, in the document language")
+                )
+        vault_budget = v.get("budget_managed")
+        if vault_budget:
+            from applire.services.cv import _figures_preserved
+
+            model_budget = p.get("budget_managed")
+            if isinstance(model_budget, str) and model_budget.strip() and _figures_preserved(
+                vault_budget, model_budget
+            ):
+                update["budget_managed"] = model_budget.strip()
+            elif isinstance(model_budget, str) and model_budget.strip():
+                # A figure changed in translation (SF-WRITE.44): the stored line stays.
+                notes.names_not_recorded.append(
+                    (f"work {entry.id} budget_managed", model_budget, str(vault_budget),
+                     [str(vault_budget)])
+                )
+            else:
+                notes.rows_not_returned.append(
+                    (f"work {entry.id} budget_managed",
+                     "the budget line, words in the document language, every figure unchanged")
                 )
         work.append(entry.model_copy(update=update))
 

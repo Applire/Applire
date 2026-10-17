@@ -766,7 +766,7 @@ def test_writer_schema_asks_for_every_v2_field():
     root = V2_WRITER_JSON_SCHEMA["schema"]["properties"]
     assert set(root) == {"summary", "work", "projects", "skills", "education", "languages"}
     assert set(root["work"]["items"]["properties"]) == {
-        "id", "role", "company", "industry_context", "bullets", "projects"}
+        "id", "role", "company", "industry_context", "budget_managed", "bullets", "projects"}
     assert root["work"]["items"]["properties"]["industry_context"]["type"] == ["string", "null"]
 
 
@@ -1089,3 +1089,20 @@ def test_role_budget_finding_carries_the_ranking_candidates():
     assert "Lowest-ranked by the budget ranking" in text
     assert "Moderierte Teamrunden." in text
     assert "18 Prozent" not in text.split("Lowest-ranked")[1]
+
+
+def test_budget_line_is_model_written_only_when_every_figure_survives():
+    """The 10-16 v2 bench left one L issue in `compose`: "ca. 6 Mio. €" in an EN CV —
+    budget_managed was still joined verbatim. It is now model-written; the figure
+    check (`cv._figures_preserved`, SF-WRITE.44) keeps the stored line when a number
+    changed."""
+    vault = _vault()
+    vault["work_experience"][0]["budget_managed"] = "ca. 6 Mio. €"
+    prose = _prose()
+    prose["work"][0]["budget_managed"] = "approx. €6 million"
+    tailored, notes = _compose(prose, vault)
+    assert tailored.work_history[0].budget_managed == "approx. €6 million"
+    prose["work"][0]["budget_managed"] = "approx. €8 million"
+    tailored, notes = _compose(prose, vault)
+    assert tailored.work_history[0].budget_managed == "ca. 6 Mio. €"
+    assert any("budget_managed" in n[0] for n in notes.names_not_recorded)
