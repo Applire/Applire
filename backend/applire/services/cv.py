@@ -3269,7 +3269,8 @@ async def _resolve_photo_data_uri(
 
     #781 (ruling F-2): ``crop`` is the candidate's framing of this photo; the
     ONE helper `photo.frame_photo` applies it here, the seam every template and
-    the DOCX export read their photo through. None renders the file as stored.
+    the DOCX export read their photo through. None is the identity framing —
+    the whole picture, re-encoded without metadata (adversarial pass 2026-10-17).
     """
     from applire.services.photo_framing import frame_photo
 

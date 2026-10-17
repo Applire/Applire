@@ -171,9 +171,16 @@ def test_photo_crop_schema_bounds_and_extras():
 # ─── 2. frame_photo ──────────────────────────────────────────────────────────
 
 
-def test_frame_photo_without_a_crop_returns_the_identical_bytes():
+def test_frame_photo_without_a_crop_keeps_the_whole_picture_reencoded():
+    """Identity framing: the WHOLE picture (templates crop it as before #781),
+    downscaled to UNFRAMED_MAX_SIDE and re-encoded — never the stored bytes."""
     raw = _landscape_with_red_right_third()
-    assert framing.frame_photo(raw, None, "image/jpeg") is raw
+    out = framing.frame_photo(raw, None, "image/jpeg")
+    assert out != raw
+    img = Image.open(io.BytesIO(out))
+    assert img.format == "JPEG"
+    assert img.size == (framing.UNFRAMED_MAX_SIDE, round(1012 * framing.UNFRAMED_MAX_SIDE / 1800))
+    assert _is_blue(img.getpixel((100, 450))) and _is_red(img.getpixel((1500, 450)))
 
 
 def test_frame_photo_follows_the_crop_to_the_right_third_in_4_by_5():
@@ -234,9 +241,9 @@ def test_frame_photo_refuses_a_real_image_beyond_the_side_bound():
 
 def test_frame_photo_refuses_a_real_image_beyond_the_pixel_bound():
     """12000 x 4200 = 50.4 MP: each side within bound, the product is not."""
-    big = _encode(Image.new("L", (12000, 4200), 7), "PNG")
+    big = _encode(Image.new("L", (12000, 3500), 7), "PNG")
     assert 12000 <= framing.MAX_PHOTO_SIDE
-    assert 12000 * 4200 > framing.MAX_PHOTO_PIXELS
+    assert 12000 * 3500 > framing.MAX_PHOTO_PIXELS
     assert framing.frame_photo(big, CROP, "image/png") is big
 
 
@@ -306,6 +313,8 @@ _REFUSED_UPLOADS = [
     pytest.param(lambda: _png_with_ihdr(20000, 20000), "image/png", id="forged-ihdr-20000x20000"),
     pytest.param(lambda: _png_with_ihdr(13000, 10), "image/png", id="forged-ihdr-wider-than-the-side-bound"),
     pytest.param(lambda: _encode(Image.new("L", (12000, 4200), 7), "PNG"), "image/png", id="real-50MP-png"),
+    # Adversarial pass 2026-10-17: a 41 MP image was accepted under the old 50 MP bound.
+    pytest.param(lambda: _encode(Image.new("L", (8000, 5125), 7), "PNG"), "image/png", id="real-41MP-png"),
     pytest.param(lambda: _landscape_with_red_right_third("PNG"), "image/jpeg", id="png-declared-jpeg"),
 ]
 
@@ -569,7 +578,7 @@ async def _assert_template_embeds_the_framed_photo(world, upload_dir, template):
     assert _decode(payload).size == (405, 506)  # zoom 2: 404.8 x 506 source px, 4:5
 
 
-async def _assert_template_embeds_the_raw_photo_without_a_crop(world, upload_dir, template):
+async def _assert_template_embeds_the_reencoded_photo_without_a_crop(world, upload_dir, template):
     factory, a = world
     storage = LocalStorageProvider(str(upload_dir))
     raw = _landscape_with_red_right_third()
@@ -578,7 +587,9 @@ async def _assert_template_embeds_the_raw_photo_without_a_crop(world, upload_dir
         factory, a, template=template, document_photo=path, profile_photo=path, crop=None
     )
     photos = _embedded_photos(await _render(factory, a, storage, cv_id))
-    assert [p for _, p in photos] == [raw]
+    # Not the stored file: the identity framing, re-encoded without metadata.
+    assert [p for _, p in photos] == [framing.frame_photo(raw, None, "image/jpeg")]
+    assert photos[0][1] != raw
 
 
 @pytest.mark.asyncio
@@ -603,8 +614,8 @@ async def test_render_seam_lebenslauf_portrait_embeds_the_framed_photo(world, up
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("template", ["executive", "modern_swiss", "creative_sidebar", "classic_german"])
-async def test_render_seam_without_a_crop_embeds_the_stored_bytes_unchanged(world, upload_dir, template):
-    await _assert_template_embeds_the_raw_photo_without_a_crop(world, upload_dir, template)
+async def test_render_seam_without_a_crop_embeds_the_whole_photo_reencoded(world, upload_dir, template):
+    await _assert_template_embeds_the_reencoded_photo_without_a_crop(world, upload_dir, template)
 
 
 def test_exactly_the_four_known_templates_render_a_photo():
@@ -638,7 +649,7 @@ async def test_render_seam_docx_prep_returns_the_framed_photo_bytes(world, uploa
 
 
 @pytest.mark.asyncio
-async def test_render_seam_docx_prep_without_a_crop_returns_the_stored_bytes(world, upload_dir):
+async def test_render_seam_docx_prep_without_a_crop_returns_the_reencoded_photo(world, upload_dir):
     from applire.models.cv import GeneratedCV
     from applire.services.cv import _prepare_cv_docx_render
 
@@ -652,7 +663,8 @@ async def test_render_seam_docx_prep_without_a_crop_returns_the_stored_bytes(wor
     with ownership.owner_context(a.id), patch("applire.storage.get_storage", return_value=storage):
         async with factory() as s:
             record = await s.get(GeneratedCV, cv_id)
-            assert (await _prepare_cv_docx_render(record, s))[3] == raw
+            got = (await _prepare_cv_docx_render(record, s))[3]
+    assert got == framing.frame_photo(raw, None, "image/jpeg") and got != raw
 
 
 @pytest.mark.asyncio
@@ -708,7 +720,7 @@ async def test_render_seam_a_stale_document_renders_its_own_photo_unframed(world
         factory, a, template="executive", document_photo=old, profile_photo=new, crop=CROP
     )
     photos = _embedded_photos(await _render(factory, a, storage, cv_id))
-    assert [p for _, p in photos] == [old_raw]
+    assert [p for _, p in photos] == [framing.frame_photo(old_raw, None, "image/jpeg")]
 
 
 # ─── 6. exclusion seams ──────────────────────────────────────────────────────
@@ -883,3 +895,113 @@ async def test_mcp_get_profile_payload_carries_photo_crop():
     finally:
         await eng.dispose()
     assert payload["profile"]["personal_info"]["photo_crop"] == CROP_JSON
+
+
+# ─── 8. metadata never reaches a delivered document (adversarial pass 2026-10-17)
+
+_GPS_IFD = 0x8825
+
+
+def _jpeg_with_gps_and_icc(size=(1200, 900)) -> tuple[bytes, bytes]:
+    from PIL import ImageCms
+
+    img = Image.new("RGB", size, (20, 40, 200))
+    img.paste((220, 20, 20), (size[0] * 2 // 3, 0, size[0], size[1]))
+    exif = Image.Exif()
+    exif[0x010F] = "SyntheticCam"  # Make
+    exif[_GPS_IFD] = {1: "N", 2: (52.0, 31.0, 12.0), 3: "E", 4: (13.0, 24.0, 18.0)}
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    return _encode(img, "JPEG", exif=exif.tobytes(), icc_profile=icc, quality=95), icc
+
+
+def _has_metadata(raw: bytes) -> bool:
+    img = Image.open(io.BytesIO(raw))
+    exif = img.getexif()
+    return bool(len(exif)) or "exif" in img.info or bool(getattr(img, "text", {}))
+
+
+def test_the_synthetic_source_really_carries_gps_exif():
+    raw, _icc = _jpeg_with_gps_and_icc()
+    exif = Image.open(io.BytesIO(raw)).getexif()
+    assert exif.get_ifd(_GPS_IFD), "fixture must carry a GPS IFD"
+    assert _has_metadata(raw)
+
+
+@pytest.mark.parametrize("crop", [None, CROP], ids=["unframed", "framed"])
+def test_frame_photo_drops_exif_and_gps_keeps_icc(crop):
+    raw, icc = _jpeg_with_gps_and_icc()
+    out = framing.frame_photo(raw, crop, "image/jpeg")
+    assert not _has_metadata(out)
+    assert Image.open(io.BytesIO(out)).info.get("icc_profile") == icc
+
+
+def test_frame_photo_drops_png_text_chunks():
+    from PIL import PngImagePlugin
+
+    info = PngImagePlugin.PngInfo()
+    info.add_text("Comment", "home address: Musterstrasse 1")
+    raw = _encode(Image.new("RGB", (400, 500), (1, 2, 3)), "PNG", pnginfo=info)
+    assert Image.open(io.BytesIO(raw)).text
+    out = framing.frame_photo(raw, None, "image/png")
+    assert Image.open(io.BytesIO(out)).format == "PNG"
+    assert not _has_metadata(out)
+
+
+@pytest.mark.asyncio
+async def test_render_seam_unframed_html_photo_carries_no_exif(world, upload_dir):
+    factory, a = world
+    storage = LocalStorageProvider(str(upload_dir))
+    raw, _icc = _jpeg_with_gps_and_icc()
+    path = await storage.save(raw, "photo.jpg")
+    cv_id = await _seed_ready_cv(
+        factory, a, template="executive", document_photo=path, profile_photo=path, crop=None
+    )
+    photos = _embedded_photos(await _render(factory, a, storage, cv_id))
+    assert len(photos) == 1 and not _has_metadata(photos[0][1])
+
+
+@pytest.mark.asyncio
+async def test_render_seam_unframed_docx_image_carries_no_exif(world, upload_dir):
+    """The delivered Word file: the embedded image part has no EXIF/GPS."""
+    import zipfile
+
+    from applire.models.cv import GeneratedCV
+    from applire.services.cv import _prepare_cv_docx_render
+    from applire.services.office_export.cv_docx import render_cv_docx
+
+    factory, a = world
+    storage = LocalStorageProvider(str(upload_dir))
+    raw, _icc = _jpeg_with_gps_and_icc()
+    path = await storage.save(raw, "photo.jpg")
+    cv_id = await _seed_ready_cv(
+        factory, a, template="classic_german", document_photo=path, profile_photo=path, crop=None
+    )
+    with ownership.owner_context(a.id), patch("applire.storage.get_storage", return_value=storage):
+        async with factory() as s:
+            record = await s.get(GeneratedCV, cv_id)
+            prepared = await _prepare_cv_docx_render(record, s)
+    tailored, lang, color, photo_bytes = prepared[:4]
+    docx = render_cv_docx(tailored, lang=lang, accent_color=color, photo_bytes=photo_bytes)
+    with zipfile.ZipFile(io.BytesIO(docx)) as z:
+        media = [n for n in z.namelist() if n.startswith("word/media/")]
+        assert media, "the photo must be in the document"
+        for name in media:
+            assert not _has_metadata(z.read(name)), name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [b'{"cx": NaN, "cy": 0.5, "zoom": 1.5}', b'{"cx": 0.5, "cy": 0.5, "zoom": Infinity}', b"[1, 2]", b"not json"])
+async def test_route_put_photo_crop_non_finite_or_malformed_body_is_422(world, upload_dir, bad):
+    """Adversarial pass 2026-10-17: a bare NaN answered 500 (the framework's 422
+    echoed the value and could not encode it)."""
+    factory, a = world
+    storage = LocalStorageProvider(str(upload_dir))
+    await _seed_profile(factory, a)
+    up = await _call(factory, a, storage, "POST", "/api/profile/photo?consent=true", files=_file(_real_jpeg()))
+    assert up.status_code == 200, up.text
+    r = await _call(
+        factory, a, storage, "PUT", "/api/profile/photo/crop",
+        content=bad, headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 422, r.text
+    assert (await _personal_info(factory, a)).get("photo_crop") is None

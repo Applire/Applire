@@ -624,9 +624,17 @@ async def upload_photo_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.put("/photo/crop", status_code=status.HTTP_200_OK)
+@router.put(
+    "/photo/crop",
+    status_code=status.HTTP_200_OK,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": PhotoCrop.model_json_schema()}},
+        }
+    },
+)
 async def set_photo_crop_endpoint(
-    body: PhotoCrop,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
@@ -636,7 +644,25 @@ async def set_photo_crop_endpoint(
     The stored original is untouched; every CV template and the Word export
     apply this framing at render, so re-framing is lossless and takes effect on
     every document's next download. 404 when there is no photo to frame.
+
+    The body is validated here rather than by a typed parameter: JSON allows a
+    bare ``NaN``/``Infinity``, and the framework's 422 echoes the offending input,
+    which cannot be encoded back to JSON — the candidate got a 500 instead of a
+    422 (adversarial pass 2026-10-17). The 422 below names the rule, not the value.
     """
+    try:
+        raw = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="The framing must be a JSON object.")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail="The framing must be a JSON object.")
+    try:
+        body = PhotoCrop.model_validate(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="The framing needs cx and cy between 0 and 1 and zoom between 1 and 4.",
+        )
     try:
         return await set_photo_crop(user_id=current_user.id, crop=body, db=db)
     except LookupError as exc:
