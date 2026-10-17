@@ -235,6 +235,89 @@ Rules:
 """
 
 
+# ── Letter pipeline v2 (ADR-094 clause L, US369 / #779) ─────────────────────
+# v1 (SYSTEM_PROMPT above) is untouched and byte-identical. v2 differs in exactly
+# three places, each measured on the 10-12 E066 baseline:
+#   1. The OPENER names the document language. v1 opens "writing a professional
+#      Bewerbungsschreiben (German cover letter)" and states the LANGUAGE rule
+#      forty lines later — a self-contradiction (prompt-first step 3). On
+#      ministral-8b 17 of 18 English-target letters were German from the writer's
+#      first draft on; the condense call, which reuses this system prompt, switched
+#      the 18th.
+#   2. The SCHEMA no longer asks for the code-owned fields (sender header,
+#      signature, date, sign-off): the weak tier invented a street address in 5/32
+#      letters and misspelled the candidate's name in 9/32. Code assembles them
+#      from the vault before the first review round (services/letter_v2).
+#   3. The candidate's own names (RULING W1-2, #709/#716): a recorded name or one
+#      of its recorded alternate forms, picked for the document language — never a
+#      free translation.
+
+_V2_OPENER = (
+    "You are an expert DACH career coach writing a cover letter whose document "
+    "language is {name}. Every sentence of the letter body is written in {name} — "
+    "whatever language the job description, the candidate profile, the testimony "
+    "or these instructions are written in.\n"
+    "Output ONLY a single valid JSON object. No markdown, no explanation, no prose "
+    "outside the JSON.\n"
+)
+
+_V2_SCHEMA = """
+The JSON must match this schema exactly:
+{
+  "recipient": {
+    "name": "string or null",
+    "title": "string or null",
+    "company": "string or null",
+    "address": "string or null"
+  },
+  "body": {
+    "paragraphs": ["salutation line (Anrede) — this paragraph alone, ending with a comma", "opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
+  }
+}
+The sender's name, address, phone and email, the date and the sign-off are filled in by the
+system from the candidate's own record — do not output them.
+"""
+
+_V1_TITLES_RULE_TAIL = (
+    "  for the position it is listed under. A title is a name — copy it exactly; never\n"
+    "  translate, shorten, generalise, upgrade or downgrade it (where the profile records two,\n"
+    "  \"Fertigungsmeister / Schichtleiter\", the whole string or one of its named halves is\n"
+    "  correct)."
+)
+
+_V2_TITLES_RULE_TAIL = (
+    "  for the position it is listed under — or one of that position's recorded alternate\n"
+    "  forms (the RECORDED NAME FORMS block, when present), choosing the form written in the\n"
+    "  document language where one exists. A title is a name — copy the chosen form exactly;\n"
+    "  never translate, shorten, generalise, upgrade or downgrade it yourself (where the profile\n"
+    "  records two, \"Fertigungsmeister / Schichtleiter\", the whole string or one of its named\n"
+    "  halves is correct). The same holds for employer, institution and degree names."
+)
+
+
+def _v1_rules() -> str:
+    head, sep, rules = SYSTEM_PROMPT.partition("\nRules:\n")
+    assert sep, "SYSTEM_PROMPT lost its 'Rules:' header"
+    return sep.lstrip("\n") + rules
+
+
+def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
+    """The letter writer's system prompt for ``pipeline`` and the document language.
+
+    ``v1`` returns :data:`SYSTEM_PROMPT` itself, unchanged, for every language.
+    ``v2`` = the language-stating opener + the code-owned-field schema + v1's rules
+    with the titles rule widened to the recorded alternate forms (W1-2). The
+    condense calls use this same prompt (``services/cover_letter._condense_call``)."""
+    if pipeline != "v2":
+        return SYSTEM_PROMPT
+    from applire.services.letter_v2 import language_name
+
+    rules = _v1_rules()
+    assert _V1_TITLES_RULE_TAIL in rules, "the titles rule moved — re-anchor _V1_TITLES_RULE_TAIL"
+    rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
+    return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
+
+
 def build_cover_letter_prompt(
     cv_data: dict[str, Any],
     jd_text: str,
@@ -253,6 +336,7 @@ def build_cover_letter_prompt(
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
     pinned_facts_block: str | None = None,
+    recorded_name_forms_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -362,6 +446,12 @@ def build_cover_letter_prompt(
         "Recent experience:",
         work_snippet.strip(),
     ]
+    # ADR-094 clause L6 / RULING W1-2 + W2-3 (#709/#716 letter half): the
+    # candidate's recorded alternate names, beside the profile they belong to.
+    # Passed by the v2 pipeline only, and rendered only when the vault records an
+    # alias at all — on v1, and on a vault without aliases, the prompt is unchanged.
+    if recorded_name_forms_block:
+        lines += ["", recorded_name_forms_block]
 
     # #177 / ADR-051 §6 amended: feedforward body-word budget from REGION_NORMS —
     # the CV's guarantee shape, extended to letters. Placed before the JD block so
@@ -582,9 +672,16 @@ LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
 )
 
 
+def _language_name(language: str) -> str:
+    from applire.services.letter_v2 import language_name
+
+    return language_name(language)
+
+
 def build_condense_prompt(
     letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
     pinned_quotes: list[str] | None = None,
+    language: str | None = None,
 ) -> str:
     """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
     same facts, fewer words. Omission-only in spirit — nothing new is claimed.
@@ -615,7 +712,15 @@ def build_condense_prompt(
         f"The following cover letter rendered to {page_count} pages; "
         f"it must fit on {letter_pages} {page_word}.",
         f"Rewrite it to AT MOST {word_budget} words of body text.",
-        "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        *([
+            # ADR-094 clause L3 (v2 only): the language is NAMED. "The same
+            # language" let the 10-12 weak-tier condense switch an English letter
+            # to German (it ran on the German-opening writer system prompt).
+            "Keep the same JSON structure, tone, recipient and factual claims. "
+            f"Write every sentence in {_language_name(language)}."
+        ] if language else [
+            "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        ]),
         "Shorten by cutting redundancy and secondary detail — NEVER add new facts,",
         "achievements, or claims that are not in the original letter.",
         "",

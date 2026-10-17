@@ -106,6 +106,9 @@ class Fixture:
     warnings: list[str] = field(default_factory=list)
 
 
+CORPUS_SUFFIX = "tests/files/quality_bench"
+
+
 def load_fixture(meta: dict[str, Any], bases: list[Path] | Path | None = None) -> Fixture:
     """Load the frozen inputs named by ``meta["fixture_dir"]``.
 
@@ -120,7 +123,11 @@ def load_fixture(meta: dict[str, Any], bases: list[Path] | Path | None = None) -
         cand = Path(raw)
         if cand.is_absolute():
             fdir = cand if cand.is_dir() else None
-        else:
+            # A run directory outlives the worktree that generated it: a stale
+            # absolute path resolves by its corpus suffix (``CORPUS_SUFFIX/<case>/<cell>``).
+            if fdir is None and CORPUS_SUFFIX in cand.as_posix():
+                cand = Path(CORPUS_SUFFIX + cand.as_posix().rsplit(CORPUS_SUFFIX, 1)[1])
+        if fdir is None and not cand.is_absolute():
             roots = [bases] if isinstance(bases, Path) else list(bases or [])
             for base in roots:
                 for root in (base, *base.parents):

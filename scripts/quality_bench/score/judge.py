@@ -12,6 +12,12 @@ Configuration is **process environment only** and fails loudly:
   names Claude Sonnet 5.5 (a different family than the systems under test);
   the exact OpenRouter id must be verified against ``GET /api/v1/models`` when
   the first paid run is approved.
+* ``JUDGE_MODEL_<CLASS>`` (optional, ``L``/``U``/``D``/``S``) — route one class
+  to another model. Hazelnut R-0: Haiku 5.5 failed calibration on L and D only,
+  so those classes can stay on the calibrated Sonnet judge while S and U run on
+  Haiku. The score file's ``instrument.judge_model`` then names the routing
+  (``"<default>; D=<model>; L=<model>"``), so the gate's one-judge guard
+  compares the whole instrument, not the default model alone.
 * ``OPENROUTER_API_KEY`` — read from ``os.environ`` only, never from a file.
 * ``QB_JUDGE_CACHE`` (optional) — cache directory, default
   ``./.quality-bench-judge-cache``.
@@ -42,6 +48,7 @@ from typing import Any, Callable
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_CACHE_DIR = ".quality-bench-judge-cache"
 DEFAULT_MAX_TOKENS = 8000
+JUDGE_CLASSES = ("L", "U", "D", "S")
 
 
 class JudgeError(RuntimeError):
@@ -84,8 +91,14 @@ class _Stats:
         self.prompt_tokens = 0
         self.completion_tokens = 0
         self.by_class: dict[str, dict[str, int]] = {}
+        self.by_model: dict[str, dict[str, int]] = {}
 
-    def add(self, cls: str, prompt: int, completion: int, *, cached: bool) -> None:
+    def add(self, cls: str, prompt: int, completion: int, *, cached: bool, model: str = "") -> None:
+        mb = self.by_model.setdefault(model or "?", {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0})
+        mb["calls"] += 1
+        mb["cache_hits"] += int(cached)
+        mb["prompt_tokens"] += prompt
+        mb["completion_tokens"] += completion
         bucket = self.by_class.setdefault(cls or "?", {"calls": 0, "cache_hits": 0, "prompt_tokens": 0, "completion_tokens": 0})
         bucket["calls"] += 1
         if cached:
@@ -105,6 +118,7 @@ class _Stats:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "by_class": self.by_class,
+            "by_model": self.by_model,
         }
 
 
@@ -135,7 +149,20 @@ class JudgeClient:
         self._http = http
         self._sleep = sleep
         self.cache_dir = Path(cache_dir or os.environ.get("QB_JUDGE_CACHE") or DEFAULT_CACHE_DIR)
+        self.class_models = {
+            c: m.strip() for c in JUDGE_CLASSES if (m := os.environ.get(f"JUDGE_MODEL_{c}", "")).strip()
+        }
         self.stats = _Stats()
+
+    def model_for(self, cls: str) -> str:
+        """The model that judges ``cls`` (a per-class override, else ``JUDGE_MODEL``)."""
+        return self.class_models.get(cls, self.model)
+
+    @property
+    def descriptor(self) -> str:
+        """The whole instrument in one string: the default model plus every override."""
+        extra = [f"{c}={m}" for c, m in sorted(self.class_models.items()) if m != self.model]
+        return "; ".join([self.model, *extra])
 
     # -- cache ---------------------------------------------------------------
     def _cache_path(self, key: str) -> Path:
@@ -156,11 +183,11 @@ class JudgeClient:
         tmp.replace(path)
 
     # -- transport -----------------------------------------------------------
-    def _post(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any]]:
+    def _post(self, messages: list[dict[str, str]], model: str | None = None) -> tuple[str, dict[str, Any]]:
         import httpx
 
         body = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": self.max_tokens,
@@ -192,15 +219,16 @@ class JudgeClient:
 
     # -- public --------------------------------------------------------------
     def complete_json(self, system: str, user: str, *, cls: str = "") -> dict[str, Any]:
-        key = cache_key(self.model, system, user)
+        model = self.model_for(cls)
+        key = cache_key(model, system, user)
         hit = self._cache_get(key)
         if hit is not None and isinstance(hit.get("parsed"), dict):
             usage = hit.get("usage") or {}
-            self.stats.add(cls, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0), cached=True)
+            self.stats.add(cls, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0), cached=True, model=model)
             return hit["parsed"]
 
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        text, usage = self._post(messages)
+        text, usage = self._post(messages, model)
         try:
             parsed = parse_json_object(text)
         except (ValueError, json.JSONDecodeError):
@@ -209,7 +237,7 @@ class JudgeClient:
                 {"role": "assistant", "content": text},
                 {"role": "user", "content": "That was not a valid JSON object. Reply again with the JSON object only."},
             ]
-            text2, usage2 = self._post(messages)
+            text2, usage2 = self._post(messages, model)
             try:
                 parsed = parse_json_object(text2)
             except (ValueError, json.JSONDecodeError) as exc:
@@ -219,8 +247,8 @@ class JudgeClient:
                 "completion_tokens": int(usage.get("completion_tokens") or 0) + int(usage2.get("completion_tokens") or 0),
             }
             text = text2
-        self._cache_put(key, {"model": self.model, "cls": cls, "response_text": text, "parsed": parsed, "usage": usage})
-        self.stats.add(cls, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0), cached=False)
+        self._cache_put(key, {"model": model, "cls": cls, "response_text": text, "parsed": parsed, "usage": usage})
+        self.stats.add(cls, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0), cached=False, model=model)
         return parsed
 
 

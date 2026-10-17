@@ -64,6 +64,7 @@ from applire.constants import (
 from applire.prompts.cover_letter import (
     SYSTEM_PROMPT,
     build_condense_prompt,
+    build_system_prompt,
     build_cover_letter_prompt,
     render_measure_block,
 )
@@ -103,6 +104,13 @@ from applire.utils.recipient_extraction import extract_recipient_from_jd
 logger = logging.getLogger(__name__)
 
 
+def _letter_pipeline_now() -> str:
+    """The ``LETTER_PIPELINE`` switch at call time (ADR-094 clause L)."""
+    from applire.services.letter_v2 import letter_pipeline
+
+    return letter_pipeline()
+
+
 def _critic_report_for_door(raw):
     """#702 — see ``outcome_critic.critic_report_for_door`` (local import: the
     critic module imports the provider layer)."""
@@ -121,7 +129,7 @@ def _critic_report_for_door(raw):
 LETTER_COVERAGE_TERMS_PER_ROUND: int = 2
 
 
-async def _condense_call(provider, prompt: str, *, stage: str) -> dict:
+async def _condense_call(provider, prompt: str, *, stage: str, system: str = SYSTEM_PROMPT) -> dict:
     """The ONE shaping of a letter condense call, with its own stage label.
 
     Letter collector #673 (build 2, WP-L): the condense call sites inherit
@@ -140,7 +148,7 @@ async def _condense_call(provider, prompt: str, *, stage: str) -> dict:
 
     with llm_log_stage(stage):
         return await provider.aparse_json(
-            prompt, system=SYSTEM_PROMPT, max_tokens=CV_GENERATION_MAX_TOKENS
+            prompt, system=system, max_tokens=CV_GENERATION_MAX_TOKENS
         )
 
 _TEMPLATE_FILES: dict[str, str] = {
@@ -1032,8 +1040,22 @@ def _split_inline_salutation(letter_data: dict) -> dict:
     if not isinstance(paragraphs, list) or not paragraphs:
         return letter_data
 
+    found = _inline_salutation(paragraphs)
+    if found is not None:
+        index, head, tail = found
+        paragraphs[index : index + 1] = [head, tail]
+
+    body["paragraphs"] = paragraphs
+    return letter_data
+
+
+def _inline_salutation(paragraphs: list) -> tuple[int, str, str] | None:
+    """The FACT behind :func:`_split_inline_salutation`: ``(index, salutation,
+    rest)`` when one of the first two paragraphs opens with a salutation that runs
+    into prose, else ``None``. ADR-094 clause L reads the same fact as a finding
+    (v2 letter) where v1 splits on it."""
     for index, para in enumerate(paragraphs[:2]):
-        text = (para or "").strip()
+        text = (para or "").strip() if isinstance(para, str) else ""
         if not text or not _salutation_norm(text).startswith(_SALUTATION_OPENERS):
             continue
         head, sep, tail = text.partition(",")
@@ -1044,11 +1066,8 @@ def _split_inline_salutation(letter_data: dict) -> dict:
             continue
         if len(head.split()) > _MAX_SALUTATION_WORDS or len(head) > _MAX_SALUTATION_CHARS:
             continue
-        paragraphs[index : index + 1] = [f"{head}{sep}", tail.strip()]
-        break
-
-    body["paragraphs"] = paragraphs
-    return letter_data
+        return index, f"{head}{sep}", tail.strip()
+    return None
 
 
 # Sign-off formulas, normalised by :func:`_salutation_norm` (lowercase,
@@ -1090,6 +1109,28 @@ def _drop_trailing_signoff(letter_data: dict) -> dict:
     paragraphs = body.get("paragraphs")
     if not isinstance(paragraphs, list):
         return letter_data
+    found = _trailing_signoff(letter_data)
+    if found is None:
+        return letter_data
+    kept, drop = found
+    logger.info(
+        "cover letter: dropped a trailing sign-off paragraph the template prints "
+        "itself (ruling K-2): %r",
+        kept[-drop:],
+    )
+    body["paragraphs"] = kept[:-drop]
+    return letter_data
+
+
+def _trailing_signoff(letter_data: dict) -> tuple[list, int] | None:
+    """The FACT behind :func:`_drop_trailing_signoff`: ``(kept, drop)`` — the body
+    with trailing blanks removed and how many final paragraphs are a repeated
+    sign-off (1 or 2) — or ``None`` when there is none (or dropping would empty
+    the body). ADR-094 clause L reads it as a finding (v2 letter)."""
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list):
+        return None
     signature = letter_data.get("signature")
     name = _salutation_norm(signature.get("name") or "") if isinstance(signature, dict) else ""
 
@@ -1097,7 +1138,7 @@ def _drop_trailing_signoff(letter_data: dict) -> dict:
     while kept and not _salutation_norm(kept[-1] if isinstance(kept[-1], str) else ""):
         kept.pop()
     if not kept:
-        return letter_data
+        return None
     last = _salutation_norm(kept[-1] if isinstance(kept[-1], str) else "")
     drop = 0
     if last in _SIGNOFF_FORMS or (name and any(last == f"{form} {name}" for form in _SIGNOFF_FORMS)):
@@ -1107,14 +1148,8 @@ def _drop_trailing_signoff(letter_data: dict) -> dict:
         if before in _SIGNOFF_FORMS:
             drop = 2
     if not drop or len(kept) <= drop:
-        return letter_data
-    logger.info(
-        "cover letter: dropped a trailing sign-off paragraph the template prints "
-        "itself (ruling K-2): %r",
-        kept[-drop:],
-    )
-    body["paragraphs"] = kept[:-drop]
-    return letter_data
+        return None
+    return kept, drop
 
 
 def _backfill_sender_name(letter_data: dict, cv_data: dict, profile) -> dict:
@@ -1310,6 +1345,16 @@ async def _render_cover_letter_body(
                 # record's PINNED language wins (resolved once at generate time);
                 # NULL pin (pre-migration row) falls back to detection.
                 detected_language = cl.document_language or resolve_jd_language(job)
+
+                # ADR-094 clause L (US369 / #779): the letter pipeline, read ONCE per
+                # generation. v1 (default) is byte-identical to 0.43 (R-3: the gate
+                # reuses the 10-12 v1 baseline).
+                from applire.services.letter_v2 import letter_pipeline
+
+                pipeline = letter_pipeline()
+                is_v2 = pipeline == "v2"
+                if is_v2:
+                    logger.info("LETTER_PIPELINE=v2 cl=%s language=%s", cl_id, detected_language)
 
                 # ADR-048 / US201: load the latest Keyword Ledger for this job (read-only,
                 # mirrors cv.py) so the prompt surfaces claimable terms with their profile
@@ -1693,6 +1738,37 @@ async def _render_cover_letter_body(
                         leadership_emphasis=getattr(job, "leadership_emphasis", None),
                     )
                 )
+                # ADR-094 clause L: v2's writer system prompt names the document
+                # language first and asks only for the body + recipient; v1 gets
+                # SYSTEM_PROMPT itself. #709/#716 letter half (RULING W1-2/W2-3):
+                # the candidate's recorded alternate names as source material.
+                from applire.services.letter_v2 import (
+                    recorded_name_forms,
+                    render_recorded_name_forms_block,
+                )
+
+                writer_system = build_system_prompt(detected_language, pipeline=pipeline)
+                recorded_name_forms_block = (
+                    render_recorded_name_forms_block(
+                        recorded_name_forms(profile.profile_json if profile else {}),
+                        detected_language,
+                    )
+                    or None
+                    if is_v2
+                    else None
+                )
+
+                def _compose_v2(d: dict) -> dict:
+                    return _compose_letter(
+                        d,
+                        profile_json=profile.profile_json if profile else {},
+                        cv_data=cv_data,
+                        profile=profile,
+                        pre_gen=pre_gen,
+                        language=detected_language,
+                        pipeline="v2",
+                    )
+
                 user_prompt = build_cover_letter_prompt(
                     cv_data=cv_data,
                     jd_text=job.raw_text,
@@ -1716,12 +1792,19 @@ async def _render_cover_letter_body(
                     vault_evidence_block=vault_evidence_block,
                     scope_positioning_block=scope_positioning_block,
                     pinned_facts_block=pinned_facts_block,
+                    recorded_name_forms_block=recorded_name_forms_block,
                 )
                 # Explicit budget to match CV generation (cv.py): a signed letter must
                 # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
                 letter_data = await provider.aparse_json(
-                    user_prompt, system=SYSTEM_PROMPT, max_tokens=CV_GENERATION_MAX_TOKENS
+                    user_prompt, system=writer_system, max_tokens=CV_GENERATION_MAX_TOKENS
                 )
+                if is_v2:
+                    # ADR-094 clause L2: the code-owned fields (sender header from the
+                    # vault, signature, date, sign-off, the recipient the user typed)
+                    # are assembled BEFORE the first review round, so every reviewer
+                    # reads the letter that ships.
+                    letter_data = _compose_v2(letter_data)
 
                 # ADR-040 §1 / US170 (JF-M-8.1): the letter is signed and sent, so it carries
                 # the same two-tier truthfulness contract as the CV. Prevention tier — a grounding
@@ -1813,6 +1896,10 @@ async def _render_cover_letter_body(
                 )
                 if role_titles_block:
                     grounding_source = f"{grounding_source}\n\n{role_titles_block}"
+                if recorded_name_forms_block:
+                    # v2 only (None on v1): the reviewer and the corrector read the
+                    # same recorded forms the writer was given.
+                    grounding_source = f"{grounding_source}\n\n{recorded_name_forms_block}"
                 # #270(c): compose (never replace) coverage_reviewer_prompt_fn with a
                 # SECOND deterministic wrapper — each reviewer iteration also carries the JD
                 # hard requirements the CURRENT draft has not addressed, recomputed fresh
@@ -2012,7 +2099,29 @@ async def _render_cover_letter_body(
                         page_count=None,
                         letter_pages=norm.letter_pages,
                     )
+                    if is_v2:
+                        from applire.services.letter_v2 import language_name
+
+                        _name = language_name(detected_language)
+                        block = (
+                            f"{block}\n\nDOCUMENT LANGUAGE: {_name}. Every sentence of the "
+                            f"letter body you return is written in {_name}."
+                        )
                     return f"{prompt}\n\n{block}"
+
+                # ADR-094 clause L4: the v2 corrector-side signal (language, format,
+                # figure ownership, invented limit), on the composed draft.
+                v2_signal_fn = (
+                    _v2_checks_fn(
+                        _compose_v2,
+                        profile_json=profile.profile_json if profile else {},
+                        keyword_ledger=keyword_ledger,
+                        denied_concepts=denied_concepts,
+                        language=detected_language,
+                    )
+                    if is_v2
+                    else None
+                )
 
                 letter_data = await review_and_refine(
                     source=grounding_source,
@@ -2040,8 +2149,13 @@ async def _render_cover_letter_body(
                     # retain_if is opt-in and structural-only (never a quality score);
                     # when the settled draft fails it, an earlier round's draft that
                     # passed is substituted instead — no new LLM call.
-                    retain_if=has_closing_paragraph,
-                    load_bearing_fn=load_bearing_fn,
+                    # ADR-094 clause L (ruling W2-1, B6): v2 selects no draft by code —
+                    # a missing closing paragraph is a finding (v2_signal_fn) instead.
+                    retain_if=None if is_v2 else has_closing_paragraph,
+                    load_bearing_fn=None if is_v2 else load_bearing_fn,
+                    # ADR-094 L4: v2 findings through W1's checks_fn (a blocking
+                    # finding opens a round even after an approval).
+                    checks_fn=v2_signal_fn,
                 )
 
                 # #420 (ADR-021 amended 2026-08-02): with prefer_if gone from this
@@ -2071,6 +2185,7 @@ async def _render_cover_letter_body(
                     profile=profile,
                     pre_gen=pre_gen,
                     language=detected_language,
+                    pipeline=pipeline,
                 )
                 # ADR-077 clause 2 / SF-PIN.6: a truth floor inside the compose
                 # tail (letter_figure_guard et al.) that deletes a pin carrier is
@@ -2141,6 +2256,10 @@ async def _render_cover_letter_body(
                     # candidate's own persisted denials.
                     keyword_ledger=keyword_ledger,
                     denied_concepts=denied_concepts,
+                    # ADR-094 clause L (ruling W2-1, B3): v2 has no post-loop
+                    # final length floor — enforced inside, from ``pipeline``.
+                    pipeline=pipeline,
+                    v2_signal_fn=v2_signal_fn,
                 )
                 pin_floor_hits |= tr.pin_floor_hits
                 letter_data = tr.draft
@@ -2245,6 +2364,8 @@ async def _render_cover_letter_body(
                         # forbid. Same pin set as the first invocation: a re-entry
                         # reviews the same document contract.
                         pins=letter_pins,
+                        pipeline=pipeline,
+                        v2_signal_fn=v2_signal_fn,
                     )
                     pdf_bytes, measured = tr.pdf_bytes, tr.measured
                     # Fold, never replace — the report call at the TOP of this loop
@@ -2300,6 +2421,7 @@ def _compose_letter(
     pre_gen: dict,
     language: str,
     today: date | None = None,
+    pipeline: str = "v1",
 ) -> dict:
     """ADR-076 clause 3 (#539): the letter's ENTIRE deterministic tail as one
     pure, re-runnable function — the EIGHT guards, in the exact pre-#539 inline
@@ -2322,17 +2444,37 @@ def _compose_letter(
 
     Per-pass fates stay with the #540 dispositioning table (canonical per
     ADR-076 amendment 3). When a pass migrates, it leaves this function.
+
+    ``pipeline="v2"`` (ADR-094 clause L, US363 ruling W2-1, 2026-10-16): only the
+    CODE-OWNED FIELDS are set — the recipient the user typed, the date, the
+    sign-off label, and the sender header + signature name from the vault. No
+    step touches a sentence the model wrote: the figure floor, the outcome
+    reframe, the salutation inject/split and the sign-off drop become findings
+    (:func:`_letter_v2_findings`) or are deleted. v1 is unchanged.
     """
+    v1 = pipeline != "v2"
+    if not v1 and not isinstance(letter_data.get("recipient"), dict):
+        # v2 bench, 2026-10-16 (luna, controlling_emma_de.cross_de2en run 1): a
+        # terminal corrector returned ``"recipient": "recipient"`` and the date
+        # stamp below raised on the string, failing the generation. The recipient
+        # block is assembled by code from the user's input / the posting (the
+        # override step), so a malformed one is replaced by an empty block for
+        # that step to fill — a shape repair, no prose involved. (v1 keeps its
+        # behaviour; the same crash there is a Letter collector line.)
+        letter_data = {**letter_data, "recipient": {}}
     # #254 — deterministic figure-attribution guard, run on the settled output
     # of a review/corrector loop (never mid-loop): the ADR-021 corrector sees
     # the whole profile and can mint a figure borrowed from an unrelated
     # role/story. Belt and suspenders with the Oracle's post-hoc detection —
-    # this is the generation-path prevention half.
-    letter_data = guard_letter_figures(letter_data, profile_json)
+    # this is the generation-path prevention half. (v2: a finding, W2-2.)
+    if v1:
+        letter_data = guard_letter_figures(letter_data, profile_json)
     # #261 (run-4 blind hiring-panel finding): the letter-side twin of the CV's
     # outcome-preference guard — surface a measured result over a bare
     # target/projection for the same, unambiguously-named initiative.
-    letter_data = guard_letter_outcome_preference(letter_data, profile_json, language)
+    # (v2: deleted, W2-1 A2 — 0 of 102 baseline letters changed.)
+    if v1:
+        letter_data = guard_letter_outcome_preference(letter_data, profile_json, language)
     # F3 (blind PQ blocker): the recipient the user typed in the generate
     # dialog is overlaid deterministically AFTER the LLM/review step — user
     # input always wins (AC #2).
@@ -2343,6 +2485,14 @@ def _compose_letter(
     # #189: the sign-off is chrome — language-routed label + sender-name
     # backfill from the candidate's real name, so the letter is never unsigned.
     letter_data = _normalize_signature_closing(letter_data, language)
+    if not v1:
+        # ADR-094 clause L2 / W2-1 A10: the sender header and signature name are
+        # the vault's own record — the model is not asked for them.
+        from applire.services.letter_v2 import apply_code_owned_fields
+
+        letter_data = apply_code_owned_fields(
+            letter_data, profile_json=profile_json, cv_data=cv_data
+        )
     letter_data = _backfill_sender_name(letter_data, cv_data, profile)
     # #564: the #224 floor was scoped to the agent door only — the pipeline's
     # writer can omit the Anrede entirely (2026-08-28 run: it did, on every
@@ -2356,14 +2506,186 @@ def _compose_letter(
     # #547 class ("a control outrun by a later stage of the same pipeline")
     # cannot occur here, because a later stage re-enters this SAME function
     # rather than bypassing it.
-    letter_data = _inject_salutation(letter_data, language)
+    # (v2: A7/A8/A9 are findings — ``_letter_format_findings`` — W2-1.)
+    if v1:
+        letter_data = _inject_salutation(letter_data, language)
     # #307: the Anrede gets its own paragraph — the writer runs it into the
     # opening sentence, the DACH letter's most visible formal defect.
-    letter_data = _split_inline_salutation(letter_data)
+    if v1:
+        letter_data = _split_inline_salutation(letter_data)
     # Ruling K-2: the other end — a sign-off the writer repeated as the body's
     # last paragraph goes; the template prints `signature.closing` itself.
-    letter_data = _drop_trailing_signoff(letter_data)
+    if v1:
+        letter_data = _drop_trailing_signoff(letter_data)
     return letter_data
+
+
+# ---------------------------------------------------------------------------
+# ADR-094 clause L (US363 rulings W2-1 / W2-2, 2026-10-16): the v2 letter's
+# deterministic CHECKS. Every step v1 runs as a rewrite becomes a finding here —
+# computed on the composed draft, handed to the reviewer as a fact block and to
+# the corrector as blocking issues (ADR-076 clause 5's transport), and named on
+# the delivered letter's report when the loop could not resolve it. None of
+# them changes a word.
+# ---------------------------------------------------------------------------
+
+#: Per-round cap per finding family on the corrector side — an unbounded
+#: deterministic demand is exhaustion fuel (``limit_signal_issues_fn``'s cap).
+_V2_FINDINGS_PER_FAMILY = 2
+
+
+@dataclass(frozen=True)
+class LetterFinding:
+    """One v2 deterministic finding: ``family`` names the retired v1 step."""
+
+    family: str  # salutation | signoff | closing | figure | limit
+    text: str
+
+
+def _letter_format_findings(letter_data: dict) -> list[LetterFinding]:
+    """Salutation present and alone (A7/A8), no repeated sign-off (A9), a
+    genuine closing paragraph (B6). The same predicates v1 acts on."""
+    from applire.services.cover_letter_positioning import has_closing_paragraph
+
+    out: list[LetterFinding] = []
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    paragraphs = paragraphs if isinstance(paragraphs, list) else []
+    if not _has_salutation(letter_data):
+        out.append(LetterFinding(
+            "salutation",
+            "The letter has no salutation (Anrede): the first body paragraph must be the "
+            "salutation alone, ending with a comma.",
+        ))
+    else:
+        inline = _inline_salutation(paragraphs)
+        if inline is not None:
+            out.append(LetterFinding(
+                "salutation",
+                f'The salutation runs into the opening sentence: put "{inline[1]}" alone in '
+                "the first paragraph and start the opening sentence in the next one.",
+            ))
+    signoff = _trailing_signoff(letter_data)
+    if signoff is not None:
+        kept, drop = signoff
+        out.append(LetterFinding(
+            "signoff",
+            "The last body paragraph repeats the sign-off ("
+            + " / ".join(f'"{p}"' for p in kept[-drop:])
+            + "); the letter template prints the sign-off and the name itself — remove it "
+            "from the body.",
+        ))
+    # The closing is read on the body WITHOUT a repeated sign-off: "Kind regards" /
+    # the name as the last paragraphs is the sign-off finding above, not also a
+    # missing closing (one defect, one finding).
+    closing_subject = (
+        {"body": {"paragraphs": signoff[0][: -signoff[1]]}} if signoff is not None else letter_data
+    )
+    if paragraphs and not has_closing_paragraph(closing_subject):
+        out.append(LetterFinding(
+            "closing",
+            "The letter does not end with a genuine closing paragraph (interest in the role "
+            "and an invitation to talk); the last paragraph must be one.",
+        ))
+    return out
+
+
+def _letter_v2_findings(
+    letter_data: dict,
+    *,
+    profile_json: dict,
+    keyword_ledger: list | None,
+    denied_concepts: list | None,
+) -> list[LetterFinding]:
+    """Every v2 deterministic finding except the language one (which has its own
+    fact, block and ATS row in ``services/letter_v2``)."""
+    from applire.services.letter_figure_guard import letter_figure_findings
+    from applire.services.limit_grounding import ungrounded_limits
+
+    out = _letter_format_findings(letter_data)
+    try:
+        for f in letter_figure_findings(letter_data, profile_json or {}):
+            owners = ", ".join(f.get("foreign_owner_labels") or []) or "another position"
+            out.append(LetterFinding(
+                "figure",
+                f"Figure '{f['raw']}' is recorded in the candidate's profile only under "
+                f"{owners}, and this sentence does not name that employer. Re-anchor the "
+                "claim to the employer it belongs to, or drop the borrowed figure and keep "
+                f'the rest. Sentence: "{f["sentence"]}"',
+            ))
+    except Exception:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: figure findings failed", exc_info=True)
+    for limit in ungrounded_limits(letter_data, keyword_ledger, denied_concepts):
+        out.append(LetterFinding("limit", limit.issue_text()))
+    return out
+
+
+#: v2 finding families whose CONSEQUENCE is a judgement: the fact is computed by
+#: code, but whether the sentence must change is the model's call. They ride the
+#: loop as ADVISORY check findings (W1's ``CheckFinding.blocking=False``): shown to
+#: the reviewer, handed to the corrector when a round runs, never opening a round by
+#: themselves. Measured reason (10-12 baseline): the invented-limit predicate was
+#: wrong on 9 of 12 delivered cuts, the figure floor on 11 of 13 firings ("IFRS 16").
+_V2_ADVISORY_FAMILIES = frozenset({"figure", "limit"})
+
+
+def _v2_checks_fn(compose_fn, *, profile_json, keyword_ledger, denied_concepts, language):
+    """ADR-094 clause L4 through W1's findings interface (``review_and_refine``'s
+    ``checks_fn``): every v2 letter finding as a ``CheckFinding`` on the COMPOSED
+    draft of the round. Language, salutation, sign-off and closing are BLOCKING
+    facts — a round carrying one runs the corrector even after an approval; figure
+    ownership and invented limits are ADVISORY. Capped per family (exhaustion fuel)."""
+    from applire.services.letter_v2 import letter_language_fact, language_name
+    from applire.services.reviewer import CheckFinding
+
+    def fn(draft: dict) -> list:
+        try:
+            composed = compose_fn(draft)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("letter v2: compose failed for the checks", exc_info=True)
+            return []
+        out: list = []
+        fact = letter_language_fact(composed, language)
+        if not fact.clean:
+            name = language_name(fact.language)
+            quotes = " ".join(f'"{f.sentence}"' for f in fact.foreign[:3])
+            remedy = (
+                f"The whole letter is not written in {name}: rewrite every sentence in "
+                f"{name}, keeping every fact, figure and paragraph."
+                if fact.majority_foreign
+                else f"Rewrite these sentence(s) in {name}, same facts: {quotes}"
+            )
+            out.append(CheckFinding(
+                check="letter.language",
+                text=(f"{len(fact.foreign)} of {fact.checked} body sentences are not in "
+                      f"{name}. {remedy}"),
+            ))
+        per_family: dict[str, int] = {}
+        for f in _letter_v2_findings(
+            composed, profile_json=profile_json,
+            keyword_ledger=keyword_ledger, denied_concepts=denied_concepts,
+        ):
+            if per_family.get(f.family, 0) >= _V2_FINDINGS_PER_FAMILY:
+                continue
+            per_family[f.family] = per_family.get(f.family, 0) + 1
+            out.append(CheckFinding(
+                check=f"letter.{f.family}", text=f.text,
+                blocking=f.family not in _V2_ADVISORY_FAMILIES,
+            ))
+        return out
+
+    return fn
+
+
+def _v2_delivery_note(findings: list[LetterFinding]) -> str | None:
+    """The ship-and-report half (W2-2): what the loop left unresolved, named on
+    the delivered letter's terminal-review check. ``None`` when nothing is open."""
+    if not findings:
+        return None
+    return (
+        "Checks the review could not resolve before delivery (nothing was removed or "
+        "rewritten for you): " + " ".join(f"[{f.family}] {f.text}" for f in findings)
+    )
 
 
 @dataclass
@@ -2558,6 +2880,8 @@ async def _terminal_review_letter(
     final_floor: bool = True,
     keyword_ledger: list | None = None,
     denied_concepts: list | None = None,
+    pipeline: str = "v1",
+    v2_signal_fn=None,
 ) -> LetterTerminalReviewResult:
     """ADR-076 clause 3 (#539; amended 2026-08-29 for the #547 residual): the
     letter's TERMINAL review — the verdict that closes over the COMPOSED
@@ -2616,6 +2940,13 @@ async def _terminal_review_letter(
         return json.dumps(d, sort_keys=True, default=str)
 
     floor_hits: set[str] = set()
+    # ADR-094 clause L (rulings W2-1/W2-2): on v2 this mount selects no draft by
+    # code (no prefer_if / retain_if substitution), cuts no sentence at settle,
+    # and runs no post-loop final length floor; its deterministic findings reach
+    # the corrector through ``v2_signal_fn`` and the delivered letter's report.
+    is_v2 = pipeline == "v2"
+    if is_v2:
+        final_floor = False
 
     def _compose(d: dict) -> dict:
         composed = _compose_letter(
@@ -2625,6 +2956,7 @@ async def _terminal_review_letter(
             profile=profile,
             pre_gen=pre_gen,
             language=language,
+            pipeline=pipeline,
         )
         # ADR-077 clause 2 / SF-PIN.6: record a compose-tail truth-floor
         # deletion of a pin carrier — the flip lands on the report.
@@ -2699,6 +3031,39 @@ async def _terminal_review_letter(
     _limit_signal_fn = limit_signal_issues_fn(
         keyword_ledger, denied_concepts, _subject_of
     )
+    _v2_checks = None
+    if is_v2 and v2_signal_fn is not None:
+        # The v2 signal carries the ``limit`` family itself (and composes its own
+        # subject with the same code-owned-only compose as ``_subject_of``).
+        from applire.services.letter_v2 import combine_signal_fns
+
+        def _page_check(_d: dict) -> list:
+            """ADR-094 clause L (W2-4, B): a render over the page norm is a BLOCKING
+            check finding every terminal round — the measure of the composition under
+            review, a fact (ADR-051 §6). Never a rewrite."""
+            from applire.services.reviewer import CheckFinding
+
+            m = measure_cell["measured"]
+            if m.page_count is None or m.page_count <= norm.letter_pages:
+                return []
+            fits = [
+                mm.word_count for mm in all_measures
+                if mm.page_count is not None and mm.page_count <= norm.letter_pages
+            ]
+            target = max(fits) if fits else norm.letter_body_word_budget
+            return [CheckFinding(
+                check="letter.page_length",
+                text=(
+                    f"The letter renders to {m.page_count} pages at {m.word_count} body "
+                    f"words; the norm is {norm.letter_pages}. Shorten the body to at most "
+                    f"{target} words by tightening wording — keep every fact the letter "
+                    "needs, never drop the closing, the employer anchors or a requested "
+                    "positioning paragraph."
+                ),
+            )]
+
+        _v2_checks = combine_signal_fns(v2_signal_fn, _page_check)
+        _limit_signal_fn = None
 
     async def _finish(
         *, current, rounds, reentry_exhausted, condense_state, floor_hits,
@@ -2721,6 +3086,46 @@ async def _terminal_review_letter(
         candidate reads it with their letter. Fail-open throughout: a cut that
         would empty the body keeps the letter and still reports."""
         delivered = cl.letter_data
+        if is_v2:
+            # Ruling W2-2: findings, never deletions. What the loop left open is
+            # named on the delivered letter's terminal-review check.
+            outcome = _fold_terminal_outcome(delivered)
+            note = _v2_delivery_note(
+                _letter_v2_findings(
+                    delivered,
+                    profile_json=profile.profile_json if profile else {},
+                    keyword_ledger=keyword_ledger,
+                    denied_concepts=denied_concepts,
+                )
+            )
+            if note:
+                from applire.services.terminal_review_outcome import TerminalReviewOutcome
+
+                if outcome is None:
+                    outcome = TerminalReviewOutcome(
+                        chain_id="letter_terminal_review",
+                        path=None,
+                        approved=False,
+                        blocking_issues=(),
+                        minor_issues=(),
+                        rounds=rounds,
+                        notes=(note,),
+                    )
+                else:
+                    outcome = dataclasses.replace(outcome, notes=outcome.notes + (note,))
+            return LetterTerminalReviewResult(
+                draft=current,
+                pdf_bytes=pdf_cell["pdf"],
+                measured=measure_cell["measured"],
+                rounds=rounds,
+                reentry_exhausted=reentry_exhausted,
+                condense_used=condense_state["used"],
+                pin_floor_hits=floor_hits,
+                final_floor_fired=final_floor_fired,
+                final_floor_selection=final_floor_selection,
+                outcome=outcome,
+                limit_cuts=(),
+            )
         cut, findings = cut_ungrounded_limits(delivered, keyword_ledger, denied_concepts)
         # Adversarial finding, 2026-09-20: fold NOW, against whichever draft is
         # ACTUALLY about to ship — this settle-time cut's own output when it
@@ -2904,8 +3309,12 @@ async def _terminal_review_letter(
                         # ADR-077 clause 3: the pins survive the shortening —
                         # by instruction here, by measurement on the report.
                         pinned_quotes=[pn.quote for pn in pins] or None,
+                        # ADR-094 clause L3 (ruling W2-1, B4): v2's condense names
+                        # the document language; v1 passes None (unchanged text).
+                        language=language if is_v2 else None,
                     ),
                     stage="letter_condense_pre_verdict",
+                    system=build_system_prompt(language, pipeline=pipeline),
                 )
                 current = condensed
                 entered_via_condense = True
@@ -2955,14 +3364,17 @@ async def _terminal_review_letter(
             # site that could least afford the 4,096 default.
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             # #272 Task 3: the structural retention guard covers the terminal
-            # round exactly as it covered both retired loops.
-            retain_if=retain_if_fn,
+            # round exactly as it covered both retired loops. (v2: no draft is
+            # selected by code — ruling W2-1 B5/B6; the closing paragraph is a
+            # finding in ``v2_signal_fn``.)
+            retain_if=None if is_v2 else retain_if_fn,
             # #306 (b): the evidence-blind-substitution guard too.
-            load_bearing_fn=load_bearing_fn,
+            load_bearing_fn=None if is_v2 else load_bearing_fn,
             # #420's boundary, preserved: the word-budget tie-break narrows
             # only among CONDENSE-descendant drafts, never on a content round.
-            prefer_if=(within_budget_fn if entered_via_condense else None),
+            prefer_if=(within_budget_fn if (entered_via_condense and not is_v2) else None),
             signal_issues_fn=_limit_signal_fn,
+            checks_fn=_v2_checks,
             on_settle=_record_settle,
         )
         entered_via_condense = False
@@ -3004,6 +3416,81 @@ async def _terminal_review_letter(
     # still-over-norm re-entry stays an accepted, logged residual.
     final_floor_fired = False
     final_floor_selection = "none"
+    if is_v2:
+        # ADR-094 clause L (W2-4, C — pending the founder's ruling, built
+        # meanwhile): ONE post-loop condense when the delivered render is still over
+        # the page norm, calibrated to the largest body word count this delivery
+        # measured on one page (else the region budget), followed by ONE review
+        # round whose settle ships. No code selection, no revert, no re-condense —
+        # the model writes, the loop reviews (v1's B3 tail stays deleted).
+        m = measure_cell["measured"]
+        pages_before = m.page_count
+        if (
+            m.page_count is not None
+            and m.page_count > norm.letter_pages
+            and not (cl.section_overrides or {})
+            and reviews_enabled
+        ):
+            final_floor_fired = True
+            fits = [
+                mm.word_count for mm in all_measures
+                if mm.page_count is not None and mm.page_count <= norm.letter_pages
+            ]
+            target = max(fits) if fits else norm.letter_body_word_budget
+            previous = current
+            try:
+                current = await _condense_call(
+                    provider,
+                    build_condense_prompt(
+                        _subject_of(current),
+                        target,
+                        m.page_count,
+                        letter_pages=norm.letter_pages,
+                        pinned_quotes=[pn.quote for pn in pins] or None,
+                        language=language,
+                    ),
+                    stage="letter_condense_final_floor",
+                    system=build_system_prompt(language, pipeline=pipeline),
+                )
+                await _apply(current)
+            except Exception as floor_err:
+                logger.warning(
+                    "LETTER_V2_LENGTH condense failed for CL %s — keeping the terminal "
+                    "composition: %s", cl.id, floor_err,
+                )
+                try:
+                    await db.rollback()
+                    await db.refresh(cl)
+                except Exception as restore_err:  # pragma: no cover - defensive
+                    logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
+                current = previous
+                final_floor_selection = "condense_failed"
+            else:
+                rounds += 1
+                settled = await review_and_refine(
+                    source=grounding_source,
+                    draft=current,
+                    generator_prompt_fn=_terminal_corrector_prompt_fn,
+                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
+                    reviewer_prompt_fn=_reviewer_prompt,
+                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                    provider=provider,
+                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+                    chain_id="letter_terminal_review",
+                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
+                    signal_issues_fn=_limit_signal_fn,
+                    checks_fn=_v2_checks,
+                    on_settle=_record_settle,
+                )
+                if _canon(settled) != _canon(current):
+                    current = settled
+                    await _apply(current)
+                final_floor_selection = "v2_condensed_then_reviewed"
+            logger.info(
+                "LETTER_V2_LENGTH cl_id=%s pages_before=%s pages_after=%s target_words=%s "
+                "outcome=%s", cl.id, pages_before, measure_cell["measured"].page_count,
+                target, final_floor_selection,
+            )
     if final_floor:
         m = measure_cell["measured"]
         pages_before = m.page_count
@@ -3100,6 +3587,7 @@ async def _terminal_review_letter(
                     load_bearing_fn=load_bearing_fn,
                     prefer_if=within_budget_fn,
                     signal_issues_fn=_limit_signal_fn,
+                    checks_fn=_v2_checks,
                     on_settle=_record_settle,
                 )
                 if _canon(settled) != _canon(current):
@@ -3539,6 +4027,13 @@ async def _update_ats_report_letter(
             terminal_review=terminal_review,
             previous_report=previous_report,
             vault_index=grounding_vault_index(profile_row.profile_json if profile_row else None),
+            # ADR-094 clause L (ruling W2-1b): the v2 letter carries the CV's
+            # `document-language` row — red in the pre-download review when the
+            # delivered letter is not in its language; never a block. v1 passes
+            # None (report unchanged).
+            document_language=(
+                cl.document_language if _letter_pipeline_now() == "v2" else None
+            ),
             # ADR-090 am. 2026-09-26 (WP-R): the posting's title/employer are no claim
             # (the audit adds the letter's own recipient.company).
             non_claim=non_claim_names_for_job(job, await _label_application(db, cl)),

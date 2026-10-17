@@ -905,3 +905,42 @@ def guard_letter_figures(letter_data: dict[str, Any], profile: Any) -> dict[str,
     result = copy.deepcopy(letter_data)
     result.setdefault("body", {})["paragraphs"] = new_paragraphs
     return result
+
+
+def letter_figure_findings(letter_data: dict[str, Any], profile: Any) -> list[dict[str, Any]]:
+    """The FACT :func:`guard_letter_figures` acts on, without acting on it.
+
+    ADR-094 clause L / ruling W2-2 (2026-10-16): on the v2 letter the floor no
+    longer deletes. The same detection — a figure every vault unit of which is
+    owned by a position the sentence or the letter does not name — becomes a
+    finding into the review loop and a note on the delivered letter's report.
+    Measured on the 10-12 E066 baseline (102 delivered letters): the deleting
+    floor fired twice on delivery and both times removed an honest sentence (it
+    read the standard identifier "IFRS 16" as a borrowed figure — 11 of its 13
+    firings across all compositions), preventing no delivered S.
+
+    Same machinery, same firing rule (``_guard_paragraph`` per paragraph; its
+    rewritten text is discarded). Each finding: ``raw``, ``kind``, ``sentence``,
+    ``foreign_owners``, ``paragraph_index``. Pure; never logs a removal."""
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not paragraphs:
+        return []
+    index = build_vault_index(profile)
+    vault_fig_map = _vault_figure_map(index.units)
+    letter_named_ids = letter_named_experience_ids(letter_data, profile)
+    candidates = _employer_anchor_candidates(profile)
+    labels = _owner_labels(profile)
+    findings: list[dict[str, Any]] = []
+    for pi, para in enumerate(paragraphs):
+        if not isinstance(para, str) or not para.strip():
+            continue
+        _, dropped = _guard_paragraph(para, candidates, letter_named_ids, vault_fig_map)
+        for d in dropped:
+            d["paragraph_index"] = pi
+            # Ids never reach the model (see ``_owner_labels``).
+            d["foreign_owner_labels"] = sorted(
+                {labels.get(o, "another position") for o in d["foreign_owners"]}
+            )
+        findings.extend(dropped)
+    return findings
