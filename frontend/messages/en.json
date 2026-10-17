@@ -2358,5 +2358,16 @@
     "rewriteHint": "You get a suggestion. Nothing is saved until you apply it.",
     "letterBodyTitle": "Letter text",
     "suggestionTitle": "Suggestion"
+  },
+  "profileHealth": {
+    "launderedSpan": {
+      "thread": "Skill duration",
+      "summary": "{skill}: {years} years is marked as something you said, but nothing you wrote or told us states it. Your role dates give {recomputed} years.",
+      "recompute": "Recalculate from role dates",
+      "recomputing": "Recalculating…",
+      "done": "{skill}: recalculated — your letter now states it as an approximate figure.",
+      "stale": "This duration was already updated — the list is refreshed.",
+      "failed": "Recalculating didn't work. Nothing was changed — please try again."
+    }
   }
 }

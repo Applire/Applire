@@ -430,6 +430,28 @@ def _is_pure_denial_clause(text: str) -> bool:
     return True
 
 
+
+def named_in_denial_segment(text: str, digits: str) -> bool:
+    """True when ``digits`` (a standard identifier's number) sits inside a
+    comma/semicolon segment of ``text`` that carries a denial marker (#701,
+    ADR-052 amended 2026-10-16).
+
+    The unmentioned-identifier rule must not accuse a candidate for the very
+    standard they disclaim: "Mit ISO 13485 habe ich keine Erfahrung, aber ich
+    habe … 38 Mitarbeitende geführt" is one claim (the second segment keeps it
+    gradeable, see :func:`_is_pure_denial_clause`), and its identifier is named
+    in a denial, not claimed. Same segmentation and the same marker list as
+    :func:`_is_pure_denial_clause` — one definition of "a denial segment"
+    (ADR-066). ADR-062: a FACT (marker presence in a delimited segment).
+    """
+    normalized = _normalize_punct(text).lower()
+    pattern = re.compile(rf"(?<!\d){re.escape(digits)}(?!\d)")
+    for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized):
+        if pattern.search(segment) and any(m in segment for m in _DENIAL_MARKERS):
+            return True
+    return False
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it

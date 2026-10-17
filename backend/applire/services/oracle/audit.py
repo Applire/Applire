@@ -89,12 +89,14 @@ from applire.schemas.oracle import (
     DocumentKind,
     EvidenceRef,
     TruthfulnessReport,
+    Verdict,
 )
 from applire.services.oracle.extract import (
     extract_claims_from_letter,
     extract_claims_from_tailored,
     extract_claims_from_text,
     letter_named_experience_ids,
+    named_in_denial_segment,
 )
 from applire.services.oracle.matchers import (
     EvidenceUnit,
@@ -114,6 +116,7 @@ from applire.services.oracle.matchers.vault import (
     RESTATEMENT_MIN_SHARED,
     duration_window_tokens,
 )
+from applire.services.oracle.matchers.figures import _IDENTIFIER_PREFIX, _identifier_spans
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
 
@@ -1297,7 +1300,143 @@ def _denial_statement_backing(
     return backing
 
 
+# ── #701 (ADR-052 amended 2026-10-16, founder ruling H-1 = B) ──────────────
+# A claim that names a standard/regulation identifier whose digits the vault
+# never states cannot be graded ``grounded``. #374 excludes an identifier's
+# digits from figure matching (ADR-062 cl. 1: a fact-level exclusion), so
+# before this rule NOTHING checked them and the A2 probe's fabricated
+# "ISO-45001-Lead-Auditor-Zertifikat" rode on a true "38 Mitarbeitenden".
+# Not the coverage heuristic ruling T-2 reverted: this is token presence, the
+# same class as the canonical-figure miss (ADR-068 cl. 1, amended the same
+# day: the identifier miss is an explicit non-seam — no model may rescue it).
+#: The verdict a would-be ``grounded`` claim takes (one constant, H-1).
+IDENTIFIER_ABSENT_VERDICT: Verdict = "unbacked"
+#: A bare whole number in a vault text — "45001", "ISO45001" — also counts as
+#: the vault mentioning the identifier (lenient on purpose: silence over a
+#: false accusation).
+_BARE_NUMBER_RE = re.compile(r"(?<![\d.,])\d+(?!\d)")
+_IDENTIFIER_LABEL_BEFORE_RE = re.compile(
+    rf"\b{_IDENTIFIER_PREFIX}(?:\s*/\s*{_IDENTIFIER_PREFIX})?[ /-]\s*$"
+)
+_CFR_AFTER_RE = re.compile(r"\d+\s+CFR\b")
+
+
+def _identifier_label(text: str, start: int, end: int) -> str:
+    """The identifier as the claim wrote it ("ISO-4501", "21 CFR", "CFR Part 11")."""
+    before = _IDENTIFIER_LABEL_BEFORE_RE.search(text[:start])
+    if before is not None:
+        return text[before.start():end]
+    cfr = _CFR_AFTER_RE.match(text, start)
+    if cfr is not None:
+        return cfr.group(0)
+    part = text.rfind("CFR", 0, start)
+    if part >= 0:
+        return text[part:end]
+    return text[start:end]
+
+
+def _unmentioned_identifiers(text: str, index: VaultIndex) -> list[str]:
+    """Identifiers ``text`` names that the vault never mentions (#701).
+
+    Claim side: the #374 ``_identifier_spans`` (unchanged — ADR-066). Vault
+    side: the identifier's DIGITS in any evidence unit or denial statement of
+    ``index`` (so an index extended with session testimony counts), as an
+    identifier span or as a bare whole number. An identifier named inside the
+    claim's own denial-marked segment is not counted
+    (:func:`extract.named_in_denial_segment`). ADR-062: FACTS only. Returns
+    the identifiers as written, in order, de-duplicated.
+    """
+    spans = _identifier_spans(text or "")
+    if not spans:
+        return []
+    mentioned: set[str] = set()
+    for unit in list(index.units) + list(index.denial_units):
+        unit_text = unit.text or ""
+        for a, b in _identifier_spans(unit_text):
+            mentioned.add(unit_text[a:b])
+        mentioned.update(_BARE_NUMBER_RE.findall(unit_text))
+    out: list[str] = []
+    for a, b in spans:
+        digits = text[a:b]
+        if digits in mentioned or named_in_denial_segment(text, digits):
+            continue
+        label = _identifier_label(text, a, b)
+        if label not in out:
+            out.append(label)
+    return out
+
+
 async def verify_claim(
+    claim: Claim | str,
+    profile: Any,
+    provider: Any | None = None,
+    *,
+    index: VaultIndex | None = None,
+    budget: _EntailmentBudget | None = None,
+    letter_named_ids: frozenset[str] | None = None,
+    document_language: str | None = None,
+    judgement_sink: "list[_SeamCandidate] | None" = None,
+    ledger_forms: list[list[str]] | None = None,
+) -> "ClaimVerdict | _SeamCandidate":
+    """Verdict for a single claim against the vault (ADR-052 §1).
+
+    The one entry point every caller uses (the self-audit, the agent door's
+    ``audit_document``, ``cv_assist``). It grades the claim with
+    :func:`_verify_claim_unchecked` — the full deterministic-first pipeline,
+    see its docstring for every parameter — and owns ONE rule above it:
+
+    **#701 (ADR-052 amended 2026-10-16, ruling H-1 = B).** A claim naming a
+    standard identifier the vault never mentions is graded with every
+    judgement seam and the entailment call OFF (no provider, no sink, no
+    cross-language trigger — ADR-068 cl. 1 amended: an explicit non-seam), and
+    a would-be ``grounded`` becomes ``unbacked``/``numbers`` naming the
+    identifier. Every other verdict — the pre-existing red flags, an honest
+    ``unverifiable`` — stands unchanged: the rule withdraws an endorsement, it
+    never upgrades doubt into an accusation.
+    """
+    if isinstance(claim, str):
+        claim = Claim(text=claim, location="claim[0]")
+    idx = index or build_vault_index(profile)
+    unmentioned = _unmentioned_identifiers(claim.text, idx)
+    if not unmentioned:
+        return await _verify_claim_unchecked(
+            claim,
+            profile,
+            provider,
+            index=idx,
+            budget=budget,
+            letter_named_ids=letter_named_ids,
+            document_language=document_language,
+            judgement_sink=judgement_sink,
+            ledger_forms=ledger_forms,
+        )
+    verdict = await _verify_claim_unchecked(
+        claim,
+        profile,
+        None,
+        index=idx,
+        budget=_EntailmentBudget(limit=0),
+        letter_named_ids=letter_named_ids,
+        document_language=None,
+        judgement_sink=None,
+        ledger_forms=ledger_forms,
+    )
+    if verdict.verdict != "grounded":
+        return verdict
+    names = ", ".join(unmentioned)
+    logger.info("ORACLE_IDENTIFIER_ABSENT identifiers=%r", names)
+    return ClaimVerdict(
+        verdict=IDENTIFIER_ABSENT_VERDICT,
+        checker="numbers",
+        detail=(
+            f"Names {names} — a standard identifier your profile never mentions, "
+            "so the claim's other figures cannot back it."
+        ),
+        figures=list(unmentioned),
+    )
+
+
+async def _verify_claim_unchecked(
     claim: Claim | str,
     profile: Any,
     provider: Any | None = None,

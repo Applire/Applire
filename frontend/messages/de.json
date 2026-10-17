@@ -2358,5 +2358,16 @@
     "rewriteHint": "Du bekommst einen Vorschlag. Gespeichert wird erst, wenn Du ihn übernimmst.",
     "letterBodyTitle": "Anschreiben-Text",
     "suggestionTitle": "Vorschlag"
+  },
+  "profileHealth": {
+    "launderedSpan": {
+      "thread": "Dauer einer Fähigkeit",
+      "summary": "{skill}: {years} Jahre sind als deine eigene Angabe vermerkt, aber nichts, was du geschrieben oder gesagt hast, nennt diese Zahl. Aus deinen Stationen ergeben sich {recomputed} Jahre.",
+      "recompute": "Aus den Stationen neu berechnen",
+      "recomputing": "Wird neu berechnet…",
+      "done": "{skill}: neu berechnet — dein Anschreiben nennt die Dauer jetzt als ungefähre Angabe.",
+      "stale": "Diese Dauer wurde schon aktualisiert — die Liste ist neu geladen.",
+      "failed": "Das Neuberechnen hat nicht geklappt. Es wurde nichts geändert — bitte versuch es noch einmal."
+    }
   }
 }

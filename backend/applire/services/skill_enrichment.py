@@ -370,6 +370,24 @@ def evidenced_span_years(
     return _union_years(ranges), orgs
 
 
+def stored_span_years(
+    profile: MasterProfileData, skill_name: str, today: date | None = None
+) -> int | None:
+    """The span phase 1 would STORE as this skill's ``computed`` duration (#764).
+
+    Exactly the arithmetic of :func:`_match_and_enrich`'s computed branch —
+    ``_calculate_years`` over ``_evidencing_ranges(..., bound="stored")`` — so
+    a reader asking "what would recomputation give?" (the Health hub's
+    laundered-span check, ADR-061 cl. 7 amended 2026-10-16) can never
+    disagree with what recomputation then writes (ADR-066). ``None`` when no
+    dated experience's own text names the skill: nothing to recompute from.
+    """
+    ranges, _orgs = _evidencing_ranges(profile, skill_name, today or date.today())
+    if not ranges:
+        return None
+    return _calculate_years(ranges)
+
+
 def _match_and_enrich(
     profile: MasterProfileData,
 ) -> tuple[list[Skill], list[Skill]]:

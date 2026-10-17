@@ -56,9 +56,14 @@ PROFILE = {
             "id": "p-genai",
             "name": "Agentic GenAI System",
             "associated_experience": "w-nordpharm",
+            # #701 (comment 2026-10-09): the vault holds the WHOLE sentence the
+            # letter restates, not only its tail — a fixture holding the tail
+            # alone would let any evidence-coverage rule fail this file for
+            # the fixture's sake rather than the attribution rule's.
             "achievements": [
-                "Backed by full LLM exchange observability logging and "
-                "over 2,600 tests gating CI.",
+                "Built a deterministic verification layer auditing every LLM "
+                "output against source data, backed by full LLM exchange "
+                "observability logging and over 2,600 tests gating CI.",
             ],
         }
     ],

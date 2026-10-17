@@ -9,9 +9,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - **Choose how your photo is framed (#781).** Uploading a photo now opens *Choose the framing*: drag the photo and zoom until your face sits in the frame; a dashed circle shows what the round templates show, and two small previews show the round and the portrait result. *Adjust framing* next to *Replace* re-opens it for the photo you already have. Your photo is stored as you uploaded it; only the framing is saved, and every CV template and the Word export use it, so you can re-frame at any time without uploading again. A new upload starts unframed.
 - **The interview tells you when an answer was not recorded (#763).** When an answer stated something and nothing reached your profile, the interview now shows it under your answer, before the next question: *Nothing was recorded from what you said — say it again in one sentence, or enter it in your profile*, or, when that is why, *That is already in your profile, as stated* / *Your question arrived — nothing was changed for it*. Until now only the profile's Health panel said so. Agents receive the same `no_write_receipt` from `send_message`.
+- **Health hub: a skill duration you never stated (#764).** A profile could hold a skill duration marked as your own words although Applire had calculated it from your role dates. An import before 0.43 could relabel it that way. The Health hub now names such a duration, for example "SAP CO: 8 years is marked as something you said, but nothing you wrote or told us states it". *Recalculate from role dates* then fixes it in one click, and your cover letter states it as an approximate figure from then on. A figure the role dates would raise is never flagged. Agents see the same item in `get_profile_health`.
 
 ### Changed
 - **Photo uploads are checked to be the image type they claim to be** (JPEG, PNG or WebP) and within a size bound before they are stored.
+
+### Fixed
+- **Truthfulness check: a standard you never mentioned is no longer "backed" (#701).** Before this fix, a CV bullet or letter sentence naming a standard such as "ISO 45001" that your profile never mentions could still be graded *backed* when the same sentence also carried a true figure. It is now *unbacked*, and the reason names the standard. A standard named in your own "no experience with …" statement is not counted. Measured on 1,219 earlier documents: 3 claims change, each a mistyped version of the profile's own "ISO 45001".
 
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
