@@ -3501,7 +3501,12 @@ async def _terminal_review_letter(
                     reviewer_prompt_fn=_reviewer_prompt,
                     reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
                     provider=provider,
-                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
+                    # RULING W2-6 (B): this round only gets one more review, so the
+                    # corrector's FIRST patch of the condensed letter is read by the
+                    # reviewer before it can ship (adversarial probe B: an unreviewed
+                    # patch moved a Cargonaut fact under Finleap). Every other round
+                    # keeps LETTER_TERMINAL_REVIEW_MAX_RETRIES.
+                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES + 1,
                     chain_id="letter_terminal_review",
                     generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     signal_issues_fn=_limit_signal_fn,
