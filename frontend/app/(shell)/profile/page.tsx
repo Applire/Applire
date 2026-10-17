@@ -228,7 +228,7 @@ export default function ProfilePage() {
   // #764 — outcome note of a "recalculate from role dates" click. Lives outside
   // the HealthPanel's render condition: the panel unmounts once its last issue
   // is gone, and the note must outlive it.
-  const [recomputeNote, setRecomputeNote] = useState("");
+  const [recomputeNote, setRecomputeNote] = useState<{ text: string; ok: boolean } | null>(null);
   const [enrichmentHistory, setEnrichmentHistory] = useState<EnrichmentRecord[]>([]);
   const [error, setError] = useState("");
   // #704 (founder UAT, 2026-09-15) — true only for a genuine "no Master
@@ -365,7 +365,7 @@ export default function ProfilePage() {
   // #764 — recompute a laundered skill span from the role dates. 409 = the item
   // was already recomputed/edited elsewhere: say so and refresh.
   const handleRecomputeSpan = async (issue: HealthIssue) => {
-    setRecomputeNote("");
+    setRecomputeNote(null);
     try {
       const res = await fetch(`${API_BASE}/api/profile/health/recompute-span`, {
         method: "POST",
@@ -374,15 +374,15 @@ export default function ProfilePage() {
       });
       if (res.ok) {
         await loadProfile();
-        setRecomputeNote(tSpan("done", { skill: issue.skill_name ?? "" }));
+        setRecomputeNote({ text: tSpan("done", { skill: issue.skill_name ?? "" }), ok: true });
       } else if (res.status === 409) {
         await loadProfile();
-        setRecomputeNote(tSpan("stale"));
+        setRecomputeNote({ text: tSpan("stale"), ok: true });
       } else {
-        setRecomputeNote(tSpan("failed"));
+        setRecomputeNote({ text: tSpan("failed"), ok: false });
       }
     } catch {
-      setRecomputeNote(tSpan("failed"));
+      setRecomputeNote({ text: tSpan("failed"), ok: false });
     }
   };
 
@@ -461,9 +461,14 @@ export default function ProfilePage() {
             <p
               role="status"
               data-testid="health-recompute-note"
-              className="text-sm text-neutral-dark"
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm text-neutral-dark",
+                recomputeNote.ok
+                  ? "bg-success/10 border-success/20"
+                  : "bg-critical/10 border-critical/20",
+              )}
             >
-              {recomputeNote}
+              {recomputeNote.text}
             </p>
           )}
           {health && (health.issues.length > 0 || health.completeness.gaps.length > 0) && (
