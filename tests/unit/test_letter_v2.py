@@ -834,3 +834,64 @@ async def test_seam_condenses_carry_the_retained_terms_on_v2_only(db, monkeypatc
     for p in condenses:
         has = "COVERAGE ALREADY ACHIEVED" in p and "- HGB [forms: HGB]" in p
         assert has is (pipeline == "v2")
+
+
+# ── RULING W3-3: v2 sizes the page from this delivery's own render ──────────
+def _norm():
+    from types import SimpleNamespace
+    return SimpleNamespace(letter_pages=1, letter_body_word_budget=300)
+
+
+def _m(pages, words, overflow=None):
+    from applire.services.cover_letter import MeasuredLetter
+    return MeasuredLetter(page_count=pages, letter_pages=1, word_count=words,
+                          word_budget=300, overflow_words=overflow)
+
+
+def test_v2_page_target_prefers_a_measured_fit():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 310, overflow=40)
+    assert _v2_page_target(over, [_m(1, 262), over, _m(1, 248)], _norm()) == 262
+
+
+def test_v2_page_target_sizes_from_the_overflow_with_a_margin():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 289, overflow=12)          # the Luna shape: 289 words on 2 pages
+    assert _v2_page_target(over, [over], _norm()) == 289 - 12 - 14  # 5 % of 289
+    small = _m(2, 150, overflow=5)
+    assert _v2_page_target(small, [small], _norm()) == 150 - 5 - 10  # margin floor
+    big = _m(2, 420, overflow=30)
+    assert _v2_page_target(big, [big], _norm()) == 300                # never above budget
+
+
+def test_v2_page_target_falls_back_to_the_budget_without_a_measure():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 310, overflow=None)
+    assert _v2_page_target(over, [over], _norm()) == 300
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_condense_target_comes_from_the_render_overflow(db, v2):
+    """The writer's 2-page render put 30 words past page 1: the v2 condense is sized
+    to the words that fit, not to the 300-word region budget."""
+    body = list(_ENGLISH_BODY)
+    words = sum(len(p.split()) for p in body)
+    with patch("applire.services.ats_audit.extract_page_texts",
+               return_value=["x " * 200, "y " * 30]):
+        rec = await _run(db, await _seed(db), payload=_draft(body), pages=2)
+    condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    expected = max(1, min(words - 30 - max(10, round(0.05 * words)), 300))
+    assert len(condenses) == 2  # pre-verdict + the W2-4 post-loop condense
+    assert all(f"AT MOST {expected} words" in p for p in condenses)
+
+
+@pytest.mark.asyncio
+async def test_seam_v1_condense_target_stays_the_region_budget(db, v1):
+    with patch("applire.services.ats_audit.extract_page_texts",
+               return_value=["x " * 200, "y " * 30]):
+        rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
+    condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    assert condenses and "AT MOST 300 words" in condenses[0]

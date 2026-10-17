@@ -2708,6 +2708,9 @@ class MeasuredLetter:
     letter_pages: int
     word_count: int
     word_budget: int
+    #: RULING W3-3 (v2 sizing): words the render put on pages beyond the norm —
+    #: this delivery's own words-per-page measure. ``None`` = not measured.
+    overflow_words: int | None = None
 
 
 def _log_letter_data_deviation(cl_id, composed: dict) -> None:
@@ -2790,12 +2793,41 @@ async def _persist_and_measure(
             logger.warning(
                 "Letter page-count measurement failed for CL %s: %s", cl.id, measure_err
             )
+    overflow_words: int | None = None
+    if pdf_bytes is not None and page_count is not None and page_count > norm.letter_pages:
+        try:
+            from applire.services.ats_audit import extract_page_texts
+
+            overflow_words = sum(
+                len(t.split()) for t in extract_page_texts(pdf_bytes)[norm.letter_pages:]
+            )
+        except Exception:  # fail-open: a sizing measure never fails generation
+            overflow_words = None
     return pdf_bytes, MeasuredLetter(
         page_count=page_count,
         letter_pages=norm.letter_pages,
         word_count=body_word_count(composed),
         word_budget=norm.letter_body_word_budget,
+        overflow_words=overflow_words,
     )
+
+
+def _v2_page_target(m: "MeasuredLetter", all_measures, norm) -> int:
+    """RULING W3-3: the body word count this delivery's OWN render says fits the page
+    norm. The largest composition measured on the norm wins (a measured fit); else the
+    over-norm render's words minus what it put past the norm, minus a margin for line
+    wrap (5 %, at least 10 words). Never above the region budget. The 300-word budget
+    alone is not a page proxy (gate 3a451106: v2 letters of 260–300 words on 2 pages)."""
+    fits = [
+        mm.word_count for mm in all_measures
+        if mm.page_count is not None and mm.page_count <= norm.letter_pages
+    ]
+    if fits:
+        return min(max(fits), norm.letter_body_word_budget)
+    if m.overflow_words is not None and m.page_count is not None and m.page_count > norm.letter_pages:
+        margin = max(10, round(0.05 * m.word_count))
+        return max(1, min(m.word_count - m.overflow_words - margin, norm.letter_body_word_budget))
+    return norm.letter_body_word_budget
 
 
 def _log_subject_identity_letter(
@@ -3070,11 +3102,7 @@ async def _terminal_review_letter(
             m = measure_cell["measured"]
             if m.page_count is None or m.page_count <= norm.letter_pages:
                 return []
-            fits = [
-                mm.word_count for mm in all_measures
-                if mm.page_count is not None and mm.page_count <= norm.letter_pages
-            ]
-            target = max(fits) if fits else norm.letter_body_word_budget
+            target = _v2_page_target(m, all_measures, norm)
             return [CheckFinding(
                 check="letter.page_length",
                 text=(
@@ -3327,7 +3355,9 @@ async def _terminal_review_letter(
                     provider,
                     build_condense_prompt(
                         _subject_of(current),
-                        norm.letter_body_word_budget,
+                        # W3-3: v2 sizes from this delivery's own render measure.
+                        _v2_page_target(m, all_measures, norm) if is_v2
+                        else norm.letter_body_word_budget,
                         m.page_count,
                         letter_pages=norm.letter_pages,
                         # ADR-077 clause 3: the pins survive the shortening —
@@ -3457,11 +3487,7 @@ async def _terminal_review_letter(
             and reviews_enabled
         ):
             final_floor_fired = True
-            fits = [
-                mm.word_count for mm in all_measures
-                if mm.page_count is not None and mm.page_count <= norm.letter_pages
-            ]
-            target = max(fits) if fits else norm.letter_body_word_budget
+            target = _v2_page_target(m, all_measures, norm)
             previous = current
             try:
                 current = await _condense_call(

@@ -46,6 +46,11 @@ def extract_text_and_pages(pdf_bytes: bytes) -> tuple[str, int]:
     return text, len(pages)
 
 
+def extract_page_texts(pdf_bytes: bytes) -> list[str]:
+    """The extracted text of each page, in order (letter v2 sizing, RULING W3-3)."""
+    return [(page.extract_text() or "") for page in PdfReader(BytesIO(pdf_bytes)).pages]
+
+
 def extract_text(pdf_bytes: bytes) -> str:
     return extract_text_and_pages(pdf_bytes)[0]
 
