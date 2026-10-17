@@ -204,6 +204,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from applire.prompts import preamble as _prompt_context
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
@@ -913,8 +914,8 @@ async def review_and_refine(
             if checks_block:
                 reviewer_prompt = f"{reviewer_prompt}\n\n{checks_block}"
             try:
-                review: dict = await provider.aparse_json(
-                    reviewer_prompt,
+                review: dict = await _prompt_context.aparse_json(
+                    provider, _prompt_context.loop_site(chain_id, "reviewer"), reviewer_prompt,
                     system=reviewer_system,
                     temperature=0.1,
                     max_tokens=reviewer_max_tokens,
@@ -1095,8 +1096,8 @@ async def review_and_refine(
                 {"json_schema": generator_json_schema} if generator_json_schema else {}
             )
             try:
-                current_draft = await provider.aparse_json(
-                    retry_prompt,
+                current_draft = await _prompt_context.aparse_json(
+                    provider, _prompt_context.loop_site(chain_id, "generator"), retry_prompt,
                     system=generator_system,
                     temperature=0.1,
                     max_tokens=generator_max_tokens,

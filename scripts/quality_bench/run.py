@@ -241,8 +241,12 @@ def settings_snapshot() -> dict[str, Any]:
     # (CV_PIPELINE and the letter's own switch, E068) — every *_PIPELINE value the
     # process saw, from the environment and from the settings singleton.
     for name, value in sorted(os.environ.items()):
-        if name.endswith("_PIPELINE"):
+        if name.endswith("_PIPELINE") or name == "PROMPT_CONTEXT":
             snap[name] = value
+    if os.environ.get("PROMPT_CONTEXT"):  # US370: arm B's primer texts are versioned data
+        from applire.prompts.primers import primer_metadata
+
+        snap["prompt_primer"] = primer_metadata()
     for name in dir(settings):
         if name.endswith("_pipeline") and not name.startswith("_"):
             snap[f"settings.{name}"] = getattr(settings, name, None)

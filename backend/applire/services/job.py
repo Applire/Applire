@@ -24,6 +24,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.prompts import preamble as _prompt_context
 from applire.constants import JD_ANALYSIS_MAX_TOKENS, LLM_REVIEW_MAX_RETRIES
 from applire.models.job import JobAnalysis
 from applire.prompts.job_analysis import SYSTEM_PROMPT, build_user_prompt
@@ -532,8 +533,8 @@ async def _analyze_jd_once(
     from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
 
     _set_llm_log_stage("job_analysis")
-    data: dict = await provider.aparse_json(
-        build_user_prompt(text),
+    data: dict = await _prompt_context.aparse_json(
+        provider, "job_analysis:writer", build_user_prompt(text),
         system=SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=JD_ANALYSIS_MAX_TOKENS,

@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 import openai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from applire.prompts.preamble import primer_turns
 from applire.config import settings
 from applire.exceptions import LLMProviderUnavailableError, LLMRateLimitError, LLMTimeoutError
 from applire.providers.llm.base import (
@@ -490,5 +491,6 @@ def _build_messages(prompt: str, system: str | None) -> list:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
+    messages.extend(primer_turns())  # E068 US370 arm B; empty unless PROMPT_CONTEXT=b
     messages.append({"role": "user", "content": prompt})
     return messages

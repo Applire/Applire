@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
+from applire.prompts import preamble as _prompt_context
 from applire.redaction import scrub_secrets
 from applire.templates.filters import build_template_env
 from playwright.async_api import async_playwright
@@ -526,8 +527,8 @@ async def _tailor_cv_with_fallback(
         closer = "Return the tailored CV prose JSON."
         user_prompt = user_prompt[: -len(closer)] + f"{v2_fields_block}\n\n{closer}"
         schema = v2_writer_schema()
-        return await provider.aparse_json(
-            user_prompt,
+        return await _prompt_context.aparse_json(
+            provider, "cv:writer", user_prompt,
             system=V2_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=CV_GENERATION_MAX_TOKENS,
