@@ -1449,12 +1449,12 @@ def test_an_added_cefr_code_is_not_delivered_and_is_a_blocking_finding():
     prose["languages"][1]["level"] = "Fließend (C1)"
     tailored, _ = _compose(prose, vault)
     assert tailored.languages[1].level == "Fluent"
-    f = _by_check(_checks(prose, vault))["cv.level_code_added"]
+    f = _by_check(_checks(prose, vault))["cv.level_code_changed"]
     assert f.blocking and "C1" in f.text
     prose["languages"][1]["level"] = "Fließend"
     tailored, _ = _compose(prose, vault)
     assert tailored.languages[1].level == "Fließend"
-    assert "cv.level_code_added" not in _by_check(_checks(prose, vault))
+    assert "cv.level_code_changed" not in _by_check(_checks(prose, vault))
 
 
 def test_v2_prompts_forbid_adding_a_level_code():
@@ -1462,6 +1462,21 @@ def test_v2_prompts_forbid_adding_a_level_code():
     from applire.prompts.review_cv_language import _V2_REFINE_NOTE
 
     assert "never add a level code the profile does not state" in V2_SYSTEM_PROMPT
+    assert "every code and qualifier the profile states stays" in V2_SYSTEM_PROMPT
     assert "keep CEFR codes" not in V2_SYSTEM_PROMPT
-    assert "add none" in build_v2_fields_block(_vault())
+    assert "keep every code and qualifier it states, add none" in build_v2_fields_block(_vault())
     assert "never add one" in _V2_REFINE_NOTE
+
+
+def test_a_dropped_cefr_code_is_a_change_too():
+    """After the first fix Ministral wrote "Lernend (B1)" for "Learning (A2, B1 exam
+    planned)" — a planned exam read as an attained level. Codes must match as stated."""
+    assert cv_v2.cefr_codes_changed("Lernend (B1)", "Learning (A2, B1 exam planned)") == ["A2"]
+    assert cv_v2.cefr_codes_changed("Lernend (A2, B1-Prüfung geplant)", "Learning (A2, B1 exam planned)") == []
+    vault = _vault()
+    vault["languages"][1]["level"] = "Learning (A2, B1 exam planned)"
+    prose = _prose()
+    prose["languages"][1]["level"] = "Lernend (B1)"
+    tailored, _ = _compose(prose, vault)
+    assert tailored.languages[1].level == "Learning (A2, B1 exam planned)"
+    assert "A2" in _by_check(_checks(prose, vault))["cv.level_code_changed"].text

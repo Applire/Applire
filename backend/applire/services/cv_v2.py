@@ -168,6 +168,15 @@ def cefr_codes_added(model_level: object, stored_level: object) -> list[str]:
     return sorted(set(_CEFR_RE.findall(str(model_level or ""))) - have)
 
 
+def cefr_codes_changed(model_level: object, stored_level: object) -> list[str]:
+    """Every code on which the two levels differ — added OR dropped. A dropped code
+    is an upsell too: "Learning (A2, B1 exam planned)" delivered as "Lernend (B1)"
+    states a planned exam as an attained level (measured after the first fix)."""
+    have = set(_CEFR_RE.findall(str(stored_level or "")))
+    got = set(_CEFR_RE.findall(str(model_level or "")))
+    return sorted(have ^ got)
+
+
 def _by_id(rows: Any) -> dict[str, dict]:
     return {
         str(r.get("id") or ""): r for r in rows or [] if isinstance(r, dict) and r.get("id")
@@ -310,7 +319,7 @@ def compose_v2(
                 (f"languages {l_vault.get('id')} language", str(p.get("language")), str(stored),
                  recorded_names(stored, l_vault.get("aliases")))
             )
-        added = cefr_codes_added(p.get("level"), l_vault.get("level"))
+        added = cefr_codes_changed(p.get("level"), l_vault.get("level"))
         if isinstance(p.get("level"), str) and p["level"].strip() and added:
             # An upsold level is not delivered: the stored level stays (a selection,
             # like a non-recorded name — ruling W1-2's disposition) and the check says why.
@@ -433,15 +442,15 @@ def v2_checks(
         ))
     if notes.levels_code_added:
         parts = [
-            f"{loc}: “{got}” adds {', '.join(codes)}, which the profile's level “{stored}” does not state"
+            f"{loc}: “{got}” does not carry the profile's level codes as stated (“{stored}”; differs on {', '.join(codes)})"
             for loc, got, stored, codes in notes.levels_code_added[:_MAX_ITEMS_PER_FINDING]
         ]
         findings.append(CheckFinding(
-            check="cv.level_code_added",
+            check="cv.level_code_changed",
             text=(
                 "; ".join(parts)
-                + ". Translate the level's words only; never add a level code the profile "
-                "does not state."
+                + ". Translate the level's words only: keep every code and qualifier the "
+                "profile states, add none."
             ),
         ))
     if notes.rows_not_returned:
