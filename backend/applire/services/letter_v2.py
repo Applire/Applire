@@ -57,6 +57,7 @@ the model wrote.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -419,3 +420,117 @@ def render_recorded_name_forms_block(forms: list[NameForms], language: str | Non
         forms_txt = " | ".join(f'"{x}"' for x in (f.stored, *f.aliases))
         lines.append(f"  - {_KIND_LABEL.get(f.kind, f.kind)}{where}: {forms_txt}")
     return "\n".join(lines)
+
+
+# ── W2-3: recorded-name membership for employer / institution spans ─────────
+#: Leading tokens that never identify ONE institution (the Oracle's company list
+#: already covers "Gruppe", "Group", …).
+_GENERIC_INSTITUTION_TOKENS = frozenset({
+    "university", "universität", "universitaet", "hochschule", "fachhochschule",
+    "college", "school", "schule", "institute", "institut", "technische",
+    "technical", "academy", "akademie", "the",
+})
+
+
+@dataclass(frozen=True)
+class NameMembership:
+    """A located employer/institution span that is not a recorded name (W2-3)."""
+
+    kind: str  # "company" | "institution"
+    span: str
+    stored: str
+    aliases: tuple[str, ...]
+
+    def text(self) -> str:
+        options = " or one of " + ", ".join(f'"{a}"' for a in self.aliases) if self.aliases else ""
+        return (
+            f'"{self.span}" is not a name the candidate recorded for {self.stored}; '
+            f'use "{self.stored}"{options}.'
+        )
+
+
+def letter_name_findings(
+    letter_data: dict[str, Any] | None, profile_json: dict[str, Any] | None
+) -> list[NameMembership]:
+    """RULING W2-3: an employer or institution named in the letter body must be a
+    recorded name (the stored name or one of its aliases). Spans are located by the
+    Oracle's anchor machinery (``oracle.extract``: exact name, legal-form-stripped
+    core name, distinctive leading token) — exact surface forms only, no title-span
+    guessing; roles and degrees are not located in prose. A span located only by
+    the looser passes is checked with W1's ``pick_recorded``; a non-member is a
+    finding. Pure string facts (ADR-062 cl. 1); nothing is rewritten."""
+    from applire.services.cv_v2 import norm_name, pick_recorded, recorded_names
+    from applire.services.oracle.extract import (
+        _GENERIC_COMPANY_TOKENS,
+        _core_company_name,
+        _distinctive_token_candidates,
+        _normalize_punct,
+    )
+
+    if not isinstance(profile_json, dict):
+        return []
+    body = (letter_data or {}).get("body") or {}
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list):
+        return []
+    text = _normalize_punct(" \n ".join(p for p in paragraphs if isinstance(p, str)))
+    if not text.strip():
+        return []
+
+    # (kind, entity id, stored, aliases) per recorded entity
+    entities: list[tuple[str, str, str, list[str]]] = []
+    for section, key, alias_key, kind in (
+        ("work_experience", "company", "company_aliases", "company"),
+        ("education", "institution", "institution_aliases", "institution"),
+    ):
+        by_name: dict[str, tuple[str, str, str, list[str]]] = {}
+        for e in profile_json.get(section) or []:
+            if not isinstance(e, dict):
+                continue
+            stored = (e.get(key) or "").strip()
+            if not stored:
+                continue
+            aliases = [a for a in (e.get(alias_key) or []) if isinstance(a, str)] if isinstance(e.get(alias_key), list) else []
+            # several roles at ONE employer are one entity (else the Oracle's
+            # distinctive-token pass would drop the shared token as ambiguous)
+            k = norm_name(stored)
+            if k in by_name:
+                by_name[k][3].extend(a for a in aliases if a not in by_name[k][3])
+            else:
+                by_name[k] = (kind, f"{kind}:{len(by_name)}", stored, list(aliases))
+        entities.extend(by_name.values())
+
+    def _find(form: str, *, proper_noun: bool = False) -> str | None:
+        flags = 0 if proper_noun else re.IGNORECASE
+        m = re.search(r"\b" + re.escape(_normalize_punct(form)) + r"\b", text, flags)
+        return m.group(0) if m else None
+
+    loose = [(_core_company_name(s), eid) for _k, eid, s, _a in entities]
+    tokens = dict(
+        (eid, tok) for tok, eid in _distinctive_token_candidates(loose)
+        if tok.casefold() not in _GENERIC_INSTITUTION_TOKENS
+        and tok.casefold() not in _GENERIC_COMPANY_TOKENS
+    )
+    out: list[NameMembership] = []
+    seen: set[tuple[str, str]] = set()
+    for kind, eid, stored, aliases in entities:
+        if any(_find(n) for n in recorded_names(stored, aliases)):
+            continue  # a recorded form is named — member
+        core = _core_company_name(stored)
+        span = _find(core) if core != stored else None
+        if span is None and eid in tokens and tokens[eid][:1].isupper():
+            # A single token is a NAME only as the capitalised proper noun: the
+            # Oracle's anchor tolerates "kleine" (fail-open for attribution), but
+            # here a hit is a blocking finding — an ordinary word must not be one
+            # (measured: "kleine Gruppe (…)" fired on 3 of 28 v2 letters).
+            span = _find(tokens[eid], proper_noun=True)
+        if span is None:
+            continue
+        _name, member = pick_recorded(span, stored, aliases)
+        if member or (eid, span.casefold()) in seen:
+            continue
+        seen.add((eid, span.casefold()))
+        out.append(NameMembership(kind, span, stored, tuple(
+            a for a in recorded_names(stored, aliases) if a != stored
+        )))
+    return out

@@ -702,3 +702,77 @@ def test_v2_compose_survives_a_malformed_recipient_from_the_corrector():
     assert out["recipient"]["company"] == "Arnold Antriebstechnik GmbH"
     assert out["recipient"]["date"]
     assert out["body"]["paragraphs"] == _ENGLISH_BODY
+
+
+# ── RULING W2-3: recorded-name membership for employer / institution spans ──
+_SHORT_NAME_BODY = [
+    _ENGLISH_BODY[0],
+    _ENGLISH_BODY[1],
+    "At Schwarzwald Präzision I have owned the monthly and annual closing under HGB "
+    "since 2019, including the coordination with the auditors.",
+    _ENGLISH_BODY[3],
+]
+
+
+@pytest.mark.parametrize("sentence, expected", [
+    ("At Schwarzwald Präzision GmbH I closed the books.", []),            # stored name
+    ("At Schwarzwald Precision I closed the books.", []),                 # recorded alias
+    ("At Schwarzwald Präzision I closed the books.", ["Schwarzwald Präzision"]),  # legal form dropped
+    ("At Schwarzwald I closed the books.", ["Schwarzwald"]),              # distinctive token
+    ("I studied at the University of Stuttgart.", []),                    # institution alias
+    ("I worked at Arnold Antriebstechnik GmbH.", []),                     # not a recorded entity
+])
+def test_letter_name_findings_membership(sentence, expected):
+    from applire.services.letter_v2 import letter_name_findings
+
+    found = letter_name_findings({"body": {"paragraphs": [sentence]}}, _PROFILE_JSON)
+    assert [f.span for f in found] == expected
+    for f in found:
+        assert "not a name the candidate recorded for Schwarzwald Präzision GmbH" in f.text()
+        assert '"Schwarzwald Precision"' in f.text()
+
+
+def test_letter_name_findings_ignore_an_ordinary_word_matching_a_lowercase_token():
+    """The Oracle's distinctive-token pass tolerates "kleine" for "kleine Gruppe (…)"
+    (fail-open attribution); as a BLOCKING finding it must not fire on the adjective
+    (measured: 3 of 28 v2 bench letters before this guard)."""
+    from applire.services.letter_v2 import letter_name_findings
+
+    profile = {"work_experience": [{"company": "kleine Gruppe (GmbH plus Vertriebsgesellschaft Schweiz)"}]}
+    letter = {"body": {"paragraphs": ["Ich führte eine kleine Einheit mit vier Personen."]}}
+    assert letter_name_findings(letter, profile) == []
+
+
+def test_v2_checks_fn_carries_a_non_member_name_as_blocking():
+    from applire.services.cover_letter import _v2_checks_fn
+
+    fn = _v2_checks_fn(lambda d: d, profile_json=_PROFILE_JSON, keyword_ledger=None,
+                       denied_concepts=None, language="en")
+    found = [f for f in fn(_draft(_SHORT_NAME_BODY)) if f.check == "letter.names"]
+    assert len(found) == 1 and found[0].blocking
+    assert '"Schwarzwald Präzision" is not a name the candidate recorded' in found[0].text
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_a_non_member_name_reaches_the_loop_and_ships_unrewritten(db, v2):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ids = await _seed(db)
+    rec = await _run(db, ids, payload=_draft(_SHORT_NAME_BODY))
+    drafting = rec["loops"][0]
+    assert any(f.check == "letter.names" and f.blocking for f in drafting["checks"])
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.letter_data["body"]["paragraphs"] == _SHORT_NAME_BODY  # never rewritten
+    outcome = rec["audit"]["terminal_review"]
+    assert "[names]" in " ".join(outcome.notes if outcome is not None else [])
+
+
+def test_letter_name_findings_decide_membership_by_w1s_norm_name():
+    """Membership is W1's ``pick_recorded`` (NFKC, case, whitespace), not the locator's
+    regex: an alias recorded with irregular spacing still makes the span a member."""
+    from applire.services.letter_v2 import letter_name_findings
+
+    profile = {"work_experience": [{"company": "Schwarzwald Präzision GmbH",
+                                     "company_aliases": ["Schwarzwald  Präzision"]}]}
+    letter = {"body": {"paragraphs": ["At Schwarzwald Präzision I closed the books."]}}
+    assert letter_name_findings(letter, profile) == []
