@@ -153,6 +153,28 @@ class ComposeNotes:
     # (location, model value, stored value, recorded names)
     rows_not_returned: list[tuple[str, str]] = field(default_factory=list)
     # (location, what the writer should return)
+    levels_code_added: list[tuple[str, str, str, list[str]]] = field(default_factory=list)
+    # (location, model level, stored level, codes the vault level does not state)
+
+
+#: CEFR level codes (Council of Europe). A code is a CLAIM about a tested level.
+_CEFR_RE = re.compile(r"(?<![A-Za-z0-9])([ABC][12])(?![A-Za-z0-9])")
+
+
+def cefr_codes_added(model_level: object, stored_level: object) -> list[str]:
+    """Codes the model's level carries that the stored level does not — a fact
+    (adversarial finding 7: "Fluent" delivered as "Fließend (C1)")."""
+    have = set(_CEFR_RE.findall(str(stored_level or "")))
+    return sorted(set(_CEFR_RE.findall(str(model_level or ""))) - have)
+
+
+def cefr_codes_changed(model_level: object, stored_level: object) -> list[str]:
+    """Every code on which the two levels differ — added OR dropped. A dropped code
+    is an upsell too: "Learning (A2, B1 exam planned)" delivered as "Lernend (B1)"
+    states a planned exam as an attained level (measured after the first fix)."""
+    have = set(_CEFR_RE.findall(str(stored_level or "")))
+    got = set(_CEFR_RE.findall(str(model_level or "")))
+    return sorted(have ^ got)
 
 
 def _by_id(rows: Any) -> dict[str, dict]:
@@ -297,7 +319,15 @@ def compose_v2(
                 (f"languages {l_vault.get('id')} language", str(p.get("language")), str(stored),
                  recorded_names(stored, l_vault.get("aliases")))
             )
-        if isinstance(p.get("level"), str) and p["level"].strip():
+        added = cefr_codes_changed(p.get("level"), l_vault.get("level"))
+        if isinstance(p.get("level"), str) and p["level"].strip() and added:
+            # An upsold level is not delivered: the stored level stays (a selection,
+            # like a non-recorded name — ruling W1-2's disposition) and the check says why.
+            notes.levels_code_added.append(
+                (f"languages {l_vault.get('id')} level", p["level"].strip(),
+                 str(l_vault.get("level") or ""), added)
+            )
+        elif isinstance(p.get("level"), str) and p["level"].strip():
             update["level"] = p["level"].strip()
         elif l_vault.get("level"):
             notes.rows_not_returned.append(
@@ -410,6 +440,19 @@ def v2_checks(
                 "exists; never translate or invent a name."
             ),
         ))
+    if notes.levels_code_added:
+        parts = [
+            f"{loc}: “{got}” does not carry the profile's level codes as stated (“{stored}”; differs on {', '.join(codes)})"
+            for loc, got, stored, codes in notes.levels_code_added[:_MAX_ITEMS_PER_FINDING]
+        ]
+        findings.append(CheckFinding(
+            check="cv.level_code_changed",
+            text=(
+                "; ".join(parts)
+                + ". Translate the level's words only: keep every code and qualifier the "
+                "profile states, add none."
+            ),
+        ))
     if notes.rows_not_returned:
         parts = [f"{loc} ({what})" for loc, what in notes.rows_not_returned[:_MAX_ITEMS_PER_FINDING]]
         findings.append(CheckFinding(
@@ -425,7 +468,10 @@ def v2_checks(
     #     (``ledger_restore.select_restore_candidates`` — ADR-066, one definition); the
     #     corrector writes the bullet. No verbatim append; on exhaustion the CV ships
     #     and the ATS ``narrative-evidence`` check reports the absence (ADR-039).
-    findings.extend(_claim_missing_findings(composed, ctx))
+    claim = _claim_missing_findings(composed, ctx)
+    findings.extend(claim)
+    # 4c. C2 (ruling W1-1 r2): a vault project neither nested nor mentioned.
+    findings.extend(_project_findings(composed, ctx))
 
     # 5–8. the v1 skill passes as detectors — run IN v1's ORDER on one copy, so the
     #    findings describe v1's own final skills decision and can never contradict each
@@ -482,6 +528,97 @@ def _claim_missing_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> 
             "its weakest bullet instead of adding."
         ),
     )]
+
+
+def _project_text(p: dict) -> str:
+    parts: list[str] = [str(p.get("name") or ""), str(p.get("description") or "")]
+    for key in ("responsibilities", "achievements", "technologies", "highlights", "bullets"):
+        parts.extend(str(x) for x in (p.get(key) or []) if isinstance(x, str))
+    return "\n".join(x for x in parts if x.strip())
+
+
+def _project_findings(composed: "TailoredCVData", ctx: V2CheckContext) -> list[CheckFinding]:
+    """C2 as findings (inventory C2, ruling W1-1 r2) — v1's ``_nest_projects`` appended
+    an untailored vault project's own text; v2 hands projects to the writer and checks.
+
+    * ``cv.project_missing`` (BLOCKING): a JD-required claimable concept the CV states
+      in no bullet (``cv_gap_hints.verified_narrative_underclaim`` — the instrument
+      behind the ATS ``narrative-evidence`` row, ADR-066) is evidenced by a vault
+      project the CV does not carry. Complying is always right: the claim is the
+      posting's own requirement and the project is the candidate's own evidence.
+    * ``cv.project_not_mentioned`` (advisory): a vault project whose name is neither a
+      project heading nor mentioned anywhere — only when the document is in the vault's
+      language (a translated heading cannot be matched by a closed normalisation, and a
+      false "missing" would ask for a duplicate)."""
+    from applire.services import cv as cv_mod
+    from applire.services.ats_audit import _norm, surface_present
+    from applire.services.cv_gap_hints import verified_narrative_underclaim
+
+    vault_projects = [p for p in (ctx.profile_json.get("projects") or []) if isinstance(p, dict)]
+    if not vault_projects:
+        return []
+    doc = composed.model_dump(mode="json")
+    work_ids = {str(w.get("id") or "") for w in ctx.profile_json.get("work_experience") or []}
+
+    def _where(p: dict) -> str:
+        parent = str(p.get("associated_experience") or "")
+        return f"under {parent}" if parent in work_ids else "as a standalone project"
+
+    out: list[CheckFinding] = []
+    parts: list[str] = []
+    if ctx.keyword_ledger:
+        try:
+            under = verified_narrative_underclaim(doc, ctx.keyword_ledger, structured_document=doc)
+        except Exception:  # noqa: BLE001 — a detector failure loses its finding only
+            logger.exception("v2 check detector verified_narrative_underclaim raised; finding skipped")
+            under = []
+        texts = [(p, _norm(_project_text(p))) for p in vault_projects]
+        for c in under:
+            hit = next((p for p, t in texts if t and any(surface_present(f, t) for f in c.surface_forms)), None)
+            if hit is None:
+                continue
+            desc = str(hit.get("description") or "").strip()
+            parts.append(
+                f"“{c.concept}” is required by the posting and no bullet states it — the vault "
+                f"project “{hit.get('name')}” ({hit.get('id')}, {_where(hit)}) is its evidence"
+                + (f": “{desc[:240]}”" if desc else "")
+            )
+    if parts:
+        out.append(CheckFinding(
+            check="cv.project_missing",
+            text=(
+                "; ".join(parts[:_MAX_ITEMS_PER_FINDING])
+                + ". Write that project into the CV (as a project of its role, one or two "
+                "bullets in the document language) or state the concept in a bullet of that "
+                "role; if the role is at its bullet budget, replace its weakest bullet."
+            ),
+        ))
+
+    try:
+        same_language = cv_mod._vault_dominant_language(ctx.profile_json) == ctx.language
+    except Exception:  # noqa: BLE001
+        same_language = False
+    if same_language:
+        headings = {norm_name(p.name) for w in composed.work_history for p in w.projects}
+        headings |= {norm_name(p.name) for p in composed.projects}
+        doc_norm = _norm(canonical(doc))
+        unmentioned = [
+            str(p.get("name"))
+            for p in vault_projects
+            if p.get("name") and norm_name(p.get("name")) not in headings
+            and not surface_present(str(p.get("name")), doc_norm)
+        ]
+        if unmentioned:
+            out.append(CheckFinding(
+                check="cv.project_not_mentioned",
+                text=(
+                    f"Vault projects neither on the CV nor mentioned: {_fmt(unmentioned)}. "
+                    "Include the ones that are evidence for this job; leaving out an "
+                    "unrelated one is fine."
+                ),
+                blocking=False,
+            ))
+    return out
 
 
 def language_shape_checks(handed: dict):
@@ -704,6 +841,46 @@ class V2Terminal:
             notes = self.notes_by_draft.get(canonical(draft)) or ComposeNotes()
             return v2_checks(draft, composed, notes, self.ctx)
         return _fn
+
+    def delivered_findings(self, prose: dict, tailored_data: dict) -> list[CheckFinding]:
+        """The checks evaluated ONCE on the SHIPPED draft (adversarial finding 6,
+        2026-10-17): the last terminal corrector round is unreviewed and unchecked, so
+        what the loop settled on is not what ships. No rewrite, no round — a report."""
+        from applire.schemas.cv import TailoredCVData
+
+        try:
+            composed = TailoredCVData.model_validate(tailored_data)
+            notes = self.notes_by_draft.get(canonical(prose)) or ComposeNotes()
+            return [f for f in v2_checks(prose, composed, notes, self.ctx) if f.blocking]
+        except Exception:  # noqa: BLE001 — a report failure must never fail delivery
+            logger.exception("v2 delivered-draft checks raised; nothing reported")
+            return []
+
+    def report_delivered(self, outcome, prose: dict, tailored_data: dict):
+        """Attach the delivered draft's open blocking findings to the terminal-review
+        outcome as ``notes`` — they reach the ATS ``terminal-review`` row's details on
+        every status (the #664 precedent the letter uses)."""
+        import dataclasses
+
+        open_ = self.delivered_findings(prose, tailored_data)
+        logger.info("CV_V2_DELIVERED_CHECKS open=%s", [f.check for f in open_])
+        if not open_:
+            return outcome
+        note = "Code checks still open on the delivered CV (shipped and reported): " + "; ".join(
+            f"{f.check}: {f.text[:140]}" for f in open_[:4]
+        ) + (f" (+{len(open_) - 4} more)" if len(open_) > 4 else "")
+        if outcome is None:
+            # No terminal verdict ran (review layer off, or a stubbed loop): the row stays
+            # "unknown" (path None → not_applicable) and still names the open facts.
+            from applire.services.terminal_review_outcome import TerminalReviewOutcome
+
+            return TerminalReviewOutcome(
+                chain_id="cv_terminal_review", path=None, approved=False,
+                blocking_issues=(), minor_issues=(), rounds=0, notes=(note,),
+            )
+        if note in outcome.notes:
+            return outcome
+        return dataclasses.replace(outcome, notes=outcome.notes + (note,))
 
     def on_checks_settle(self, report) -> None:
         self.open_findings = list(report.open_findings)

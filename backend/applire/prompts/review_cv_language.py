@@ -227,7 +227,8 @@ def _v2_field_lines(draft: dict) -> str:
 
 _V2_REFINE_NOTE = (
     " Also translate each `education[].field` and each `languages[]` name and level "
-    "(keep CEFR codes); keep every `role`, `company`, `degree` and `institution` exactly "
+    "(translate the words only: keep every level code and qualifier the row states, never "
+    "add one it does not state); keep every `role`, `company`, `degree` and `institution` exactly "
     "as it is."
 )
 

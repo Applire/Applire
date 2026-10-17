@@ -23,6 +23,7 @@
  */
 import { ADMIN_USER, expect, test } from "../support/auth-fixture";
 import { ANSWER, answerOnce, finalTurn, nextTurn, stubInterview } from "./interview-receipt-fixtures";
+import { SETTINGS, json } from "./edit-tab-stub";
 
 test.describe("#763 interview no-write receipt (desktop)", () => {
   test("no_write: the answer is echoed with the warning receipt before the next question", async ({ page }) => {
@@ -77,6 +78,12 @@ test.describe("#763 interview no-write receipt (desktop)", () => {
   test.describe("German", () => {
     test.use({ authUser: { ...ADMIN_USER, ui_language: "de" } });
     test("no_write reads the German receipt", async ({ page }) => {
+      // The shell's LocaleProvider applies GET /api/settings after /me; on the CI
+      // harness the real stub admin answers an explicit "en", so the German lane
+      // stubs it too (feedback: OQ green on bare `next dev` is not CI).
+      await page.route("**/api/settings", (r) =>
+        json(r, { ...SETTINGS, ui_language: "de", ui_language_explicit: true }),
+      );
       await stubInterview(page, nextTurn("no_write"));
       await answerOnce(page);
       await expect(page.getByTestId("no-write-receipt-turn").getByTestId("no-write-receipt")).toHaveText(

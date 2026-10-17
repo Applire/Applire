@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import {
   allClusterMembers,
   clusterView,
@@ -63,6 +64,9 @@ interface ItemState {
   refusal: GapRefusalCode | null;
   /** Open members a follow-up turn is aimed at (ADR-089 clause 2). */
   followUpOpen: string[] | null;
+  /** #763 (ruling ADV-1) — the last answer wrote nothing: the receipt's
+   * reason, shown instead of a success line. */
+  receipt: string | null;
 }
 
 const EMPTY_ITEM: ItemState = {
@@ -74,6 +78,7 @@ const EMPTY_ITEM: ItemState = {
   error: "",
   refusal: null,
   followUpOpen: null,
+  receipt: null,
 };
 
 /** The gap_cluster (if any) that owns this liability concept — services/gap.py's
@@ -99,6 +104,8 @@ interface TurnResponse {
   cluster_coverage?: TurnClusterCoverage | null;
   /** Ruling M-1b — what a partial-coverage follow-up asks about. */
   follow_up_concepts?: string[] | null;
+  /** #763 — the turn stated something and wrote nothing (the receipt's reason). */
+  no_write_receipt?: string | null;
 }
 
 async function refusalCodeOf(res: Response): Promise<GapRefusalCode | null> {
@@ -131,6 +138,7 @@ export function LiabilityPanel({
   onActiveChange,
 }: {
   jobId: string;
+  /** May be empty: the panel stays mounted so a receipt outlives the refresh. */
   liabilities: LiabilityEntry[];
   clusters: GapCluster[];
   apiBase: string;
@@ -154,9 +162,18 @@ export function LiabilityPanel({
     onActiveChange?.(active);
   }, [active, onActiveChange]);
 
-  const visible = liabilities.filter(
+  const listed = liabilities.filter(
     (l) => (items[l.concept]?.status ?? "idle") !== "dropped",
   );
+  // #763 (ruling ADV-1, re-run R2): the turn that COMPLETES a story session
+  // re-reads the analysis, which can drop the concept from the liability
+  // list. Its card stays until the candidate closes it, so the receipt
+  // saying nothing was saved never vanishes with the refresh.
+  const listedConcepts = new Set(liabilities.map((l) => l.concept));
+  const retained: LiabilityEntry[] = Object.entries(items)
+    .filter(([concept, i]) => i.receipt && !listedConcepts.has(concept))
+    .map(([concept]) => ({ concept }));
+  const visible = [...listed, ...retained];
   if (visible.length === 0) return null;
 
   function update(concept: string, patch: Partial<ItemState>) {
@@ -184,7 +201,7 @@ export function LiabilityPanel({
       });
       return;
     }
-    update(concept, { status: "loading", error: "", refusal: null, followUpOpen: null });
+    update(concept, { status: "loading", error: "", refusal: null, followUpOpen: null, receipt: null });
     try {
       const res = await fetch(`${apiBase}/api/session`, {
         method: "POST",
@@ -214,7 +231,7 @@ export function LiabilityPanel({
   async function submitAnswer(concept: string) {
     const item = items[concept];
     if (!item?.sessionId || !item.answer.trim()) return;
-    update(concept, { status: "sending", error: "" });
+    update(concept, { status: "sending", error: "", receipt: null });
     try {
       const res = await fetch(`${apiBase}/api/session/${item.sessionId}/message`, {
         method: "POST",
@@ -238,7 +255,15 @@ export function LiabilityPanel({
           choices: data.choices ?? null,
           // Ruling M-1b: the label names what the follow-up asks.
           followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
+          receipt: data.no_write_receipt ?? null,
         });
+        onFollowUpTurn?.(concept);
+        return;
+      }
+      if (data.no_write_receipt) {
+        // #763 (ruling ADV-1): the session ended but nothing reached the
+        // profile — say so; "Geschichte hinzugefügt" would be a false receipt.
+        update(concept, { status: "idle", answer: "", followUpOpen: null, receipt: data.no_write_receipt });
         onFollowUpTurn?.(concept);
         return;
       }
@@ -269,9 +294,11 @@ export function LiabilityPanel({
     <div data-testid="liability-panel" className="mb-8">
       <div className="flex items-center gap-2 mb-1">
         <h3 className="font-heading text-lg font-bold text-neutral-dark">{t("liabilityTitle")}</h3>
-        <Badge variant="warning" data-testid="liability-badge">
-          {t("liabilityBadge", { count: visible.length })}
-        </Badge>
+        {listed.length > 0 && (
+          <Badge variant="warning" data-testid="liability-badge">
+            {t("liabilityBadge", { count: listed.length })}
+          </Badge>
+        )}
       </div>
       <p className="text-xs text-gray-500 mb-3">{t("liabilitySubtitle")}</p>
       {locked && (
@@ -284,6 +311,7 @@ export function LiabilityPanel({
         {visible.map((l) => {
           const item = items[l.concept] ?? EMPTY_ITEM;
           const resolved = item.status === "resolved";
+          const unlisted = !listedConcepts.has(l.concept);
           return (
             <Card
               key={l.concept}
@@ -309,6 +337,15 @@ export function LiabilityPanel({
                     <span aria-hidden="true">✓</span>
                     {t("liabilityResolved")}
                   </p>
+                ) : unlisted ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid={`liability-receipt-close-${l.concept}`}
+                    onClick={() => update(l.concept, { receipt: null })}
+                  >
+                    {tc("close")}
+                  </Button>
                 ) : (
                   item.status !== "question" && item.status !== "loading" && item.status !== "sending" && (
                     <div className="flex shrink-0 gap-2">
@@ -336,6 +373,12 @@ export function LiabilityPanel({
 
               {item.error && (
                 <p className="mt-2 text-xs text-critical">{item.error}</p>
+              )}
+
+              {item.receipt && (
+                <div data-testid={`liability-receipt-${l.concept}`} className="mt-2">
+                  <NoWriteReceiptLine reason={item.receipt} live />
+                </div>
               )}
 
               {item.refusal && (

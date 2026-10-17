@@ -34,6 +34,7 @@ import { CancelApplicationButton } from "@/components/flow/CancelApplicationButt
 import { PinnedFactsPanel } from "@/components/pins/PinnedFactsPanel";
 import { cn } from "@/lib/utils";
 import { GapClusterCard } from "@/components/gaps/GapClusterCard";
+import { NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import { LiabilityPanel, type LiabilityEntry } from "@/components/gaps/LiabilityPanel";
 import { ProfileDecisionsCard } from "@/components/gaps/ProfileDecisionsCard";
 import { getProfileChanges, hasMergeReview, type ProfileChanges } from "@/lib/api/review";
@@ -119,6 +120,8 @@ interface GapClickState {
   overlay: TurnClusterCoverage | null;
   /** `POST /api/session` refused this cluster (HTTP 409, contract item 5). */
   refusal: GapRefusalCode | null;
+  /** #763 (ruling ADV-1) — the last answer wrote nothing: the receipt's reason. */
+  receipt: string | null;
 }
 
 /** The slice of `SessionMessageResponse` the gaps page reads. */
@@ -131,6 +134,8 @@ interface SessionTurnResponse {
   cluster_coverage?: TurnClusterCoverage | null;
   /** Ruling M-1b — what a partial-coverage follow-up asks about. */
   follow_up_concepts?: string[] | null;
+  /** #763 — the turn stated something and wrote nothing (the receipt's reason). */
+  no_write_receipt?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +166,7 @@ const EMPTY_GAP_STATE: GapClickState = {
   followUpOpen: null,
   overlay: null,
   refusal: null,
+  receipt: null,
 };
 
 /** The contract's 409 `error_code`, when the body carries one. */
@@ -425,8 +431,14 @@ function GapClickPanel({
         </p>
       );
     }
-    return state.error ? (
-      <p data-testid="gap-error" className="mt-2 text-xs text-critical">{state.error}</p>
+    if (state.error) {
+      return <p data-testid="gap-error" className="mt-2 text-xs text-critical">{state.error}</p>;
+    }
+    // #763 (ruling ADV-1): the session ended and the last answer wrote nothing.
+    return state.receipt ? (
+      <div data-testid="gap-receipt" className="mt-2">
+        <NoWriteReceiptLine reason={state.receipt} live />
+      </div>
     ) : null;
   }
 
@@ -443,6 +455,11 @@ function GapClickPanel({
 
   return (
     <div className="mt-3 rounded-lg border border-teal/30 bg-teal/5 p-3 space-y-2">
+      {state.receipt && (
+        <div data-testid="gap-receipt">
+          <NoWriteReceiptLine reason={state.receipt} live />
+        </div>
+      )}
       {state.followUpOpen && state.followUpOpen.length > 0 && (
         <p data-testid="gap-follow-up-label" className="text-xs font-medium text-teal">
           {t("followUpLabel", { items: state.followUpOpen.join(", ") })}
@@ -967,7 +984,7 @@ export default function GapsPage({
   async function sendGapAnswer(clusterId: string) {
     const st = gapStates[clusterId];
     if (!st?.sessionId || !st.answer.trim() || st.sending) return;
-    updateGapState(clusterId, { sending: true, error: "" });
+    updateGapState(clusterId, { sending: true, error: "", receipt: null });
     let data: SessionTurnResponse;
     try {
       const res = await fetch(`${API_BASE}/api/session/${st.sessionId}/message`, {
@@ -1015,6 +1032,7 @@ export default function GapsPage({
         // keep showing the strict record.
         followUpOpen: !isConfirmation && turn ? (data.follow_up_concepts ?? turn.open_concepts) : null,
         overlay: turn ?? st.overlay,
+        receipt: data.no_write_receipt ?? null,
       });
       void reReadAnalysis();
       return;
@@ -1023,7 +1041,8 @@ export default function GapsPage({
     // The micro-session is complete: adopt the whole recomputed analysis.
     updateGapState(clusterId, { ...EMPTY_GAP_STATE, status: "refreshing", overlay: turn });
     await refreshAnalysis();
-    updateGapState(clusterId, { status: "idle" });
+    // #763 (ruling ADV-1): a session that ended with nothing written says so.
+    updateGapState(clusterId, { status: "idle", receipt: data.no_write_receipt ?? null });
   }
 
   function cancelGapSession(clusterId: string) {
@@ -1456,10 +1475,12 @@ export default function GapsPage({
           Placed after the gap clusters (real gaps first) and before the
           detailed A/B/C breakdown, so both honest exits are visible
           BEFORE the user moves on to CV generation. */}
-      {hasJob && flowState?.job_id && gaps?.keyword_liabilities && gaps.keyword_liabilities.length > 0 && (
+      {/* Mounted whenever there is a job (it renders nothing without a card):
+          #763 R2 — a receipt must outlive the refresh that empties the list. */}
+      {hasJob && flowState?.job_id && gaps && (
         <LiabilityPanel
           jobId={flowState.job_id}
-          liabilities={gaps.keyword_liabilities}
+          liabilities={gaps.keyword_liabilities ?? []}
           clusters={gaps.gap_clusters ?? []}
           apiBase={API_BASE}
           onDropped={() => void refreshAfterLiabilityAction()}

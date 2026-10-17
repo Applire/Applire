@@ -3269,7 +3269,8 @@ async def _resolve_photo_data_uri(
 
     #781 (ruling F-2): ``crop`` is the candidate's framing of this photo; the
     ONE helper `photo.frame_photo` applies it here, the seam every template and
-    the DOCX export read their photo through. None renders the file as stored.
+    the DOCX export read their photo through. None is the identity framing —
+    the whole picture, re-encoded without metadata (adversarial pass 2026-10-17).
     """
     from applire.services.photo_framing import frame_photo
 
@@ -4714,7 +4715,11 @@ async def _render_cv_background(
                         # #703: the delivery's repeated demands, measured against
                         # the composed CV this audit reads.
                         terminal_review=with_repeated_demands(
-                            terminal_outcome, cv_demand_record, record.tailored_data
+                            terminal_outcome if v2_terminal is None
+                            else v2_terminal.report_delivered(
+                                terminal_outcome, prose_draft, record.tailored_data
+                            ),
+                            cv_demand_record, record.tailored_data
                         ),
                     )
                     delivered_hash = _subject_hash(record.tailored_data)
