@@ -39,3 +39,17 @@ test("#763 mobile: 'Geschichte erzählen' with nothing written shows the receipt
   expect(box!.x + box!.width).toBeLessThanOrEqual(vw + 0.5);
   await expect(page.getByText("Geschichte hinzugefügt")).toHaveCount(0);
 });
+
+test("#763 mobile: the receipt stays after the completing turn's refresh drops the liability", async ({ page }) => {
+  await stubGaps(page, doneTurn("no_write"), "de", { dropLiabilityAfterTurn: true });
+  await page.goto(`/flow/${FLOW_ID}/gaps`);
+  await page.getByTestId(`liability-tell-story-${LIABILITY}`).click();
+  await page.getByTestId(`liability-answer-textarea-${LIABILITY}`).fill(OFF_TOPIC);
+  await page.getByTestId(`liability-submit-${LIABILITY}`).click();
+  await expect(page.getByTestId(`liability-tell-story-${LIABILITY}`)).toHaveCount(0);
+  const receipt = page.getByTestId(`liability-receipt-${LIABILITY}`);
+  await expect(receipt).toContainText("wurde nichts übernommen");
+  await receipt.scrollIntoViewIfNeeded();
+  const box = await receipt.boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 0.5);
+});

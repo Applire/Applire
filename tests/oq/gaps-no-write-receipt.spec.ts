@@ -42,6 +42,22 @@ test.describe("#763 /gaps composers — no-write receipt (desktop)", () => {
     await expect(page.getByTestId(`liability-tell-story-${LIABILITY}`)).toBeVisible();
   });
 
+  test("the completing turn's receipt stays after the refresh drops the liability, until closed", async ({ page }) => {
+    let reads = 0;
+    page.on("request", (req) => {
+      if (req.method() === "GET" && /\/api\/job\/[^/]+\/gaps$/.test(req.url())) reads += 1;
+    });
+    await stubGaps(page, doneTurn("no_write"), "en", { dropLiabilityAfterTurn: true });
+    await tellStory(page);
+    const receipt = page.getByTestId(`liability-receipt-${LIABILITY}`);
+    await expect(receipt).toContainText("Nothing was recorded");
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(2); // the post-turn re-read happened
+    await expect(page.getByTestId(`liability-tell-story-${LIABILITY}`)).toHaveCount(0); // no longer listed
+    await expect(receipt).toContainText("Nothing was recorded");
+    await page.getByTestId(`liability-receipt-close-${LIABILITY}`).click();
+    await expect(page.getByTestId(`liability-card-${LIABILITY}`)).toHaveCount(0);
+  });
+
   test("'Tell the story' that wrote keeps the success line", async ({ page }) => {
     await stubGaps(page, doneTurn(null, true));
     await tellStory(page);
@@ -68,6 +84,14 @@ test.describe("#763 /gaps composers — no-write receipt (desktop)", () => {
         "Von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein.",
       );
       await expect(page.getByText("Geschichte hinzugefügt")).toHaveCount(0);
+    });
+
+    test("the German receipt survives the refresh that drops the liability", async ({ page }) => {
+      await stubGaps(page, doneTurn("no_write"), "de", { dropLiabilityAfterTurn: true });
+      await tellStory(page);
+      await expect(page.getByTestId(`liability-tell-story-${LIABILITY}`)).toHaveCount(0);
+      await expect(page.getByTestId(`liability-receipt-${LIABILITY}`)).toContainText("wurde nichts übernommen");
+      await expect(page.getByTestId(`liability-receipt-close-${LIABILITY}`)).toHaveText("Schließen");
     });
   });
 });

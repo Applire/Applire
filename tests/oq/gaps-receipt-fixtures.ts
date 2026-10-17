@@ -59,13 +59,23 @@ const json = (body: unknown) => ({ status: 200, contentType: "application/json",
 
 /** Stub /gaps; every micro-session answer returns `turn`. `lang` is stated
  * explicitly — CI's harness answers its own saved language otherwise. */
-export async function stubGaps(page: Page, turn: Record<string, unknown>, lang: "en" | "de" = "en") {
+export async function stubGaps(
+  page: Page,
+  turn: Record<string, unknown>,
+  lang: "en" | "de" = "en",
+  opts: { dropLiabilityAfterTurn?: boolean } = {},
+) {
+  // Re-run R2: after the completing turn, the re-read row may no longer list
+  // the concept as a liability (the server's recomputed ledger).
+  let answered = false;
+  const row = () =>
+    answered && opts.dropLiabilityAfterTurn ? { ...ROW, keyword_liabilities: [] } : ROW;
   await page.route(`**/api/flow/${FLOW_ID}/state`, (r) =>
     r.fulfill(json({ job_id: JOB_ID, current_step: "gap_analysis", user_type: "new", available_actions: {},
       gap_summary: { gap_analysis_id: GAP_ID }, job_summary: { role_title: "Platform Engineer" } })),
   );
-  await page.route(`**/api/job/${JOB_ID}/gaps`, (r) => r.fulfill(json(ROW)));
-  await page.route(`**/api/job/${JOB_ID}/gaps/refresh`, (r) => r.fulfill(json(ROW)));
+  await page.route(`**/api/job/${JOB_ID}/gaps`, (r) => r.fulfill(json(row())));
+  await page.route(`**/api/job/${JOB_ID}/gaps/refresh`, (r) => r.fulfill(json(row())));
   await page.route("**/api/profile", (r) =>
     r.fulfill(json({ positions_count: 2, projects_count: 1, certifications_count: 0, data_points_count: 9 })),
   );
@@ -76,7 +86,10 @@ export async function stubGaps(page: Page, turn: Record<string, unknown>, lang: 
   await page.route("**/api/session", (r) =>
     r.fulfill(json({ session_id: "micro-763", question: "Tell me how you ran Kubernetes.", choices: null })),
   );
-  await page.route("**/api/session/micro-763/message", (r) => r.fulfill(json(turn)));
+  await page.route("**/api/session/micro-763/message", (r) => {
+    answered = true;
+    return r.fulfill(json(turn));
+  });
 }
 
 export const doneTurn = (receipt: string | null, wrote = false) => ({
