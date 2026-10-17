@@ -2538,7 +2538,7 @@ _V2_FINDINGS_PER_FAMILY = 2
 class LetterFinding:
     """One v2 deterministic finding: ``family`` names the retired v1 step."""
 
-    family: str  # salutation | signoff | closing | figure | limit
+    family: str  # salutation | signoff | closing | figure | limit | names
     text: str
 
 
@@ -2617,6 +2617,15 @@ def _letter_v2_findings(
         logger.warning("letter v2: figure findings failed", exc_info=True)
     for limit in ungrounded_limits(letter_data, keyword_ledger, denied_concepts):
         out.append(LetterFinding("limit", limit.issue_text()))
+    try:
+        # RULING W2-3: an employer/institution named in the body must be a
+        # recorded name (stored or alias); a non-member is a BLOCKING finding.
+        from applire.services.letter_v2 import letter_name_findings
+
+        for m in letter_name_findings(letter_data, profile_json or {}):
+            out.append(LetterFinding("names", m.text()))
+    except Exception:  # pragma: no cover - a check never breaks generation
+        logger.warning("letter v2: name findings failed", exc_info=True)
     return out
 
 
