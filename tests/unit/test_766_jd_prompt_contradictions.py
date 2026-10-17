@@ -72,3 +72,14 @@ def test_the_approval_bar_defers_to_the_checks_and_the_severity_contract():
     tail = REVIEWER.split("WHAT IS BLOCKING IN THIS PASS", 1)[1][:400]
     assert "checks 1-5" in tail and "with no basis in the source text" not in tail
     assert REVIEWER.count("education bar") >= 2  # test_uat_education_requirement's pin
+
+
+def test_gap_prompt_carries_no_developer_prose_or_duplicate_guideline():
+    """#766 chain 2: the gap SYSTEM_PROMPT keeps its rules; the incident sentence,
+    the issue/ADR tags and the guideline that restated the schema's keyword_gaps
+    line are gone (the schema line itself stays)."""
+    from applire.prompts.gap_analysis import SYSTEM_PROMPT as GAP
+
+    assert "Key-User" not in GAP and "(#328)" not in GAP and "(ADR-070)" not in GAP
+    assert GAP.count("keyword_gaps") == 1 and '"keyword_gaps"' in GAP
+    assert "classification_note" in GAP and "PROVENANCE:" in GAP and "ATTESTED PROSE:" in GAP

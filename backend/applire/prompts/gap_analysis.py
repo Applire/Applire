@@ -150,9 +150,8 @@ Rules:
     the bar — omit adjacent_evidence) and name the declared proficiency in
     "classification_note" — NEVER in "reason". "reason" is shown to the CV and cover-letter
     writers as what the candidate may claim; a ceiling is a fact about YOUR grading, not
-    about the candidate, and writing it into "reason" makes the documents understate them
-    (a real run published "Grundkenntnisse in SAP PP/MM" for a candidate who uses those
-    modules daily and was a Key-User). State in "reason" what the candidate genuinely CAN
+    about the candidate, and writing it into "reason" makes the documents understate them.
+    State in "reason" what the candidate genuinely CAN
     claim for this requirement; put the cap and your grading logic in "classification_note". The
     skill's mere presence, or a years figure alone, is NOT depth evidence: years_experience
     measures how long ago the skill first appears in the profile, not how deeply it is used.
@@ -197,7 +196,7 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     reports in that one role, while a JD figure may be a total organisational span). A value
     measuring a different quantity than the bar supports at most "partial"; state in "reason"
     which quantities you compared.
-  - PROVENANCE (#328): every candidate value also carries "provenance", and a budget value
+  - PROVENANCE: every candidate value also carries "provenance", and a budget value
     carries the "unit" its figure states. "derived" means that entry's OWN responsibilities/
     achievements prose states this figure — code checked it, you did not. "uncorroborated"
     means the value is the candidate's stated testimony that no bullet of that entry
@@ -212,7 +211,7 @@ quantified scope bar — team size, budget). These are judged, never keyword-mat
     quantity also supports at most "partial" (see above).
   - "gap" is reserved for NO candidate values at all, or values that carry no signal about
     the bar either way.
-  - ATTESTED PROSE (ADR-070): when a work entry's own responsibilities/achievements prose in
+  - ATTESTED PROSE: when a work entry's own responsibilities/achievements prose in
     the CANDIDATE PROFILE states a quantified fact bearing on this bar (e.g. deputy coverage
     of a larger span, an interim leadership stint, a concrete project budget), you MUST
     report it in "attested_evidence": quote the sentence VERBATIM from that entry's prose,
@@ -286,8 +285,7 @@ Guidelines:
   requirement that named it, and a later check can only carry that answer to the requirement if
   the part is named here.
 - reason is the grounding evidence for a direct/partial status — cite the profile signal.
-- Do NOT reject inferred_b items without a clear counter-signal in the profile.
-- keyword_gaps: list exact terms from the JD absent from the profile."""
+- Do NOT reject inferred_b items without a clear counter-signal in the profile."""
 
 
 # F4: the label carries the stance rule right where the statements appear, so the
