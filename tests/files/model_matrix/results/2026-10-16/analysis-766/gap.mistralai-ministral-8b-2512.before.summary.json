@@ -1,0 +1,130 @@
+{
+  "seam": "gap",
+  "overall": {
+    "runs": 12,
+    "errors": 0,
+    "error_rate": 0.0,
+    "mean_elapsed_s": 49.872,
+    "mean_calls": 2.0,
+    "mean_prompt_tokens": 14730.917,
+    "mean_completion_tokens": 3124.917,
+    "mean_n_ledger": 33.5,
+    "mean_n_clusters": 7.0,
+    "mean_concepts_jaccard_vs_reference": 0.772,
+    "mean_status_agreement_vs_reference": 0.539
+  },
+  "per_cell": {
+    "controlling_emma_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 47.88,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 12489.333,
+      "mean_completion_tokens": 3085.667,
+      "mean_n_ledger": 30.333,
+      "mean_n_clusters": 6.667,
+      "mean_concepts_jaccard_vs_reference": 0.724,
+      "mean_status_agreement_vs_reference": 0.474
+    },
+    "it_backend_daniel.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 49.54,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 17255.333,
+      "mean_completion_tokens": 3369.333,
+      "mean_n_ledger": 43.333,
+      "mean_n_clusters": 9.0,
+      "mean_concepts_jaccard_vs_reference": 0.921,
+      "mean_status_agreement_vs_reference": 0.764
+    },
+    "nursing_priya_relocator.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 40.143,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 13449.0,
+      "mean_completion_tokens": 2302.667,
+      "mean_n_ledger": 29.333,
+      "mean_n_clusters": 4.667,
+      "mean_concepts_jaccard_vs_reference": 0.61,
+      "mean_status_agreement_vs_reference": 0.374
+    },
+    "operations_marcus_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 61.923,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 15730.0,
+      "mean_completion_tokens": 3742.0,
+      "mean_n_ledger": 31.0,
+      "mean_n_clusters": 7.667,
+      "mean_concepts_jaccard_vs_reference": 0.833,
+      "mean_status_agreement_vs_reference": 0.544
+    }
+  },
+  "usage": {
+    "calls": 24,
+    "prompt_tokens": 176771,
+    "completion_tokens": 37499
+  },
+  "meta": {
+    "seam": "gap",
+    "provider": "openrouter",
+    "model": "mistralai/ministral-8b-2512",
+    "n": 3,
+    "cells": [
+      "controlling_emma_de.same_de",
+      "it_backend_daniel.same_en",
+      "nursing_priya_relocator.same_en",
+      "operations_marcus_de.same_de"
+    ],
+    "reasoning_arm": "off",
+    "wall_s": 331.3,
+    "settings": {
+      "llm_provider": "openrouter",
+      "mistral_model": "mistral-small-latest",
+      "openrouter_model": "mistralai/ministral-8b-2512",
+      "requesty_model": "mistral/mistral-medium-3-5",
+      "anthropic_model": "claude-sonnet-4-6",
+      "openai_model": "gpt-4o",
+      "ollama_model": "llama3.2",
+      "llm_timeout": 180,
+      "llm_max_output_tokens": 0,
+      "llm_structured_output": "auto",
+      "openrouter_disable_thinking": true,
+      "openrouter_reasoning_effort": "",
+      "requesty_disable_thinking": true,
+      "requesty_reasoning_effort": ""
+    },
+    "schema_rejected": false,
+    "prompts": {
+      "gap_analysis": {
+        "sha256": "dbf1308ef9e4e5862f7e23e7910fddaafada8ba8b79a135b92fc296b530c253d",
+        "chars": 13594
+      },
+      "gap_clustering": {
+        "sha256": "3408db03224d57bad89ed9bf93c52def90beeab623c07a19a3aaaf466acfac83",
+        "chars": 1657
+      }
+    },
+    "max_calls": 300,
+    "skipped_for_budget": 0,
+    "llm_log": {
+      "calls": 24,
+      "errors": 0,
+      "by_stage": {
+        "None": 24
+      }
+    }
+  },
+  "cost": {
+    "usd_from_tokens": 0.032141,
+    "price_in": 0.15,
+    "price_out": 0.15
+  }
+}

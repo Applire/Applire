@@ -1,0 +1,162 @@
+{
+  "seam": "jd",
+  "overall": {
+    "runs": 12,
+    "errors": 0,
+    "error_rate": 0.0,
+    "mean_elapsed_s": 89.11,
+    "mean_calls": 4.833,
+    "mean_prompt_tokens": 20638.917,
+    "mean_completion_tokens": 3416.0,
+    "review_paths": {
+      "approved": 2,
+      "exhausted": 10
+    },
+    "review_exhausted_rate": 0.833,
+    "first_round_approved_rate": 0.0,
+    "mean_review_rounds": 2.0,
+    "role_title_rate": 1.0,
+    "mean_n_required": 10.5,
+    "mean_required_jaccard_vs_reference": 0.243
+  },
+  "per_cell": {
+    "controlling_emma_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 75.967,
+      "mean_calls": 4.667,
+      "mean_prompt_tokens": 19917.333,
+      "mean_completion_tokens": 2973.333,
+      "review_paths": {
+        "approved": 1,
+        "exhausted": 2
+      },
+      "review_exhausted_rate": 0.667,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 2.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 7.333,
+      "mean_required_jaccard_vs_reference": 0.278
+    },
+    "it_backend_daniel.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 92.923,
+      "mean_calls": 5.0,
+      "mean_prompt_tokens": 20936.0,
+      "mean_completion_tokens": 3404.0,
+      "review_paths": {
+        "exhausted": 3
+      },
+      "review_exhausted_rate": 1.0,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 2.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 11.667,
+      "mean_required_jaccard_vs_reference": 0.105
+    },
+    "nursing_priya_relocator.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 91.643,
+      "mean_calls": 4.667,
+      "mean_prompt_tokens": 19711.0,
+      "mean_completion_tokens": 3262.667,
+      "review_paths": {
+        "approved": 1,
+        "exhausted": 2
+      },
+      "review_exhausted_rate": 0.667,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 2.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 10.0,
+      "mean_required_jaccard_vs_reference": 0.191
+    },
+    "operations_marcus_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 95.907,
+      "mean_calls": 5.0,
+      "mean_prompt_tokens": 21991.333,
+      "mean_completion_tokens": 4024.0,
+      "review_paths": {
+        "exhausted": 3
+      },
+      "review_exhausted_rate": 1.0,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 2.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 13.0,
+      "mean_required_jaccard_vs_reference": 0.397
+    }
+  },
+  "usage": {
+    "calls": 58,
+    "prompt_tokens": 247667,
+    "completion_tokens": 40992
+  },
+  "meta": {
+    "seam": "jd",
+    "provider": "openrouter",
+    "model": "mistralai/ministral-8b-2512",
+    "n": 3,
+    "cells": [
+      "controlling_emma_de.same_de",
+      "it_backend_daniel.same_en",
+      "nursing_priya_relocator.same_en",
+      "operations_marcus_de.same_de"
+    ],
+    "reasoning_arm": "off",
+    "wall_s": 567.8,
+    "settings": {
+      "llm_provider": "openrouter",
+      "mistral_model": "mistral-small-latest",
+      "openrouter_model": "mistralai/ministral-8b-2512",
+      "requesty_model": "mistral/mistral-medium-3-5",
+      "anthropic_model": "claude-sonnet-4-6",
+      "openai_model": "gpt-4o",
+      "ollama_model": "llama3.2",
+      "llm_timeout": 180,
+      "llm_max_output_tokens": 0,
+      "llm_structured_output": "auto",
+      "openrouter_disable_thinking": true,
+      "openrouter_reasoning_effort": "",
+      "requesty_disable_thinking": true,
+      "requesty_reasoning_effort": ""
+    },
+    "schema_rejected": false,
+    "prompts": {
+      "job_analysis": {
+        "sha256": "84c784ccc5763f0f4fc6df483060d173abf391c1da531ced9fc60b2e16910a52",
+        "chars": 12640
+      },
+      "job_analysis_refinement": {
+        "sha256": "56715bb183ad7bd7eebda00e64aba0ae2075b758ce04fc9b4338476deea61315",
+        "chars": 3611
+      },
+      "job_analysis_review": {
+        "sha256": "ef4dd04e6242d202c0c50ee8859d0d0b7c02ebc564ccab4f7194e765e5fd66a2",
+        "chars": 14932
+      }
+    },
+    "max_calls": 300,
+    "skipped_for_budget": 0,
+    "llm_log": {
+      "calls": 58,
+      "errors": 0,
+      "by_stage": {
+        "job_analysis": 58
+      }
+    }
+  },
+  "cost": {
+    "usd_from_tokens": 0.043299,
+    "price_in": 0.15,
+    "price_out": 0.15
+  }
+}
