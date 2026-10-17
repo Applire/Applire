@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from applire.services.cv_v2 import V2Terminal
     from applire.services.cv_budget import BudgetResult
     from applire.services.ledger_restore import PreseedPlan
     from applire.services.terminal_review_outcome import DemandRecord, TerminalReviewOutcome
@@ -461,6 +462,7 @@ async def _tailor_cv_with_fallback(
     vault_evidence_block: str | None = None,
     vault_evidence_items: "list | None" = None,
     pinned_facts_block: str | None = None,
+    v2_fields_block: str | None = None,
 ) -> dict:
     """Produce the tailored CV PROSE draft: single call on the fast path, segmented as
     the fallback (ADR-047 §1/§2). On a known-small declared cap, segment upfront;
@@ -498,20 +500,38 @@ async def _tailor_cv_with_fallback(
         from applire.providers.llm.debug_log import set_stage as _set_llm_log_stage
 
         _set_llm_log_stage("cv_tailoring")
+        user_prompt = build_user_prompt(
+            job_analysis, profile, keyword_gaps,
+            output_language=output_language,
+            keyword_ledger=keyword_ledger,
+            budget=budget,
+            stated_limits_block=stated_limits_block,
+            scope_positioning_block=scope_positioning_block,
+            vault_evidence_block=vault_evidence_block,
+            pinned_facts_block=pinned_facts_block,
+        )
+        if v2_fields_block is None:
+            return await provider.aparse_json(
+                user_prompt,
+                system=SYSTEM_PROMPT,
+                temperature=0.3,
+                max_tokens=CV_GENERATION_MAX_TOKENS,
+            )
+        # E068 / ADR-094 (CV_PIPELINE=v2 only): the v2 writer — the VAULT FIELDS block
+        # before the closing instruction, the derived v2 system prompt, and (#767) the
+        # response schema under LLM_STRUCTURED_OUTPUT=auto.
+        from applire.prompts.cv_tailoring import V2_SYSTEM_PROMPT
+        from applire.services.cv_v2 import v2_writer_schema
+
+        closer = "Return the tailored CV prose JSON."
+        user_prompt = user_prompt[: -len(closer)] + f"{v2_fields_block}\n\n{closer}"
+        schema = v2_writer_schema()
         return await provider.aparse_json(
-            build_user_prompt(
-                job_analysis, profile, keyword_gaps,
-                output_language=output_language,
-                keyword_ledger=keyword_ledger,
-                budget=budget,
-                stated_limits_block=stated_limits_block,
-                scope_positioning_block=scope_positioning_block,
-                vault_evidence_block=vault_evidence_block,
-                pinned_facts_block=pinned_facts_block,
-            ),
-            system=SYSTEM_PROMPT,
+            user_prompt,
+            system=V2_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=CV_GENERATION_MAX_TOKENS,
+            **({"json_schema": schema} if schema else {}),
         )
     except (LLMTruncatedError, LLMTimeoutError, _json.JSONDecodeError) as exc:
         # #688: a weak model's single-call writer response can also be malformed
@@ -4325,6 +4345,23 @@ async def _render_cv_background(
 
                 prompt_profile = prompt_profile_view(profile_json)
 
+                # E068 / ADR-094 (CV_PIPELINE=v2 only; v1 is byte-identical, R-3): the
+                # model sees short ids (US367), the writer returns the vault-sourced
+                # language fields by id (US364), and the compose tail loses its pen.
+                from applire.services.cv_v2 import PIPELINE_V2, cv_pipeline
+
+                pipeline = cv_pipeline()
+                v2_fields_block: str | None = None
+                if pipeline == PIPELINE_V2:
+                    from applire.services.cv_v2 import build_v2_fields_block_for
+                    from applire.services.model_ids import ShortIdMap, ShortIdProvider
+
+                    provider = ShortIdProvider(provider, ShortIdMap.from_profile(profile_json))
+                    v2_fields_block = build_v2_fields_block_for(
+                        profile_json, job_dict, keyword_ledger
+                    )
+                    logger.info("CV_PIPELINE=v2 for CV %s", cv_id)
+
                 # Single call on the fast path; segmented (outline-then-expand) as the fallback
                 # on truncation/timeout or a known-small cap (ADR-047 §1/§2 / US189).
                 # E049/ADR-067: both paths return the PROSE shape (summary / id-keyed work /
@@ -4342,7 +4379,9 @@ async def _render_cv_background(
                     vault_evidence_block=vault_evidence_block,
                     vault_evidence_items=vault_evidence_items,
                     pinned_facts_block=pinned_facts_block,
+                    v2_fields_block=v2_fields_block,
                 )
+                writer_draft = prose_draft
 
                 source_material = _json.dumps(prompt_profile, ensure_ascii=False, indent=2)
                 # #277: fold the SAME scoped-boundary block into the reviewer/retry source —
@@ -4387,6 +4426,14 @@ async def _render_cv_background(
 
                 if pinned_facts_loop_block:
                     source_material = f"{source_material}\n\n{pinned_facts_loop_block}"
+                if pipeline == PIPELINE_V2:
+                    # v2: the reviewer and the corrector read the same budget table and
+                    # recorded names the writer was given (US365 swap rule, W1-2).
+                    from applire.services.cv_budget import render_budget_table
+
+                    source_material = (
+                        f"{source_material}\n\n{render_budget_table(budget)}\n\n{v2_fields_block}"
+                    )
                 # #703 (ADR-076 amended 2026-10-07): one record per delivery of what
                 # each reviewer round's VERIFIED COVERAGE block demanded — this
                 # tailoring loop and the terminal review below. A REPORT only; it
@@ -4407,19 +4454,36 @@ async def _render_cv_background(
                     )
                 ensure_pinned_fact_signal_registered()
 
+                if pipeline == PIPELINE_V2:
+                    from applire.prompts.cv_tailoring import V2_TAILORING_REFINEMENT_PROMPT
+                    from applire.prompts.review_cv_tailoring import V2_REVIEW_SYSTEM_PROMPT
+                    from applire.services.cv_v2 import v2_writer_schema
+
+                    loop_generator_system = V2_TAILORING_REFINEMENT_PROMPT
+                    loop_reviewer_system = V2_REVIEW_SYSTEM_PROMPT
+                    loop_schema = v2_writer_schema()
+                else:
+                    loop_generator_system = CV_TAILORING_REFINEMENT_PROMPT
+                    loop_reviewer_system = _CV_REVIEW_SYSTEM_PROMPT
+                    loop_schema = None
                 prose_draft = await review_and_refine(
                     source=source_material,
                     draft=prose_draft,
                     generator_prompt_fn=_build_cv_retry_prompt,
-                    generator_system=CV_TAILORING_REFINEMENT_PROMPT,
+                    generator_system=loop_generator_system,
                     reviewer_prompt_fn=reviewer_fn,
-                    reviewer_system=_CV_REVIEW_SYSTEM_PROMPT,
+                    reviewer_system=loop_reviewer_system,
                     provider=provider,
                     max_retries=LLM_REVIEW_MAX_RETRIES,
                     generator_max_tokens=CV_GENERATION_MAX_TOKENS,
                     chain_id="cv_tailoring",
                     signal_ids=(PINNED_FACT_SIGNAL_ID,),
+                    generator_json_schema=loop_schema,
                 )
+                if pipeline == PIPELINE_V2:
+                    from applire.services.cv_v2 import carry_v2_fields
+
+                    prose_draft = carry_v2_fields(prose_draft, writer_draft)
 
                 # ADR-071 clause 3: the Oracle's `misattributed` verdict gains a
                 # generation-side consumer. The audit is DETERMINISTIC-ONLY (no
@@ -4456,6 +4520,7 @@ async def _render_cv_background(
                     # unguarded line added to it later would otherwise become a
                     # hard failure of CV generation. ADR-052 §5 says this may never
                     # gate delivery, so the guarantee is enforced at the boundary.
+                    pre_round_draft = prose_draft
                     prose_draft = await run_attribution_round(
                         prose_draft,
                         report=attribution_report,
@@ -4463,6 +4528,8 @@ async def _render_cv_background(
                         source_material=source_material,
                         provider=provider,
                     )
+                    if pipeline == PIPELINE_V2:
+                        prose_draft = carry_v2_fields(prose_draft, pre_round_draft)
                 except Exception:
                     logger.exception(
                         "The ADR-071 clause 3 attribution round failed for CV %s — "
@@ -4484,7 +4551,9 @@ async def _render_cv_background(
                 # pipeline; the plan then rides the whole tail so a terminal-round
                 # re-composition makes the same choices.
                 preseed_plan = None
-                if CV_LANGUAGE_REVIEW_MAX_RETRIES > 0:
+                # v2: nothing is joined verbatim after the writer, so there is nothing
+                # to preseed (inventory step A: deleted under v2).
+                if CV_LANGUAGE_REVIEW_MAX_RETRIES > 0 and pipeline != PIPELINE_V2:
                     prose_draft, preseed_plan = _plan_language_preseed(
                         prose_draft, profile_json,
                         keyword_ledger=keyword_ledger,
@@ -4492,12 +4561,26 @@ async def _render_cv_background(
                         job_dict=job_dict,
                         document_language=document_language,
                     )
+                pre_language_draft = prose_draft
                 prose_draft = await _review_cv_language(
                     prose_draft, document_language, provider,
                     keyword_ledger=keyword_ledger,
                     budget=budget,
                     preseed=preseed_plan,
                 )
+                v2_terminal = None
+                if pipeline == PIPELINE_V2:
+                    from applire.services.cv_v2 import V2CheckContext, V2Terminal
+
+                    prose_draft = carry_v2_fields(prose_draft, pre_language_draft)
+                    v2_terminal = V2Terminal(ctx=V2CheckContext(
+                        profile_json=profile_json,
+                        keyword_ledger=keyword_ledger,
+                        job_dict=job_dict,
+                        language=document_language,
+                        budget=budget,
+                        pins=tuple(cv_pins),
+                    ))
 
                 # ADR-076 clause 3 (#538): the ENTIRE deterministic tail — the E049/
                 # ADR-067 join, the ADR-040 compose block, and the not-yet-migrated
@@ -4508,17 +4591,20 @@ async def _render_cv_background(
                 # pre-#538 inline sequence; only the position of the terminal
                 # verdict changed.
                 raw_profile_json = profile.profile_json or {}
-                tailored = _compose_document(
-                    prose_draft,
-                    profile_json,
-                    raw_profile_json=raw_profile_json,
-                    keyword_ledger=keyword_ledger,
-                    budget=budget,
-                    job_dict=job_dict,
-                    language=document_language,
-                    pins=cv_pins,
-                    preseed=preseed_plan,
-                )
+                if v2_terminal is not None:
+                    tailored = v2_terminal.compose(prose_draft, profile_json, raw_profile_json)
+                else:
+                    tailored = _compose_document(
+                        prose_draft,
+                        profile_json,
+                        raw_profile_json=raw_profile_json,
+                        keyword_ledger=keyword_ledger,
+                        budget=budget,
+                        job_dict=job_dict,
+                        language=document_language,
+                        pins=cv_pins,
+                        preseed=preseed_plan,
+                    )
 
                 from applire.services.cv_section_editor import build_content_snapshot
                 record.content_snapshot = build_content_snapshot(tailored)
@@ -4543,7 +4629,8 @@ async def _render_cv_background(
                 # write may happen after it — with mechanism, bounds, bail rule and
                 # RENDER_BUDGET_ITERATION instrumentation unchanged.
                 condense_ctx = CondenseContext(
-                    budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins)
+                    budgets=budget, target=resolved_target_pages, pins=tuple(cv_pins),
+                    condense=v2_terminal is None,
                 )
                 try:
                     measured = await _measure_and_condense(record, db, condense_ctx)
@@ -4581,6 +4668,7 @@ async def _render_cv_background(
                         measured=measured,
                         preseed=preseed_plan,
                         demand_record=cv_demand_record,
+                        v2=v2_terminal,
                     )
                     prose_draft, measured = tr.prose_draft, tr.measured
                     terminal_rounds = tr.rounds
@@ -4644,6 +4732,7 @@ async def _render_cv_background(
                             coverage_budget=coverage_budget,
                             measured=measured,
                             preseed=preseed_plan,
+                            v2=v2_terminal,
                         )
                         prose_draft, measured = tr.prose_draft, tr.measured
                         terminal_rounds += tr.rounds
@@ -4960,6 +5049,10 @@ class CondenseContext:
     # condense_to_budget so pin carriers never enter the removable set, and
     # into the terminal re-compose. Empty for legacy/audit-only paths.
     pins: tuple = ()
+    # E068 / ADR-094 (CV_PIPELINE=v2): False = measure only. An overrun is then a
+    # check finding fed into the terminal loop, never a deletion (W1-3 names the
+    # exhaustion disposition). v1 keeps True — byte-identical.
+    condense: bool = True
 
 
 def _log_render_budget_iteration(
@@ -5128,7 +5221,7 @@ async def _measure_and_condense(
                 condense_fired=True, condensation_exhausted=False,
             )
             pending_iteration = None
-        if count <= target:
+        if count <= target or not condense_ctx.condense:
             _log_render_budget_iteration(
                 cv_id=record.id, iteration=iteration, pages_before=count,
                 pages_after=count, target=target, condense_fired=False,
@@ -5274,6 +5367,7 @@ async def _terminal_review(
     measured: MeasuredRender | None,
     preseed: "PreseedPlan | None" = None,
     demand_record: "DemandRecord | None" = None,
+    v2: "V2Terminal | None" = None,
 ) -> TerminalReviewResult:
     """ADR-076 clause 3 (#538): the TERMINAL review — the verdict that closes
     over the COMPOSED document (the delivered artifact), with the real render
@@ -5349,6 +5443,9 @@ async def _terminal_review(
         )
 
     def _compose(draft: dict) -> TailoredCVData:
+        if v2 is not None:
+            # E068 / ADR-094: the v2 compose is the join by id only.
+            return v2.compose(draft, profile_json, raw_profile_json)
         return _compose_document(
             draft,
             profile_json,
@@ -5372,6 +5469,17 @@ async def _terminal_review(
 
     def _terminal_base(source: str, composed: dict) -> str:
         m = measure_cell["measured"]
+        if v2 is not None:
+            from applire.prompts.review_cv_tailoring import build_v2_terminal_review_prompt
+
+            return build_v2_terminal_review_prompt(
+                source,
+                composed,
+                page_count=(m.page_count if m is not None else None),
+                target=(m.target if m is not None else condense_ctx.target),
+                condensation_exhausted=False,
+                document_language=language,
+            )
         return build_terminal_review_prompt(
             source,
             composed,
@@ -5592,23 +5700,48 @@ async def _terminal_review(
     current = prose_draft
     rounds = 0
     reentry_exhausted = False
+    # E068 / ADR-094 (v2 only): the terminal loop is the ONE loop the deterministic
+    # findings feed (US366); its systems are the v2 variants; the checks see the
+    # composed subject of each reviewed draft and the render measure of the drafted
+    # document (a fact only for the exact draft that was rendered).
+    v2_kwargs: dict = {}
+    terminal_generator_system = CV_TAILORING_REFINEMENT_PROMPT
+    terminal_reviewer_system = TERMINAL_REVIEW_SYSTEM_PROMPT
+    terminal_max_retries = CV_TERMINAL_REVIEW_MAX_RETRIES
+    if v2 is not None:
+        from applire.prompts.cv_tailoring import V2_TAILORING_REFINEMENT_PROMPT
+        from applire.prompts.review_cv_tailoring import V2_TERMINAL_REVIEW_SYSTEM_PROMPT
+        from applire.services.cv_v2 import carry_v2_fields, v2_writer_schema
+
+        terminal_generator_system = V2_TAILORING_REFINEMENT_PROMPT
+        terminal_reviewer_system = V2_TERMINAL_REVIEW_SYSTEM_PROMPT
+        terminal_max_retries = max(v2.max_retries, CV_TERMINAL_REVIEW_MAX_RETRIES)
+        v2.note_measure(prose_draft, measured)
+        v2_kwargs = dict(
+            checks_fn=v2.checks_fn(_subject_for),
+            on_checks_settle=v2.on_checks_settle,
+            generator_json_schema=v2_writer_schema(),
+        )
     while True:
         rounds += 1
         settled = await review_and_refine(
             source=source_material,
             draft=current,
             generator_prompt_fn=_corrector_prompt,
-            generator_system=CV_TAILORING_REFINEMENT_PROMPT,
+            generator_system=terminal_generator_system,
             reviewer_prompt_fn=_reviewer_prompt,
-            reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+            reviewer_system=terminal_reviewer_system,
             provider=provider,
-            max_retries=CV_TERMINAL_REVIEW_MAX_RETRIES,
+            max_retries=terminal_max_retries,
             generator_max_tokens=CV_GENERATION_MAX_TOKENS,
             chain_id="cv_terminal_review",
             signal_ids=(PINNED_FACT_SIGNAL_ID,),
             signal_issues_fn=_terminal_signal_issues,
             on_settle=_record_settle,
+            **v2_kwargs,
         )
+        if v2 is not None:
+            settled = carry_v2_fields(settled, current)
         if _canon(settled) == _canon(current):
             # The verdict covers exactly the composition already sitting on the
             # record — the delivered document.
@@ -5617,6 +5750,7 @@ async def _terminal_review(
         # writes AFTER `cv_language`. What it wrote in another language goes
         # through the language pass again BEFORE it is composed, so the next
         # round reviews — and the delivery carries — the document-language text.
+        handed_to_recheck = settled
         settled = await _terminal_language_recheck(
             current, settled,
             profile_json=profile_json,
@@ -5627,6 +5761,8 @@ async def _terminal_review(
             cv_id=record.id,
             round_no=rounds,
         )
+        if v2 is not None:
+            settled = carry_v2_fields(settled, handed_to_recheck)
         # A terminal corrector round changed the draft → re-compose, re-measure,
         # and let the CHANGED document re-enter review (clause 3). The corrector
         # emitted prose only; the vault joins are re-applied by code.
@@ -5648,6 +5784,8 @@ async def _terminal_review(
             # Condense may have trimmed the recomposition — the next round's
             # subject must be the post-condense truth, not the pre-condense one.
             subject_by_draft[key] = TailoredCVData.model_validate(record.tailored_data)
+            if v2 is not None:
+                v2.note_measure(current, measure_cell["measured"])
         except Exception:
             logger.exception(
                 "measure-and-condense failed on terminal re-entry for CV %s — "

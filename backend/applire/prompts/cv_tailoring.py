@@ -415,6 +415,217 @@ def build_retry_prompt(
     )
 
 
+# ---------------------------------------------------------------------------
+# E068 / ADR-094 (draft) — CV pipeline v2 prompt variants (CV_PIPELINE=v2 only).
+#
+# v1's strings above are untouched (RULING R-3: v1 stays the 0.43 pipeline until
+# US368). The v2 writer is DERIVED from the v1 prompt by replacing exactly two
+# passages — the "you do not write facts" paragraph and the response schema — so
+# the ten rules stay one text. An edit to either v1 passage breaks the derivation
+# loudly at import (the asserts), never silently.
+# ---------------------------------------------------------------------------
+
+_V1_FACTS_PARAGRAPH = (
+    "You do NOT write facts. Employer names, job titles, dates, education, certifications, "
+    "languages and contact details are carried verbatim from the candidate's profile by the "
+    "system — they are not yours to emit, reorder, restate or correct. Each work-history entry "
+    "is addressed by the id given in ROLE BULLET BUDGETS. Return bullets under that id, exactly "
+    "as given. Never invent an id and never omit one."
+)
+
+_V2_FACTS_PARAGRAPH = (
+    "Dates, certifications, contact details and the team size are "
+    "joined from the candidate's profile by the system — they are not yours to emit. Everything "
+    "a reader reads as LANGUAGE is yours, in the OUTPUT LANGUAGE, and is returned by id from the "
+    "VAULT FIELDS block: each work entry's `role` and `company`, its `industry_context` and "
+    "`budget_managed` line, every "
+    "`education` row and every `languages` row. NAMES are never translated or invented: a job "
+    "title, an employer, an institution or a degree is written as one of the RECORDED NAMES the "
+    "block lists for it (the stored name or a name the candidate used in another document) — "
+    "choose the recorded form that is in the OUTPUT LANGUAGE when one exists, otherwise the "
+    "stored name. DESCRIPTIONS are translated: a field of study, an industry line, a language "
+    "level (CEFR codes such as C1 stay as they are). Each work-history entry is addressed by the "
+    "id given in ROLE BULLET BUDGETS. Return it under that id, exactly as given. Never invent an "
+    "id and never omit one."
+)
+
+_V1_SCHEMA = """{
+  "summary": string,
+  "work": [
+    {
+      "id": string,
+      "bullets": [string],
+      "projects": [{"name": string, "bullets": [string]}]
+    }
+  ],
+  "projects": [{"name": string, "bullets": [string]}],
+  "skills": [string]
+}"""
+
+_V2_SCHEMA = """{
+  "summary": string,
+  "work": [
+    {
+      "id": string,
+      "role": string,
+      "company": string,
+      "industry_context": string or null,
+      "budget_managed": string or null,
+      "bullets": [string],
+      "projects": [{"name": string, "bullets": [string]}]
+    }
+  ],
+  "projects": [{"name": string, "bullets": [string]}],
+  "skills": [string],
+  "education": [{"id": string, "degree": string, "institution": string, "field": string}],
+  "languages": [{"id": string, "language": string, "level": string}]
+}"""
+
+_V2_BUDGET_SENTENCE = (
+    "9. BULLET BUDGETS. Each entry's \"max\" in ROLE BULLET BUDGETS is a ceiling, not a quota."
+)
+_V2_BUDGET_REPLACEMENT = (
+    "9. BULLET BUDGETS. Each entry's \"max\" in ROLE BULLET BUDGETS is a ceiling, not a quota, "
+    "and it counts the entry's own bullets PLUS its nested project bullets — nothing trims the "
+    "document after you, so a bullet over the ceiling is yours to cut or merge."
+)
+
+assert SYSTEM_PROMPT.count(_V1_FACTS_PARAGRAPH) == 1, "v1 facts paragraph moved — re-derive V2_SYSTEM_PROMPT"
+assert SYSTEM_PROMPT.count(_V1_SCHEMA) == 1, "v1 response schema moved — re-derive V2_SYSTEM_PROMPT"
+assert SYSTEM_PROMPT.count(_V2_BUDGET_SENTENCE) == 1, "v1 rule 9 moved — re-derive V2_SYSTEM_PROMPT"
+
+V2_SYSTEM_PROMPT = (
+    SYSTEM_PROMPT.replace(_V1_FACTS_PARAGRAPH, _V2_FACTS_PARAGRAPH)
+    .replace(_V1_SCHEMA, _V2_SCHEMA)
+    .replace(_V2_BUDGET_SENTENCE, _V2_BUDGET_REPLACEMENT)
+)
+
+#: #767 — the v2 writer's response as a JSON schema (``LLM_STRUCTURED_OUTPUT=auto``;
+#: a host that refuses it falls back to JSON mode on its own, #756). Mirrors
+#: ``_V2_SCHEMA``; strict-mode shape (every property required, nullable where the
+#: prose schema says "or null", no additional properties).
+def _obj(props: dict, required: list[str] | None = None) -> dict:
+    return {
+        "type": "object",
+        "properties": props,
+        "required": required if required is not None else list(props),
+        "additionalProperties": False,
+    }
+
+
+_STR = {"type": "string"}
+_STR_LIST = {"type": "array", "items": _STR}
+_PROJECT = _obj({"name": _STR, "bullets": _STR_LIST})
+
+V2_WRITER_JSON_SCHEMA: dict = {
+    "name": "cv_prose_v2",
+    "strict": True,
+    "schema": _obj({
+        "summary": _STR,
+        "work": {"type": "array", "items": _obj({
+            "id": _STR,
+            "role": _STR,
+            "company": _STR,
+            "industry_context": {"type": ["string", "null"]},
+            "budget_managed": {"type": ["string", "null"]},
+            "bullets": _STR_LIST,
+            "projects": {"type": "array", "items": _PROJECT},
+        })},
+        "projects": {"type": "array", "items": _PROJECT},
+        "skills": _STR_LIST,
+        "education": {"type": "array", "items": _obj(
+            {"id": _STR, "degree": _STR, "institution": _STR, "field": _STR}
+        )},
+        "languages": {"type": "array", "items": _obj(
+            {"id": _STR, "language": _STR, "level": _STR}
+        )},
+    }),
+}
+
+
+def _names(stored: object, aliases: object) -> str:
+    from applire.services.cv_v2 import recorded_names
+
+    names = recorded_names(stored, aliases)
+    return " | ".join(f'"{n}"' for n in names) if names else '""'
+
+
+def build_v2_fields_block(
+    profile: dict,
+    *,
+    required_vault_skills: list[str] | None = None,
+    skills_cap: int | None = None,
+) -> str:
+    """The VAULT FIELDS block (ADR-094 cl. 2/5, US364): every vault-sourced field the
+    v2 writer returns, by id, with each name's RECORDED NAMES (ruling W1-2). Facts
+    only — the stored values and the aliases the vault recorded; which form fits the
+    document language is the model's choice. Also carries the two skills facts the
+    v1 tail used to enforce after the writer (US365/#192): the cap and the JD-required
+    skills the profile holds."""
+    lines = [
+        "VAULT FIELDS — return each of these in your JSON, by id, in the OUTPUT LANGUAGE. "
+        "For a NAME use one of its RECORDED NAMES exactly (pick the one in the OUTPUT "
+        "LANGUAGE when there is one); translate only descriptions."
+    ]
+    for w in profile.get("work_experience") or []:
+        if not isinstance(w, dict) or not w.get("id"):
+            continue
+        line = (
+            f"  - work [{w['id']}]: role — recorded names {_names(w.get('role'), w.get('role_aliases'))}; "
+            f"company — recorded names {_names(w.get('company'), w.get('company_aliases'))}"
+        )
+        if w.get("industry_context"):
+            line += f"; industry_context — \"{w['industry_context']}\" (translate)"
+        else:
+            line += "; industry_context — null (the profile states none)"
+        if w.get("budget_managed"):
+            line += (
+                f"; budget_managed — \"{w['budget_managed']}\" (translate the words, keep "
+                "every number and the currency exactly)"
+            )
+        else:
+            line += "; budget_managed — null"
+        lines.append(line)
+    for e in profile.get("education") or []:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        lines.append(
+            f"  - education [{e['id']}]: degree — recorded names {_names(e.get('degree'), e.get('degree_aliases'))}; "
+            f"institution — recorded names {_names(e.get('institution'), e.get('institution_aliases'))}; "
+            f"field — \"{e.get('field') or ''}\" (translate)"
+        )
+    for lg in profile.get("languages") or []:
+        if not isinstance(lg, dict) or not lg.get("id"):
+            continue
+        lines.append(
+            f"  - languages [{lg['id']}]: language — recorded names {_names(lg.get('language'), lg.get('aliases'))} "
+            f"(or its name in the OUTPUT LANGUAGE); level — \"{lg.get('level') or ''}\" (translate the words, keep CEFR codes)"
+        )
+    if skills_cap:
+        lines.append(
+            f"SKILLS LIST CAP: at most {skills_cap} entries, the most relevant to this job first."
+        )
+    if required_vault_skills:
+        lines.append(
+            "JD-REQUIRED SKILLS THE PROFILE HOLDS — each belongs in the skills list, once, "
+            "in the OUTPUT LANGUAGE (a translated or recorded form is the same skill): "
+            + ", ".join(f'"{s}"' for s in required_vault_skills)
+        )
+    return "\n".join(lines)
+
+
+V2_REFINEMENT_ADDENDUM = """
+- CV PIPELINE v2: your JSON also carries `role`, `company` and `industry_context` per work
+  entry and the `education` and `languages` rows (see the VAULT FIELDS block in the
+  CANDIDATE PROFILE). Keep them in your output. Names (role, company, degree, institution)
+  are one of the RECORDED NAMES listed there, never a translation you make up; descriptions
+  (industry line, field of study, language level) are in the document language. Nothing
+  trims or re-adds content after you: a project you omit is not re-joined, and a bullet over
+  a role's budget is yours to cut or merge. A CODE CHECKS finding in the feedback is a fact
+  about the draft — fix it.
+"""
+
+
 CV_TAILORING_REFINEMENT_PROMPT = """\
 You are a tailored CV corrector. You receive (1) a previously-tailored CV prose JSON —
 `summary`, `work` (each entry an `id` with `bullets` and nested `projects`), top-level
@@ -453,3 +664,36 @@ Rules:
 - Output ONLY the corrected prose JSON in the same schema as the input — no markdown,
   no commentary.
 """
+
+
+_V1_DELIVERED_BULLET_TAIL = (
+    "Employers, dates,\n"
+    "  education, certifications, languages, role figures and nested project bullets are\n"
+    "  there only: code joins them after you and you never emit them."
+)
+_V2_DELIVERED_BULLET_TAIL = (
+    "Dates, certifications\n"
+    "  and role figures are there only: code joins them after you by id."
+)
+_V1_CUT_SENTENCE = (
+    " A line of yours that is\n"
+    "  MISSING there was cut by the length budget, so a finding naming it is correct, not\n"
+    "  stale."
+)
+_V1_REJOIN_SENTENCE = " — a project you omit is re-joined from\n  the profile unchanged."
+_V2_REJOIN_SENTENCE = "."
+_V1_OUTPUT_BULLET = "- Output ONLY the corrected prose JSON in the same schema as the input"
+
+assert CV_TAILORING_REFINEMENT_PROMPT.count(_V1_DELIVERED_BULLET_TAIL) == 1
+assert CV_TAILORING_REFINEMENT_PROMPT.count(_V1_REJOIN_SENTENCE) == 1
+assert CV_TAILORING_REFINEMENT_PROMPT.count(_V1_CUT_SENTENCE) == 1
+assert CV_TAILORING_REFINEMENT_PROMPT.count(_V1_OUTPUT_BULLET) == 1
+
+#: The v2 corrector (drafting and terminal loops): the v1 corrector with the two
+#: sentences v2 makes false replaced, plus the v2 addendum.
+V2_TAILORING_REFINEMENT_PROMPT = (
+    CV_TAILORING_REFINEMENT_PROMPT.replace(_V1_DELIVERED_BULLET_TAIL, _V2_DELIVERED_BULLET_TAIL)
+    .replace(_V1_REJOIN_SENTENCE, _V2_REJOIN_SENTENCE)
+    .replace(_V1_CUT_SENTENCE, "")
+    .replace(_V1_OUTPUT_BULLET, V2_REFINEMENT_ADDENDUM.strip("\n") + "\n" + _V1_OUTPUT_BULLET)
+)
