@@ -153,6 +153,19 @@ class ComposeNotes:
     # (location, model value, stored value, recorded names)
     rows_not_returned: list[tuple[str, str]] = field(default_factory=list)
     # (location, what the writer should return)
+    levels_code_added: list[tuple[str, str, str, list[str]]] = field(default_factory=list)
+    # (location, model level, stored level, codes the vault level does not state)
+
+
+#: CEFR level codes (Council of Europe). A code is a CLAIM about a tested level.
+_CEFR_RE = re.compile(r"(?<![A-Za-z0-9])([ABC][12])(?![A-Za-z0-9])")
+
+
+def cefr_codes_added(model_level: object, stored_level: object) -> list[str]:
+    """Codes the model's level carries that the stored level does not — a fact
+    (adversarial finding 7: "Fluent" delivered as "Fließend (C1)")."""
+    have = set(_CEFR_RE.findall(str(stored_level or "")))
+    return sorted(set(_CEFR_RE.findall(str(model_level or ""))) - have)
 
 
 def _by_id(rows: Any) -> dict[str, dict]:
@@ -297,7 +310,15 @@ def compose_v2(
                 (f"languages {l_vault.get('id')} language", str(p.get("language")), str(stored),
                  recorded_names(stored, l_vault.get("aliases")))
             )
-        if isinstance(p.get("level"), str) and p["level"].strip():
+        added = cefr_codes_added(p.get("level"), l_vault.get("level"))
+        if isinstance(p.get("level"), str) and p["level"].strip() and added:
+            # An upsold level is not delivered: the stored level stays (a selection,
+            # like a non-recorded name — ruling W1-2's disposition) and the check says why.
+            notes.levels_code_added.append(
+                (f"languages {l_vault.get('id')} level", p["level"].strip(),
+                 str(l_vault.get("level") or ""), added)
+            )
+        elif isinstance(p.get("level"), str) and p["level"].strip():
             update["level"] = p["level"].strip()
         elif l_vault.get("level"):
             notes.rows_not_returned.append(
@@ -408,6 +429,19 @@ def v2_checks(
                 "; ".join(parts)
                 + ". Pick the recorded form that is in the document language when one "
                 "exists; never translate or invent a name."
+            ),
+        ))
+    if notes.levels_code_added:
+        parts = [
+            f"{loc}: “{got}” adds {', '.join(codes)}, which the profile's level “{stored}” does not state"
+            for loc, got, stored, codes in notes.levels_code_added[:_MAX_ITEMS_PER_FINDING]
+        ]
+        findings.append(CheckFinding(
+            check="cv.level_code_added",
+            text=(
+                "; ".join(parts)
+                + ". Translate the level's words only; never add a level code the profile "
+                "does not state."
             ),
         ))
     if notes.rows_not_returned:

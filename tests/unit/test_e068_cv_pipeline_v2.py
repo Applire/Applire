@@ -1426,3 +1426,42 @@ async def test_v1_delivery_report_carries_no_code_check_note(db, monkeypatch):
     record, _c, _i, _e = await _run(db, monkeypatch, pipeline=None)
     tr = next(c for c in (record.ats_report or {}).get("checks", []) if c["id"] == "terminal-review")
     assert "Code checks still open" not in (tr.get("details") or "")
+
+
+@pytest.mark.parametrize("model,stored,added", [
+    ("Fließend (C1)", "Fluent", ["C1"]),
+    ("Muttersprache (C2)", "Native", ["C2"]),
+    ("Lernend (A2, B1-Prüfung geplant)", "Learning (A2, B1 exam planned)", []),
+    ("C1", "C1", []),
+    ("Fließend", "Fluent", []),
+    ("CA1 B12", "Fluent", []),
+])
+def test_cefr_codes_added_is_the_set_difference_of_codes(model, stored, added):
+    assert cv_v2.cefr_codes_added(model, stored) == added
+
+
+def test_an_added_cefr_code_is_not_delivered_and_is_a_blocking_finding():
+    """Finding 7: Ministral wrote "Fließend (C1)" for vault "Fluent" — an upsold claim.
+    The stored level ships (a selection) and the check names the code."""
+    vault = _vault()
+    vault["languages"][1]["level"] = "Fluent"
+    prose = _prose()
+    prose["languages"][1]["level"] = "Fließend (C1)"
+    tailored, _ = _compose(prose, vault)
+    assert tailored.languages[1].level == "Fluent"
+    f = _by_check(_checks(prose, vault))["cv.level_code_added"]
+    assert f.blocking and "C1" in f.text
+    prose["languages"][1]["level"] = "Fließend"
+    tailored, _ = _compose(prose, vault)
+    assert tailored.languages[1].level == "Fließend"
+    assert "cv.level_code_added" not in _by_check(_checks(prose, vault))
+
+
+def test_v2_prompts_forbid_adding_a_level_code():
+    from applire.prompts.cv_tailoring import V2_SYSTEM_PROMPT, build_v2_fields_block
+    from applire.prompts.review_cv_language import _V2_REFINE_NOTE
+
+    assert "never add a level code the profile does not state" in V2_SYSTEM_PROMPT
+    assert "keep CEFR codes" not in V2_SYSTEM_PROMPT
+    assert "add none" in build_v2_fields_block(_vault())
+    assert "never add one" in _V2_REFINE_NOTE

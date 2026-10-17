@@ -444,7 +444,9 @@ _V2_FACTS_PARAGRAPH = (
     "block lists for it (the stored name or a name the candidate used in another document) — "
     "choose the recorded form that is in the OUTPUT LANGUAGE when one exists, otherwise the "
     "stored name. DESCRIPTIONS are translated: a field of study, an industry line, a language "
-    "level (CEFR codes such as C1 stay as they are). Each work-history entry is addressed by the "
+    "level (translate its words; a code the profile states stays as it is, and never add a "
+    "level code the profile does not state — \"Fluent\" is \"Fließend\", not \"Fließend (C1)\"). "
+    "Each work-history entry is addressed by the "
     "id given in ROLE BULLET BUDGETS. Return it under that id, exactly as given. Never invent an "
     "id and never omit one."
 )
@@ -599,7 +601,7 @@ def build_v2_fields_block(
             continue
         lines.append(
             f"  - languages [{lg['id']}]: language — recorded names {_names(lg.get('language'), lg.get('aliases'))} "
-            f"(or its name in the OUTPUT LANGUAGE); level — \"{lg.get('level') or ''}\" (translate the words, keep CEFR codes)"
+            f"(or its name in the OUTPUT LANGUAGE); level — \"{lg.get('level') or ''}\" (translate the words only; keep a code it states, add none)"
         )
     if skills_cap:
         lines.append(
