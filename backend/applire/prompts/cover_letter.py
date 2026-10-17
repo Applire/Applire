@@ -682,6 +682,7 @@ def build_condense_prompt(
     letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
     pinned_quotes: list[str] | None = None,
     language: str | None = None,
+    retained_terms_block: str | None = None,
 ) -> str:
     """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
     same facts, fewer words. Omission-only in spirit — nothing new is claimed.
@@ -736,8 +737,21 @@ def build_condense_prompt(
             "must remain stated (verbatim in substance): "
             + "; ".join(f'"{q}"' for q in pinned_quotes)
         ] if pinned_quotes else []),
+        *([
+            # ADR-094 clause L3 (v2, adversarial probe B 2026-10-17): every fact stays
+            # with the employer it is stated under. A merged paragraph that later
+            # gained a fact "after" the second employer's name delivered a Cargonaut
+            # migration under Finleap.
+            "- Every achievement, figure and technology stays in a sentence of the "
+            "employer it is stated under now. Never move a fact to another employer's "
+            "sentence or after another employer's name."
+        ] if language else []),
         "If the budget is tight, compress each of these to its shortest honest form — "
         "do not delete any of them outright to make the count.",
+        # v2: the corrector's own coverage-retention block (#306, one implementation)
+        # — a term the condense drops is re-demanded by the review round right after,
+        # and the corrector re-inserting it is where probe B's fact changed employer.
+        *(["", retained_terms_block] if retained_terms_block else []),
         "",
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),

@@ -3041,6 +3041,21 @@ async def _terminal_review_letter(
         keyword_ledger, denied_concepts, _subject_of
     )
     _v2_checks = None
+
+    def _v2_retained_terms(d: dict) -> str | None:
+        """The corrector's COVERAGE ALREADY ACHIEVED block (#306) for a v2 condense."""
+        from applire.services.keyword_ledger import (
+            claimable_present_entries,
+            render_coverage_retention_block,
+        )
+
+        try:
+            return render_coverage_retention_block(
+                claimable_present_entries(_subject_of(d), keyword_ledger)
+            ) or None
+        except Exception:  # pragma: no cover - a prompt block never fails a letter
+            logger.warning("letter v2: retained-terms block failed", exc_info=True)
+            return None
     if is_v2 and v2_signal_fn is not None:
         # The v2 signal carries the ``limit`` family itself (and composes its own
         # subject with the same code-owned-only compose as ``_subject_of``).
@@ -3321,6 +3336,7 @@ async def _terminal_review_letter(
                         # ADR-094 clause L3 (ruling W2-1, B4): v2's condense names
                         # the document language; v1 passes None (unchanged text).
                         language=language if is_v2 else None,
+                        retained_terms_block=_v2_retained_terms(current) if is_v2 else None,
                     ),
                     stage="letter_condense_pre_verdict",
                     system=build_system_prompt(language, pipeline=pipeline),
@@ -3457,6 +3473,7 @@ async def _terminal_review_letter(
                         letter_pages=norm.letter_pages,
                         pinned_quotes=[pn.quote for pn in pins] or None,
                         language=language,
+                        retained_terms_block=_v2_retained_terms(current),
                     ),
                     stage="letter_condense_final_floor",
                     system=build_system_prompt(language, pipeline=pipeline),
