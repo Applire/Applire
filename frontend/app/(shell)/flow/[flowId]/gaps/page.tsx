@@ -1475,10 +1475,12 @@ export default function GapsPage({
           Placed after the gap clusters (real gaps first) and before the
           detailed A/B/C breakdown, so both honest exits are visible
           BEFORE the user moves on to CV generation. */}
-      {hasJob && flowState?.job_id && gaps?.keyword_liabilities && gaps.keyword_liabilities.length > 0 && (
+      {/* Mounted whenever there is a job (it renders nothing without a card):
+          #763 R2 — a receipt must outlive the refresh that empties the list. */}
+      {hasJob && flowState?.job_id && gaps && (
         <LiabilityPanel
           jobId={flowState.job_id}
-          liabilities={gaps.keyword_liabilities}
+          liabilities={gaps.keyword_liabilities ?? []}
           clusters={gaps.gap_clusters ?? []}
           apiBase={API_BASE}
           onDropped={() => void refreshAfterLiabilityAction()}

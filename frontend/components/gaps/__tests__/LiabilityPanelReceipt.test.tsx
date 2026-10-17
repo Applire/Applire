@@ -107,4 +107,41 @@ describe("LiabilityPanel — #763 receipt instead of a false success line", () =
     expect(screen.getByTestId("liability-receipt-RAG")).toHaveTextContent("Nothing was recorded");
     expect(screen.getByTestId("liability-question-RAG")).toHaveTextContent("Which retriever");
   });
+
+  it("the receipt outlives the refresh that drops the concept from the list, until closed", async () => {
+    // Re-run R2 ("Software testing"): the completing turn re-reads the
+    // analysis and the concept is no longer a liability.
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(jsonResponse({ session_id: "s1", question: "Tell me about RAG.", choices: null }))
+      .mockResolvedValueOnce(jsonResponse({ complete: true, no_write_receipt: "no_write" }));
+    const panel = (liabilities: { concept: string }[]) =>
+      withIntl(
+        <LiabilityPanel
+          jobId="job-1"
+          liabilities={liabilities}
+          clusters={CLUSTERS}
+          apiBase=""
+          onDropped={() => {}}
+          onStoryAdded={() => {}}
+        />,
+        "de",
+      );
+    const { rerender } = render(panel([{ concept: "RAG" }]));
+    fireEvent.click(screen.getByTestId("liability-tell-story-RAG"));
+    await waitFor(() => screen.getByTestId("liability-answer-textarea-RAG"));
+    fireEvent.change(screen.getByTestId("liability-answer-textarea-RAG"), {
+      target: { value: "Last year I was on holiday in Portugal and read a lot." },
+    });
+    fireEvent.click(screen.getByTestId("liability-submit-RAG"));
+    await waitFor(() => screen.getByTestId("liability-receipt-RAG"));
+
+    rerender(panel([]));
+
+    expect(screen.getByTestId("liability-receipt-RAG")).toHaveTextContent("wurde nichts übernommen");
+    expect(screen.queryByTestId("liability-tell-story-RAG")).toBeNull();
+    // A kept receipt card is not a keyword that still needs a story.
+    expect(screen.queryByTestId("liability-badge")).toBeNull();
+    fireEvent.click(screen.getByTestId("liability-receipt-close-RAG"));
+    expect(screen.queryByTestId("liability-card-RAG")).toBeNull();
+  });
 });
