@@ -669,6 +669,9 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     # the post-loop condense is reviewed: one terminal loop, then ONE more review round
     # over the condensed draft (never shipped unreviewed)
     assert len(terminal) == 2
+    # RULING W2-6b (C): only the post-condense corrector carries the word cap
+    assert "WORD CAP (computed by code)" in terminal[-1]["corrector_prompt"]
+    assert "WORD CAP (computed by code)" not in terminal[0]["corrector_prompt"]
     assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
     assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
 

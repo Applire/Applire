@@ -3493,10 +3493,23 @@ async def _terminal_review_letter(
                 final_floor_selection = "condense_failed"
             else:
                 rounds += 1
+
+                def _capped_corrector_prompt_fn(d, feedback, source, _cap=target):
+                    # RULING W2-6b, option C (measured try): the post-condense
+                    # corrector patched a fitting letter back to 2 pages (probe B,
+                    # Ministral: 269 -> 374 words). A code-computed cap, prompt-only.
+                    return (
+                        _terminal_corrector_prompt_fn(d, feedback, source)
+                        + f"\n\nWORD CAP (computed by code): this letter was just "
+                        f"shortened to fit one page. The patched letter body must stay "
+                        f"at most {_cap} words. Fix each issue by REPLACING words, not "
+                        "adding: whatever you add, remove as much elsewhere."
+                    )
+
                 settled = await review_and_refine(
                     source=grounding_source,
                     draft=current,
-                    generator_prompt_fn=_terminal_corrector_prompt_fn,
+                    generator_prompt_fn=_capped_corrector_prompt_fn,
                     generator_system=COVER_LETTER_REFINEMENT_PROMPT,
                     reviewer_prompt_fn=_reviewer_prompt,
                     reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
