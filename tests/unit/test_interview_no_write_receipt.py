@@ -646,3 +646,89 @@ async def test_termination_signal_has_no_receipt(db):
     assert resp.complete is True
     bridge.assert_not_awaited()
     assert resp.no_write_receipt is None
+
+
+# ---------------------------------------------------------------------------
+# 4. The confirmation-answer door (adversarial pass 2026-10-17)
+# ---------------------------------------------------------------------------
+#
+# `_handle_interview_confirmation_answer` resolves a parked confirmation
+# deterministically and never re-runs the reconciler. A free-text answer that
+# picked no option and wrote nothing must get the same receipt predicate.
+
+_KEYLESS_CONF = {
+    "confirmation_id": None,
+    "question": "Do you mean your role at Cargonaut Logistics?",
+    "options": ["Yes, it is that same role", "No, a different one"],
+    "context": {"section": "work_experience"},  # no `incoming`: nothing to apply
+}
+
+
+async def _seed_confirmation(db, conf=None):
+    return await _seed_legacy(db, state={
+        "pending_interview_confirmation": copy.deepcopy(conf or _KEYLESS_CONF),
+        "resolving_confirmation": True,
+    })
+
+
+@pytest.mark.asyncio
+async def test_confirmation_door_free_text_that_wrote_nothing_carries_no_write(db):
+    record, _profile = await _seed_confirmation(db)
+    bridge = AsyncMock(side_effect=AssertionError("the confirmation door never reconciles"))
+
+    resp = await _send(
+        db, record.id,
+        "At Cargonaut I built the PSD2 integration with Adyen in Python, four services.",
+        bridge,
+    )
+
+    bridge.assert_not_awaited()
+    assert resp.no_write_receipt == "no_write"
+
+
+@pytest.mark.asyncio
+async def test_confirmation_door_choosing_an_option_carries_no_receipt(db):
+    """Picking one of the offered options is a decision, not a lost statement."""
+    record, _profile = await _seed_confirmation(db)
+
+    # Four words, no negation: positive residue — only the option check keeps
+    # the receipt off a choice the candidate made.
+    resp = await _send(db, record.id, "Yes, it is that same role", AsyncMock())
+
+    assert resp.no_write_receipt is None
+
+
+@pytest.mark.asyncio
+async def test_confirmation_door_denial_only_answer_carries_no_receipt(db):
+    record, _profile = await _seed_confirmation(db)
+
+    resp = await _send(db, record.id, "I have never worked with Adyen at all.", AsyncMock())
+
+    assert resp.no_write_receipt is None
+
+
+@pytest.mark.asyncio
+async def test_confirmation_door_answer_that_wrote_carries_no_receipt(db):
+    """A skill confirmation resolved to `distinct` writes the skill — no receipt."""
+    conf = {
+        "confirmation_id": None,
+        "question": "Add 'Adyen' as its own skill?",
+        "options": ["Add it as a separate skill", "Keep the existing skills"],
+        "option_keys": ["distinct", "keep"],
+        "context": {"incoming_skill": "Adyen", "category": "technical"},
+    }
+    record, _profile = await _seed_confirmation(db, conf)
+
+    resp = await _send(db, record.id, "Add it as a separate skill", AsyncMock())
+
+    assert resp.no_write_receipt is None
+
+
+def test_confirmation_receipt_is_off_when_the_answer_wrote():
+    """The predicate's first half: something was written → no receipt, however
+    much the answer states."""
+    from applire.services.session import _confirmation_no_write_receipt
+
+    statement = "At Cargonaut I built the PSD2 integration with Adyen in Python, four services."
+    assert _confirmation_no_write_receipt(False, statement, ["Yes", "No"]) == "no_write"
+    assert _confirmation_no_write_receipt(True, statement, ["Yes", "No"]) is None
