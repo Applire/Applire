@@ -1414,7 +1414,8 @@ Two things worth knowing if you work on this. First, the export is a **different
 - **The language is stated first.** The writer's system prompt names the document language in its first line, and the one condense call names it too.
 - **Fields that are facts are code-owned.** The sender header and signature come from the profile's `personal_info`; date, sign-off and the recipient the user typed stay system-set. They are assembled before the first review round, so the reviewer reads the letter that ships.
 - **Checks, not rewrites.** The letter's body language (the CV's per-item predicate), the salutation, a repeated sign-off, the closing paragraph, figure ownership and invented limits are computed on each round's draft, handed to the reviewer and the corrector, and — when the loop could not resolve them — named on the delivered letter's report. The language uses the CV's `document-language` ATS row. Nothing blocks delivery.
-- **Retired on v2.** The outcome reframe, the sentence-deleting figure floor and limit cut, the salutation/sign-off fixes, the post-loop final length floor and the draft substitutions (`prefer_if`/`retain_if`).
+- **Retired on v2.** The outcome reframe, the sentence-deleting figure floor and limit cut, the salutation/sign-off fixes, the final length floor's draft selection, revert and re-condense, and the draft substitutions (`prefer_if`/`retain_if`).
+- **Length.** A letter over one page is a blocking finding every round; if it is still over after the loop, one condense sized to the longest version that fit on one page, then one review round — the model rewrites, the loop reviews.
 - **Names.** The candidate's recorded alternate names reach the writer as source material; the model picks the recorded form for the letter's language and never translates a name.
 
 ### ADR-090 — A Review Finding Is a Decision the User Can Act On (accepted 2026-09-23, built 2026-09-24)
