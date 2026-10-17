@@ -708,7 +708,7 @@ def test_v2_compose_survives_a_malformed_recipient_from_the_corrector():
 _SHORT_NAME_BODY = [
     _ENGLISH_BODY[0],
     _ENGLISH_BODY[1],
-    "At Schwarzwald Präzision I have owned the monthly and annual closing under HGB "
+    "At Schwarzwald I have owned the monthly and annual closing under HGB "
     "since 2019, including the coordination with the auditors.",
     _ENGLISH_BODY[3],
 ]
@@ -717,7 +717,7 @@ _SHORT_NAME_BODY = [
 @pytest.mark.parametrize("sentence, expected", [
     ("At Schwarzwald Präzision GmbH I closed the books.", []),            # stored name
     ("At Schwarzwald Precision I closed the books.", []),                 # recorded alias
-    ("At Schwarzwald Präzision I closed the books.", ["Schwarzwald Präzision"]),  # legal form dropped
+    ("At Schwarzwald Präzision I closed the books.", []),                 # W2-5: legal form dropped = member
     ("At Schwarzwald I closed the books.", ["Schwarzwald"]),              # distinctive token
     ("I studied at the University of Stuttgart.", []),                    # institution alias
     ("I worked at Arnold Antriebstechnik GmbH.", []),                     # not a recorded entity
@@ -730,6 +730,31 @@ def test_letter_name_findings_membership(sentence, expected):
     for f in found:
         assert "not a name the candidate recorded for Schwarzwald Präzision GmbH" in f.text()
         assert '"Schwarzwald Precision"' in f.text()
+
+
+def test_letter_name_findings_w2_5_legal_form_is_stripped_before_membership():
+    """RULING W2-5: "Brauner & Söhne Maschinenbau" for the recorded "… GmbH" is the
+    same name; a genuinely different shortening ("Brauner") still blocks."""
+    from applire.services.letter_v2 import letter_name_findings
+
+    profile = {"work_experience": [{"company": "Brauner & Söhne Maschinenbau GmbH"}]}
+
+    def spans(sentence):
+        return [f.span for f in letter_name_findings({"body": {"paragraphs": [sentence]}}, profile)]
+
+    assert spans("Bei Brauner & Söhne Maschinenbau erstellte ich Investitionsrechnungen.") == []
+    assert spans("Bei Brauner erstellte ich Investitionsrechnungen.") == ["Brauner"]
+
+
+def test_letter_name_findings_w2_5_strips_the_legal_form_of_an_alias_too():
+    """A short form recorded WITH a legal form ("Schwarzwald Ltd") accepts the
+    located token span without it ("Schwarzwald")."""
+    from applire.services.letter_v2 import letter_name_findings
+
+    profile = {"work_experience": [{"company": "Schwarzwald Präzision GmbH",
+                                     "company_aliases": ["Schwarzwald Ltd"]}]}
+    letter = {"body": {"paragraphs": ["At Schwarzwald I closed the books."]}}
+    assert letter_name_findings(letter, profile) == []
 
 
 def test_letter_name_findings_ignore_an_ordinary_word_matching_a_lowercase_token():
@@ -750,7 +775,7 @@ def test_v2_checks_fn_carries_a_non_member_name_as_blocking():
                        denied_concepts=None, language="en")
     found = [f for f in fn(_draft(_SHORT_NAME_BODY)) if f.check == "letter.names"]
     assert len(found) == 1 and found[0].blocking
-    assert '"Schwarzwald Präzision" is not a name the candidate recorded' in found[0].text
+    assert '"Schwarzwald" is not a name the candidate recorded' in found[0].text
 
 
 @pytest.mark.asyncio
