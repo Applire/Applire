@@ -666,7 +666,9 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
         assert "Write every sentence in ENGLISH." in p
         assert "document language is ENGLISH" in s.splitlines()[0]
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
-    # the post-loop condense is reviewed: the last terminal round reviews its output
+    # the post-loop condense is reviewed: one terminal loop, then ONE more review round
+    # over the condensed draft (never shipped unreviewed)
+    assert len(terminal) == 2
     assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
     assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
 
