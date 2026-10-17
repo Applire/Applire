@@ -285,6 +285,16 @@ _V1_TITLES_RULE_TAIL = (
     "  correct)."
 )
 
+_V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
+#: Hazelnut adversarial re-run + W3-3 arm (2026-10-17): ministral wrote a recorded 99.9 %
+#: availability TARGET as achieved ("achieving 99.9 %", "sicherte eine 99,9%-Verfügbarkeit")
+#: in 5 of 9 v2 mentions (v1 letters: 0 of 5). Prompt-first; v2 only.
+_V2_TARGET_RULE = (
+    "  * A target, goal, SLO, plan or forecast the candidate data records stays a target in the\n"
+    "    letter (\"with a 99.9 % availability target\") — never write it as achieved, ensured,\n"
+    "    maintained or delivered unless the candidate data states that result.\n"
+)
+
 _V2_TITLES_RULE_TAIL = (
     "  for the position it is listed under — or one of that position's recorded alternate\n"
     "  forms (the RECORDED NAME FORMS block, when present), choosing the form written in the\n"
@@ -315,6 +325,8 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     rules = _v1_rules()
     assert _V1_TITLES_RULE_TAIL in rules, "the titles rule moved — re-anchor _V1_TITLES_RULE_TAIL"
     rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
+    assert _V1_OVERSTATE_ANCHOR in rules, "the overstate rule moved — re-anchor _V1_OVERSTATE_ANCHOR"
+    rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 

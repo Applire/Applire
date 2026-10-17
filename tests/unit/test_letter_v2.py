@@ -946,3 +946,11 @@ async def test_seam_v2_survives_object_paragraphs(db, v2):
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.status == "ready"
     assert cl.letter_data["body"]["paragraphs"][-1] == _ENGLISH_BODY[-1]
+
+
+def test_v2_writer_rule_keeps_a_target_a_target_and_v1_is_unchanged():
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, build_system_prompt
+
+    v2 = build_system_prompt("de", pipeline="v2")
+    assert "stays a target" in v2 and "never write it as achieved" in v2
+    assert build_system_prompt("de") is SYSTEM_PROMPT and "stays a target" not in SYSTEM_PROMPT
