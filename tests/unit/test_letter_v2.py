@@ -533,7 +533,7 @@ async def _seed(db):
     return job, profile, cl
 
 
-async def _run(db, ids, *, payload, pages=1, terminal_script=None):
+async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None):
     """Drive the real render with the provider and review_and_refine faked; record
     every call's system prompt and every review_and_refine invocation's kwargs."""
     from applire.services.cover_letter import _render_cover_letter_background
@@ -544,6 +544,9 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None):
 
     async def _aparse(prompt, system=None, **kw):
         record["systems"].append((prompt, system))
+        from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT as _T
+        if review_verdict is not None and system == _T:
+            return copy.deepcopy(review_verdict)
         return copy.deepcopy(payload)
 
     async def _fake_review(**kw):
@@ -657,23 +660,43 @@ async def test_seam_v2_delivers_unrepaired_text_with_a_report_note(db, v2):
 @pytest.mark.asyncio
 async def test_seam_v2_has_no_final_length_floor(db, v2):
     """W2-1 B3 deleted the v1 floor (selection / revert / unreviewed re-condense);
-    W2-4 (C, built pending ruling): at most ONE post-loop condense, language-named,
-    always followed by a review round."""
-    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
-    condenses = [(p, s) for p, s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
-    assert len(condenses) == 2  # pre-verdict (B4) + the one reviewed post-loop condense
-    for p, s in condenses:
+    W2-4: at most ONE post-loop condense, language-named; RULING W3-3a: the round
+    after it is REVIEW-ONLY — one reviewer call over the condensed letter, no
+    corrector, and the reviewed letter is the one that ships."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT
+
+    condensed = _draft(_ENGLISH_BODY)
+    verdict = {"approved": False, "issues": [
+        {"severity": "blocking", "issue": "The condense dropped the HGB closing claim."}]}
+    ids = await _seed(db)
+    rec = await _run(db, ids, payload=condensed, pages=2, review_verdict=verdict)
+    condenses = [i for i, (p, _s) in enumerate(rec["systems"]) if "=== CURRENT LETTER (JSON) ===" in p]
+    assert len(condenses) == 2  # pre-verdict (B4) + the one post-loop condense
+    for i in condenses:
+        p, s_ = rec["systems"][i]
         assert "Write every sentence in ENGLISH." in p
-        assert "document language is ENGLISH" in s.splitlines()[0]
+        assert "document language is ENGLISH" in s_.splitlines()[0]
+    after = rec["systems"][condenses[-1] + 1:]
+    # exactly ONE call after the post-loop condense, and it is the reviewer's
+    assert [s_ for _p, s_ in after] == [TERMINAL_REVIEW_SYSTEM_PROMPT]
+    assert "CODE CHECKS" in after[0][0]  # the page fact is shown to the reviewer
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
-    # the post-loop condense is reviewed: one terminal loop, then ONE more review round
-    # over the condensed draft (never shipped unreviewed)
-    assert len(terminal) == 2
-    # RULING W2-6b (C): only the post-condense corrector carries the word cap
-    assert "WORD CAP (computed by code)" in terminal[-1]["corrector_prompt"]
-    assert "WORD CAP (computed by code)" not in terminal[0]["corrector_prompt"]
-    assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
-    assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
+    assert len(terminal) == 1  # no corrector loop after the condense
+    outcome = rec["audit"]["terminal_review"]
+    assert outcome.path == "review_only" and outcome.status == "fail"
+    assert any("dropped the HGB closing claim" in t for t in outcome.blocking_issues)
+    assert any(t.startswith("[letter.page_length]") for t in outcome.blocking_issues)
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.letter_data["body"]["paragraphs"] == condensed["body"]["paragraphs"]
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_post_condense_review_approves_a_clean_condensed_letter(db, v2):
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=1,
+                     review_verdict={"approved": True, "issues": []})
+    # pages=1: nothing over the norm, so no post-loop condense and no review-only call
+    assert sum("=== CURRENT LETTER (JSON) ===" in p for p, _s in rec["systems"]) == 0
 
 
 @pytest.mark.asyncio

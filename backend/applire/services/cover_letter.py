@@ -3074,6 +3074,53 @@ async def _terminal_review_letter(
     )
     _v2_checks = None
 
+    async def _v2_review_only(d: dict) -> None:
+        """RULING W3-3a: ONE reviewer call over ``d``, no corrector. Its verdict is
+        recorded as a settle (``path="review_only"`` when anything blocking is open),
+        so the delivered letter's terminal-review row reports it against the very
+        draft that ships. Fail-open: a failed call records ``reviewer_call_failed``."""
+        from applire.constants import REVIEW_VERDICT_MAX_TOKENS
+        from applire.providers.llm.debug_log import set_stage as _set_stage
+        from applire.services.review_issues import ReviewSettle, normalize_issues
+        from applire.services.reviewer import render_checks_block
+
+        findings = list(_v2_checks(d)) if _v2_checks is not None else []
+        prompt = _reviewer_prompt(grounding_source, d)
+        block = render_checks_block(findings)
+        if block:
+            prompt = f"{prompt}\n\n{block}"
+        _set_stage("letter_post_condense_review")
+        try:
+            review = await provider.aparse_json(
+                prompt,
+                system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=REVIEW_VERDICT_MAX_TOKENS,
+            )
+        except Exception as review_err:
+            logger.warning("LETTER_V2_LENGTH review-only call failed for CL %s: %s", cl.id, review_err)
+            _record_settle(ReviewSettle(
+                path="reviewer_call_failed", approved=False, blocking_issues=(),
+                minor_issues=(), rounds=1, settled=d,
+            ))
+            return
+        issues = normalize_issues((review or {}).get("issues", []) if isinstance(review, dict) else [])
+        approved = bool(review.get("approved", False)) if isinstance(review, dict) else False
+        blocking = tuple(i.text for i in issues if i.is_blocking) + tuple(
+            f"[{f.check}] {f.text}" for f in findings if f.blocking
+        )
+        minor = tuple(i.text for i in issues if not i.is_blocking)
+        if blocking:
+            path = "review_only"
+        elif approved:
+            path = "approved"
+        else:
+            path = "minor_only"
+        _record_settle(ReviewSettle(
+            path=path, approved=approved and not blocking, blocking_issues=blocking,
+            minor_issues=minor, rounds=1, settled=d,
+        ))
+
     def _v2_retained_terms(d: dict) -> str | None:
         """The corrector's COVERAGE ALREADY ACHIEVED block (#306) for a v2 condense."""
         from applire.services.keyword_ledger import (
@@ -3267,7 +3314,10 @@ async def _terminal_review_letter(
     reviewed_cell: dict[str, dict | None] = {"draft": None}
 
     def _reviewer_prompt(source: str, d: dict) -> str:
-        reviewed_cell["draft"] = d
+        # v2: the reviewed subject is the COMPOSED letter (code-owned header), the
+        # same dict the delivery persists — else F-4's identity check never matches
+        # a v2 letter (found building W3-3a). v1 keeps the raw draft (R-3).
+        reviewed_cell["draft"] = _subject_of(d) if is_v2 else d
         return _wrapped(source, _subject_of(d))
 
     # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
@@ -3519,37 +3569,13 @@ async def _terminal_review_letter(
                 final_floor_selection = "condense_failed"
             else:
                 rounds += 1
-
-                def _capped_corrector_prompt_fn(d, feedback, source, _cap=target):
-                    # RULING W2-6b, option C (measured try): the post-condense
-                    # corrector patched a fitting letter back to 2 pages (probe B,
-                    # Ministral: 269 -> 374 words). A code-computed cap, prompt-only.
-                    return (
-                        _terminal_corrector_prompt_fn(d, feedback, source)
-                        + f"\n\nWORD CAP (computed by code): this letter was just "
-                        f"shortened to fit one page. The patched letter body must stay "
-                        f"at most {_cap} words. Fix each issue by REPLACING words, not "
-                        "adding: whatever you add, remove as much elsewhere."
-                    )
-
-                settled = await review_and_refine(
-                    source=grounding_source,
-                    draft=current,
-                    generator_prompt_fn=_capped_corrector_prompt_fn,
-                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                    reviewer_prompt_fn=_reviewer_prompt,
-                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
-                    provider=provider,
-                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
-                    chain_id="letter_terminal_review",
-                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
-                    signal_issues_fn=_limit_signal_fn,
-                    checks_fn=_v2_checks,
-                    on_settle=_record_settle,
-                )
-                if _canon(settled) != _canon(current):
-                    current = settled
-                    await _apply(current)
+                # RULING W3-3a (= A): the post-condense round is REVIEW-ONLY. The
+                # condensed letter the reviewer reads is the letter that ships; its
+                # blocking findings go on the delivery's terminal-review row. No
+                # corrector runs after the condense (gate 3a451106: the corrector
+                # grew 33 of 33 over-budget letters after a fitting condense, and its
+                # patch shipped unreviewed). Supersedes W2-6b's word cap here.
+                await _v2_review_only(current)
                 final_floor_selection = "v2_condensed_then_reviewed"
             logger.info(
                 "LETTER_V2_LENGTH cl_id=%s pages_before=%s pages_after=%s target_words=%s "

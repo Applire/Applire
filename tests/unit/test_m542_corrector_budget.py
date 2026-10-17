@@ -281,9 +281,9 @@ async def test_the_final_floor_round_runs_on_the_writer_budget(db, caplog):
 @pytest.mark.asyncio
 async def test_every_letter_review_and_refine_call_site_passes_the_budget(db):
     """The enumeration behind the three seam tests: no letter call site may be
-    left on ``review_and_refine``'s 4,096 default. The fourth site is the v2
-    post-loop review round (ADR-094 L4b, ruling W2-4); a fifth call site added
-    to this module without the kwarg turns this red."""
+    left on ``review_and_refine``'s 4,096 default. (The v2 post-condense round is
+    review-only since RULING W3-3a and calls no corrector, so it is not a site.) A
+    fourth call site added to this module without the kwarg turns this red."""
     import ast
     from pathlib import Path
 
@@ -295,7 +295,7 @@ async def test_every_letter_review_and_refine_call_site_passes_the_budget(db):
         and isinstance(node.func, ast.Name)
         and node.func.id == "review_and_refine"
     ]
-    assert len(sites) == 4, f"expected 4 letter review_and_refine call sites, got {len(sites)}"
+    assert len(sites) == 3, f"expected 3 letter review_and_refine call sites, got {len(sites)}"
     for site in sites:
         kwargs = {kw.arg for kw in site.keywords}
         assert "generator_max_tokens" in kwargs, (
