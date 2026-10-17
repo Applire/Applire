@@ -102,6 +102,26 @@ class RoleFactProjection(BaseModel):
     provenance: Literal["derived", "uncorroborated"] = "uncorroborated"
 
 
+class PhotoCrop(BaseModel):
+    """#781 (founder ruling F-2, 2026-10-16) — how the stored photo is framed.
+
+    The ONE stored original stays exactly as uploaded; this is only the
+    framing the candidate chose, normalised to that image so it is
+    resolution-independent and re-adjusting is always lossless: the centre of
+    the 4:5 crop as fractions of the image's width/height, and the zoom (1 =
+    the largest 4:5 rectangle the photo holds, up to 4). Applied at render by
+    `services.photo.frame_photo`, the one helper every CV template and the
+    DOCX export read their photo bytes through; the browser adjuster
+    (`frontend/lib/photo-crop.ts`) computes the same rectangle.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    cx: float = Field(ge=0.0, le=1.0)
+    cy: float = Field(ge=0.0, le=1.0)
+    zoom: float = Field(ge=1.0, le=4.0)
+
+
 class PersonalInfo(BaseModel):
     name: str = ""
     email: str | None = None
@@ -119,9 +139,22 @@ class PersonalInfo(BaseModel):
     nationality: str | None = None
     date_of_birth: date | None = None
     photo_url: str | None = None
+    # #781 (ruling F-2) — the framing of the photo at `photo_url`. Owned by the
+    # photo endpoints like `photo_url` (USER_MANAGED_PERSONAL_INFO_FIELDS), reset
+    # whenever a new photo is uploaded, and OMITTED from a dump while None so a
+    # profile without a framing serialises byte-identically to one persisted
+    # before this field existed (prompt views and the #688 goldens see no new key).
+    photo_crop: PhotoCrop | None = None
     linkedin_url: str | None = None
     xing_url: str | None = None
     website_url: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_photo_crop(self, handler: Any) -> Any:
+        data = handler(self)
+        if isinstance(data, dict) and data.get("photo_crop") is None:
+            data.pop("photo_crop", None)
+        return data
 
     @field_validator("date_of_birth", mode="before")
     @classmethod
@@ -1430,7 +1463,11 @@ OBJECT_SECTIONS: frozenset[str] = frozenset({"personal_info", "professional_summ
 #: door and not the other, and the two behaviours (refuse vs. drop) are
 #: deliberately different, so nothing would have looked wrong. Vault collector
 #: #674, PR #663 (D).
-USER_MANAGED_PERSONAL_INFO_FIELDS: frozenset[str] = frozenset({"photo_url"})
+#:
+#: `photo_crop` (#781, ruling F-2) is the framing OF that photo and has the same
+#: one writer: an import that carried a stale framing over a new photo, or an
+#: undo that rolled it back onto a later upload, would frame the wrong image.
+USER_MANAGED_PERSONAL_INFO_FIELDS: frozenset[str] = frozenset({"photo_url", "photo_crop"})
 
 
 # ─── API response models ──────────────────────────────────────────────────────

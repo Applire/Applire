@@ -21,6 +21,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
+import { FramedPhoto, PhotoCropDialog } from "@/components/profile/PhotoCropDialog";
+import type { CropState } from "@/lib/photo-crop";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8001" : "");
 
@@ -41,6 +43,16 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
   const [error, setError] = useState<string | null>(null);
   const [uploadedAt, setUploadedAt] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // #781 (founder ruling F-2) — the framing dialog. `cropSrc` is the image it
+  // shows: a just-picked file (`pendingFile` set — uploaded on confirm,
+  // unmodified, WITH the chosen framing) or the stored photo when the
+  // candidate re-frames it (only the geometry is saved). The original is
+  // never cropped in the browser: every template and the Word export apply
+  // the framing at render, so re-framing stays lossless.
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [savedCrop, setSavedCrop] = useState<CropState | null>(null);
+  const [savingCrop, setSavingCrop] = useState(false);
 
   const hasPhoto = !!(currentPhotoUrl || previewSrc);
 
@@ -63,17 +75,85 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
     };
   }, [currentPhotoUrl]);
 
-  async function handleUpload(file: File) {
+  // #781 — the stored framing, so the thumbnail shows what the documents show
+  // and the dialog re-opens where the candidate left it.
+  useEffect(() => {
+    if (!currentPhotoUrl) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/profile`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { profile?: { personal_info?: { photo_crop?: CropState | null } } } | null) => {
+        if (!cancelled) setSavedCrop(data?.profile?.personal_info?.photo_crop ?? null);
+      })
+      .catch(() => { /* non-fatal — the thumbnail falls back to the default framing */ });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPhotoUrl]);
+
+  function closeCrop() {
+    if (pendingFile && cropSrc) URL.revokeObjectURL(cropSrc);
+    setPendingFile(null);
+    setCropSrc(null);
+  }
+
+  /** #781 — a picked file is framed first, then uploaded with its framing. */
+  function handlePick(file: File) {
     setError(null);
     if (!consent) {
       setError(t("consentError"));
       return;
     }
+    setPendingFile(file);
+    setCropSrc(URL.createObjectURL(file));
+  }
+
+  async function handleFramed(crop: CropState) {
+    if (pendingFile && cropSrc) {
+      const ok = await handleUpload(pendingFile, crop, cropSrc);
+      if (ok) {
+        // The dialog's object URL now IS the preview — keep it alive.
+        setPendingFile(null);
+        setCropSrc(null);
+      }
+      return;
+    }
+    // Re-framing the stored photo: only the geometry changes.
+    setError(null);
+    setSavingCrop(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/profile/photo/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cx: crop.cx, cy: crop.cy, zoom: crop.zoom }),
+      });
+      if (!res.ok) throw new Error(t("crop.saveError"));
+      setSavedCrop(crop);
+      setCropSrc(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("crop.saveError"));
+    } finally {
+      setSavingCrop(false);
+    }
+  }
+
+  async function handleUpload(file: File, crop: CropState | null, localSrc: string): Promise<boolean> {
+    setError(null);
+    if (!consent) {
+      setError(t("consentError"));
+      return false;
+    }
     setUploading(true);
     try {
       const body = new FormData();
       body.append("file", file);
-      const res = await fetch(`${API_BASE}/api/profile/photo?consent=true`, {
+      const params = new URLSearchParams({ consent: "true" });
+      if (crop) {
+        params.set("cx", String(crop.cx));
+        params.set("cy", String(crop.cy));
+        params.set("zoom", String(crop.zoom));
+      }
+      const res = await fetch(`${API_BASE}/api/profile/photo?${params.toString()}`, {
         method: "POST",
         body,
       });
@@ -89,14 +169,17 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
           year: "numeric",
         }),
       );
-      // Revoke any previous preview and show new one immediately
+      // Revoke any previous preview and show the new one immediately.
       setPreviewSrc((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(file);
+        if (prev && prev !== localSrc) URL.revokeObjectURL(prev);
+        return localSrc;
       });
+      setSavedCrop(crop);
       onPhotoChange?.(data.photo_url);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("uploadError"));
+      return false;
     } finally {
       setUploading(false);
     }
@@ -113,6 +196,7 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         return null;
       });
       setUploadedAt(null);
+      setSavedCrop(null);
       setConsent(false);
       onPhotoChange?.(null);
     } catch (err) {
@@ -141,10 +225,12 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         /* Filled state */
         <div className="flex gap-4 items-start p-3 bg-gray-50 rounded-lg border border-gray-200">
           {previewSrc && (
-            <img
+            <FramedPhoto
               src={previewSrc}
+              crop={savedCrop}
+              widthPx={56}
               alt={t("altText")}
-              className="w-14 h-[68px] object-cover object-top rounded"
+              className="h-[70px] w-14 rounded"
             />
           )}
           <div className="flex-1 min-w-0">
@@ -152,7 +238,18 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
             {uploadedAt && (
               <p className="text-xs text-gray-500 mt-0.5">{t("uploadedLabel", { date: uploadedAt })}</p>
             )}
-            <div className="flex gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-2">
+              {previewSrc && (
+                <Button
+                  data-testid="photo-adjust"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCropSrc(previewSrc)}
+                  disabled={uploading || savingCrop}
+                >
+                  {t("adjustCta")}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -224,10 +321,20 @@ export function PhotoManager({ onPhotoChange, currentPhotoUrl }: PhotoManagerPro
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) void handleUpload(file);
+          if (file) handlePick(file);
           e.target.value = "";
         }}
       />
+
+      {cropSrc && (
+        <PhotoCropDialog
+          src={cropSrc}
+          initialCrop={pendingFile ? null : savedCrop}
+          busy={uploading || savingCrop}
+          onCancel={closeCrop}
+          onConfirm={(crop) => void handleFramed(crop)}
+        />
+      )}
 
       {hasPhoto && (
         <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">

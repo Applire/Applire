@@ -210,7 +210,12 @@ def _input_fingerprint(job: JobAnalysis, profile: MasterProfile) -> str:
 # data and the photo live in ``personal_info``; ``location``, ``nationality``
 # and ``date_of_birth`` stay IN (a posting's scope bars can concern them).
 _GAP_IRRELEVANT_PERSONAL_INFO: frozenset[str] = frozenset(
-    {"name", "email", "phone", "address", "photo_url", "linkedin_url", "xing_url", "website_url"}
+    {
+        "name", "email", "phone", "address", "photo_url",
+        # #781 (ruling F-2): re-framing the photo must never stale an analysis.
+        "photo_crop",
+        "linkedin_url", "xing_url", "website_url",
+    }
 )
 
 

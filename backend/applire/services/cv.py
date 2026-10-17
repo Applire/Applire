@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from applire.services.cv_budget import BudgetResult
     from applire.services.ledger_restore import PreseedPlan
     from applire.services.terminal_review_outcome import DemandRecord, TerminalReviewOutcome
+    from applire.schemas.profile import PhotoCrop
     from applire.storage.base import StorageProvider
 
 from fastapi import BackgroundTasks
@@ -3219,12 +3220,19 @@ def format_place_date_for_cv(location: str | None, language: str, *, user_id: uu
 async def _resolve_photo_data_uri(
     photo_path: str | None,
     storage: "StorageProvider",
+    crop: "PhotoCrop | None" = None,
 ) -> str | None:
     """Convert a stored file path to an inline base64 data URI.
 
     Returns None if photo_path is None or the file has been deleted.
     The data URI is safe to embed in Jinja2 templates served via Playwright or srcDoc.
+
+    #781 (ruling F-2): ``crop`` is the candidate's framing of this photo; the
+    ONE helper `photo.frame_photo` applies it here, the seam every template and
+    the DOCX export read their photo through. None renders the file as stored.
     """
+    from applire.services.photo_framing import frame_photo
+
     if not photo_path:
         return None
     try:
@@ -3233,12 +3241,14 @@ async def _resolve_photo_data_uri(
         return None
     suffix = Path(photo_path).suffix.lower().lstrip(".")
     mime = _PHOTO_MIME.get(suffix, "image/jpeg")
+    photo_bytes = frame_photo(photo_bytes, crop, mime)
     return f"data:{mime};base64,{_base64.b64encode(photo_bytes).decode()}"
 
 
 async def _with_resolved_contact_photo(
     tailored: "TailoredCVData",
     storage: "StorageProvider",
+    crop: "PhotoCrop | None" = None,
 ) -> "TailoredCVData":
     """Swap the stored photo path for an inline data URI, or drop it.
 
@@ -3250,7 +3260,7 @@ async def _with_resolved_contact_photo(
     """
     if not (tailored.show_photo and tailored.contact.photo_url):
         return tailored
-    data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, storage)
+    data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, storage, crop)
     if data_uri is None:
         logger.warning(
             "CV render: stored photo %s is missing — rendered without a photo",
@@ -3729,8 +3739,15 @@ async def get_cv_html(cv_id: uuid.UUID, db: AsyncSession, *, user_id: uuid.UUID 
     # #312: never hand a template a project with nothing under its heading.
     tailored = strip_empty_projects(tailored)
 
-    # Resolve stored photo path → inline base64 data URI for Playwright / srcDoc.
-    tailored = await _with_resolved_contact_photo(tailored, get_storage())
+    # Resolve stored photo path → inline base64 data URI for Playwright / srcDoc,
+    # framed the way the candidate chose (#781).
+    from applire.services.photo import photo_crop_for
+
+    tailored = await _with_resolved_contact_photo(
+        tailored,
+        get_storage(),
+        await photo_crop_for(db, owner, tailored.contact.photo_url),
+    )
 
     from applire.services.color_detection import resolve_color_context
     color_ctx = await resolve_color_context(record, db, user_id=owner)
@@ -3866,7 +3883,13 @@ async def _prepare_cv_docx_render(
     # which needs bytes/a stream, not a data: URI string.
     photo_bytes: bytes | None = None
     if tailored.show_photo and tailored.contact.photo_url:
-        data_uri = await _resolve_photo_data_uri(tailored.contact.photo_url, get_storage())
+        from applire.services.photo import photo_crop_for
+
+        data_uri = await _resolve_photo_data_uri(
+            tailored.contact.photo_url,
+            get_storage(),
+            await photo_crop_for(db, record.user_id, tailored.contact.photo_url),
+        )
         if data_uri is not None:
             _, _, b64_payload = data_uri.partition(",")
             photo_bytes = _base64.b64decode(b64_payload)

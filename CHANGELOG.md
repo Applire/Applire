@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Choose how your photo is framed (#781).** Uploading a photo now opens *Choose the framing*: drag the photo and zoom until your face sits in the frame; a dashed circle shows what the round templates show, and two small previews show the round and the portrait result. *Adjust framing* next to *Replace* re-opens it for the photo you already have. Your photo is stored as you uploaded it; only the framing is saved, and every CV template and the Word export use it, so you can re-frame at any time without uploading again. A new upload starts unframed.
+- **The interview tells you when an answer was not recorded (#763).** When an answer stated something and nothing reached your profile, the interview now shows it under your answer, before the next question: *Nothing was recorded from what you said — say it again in one sentence, or enter it in your profile*, or, when that is why, *That is already in your profile, as stated* / *Your question arrived — nothing was changed for it*. Until now only the profile's Health panel said so. Agents receive the same `no_write_receipt` from `send_message`.
+
+### Changed
+- **Photo uploads are checked to be the image type they claim to be** (JPEG, PNG or WebP) and within a size bound before they are stored.
+
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
 Applire Community now has **built-in accounts**: several people can share one instance, each with their own vault, and nobody sees another person's data. Sign-in is always on. **Read the Upgrade notes below before you pull** — the first start after the upgrade stops at a setup screen.
