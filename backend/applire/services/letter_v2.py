@@ -73,12 +73,14 @@ LANGUAGE_NAMES: dict[str, str] = {
 
 
 def letter_pipeline() -> str:
-    """``"v2"`` when ``LETTER_PIPELINE=v2``, else ``"v1"`` (default; any other value).
+    """``"v1"`` when ``LETTER_PIPELINE=v1``, else ``"v2"`` (default; any other value).
 
-    Read per call, not at import: the bench and the tests set it per run, and a
-    generation reads it exactly once (``_render_cover_letter_body``)."""
-    raw = os.environ.get("LETTER_PIPELINE", "v1")
-    return "v2" if (raw or "").strip().lower() == "v2" else "v1"
+    v2 is the default since ruling W3-7 (founder 2026-10-18); v1 stays the
+    one-setting opt-out until its tails are deleted. Read per call, not at import:
+    the bench and the tests set it per run, and a generation reads it exactly once
+    (``_render_cover_letter_body``)."""
+    raw = os.environ.get("LETTER_PIPELINE", "v2")
+    return "v1" if (raw or "").strip().lower() == "v1" else "v2"
 
 
 def language_name(language: str | None) -> str:

@@ -1408,7 +1408,7 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **Admin views.** Admin-only endpoints for the dashboard (health, users, failed jobs without content, usage, retention, notices), per-person usage, and the audit log. All of them are metadata only. Contract: `docs/dev/api-contract-admin.md`.
 - **No model verdicts in the panel (amended 2026-10-10).** The provider card links `docs/llm-models.md` and judges no model; the guide is the only place a model is measured and published. (A per-model hint read from a bundled data file shipped briefly during the release and was removed: a verdict can depend on settings such as reasoning on/off that the lookup did not see.)
 
-### ADR-094 — Generation Pipeline v2: the Model Writes, Code Checks (proposed 2026-10, Hazelnut; CV behind `CV_PIPELINE=v2`)
+### ADR-094 — Generation Pipeline v2: the Model Writes, Code Checks (2026-10, Hazelnut; the default since 0.44, `CV_PIPELINE=v1` opts out)
 
 **Decision:** after the last model call of a document chain, no code changes the document's text. Deterministic code may compute a fact, feed it into the review loop as a finding, or block (keep the reviewed text and report the open finding, or keep the stored profile value in a field the model failed to fill). Measured reason: on the document-quality bench, most language-mix and duplicate issues in delivered CVs were introduced by the deterministic tail that runs after the reviewers, not by a model.
 
@@ -1418,7 +1418,7 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 - **v1's tail becomes detectors.** The former post-review passes (bullet cap, restores, skill selection, echo-drop, de-duplication, re-spelling, condense) run on a copy and report what they would have changed; the corrector implements it or not.
 - **Short ids.** Model-facing payloads carry `w1`, `p1`, `e1` … instead of UUIDs (`services/model_ids.py`); an invented id still fails closed at assembly.
 - **Schema-bound writer.** Under `LLM_STRUCTURED_OUTPUT=auto` the v2 CV writer and its corrector calls carry a JSON schema; a host that refuses it falls back to JSON mode.
-- **Switch.** `CV_PIPELINE=v1|v2`, default `v1` (an internal development switch, not in `.env.example`). v2 becomes the default only when the bench shows it better on language mix, duplicates and upselling, with underselling no worse and page length held.
+- **Switch.** `CV_PIPELINE=v2|v1`, default `v2` since 0.44 (founder ruling on the 2026-10-18 bench gate: language mix and failed runs clearly better, letters within their page, no class significantly worse; duplicates and upselling not better, so the founder overrode that part of the bar). `CV_PIPELINE=v1` restores the 0.43 pipeline while it is still shipped. Every generation and review prompt on v2 carries a short pipeline preamble and a reasoning field the model fills first; the field is removed before anything is stored or shown (`PROMPT_CONTEXT`, default `c`, `off` opts out).
 
 ## 4. Data Model Highlights
 
@@ -1426,11 +1426,11 @@ Operator-facing detail — backup, restore, secrets, the two topologies, upgradi
 
 Two things worth knowing if you work on this. First, the export is a **different artefact**, not a second rendering of the PDF: it deliberately does not reproduce the chosen template's layout, and it says so in the download notice, which also states that the truthfulness and ATS checks describe the file *as exported* — edits you make afterwards in Word are not re-checked, and nothing claims otherwise. Second, keeping the two artefacts saying the same thing turned out to be the hard part rather than producing the file: the export twice rendered content differently from the PDF (three role-detail fields missing, then dates in storage format), and neither was caught by tests that checked whether each field's value appeared *somewhere* in the document — that check is satisfied by a correct and an incorrect rendering alike. The gate that catches this class renders the same record both ways and compares the two extractions directly. If you add a field to the export, reuse the display filter the templates use rather than formatting it again.
 
-### ADR-094 clause L — The Cover Letter: the Model Writes, Code Checks (accepted 2026-10-16, Hazelnut; behind `LETTER_PIPELINE=v2`)
+### ADR-094 clause L — The Cover Letter: the Model Writes, Code Checks (accepted 2026-10-16, Hazelnut; the default since 0.44, `LETTER_PIPELINE=v1` opts out)
 
 **Decision:** the letter follows ADR-094's rule — after the last model call no code changes the letter's text.
 
-- **Switch.** `LETTER_PIPELINE` (`v1` default, `v2`) is an internal development switch until the bench gate flips it; v1 is unchanged.
+- **Switch.** `LETTER_PIPELINE` (`v2` default since 0.44, `v1`); v1 is unchanged and stays available until its code is deleted.
 - **The language is stated first.** The writer's system prompt names the document language in its first line, and the one condense call names it too.
 - **Fields that are facts are code-owned.** The sender header and signature come from the profile's `personal_info`; date, sign-off and the recipient the user typed stay system-set. They are assembled before the first review round, so the reviewer reads the letter that ships.
 - **Checks, not rewrites.** The letter's body language (the CV's per-item predicate), the salutation, a repeated sign-off, the closing paragraph, figure ownership and invented limits are computed on each round's draft, handed to the reviewer and the corrector, and — when the loop could not resolve them — named on the delivered letter's report. The language uses the CV's `document-language` ATS row. Nothing blocks delivery.

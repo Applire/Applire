@@ -3509,6 +3509,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
                         "Condense rollback/restore failed for CL %s: %s",
@@ -3637,6 +3641,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
                 current = previous
@@ -3719,6 +3727,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
                         "Final length floor rollback/restore failed for CL "
@@ -3877,6 +3889,10 @@ async def _terminal_review_letter(
                                 try:
                                     await db.rollback()
                                     await db.refresh(cl)
+                                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                                    if profile is not None:
+                                        await db.refresh(profile)
                                 except Exception as restore_err:  # pragma: no cover
                                     logger.warning(
                                         "LETTER_FINAL_FLOOR re-condense rollback/restore "

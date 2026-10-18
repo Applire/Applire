@@ -45,6 +45,15 @@ if str(_backend) not in sys.path:
 # Helpers — shared stubs
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _v1_pipelines(monkeypatch):
+    """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
+    ruling W3-7 (2026-10-18); v1 stays supported until its tails are deleted, so
+    the tests set it explicitly."""
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+
+
 def _stub_profile_json() -> dict:
     return {
         "professional_summary": {"de": "Erfahrener Entwickler", "en": ""},
@@ -1754,3 +1763,65 @@ async def test_a_re_audit_door_cannot_launder_an_exhausted_terminal_review(db_wi
     assert carried["status"] != "pass"
     assert "LucaNet" in carried["details"]
     assert carried["details"] == first["details"]
+
+
+@pytest.mark.asyncio
+async def test_v2_letter_condense_commit_failure_still_reaches_ready(
+    db_with_cover_letter, monkeypatch,
+):
+    """v2 (the default since ruling W3-7): after the condense commit fails, the
+    rollback expires `profile` too, and v2's terminal tail reads
+    `profile.profile_json` — the read must not raise MissingGreenlet and fail the
+    letter (found when the default flipped, 2026-10-18)."""
+    monkeypatch.setenv("CV_PIPELINE", "v2")
+    monkeypatch.setenv("LETTER_PIPELINE", "v2")
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    ctx = db_with_cover_letter
+    session = ctx["db"]
+    cl_id = ctx["cl_id"]
+    job_id = ctx["job_id"]
+
+    letter_raw = _stub_letter_data()
+    condensed_raw = _stub_letter_data()
+    condensed_raw["body"]["paragraphs"] = ["Condensed body that must NOT be persisted."]
+
+    mock_provider = AsyncMock()
+    # 1st call = initial generation (succeeds); 2nd = condense generation (succeeds).
+    mock_provider.aparse_json.side_effect = [letter_raw, condensed_raw]
+
+    async def fake_review(**kwargs):
+        return kwargs["draft"]
+
+    mock_render_pdf = AsyncMock(return_value=b"%PDF-original")
+    known_report = _make_ats_report("cover_letter")
+
+    # Fail ONLY the condense commit (the 3rd db.commit in the flow: generating →
+    # initial letter_data → condense → final ready). The others delegate to the
+    # real session so setup and the final ready-flip persist normally.
+    real_commit = session.commit
+    commit_calls = {"n": 0}
+
+    async def flaky_commit():
+        commit_calls["n"] += 1
+        if commit_calls["n"] == 3:
+            raise RuntimeError("condense commit boom")
+        return await real_commit()
+
+    with patch("applire.services.cover_letter.AsyncSessionLocal") as mock_session_local, \
+         patch("applire.services.cover_letter.get_provider", return_value=mock_provider), \
+         patch("applire.services.cover_letter.review_and_refine", side_effect=fake_review), \
+         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 0), \
+         patch("applire.services.cover_letter_pdf.render_pdf", mock_render_pdf), \
+         patch("applire.services.ats_audit.extract_text_and_pages", return_value=("text", 2)), \
+         patch("applire.services.ats_audit.audit_cover_letter", return_value=known_report), \
+         patch.object(session, "commit", flaky_commit):
+        mock_session_local.return_value.__aenter__.return_value = session
+        from applire.services.cover_letter import _render_cover_letter_background
+        await _render_cover_letter_background(cl_id, None, job_id)
+
+    session.expire_all()
+    cl = await session.get(GeneratedCoverLetter, cl_id)
+    assert cl.status == "ready", (
+        f"a condense-commit failure must still flip the letter to ready, got {cl.status!r}"
+    )

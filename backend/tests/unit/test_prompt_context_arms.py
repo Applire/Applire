@@ -268,8 +268,8 @@ _CV_KEYED_SITES = sorted(k for k, v in preamble.SITES.items() if v.doc != "lette
 @pytest.mark.parametrize("site", sorted(preamble.SITES))
 async def test_v1_with_prompt_context_unset_is_byte_identical(monkeypatch, site):
     monkeypatch.delenv("PROMPT_CONTEXT", raising=False)
-    monkeypatch.delenv("CV_PIPELINE", raising=False)
-    monkeypatch.delenv("LETTER_PIPELINE", raising=False)
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
     p = _Recorder()
     await preamble.aparse_json(p, site, "PROMPT", system="SYS", max_tokens=100, json_schema=_SCHEMA)
     await preamble.acomplete(p, site, "PROMPT", system="SYS")
@@ -310,3 +310,10 @@ async def test_each_site_follows_its_own_pipeline_switch(monkeypatch):
 def test_only_the_condense_opts_out_of_the_analysis_field():
     """Gate re-run 2026-10-18: its contract is "keep the same JSON structure"."""
     assert sorted(k for k, v in preamble.SITES.items() if not v.analysis) == ["letter_condense:writer"]
+
+
+def test_the_default_pipelines_carry_c(monkeypatch):
+    """Ruling W3-7: with nothing set, both pipelines are v2 and every site gets c."""
+    for name in ("PROMPT_CONTEXT", "CV_PIPELINE", "LETTER_PIPELINE"):
+        monkeypatch.delenv(name, raising=False)
+    assert {preamble.site_arm(site) for site in preamble.SITES} == {"c"}

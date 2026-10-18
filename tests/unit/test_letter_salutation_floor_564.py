@@ -97,6 +97,15 @@ _DRAFT_564_PARAGRAPHS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _v1_pipelines(monkeypatch):
+    """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
+    ruling W3-7 (2026-10-18); v1 stays supported until its tails are deleted, so
+    the tests set it explicitly."""
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+
+
 def _draft_564() -> dict:
     """The #564 writer draft's shape: recipient set, NO Anrede, 4 body
     paragraphs, a signed name — matching record 27's actual response

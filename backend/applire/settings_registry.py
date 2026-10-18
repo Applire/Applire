@@ -1286,17 +1286,15 @@ _register_all(
         SettingEntry(
             env_var="LETTER_PIPELINE",
             source="constants",
-            default="v1",
+            default="v2",
             section="Advanced tuning",
             introduced_in="0.44.0",
-            in_env_example=False,
             description=(
-                "v1 | v2. Internal development switch for the cover-letter pipeline v2 "
-                "(ADR-094 clause L: the model writes, code checks). Read per generation "
-                "in services/letter_v2.py. Not operator surface until the US368 bench "
-                "gate flips the default."
+                "v2 | v1. The cover-letter generation pipeline (ADR-094 clause L: the model "
+                "writes, code checks). v2 is the default; set v1 to go back to the 0.43 "
+                "letter pipeline while it is still shipped."
             ),
-            notes="WP-W2, Hazelnut build 1 — withheld from .env.example (internal switch).",
+            notes="WP-W2, Hazelnut build 1; default flipped by ruling W3-7 (US368 gate re-run 5c2f056b).",
         ),
         SettingEntry(
             env_var="CV_LANGUAGE_REVIEW_MAX_RETRIES",
@@ -1317,8 +1315,8 @@ _register_all(
             section="Advanced tuning",
             introduced_in="0.44.0",
             description=(
-                "c | a | b | off. v2 pipelines only (CV_PIPELINE / LETTER_PIPELINE=v2; under "
-                "v1 every prompt is unchanged). The context every generation and review "
+                "c | a | b | off. v2 pipelines only (the default; under CV_PIPELINE=v1 or "
+                "LETTER_PIPELINE=v1 every prompt is unchanged). The context every generation and review "
                 "prompt carries (E068 US370): c = the pipeline preamble plus an analysis field the model "
                 "fills first, which is removed before anything is stored or shown; a = the "
                 "preamble alone; b = the preamble plus a primer turn; off = the prompts "
@@ -1329,16 +1327,15 @@ _register_all(
         SettingEntry(
             env_var="CV_PIPELINE",
             source="constants",
-            default="v1",
+            default="v2",
             section="Advanced tuning",
             introduced_in="0.44.0",
-            in_env_example=False,
             description=(
-                "v1 | v2. Internal development switch for the CV generation pipeline v2 "
-                "(E068 / ADR-094: the model writes, code checks). Not operator surface "
-                "until the US368 bench gate flips the default."
+                "v2 | v1. The CV generation pipeline (E068 / ADR-094: the model writes, "
+                "code checks). v2 is the default; set v1 to go back to the 0.43 CV "
+                "pipeline while it is still shipped."
             ),
-            notes="Hazelnut W1. Read at call time by services/cv_v2.cv_pipeline().",
+            notes="Hazelnut W1; default flipped by ruling W3-7 (US368 gate re-run 5c2f056b). Read at call time by services/cv_v2.cv_pipeline().",
         ),
         SettingEntry(
             env_var="CRITIC_ENABLED",
