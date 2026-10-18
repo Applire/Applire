@@ -21,6 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - **Truthfulness check: a standard you never mentioned is no longer "backed" (#701).** Before this fix, a CV bullet or letter sentence naming a standard such as "ISO 45001" that your profile never mentions could still be graded *backed* when the same sentence also carried a true figure. It is now *unbacked*, and the reason names the standard. A standard named in your own "no experience with …" statement is not counted. Measured on 1,219 earlier documents: 3 claims change, each a mistyped version of the profile's own "ISO 45001".
+- **Interview: "I can't give more detail" is no longer stored as a denial.** An interview answer that ended with a sentence such as "I can't name a concrete figure for that" could be saved as if you had denied experience with the topic, and your cover letter could then treat it as a gap. Only a named skill, tool, standard, certification, language, industry or responsibility you say you lack is recorded as a denial now. Measured on the captured calls with no earlier false denials in the profile: such denials fell to 1 in 15 calls on both tested models (from 15 and 6 in 15), and no real denial or stated fact was lost. Rows already saved stay as they are.
 
 ## [0.43.0-beta] – 2026-10-14 (Strawberry)
 
