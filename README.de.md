@@ -855,6 +855,17 @@ Mit dem Einreichen eines Pull Requests stimmst du dem [Applire CLA](CLA.md) zu. 
 
 ---
 
+## 🤖 Wie Applire entsteht (Hinweis zum KI-Einsatz)
+
+Applire wird mit einem KI-Coding-Assistenten entwickelt: Claude von Anthropic, gesteuert über Claude Code. Die Rollen sind so verteilt:
+
+- **Tobias Rosenbaum, der Gründer, ist Product Owner und Software-Architekt.** Er legt fest, was Applire können soll und welche Architekturentscheidungen gelten. Den Code liest er nicht Zeile für Zeile. Er kontrolliert an drei Stellen: Er entscheidet über jede Architekturentscheidung, die Claude als Entwurf vorlegt, testet jedes Release auf seiner eigenen Instanz und gibt es erst dann frei.
+- **Claude übernimmt Design und Programmierung.** Claude schlägt das technische Design und die Oberfläche vor und schreibt nahezu den gesamten Code und die Dokumentation, auch dieses README.
+
+Fast jeder Commit trägt die Zeile `Co-Authored-By: Claude`.
+
+---
+
 ## 💛 Projekt unterstützen
 
 Applire entsteht nebenberuflich bei einem Solo-Gründer und bleibt vollständig Open Source (AGPL-3.0, keine zurückgehaltenen Features). Jedes Feature und jedes Release wird vor dem Ausliefern gegen **echte LLM-Anbieter** geprüft — adversariale Pässe, blinde Hiring-Panel-Reviews, Agent-Kanal-Journeys — und Applire entsteht öffentlich gemeinsam mit KI-Coding-Agenten. Sponsoring bezahlt genau das: die API-Credits, die KI-Coding-Werkzeuge und die Infrastruktur hinter applire.de und den Release-Images.
