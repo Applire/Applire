@@ -426,8 +426,8 @@ def build_cover_letter_prompt(
     unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
         :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
         called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
-        honest gaps the first draft must give an explicit positioning decision to (a
-        transfer argument or a brief de-emphasis), never silence. Optional so legacy/
+        honest gaps. Since founder ruling DEL-2 (2026-10-18) de-emphasis means leaving the
+        requirement out; a lack is stated only where a recorded denial names it. Optional so legacy/
         degraded callers do not break; omitted/empty → adds nothing.
     vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
         :func:`applire.services.vault_evidence.render_vault_evidence_block`) — the
@@ -580,8 +580,8 @@ def build_cover_letter_prompt(
         lines += ["", required_limits_block]
 
     # #270(c): unmet JD hard requirements (claimable: false, "required") that
-    # need an explicit positioning decision (transfer argument or a brief,
-    # honest de-emphasis) — never silence. Threaded ONLY when genuinely found
+    # the writer must weigh; de-emphasis = leaving the requirement out (DEL-2,
+    # 2026-10-18), a lack is stated only for a recorded denial. Threaded ONLY when genuinely found
     # (services.cross_document.find_unaddressed_hard_requirements); absent →
     # adds nothing.
     if unaddressed_requirements_block:

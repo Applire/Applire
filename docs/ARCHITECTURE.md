@@ -1094,6 +1094,8 @@ A constraint and an obligation are not the same thing. "Never contradict a state
 
 **Recorded risk:** requiring content is also a new way for the review loop to fail to converge, and honesty that is mandated may read differently from honesty that is volunteered. Both are measurable only by a real acceptance run, so nothing here is credited as working until one has been done — and if the requirement proves to generate persistent review churn, it is withdrawn rather than tuned.
 
+**Amended (2026-10-18, Hazelnut):** the obligation covers only denials that concern a requirement of *this* posting, matched in code against the posting's requirement ledger before the letter writer is called. Every other recorded denial still reaches the writer as a constraint (never claimed, never contradicted) but is not mentioned in the letter. A statement that only withholds detail ("I can't give a figure for that") is not a limit: the letter uses the detail it gives and never writes the withholding in. Both pipelines.
+
 ### ADR-076 — The Deterministic Layer Signals, It Does Not Write (accepted 2026-08-15; CV and cover-letter terminal reviews built 2026-08-16, rest is target architecture)
 
 **Decision:** Document generation follows a "writer with a friend proofreading" model with three parties: the **human** owns the facts and the send decision; the **LLM** owns judgements and implementation (writing, positioning, review); the **deterministic layer** is a subconscious — it measures, detects, ranks and flags, but it never edits the document after the terminal review. Every existing deterministic pass that today edits the document after the last review is assigned a target fate (become a signal the corrector implements; move ahead of the review; become an untouchable input block; or be deleted once a prompt rule provably covers it), each migration gated on measured corrector compliance and real-run evidence. The terminal review verdict must be rendered over the **composed** document — the artifact actually delivered — and any change after that verdict re-enters review. Deciding whether two differently-worded things are the same fact is a judgement, never a string comparison; the deterministic normalisation carve-out is closed (digit grouping, unicode, punctuation — nothing else). Under-claiming (evidence in the vault, absent from the document) becomes a first-class, ranked signal alongside the long-standing over-claiming controls; coverage yields to relevance rank under the page budget; and "generation ready" is explicitly not "send-ready" — the send seat belongs to the human, furnished with the rendered document, the truthfulness report and the reviewer's verdict.
@@ -1130,6 +1132,8 @@ two while the same prompt handed the model everything that was missing and told 
 — on a captured run the first round demanded eight. Measured on that run's own exchange, five
 runs per arm: demands per round 5.6 on average (10 at worst) to exactly 2, with the writer then
 delivering every term it was asked for.
+
+**Amended (2026-10-18, Hazelnut):** for a hard requirement the candidate lacks, *de-emphasis* means the letter leaves it out. The letter states a lack only where the candidate's own recorded denial names it (ADR-075); the reviewer no longer asks for a named-gap transfer sentence, and a requirement left out is not a finding.
 
 ---
 
