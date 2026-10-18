@@ -22,9 +22,8 @@ Everything here is a FACT computed by code (ADR-062 clause 1) or a field whose
 truth is a vault / user / system fact. Nothing in this module rewrites a sentence
 the model wrote.
 
-* :func:`letter_pipeline` — the ``LETTER_PIPELINE`` switch (``v1`` default). An
-  internal development switch until US368's gate flips the default; it is not
-  operator surface and does not appear in ``.env.example``.
+* :func:`letter_pipeline` — the ``LETTER_PIPELINE`` switch (``v2`` default since
+  ruling W3-7, 2026-10-18; ``v1`` opts out, documented in ``.env.example``).
 * :func:`letter_language_fact` — which body sentences are not written in the
   document's language. THE per-item predicate is
   ``utils.language_detection.item_language_mismatch`` (ADR-066: the same one the

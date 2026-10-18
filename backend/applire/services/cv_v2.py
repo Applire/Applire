@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """E068 / ADR-094 (draft) — CV pipeline v2: the model writes, code checks.
 
-Behind ``CV_PIPELINE=v2`` (default ``v1``; an internal dev switch until US368 flips
-it — not operator surface). v1 stays byte-for-byte the 0.43 pipeline (RULING R-3).
+``CV_PIPELINE=v2`` is the default since ruling W3-7 (2026-10-18); ``CV_PIPELINE=v1``
+opts out (in ``.env.example``). v1 stays byte-for-byte the 0.43 pipeline (RULING R-3).
 
 What v2 changes, and only that (the per-step inventory is US363's,
 ``w1/inventory-cv.md``):
