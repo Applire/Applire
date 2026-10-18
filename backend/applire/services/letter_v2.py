@@ -320,12 +320,20 @@ def apply_code_owned_fields(
     header = data.get("header")
     header = dict(header) if isinstance(header, dict) else {}
     header.update(sender)
+    # The letter schema types ``header.name`` / ``header.address`` and
+    # ``signature.name`` as strings with "" meaning "no line" (``LetterHeader`` /
+    # ``LetterSignature``); phone and email are Optional. A vault without a name
+    # composed ``None`` and failed ``LetterData`` validation in the .docx export and
+    # its ATS audit (W3-7 flip test, 2026-10-18). Missing stays missing — the empty
+    # string, never a name the model typed.
+    for key in ("name", "address"):
+        if header.get(key) is None:
+            header[key] = ""
     data["header"] = header
-    if sender.get("name"):
-        signature = data.get("signature")
-        signature = dict(signature) if isinstance(signature, dict) else {}
-        signature["name"] = sender["name"]
-        data["signature"] = signature
+    signature = data.get("signature")
+    signature = dict(signature) if isinstance(signature, dict) else {}
+    signature["name"] = sender.get("name") or ""
+    data["signature"] = signature
     return data
 
 

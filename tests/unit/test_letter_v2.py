@@ -517,7 +517,7 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db):
+async def _seed(db, profile_json=None):
     from applire.models.cover_letter import CoverLetterStatus, GeneratedCoverLetter
     from applire.models.job import JobAnalysis
     from applire.models.user import User
@@ -529,7 +529,7 @@ async def _seed(db):
         required_skills=[], nice_to_have_skills=[], keywords=[], seniority_level="senior",
         company_culture_signals=[], language_requirement="en", jd_language="en",
     )
-    profile = make_master_profile(profile_json=copy.deepcopy(_PROFILE_JSON))
+    profile = make_master_profile(profile_json=copy.deepcopy(profile_json or _PROFILE_JSON))
     db.add_all([user, job, profile])
     await db.flush()
     cl = GeneratedCoverLetter(
@@ -1015,3 +1015,40 @@ async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
     # the earlier terminal round's verdict read a draft that no longer ships
     assert "an earlier round's finding" not in " ".join(outcome.blocking_issues)
     assert outcome.path == "minor_only"
+
+
+# ── W3-7 flip follow-up: a vault without a contact name ─────────────────────
+def test_code_owned_fields_without_a_vault_name_validate_and_invent_nothing():
+    """W3 (2026-10-18): a vault with no contact name composed ``header.name = None``;
+    ``LetterData`` validation then failed in the .docx export / its ATS audit. The
+    missing name is the schema's "no line" (""), and the model's typed name is not
+    used for the signature either."""
+    from applire.schemas.cover_letter import LetterData
+    from applire.services.letter_v2 import apply_code_owned_fields
+
+    profile = copy.deepcopy(_PROFILE_JSON)
+    profile["personal_info"] = {"name": None, "email": "k@example.com", "phone": None,
+                                "address": None, "location": None}
+    draft = _draft(_ENGLISH_BODY)
+    draft["signature"] = {"closing": "Kind regards", "name": "Max Mustermann"}  # model-typed
+    out = apply_code_owned_fields(draft, profile_json=profile, cv_data={})
+    assert out["header"]["name"] == "" and out["header"]["address"] == ""
+    assert out["signature"]["name"] == ""
+    LetterData.model_validate({k: out[k] for k in ("header", "recipient", "body", "signature")})
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_letter_without_a_vault_name_renders_the_docx(db, v2):
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.services.cover_letter import _coerce_stored_letter_data
+    from applire.services.office_export.letter_docx import render_letter_docx
+
+    pj = copy.deepcopy(_PROFILE_JSON)
+    pj["personal_info"] = {**pj["personal_info"], "name": None, "address": None, "location": None}
+    ids = await _seed(db, profile_json=pj)
+    await _run(db, ids, payload=_draft(_ENGLISH_BODY))
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.status == "ready"
+    letter = _coerce_stored_letter_data(cl.letter_data)  # raised before the fix
+    assert letter.header.name == "" and "Hofman" not in letter.signature.name
+    assert render_letter_docx(letter, lang="en", accent_color="#12233E")[:2] == b"PK"
