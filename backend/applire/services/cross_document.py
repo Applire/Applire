@@ -351,11 +351,14 @@ _UNADDRESSED_INSTRUCTION = (
     "marks it unclaimable, or it is claimable only through a DIFFERENT, "
     "adjacent capability named below. Never assert the requirement's own term "
     "as something they have, have done, or know. "
-    "For each, make an explicit positioning decision: a transfer argument "
-    "grounded in the candidate's own words, or — only where the entry says the "
-    "candidate was ASKED AND SAID NO — a brief, honest de-emphasis "
-    "that names the gap without dwelling on it or implying a JD-critical "
-    "requirement is negligible. Silence is not one of the options. "
+    "Positioning (ADR-076 amended by RULING DEL-2): where an adjacent capability is "
+    "named below, the letter may give that capability prominence on its own merits, in "
+    "the candidate's own words, WITHOUT naming the lacked requirement; otherwise "
+    "DE-EMPHASIS, which means the letter leaves the requirement out. A requirement listed "
+    "here that the letter leaves out is NOT a finding. The letter names a lack only where "
+    "the entry says the candidate was ASKED AND SAID NO — briefly, in their own terms. "
+    "Never write what the candidate cannot claim, name or prove about any other "
+    "requirement listed here. "
     "Where a STATED LIMITS block is present, the candidate's own wording for "
     "the transfer argument is in it, verbatim — read it there and build on it; "
     "an honest denial normally states the gap and the adjacent strength in one "
@@ -434,7 +437,8 @@ def render_unaddressed_hard_requirements_block(
                 f"asked about {e.get('concept', '')} and did not deny it, so a "
                 "sentence disclaiming it is an INVENTED LIMIT (check 1), and it "
                 f"throws away the {e['adjacent_evidence']} evidence the vault "
-                "does hold. The transfer argument is the only response here."
+                "does hold. Surfacing it is the only positive move; leaving the "
+                "requirement out is the other (RULING DEL-2)."
             )
     return "\n".join(lines)
 
@@ -561,6 +565,27 @@ def select_jd_relevant_limits(
     return [statement for _, _, _, statement in kept]
 
 
+#: RULING DEL-1 (founder 2026-10-18, Hazelnut delivery F1/F2): an interview answer
+#: that only withholds detail was recorded as a limit, and the letter wrote the
+#: withholding in ("konkrete Entwicklungsbeispiele kann ich nicht nennen"). Letter
+#: only — the CV writer's stated-limits block is unchanged. The vault rows stay.
+WITHHOLDING_IS_NOT_A_LIMIT = (
+    "A statement that only withholds detail (\"kann ich nicht nennen\", \"can't say "
+    "more\", no figure or example given) is NOT a limit: use the detail it does give, "
+    "and never write the withholding into the letter."
+)
+
+#: RULING DEL-2 (founder 2026-10-18, ADR-076 positioning contract): de-emphasis
+#: means the letter LEAVES the lacked requirement out; the letter states a lack ONLY
+#: where the candidate's own recorded denial names it.
+LACK_ONLY_FROM_OWN_DENIAL = (
+    "The letter states that the candidate lacks, cannot name or cannot claim something "
+    "ONLY where the candidate's own recorded denial names it (an EXPLICITLY DENIED or "
+    "REQUIRED: STATED LIMITS entry). For any other requirement the candidate lacks, "
+    "de-emphasis means the letter leaves it out — leaving it out is not a defect."
+)
+
+
 def render_required_limits_block(limits: list[str]) -> str:
     """The AFFIRMATIVE half of ADR-075, for the LETTER writer's user prompt only.
 
@@ -601,12 +626,40 @@ def render_required_limits_block(limits: list[str]) -> str:
         "apology.",
         "Never state a limit that is NOT listed here: an invented limit is as untrue "
         "as an inflated claim and throws away the candidate's own best evidence.",
+        WITHHOLDING_IS_NOT_A_LIMIT,
     ]
     lines.extend(f"  - {text}" for text in limits)
     return "\n".join(lines)
 
 
-def render_stated_limits_block(limits: list[str]) -> str:
+def letter_constraint_only_limits(
+    denied_concepts: list[Any] | None,
+    keyword_ledger: list[dict[str, Any]] | None,
+) -> list[str]:
+    """RULING DEL-3 (ADR-075 amended 2026-10-18): the INPUT FILTER on the letter.
+
+    The letter owes a recorded denial only when it concerns a requirement of THIS
+    posting — :func:`select_jd_relevant_limits`, matched on the Keyword-Ledger row
+    in code, is the one place that decides it, and those statements reach the
+    writer ONLY through :func:`render_required_limits_block` (the obligation).
+
+    Every other statement is returned here: it still reaches the writer, because
+    it can still be the one a claim contradicts (never claimed), but it is
+    rendered as a constraint the letter never discloses. Before this filter the
+    writer received every denial the vault holds, framed with "an honest denial
+    names the adjacent strengths", and wrote non-JD interview non-answers into
+    the letter as admissions (Hazelnut delivery, logged rows 69-78: the
+    Investitionssumme, Digitalisierungsprojekte and Entwicklungsbeispiele lines).
+
+    A JD-relevant statement the ADR-075 cap dropped lands here too: the cap
+    exists so a letter never turns into a list of things the candidate cannot
+    do. Pure; ``None``/empty tolerant; order preserved.
+    """
+    owed = {ats_norm(s) for s in select_jd_relevant_limits(denied_concepts, keyword_ledger)}
+    return [s for s in collect_stated_limits(denied_concepts) if ats_norm(s) not in owed]
+
+
+def render_stated_limits_block(limits: list[str], *, for_letter: bool = False) -> str:
     """Render the candidate's verbatim stated limits for a WRITER prompt.
 
     Facts, plus the one rule that keeps them from being over-read. Nothing here
@@ -617,6 +670,22 @@ def render_stated_limits_block(limits: list[str]) -> str:
     """
     if not limits:
         return ""
+    if for_letter:
+        # DEL-3: the letter's copy carries only the statements this posting does
+        # NOT ask about (`letter_constraint_only_limits`), so it is a constraint
+        # and says so; the owed ones arrive in the REQUIRED block instead.
+        lines = [
+            "=== STATED LIMITS — CONSTRAINT ONLY (the candidate's own words, verbatim) ===",
+            "In an interview the candidate said each of the following. This posting does "
+            "not ask about them, so the letter NEVER mentions them: never write a claim "
+            "one of them contradicts, and never write a disclosure, a gap or a 'cannot "
+            "claim' sentence drawn from them.",
+            "A concept named INSIDE one of these statements as something the candidate "
+            "DOES have is a STRENGTH: claim it plainly, without qualification.",
+            WITHHOLDING_IS_NOT_A_LIMIT,
+        ]
+        lines.extend(f"  - {text}" for text in limits)
+        return "\n".join(lines)
     lines = [
         "=== STATED LIMITS (the candidate's own words, verbatim) ===",
         "In an interview the candidate said each of the following about what they "

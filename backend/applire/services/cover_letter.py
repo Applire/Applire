@@ -782,7 +782,10 @@ _STATED_LIMITS_CONSTRAINT = (
     "invent one either. A concept named inside a statement as something the "
     "candidate DOES have is a strength, not a limit: an honest denial names the "
     "adjacent strengths that transfer. Everything the Keyword Ledger marks "
-    "claimable stays fully claimable unless a statement here denies it."
+    "claimable stays fully claimable unless a statement here denies it. "
+    "A statement that only withholds detail (\"kann ich nicht nennen\", no figure or "
+    "example given) is NOT a limit: use the detail it gives, and never write the "
+    "withholding into the letter (RULING DEL-1)."
 )
 
 
@@ -1475,14 +1478,19 @@ async def _render_cover_letter_body(
                 from applire.services.cross_document import (
                     collect_stated_limits,
                     find_unaddressed_hard_requirements,
+                    letter_constraint_only_limits,
                     render_required_limits_block,
                     render_stated_limits_block,
                     select_jd_relevant_limits,
                     render_unaddressed_hard_requirements_block,
                 )
                 # denied_concepts already resolved above (#272 Task 1 hoist).
+                # RULING DEL-3: only the statements this posting does NOT ask
+                # about, as a never-disclosed constraint; the owed ones reach the
+                # writer through `required_limits_block` alone.
                 stated_limits_block = render_stated_limits_block(
-                    collect_stated_limits(denied_concepts)
+                    letter_constraint_only_limits(denied_concepts, keyword_ledger),
+                    for_letter=True,
                 )
                 # ADR-075 / #532 — the affirmative half, selected deterministically
                 # from THIS job's ledger; empty string when nothing is owed.
@@ -1618,7 +1626,7 @@ async def _render_cover_letter_body(
                         "itself a review issue."
                     ),
                 }
-                if stated_limits_block:
+                if collect_stated_limits(denied_concepts):
                     positioning_requested["stated_limits"] = (
                         build_stated_limits_entry(denied_concepts, keyword_ledger)
                         or _constraining_stated_limits_entry(
@@ -2113,9 +2121,12 @@ async def _render_cover_letter_body(
                         from applire.services.letter_v2 import language_name
 
                         _name = language_name(detected_language)
+                        from applire.prompts.cover_letter import V2_CLOSING_RULE
+
                         block = (
                             f"{block}\n\nDOCUMENT LANGUAGE: {_name}. Every sentence of the "
-                            f"letter body you return is written in {_name}."
+                            f"letter body you return is written in {_name}.\n\n"
+                            f"CLOSING: {V2_CLOSING_RULE}"
                         )
                     return f"{prompt}\n\n{block}"
 
@@ -3194,19 +3205,20 @@ async def _terminal_review_letter(
         ))
 
     def _v2_retained_terms(d: dict) -> str | None:
-        """The corrector's COVERAGE ALREADY ACHIEVED block (#306) for a v2 condense."""
-        from applire.services.keyword_ledger import (
-            claimable_present_entries,
-            render_coverage_retention_block,
-        )
+        """The coverage terms the letter already carries, as the v2 condense's SOFT
+        list (F1: never the corrector's must-keep block)."""
+        from applire.prompts.cover_letter import render_condense_retained_terms
+        from applire.services.keyword_ledger import claimable_present_entries
 
         try:
-            return render_coverage_retention_block(
-                claimable_present_entries(_subject_of(d), keyword_ledger)
-            ) or None
+            return render_condense_retained_terms([
+                e.get("concept") for e in claimable_present_entries(_subject_of(d), keyword_ledger)
+                if isinstance(e, dict)
+            ]) or None
         except Exception:  # pragma: no cover - a prompt block never fails a letter
             logger.warning("letter v2: retained-terms block failed", exc_info=True)
             return None
+
     if is_v2 and v2_signal_fn is not None:
         # The v2 signal carries the ``limit`` family itself (and composes its own
         # subject with the same code-owned-only compose as ``_subject_of``).

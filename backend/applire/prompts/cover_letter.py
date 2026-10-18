@@ -201,37 +201,33 @@ Rules:
     testimony means the candidate's CURRENT/former employer — in a letter addressed to the
     TARGET company those words read as the target. Name the employer instead. And never
     re-state content another paragraph of the letter already covers — one fact, one paragraph.
-- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075 amended 2026-09-20): when a STATED LIMITS
-  block appears in the user message, it holds the candidate's own words about what they
-  cannot claim, and they are the ONLY limits that exist.
+- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075 amended 2026-09-20): a STATED LIMITS block
+  holds the candidate's own words about what they cannot claim; no other limits exist.
   (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit they
   do not state. A claim contradicts a statement when it asserts the CAPABILITY denied, not
-  only when it repeats the words — including where the Ledger marks that capability claimable
-  under another label, and including inside a system the candidate merely owns or manages,
-  because a reader credits the owner with the technology named (#731). Reform such a sentence
-  into a SCOPED CLAIM: the scope they DO own, the limited part attributed to whoever did it,
-  neither claimed nor flatly denied. A concept named inside one of those statements as
-  something the candidate DOES have is a STRENGTH — an honest denial names the adjacent
-  strengths that transfer — so claim it plainly and without qualification. Everything the
-  Keyword Ledger marks claimable stays fully claimable unless a stated limit denies it, and
-  never belongs in the honest-gap/transfer-argument paragraph.
-  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears, its
-  entries are the concepts THIS posting asks about that the candidate has DENIED in their own
-  words, at ANY requirement tier. Each owes ONE positioning decision on the ranked ladder of
-  the next rule; either of its two higher rungs DISCHARGES the limit and needs no negation
-  beside it. Where the gap IS named: gap first, transferring strength second, in the SAME
-  SENTENCE, as their own statement says it ("no IFS/BRC experience, but ten years of ISO-9001
-  audit practice") — never a standalone negative, least of all right after a sentence stating
-  a strength (#732). ONE honest-gap paragraph, never a litany. This reaches ONLY what the
-  candidate said themselves — a requirement nobody asked them about is not a gap you may
-  assert on their behalf.
+  only its words — also where the Ledger marks it claimable under another label, and inside
+  a system the candidate merely owns or manages, because a reader credits the owner with the
+  technology named (#731). Reform such a sentence into a SCOPED CLAIM: the scope they DO own,
+  the limited part attributed to whoever did it, neither claimed nor flatly denied. A concept
+  a statement names as something the candidate DOES have is a STRENGTH: claim it plainly.
+  Everything the Ledger marks claimable stays claimable unless a stated limit denies it, and
+  never belongs in the honest-gap paragraph. A statement that only withholds detail ("kann
+  ich nicht nennen", no figure or example) is NOT a limit: use the detail it gives, never
+  write the withholding into the letter (DEL-1).
+  (b) OBLIGATION: a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block lists the concepts
+  THIS posting asks about that the candidate DENIED in their own words, at ANY requirement
+  tier. Each owes ONE positioning decision on the ranked ladder of the next rule; either
+  higher rung DISCHARGES the limit with no negation beside it. Where the gap IS named: gap first, transferring
+  strength second, in the SAME SENTENCE, as their statement says it ("no IFS/BRC experience,
+  but ten years of ISO-9001 audit practice") — never a standalone negative, least of all
+  right after a sentence stating a strength (#732). ONE honest-gap paragraph, never a litany.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE ARE RANKED
-  (#270, #732): take the HIGHEST rung TRUE of the candidate, never a lower one — (1) a scoped
-  claim at exactly the rung their material reaches; (2) a transfer argument where an adjacent
-  capability carries over (the paragraph above); (3) only where NEITHER holds, the gap named
-  plainly in (b)'s fused form. Rungs (1) and (2) DISCHARGE the requirement: a letter
-  delivering one owes no negation about it. Silence is still never an option; fold the
-  decision into the SAME paragraph.
+  (#270, #732): take the HIGHEST rung TRUE of the candidate — (1) a scoped claim at exactly
+  the rung their material reaches; (2) a transfer argument where an adjacent capability
+  carries over; (3) only where NEITHER holds AND their own recorded denial names it, the gap
+  named in (b)'s fused form. Rungs (1) and (2) DISCHARGE the requirement, with no negation. A requirement
+  lacked WITHOUT a recorded denial is de-emphasised: the letter LEAVES IT OUT, never a
+  sentence about what they cannot claim, name or prove (DEL-2).
 """
 
 
@@ -285,6 +281,38 @@ _V1_TITLES_RULE_TAIL = (
     "  correct)."
 )
 
+#: F1 (Hazelnut delivery run, 2026-10-18): handed the corrector's COVERAGE ALREADY
+#: ACHIEVED block ("MUST still contain every one", 17 terms) plus a word target, the v2
+#: condense moved every term into one list in the closing. Replay of the logged
+#: condense (Luna, 6 + 6): that block 4/6 closings with >= 8 terms; the same block plus
+#: a placement rule 3/6; THIS soft list 0/6, 6/6 on one page, 17-18 of 19 terms kept.
+_V2_RETAINED_TERMS_PLACEMENT = (
+    "Keep a term only where it sits inside a sentence that carries its evidence (the "
+    "employer, the action, the result). Never gather terms into a list or an enumeration, "
+    "and never move them into the closing paragraph; if a term loses its sentence while "
+    "shortening, drop the term."
+)
+
+
+def render_condense_retained_terms(concepts: list[str]) -> str:
+    """The v2 condense's view of the coverage it already has (c53686b6, reworded for
+    F1): the terms as a SOFT, code-scanned list plus the placement rule — never the
+    corrector's "must still contain every one" block. "" when there are none."""
+    concepts = [c for c in concepts if isinstance(c, str) and c.strip()]
+    if not concepts:
+        return ""
+    return (
+        "JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): " + ", ".join(concepts)
+        + ".\n" + _V2_RETAINED_TERMS_PLACEMENT
+    )
+
+
+#: F1: the closing is a call to action (writer + corrector, v2 only).
+V2_CLOSING_RULE = (
+    "The closing paragraph is a short call to action (interest in a conversation, "
+    "availability if given) — never a list of skills, tools or job-posting terms."
+)
+
 _V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
 #: Hazelnut adversarial re-run + W3-3 arm (2026-10-17): ministral wrote a recorded 99.9 %
 #: availability TARGET as achieved ("achieving 99.9 %", "sicherte eine 99,9%-Verfügbarkeit")
@@ -327,6 +355,7 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
     assert _V1_OVERSTATE_ANCHOR in rules, "the overstate rule moved — re-anchor _V1_OVERSTATE_ANCHOR"
     rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
+    rules = rules + "\n- " + V2_CLOSING_RULE + "\n"
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 

@@ -252,14 +252,14 @@ or incomplete; anything you notice outside them is `minor` by definition.
    ``stated_limits`` when ``required`` (ADR-075): each listed limit owes ONE honest
    positioning decision in one paragraph — the gap in the candidate's own terms plus the
    adjacent strength. BOTH directions are findings: silence on a listed limit, and a
-   limit the letter states that the entry does NOT list (check 1).
-   HALF-DELIVERY IS THE THIRD DIRECTION (#732): delivered means the transferring
-   strength stands in the SAME sentence as the words naming the gap. A standalone
-   negative sentence, its strength relegated to a later sentence or a generic
-   "my adjacent strengths are …" list, is the limit stated WITHOUT its positioning
-   decision — worst directly after a sentence stating a strength. Quote it, name the
-   strength the entry's own statement carries, and block: this is not `minor`
-   paragraph order, it is the shape two blind reviewers rejected a letter on.
+   limit the letter states that the entry does NOT list (check 1). Withholding detail
+   ("kann ich nicht nennen") is no limit: writing it in IS a finding (DEL-1). A requirement
+   lacked WITHOUT a recorded denial owes no sentence; never demand one (DEL-2).
+   HALF-DELIVERY IS THE THIRD DIRECTION (#732): the transferring strength stands in the
+   SAME sentence as the words naming the gap. A standalone negative, its strength
+   relegated to a later sentence or a generic list, is the limit WITHOUT its positioning
+   decision — worst right after a sentence stating a strength. Quote it, name the
+   strength the statement carries, and block: this is not `minor` paragraph order.
 5. A DETERMINISTIC BLOCK IS UNSATISFIED.
    - VERIFIED COVERAGE CHECK — claimable terms the candidate genuinely supports that the
      letter does not surface. Your only judgement is the GROUNDING WAIVER: if surfacing a
@@ -276,8 +276,7 @@ or incomplete; anything you notice outside them is `minor` by definition.
      Such a concept is never a DO-NOT-CLAIM term and must never be named as an absence
      in either document — if the CV asserts it and the letter disclaims it, the LETTER
      is what is wrong, because the ledger says the vault supports the claim. A concept
-     is an honest gap only when the ledger marks it so or a STATED LIMIT disclaims it in
-     the candidate's own words. Judge this by reading the two documents; no block lists
+     is an honest gap only when the candidate's own recorded denial names it (DEL-2). Judge this by reading the two documents; no block lists
      conflicts for you. The admit-and-affirm sentence check 1 describes — the gap and the
      strength that transfers inside ONE sentence — is the CORRECT shape for a gap, not a
      denial of its second half: never flag, soften or split it. That covers the FUSED
@@ -349,7 +348,7 @@ their letter, and they decide.
    - the posting's requirement list echoed in the posting's order.
    Report the pattern and quote two examples of it. Two things you must NOT do: never propose
    dropping a figure or a fact to break a pattern — a line vaguer than the truth is the worse
-   defect — and never touch an unprompted admission of a gap or a limit. Blind readers name that
+   defect — and never touch an admission of a recorded denial. Blind readers name that
    admission as the strongest single reason to trust a letter; it must survive any voice work.
 
 """
@@ -490,6 +489,14 @@ Rules:
 - Do not invent facts. If the reviewer's feedback quotes candidate source content, use those
   passages as the factual basis. Otherwise restrict your changes to removing or softening the
   ungrounded claims while keeping the letter coherent and well-written.
+- NEVER WRITE A LACK THE CANDIDATE DID NOT STATE (RULING DEL-2, ADR-076): state that the
+  candidate lacks, cannot name or cannot claim something ONLY where their own recorded denial
+  names it (an EXPLICITLY DENIED or required ``stated_limits`` entry). When a review asks you
+  to "position" a requirement the candidate lacks without such a denial, surface the adjacent
+  strength on its own merits or leave the requirement out — never write a disclaimer or a
+  "limited experience" sentence. A stated limit that only withholds detail ("kann ich nicht
+  nennen", no figure or example) is NOT a limit: use the detail it gives, never write the
+  withholding into the letter (RULING DEL-1).
 - PRESERVE REQUIRED POSITIONING CONTENT (ADR-057 amended 2026-07-24 / US264/#255): when the
   CANDIDATE SOURCE carries a ``positioning_requested`` block, its company/domain engagement,
   honest gap/transfer argument, availability, ``scope_positioning``, ``pinned_facts``

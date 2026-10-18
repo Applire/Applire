@@ -459,7 +459,10 @@ def test_render_unaddressed_hard_requirements_block_names_concepts_and_forbids_a
     assert "does NOT have the named requirement" in block
     assert "never" in block.lower()
     assert "litany" in block.lower()
-    assert "silence" in block.lower()
+    # RULING DEL-2: leaving a lacked requirement out is not a finding
+    assert "silence" not in block.lower()
+    assert "leaves the requirement out" in block
+    assert "is NOT a finding" in block
 
 
 def test_the_positioning_snapshot_builder_is_gone():

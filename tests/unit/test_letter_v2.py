@@ -189,9 +189,10 @@ def test_v2_titles_rule_allows_recorded_alternate_forms_only():
     v2 = build_system_prompt("en", pipeline="v2")
     assert "recorded alternate" in v2
     assert "never translate, shorten, generalise, upgrade or downgrade it yourself" in v2
-    # v1's rules are carried otherwise unchanged
+    # v1's rules are carried otherwise unchanged; v2 adds exactly ONE top-level rule,
+    # the F1 closing rule (2026-10-18)
     assert v2.count("- GROUNDING CONTRACT") == 1
-    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") == v2.split("Rules:")[1].count("\n- ")
+    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 1 == v2.split("Rules:")[1].count("\n- ")
 
 
 def test_condense_prompt_names_the_language_on_v2_only():
@@ -892,7 +893,8 @@ async def test_seam_condenses_carry_the_retained_terms_on_v2_only(db, monkeypatc
     condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
     assert condenses
     for p in condenses:
-        has = "COVERAGE ALREADY ACHIEVED" in p and "- HGB [forms: HGB]" in p
+        has = "JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): HGB." in p
+        assert "COVERAGE ALREADY ACHIEVED" not in p
         assert has is (pipeline == "v2")
 
 
@@ -1052,3 +1054,134 @@ async def test_seam_v2_letter_without_a_vault_name_renders_the_docx(db, v2):
     letter = _coerce_stored_letter_data(cl.letter_data)  # raised before the fix
     assert letter.header.name == "" and "Hofman" not in letter.signature.name
     assert render_letter_docx(letter, lang="en", accent_color="#12233E")[:2] == b"PK"
+
+
+# ── F1 (delivery run 2026-10-18): no keyword-list closing on v2 ─────────────
+def test_v2_condense_places_retained_terms_in_their_evidence_sentence_never_a_list():
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Text."]}}
+    from applire.prompts.cover_letter import render_condense_retained_terms
+
+    block = render_condense_retained_terms(["MES", "OEE", ""])
+    assert block.startswith("JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): MES, OEE.")
+    assert "inside a sentence that carries its evidence" in block
+    assert "Never gather terms into a list" in block and "never move them into the closing" in block
+    assert "drop the term" in block
+    assert "MUST" not in block  # F1: never the corrector's must-keep wording
+    assert render_condense_retained_terms([]) == ""
+    v2 = build_condense_prompt(letter, 250, 2, letter_pages=1, language="de", retained_terms_block=block)
+    assert block in v2 and v2.index(block) < v2.index("=== CURRENT LETTER (JSON) ===")
+    v1 = build_condense_prompt(letter, 250, 2, letter_pages=1)
+    assert "JOB-POSTING TERMS ALREADY IN THIS LETTER" not in v1
+
+
+def test_v2_writer_rules_state_the_closing_is_a_call_to_action_never_a_list():
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, V2_CLOSING_RULE, build_system_prompt
+
+    assert "never a list of skills, tools or job-posting terms" in V2_CLOSING_RULE
+    assert V2_CLOSING_RULE in build_system_prompt("de", pipeline="v2")
+    assert V2_CLOSING_RULE not in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_corrector_carries_the_closing_rule_v1_does_not(db, v1):
+    from applire.prompts.cover_letter import V2_CLOSING_RULE
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    assert all(V2_CLOSING_RULE not in l["corrector_prompt"] for l in rec["loops"])
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_corrector_carries_the_closing_rule(db, v2):
+    from applire.prompts.cover_letter import V2_CLOSING_RULE
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    assert rec["loops"] and all(f"CLOSING: {V2_CLOSING_RULE}" in l["corrector_prompt"] for l in rec["loops"])
+
+
+# ── RULING DEL-3 (ADR-075 amended 2026-10-18): the input filter, both pipelines ──
+
+_DEL3_OWED = "Mit IFS habe ich keine Erfahrung, zehn Jahre ISO-9001-Auditpraxis bringe ich mit."
+_DEL3_OTHER = "Eine konkrete Investitionssumme kann ich nicht nennen."
+
+
+async def _seed_with_denials(db):
+    from datetime import datetime, timezone
+
+    from applire.models.gap import GapAnalysis
+
+    pj = copy.deepcopy(_PROFILE_JSON)
+    pj["metadata"] = {"denied_concepts": [
+        {"concept": "IFS", "statement": _DEL3_OWED, "source": "interview", "date": "2026-10-01"},
+        {"concept": "Investitionssumme", "statement": _DEL3_OTHER, "source": "interview",
+         "date": "2026-10-01"},
+    ]}
+    ids = await _seed(db, profile_json=pj)
+    job, profile, _cl = ids
+    db.add(GapAnalysis(
+        job_analysis_id=job.id, profile_id=profile.id, match_score=0.5, critical_gaps=[],
+        minor_gaps=[], strengths=[], keyword_gaps=[], category_a=[], category_b=[],
+        category_c=[], keyword_ledger=[], gap_clusters=[], requirement_breakdown=[],
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    ))
+    await db.commit()
+    return ids
+
+
+_DEL3_LEDGER = [
+    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 0.5,
+     "surface_forms": ["IFS"], "sources": ["nice_to_have"], "evidence": ""},
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", ["v1", "v2"])
+async def test_seam_del3_only_the_postings_denial_reaches_the_writer_obligation(
+        db, monkeypatch, pipeline):
+    monkeypatch.setenv("LETTER_PIPELINE", pipeline)
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(_DEL3_LEDGER)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    req = writer_prompt.index("=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT")
+    con = writer_prompt.index("=== STATED LIMITS — CONSTRAINT ONLY")
+    req_block = writer_prompt[req:writer_prompt.find("\n\n===", req)]
+    con_block = writer_prompt[con:writer_prompt.find("\n\n===", con)]
+    # the owed denial is an obligation, and only there
+    assert _DEL3_OWED in req_block and _DEL3_OWED not in con_block
+    # the other denial still reaches the writer (never claimed) — as a constraint only
+    assert _DEL3_OTHER in con_block and _DEL3_OTHER not in req_block
+    # the loop's source owes only the posting's denial too (the vault itself, which the
+    # source also carries, still holds both statements)
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].index('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
+    assert '"required": true' in entry or _DEL3_OWED in entry
+    assert _DEL3_OWED in entry and _DEL3_OTHER not in entry
+
+
+@pytest.mark.asyncio
+async def test_seam_del3_every_denial_owed_still_reaches_the_loop_source(db, v2):
+    """When every denial is this posting's, the constraint-only copy is empty — the
+    loop's ``stated_limits`` entry must not hang on that empty block."""
+    ledger = copy.deepcopy(_DEL3_LEDGER) + [
+        {"concept": "Investitionssumme", "status": "denied", "claimable": False,
+         "fit_weight": 1.0, "surface_forms": ["Investitionssumme"], "sources": ["required"],
+         "evidence": ""},
+    ]
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(ledger)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    assert "STATED LIMITS — CONSTRAINT ONLY" not in writer_prompt
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].index('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
+    assert _DEL3_OWED in entry and _DEL3_OTHER in entry
