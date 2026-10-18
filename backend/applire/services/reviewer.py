@@ -342,6 +342,7 @@ async def review_and_refine(
     checks_fn: ChecksFn | None = None,
     on_checks_settle: Callable[[ChecksSettle], None] | None = None,
     generator_json_schema: dict[str, Any] | None = None,
+    draft_shape_ok: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -1134,6 +1135,18 @@ async def review_and_refine(
                     last_issues,
                 )
                 return _settle(current_draft, path="review_malformed")
+            if draft_shape_ok is not None and not draft_shape_ok(current_draft):
+                # Gate re-run 2026-10-18: a letter corrector returned `body` as a list and
+                # the next consumer crashed. Same fate as malformed JSON above: the draft
+                # that was reviewed this round (last known-good) ships; nothing is rewritten.
+                log_review_call_failed(chain_id, "generator", attempt + 1, "WrongShape")
+                logger.warning(
+                    "review_and_refine: chain=%s refiner returned a draft of the wrong shape "
+                    "on attempt %d; keeping last known-good draft",
+                    chain_id,
+                    attempt + 1,
+                )
+                return _settle(draft_reviewed_this_round, path="review_malformed")
 
             # #537 (ADR-076 clause 2, the floor): did the corrector's NEW draft
             # actually IMPLEMENT this round's blocking issues, not merely make

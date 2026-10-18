@@ -122,14 +122,15 @@ def v2(monkeypatch):
 
 @pytest.fixture
 def v1(monkeypatch):
-    monkeypatch.delenv("LETTER_PIPELINE", raising=False)
+    # v2 is the default since ruling W3-7 (2026-10-18); v1 is set explicitly.
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
 
 
 # ── 1. the switch ────────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("raw,expected", [
-    (None, "v1"), ("v1", "v1"), ("v2", "v2"), (" V2 ", "v2"), ("v3", "v1"), ("", "v1"),
+    (None, "v2"), ("v1", "v1"), (" V1 ", "v1"), ("v2", "v2"), (" V2 ", "v2"), ("v3", "v2"), ("", "v2"),
 ])
 def test_letter_pipeline_switch(monkeypatch, raw, expected):
     from applire.services.letter_v2 import letter_pipeline
@@ -141,12 +142,13 @@ def test_letter_pipeline_switch(monkeypatch, raw, expected):
     assert letter_pipeline() == expected
 
 
-def test_letter_pipeline_is_declared_but_withheld_from_env_example():
+def test_letter_pipeline_defaults_to_v2_and_is_operator_surface():
+    """Ruling W3-7: v2 is the default; LETTER_PIPELINE=v1 is the one-setting opt-out."""
     from applire.settings_registry import get
 
     entry = get("LETTER_PIPELINE")
-    assert entry.default == "v1"
-    assert entry.in_env_example is False
+    assert entry.default == "v2"
+    assert entry.in_env_example is True
 
 
 # ── 2. the writer system prompt ──────────────────────────────────────────────

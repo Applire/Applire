@@ -69,6 +69,15 @@ PROFILE_JSON = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _v1_pipelines(monkeypatch):
+    """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
+    ruling W3-7 (2026-10-18); v1 stays supported until its tails are deleted, so
+    the tests set it explicitly."""
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+
+
 def _fabricated_letter():
     """Stand-in for the corrector's OWN output — the writer draft never had
     this figure; only the reviewer-driven retry call does (ground truth).

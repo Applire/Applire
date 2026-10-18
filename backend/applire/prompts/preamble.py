@@ -82,6 +82,10 @@ class Site:
     role: str  # writer | reviewer | corrector | editor
     task: str  # what this call does, one clause
     next: str  # what happens to this output next
+    #: Arm c's analysis field. False where the call's contract is "keep the same JSON
+    #: structure" (the condense): the 10-18 gate re-run saw Luna answer the appended
+    #: field instruction with a recipient-only object on 2 of 46 condenses.
+    analysis: bool = True
 
 
 _CV_REVIEW_NEXT = (
@@ -133,7 +137,8 @@ SITES: dict[str, Site] = {
     "letter_terminal_review:corrector": Site(6, "letter", "corrector", "you revise the assembled letter",
                                              _LETTER_CORRECTOR_NEXT),
     "letter_condense:writer": Site(6, "letter", "editor", "you shorten the letter to fit its page",
-                                   "The shortened letter is audited and sent; nothing restores what you cut."),
+                                   "The shortened letter is audited and sent; nothing restores what you cut.",
+                                   analysis=False),
     "review_rewrite:editor": Site(4, "cv", "editor", "you rewrite one passage a reviewer flagged",
                                   "Your passage replaces the flagged one in the delivered document."),
     "review_rewrite:letter_editor": Site(6, "letter", "editor", "you rewrite one passage a reviewer flagged",
@@ -361,7 +366,7 @@ async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> A
     if arm == "off":
         return await provider.aparse_json(prompt, **kwargs)
     kwargs["system"] = frame_system(kwargs.get("system"), site, arm)
-    if arm != "c":
+    if arm != "c" or not SITES[site].analysis:
         with _primer(site, arm):
             return await provider.aparse_json(prompt, **kwargs)
     plain_prompt, plain_kwargs = prompt, dict(kwargs)

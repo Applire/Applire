@@ -25,6 +25,9 @@ def _site_prompt_without_the_shared_context(monkeypatch):
     context (PROMPT_CONTEXT, default c) is applied and tested in prompts/preamble
     (backend/tests/unit/test_prompt_context_arms.py)."""
     monkeypatch.setenv("PROMPT_CONTEXT", "off")
+    # v1 code paths: v2 is the default since ruling W3-7 (2026-10-18); v1 stays supported.
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
 
 
 def _flat(text: str) -> str:

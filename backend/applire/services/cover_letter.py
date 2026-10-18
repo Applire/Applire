@@ -54,6 +54,7 @@ from applire.models.flow import FlowSession
 from applire.models.job import JobAnalysis
 from applire.models.profile import MasterProfile
 from applire import ownership
+from applire.services.cover_letter_positioning import letter_shape_ok
 from applire.services.owner_resolution import owned_row, resolve_user_id
 from applire.services.posting_labels import effective_posting_labels
 from applire.constants import (
@@ -148,9 +149,17 @@ async def _condense_call(provider, prompt: str, *, stage: str, system: str = SYS
     from applire.providers.llm.debug_log import llm_log_stage
 
     with llm_log_stage(stage):
-        return await _prompt_context.aparse_json(
+        condensed = await _prompt_context.aparse_json(
             provider, "letter_condense:writer", prompt, system=system, max_tokens=CV_GENERATION_MAX_TOKENS
         )
+    # Gate re-run 2026-10-18: a condense answered with a recipient-only object and the
+    # body was lost. Every caller wraps this call in a keep-the-current-letter except,
+    # so a wrong-shape reply is raised into it rather than stored.
+    if not letter_shape_ok(condensed):
+        logger.warning("LETTER_CONDENSE_SHAPE stage=%s keys=%s", stage,
+                       sorted(condensed) if isinstance(condensed, dict) else type(condensed).__name__)
+        raise ValueError(f"condense reply has the wrong shape ({stage}); keeping the current letter")
+    return condensed
 
 _TEMPLATE_FILES: dict[str, str] = {
     "classic_german": "lebenslauf_letter.html.j2",
@@ -2134,6 +2143,7 @@ async def _render_cover_letter_body(
                     provider=provider,
                     max_retries=LLM_REVIEW_MAX_RETRIES,
                     chain_id="cover_letter",
+                    draft_shape_ok=letter_shape_ok,
                     # M5.4.2 (2) (founder, 2026-09-11): the CORRECTOR gets the
                     # writer's own budget. `review_and_refine`'s default is
                     # 4,096 tokens while the letter WRITER above runs at
@@ -3499,6 +3509,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
                         "Condense rollback/restore failed for CL %s: %s",
@@ -3525,6 +3539,7 @@ async def _terminal_review_letter(
             provider=provider,
             max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
             chain_id="letter_terminal_review",
+            draft_shape_ok=letter_shape_ok,
             # M5.4.2 (2): the corrector's budget is the writer's — see the
             # drafting mount's call site for the reasoning. The terminal
             # corrector has strictly MORE to carry than the drafting one (it
@@ -3626,6 +3641,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning("LETTER_V2_LENGTH rollback failed for CL %s: %s", cl.id, restore_err)
                 current = previous
@@ -3708,6 +3727,10 @@ async def _terminal_review_letter(
                 try:
                     await db.rollback()
                     await db.refresh(cl)
+                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                    if profile is not None:
+                        await db.refresh(profile)
                 except Exception as restore_err:  # pragma: no cover - defensive
                     logger.warning(
                         "Final length floor rollback/restore failed for CL "
@@ -3734,6 +3757,7 @@ async def _terminal_review_letter(
                     provider=provider,
                     max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
                     chain_id="letter_terminal_review",
+                    draft_shape_ok=letter_shape_ok,
                     # M5.4.2 (2): the floor's own review round runs the same
                     # corrector with the same budget as the two mounts above.
                     generator_max_tokens=CV_GENERATION_MAX_TOKENS,
@@ -3865,6 +3889,10 @@ async def _terminal_review_letter(
                                 try:
                                     await db.rollback()
                                     await db.refresh(cl)
+                                    # v2 reads profile.profile_json after the loop (_finish); the rollback
+                                    # expired it too (MissingGreenlet on the next read) — refresh it with cl.
+                                    if profile is not None:
+                                        await db.refresh(profile)
                                 except Exception as restore_err:  # pragma: no cover
                                     logger.warning(
                                         "LETTER_FINAL_FLOOR re-condense rollback/restore "

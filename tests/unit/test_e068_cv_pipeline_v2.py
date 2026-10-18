@@ -175,8 +175,15 @@ def _by_check(findings) -> dict:
 # 1. cv_pipeline()
 # =============================================================================
 
-def test_cv_pipeline_defaults_to_v1(monkeypatch):
+def test_cv_pipeline_defaults_to_v2(monkeypatch):
+    """Ruling W3-7 (founder 2026-10-18): v2 is the default; v1 is the opt-out."""
     monkeypatch.delenv("CV_PIPELINE", raising=False)
+    assert cv_pipeline() == "v2"
+
+
+@pytest.mark.parametrize("raw", ["v1", "V1", "  v1 "])
+def test_cv_pipeline_v1_is_the_opt_out(monkeypatch, raw):
+    monkeypatch.setenv("CV_PIPELINE", raw)
     assert cv_pipeline() == "v1"
 
 
@@ -187,9 +194,9 @@ def test_cv_pipeline_v2_is_read_at_call_time(monkeypatch, raw):
 
 
 @pytest.mark.parametrize("raw", ["v3", "2", "banana", "", "true"])
-def test_cv_pipeline_junk_falls_back_to_v1(monkeypatch, raw):
+def test_cv_pipeline_junk_falls_back_to_the_default_v2(monkeypatch, raw):
     monkeypatch.setenv("CV_PIPELINE", raw)
-    assert cv_pipeline() == "v1"
+    assert cv_pipeline() == "v2"
 
 
 # =============================================================================
@@ -947,7 +954,7 @@ async def test_v1_wiring_is_the_043_pipeline_no_short_ids_no_checks(db, monkeypa
     from applire.prompts.cv_tailoring import CV_TAILORING_REFINEMENT_PROMPT
     from applire.services.model_ids import ShortIdProvider
 
-    record, calls, inner, _ = await _run(db, monkeypatch, pipeline=None)
+    record, calls, inner, _ = await _run(db, monkeypatch, pipeline="v1")
 
     assert record.status == "ready"
     for c in calls:
@@ -971,7 +978,7 @@ async def test_v1_baseline_condense_still_cuts_the_bullets_the_v2_arm_must_keep(
     """The control for the v2 delivery test below: the SAME over-budget draft on a
     3-page render under v1 loses bullets (cap / condense). Without this the v2
     assertion would also pass on a pipeline that never had anything to cut."""
-    record, _calls, _inner, _ = await _run(db, monkeypatch, pipeline=None)
+    record, _calls, _inner, _ = await _run(db, monkeypatch, pipeline="v1")
 
     assert len(record.tailored_data["work_history"][0]["bullets"]) < len(NINE)
 
@@ -1277,7 +1284,7 @@ async def test_v2_wiring_hands_the_language_pass_the_shape_check(db, monkeypatch
 
 @pytest.mark.asyncio
 async def test_v1_wiring_hands_the_language_pass_no_check(db, monkeypatch):
-    calls = (await _run(db, monkeypatch, pipeline=None))[1]
+    calls = (await _run(db, monkeypatch, pipeline="v1"))[1]
     assert _chain(calls, "cv_language")["kwargs"].get("checks_fn") is None
 
 
@@ -1431,7 +1438,7 @@ async def test_v2_delivery_reports_the_shipped_over_budget_role_in_the_ats_repor
 
 @pytest.mark.asyncio
 async def test_v1_delivery_report_carries_no_code_check_note(db, monkeypatch):
-    record, _c, _i, _e = await _run(db, monkeypatch, pipeline=None)
+    record, _c, _i, _e = await _run(db, monkeypatch, pipeline="v1")
     tr = next(c for c in (record.ats_report or {}).get("checks", []) if c["id"] == "terminal-review")
     assert "Code checks still open" not in (tr.get("details") or "")
 

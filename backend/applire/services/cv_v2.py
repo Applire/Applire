@@ -62,9 +62,12 @@ _MAX_ITEMS_PER_FINDING = 6
 
 
 def cv_pipeline() -> str:
-    """``"v2"`` when ``CV_PIPELINE=v2``, else ``"v1"`` (read at call time)."""
-    raw = (os.environ.get("CV_PIPELINE", PIPELINE_V1) or "").strip().lower()
-    return PIPELINE_V2 if raw == PIPELINE_V2 else PIPELINE_V1
+    """``"v1"`` when ``CV_PIPELINE=v1``, else ``"v2"`` (read at call time).
+
+    v2 is the default since ruling W3-7 (founder 2026-10-18, US368 gate re-run at
+    5c2f056b); v1 stays the one-setting opt-out until its tails are deleted."""
+    raw = (os.environ.get("CV_PIPELINE", PIPELINE_V2) or "").strip().lower()
+    return PIPELINE_V1 if raw == PIPELINE_V1 else PIPELINE_V2
 
 
 # --------------------------------------------------------------------------- #
