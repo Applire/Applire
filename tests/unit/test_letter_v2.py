@@ -893,7 +893,8 @@ async def test_seam_condenses_carry_the_retained_terms_on_v2_only(db, monkeypatc
     condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
     assert condenses
     for p in condenses:
-        has = "COVERAGE ALREADY ACHIEVED" in p and "- HGB [forms: HGB]" in p
+        has = "JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): HGB." in p
+        assert "COVERAGE ALREADY ACHIEVED" not in p
         assert has is (pipeline == "v2")
 
 
@@ -1060,14 +1061,19 @@ def test_v2_condense_places_retained_terms_in_their_evidence_sentence_never_a_li
     from applire.prompts.cover_letter import build_condense_prompt
 
     letter = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Text."]}}
-    v2 = build_condense_prompt(letter, 250, 2, letter_pages=1, language="de",
-                               retained_terms_block="COVERAGE ALREADY ACHIEVED x")
-    rule = v2[v2.index("COVERAGE ALREADY ACHIEVED"):]
-    assert "stays inside the sentence that carries its evidence" in rule
-    assert "Never gather terms into a list" in rule and "never move them into the closing" in rule
-    assert "DROP the term rather than list" in rule
+    from applire.prompts.cover_letter import render_condense_retained_terms
+
+    block = render_condense_retained_terms(["MES", "OEE", ""])
+    assert block.startswith("JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): MES, OEE.")
+    assert "inside a sentence that carries its evidence" in block
+    assert "Never gather terms into a list" in block and "never move them into the closing" in block
+    assert "drop the term" in block
+    assert "MUST" not in block  # F1: never the corrector's must-keep wording
+    assert render_condense_retained_terms([]) == ""
+    v2 = build_condense_prompt(letter, 250, 2, letter_pages=1, language="de", retained_terms_block=block)
+    assert block in v2 and v2.index(block) < v2.index("=== CURRENT LETTER (JSON) ===")
     v1 = build_condense_prompt(letter, 250, 2, letter_pages=1)
-    assert "HOW TO KEEP THOSE TERMS" not in v1
+    assert "JOB-POSTING TERMS ALREADY IN THIS LETTER" not in v1
 
 
 def test_v2_writer_rules_state_the_closing_is_a_call_to_action_never_a_list():

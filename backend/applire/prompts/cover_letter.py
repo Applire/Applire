@@ -285,17 +285,31 @@ _V1_TITLES_RULE_TAIL = (
     "  correct)."
 )
 
-#: F1 (Hazelnut delivery run, 2026-10-18): told "must still contain every one" of 17
-#: retained terms plus a word target, the v2 condense moved them all into one list in
-#: the closing ("wie ich Lean-Produktion, Lean Management, … einbringen kann"). The
-#: placement rule outranks the retention list; v2 only (the block is v2-only here).
+#: F1 (Hazelnut delivery run, 2026-10-18): handed the corrector's COVERAGE ALREADY
+#: ACHIEVED block ("MUST still contain every one", 17 terms) plus a word target, the v2
+#: condense moved every term into one list in the closing. Replay of the logged
+#: condense (Luna, 6 + 6): that block 4/6 closings with >= 8 terms; the same block plus
+#: a placement rule 3/6; THIS soft list 0/6, 6/6 on one page, 17-18 of 19 terms kept.
 _V2_RETAINED_TERMS_PLACEMENT = (
-    "HOW TO KEEP THOSE TERMS WHILE SHORTENING: each term stays inside the sentence that "
-    "carries its evidence (the employer, the action, the result). Never gather terms into "
-    "a list or an enumeration, and never move them into the closing paragraph. If a term "
-    "no longer has a sentence of its own after shortening, DROP the term rather than list "
-    "it — a dropped term costs less than a keyword list."
+    "Keep a term only where it sits inside a sentence that carries its evidence (the "
+    "employer, the action, the result). Never gather terms into a list or an enumeration, "
+    "and never move them into the closing paragraph; if a term loses its sentence while "
+    "shortening, drop the term."
 )
+
+
+def render_condense_retained_terms(concepts: list[str]) -> str:
+    """The v2 condense's view of the coverage it already has (c53686b6, reworded for
+    F1): the terms as a SOFT, code-scanned list plus the placement rule — never the
+    corrector's "must still contain every one" block. "" when there are none."""
+    concepts = [c for c in concepts if isinstance(c, str) and c.strip()]
+    if not concepts:
+        return ""
+    return (
+        "JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): " + ", ".join(concepts)
+        + ".\n" + _V2_RETAINED_TERMS_PLACEMENT
+    )
+
 
 #: F1: the closing is a call to action (writer + corrector, v2 only).
 V2_CLOSING_RULE = (
@@ -782,7 +796,7 @@ def build_condense_prompt(
         # v2: the corrector's own coverage-retention block (#306, one implementation)
         # — a term the condense drops is re-demanded by the review round right after,
         # and the corrector re-inserting it is where probe B's fact changed employer.
-        *(["", retained_terms_block, _V2_RETAINED_TERMS_PLACEMENT] if retained_terms_block else []),
+        *(["", retained_terms_block] if retained_terms_block else []),
         "",
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),

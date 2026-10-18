@@ -3197,19 +3197,20 @@ async def _terminal_review_letter(
         ))
 
     def _v2_retained_terms(d: dict) -> str | None:
-        """The corrector's COVERAGE ALREADY ACHIEVED block (#306) for a v2 condense."""
-        from applire.services.keyword_ledger import (
-            claimable_present_entries,
-            render_coverage_retention_block,
-        )
+        """The coverage terms the letter already carries, as the v2 condense's SOFT
+        list (F1: never the corrector's must-keep block)."""
+        from applire.prompts.cover_letter import render_condense_retained_terms
+        from applire.services.keyword_ledger import claimable_present_entries
 
         try:
-            return render_coverage_retention_block(
-                claimable_present_entries(_subject_of(d), keyword_ledger)
-            ) or None
+            return render_condense_retained_terms([
+                e.get("concept") for e in claimable_present_entries(_subject_of(d), keyword_ledger)
+                if isinstance(e, dict)
+            ]) or None
         except Exception:  # pragma: no cover - a prompt block never fails a letter
             logger.warning("letter v2: retained-terms block failed", exc_info=True)
             return None
+
     if is_v2 and v2_signal_fn is not None:
         # The v2 signal carries the ``limit`` family itself (and composes its own
         # subject with the same code-owned-only compose as ``_subject_of``).
