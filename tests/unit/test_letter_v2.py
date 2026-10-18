@@ -533,7 +533,23 @@ async def _seed(db):
     return job, profile, cl
 
 
-async def _run(db, ids, *, payload, pages=1, terminal_script=None):
+def _pages_fn(pages, seq, record=None):
+    """``seq == "fits_after_final_condense"``: 2 pages until the second (post-loop)
+    condense call has been made, 1 page after it."""
+    if seq == "fits_after_final_condense":
+        def fn(_pdf):
+            n = sum("=== CURRENT LETTER (JSON) ===" in p for p, _s in record["systems"])
+            return ("text", 1 if n >= 2 else 2)
+        return fn
+
+    def fn(_pdf):
+        return ("text", pages)
+
+    return fn
+
+
+async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None, pages_seq=None,
+               settle_exhausted=False):
     """Drive the real render with the provider and review_and_refine faked; record
     every call's system prompt and every review_and_refine invocation's kwargs."""
     from applire.services.cover_letter import _render_cover_letter_background
@@ -544,6 +560,9 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None):
 
     async def _aparse(prompt, system=None, **kw):
         record["systems"].append((prompt, system))
+        from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT as _T
+        if review_verdict is not None and system == _T:
+            return copy.deepcopy(review_verdict)
         return copy.deepcopy(payload)
 
     async def _fake_review(**kw):
@@ -555,6 +574,13 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None):
         entry["checks"] = list(chk(kw["draft"])) if chk else []
         entry["corrector_prompt"] = kw["generator_prompt_fn"](kw["draft"], "fb", kw["source"])
         record["loops"].append(entry)
+        if settle_exhausted and kw.get("chain_id") == "letter_terminal_review" and kw.get("on_settle"):
+            from applire.services.review_issues import ReviewSettle
+
+            kw["reviewer_prompt_fn"](kw["source"], kw["draft"])
+            kw["on_settle"](ReviewSettle(path="exhausted", approved=False,
+                                         blocking_issues=("an earlier round's finding",),
+                                         minor_issues=(), rounds=3, settled=kw["draft"]))
         if kw.get("chain_id") == "letter_terminal_review" and script:
             return script.pop(0)(kw["draft"])
         return kw["draft"]
@@ -571,7 +597,7 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None):
         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2),
         patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(return_value=b"%PDF")),
         patch("applire.services.ats_audit.extract_text_and_pages",
-              new=MagicMock(side_effect=lambda pdf: ("text", pages))),
+              new=MagicMock(side_effect=_pages_fn(pages, pages_seq, record))),
         patch("applire.services.cover_letter._update_ats_report_letter", side_effect=_audit),
     ):
         sl.return_value.__aenter__.return_value = db
@@ -657,23 +683,47 @@ async def test_seam_v2_delivers_unrepaired_text_with_a_report_note(db, v2):
 @pytest.mark.asyncio
 async def test_seam_v2_has_no_final_length_floor(db, v2):
     """W2-1 B3 deleted the v1 floor (selection / revert / unreviewed re-condense);
-    W2-4 (C, built pending ruling): at most ONE post-loop condense, language-named,
-    always followed by a review round."""
-    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
-    condenses = [(p, s) for p, s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
-    assert len(condenses) == 2  # pre-verdict (B4) + the one reviewed post-loop condense
-    for p, s in condenses:
+    W2-4: at most ONE post-loop condense, language-named; RULING W3-3a: the round
+    after it is REVIEW-ONLY — one reviewer call over the condensed letter, no
+    corrector, and the reviewed letter is the one that ships."""
+    from applire.models.cover_letter import GeneratedCoverLetter
+    from applire.prompts.review_cover_letter import TERMINAL_REVIEW_SYSTEM_PROMPT
+
+    condensed = _draft(_ENGLISH_BODY)
+    verdict = {"approved": False, "issues": [
+        {"severity": "blocking", "issue": "The condense dropped the HGB closing claim."}]}
+    ids = await _seed(db)
+    rec = await _run(db, ids, payload=condensed, pages=2, review_verdict=verdict)
+    condenses = [i for i, (p, _s) in enumerate(rec["systems"]) if "=== CURRENT LETTER (JSON) ===" in p]
+    assert len(condenses) == 2  # pre-verdict (B4) + the one post-loop condense
+    for i in condenses:
+        p, s_ = rec["systems"][i]
         assert "Write every sentence in ENGLISH." in p
-        assert "document language is ENGLISH" in s.splitlines()[0]
+        assert "document language is ENGLISH" in s_.splitlines()[0]
+    after = rec["systems"][condenses[-1] + 1:]
+    # exactly ONE call after the post-loop condense, and it is the reviewer's
+    assert [s_ for _p, s_ in after] == [TERMINAL_REVIEW_SYSTEM_PROMPT]
+    assert "CODE CHECKS" in after[0][0]  # the page fact is shown to the reviewer
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
-    # the post-loop condense is reviewed: one terminal loop, then ONE more review round
-    # over the condensed draft (never shipped unreviewed)
-    assert len(terminal) == 2
-    # RULING W2-6b (C): only the post-condense corrector carries the word cap
-    assert "WORD CAP (computed by code)" in terminal[-1]["corrector_prompt"]
-    assert "WORD CAP (computed by code)" not in terminal[0]["corrector_prompt"]
-    assert terminal[-1].get("prefer_if") is None and terminal[-1].get("retain_if") is None
-    assert any(f.check == "letter.page_length" for f in terminal[-1]["checks"])
+    assert len(terminal) == 1  # no corrector loop after the condense
+    outcome = rec["audit"]["terminal_review"]
+    # W3-3c: the CODE fact (still over the page) fails the row; the reviewer's
+    # finding is an advisory note, never a blocking issue
+    assert outcome.path == "review_only" and outcome.status == "fail"
+    assert all(t.startswith("[letter.") for t in outcome.blocking_issues)
+    assert any(t.startswith("[letter.page_length]") for t in outcome.blocking_issues)
+    assert any("reviewer's notes on the shortened letter" in n and "dropped the HGB closing claim" in n
+               for n in outcome.notes)
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.letter_data["body"]["paragraphs"] == condensed["body"]["paragraphs"]
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_post_condense_review_approves_a_clean_condensed_letter(db, v2):
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=1,
+                     review_verdict={"approved": True, "issues": []})
+    # pages=1: nothing over the norm, so no post-loop condense and no review-only call
+    assert sum("=== CURRENT LETTER (JSON) ===" in p for p, _s in rec["systems"]) == 0
 
 
 @pytest.mark.asyncio
@@ -834,3 +884,124 @@ async def test_seam_condenses_carry_the_retained_terms_on_v2_only(db, monkeypatc
     for p in condenses:
         has = "COVERAGE ALREADY ACHIEVED" in p and "- HGB [forms: HGB]" in p
         assert has is (pipeline == "v2")
+
+
+# ── RULING W3-3: v2 sizes the page from this delivery's own render ──────────
+def _norm():
+    from types import SimpleNamespace
+    return SimpleNamespace(letter_pages=1, letter_body_word_budget=300)
+
+
+def _m(pages, words, overflow=None):
+    from applire.services.cover_letter import MeasuredLetter
+    return MeasuredLetter(page_count=pages, letter_pages=1, word_count=words,
+                          word_budget=300, overflow_words=overflow)
+
+
+def test_v2_page_target_prefers_this_renders_overflow_over_another_compositions_fit():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 310, overflow=40)
+    assert _v2_page_target(over, [_m(1, 295), over], _norm()) == 310 - 40 - 25  # 8 % of 310
+    unmeasured = _m(2, 310, overflow=None)
+    assert _v2_page_target(unmeasured, [_m(1, 262), unmeasured, _m(1, 248)], _norm()) == 262
+
+
+def test_v2_page_target_sizes_from_the_overflow_with_a_margin():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 289, overflow=12)          # the Luna shape: 289 words on 2 pages
+    assert _v2_page_target(over, [over], _norm()) == 289 - 12 - 23  # 8 % of 289
+    small = _m(2, 150, overflow=5)
+    assert _v2_page_target(small, [small], _norm()) == 150 - 5 - 15  # margin floor
+    big = _m(2, 420, overflow=30)
+    assert _v2_page_target(big, [big], _norm()) == 300                # never above budget
+
+
+def test_v2_page_target_falls_back_to_the_budget_without_a_measure():
+    from applire.services.cover_letter import _v2_page_target
+
+    over = _m(2, 310, overflow=None)
+    assert _v2_page_target(over, [over], _norm()) == 300
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_condense_target_comes_from_the_render_overflow(db, v2):
+    """The writer's 2-page render put 30 words past page 1: the v2 condense is sized
+    to the words that fit, not to the 300-word region budget."""
+    body = list(_ENGLISH_BODY)
+    words = sum(len(p.split()) for p in body)
+    with patch("applire.services.ats_audit.extract_page_texts",
+               return_value=["x " * 200, "y " * 30]):
+        rec = await _run(db, await _seed(db), payload=_draft(body), pages=2)
+    condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    expected = max(1, min(words - 30 - max(15, round(0.08 * words)), 300))
+    assert len(condenses) == 2  # pre-verdict + the W2-4 post-loop condense
+    assert all(f"AT MOST {expected} words" in p for p in condenses)
+
+
+@pytest.mark.asyncio
+async def test_seam_v1_condense_target_stays_the_region_budget(db, v1):
+    with patch("applire.services.ats_audit.extract_page_texts",
+               return_value=["x " * 200, "y " * 30]):
+        rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY), pages=2)
+    condenses = [p for p, _s in rec["systems"] if "=== CURRENT LETTER (JSON) ===" in p]
+    assert condenses and "AT MOST 300 words" in condenses[0]
+
+
+def test_v2_compose_flattens_object_paragraphs_from_the_corrector():
+    """W3-3 re-measure: a corrector returned body paragraphs as objects and the
+    v2 generation failed on ``.split``; the text is kept, the shape repaired."""
+    from applire.services.cover_letter import _v2_coerce_paragraphs
+
+    d = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Erster Absatz.",
+                                 {"text": "Zweiter Absatz.", "note": "mit Zusatz."}, {}, ["Dritter", "Absatz."]]}}
+    out = _v2_coerce_paragraphs(d)
+    assert out["body"]["paragraphs"] == ["Sehr geehrte Damen und Herren,", "Erster Absatz.",
+                                         "Zweiter Absatz. mit Zusatz.", "Dritter Absatz."]
+    clean = {"body": {"paragraphs": ["a", "b"]}}
+    assert _v2_coerce_paragraphs(clean) is clean
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_survives_object_paragraphs(db, v2):
+    from applire.models.cover_letter import GeneratedCoverLetter
+
+    body = list(_ENGLISH_BODY[:-1]) + [{"text": _ENGLISH_BODY[-1]}]
+    ids = await _seed(db)
+    await _run(db, ids, payload=_draft(body))
+    cl = await db.get(GeneratedCoverLetter, ids[2].id)
+    assert cl.status == "ready"
+    assert cl.letter_data["body"]["paragraphs"][-1] == _ENGLISH_BODY[-1]
+
+
+def test_v2_writer_rule_keeps_a_target_a_target_and_v1_is_unchanged():
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, build_system_prompt
+
+    v2 = build_system_prompt("de", pipeline="v2")
+    assert "stays a target" in v2 and "never write it as achieved" in v2
+    assert build_system_prompt("de") is SYSTEM_PROMPT and "stays a target" not in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
+    """RULING W3-3c: the condensed letter fits (code facts clean) and the reviewer
+    still rejects it — the row is an advisory PASS with the reviewer's notes, and
+    the missing coverage terms come from the ledger scan."""
+    verdict = {"approved": False, "issues": [
+        {"severity": "blocking", "issue": "Figure '2019' is unanchored."}]}
+    entry = {"concept": "SAP S/4HANA", "surface_forms": ["S/4HANA"], "status": "claimable"}
+    # 2 pages through the terminal loop, 1 page once condensed
+    with patch("applire.services.keyword_ledger.verified_missing_claimable", return_value=[entry]):
+        rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY),
+                         pages_seq="fits_after_final_condense", review_verdict=verdict,
+                         settle_exhausted=True)
+    outcome = rec["audit"]["terminal_review"]
+    post = [n for n in outcome.notes if "reviewer's notes on the shortened letter" in n]
+    assert post, outcome.notes
+    assert outcome.status == "pass" and outcome.blocking_issues == ()  # an advisory PASS row
+    assert "Figure '2019' is unanchored." in post[0]
+    assert any("does not use: SAP S/4HANA." in n for n in outcome.notes)
+    # the earlier terminal round's verdict read a draft that no longer ships
+    assert "an earlier round's finding" not in " ".join(outcome.blocking_issues)
+    assert outcome.path == "minor_only"

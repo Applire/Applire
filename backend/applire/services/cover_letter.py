@@ -2462,6 +2462,8 @@ def _compose_letter(
         # that step to fill — a shape repair, no prose involved. (v1 keeps its
         # behaviour; the same crash there is a Letter collector line.)
         letter_data = {**letter_data, "recipient": {}}
+    if not v1:
+        letter_data = _v2_coerce_paragraphs(letter_data)
     # #254 — deterministic figure-attribution guard, run on the settled output
     # of a review/corrector loop (never mid-loop): the ADR-021 corrector sees
     # the whole profile and can mint a figure borrowed from an unrelated
@@ -2540,6 +2542,32 @@ class LetterFinding:
 
     family: str  # salutation | signoff | closing | figure | limit | names
     text: str
+
+
+def _v2_coerce_paragraphs(letter_data: dict) -> dict:
+    """v2 shape repair (W3-3 re-measure, 2026-10-17, ministral
+    it_backend_daniel.mixed_en run 0): a terminal corrector returned two body
+    paragraphs as JSON objects, and the generation failed on ``.split``. A body
+    paragraph is a string by schema; an object or list carrying the model's own
+    text is flattened to that text (its string values, in order) — no word is
+    added or removed — and an empty one is dropped. (v1 keeps its behaviour; the
+    same crash there is a Letter collector line.)"""
+    body = letter_data.get("body")
+    paragraphs = body.get("paragraphs") if isinstance(body, dict) else None
+    if not isinstance(paragraphs, list) or all(isinstance(p, str) for p in paragraphs):
+        return letter_data
+
+    def _text(v) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, dict):
+            return " ".join(t for t in (_text(x) for x in v.values()) if t)
+        if isinstance(v, (list, tuple)):
+            return " ".join(t for t in (_text(x) for x in v) if t)
+        return ""
+
+    fixed = [t for t in (_text(p) for p in paragraphs) if t]
+    return {**letter_data, "body": {**body, "paragraphs": fixed}}
 
 
 def _letter_format_findings(letter_data: dict) -> list[LetterFinding]:
@@ -2708,6 +2736,9 @@ class MeasuredLetter:
     letter_pages: int
     word_count: int
     word_budget: int
+    #: RULING W3-3 (v2 sizing): words the render put on pages beyond the norm —
+    #: this delivery's own words-per-page measure. ``None`` = not measured.
+    overflow_words: int | None = None
 
 
 def _log_letter_data_deviation(cl_id, composed: dict) -> None:
@@ -2790,12 +2821,44 @@ async def _persist_and_measure(
             logger.warning(
                 "Letter page-count measurement failed for CL %s: %s", cl.id, measure_err
             )
+    overflow_words: int | None = None
+    if pdf_bytes is not None and page_count is not None and page_count > norm.letter_pages:
+        try:
+            from applire.services.ats_audit import extract_page_texts
+
+            overflow_words = sum(
+                len(t.split()) for t in extract_page_texts(pdf_bytes)[norm.letter_pages:]
+            )
+        except Exception:  # fail-open: a sizing measure never fails generation
+            overflow_words = None
     return pdf_bytes, MeasuredLetter(
         page_count=page_count,
         letter_pages=norm.letter_pages,
         word_count=body_word_count(composed),
         word_budget=norm.letter_body_word_budget,
+        overflow_words=overflow_words,
     )
+
+
+def _v2_page_target(m: "MeasuredLetter", all_measures, norm) -> int:
+    """RULING W3-3: the body word count THIS render says fits the page norm — the
+    over-norm render's body words minus the words it put past the norm, minus a margin
+    for line wrap and condense overshoot (8 %, at least 15 words); never above the
+    region budget. Only when this render's overflow is unmeasured does the largest
+    composition measured on the norm stand in: another composition's fit is a weak
+    proxy (W3-3a arm: one fit at 295 words while this one ran to 2 pages at 265 —
+    paragraph layout differs). The 300-word budget alone is no page proxy either
+    (gate 3a451106: v2 letters of 260–300 words on 2 pages)."""
+    if m.overflow_words is not None and m.page_count is not None and m.page_count > norm.letter_pages:
+        margin = max(15, round(0.08 * m.word_count))
+        return max(1, min(m.word_count - m.overflow_words - margin, norm.letter_body_word_budget))
+    fits = [
+        mm.word_count for mm in all_measures
+        if mm.page_count is not None and mm.page_count <= norm.letter_pages
+    ]
+    if fits:
+        return min(max(fits), norm.letter_body_word_budget)
+    return norm.letter_body_word_budget
 
 
 def _log_subject_identity_letter(
@@ -3042,6 +3105,83 @@ async def _terminal_review_letter(
     )
     _v2_checks = None
 
+    post_condense_notes: list[str] = []
+
+    async def _v2_review_only(d: dict) -> None:
+        """RULING W3-3a: ONE reviewer call over ``d``, no corrector. Its verdict is
+        recorded as a settle (``path="review_only"`` when anything blocking is open),
+        so the delivered letter's terminal-review row reports it against the very
+        draft that ships. Fail-open: a failed call records ``reviewer_call_failed``."""
+        from applire.constants import REVIEW_VERDICT_MAX_TOKENS
+        from applire.providers.llm.debug_log import set_stage as _set_stage
+        from applire.services.review_issues import ReviewSettle, normalize_issues
+        from applire.services.reviewer import render_checks_block
+
+        findings = list(_v2_checks(d)) if _v2_checks is not None else []
+        prompt = _reviewer_prompt(grounding_source, d)
+        block = render_checks_block(findings)
+        if block:
+            prompt = f"{prompt}\n\n{block}"
+        _set_stage("letter_post_condense_review")
+        try:
+            review = await provider.aparse_json(
+                prompt,
+                system=TERMINAL_REVIEW_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=REVIEW_VERDICT_MAX_TOKENS,
+            )
+        except Exception as review_err:
+            logger.warning("LETTER_V2_LENGTH review-only call failed for CL %s: %s", cl.id, review_err)
+            _record_settle(ReviewSettle(
+                path="reviewer_call_failed", approved=False, blocking_issues=(),
+                minor_issues=(), rounds=1, settled=d,
+            ))
+            return
+        issues = normalize_issues((review or {}).get("issues", []) if isinstance(review, dict) else [])
+        approved = bool(review.get("approved", False)) if isinstance(review, dict) else False
+        # RULING W3-3c (= A): only CODE facts can fail the row (page, language,
+        # names, format). The reviewer's findings on the condensed letter are
+        # ADVISORY notes — measured 55 true / 67 false on 20 condensed letters —
+        # and the missing coverage terms come from the deterministic ledger scan
+        # (``verified_missing_claimable``, one implementation), not the reviewer.
+        code_blocking = tuple(f"[{f.check}] {f.text}" for f in findings if f.blocking)
+        reviewer_texts = tuple(i.text for i in issues)
+        if reviewer_texts:
+            post_condense_notes.append(
+                "The reviewer's notes on the shortened letter — check these (advisory, "
+                "not verified; the letter was not revised after shortening): "
+                + " | ".join(reviewer_texts)
+            )
+        try:
+            from applire.services.keyword_ledger import verified_missing_claimable
+
+            missing = [
+                e.get("concept") for e in verified_missing_claimable(_subject_of(d), keyword_ledger)
+                if isinstance(e, dict) and e.get("concept")
+            ]
+        except Exception:  # pragma: no cover - a report line never fails a letter
+            missing = []
+        if missing:
+            post_condense_notes.append(
+                "Job-posting terms your record supports that the shortened letter does not "
+                "use: " + ", ".join(missing) + "."
+            )
+        # The delivered letter is THIS draft, and this verdict read it: the earlier
+        # terminal rounds' verdicts read drafts that no longer ship, and folding them
+        # in made the row say "revised and not re-reviewed" about a letter that was
+        # reviewed (W3-3c re-measure, luna controlling_emma_de.same_de run 1).
+        outcome_cell["raw"].clear()
+        if code_blocking:
+            path = "review_only"
+        elif approved and not reviewer_texts:
+            path = "approved"
+        else:
+            path = "minor_only"
+        _record_settle(ReviewSettle(
+            path=path, approved=approved and not code_blocking, blocking_issues=code_blocking,
+            minor_issues=(), rounds=1, settled=d,
+        ))
+
     def _v2_retained_terms(d: dict) -> str | None:
         """The corrector's COVERAGE ALREADY ACHIEVED block (#306) for a v2 condense."""
         from applire.services.keyword_ledger import (
@@ -3070,11 +3210,7 @@ async def _terminal_review_letter(
             m = measure_cell["measured"]
             if m.page_count is None or m.page_count <= norm.letter_pages:
                 return []
-            fits = [
-                mm.word_count for mm in all_measures
-                if mm.page_count is not None and mm.page_count <= norm.letter_pages
-            ]
-            target = max(fits) if fits else norm.letter_body_word_budget
+            target = _v2_page_target(m, all_measures, norm)
             return [CheckFinding(
                 check="letter.page_length",
                 text=(
@@ -3122,7 +3258,8 @@ async def _terminal_review_letter(
                     denied_concepts=denied_concepts,
                 )
             )
-            if note:
+            extra = tuple(post_condense_notes) + ((note,) if note else ())
+            if extra:
                 from applire.services.terminal_review_outcome import TerminalReviewOutcome
 
                 if outcome is None:
@@ -3133,10 +3270,10 @@ async def _terminal_review_letter(
                         blocking_issues=(),
                         minor_issues=(),
                         rounds=rounds,
-                        notes=(note,),
+                        notes=extra,
                     )
                 else:
-                    outcome = dataclasses.replace(outcome, notes=outcome.notes + (note,))
+                    outcome = dataclasses.replace(outcome, notes=outcome.notes + extra)
             return LetterTerminalReviewResult(
                 draft=current,
                 pdf_bytes=pdf_cell["pdf"],
@@ -3239,7 +3376,10 @@ async def _terminal_review_letter(
     reviewed_cell: dict[str, dict | None] = {"draft": None}
 
     def _reviewer_prompt(source: str, d: dict) -> str:
-        reviewed_cell["draft"] = d
+        # v2: the reviewed subject is the COMPOSED letter (code-owned header), the
+        # same dict the delivery persists — else F-4's identity check never matches
+        # a v2 letter (found building W3-3a). v1 keeps the raw draft (R-3).
+        reviewed_cell["draft"] = _subject_of(d) if is_v2 else d
         return _wrapped(source, _subject_of(d))
 
     # ADR-076 amended 2026-08-29 (3-L1, #547 residual): the TERMINAL mount's
@@ -3327,7 +3467,9 @@ async def _terminal_review_letter(
                     provider,
                     build_condense_prompt(
                         _subject_of(current),
-                        norm.letter_body_word_budget,
+                        # W3-3: v2 sizes from this delivery's own render measure.
+                        _v2_page_target(m, all_measures, norm) if is_v2
+                        else norm.letter_body_word_budget,
                         m.page_count,
                         letter_pages=norm.letter_pages,
                         # ADR-077 clause 3: the pins survive the shortening —
@@ -3457,11 +3599,7 @@ async def _terminal_review_letter(
             and reviews_enabled
         ):
             final_floor_fired = True
-            fits = [
-                mm.word_count for mm in all_measures
-                if mm.page_count is not None and mm.page_count <= norm.letter_pages
-            ]
-            target = max(fits) if fits else norm.letter_body_word_budget
+            target = _v2_page_target(m, all_measures, norm)
             previous = current
             try:
                 current = await _condense_call(
@@ -3493,37 +3631,13 @@ async def _terminal_review_letter(
                 final_floor_selection = "condense_failed"
             else:
                 rounds += 1
-
-                def _capped_corrector_prompt_fn(d, feedback, source, _cap=target):
-                    # RULING W2-6b, option C (measured try): the post-condense
-                    # corrector patched a fitting letter back to 2 pages (probe B,
-                    # Ministral: 269 -> 374 words). A code-computed cap, prompt-only.
-                    return (
-                        _terminal_corrector_prompt_fn(d, feedback, source)
-                        + f"\n\nWORD CAP (computed by code): this letter was just "
-                        f"shortened to fit one page. The patched letter body must stay "
-                        f"at most {_cap} words. Fix each issue by REPLACING words, not "
-                        "adding: whatever you add, remove as much elsewhere."
-                    )
-
-                settled = await review_and_refine(
-                    source=grounding_source,
-                    draft=current,
-                    generator_prompt_fn=_capped_corrector_prompt_fn,
-                    generator_system=COVER_LETTER_REFINEMENT_PROMPT,
-                    reviewer_prompt_fn=_reviewer_prompt,
-                    reviewer_system=TERMINAL_REVIEW_SYSTEM_PROMPT,
-                    provider=provider,
-                    max_retries=LETTER_TERMINAL_REVIEW_MAX_RETRIES,
-                    chain_id="letter_terminal_review",
-                    generator_max_tokens=CV_GENERATION_MAX_TOKENS,
-                    signal_issues_fn=_limit_signal_fn,
-                    checks_fn=_v2_checks,
-                    on_settle=_record_settle,
-                )
-                if _canon(settled) != _canon(current):
-                    current = settled
-                    await _apply(current)
+                # RULING W3-3a (= A): the post-condense round is REVIEW-ONLY. The
+                # condensed letter the reviewer reads is the letter that ships; its
+                # blocking findings go on the delivery's terminal-review row. No
+                # corrector runs after the condense (gate 3a451106: the corrector
+                # grew 33 of 33 over-budget letters after a fitting condense, and its
+                # patch shipped unreviewed). Supersedes W2-6b's word cap here.
+                await _v2_review_only(current)
                 final_floor_selection = "v2_condensed_then_reviewed"
             logger.info(
                 "LETTER_V2_LENGTH cl_id=%s pages_before=%s pages_after=%s target_words=%s "
