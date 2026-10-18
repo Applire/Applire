@@ -19,6 +19,14 @@ if str(_backend) not in sys.path:
 from tests.support.profile_factory import make_master_profile  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _site_prompt_without_the_shared_context(monkeypatch):
+    """These tests pin the call site's own prompt, budget and routing; the shared
+    context (PROMPT_CONTEXT, default c) is applied and tested in prompts/preamble
+    (backend/tests/unit/test_prompt_context_arms.py)."""
+    monkeypatch.setenv("PROMPT_CONTEXT", "off")
+
+
 def _flat(text: str) -> str:
     """Lowercase a prompt and collapse every run of whitespace to one space.
 

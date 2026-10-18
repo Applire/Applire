@@ -45,6 +45,14 @@ from applire.exceptions import LLMTruncatedError
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _site_prompt_without_the_shared_context(monkeypatch):
+    """These tests pin the call site's own prompt, budget and routing; the shared
+    context (PROMPT_CONTEXT, default c) is applied and tested in prompts/preamble
+    (backend/tests/unit/test_prompt_context_arms.py)."""
+    monkeypatch.setenv("PROMPT_CONTEXT", "off")
+
+
 class _Stop(Exception):
     """Sentinel to short-circuit a service right after the LLM call, before the
     DB-record/response-validation work an injected stub can't satisfy."""

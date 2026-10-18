@@ -67,6 +67,14 @@ L2 = "55555555-5555-4555-8555-555555555555"
 # fixtures: one small synthetic vault and its v2 writer draft
 # =============================================================================
 
+@pytest.fixture(autouse=True)
+def _site_prompt_without_the_shared_context(monkeypatch):
+    """These tests pin the call site's own prompt, budget and routing; the shared
+    context (PROMPT_CONTEXT, default c) is applied and tested in prompts/preamble
+    (backend/tests/unit/test_prompt_context_arms.py)."""
+    monkeypatch.setenv("PROMPT_CONTEXT", "off")
+
+
 def _vault() -> dict:
     return {
         "personal_info": {"name": "Milan Novak", "email": "milan@example.com"},

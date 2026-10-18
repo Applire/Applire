@@ -51,6 +51,7 @@ import json
 import re
 from typing import Any
 
+from applire.prompts.preamble import own_system
 from applire.prompts.oracle_triage import (
     # ADR-068 (2026-08-08) — the sentence-triage user prompt's item shape,
     # imported rather than re-declared: the caller's citation check compares
@@ -681,7 +682,7 @@ class MockLLMProvider(LLMProvider):
         # the assist's plumbing while reading nothing like its real output. Three
         # branches, each returning the SHAPE its call site consumes: a German question
         # the candidate reads, and German CV section prose for the two writing calls.
-        system_lower = (system or "").lower()
+        system_lower = own_system(system).lower()  # route on the site's prompt, not the shared preamble
         if "einzigen präzisen frage" in system_lower:
             return _ASSIST_QUESTION
         if "generiere verbesserten lebenslauf-text" in system_lower:
@@ -709,7 +710,7 @@ class MockLLMProvider(LLMProvider):
         disable_thinking: bool | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> Any:
-        system_lower = (system or "").lower()
+        system_lower = own_system(system).lower()  # route on the site's prompt, not the shared preamble
 
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}

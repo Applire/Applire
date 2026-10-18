@@ -3,10 +3,11 @@
 
 """The shared prompt context for every generation and review call (E068 US370, E066 1.6).
 
-Three experiment arms, chosen by ``PROMPT_CONTEXT`` (read at call time, like
-``CV_PIPELINE``). The default is ``off``: every call is byte-identical to the call
-without this module. An arm becomes the default only once it wins on the bench
-(ADR-062 clause 7).
+Three arms, chosen by ``PROMPT_CONTEXT`` (read at call time, like ``CV_PIPELINE``).
+The default is ``c`` (ruling W3-6 = B, founder 2026-10-18, on the 10-17 US370 screen:
+one-language and letter length better on Luna, confirmed by the Sonnet judge).
+``off`` is the opt-out: every call is then byte-identical to the call without this
+module.
 
 * ``a`` — the big-picture preamble: what Applire is, the honesty contract, the
   pipeline map with *you are here*, and what happens to this output next. It goes in
@@ -28,14 +29,20 @@ once and leave the extraction and interview chains as they are.
 from __future__ import annotations
 
 import copy
+import json
+import logging
 import os
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Iterator
 
+logger = logging.getLogger(__name__)
+
 PROMPT_CONTEXT_ENV = "PROMPT_CONTEXT"
 ARMS = ("off", "a", "b", "c")
+DEFAULT_ARM = "c"
 
 #: Extra output budget for arm C's analysis field (≤ 120 words asked).
 ANALYSIS_EXTRA_TOKENS = 512
@@ -43,9 +50,12 @@ ANALYSIS_KEY = "analysis"
 
 
 def prompt_context() -> str:
-    """The active arm: ``off`` (default), ``a``, ``b`` or ``c`` (read at call time)."""
-    raw = (os.environ.get(PROMPT_CONTEXT_ENV, "off") or "").strip().lower()
-    return raw if raw in ARMS else "off"
+    """The active arm: ``c`` (default), ``a``, ``b`` or ``off`` (read at call time).
+
+    An unset, empty or unknown value is the default; only ``off`` opts out.
+    """
+    raw = (os.environ.get("PROMPT_CONTEXT", DEFAULT_ARM) or "").strip().lower()
+    return raw if raw in ARMS else DEFAULT_ARM
 
 
 # --------------------------------------------------------------------------- #
@@ -171,6 +181,17 @@ def render_preamble(site: str) -> str:
     return _HEAD.format(step=s.step, steps=steps, task=s.task, next=s.next)
 
 
+_TASK_MARKER = "--- YOUR TASK ---\n"
+
+
+def own_system(system: str | None) -> str:
+    """The call site's own system prompt, without the preamble in front (for test doubles)."""
+    text = system or ""
+    if text.startswith("CONTEXT") and _TASK_MARKER in text:
+        return text.split(_TASK_MARKER, 1)[1]
+    return text
+
+
 def frame_system(system: str | None, site: str, arm: str | None = None) -> str | None:
     """``system`` with the preamble in front (arms a/b/c); unchanged for ``off``."""
     arm = prompt_context() if arm is None else arm
@@ -218,14 +239,16 @@ _ANALYSIS_WRITER = (
     "most 120 words in which you work out, before you write anything else, (1) what this "
     "posting most needs, (2) which verified facts carry it, and (3) the trap at this step — "
     "another language slipping in, a point made twice, a claim the facts do not support, a real "
-    'strength undersold. The system removes "analysis"; it is never shown or delivered. Then give '
+    'strength undersold. Write it as plain sentences with no double quotation marks inside it. '
+    'The system removes "analysis"; it is never shown or delivered. Then give '
     "every other key exactly as specified above."
 )
 _ANALYSIS_REVIEWER = (
     'Your JSON object begins with the key "analysis", before every other key: a string of at '
     "most 120 words in which you work out, before you judge, (1) what would make this document "
     "fail with its reader, and (2) for each finding you are about to raise, the source line "
-    'that backs it. The system removes "analysis"; it is never shown. Then give every other key '
+    "that backs it. Write it as plain sentences with no double quotation marks inside it. "
+    'The system removes "analysis"; it is never shown. Then give every other key '
     "exactly as specified above."
 )
 
@@ -248,6 +271,48 @@ def with_analysis_schema(json_schema: dict[str, Any] | None) -> dict[str, Any] |
     return out
 
 
+_ANALYSIS_OPEN = re.compile(r'^\s*\{\s*"analysis"\s*:\s*"')
+_KEY_BOUNDARY = re.compile(r'"\s*,\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*:')
+
+
+def repair_broken_analysis(doc: str | None) -> dict[str, Any] | None:
+    """The reply without its ``analysis`` value, when that value is what broke the JSON.
+
+    The 10-17 screen's failure shape (ministral-8b, letter writer): a double quote
+    inside the analysis text ends the string early, and the parser stops at the next
+    word ("Expecting ',' delimiter"). Everything after the analysis value is intact.
+
+    A fact about syntax, not a judgement about content (ADR-062 cl. 1): the analysis
+    value is cut at the FIRST key boundary after the stray quote and the rest is parsed
+    as it stands. Nothing of the document's own fields is rewritten (ADR-094). Only that
+    one boundary is tried — a later one could parse a suffix and silently drop real
+    fields — so anything else returns None and the caller retries the call.
+    """
+    if not doc:
+        return None
+    text = doc.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        text = parts[1] if len(parts) > 1 else text
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    opened = _ANALYSIS_OPEN.match(text)
+    if not opened:
+        return None
+    stray = text.find('"', opened.end())  # where the parser believed the string ended
+    if stray < 0:
+        return None
+    boundary = _KEY_BOUNDARY.search(text, stray)
+    if boundary is None:
+        return None
+    try:
+        rest = json.loads("{" + text[boundary.start() + 1:].lstrip(" \t\r\n,"))
+    except json.JSONDecodeError:
+        return None
+    return rest if isinstance(rest, dict) and rest else None
+
+
 def strip_analysis(result: Any) -> Any:
     """``result`` without the arm-C ``analysis`` key (in place for a dict)."""
     if isinstance(result, dict):
@@ -265,14 +330,28 @@ async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> A
     if arm == "off" or site not in SITES:
         return await provider.aparse_json(prompt, **kwargs)
     kwargs["system"] = frame_system(kwargs.get("system"), site, arm)
-    if arm == "c":
-        prompt = f"{prompt}\n\n{_analysis_instruction(site)}"
-        kwargs["max_tokens"] = int(kwargs.get("max_tokens", 4096)) + ANALYSIS_EXTRA_TOKENS
-        if kwargs.get("json_schema"):
-            kwargs["json_schema"] = with_analysis_schema(kwargs["json_schema"])
-    with _primer(site, arm):
-        result = await provider.aparse_json(prompt, **kwargs)
-    return strip_analysis(result) if arm == "c" else result
+    if arm != "c":
+        with _primer(site, arm):
+            return await provider.aparse_json(prompt, **kwargs)
+    plain_prompt, plain_kwargs = prompt, dict(kwargs)
+    c_kwargs = dict(kwargs)
+    c_kwargs["max_tokens"] = int(kwargs.get("max_tokens", 4096)) + ANALYSIS_EXTRA_TOKENS
+    if kwargs.get("json_schema"):
+        c_kwargs["json_schema"] = with_analysis_schema(kwargs["json_schema"])
+    try:
+        result = await provider.aparse_json(f"{prompt}\n\n{_analysis_instruction(site)}", **c_kwargs)
+    except json.JSONDecodeError as exc:
+        # A reply broken by the analysis field never ends a run (ruling W3-6 (2)): repair
+        # the JSON when the break is inside the analysis value, otherwise retry the call
+        # once WITHOUT the field — the call the site made before arm c. A retry that
+        # breaks too raises as it always did, into the site's own handling.
+        repaired = repair_broken_analysis(getattr(exc, "doc", None))
+        if repaired is not None:
+            logger.warning("PROMPT_CONTEXT_ANALYSIS_REPAIRED site=%s error=%s", site, exc.msg)
+            return repaired
+        logger.warning("PROMPT_CONTEXT_ANALYSIS_RETRY site=%s error=%s", site, exc.msg)
+        return await provider.aparse_json(plain_prompt, **plain_kwargs)
+    return strip_analysis(result)
 
 
 async def acomplete(provider: Any, site: str, prompt: str, **kwargs: Any) -> Any:
