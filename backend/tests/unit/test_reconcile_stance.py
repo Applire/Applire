@@ -272,12 +272,15 @@ async def test_agent_interview_question_smuggle_dropped() -> None:
     )
     assert len(out) == 1
     assert out[0].status == "unconfirmed"
-    # Sanity: the identical turn grounds (confirmed) on the built-in interview.
+    # ADR-061 amended 2026-10-18 (DEL-5 (1)): on the built-in interview the
+    # question no longer grounds deterministically either — the answer only
+    # says "Yes — I ran our container platform", so it takes an adjudicator
+    # quoting the ANSWER to confirm (test_stance_question_is_not_testimony.py).
     interview_out = await enforce_stance(
         ops, denials=[], new_info=_AGENT_TURN, source="interview"
     )
     assert len(interview_out) == 1
-    assert interview_out[0].status == "confirmed"
+    assert interview_out[0].status == "unconfirmed"
 
 
 @pytest.mark.asyncio
