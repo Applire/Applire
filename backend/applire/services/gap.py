@@ -38,6 +38,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from applire.prompts import preamble as _prompt_context
 from applire.constants import GAP_ANALYSIS_MAX_TOKENS, GAP_CLUSTERING_MAX_TOKENS
 from applire.models.gap import GapAnalysis
 from applire.models.job import JobAnalysis
@@ -1225,8 +1226,8 @@ async def _run_analysis(
     )
 
     # Pass 2: LLM refinement
-    data: dict = await provider.aparse_json(
-        build_user_prompt(job_dict, profile.profile_json, pre, scope_block),
+    data: dict = await _prompt_context.aparse_json(
+        provider, "gap_analysis:writer", build_user_prompt(job_dict, profile.profile_json, pre, scope_block),
         system=SYSTEM_PROMPT,
         temperature=0.1,
         max_tokens=GAP_ANALYSIS_MAX_TOKENS,

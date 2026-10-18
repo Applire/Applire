@@ -1311,6 +1311,22 @@ _register_all(
             ),
         ),
         SettingEntry(
+            env_var="PROMPT_CONTEXT",
+            source="constants",
+            default="c",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            description=(
+                "c | a | b | off. v2 pipelines only (CV_PIPELINE / LETTER_PIPELINE=v2; under "
+                "v1 every prompt is unchanged). The context every generation and review "
+                "prompt carries (E068 US370): c = the pipeline preamble plus an analysis field the model "
+                "fills first, which is removed before anything is stored or shown; a = the "
+                "preamble alone; b = the preamble plus a primer turn; off = the prompts "
+                "without it. Set off if a small local model keeps returning broken JSON."
+            ),
+            notes="Hazelnut W3, rulings W3-6 = B and R-10 (v2 only). Read at call time by prompts/preamble.site_arm().",
+        ),
+        SettingEntry(
             env_var="CV_PIPELINE",
             source="constants",
             default="v1",

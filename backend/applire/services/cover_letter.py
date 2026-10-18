@@ -41,6 +41,7 @@ from datetime import date, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks
+from applire.prompts import preamble as _prompt_context
 from applire.redaction import scrub_secrets
 from applire.templates.filters import build_template_env
 from sqlalchemy import select
@@ -147,8 +148,8 @@ async def _condense_call(provider, prompt: str, *, stage: str, system: str = SYS
     from applire.providers.llm.debug_log import llm_log_stage
 
     with llm_log_stage(stage):
-        return await provider.aparse_json(
-            prompt, system=system, max_tokens=CV_GENERATION_MAX_TOKENS
+        return await _prompt_context.aparse_json(
+            provider, "letter_condense:writer", prompt, system=system, max_tokens=CV_GENERATION_MAX_TOKENS
         )
 
 _TEMPLATE_FILES: dict[str, str] = {
@@ -1796,8 +1797,8 @@ async def _render_cover_letter_body(
                 )
                 # Explicit budget to match CV generation (cv.py): a signed letter must
                 # never close its JSON early under budget pressure (F-B, ADR-009 amendment).
-                letter_data = await provider.aparse_json(
-                    user_prompt, system=writer_system, max_tokens=CV_GENERATION_MAX_TOKENS
+                letter_data = await _prompt_context.aparse_json(
+                    provider, "cover_letter:writer", user_prompt, system=writer_system, max_tokens=CV_GENERATION_MAX_TOKENS
                 )
                 if is_v2:
                     # ADR-094 clause L2: the code-owned fields (sender header from the
