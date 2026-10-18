@@ -280,7 +280,7 @@ async def test_v1_with_prompt_context_unset_is_byte_identical(monkeypatch, site)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("site", sorted(preamble.SITES))
+@pytest.mark.parametrize("site", sorted(k for k, v in preamble.SITES.items() if v.analysis))
 async def test_v2_with_prompt_context_unset_gives_c(monkeypatch, site):
     monkeypatch.delenv("PROMPT_CONTEXT", raising=False)
     p = _Recorder(reply={"analysis": "x", "summary": "s"})
@@ -305,3 +305,8 @@ async def test_each_site_follows_its_own_pipeline_switch(monkeypatch):
             assert preamble.site_arm(site) == ("c" if cv == "v2" else "off"), site
     assert {"job_analysis:writer", "gap_analysis:writer", "cv:writer"} <= set(_CV_KEYED_SITES)
     assert {"cover_letter:writer", "letter_condense:writer", "review_rewrite:letter_editor"} <= set(_LETTER_SITES)
+
+
+def test_only_the_condense_opts_out_of_the_analysis_field():
+    """Gate re-run 2026-10-18: its contract is "keep the same JSON structure"."""
+    assert sorted(k for k, v in preamble.SITES.items() if not v.analysis) == ["letter_condense:writer"]
