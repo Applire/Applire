@@ -5,7 +5,8 @@
 
 Three arms, chosen by ``PROMPT_CONTEXT`` (read at call time, like ``CV_PIPELINE``).
 The default is ``c`` (ruling W3-6 = B, founder 2026-10-18, on the 10-17 US370 screen:
-one-language and letter length better on Luna, confirmed by the Sonnet judge).
+one-language and letter length better on Luna, confirmed by the Sonnet judge) — on the
+v2 pipelines only (ruling R-10): a site whose pipeline runs v1 gets no context at all.
 ``off`` is the opt-out: every call is then byte-identical to the call without this
 module.
 
@@ -135,6 +136,8 @@ SITES: dict[str, Site] = {
                                    "The shortened letter is audited and sent; nothing restores what you cut."),
     "review_rewrite:editor": Site(4, "cv", "editor", "you rewrite one passage a reviewer flagged",
                                   "Your passage replaces the flagged one in the delivered document."),
+    "review_rewrite:letter_editor": Site(6, "letter", "editor", "you rewrite one passage a reviewer flagged",
+                                         "Your passage replaces the flagged one in the delivered letter."),
 }
 
 #: The shared review loop names its two calls by chain id + role; its generator is
@@ -190,6 +193,34 @@ def own_system(system: str | None) -> str:
     if text.startswith("CONTEXT") and _TASK_MARKER in text:
         return text.split(_TASK_MARKER, 1)[1]
     return text
+
+
+def pipeline_is_v2(site: str) -> bool:
+    """Whether the pipeline that owns ``site`` runs v2 (ruling R-10, main 2026-10-18).
+
+    The context is a v2 change: under v1 every call stays byte-identical until US368
+    deletes v1 (the R-3 precedent). Letter sites follow ``LETTER_PIPELINE``; CV sites
+    and the JD and gap chains that feed a CV run follow ``CV_PIPELINE`` (they run
+    before any document's pipeline is known, so they are keyed to the CV's switch).
+    Read at call time through the two switches' own readers.
+    """
+    s = SITES.get(site)
+    if s is None:
+        return False
+    if s.doc == "letter":
+        from applire.services.letter_v2 import letter_pipeline
+
+        return letter_pipeline() == "v2"
+    from applire.services.cv_v2 import cv_pipeline
+
+    return cv_pipeline() == "v2"
+
+
+def site_arm(site: str) -> str:
+    """The arm that applies to ``site`` now: ``PROMPT_CONTEXT`` on a v2 site, else ``off``."""
+    if site not in SITES or not pipeline_is_v2(site):
+        return "off"
+    return prompt_context()
 
 
 def frame_system(system: str | None, site: str, arm: str | None = None) -> str | None:
@@ -326,8 +357,8 @@ def strip_analysis(result: Any) -> Any:
 
 async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> Any:
     """``provider.aparse_json`` with the active arm applied for ``site``."""
-    arm = prompt_context()
-    if arm == "off" or site not in SITES:
+    arm = site_arm(site)
+    if arm == "off":
         return await provider.aparse_json(prompt, **kwargs)
     kwargs["system"] = frame_system(kwargs.get("system"), site, arm)
     if arm != "c":
@@ -356,8 +387,8 @@ async def aparse_json(provider: Any, site: str, prompt: str, **kwargs: Any) -> A
 
 async def acomplete(provider: Any, site: str, prompt: str, **kwargs: Any) -> Any:
     """``provider.acomplete`` with the active arm applied (no analysis field: the reply is text)."""
-    arm = prompt_context()
-    if arm == "off" or site not in SITES:
+    arm = site_arm(site)
+    if arm == "off":
         return await provider.acomplete(prompt, **kwargs)
     kwargs["system"] = frame_system(kwargs.get("system"), site, arm)
     with _primer(site, arm):

@@ -17,6 +17,14 @@ from applire.prompts import preamble
 from applire.prompts.primers import primer_for
 
 
+@pytest.fixture(autouse=True)
+def _v2_pipelines(monkeypatch):
+    """The context applies on the v2 pipelines only (ruling R-10); the arm tests run there.
+    The scope tests below override this."""
+    monkeypatch.setenv("CV_PIPELINE", "v2")
+    monkeypatch.setenv("LETTER_PIPELINE", "v2")
+
+
 class _Recorder:
     def __init__(self, reply=None):
         self.calls: list[dict] = []
@@ -248,3 +256,52 @@ async def test_the_mock_provider_routes_a_framed_call_like_the_plain_one(monkeyp
     plain = await mock.aparse_json("P", system=site_prompt)
     framed = await mock.aparse_json("P", system=preamble.frame_system(site_prompt, "cv:writer", "c"))
     assert "claims" not in framed and framed == plain
+
+
+# ── scope: v2 pipelines only (ruling R-10, main 2026-10-18) ──────────────────────
+
+_LETTER_SITES = sorted(k for k, v in preamble.SITES.items() if v.doc == "letter")
+_CV_KEYED_SITES = sorted(k for k, v in preamble.SITES.items() if v.doc != "letter")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("site", sorted(preamble.SITES))
+async def test_v1_with_prompt_context_unset_is_byte_identical(monkeypatch, site):
+    monkeypatch.delenv("PROMPT_CONTEXT", raising=False)
+    monkeypatch.delenv("CV_PIPELINE", raising=False)
+    monkeypatch.delenv("LETTER_PIPELINE", raising=False)
+    p = _Recorder()
+    await preamble.aparse_json(p, site, "PROMPT", system="SYS", max_tokens=100, json_schema=_SCHEMA)
+    await preamble.acomplete(p, site, "PROMPT", system="SYS")
+    assert p.calls == [
+        {"prompt": "PROMPT", "primer": [], "system": "SYS", "max_tokens": 100, "json_schema": _SCHEMA},
+        {"prompt": "PROMPT", "primer": [], "system": "SYS"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("site", sorted(preamble.SITES))
+async def test_v2_with_prompt_context_unset_gives_c(monkeypatch, site):
+    monkeypatch.delenv("PROMPT_CONTEXT", raising=False)
+    p = _Recorder(reply={"analysis": "x", "summary": "s"})
+    out = await preamble.aparse_json(p, site, "PROMPT", system="SYS", max_tokens=100, json_schema=_SCHEMA)
+    call = p.calls[0]
+    assert out == {"summary": "s"}
+    assert call["system"].startswith("CONTEXT") and call["system"].endswith("SYS")
+    assert '"analysis"' in call["prompt"] and call["max_tokens"] == 100 + preamble.ANALYSIS_EXTRA_TOKENS
+    assert list(call["json_schema"]["schema"]["properties"])[0] == "analysis"
+
+
+@pytest.mark.asyncio
+async def test_each_site_follows_its_own_pipeline_switch(monkeypatch):
+    """Letter sites follow LETTER_PIPELINE; CV, JD and gap sites follow CV_PIPELINE."""
+    monkeypatch.delenv("PROMPT_CONTEXT", raising=False)
+    for cv, letter in (("v2", "v1"), ("v1", "v2")):
+        monkeypatch.setenv("CV_PIPELINE", cv)
+        monkeypatch.setenv("LETTER_PIPELINE", letter)
+        for site in _LETTER_SITES:
+            assert preamble.site_arm(site) == ("c" if letter == "v2" else "off"), site
+        for site in _CV_KEYED_SITES:
+            assert preamble.site_arm(site) == ("c" if cv == "v2" else "off"), site
+    assert {"job_analysis:writer", "gap_analysis:writer", "cv:writer"} <= set(_CV_KEYED_SITES)
+    assert {"cover_letter:writer", "letter_condense:writer", "review_rewrite:letter_editor"} <= set(_LETTER_SITES)

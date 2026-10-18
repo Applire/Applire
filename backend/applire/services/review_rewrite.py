@@ -177,7 +177,7 @@ async def _rewrite_passage(
     max_tokens = min(4096, max(400, len(passage) // 2 + 256))
     try:
         out = await _prompt_context.acomplete(
-            provider, "review_rewrite:editor", prompt,
+            provider, "review_rewrite:letter_editor" if passage_kind == "letter_paragraph" else "review_rewrite:editor", prompt,
             system=REVIEW_FIGURE_REWRITE_SYSTEM_PROMPT if figures_only else REVIEW_REWRITE_SYSTEM_PROMPT,
             temperature=_TEMPERATURE,
             max_tokens=max_tokens,
