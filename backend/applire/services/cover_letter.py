@@ -3166,6 +3166,11 @@ async def _terminal_review_letter(
                 "Job-posting terms your record supports that the shortened letter does not "
                 "use: " + ", ".join(missing) + "."
             )
+        # The delivered letter is THIS draft, and this verdict read it: the earlier
+        # terminal rounds' verdicts read drafts that no longer ship, and folding them
+        # in made the row say "revised and not re-reviewed" about a letter that was
+        # reviewed (W3-3c re-measure, luna controlling_emma_de.same_de run 1).
+        outcome_cell["raw"].clear()
         if code_blocking:
             path = "review_only"
         elif approved and not reviewer_texts:

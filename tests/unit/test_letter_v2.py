@@ -548,7 +548,8 @@ def _pages_fn(pages, seq, record=None):
     return fn
 
 
-async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None, pages_seq=None):
+async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None, pages_seq=None,
+               settle_exhausted=False):
     """Drive the real render with the provider and review_and_refine faked; record
     every call's system prompt and every review_and_refine invocation's kwargs."""
     from applire.services.cover_letter import _render_cover_letter_background
@@ -573,6 +574,13 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdic
         entry["checks"] = list(chk(kw["draft"])) if chk else []
         entry["corrector_prompt"] = kw["generator_prompt_fn"](kw["draft"], "fb", kw["source"])
         record["loops"].append(entry)
+        if settle_exhausted and kw.get("chain_id") == "letter_terminal_review" and kw.get("on_settle"):
+            from applire.services.review_issues import ReviewSettle
+
+            kw["reviewer_prompt_fn"](kw["source"], kw["draft"])
+            kw["on_settle"](ReviewSettle(path="exhausted", approved=False,
+                                         blocking_issues=("an earlier round's finding",),
+                                         minor_issues=(), rounds=3, settled=kw["draft"]))
         if kw.get("chain_id") == "letter_terminal_review" and script:
             return script.pop(0)(kw["draft"])
         return kw["draft"]
@@ -986,10 +994,14 @@ async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
     # 2 pages through the terminal loop, 1 page once condensed
     with patch("applire.services.keyword_ledger.verified_missing_claimable", return_value=[entry]):
         rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY),
-                         pages_seq="fits_after_final_condense", review_verdict=verdict)
+                         pages_seq="fits_after_final_condense", review_verdict=verdict,
+                         settle_exhausted=True)
     outcome = rec["audit"]["terminal_review"]
     post = [n for n in outcome.notes if "reviewer's notes on the shortened letter" in n]
     assert post, outcome.notes
     assert outcome.status == "pass" and outcome.blocking_issues == ()  # an advisory PASS row
     assert "Figure '2019' is unanchored." in post[0]
     assert any("does not use: SAP S/4HANA." in n for n in outcome.notes)
+    # the earlier terminal round's verdict read a draft that no longer ships
+    assert "an earlier round's finding" not in " ".join(outcome.blocking_issues)
+    assert outcome.path == "minor_only"
