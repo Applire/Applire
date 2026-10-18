@@ -189,9 +189,10 @@ def test_v2_titles_rule_allows_recorded_alternate_forms_only():
     v2 = build_system_prompt("en", pipeline="v2")
     assert "recorded alternate" in v2
     assert "never translate, shorten, generalise, upgrade or downgrade it yourself" in v2
-    # v1's rules are carried otherwise unchanged
+    # v1's rules are carried otherwise unchanged; v2 adds exactly ONE top-level rule,
+    # the F1 closing rule (2026-10-18)
     assert v2.count("- GROUNDING CONTRACT") == 1
-    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") == v2.split("Rules:")[1].count("\n- ")
+    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 1 == v2.split("Rules:")[1].count("\n- ")
 
 
 def test_condense_prompt_names_the_language_on_v2_only():
@@ -1052,3 +1053,42 @@ async def test_seam_v2_letter_without_a_vault_name_renders_the_docx(db, v2):
     letter = _coerce_stored_letter_data(cl.letter_data)  # raised before the fix
     assert letter.header.name == "" and "Hofman" not in letter.signature.name
     assert render_letter_docx(letter, lang="en", accent_color="#12233E")[:2] == b"PK"
+
+
+# ── F1 (delivery run 2026-10-18): no keyword-list closing on v2 ─────────────
+def test_v2_condense_places_retained_terms_in_their_evidence_sentence_never_a_list():
+    from applire.prompts.cover_letter import build_condense_prompt
+
+    letter = {"body": {"paragraphs": ["Sehr geehrte Damen und Herren,", "Text."]}}
+    v2 = build_condense_prompt(letter, 250, 2, letter_pages=1, language="de",
+                               retained_terms_block="COVERAGE ALREADY ACHIEVED x")
+    rule = v2[v2.index("COVERAGE ALREADY ACHIEVED"):]
+    assert "stays inside the sentence that carries its evidence" in rule
+    assert "Never gather terms into a list" in rule and "never move them into the closing" in rule
+    assert "DROP the term rather than list" in rule
+    v1 = build_condense_prompt(letter, 250, 2, letter_pages=1)
+    assert "HOW TO KEEP THOSE TERMS" not in v1
+
+
+def test_v2_writer_rules_state_the_closing_is_a_call_to_action_never_a_list():
+    from applire.prompts.cover_letter import SYSTEM_PROMPT, V2_CLOSING_RULE, build_system_prompt
+
+    assert "never a list of skills, tools or job-posting terms" in V2_CLOSING_RULE
+    assert V2_CLOSING_RULE in build_system_prompt("de", pipeline="v2")
+    assert V2_CLOSING_RULE not in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_corrector_carries_the_closing_rule_v1_does_not(db, v1):
+    from applire.prompts.cover_letter import V2_CLOSING_RULE
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    assert all(V2_CLOSING_RULE not in l["corrector_prompt"] for l in rec["loops"])
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_corrector_carries_the_closing_rule(db, v2):
+    from applire.prompts.cover_letter import V2_CLOSING_RULE
+
+    rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
+    assert rec["loops"] and all(f"CLOSING: {V2_CLOSING_RULE}" in l["corrector_prompt"] for l in rec["loops"])

@@ -285,6 +285,24 @@ _V1_TITLES_RULE_TAIL = (
     "  correct)."
 )
 
+#: F1 (Hazelnut delivery run, 2026-10-18): told "must still contain every one" of 17
+#: retained terms plus a word target, the v2 condense moved them all into one list in
+#: the closing ("wie ich Lean-Produktion, Lean Management, … einbringen kann"). The
+#: placement rule outranks the retention list; v2 only (the block is v2-only here).
+_V2_RETAINED_TERMS_PLACEMENT = (
+    "HOW TO KEEP THOSE TERMS WHILE SHORTENING: each term stays inside the sentence that "
+    "carries its evidence (the employer, the action, the result). Never gather terms into "
+    "a list or an enumeration, and never move them into the closing paragraph. If a term "
+    "no longer has a sentence of its own after shortening, DROP the term rather than list "
+    "it — a dropped term costs less than a keyword list."
+)
+
+#: F1: the closing is a call to action (writer + corrector, v2 only).
+V2_CLOSING_RULE = (
+    "The closing paragraph is a short call to action (interest in a conversation, "
+    "availability if given) — never a list of skills, tools or job-posting terms."
+)
+
 _V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
 #: Hazelnut adversarial re-run + W3-3 arm (2026-10-17): ministral wrote a recorded 99.9 %
 #: availability TARGET as achieved ("achieving 99.9 %", "sicherte eine 99,9%-Verfügbarkeit")
@@ -327,6 +345,7 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
     assert _V1_OVERSTATE_ANCHOR in rules, "the overstate rule moved — re-anchor _V1_OVERSTATE_ANCHOR"
     rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
+    rules = rules + "\n- " + V2_CLOSING_RULE + "\n"
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 
@@ -763,7 +782,7 @@ def build_condense_prompt(
         # v2: the corrector's own coverage-retention block (#306, one implementation)
         # — a term the condense drops is re-demanded by the review round right after,
         # and the corrector re-inserting it is where probe B's fact changed employer.
-        *(["", retained_terms_block] if retained_terms_block else []),
+        *(["", retained_terms_block, _V2_RETAINED_TERMS_PLACEMENT] if retained_terms_block else []),
         "",
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),

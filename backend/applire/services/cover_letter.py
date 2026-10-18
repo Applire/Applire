@@ -2113,9 +2113,12 @@ async def _render_cover_letter_body(
                         from applire.services.letter_v2 import language_name
 
                         _name = language_name(detected_language)
+                        from applire.prompts.cover_letter import V2_CLOSING_RULE
+
                         block = (
                             f"{block}\n\nDOCUMENT LANGUAGE: {_name}. Every sentence of the "
-                            f"letter body you return is written in {_name}."
+                            f"letter body you return is written in {_name}.\n\n"
+                            f"CLOSING: {V2_CLOSING_RULE}"
                         )
                     return f"{prompt}\n\n{block}"
 
