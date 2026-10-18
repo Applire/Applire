@@ -1098,3 +1098,90 @@ async def test_seam_v2_corrector_carries_the_closing_rule(db, v2):
 
     rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY))
     assert rec["loops"] and all(f"CLOSING: {V2_CLOSING_RULE}" in l["corrector_prompt"] for l in rec["loops"])
+
+
+# ── RULING DEL-3 (ADR-075 amended 2026-10-18): the input filter, both pipelines ──
+
+_DEL3_OWED = "Mit IFS habe ich keine Erfahrung, zehn Jahre ISO-9001-Auditpraxis bringe ich mit."
+_DEL3_OTHER = "Eine konkrete Investitionssumme kann ich nicht nennen."
+
+
+async def _seed_with_denials(db):
+    from datetime import datetime, timezone
+
+    from applire.models.gap import GapAnalysis
+
+    pj = copy.deepcopy(_PROFILE_JSON)
+    pj["metadata"] = {"denied_concepts": [
+        {"concept": "IFS", "statement": _DEL3_OWED, "source": "interview", "date": "2026-10-01"},
+        {"concept": "Investitionssumme", "statement": _DEL3_OTHER, "source": "interview",
+         "date": "2026-10-01"},
+    ]}
+    ids = await _seed(db, profile_json=pj)
+    job, profile, _cl = ids
+    db.add(GapAnalysis(
+        job_analysis_id=job.id, profile_id=profile.id, match_score=0.5, critical_gaps=[],
+        minor_gaps=[], strengths=[], keyword_gaps=[], category_a=[], category_b=[],
+        category_c=[], keyword_ledger=[], gap_clusters=[], requirement_breakdown=[],
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    ))
+    await db.commit()
+    return ids
+
+
+_DEL3_LEDGER = [
+    {"concept": "IFS", "status": "denied", "claimable": False, "fit_weight": 0.5,
+     "surface_forms": ["IFS"], "sources": ["nice_to_have"], "evidence": ""},
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pipeline", ["v1", "v2"])
+async def test_seam_del3_only_the_postings_denial_reaches_the_writer_obligation(
+        db, monkeypatch, pipeline):
+    monkeypatch.setenv("LETTER_PIPELINE", pipeline)
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(_DEL3_LEDGER)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    req = writer_prompt.index("=== REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT")
+    con = writer_prompt.index("=== STATED LIMITS — CONSTRAINT ONLY")
+    req_block = writer_prompt[req:writer_prompt.find("\n\n===", req)]
+    con_block = writer_prompt[con:writer_prompt.find("\n\n===", con)]
+    # the owed denial is an obligation, and only there
+    assert _DEL3_OWED in req_block and _DEL3_OWED not in con_block
+    # the other denial still reaches the writer (never claimed) — as a constraint only
+    assert _DEL3_OTHER in con_block and _DEL3_OTHER not in req_block
+    # the loop's source owes only the posting's denial too (the vault itself, which the
+    # source also carries, still holds both statements)
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].index('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
+    assert '"required": true' in entry or _DEL3_OWED in entry
+    assert _DEL3_OWED in entry and _DEL3_OTHER not in entry
+
+
+@pytest.mark.asyncio
+async def test_seam_del3_every_denial_owed_still_reaches_the_loop_source(db, v2):
+    """When every denial is this posting's, the constraint-only copy is empty — the
+    loop's ``stated_limits`` entry must not hang on that empty block."""
+    ledger = copy.deepcopy(_DEL3_LEDGER) + [
+        {"concept": "Investitionssumme", "status": "denied", "claimable": False,
+         "fit_weight": 1.0, "surface_forms": ["Investitionssumme"], "sources": ["required"],
+         "evidence": ""},
+    ]
+
+    async def _ledger(*_a, **_k):
+        return copy.deepcopy(ledger)
+
+    with patch("applire.services.keyword_ledger.refresh_persist_and_rescore", side_effect=_ledger):
+        rec = await _run(db, await _seed_with_denials(db), payload=_draft(_GERMAN_BODY))
+    writer_prompt = rec["systems"][0][0]
+    assert "STATED LIMITS — CONSTRAINT ONLY" not in writer_prompt
+    drafting = next(l for l in rec["loops"] if l["chain_id"] == "cover_letter")
+    k = drafting["source"].index('"stated_limits": {')
+    entry = drafting["source"][k:drafting["source"].index('"instruction"', k)]
+    assert _DEL3_OWED in entry and _DEL3_OTHER in entry
