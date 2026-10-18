@@ -533,7 +533,22 @@ async def _seed(db):
     return job, profile, cl
 
 
-async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None):
+def _pages_fn(pages, seq, record=None):
+    """``seq == "fits_after_final_condense"``: 2 pages until the second (post-loop)
+    condense call has been made, 1 page after it."""
+    if seq == "fits_after_final_condense":
+        def fn(_pdf):
+            n = sum("=== CURRENT LETTER (JSON) ===" in p for p, _s in record["systems"])
+            return ("text", 1 if n >= 2 else 2)
+        return fn
+
+    def fn(_pdf):
+        return ("text", pages)
+
+    return fn
+
+
+async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdict=None, pages_seq=None):
     """Drive the real render with the provider and review_and_refine faked; record
     every call's system prompt and every review_and_refine invocation's kwargs."""
     from applire.services.cover_letter import _render_cover_letter_background
@@ -574,7 +589,7 @@ async def _run(db, ids, *, payload, pages=1, terminal_script=None, review_verdic
         patch("applire.services.cover_letter.LLM_REVIEW_MAX_RETRIES", 2),
         patch("applire.services.cover_letter_pdf.render_pdf", AsyncMock(return_value=b"%PDF")),
         patch("applire.services.ats_audit.extract_text_and_pages",
-              new=MagicMock(side_effect=lambda pdf: ("text", pages))),
+              new=MagicMock(side_effect=_pages_fn(pages, pages_seq, record))),
         patch("applire.services.cover_letter._update_ats_report_letter", side_effect=_audit),
     ):
         sl.return_value.__aenter__.return_value = db
@@ -684,9 +699,13 @@ async def test_seam_v2_has_no_final_length_floor(db, v2):
     terminal = [l for l in rec["loops"] if l["chain_id"] == "letter_terminal_review"]
     assert len(terminal) == 1  # no corrector loop after the condense
     outcome = rec["audit"]["terminal_review"]
+    # W3-3c: the CODE fact (still over the page) fails the row; the reviewer's
+    # finding is an advisory note, never a blocking issue
     assert outcome.path == "review_only" and outcome.status == "fail"
-    assert any("dropped the HGB closing claim" in t for t in outcome.blocking_issues)
+    assert all(t.startswith("[letter.") for t in outcome.blocking_issues)
     assert any(t.startswith("[letter.page_length]") for t in outcome.blocking_issues)
+    assert any("reviewer's notes on the shortened letter" in n and "dropped the HGB closing claim" in n
+               for n in outcome.notes)
     cl = await db.get(GeneratedCoverLetter, ids[2].id)
     assert cl.letter_data["body"]["paragraphs"] == condensed["body"]["paragraphs"]
 
@@ -954,3 +973,23 @@ def test_v2_writer_rule_keeps_a_target_a_target_and_v1_is_unchanged():
     v2 = build_system_prompt("de", pipeline="v2")
     assert "stays a target" in v2 and "never write it as achieved" in v2
     assert build_system_prompt("de") is SYSTEM_PROMPT and "stays a target" not in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_seam_v2_w3_3c_reviewer_findings_alone_never_fail_the_row(db, v2):
+    """RULING W3-3c: the condensed letter fits (code facts clean) and the reviewer
+    still rejects it — the row is an advisory PASS with the reviewer's notes, and
+    the missing coverage terms come from the ledger scan."""
+    verdict = {"approved": False, "issues": [
+        {"severity": "blocking", "issue": "Figure '2019' is unanchored."}]}
+    entry = {"concept": "SAP S/4HANA", "surface_forms": ["S/4HANA"], "status": "claimable"}
+    # 2 pages through the terminal loop, 1 page once condensed
+    with patch("applire.services.keyword_ledger.verified_missing_claimable", return_value=[entry]):
+        rec = await _run(db, await _seed(db), payload=_draft(_ENGLISH_BODY),
+                         pages_seq="fits_after_final_condense", review_verdict=verdict)
+    outcome = rec["audit"]["terminal_review"]
+    post = [n for n in outcome.notes if "reviewer's notes on the shortened letter" in n]
+    assert post, outcome.notes
+    assert outcome.status == "pass" and outcome.blocking_issues == ()  # an advisory PASS row
+    assert "Figure '2019' is unanchored." in post[0]
+    assert any("does not use: SAP S/4HANA." in n for n in outcome.notes)

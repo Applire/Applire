@@ -3105,6 +3105,8 @@ async def _terminal_review_letter(
     )
     _v2_checks = None
 
+    post_condense_notes: list[str] = []
+
     async def _v2_review_only(d: dict) -> None:
         """RULING W3-3a: ONE reviewer call over ``d``, no corrector. Its verdict is
         recorded as a settle (``path="review_only"`` when anything blocking is open),
@@ -3137,19 +3139,42 @@ async def _terminal_review_letter(
             return
         issues = normalize_issues((review or {}).get("issues", []) if isinstance(review, dict) else [])
         approved = bool(review.get("approved", False)) if isinstance(review, dict) else False
-        blocking = tuple(i.text for i in issues if i.is_blocking) + tuple(
-            f"[{f.check}] {f.text}" for f in findings if f.blocking
-        )
-        minor = tuple(i.text for i in issues if not i.is_blocking)
-        if blocking:
+        # RULING W3-3c (= A): only CODE facts can fail the row (page, language,
+        # names, format). The reviewer's findings on the condensed letter are
+        # ADVISORY notes — measured 55 true / 67 false on 20 condensed letters —
+        # and the missing coverage terms come from the deterministic ledger scan
+        # (``verified_missing_claimable``, one implementation), not the reviewer.
+        code_blocking = tuple(f"[{f.check}] {f.text}" for f in findings if f.blocking)
+        reviewer_texts = tuple(i.text for i in issues)
+        if reviewer_texts:
+            post_condense_notes.append(
+                "The reviewer's notes on the shortened letter — check these (advisory, "
+                "not verified; the letter was not revised after shortening): "
+                + " | ".join(reviewer_texts)
+            )
+        try:
+            from applire.services.keyword_ledger import verified_missing_claimable
+
+            missing = [
+                e.get("concept") for e in verified_missing_claimable(_subject_of(d), keyword_ledger)
+                if isinstance(e, dict) and e.get("concept")
+            ]
+        except Exception:  # pragma: no cover - a report line never fails a letter
+            missing = []
+        if missing:
+            post_condense_notes.append(
+                "Job-posting terms your record supports that the shortened letter does not "
+                "use: " + ", ".join(missing) + "."
+            )
+        if code_blocking:
             path = "review_only"
-        elif approved:
+        elif approved and not reviewer_texts:
             path = "approved"
         else:
             path = "minor_only"
         _record_settle(ReviewSettle(
-            path=path, approved=approved and not blocking, blocking_issues=blocking,
-            minor_issues=minor, rounds=1, settled=d,
+            path=path, approved=approved and not code_blocking, blocking_issues=code_blocking,
+            minor_issues=(), rounds=1, settled=d,
         ))
 
     def _v2_retained_terms(d: dict) -> str | None:
@@ -3228,7 +3253,8 @@ async def _terminal_review_letter(
                     denied_concepts=denied_concepts,
                 )
             )
-            if note:
+            extra = tuple(post_condense_notes) + ((note,) if note else ())
+            if extra:
                 from applire.services.terminal_review_outcome import TerminalReviewOutcome
 
                 if outcome is None:
@@ -3239,10 +3265,10 @@ async def _terminal_review_letter(
                         blocking_issues=(),
                         minor_issues=(),
                         rounds=rounds,
-                        notes=(note,),
+                        notes=extra,
                     )
                 else:
-                    outcome = dataclasses.replace(outcome, notes=outcome.notes + (note,))
+                    outcome = dataclasses.replace(outcome, notes=outcome.notes + extra)
             return LetterTerminalReviewResult(
                 draft=current,
                 pdf_bytes=pdf_cell["pdf"],
