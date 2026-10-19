@@ -140,3 +140,23 @@ async def test_mock_adjudication_wired_through_enforce_stance_end_to_end() -> No
     )
     assert len(out) == 1
     assert out[0].status == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_mock_quotes_the_answer_of_a_split_turn() -> None:
+    """ADR-061 amended 2026-10-18 (DEL-5 (1)): the mock reads the ANSWER of a
+    split built-in turn, so a token only the QUESTION names is not confirmed on
+    the mock stack either."""
+    from applire.prompts.stance_adjudication import render_interview_turn
+
+    turn = render_interview_turn(
+        gap="Investitionen",
+        question="Hast du Investitionsplanung verantwortet?",
+        answer="Beim MES-Projekt war ich beteiligt.",
+    )
+    prompt = build_stance_adjudication_prompt("Investitionsplanung", "skill", turn)
+    data = await MockLLMProvider().aparse_json(prompt, system=STANCE_ADJUDICATION_SYSTEM_PROMPT)
+    assert data == {"answer": "no", "quote": ""}
+    prompt = build_stance_adjudication_prompt("MES", "skill", turn)
+    data = await MockLLMProvider().aparse_json(prompt, system=STANCE_ADJUDICATION_SYSTEM_PROMPT)
+    assert data == {"answer": "yes", "quote": "Beim MES-Projekt war ich beteiligt."}

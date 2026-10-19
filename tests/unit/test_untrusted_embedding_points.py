@@ -179,7 +179,9 @@ def _p16_ledger_reviewer_block() -> str:
 def _p17_verified_coverage_block() -> str:
     from applire.services.keyword_ledger import render_verified_coverage_block
 
-    return render_verified_coverage_block([_ledger(evidence=CANARY)[0]])
+    # DEL-5 (2), ADR-048 amended 2026-10-18: the block no longer renders a row's
+    # evidence, so the posting-derived text that still reaches it is the concept.
+    return render_verified_coverage_block([_ledger(concept=CANARY)[0]])
 
 
 def _p18_forbidden_presence_block() -> str:
