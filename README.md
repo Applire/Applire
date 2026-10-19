@@ -838,6 +838,17 @@ By submitting a pull request you agree to the [Applire CLA](CLA.md). This allows
 
 ---
 
+## 🤖 How Applire is built (AI disclosure)
+
+Applire is built with an AI coding assistant: Claude by Anthropic, used through Claude Code. The roles are split like this:
+
+- **Tobias Rosenbaum, the founder, is product owner and software architect.** He decides what Applire does and which architecture decisions stand. He does not review the code line by line. His checks are a ruling on every architecture decision record Claude drafts, an acceptance test on his own instance, and the approval of each release.
+- **Claude does the design and the programming.** It proposes the technical design and the user interface, and writes almost all of the code and the documentation, this README included.
+
+Almost every commit carries a `Co-Authored-By: Claude` line.
+
+---
+
 ## 💛 Support the project
 
 Applire is built part-time by a solo founder and stays fully open source (AGPL-3.0, no feature held back). Every feature and every release is checked against **real LLM providers** before it ships — adversarial passes, blind hiring-panel reviews, agent-channel journeys — and Applire is built in public together with AI coding agents. Sponsorship pays for exactly that: the API credits, the AI coding tools, and the infrastructure behind applire.de and the release images.
