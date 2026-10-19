@@ -484,7 +484,18 @@ def _issue_text(concept: UnderclaimedConcept) -> str:
         if concept.tag_only
         else f'the CV does not carry "{concept.concept}" in any work-entry or project bullet'
     )
-    evidence = f' The candidate\'s profile evidence for it: "{concept.evidence}".' if concept.evidence else ""
+    # ADR-048 amended 2026-10-18 (DEL-5 (2)): the evidence is the gap analysis's
+    # summary of the profile (its `reason`), never a source of figures.
+    # Replay of delivery run 2's corrector call: "14 Jahre Führungserfahrung"
+    # written 2/4 with the old "profile evidence" label, 0/5 with this one.
+    evidence = (
+        f' The gap analysis summarised the profile\'s support for it as: "{concept.evidence}"'
+        " — a summary, not the candidate's words: take every figure, and what it "
+        "measures, from the CANDIDATE PROFILE itself; a figure the profile does not "
+        "state that way stays out."
+        if concept.evidence
+        else ""
+    )
     return (
         f"{where} — a hiring reviewer reads this requirement as unmet.{evidence} "
         "Surface it as narrative in a bullet under the work entry the evidence belongs "

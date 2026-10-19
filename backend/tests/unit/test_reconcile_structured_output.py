@@ -320,3 +320,64 @@ def test_the_documented_rejection_shape_still_latches_on_both_providers(provider
     msg = "Error code: 400 - response_format json_schema is not supported"
     assert provider._note_schema_rejection(Exception(msg)) is True
     assert provider._json_schema_rejected is True
+
+
+def _descriptions(node, path=""):
+    """Every ``description`` string in the rendered schema, with its path."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "description" and isinstance(value, str):
+                yield path, value
+            else:
+                yield from _descriptions(value, f"{path}/{key}")
+    elif isinstance(node, list):
+        for item in node:
+            yield from _descriptions(item, path)
+
+
+def test_the_schema_carries_one_model_facing_line_per_described_op_and_no_developer_prose():
+    """#765 (#688 prompt sitting, row 1): pydantic sends each op's DOCSTRING to the
+    model as its description — 4.1k chars of developer prose (file paths, ADR
+    clause numbers, issue numbers, import-bridge internals). The schema now
+    carries one model-facing line per op instead; the docstrings stay for
+    developers. Op semantics are untouched (the branches are compared below)."""
+    import re
+
+    from applire.services.profile.reconcile import schema_out
+
+    schema = reconcile_response_schema()
+    found = dict(_descriptions(schema))
+    assert set(found) == {f"/$defs/{name}" for name in schema_out.MODEL_FACING_DESCRIPTIONS}
+    for path, text in found.items():
+        assert "\n" not in text and len(text) <= 240, path
+        assert not re.search(r"ADR|#\d|``|\.py|engine|applier|witness|pydantic", text), (path, text)
+        assert text == schema_out.MODEL_FACING_DESCRIPTIONS[path.rsplit("/", 1)[1]]
+    # a docstring of an op WITHOUT a model-facing line never reaches the model
+    for name, definition in schema["$defs"].items():
+        if name not in schema_out.MODEL_FACING_DESCRIPTIONS:
+            assert "description" not in definition, name
+    assert sum(len(t) for t in found.values()) < 1000
+
+
+def test_model_facing_descriptions_change_nothing_but_the_descriptions():
+    """The rendered schema minus every ``description`` is the op contract; it must be
+    what pydantic + the M-3 post-processing produce from ``ops.py`` regardless of
+    the descriptions (op semantics identical, #765 scope)."""
+    from applire.services.profile.reconcile import schema_out
+
+    def strip(node):
+        if isinstance(node, dict):
+            return {k: strip(v) for k, v in node.items() if k != "description"}
+        if isinstance(node, list):
+            return [strip(i) for i in node]
+        return node
+
+    schema_out.reconcile_response_schema.cache_clear()
+    saved = dict(schema_out.MODEL_FACING_DESCRIPTIONS)
+    try:
+        schema_out.MODEL_FACING_DESCRIPTIONS.clear()
+        bare = strip(schema_out.reconcile_response_schema())
+    finally:
+        schema_out.MODEL_FACING_DESCRIPTIONS.update(saved)
+        schema_out.reconcile_response_schema.cache_clear()
+    assert strip(reconcile_response_schema()) == bare

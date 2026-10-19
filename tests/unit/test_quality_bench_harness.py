@@ -526,3 +526,17 @@ def test_real_pipeline_on_mock_provider(tmp_path, monkeypatch, restore_process_s
     assert {"cv_tailoring", "cover_letter"} <= {r["stage"] for r in records}
     assert not (rd / "_work").exists() and not (rd / "_llmlog").exists()
     assert uuid.UUID(meta["ids"]["cv_id"]) and uuid.UUID(meta["ids"]["cover_letter_id"])
+    # usage is captured per call in memory (the product's SQLite sink can lock and
+    # disable itself mid-run); one row per provider call the debug log recorded
+    assert meta["usage"]["source"] == "captured" and meta["usage"]["calls"] == len(records)
+    from applire.providers.llm import usage as usage_mod
+
+    assert usage_mod._sink is usage_mod._persist  # the product sink is put back
+
+
+def test_settings_snapshot_records_every_pipeline_switch(monkeypatch):
+    """US368: a v1-vs-v2 arm is unreadable without the switches it ran under."""
+    monkeypatch.setenv("CV_PIPELINE", "v2")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+    snap = run_mod.settings_snapshot()
+    assert snap["CV_PIPELINE"] == "v2" and snap["LETTER_PIPELINE"] == "v1"

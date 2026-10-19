@@ -39,6 +39,17 @@ from tests.support.profile_factory import make_master_profile
 
 pytestmark = pytest.mark.no_owner_context
 
+def _real_jpeg() -> bytes:
+    """#781: uploads are now checked to BE the declared image type."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 10), (200, 180, 160)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
 
 @pytest.fixture
 def dirs(tmp_path):
@@ -165,7 +176,7 @@ async def test_photo_upload_does_not_unlink_a_foreign_old_path(world, dirs):
     with ownership.owner_context(a.id):
         async with factory() as s:
             await upload_photo(
-                user_id=a.id, file_bytes=b"jpeg", content_type="image/jpeg", db=s,
+                user_id=a.id, file_bytes=_real_jpeg(), content_type="image/jpeg", db=s,
                 storage=LocalStorageProvider(str(upload)),
             )
     assert secret.exists()

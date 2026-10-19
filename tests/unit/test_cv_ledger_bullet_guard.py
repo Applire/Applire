@@ -39,6 +39,15 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 
+@pytest.fixture(autouse=True)
+def _v1_pipelines(monkeypatch):
+    """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
+    ruling W3-7 (2026-10-18); v1 stays supported until its tails are deleted, so
+    the tests set it explicitly."""
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+
+
 def _ledger_entry(concept: str) -> dict:
     return {
         "concept": concept,

@@ -46,6 +46,11 @@ def extract_text_and_pages(pdf_bytes: bytes) -> tuple[str, int]:
     return text, len(pages)
 
 
+def extract_page_texts(pdf_bytes: bytes) -> list[str]:
+    """The extracted text of each page, in order (letter v2 sizing, RULING W3-3)."""
+    return [(page.extract_text() or "") for page in PdfReader(BytesIO(pdf_bytes)).pages]
+
+
 def extract_text(pdf_bytes: bytes) -> str:
     return extract_text_and_pages(pdf_bytes)[0]
 
@@ -1061,6 +1066,39 @@ def _check(checks: list[ATSCheck], cid: str, ok: bool, details: str | None = Non
     checks.append(ATSCheck(id=cid, status="pass" if ok else "fail", details=None if ok else details))
 
 
+def _document_language_check(
+    checks: list[ATSCheck], foreign: list[tuple[str, str]], document_language: str
+) -> None:
+    """The ADR-039 ``document-language`` row from a list of ``(where, text)`` items
+    not written in ``document_language`` — ONE row shape for both documents
+    (ADR-066): the CV (#724) and, since ADR-094 clause L, the v2 letter.
+
+    #759 (ADR-081 amended 2026-10-08): the review surface shows a FAILED
+    document-language check in its "before you send it" block, in the reader's UI
+    language — so the row carries a machine-readable variant. ``details`` stays
+    the EN diagnostic (the agent door and legacy readers)."""
+    details = (
+        f"items not written in the document language ({document_language}): "
+        + "; ".join(f"[{where}] '{text[:60]}'" for where, text in foreign[:5])
+        + (f" (+{len(foreign) - 5} more)" if len(foreign) > 5 else "")
+    )
+    if not foreign:
+        _check(checks, "document-language", True)
+        return
+    checks.append(ATSCheck(
+        id="document-language", status="fail", details=details,
+        details_key="document-language-mixed",
+        details_params={
+            "language": document_language,
+            "count": len(foreign),
+            "examples": "; ".join(
+                text if len(text) <= 60 else f"{text[:60].rstrip()}…"
+                for _where, text in foreign[:3]
+            ),
+        },
+    ))
+
+
 def _page_band_not_applicable(checks: list[ATSCheck]) -> None:
     """Emit the page-length band as an explicit ``not_applicable`` (ADR-079 cl. 4).
 
@@ -1746,31 +1784,9 @@ def _audit_cv_text(
     # `passed` and `failed` alike and would read as a clean audit of something
     # never evaluated.
     if document_language:
-        foreign = foreign_language_items(tailored, document_language)
-        details = (
-            f"items not written in the document language ({document_language}): "
-            + "; ".join(f"[{where}] '{text[:60]}'" for where, text in foreign[:5])
-            + (f" (+{len(foreign) - 5} more)" if len(foreign) > 5 else "")
+        _document_language_check(
+            checks, foreign_language_items(tailored, document_language), document_language
         )
-        if not foreign:
-            _check(checks, "document-language", True)
-        else:
-            # #759 (ADR-081 amended 2026-10-08): the review surface shows a FAILED
-            # document-language check in its "before you send it" block, in the
-            # reader's UI language — so the row carries a machine-readable variant.
-            # `details` stays the EN diagnostic (the agent door and legacy readers).
-            checks.append(ATSCheck(
-                id="document-language", status="fail", details=details,
-                details_key="document-language-mixed",
-                details_params={
-                    "language": document_language,
-                    "count": len(foreign),
-                    "examples": "; ".join(
-                        text if len(text) <= 60 else f"{text[:60].rstrip()}…"
-                        for _where, text in foreign[:3]
-                    ),
-                },
-            ))
     else:
         checks.append(ATSCheck(
             id="document-language", status="not_applicable",
@@ -2075,6 +2091,7 @@ def _audit_letter_text(
     previous_report: dict | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    document_language: str | None = None,
 ) -> ATSReport:
     t = _norm(text)
     checks: list[ATSCheck] = []
@@ -2155,6 +2172,22 @@ def _audit_letter_text(
         if page_check is not None and page_check.status == "fail" and present_count:
             page_check.driver = {"pinned_facts": present_count}
 
+    # ADR-094 clause L (US369, ruling W2-1b): the v2 letter carries the same
+    # `document-language` row the CV does — every body sentence the ADR-066 per-item
+    # predicate classifies as another language. Opt-in by the caller (the v2
+    # pipeline passes the pinned language); v1 callers pass nothing and the report
+    # is unchanged. A delivered letter still in the wrong language SHIPS with this
+    # row red in the pre-download review — never a block (W2-1b).
+    if document_language:
+        from applire.services.letter_v2 import letter_language_fact
+
+        _fact = letter_language_fact(letter_data, document_language)
+        _document_language_check(
+            checks,
+            [(f"paragraph {f.paragraph_index + 1}", f.sentence) for f in _fact.foreign],
+            document_language,
+        )
+
     # #563 (D): the letter's terminal review answers the same question. No
     # `narrative-evidence` twin — the letter has no bullet corpus and no
     # `_restore_ledger_bullets` sibling (arc42 §5.3.23, unguarded surface 3), so the
@@ -2199,6 +2232,7 @@ def audit_cover_letter(
     previous_report: dict | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    document_language: str | None = None,
 ) -> ATSReport:
     """Audit a rendered cover letter PDF against the structured letter data and keywords.
 
@@ -2219,6 +2253,7 @@ def audit_cover_letter(
         pins=pins, truth_floor_hits=truth_floor_hits,
         terminal_review=terminal_review, previous_report=previous_report,
         vault_index=vault_index, non_claim=non_claim,
+        document_language=document_language,
     )
 
 

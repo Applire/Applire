@@ -51,6 +51,7 @@ import json
 import re
 from typing import Any
 
+from applire.prompts.preamble import own_system
 from applire.prompts.oracle_triage import (
     # ADR-068 (2026-08-08) — the sentence-triage user prompt's item shape,
     # imported rather than re-declared: the caller's citation check compares
@@ -558,6 +559,14 @@ def _mock_stance_adjudication(prompt: str) -> dict[str, Any]:
 
     token = m.group("token").strip()
     turn = m.group("turn")
+    # ADR-061 amended 2026-10-18 (DEL-5 (1)): a built-in interview TURN is
+    # split into Applire's QUESTION and the candidate's ANSWER, and the caller
+    # verifies the quote against the ANSWER only — so the mock reads and
+    # quotes the ANSWER, exactly as a correct real-provider answer would.
+    from applire.prompts.stance_adjudication import TURN_ANSWER_HEADING
+
+    if TURN_ANSWER_HEADING in turn:
+        turn = turn.split(TURN_ANSWER_HEADING, 1)[1].lstrip("\n")
     turn_lower = turn.lower()
 
     words = sorted({w for w in _WORD_RE.findall(token) if len(w) >= 2}, key=len, reverse=True)
@@ -681,7 +690,7 @@ class MockLLMProvider(LLMProvider):
         # the assist's plumbing while reading nothing like its real output. Three
         # branches, each returning the SHAPE its call site consumes: a German question
         # the candidate reads, and German CV section prose for the two writing calls.
-        system_lower = (system or "").lower()
+        system_lower = own_system(system).lower()  # route on the site's prompt, not the shared preamble
         if "einzigen präzisen frage" in system_lower:
             return _ASSIST_QUESTION
         if "generiere verbesserten lebenslauf-text" in system_lower:
@@ -709,7 +718,7 @@ class MockLLMProvider(LLMProvider):
         disable_thinking: bool | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> Any:
-        system_lower = (system or "").lower()
+        system_lower = own_system(system).lower()  # route on the site's prompt, not the shared preamble
 
         if "language reviewer" in system_lower:
             return {"approved": True, "issues": [], "feedback": ""}

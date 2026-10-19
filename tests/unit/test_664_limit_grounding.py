@@ -262,7 +262,8 @@ def test_an_adjacent_partial_may_not_be_stated_as_a_limit():
     ])
     assert "never state it as something they LACK" in block
     assert "INVENTED LIMIT" in block
-    assert "The transfer argument is the only response here." in block
+    # RULING DEL-2: surfacing the adjacent capability, or leaving the requirement out
+    assert "leaving the requirement out is the other" in block
     # and the shared instruction gates the de-emphasis on the candidate's own words
     assert "only where the entry says the candidate was ASKED AND SAID NO" in block
 

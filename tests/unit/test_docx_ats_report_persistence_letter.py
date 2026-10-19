@@ -100,6 +100,15 @@ if str(_backend) not in sys.path:
 # another's — see test_docx_ats_report_persistence.py's own module docstring).
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _v1_pipelines(monkeypatch):
+    """These tests pin the v1 pipelines (0.43 behaviour). v2 is the default since
+    ruling W3-7 (2026-10-18); v1 stays supported until its tails are deleted, so
+    the tests set it explicitly."""
+    monkeypatch.setenv("CV_PIPELINE", "v1")
+    monkeypatch.setenv("LETTER_PIPELINE", "v1")
+
+
 def _stub_profile_json() -> dict:
     return {
         "professional_summary": {"de": "Erfahrener Entwickler", "en": ""},

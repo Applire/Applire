@@ -127,8 +127,7 @@ the extracted string appears as a verbatim phrase. Extracting "Embeddings" from 
 sentence that only contains it as a sub-phrase — e.g. "Production experience with RAG,
 embeddings, ranking and retrieval pipelines" — is correct extraction, not a fabrication.
 Never ask the corrector to rewrite a concept term back into the source's own sentence or
-phrase — that is the exact defect this rule exists to prevent (it previously undid a
-"reduce to concept terms" correction the corrector had just made). Reconciling this with
+phrase. Reconciling this with
 the VERBATIM GROUNDING RULE above: verbatim presence of a term PROVES it is grounded, but
 for these three concept fields the converse does NOT hold — the ABSENCE of a verbatim
 phrase does not disprove groundedness, because a correctly-extracted concept term is
@@ -172,9 +171,7 @@ Check for these defects:
    fabrication) — but a signal inferred from what the company or role merely IS, rather
    than from the posting's own words, is fabricated: a mid-sized company's address does
    not imply "Mittelstand", a flat org chart does not imply "kurze Wege", a young
-   company does not imply "Startup-Kultur". This mirrors the extractor's own COMPANY
-   CULTURE SIGNALS rule (prompts/job_analysis.py) — this check is its reviewer-side
-   match, not a new standard.
+   company does not imply "Startup-Kultur".
 2. REQUIRED/NICE-TO-HAVE MISCLASSIFICATION: a skill the posting explicitly marks as
    optional/preferred/"a plus" listed under required_skills, or vice versa. When you ask
    for a level move, name the concept and the target level explicitly — the corrector
@@ -193,7 +190,7 @@ Check for these defects:
    scope entry ("mindestens 8 Jahre" as kind team_size) is fabricated-in-kind: instruct
    its removal — but never flag the ABSENCE of a scope entry for a vague magnitude with
    no stated number ("im dreistelligen Bereich"): omission is the correct handling there.
-2d. LEADERSHIP EMPHASIS GROUNDING (leadership_emphasis only, #271): when this field is
+2d. LEADERSHIP EMPHASIS GROUNDING (leadership_emphasis only): when this field is
    not null, its "quote" must appear in the source posting (allowing whitespace/
    line-break differences) and must be a sentence that actually names a PEOPLE-
    leadership responsibility (leading, line-managing, mentoring, growing a team). A
@@ -212,8 +209,7 @@ Check for these defects:
    dominance the posting never states is an overreach. Never flag a NULL
    leadership_emphasis: omission is the correct handling for a posting that does not
    mention leading people.
-2e. EDUCATION REQUIREMENT GROUNDING (education_requirement only; founder ruling B-2,
-   2026-09-20): when this field is not null, its wording must come from the posting's own
+2e. EDUCATION REQUIREMENT GROUNDING (education_requirement only): when this field is not null, its wording must come from the posting's own
    education sentence — the posting must actually state a formal education bar (a degree,
    a completed course of study, "Studium", "Abschluss", "Bachelor"/"Master", or an
    explicit equivalence clause). A value on a posting that names no education bar at all
@@ -271,7 +267,7 @@ most expensive mistake you can cause here.
 
 Keep `feedback` concise and *referential*: name the offending field and what is wrong.
 Do NOT quote or paste large passages of the posting — the corrector re-reads the source
-JD text itself (ADR-021 amended 2026-06-29)."""
+JD text itself."""
 
 
 def build_job_analysis_review_prompt(jd_text: str, extracted_json: dict) -> str:
@@ -379,7 +375,9 @@ def build_job_analysis_retry_prompt(
     posting to verify which items are actually grounded.
     """
     from applire.services.untrusted_text import fence
+    from applire.utils.language_detection import detect_language
 
+    lang = "German" if detect_language(source) == "de" else "English"
     # ADR-084 embedding point 4 (Form A): the corrector re-reads the posting by
     # design (ADR-021 amended / US194), so it meets the same untrusted text the
     # extractor and the reviewer did, and needs the same framing.
@@ -387,6 +385,8 @@ def build_job_analysis_retry_prompt(
         "A quality review of your previous job-description analysis identified the "
         "following issues. Patch the JSON to address every issue, re-reading the "
         "SOURCE JOB POSTING as the source of truth, and return the corrected object.\n\n"
+        f"POSTING LANGUAGE: {lang}. Keep required_skills, nice_to_have_skills, keywords and "
+        f"company_culture_signals in {lang}, in the posting's own words.\n\n"
         f"REVIEW FEEDBACK:\n{feedback}\n\n"
         f"{fence(source, header='SOURCE JOB POSTING (source of truth)')}\n\n"
         f"PREVIOUS EXTRACTION:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"

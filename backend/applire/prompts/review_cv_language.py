@@ -194,12 +194,43 @@ def build_cv_language_review_prompt(required_language: str, draft: dict) -> str:
         f"project bullets: {json.dumps(project_bullets, ensure_ascii=False)}\n"
         f"industry lines: {json.dumps(industry_lines, ensure_ascii=False)}\n"
         + (f"budget lines: {json.dumps(budget_lines, ensure_ascii=False)}\n" if budget_lines else "")
-        + f"skills: {json.dumps(skills, ensure_ascii=False)}\n\n"
+        + f"skills: {json.dumps(skills, ensure_ascii=False)}\n"
+        + _v2_field_lines(draft)
+        + "\n"
         f"Are the summary, every bullet (work and project), every industry and budget line and "
         f"every skill written "
         f"entirely in {required_language} (proper product/tool/company/project names "
         "excepted)? Respond with JSON only."
     )
+
+
+def _v2_field_lines(draft: dict) -> str:
+    """E068 / ADR-094 (CV pipeline v2 only): the vault-sourced description fields the v2
+    writer returns — fields of study and language rows — joined the language check.
+    A v1 draft carries none of them, so for v1 this is "" and the prompt is
+    byte-identical to what shipped (RULING R-3)."""
+    fields = [
+        e.get("field") for e in draft.get("education") or []
+        if isinstance(e, dict) and isinstance(e.get("field"), str) and e["field"].strip()
+    ]
+    langs = [
+        f"{l.get('language') or ''} · {l.get('level') or ''}".strip(" ·")
+        for l in draft.get("languages") or [] if isinstance(l, dict)
+    ]
+    out = ""
+    if fields:
+        out += f"education fields of study: {json.dumps(fields, ensure_ascii=False)}\n"
+    if langs:
+        out += f"language rows (name · level): {json.dumps(langs, ensure_ascii=False)}\n"
+    return out
+
+
+_V2_REFINE_NOTE = (
+    " Also translate each `education[].field` and each `languages[]` name and level "
+    "(translate the words only: keep every level code and qualifier the row states, never "
+    "add one it does not state); keep every `role`, `company`, `degree` and `institution` exactly "
+    "as it is."
+)
 
 
 def build_cv_language_refinement_prompt(
@@ -215,5 +246,7 @@ def build_cv_language_refinement_prompt(
         f"Reviewer feedback: {feedback}\n\n"
         f"Previous draft:\n{json.dumps(previous_draft, ensure_ascii=False, indent=2)}\n\n"
         f"Rewrite the summary, all bullets, and all skills into the required language{target}, "
-        "translating in place and preserving every fact. Output the corrected CV JSON only."
+        "translating in place and preserving every fact."
+        + (_V2_REFINE_NOTE if ("education" in previous_draft or "languages" in previous_draft) else "")
+        + " Output the corrected CV JSON only."
     )

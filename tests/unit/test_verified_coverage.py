@@ -105,7 +105,11 @@ class TestRenderVerifiedCoverageBlock:
         )
         low = block.lower()
         assert "edtech" in low
-        assert "educational games" in low          # evidence rides along for arbitration
+        # ADR-048 amended 2026-10-18 (DEL-5 (2)): the row's evidence is the gap
+        # analysis's summary, and this block calls itself ground truth — so the
+        # summary no longer rides along; the reviewer arbitrates on the source.
+        assert "educational games" not in low
+        assert "the candidate's own source" in low
         assert "verified" in low                   # deterministic, not an LLM guess
         assert "waive" in low                      # the reviewer's only coverage judgment
         assert "reject" in low or "approved" in low

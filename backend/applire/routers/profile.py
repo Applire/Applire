@@ -52,6 +52,7 @@ from applire.schemas.profile import (
     EnrichmentRecord,
     LinkedInImportRequest,
     MasterProfileResponse,
+    PhotoCrop,
     ProfileChangesResponse,
     ProfileHealthResponse,
     ProfileImportResponse,
@@ -92,7 +93,7 @@ from applire.services.profile import (
 )
 from applire.storage import get_storage
 from applire.storage.base import StorageProvider
-from applire.services.photo import delete_photo, get_photo_bytes, upload_photo
+from applire.services.photo import delete_photo, get_photo_bytes, set_photo_crop, upload_photo
 from applire.services.profile.reconcile.testimony_bridge import submit_testimony
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -576,6 +577,9 @@ async def upload_photo_endpoint(
     file: UploadFile,
     request: Request,
     consent: bool = Query(default=False, description="Must be True — GDPR Art. 9(2)(a) explicit consent"),
+    cx: float | None = Query(default=None, ge=0.0, le=1.0, description="#781 framing: crop centre x (fraction of width)"),
+    cy: float | None = Query(default=None, ge=0.0, le=1.0, description="#781 framing: crop centre y (fraction of height)"),
+    zoom: float | None = Query(default=None, ge=1.0, le=4.0, description="#781 framing: zoom (1 = largest 4:5 crop)"),
     db: AsyncSession = Depends(get_db),
     storage: StorageProvider = Depends(_get_storage),
     current_user: User = Depends(require_user),
@@ -585,6 +589,10 @@ async def upload_photo_endpoint(
     Accepted formats: JPEG, PNG, WebP. Max 5 MB.
     Photo is stored and photo_url is set in the Master Profile personal_info.
     Re-uploading replaces the existing photo and refreshes consent_at.
+
+    #781 (ruling F-2): the file is stored unmodified; ``cx``/``cy``/``zoom``
+    (all three or none) are the framing chosen for it in the adjuster. Without
+    them the new photo starts unframed.
     """
     user = current_user
     if not consent:
@@ -592,6 +600,13 @@ async def upload_photo_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Consent is required to store your photo (GDPR Art. 9).",
         )
+    given = [v is not None for v in (cx, cy, zoom)]
+    if any(given) and not all(given):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Send the framing as cx, cy and zoom together, or none of them.",
+        )
+    crop = PhotoCrop(cx=cx, cy=cy, zoom=zoom) if all(given) else None
     file_bytes = await file.read()
     content_type = file.content_type or "application/octet-stream"
     try:
@@ -601,11 +616,57 @@ async def upload_photo_endpoint(
             content_type=content_type,
             db=db,
             storage=storage,
+            crop=crop,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.put(
+    "/photo/crop",
+    status_code=status.HTTP_200_OK,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": PhotoCrop.model_json_schema()}},
+        }
+    },
+)
+async def set_photo_crop_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_user),
+) -> dict:
+    """#781 (ruling F-2) — store the framing of the photo on file.
+
+    The stored original is untouched; every CV template and the Word export
+    apply this framing at render, so re-framing is lossless and takes effect on
+    every document's next download. 404 when there is no photo to frame.
+
+    The body is validated here rather than by a typed parameter: JSON allows a
+    bare ``NaN``/``Infinity``, and the framework's 422 echoes the offending input,
+    which cannot be encoded back to JSON — the candidate got a 500 instead of a
+    422 (adversarial pass 2026-10-17). The 422 below names the rule, not the value.
+    """
+    try:
+        raw = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="The framing must be a JSON object.")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail="The framing must be a JSON object.")
+    try:
+        body = PhotoCrop.model_validate(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="The framing needs cx and cy between 0 and 1 and zoom between 1 and 4.",
+        )
+    try:
+        return await set_photo_crop(user_id=current_user.id, crop=body, db=db)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.delete("/photo", status_code=status.HTTP_204_NO_CONTENT)

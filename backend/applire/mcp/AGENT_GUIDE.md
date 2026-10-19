@@ -321,6 +321,13 @@ ever writes is flying blind.
     about the *profile*, not about a document. A `critical` here means the
     candidate's own data disagrees with itself — resolve it with the human
     before you generate anything from it.
+  - A `span_provenance` issue names a skill duration (`skill_name`,
+    `span_years`) stored as the candidate's own statement although nothing
+    they wrote states it, and what the role dates give (`recomputed_years`).
+    Ask the human whether they actually said that number. If they did not, send
+    the skills section back through `update_profile` with that skill's
+    `years_experience` set to `null`; Applire re-derives it from the role dates
+    and marks it as calculated.
 
 - `undo_last_merge` — restores the snapshot taken before the most recent merge.
   **Single-level and idempotent**: after one successful undo the chain is

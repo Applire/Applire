@@ -281,8 +281,9 @@ async def test_the_final_floor_round_runs_on_the_writer_budget(db, caplog):
 @pytest.mark.asyncio
 async def test_every_letter_review_and_refine_call_site_passes_the_budget(db):
     """The enumeration behind the three seam tests: no letter call site may be
-    left on ``review_and_refine``'s 4,096 default. A fourth call site added to
-    this module without the kwarg turns this red."""
+    left on ``review_and_refine``'s 4,096 default. (The v2 post-condense round is
+    review-only since RULING W3-3a and calls no corrector, so it is not a site.) A
+    fourth call site added to this module without the kwarg turns this red."""
     import ast
     from pathlib import Path
 

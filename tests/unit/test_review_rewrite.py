@@ -38,6 +38,14 @@ CASES = Path(__file__).resolve().parents[1] / "files" / "review_rewrite" / "case
 RECORD = SimpleNamespace(id=uuid.uuid4())
 
 
+@pytest.fixture(autouse=True)
+def _site_prompt_without_the_shared_context(monkeypatch):
+    """These tests pin the call site's own prompt, budget and routing; the shared
+    context (PROMPT_CONTEXT, default c) is applied and tested in prompts/preamble
+    (backend/tests/unit/test_prompt_context_arms.py)."""
+    monkeypatch.setenv("PROMPT_CONTEXT", "off")
+
+
 class StubProvider:
     """Answers each call from a list (or a callable of the prompt); records every call."""
 

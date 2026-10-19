@@ -237,8 +237,7 @@ def has_closing_paragraph(letter_data: dict | None) -> bool:
     this check but an earlier round's draft passed it, the earlier draft ships
     instead.
     """
-    body = (letter_data or {}).get("body") or {}
-    paragraphs = body.get("paragraphs") or []
+    paragraphs = _body_paragraphs(letter_data)
     if not paragraphs:
         return False
     last = paragraphs[-1] or ""
@@ -252,13 +251,46 @@ def has_closing_paragraph(letter_data: dict | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _body_paragraphs(letter_data: dict | None) -> list:
+    """The body's paragraphs, read defensively: a model reply with the wrong shape
+    (body missing, or body as a bare list — gate re-run 2026-10-18) is a fact to
+    count, never a crash. Strings only; nothing is rewritten."""
+    body = letter_data.get("body") if isinstance(letter_data, dict) else None
+    if isinstance(body, dict):
+        paragraphs = body.get("paragraphs")
+    elif isinstance(body, list):
+        paragraphs = body
+    else:
+        paragraphs = None
+    return [p for p in paragraphs if isinstance(p, str)] if isinstance(paragraphs, list) else []
+
+
+def letter_shape_ok(letter_data: object) -> bool:
+    """True iff a letter reply has the shape the pipeline stores and renders:
+    ``body`` an object whose ``paragraphs`` is a non-empty list of strings.
+
+    Structural only (ADR-062 cl. 1: a fact). A condense or corrector reply that
+    fails it goes to the site's existing handling — the condense keeps the composed
+    letter, the review loop keeps its last good draft — and never ends the run.
+    """
+    if not isinstance(letter_data, dict):
+        return False
+    body = letter_data.get("body")
+    if not isinstance(body, dict):
+        return False
+    paragraphs = body.get("paragraphs")
+    return (
+        isinstance(paragraphs, list)
+        and bool(paragraphs)
+        and all(isinstance(p, str) for p in paragraphs)
+    )
+
+
 def body_word_count(letter_data: dict | None) -> int:
     """The letter body's word count — THE single counter every word-budget check
     (floor and ceiling alike) must go through, so they can never disagree about
     what "the body's word count" means (wave-6 follow-up, charter run #6)."""
-    body = (letter_data or {}).get("body") or {}
-    paragraphs = body.get("paragraphs") or []
-    return sum(len((p or "").split()) for p in paragraphs)
+    return sum(len(p.split()) for p in _body_paragraphs(letter_data))
 
 
 def _render_word_floor_block(word_count: int, word_floor: int) -> str:

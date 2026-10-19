@@ -430,6 +430,72 @@ def _is_pure_denial_clause(text: str) -> bool:
     return True
 
 
+
+#: #701 (adversarial pass on the integrated tree, 2026-10-17) — the scope of a
+#: negation an identifier may sit in. Kept SEPARATE from ``_DENIAL_MARKERS``
+#: (the pre-existing whole-clause classifier, unchanged): these are WORD-
+#: bounded cues, and the identifier must sit in their scope, because a
+#: substring marker let "I have not only introduced ISO 13485 …" and "I did
+#: not stop at ISO 13485 …" exempt a fabricated standard.
+_ID_SEGMENT_SPLIT_RE = re.compile(
+    r"[;,]\s+|\s(?:but|however|yet|aber|jedoch|sondern|allerdings)\s", re.IGNORECASE
+)
+#: Phrases that contain a negation word but negate nothing — removed first.
+_ID_NON_NEGATION_RE = re.compile(
+    r"\b(?:not only|not just|not merely|not limited to|not least|"
+    r"(?:did|do|does|would|will) ?n[o']t stop (?:at|with)|didn't stop (?:at|with)|"
+    r"nicht nur|nicht bloß|nicht bloss|nicht zuletzt|nicht allein)\b",
+    re.IGNORECASE,
+)
+#: A negation cue BEFORE the identifier, within ~8 words of it.
+_ID_NEGATION_CUE_RE = re.compile(
+    r"\b(?:no|not|never|without|nor|lack|lacks|lacking|unfamiliar|"
+    r"haven't|hasn't|hadn't|don't|doesn't|didn't|"
+    r"kein|keine|keinen|keinem|keiner|keines|nicht|nie|niemals|ohne|weder)\b",
+    re.IGNORECASE,
+)
+#: German verb-final shape: the identifier first, then a closed denial phrase
+#: within ~6 words ("Mit ISO 13485 habe ich keine Erfahrung").
+_ID_TRAILING_DENIAL_RE = re.compile(
+    r"^(?:\S+\s+){0,6}?(?:keine (?:erfahrung|praxis|kenntnisse)|nicht (?:gearbeitet|vertraut)|"
+    r"nie (?:gearbeitet|eingesetzt)|no (?:experience|exposure)|not part of my)\b",
+    re.IGNORECASE,
+)
+_ID_CUE_WINDOW_WORDS = 8
+
+
+def named_in_denial_segment(text: str, digits: str) -> bool:
+    """True when the identifier ``digits`` sits inside the scope of a negation
+    in its own clause segment (#701, ADR-052 amended 2026-10-16).
+
+    The unmentioned-identifier rule must not accuse a candidate for the very
+    standard they disclaim — "I have no experience with ISO 13485, but I
+    introduced …", "not familiar with ISO 13485", "no hands-on exposure to
+    ISO 13485", "Without ISO 13485 experience", "Mit ISO 13485 habe ich keine
+    Erfahrung, aber …" — and must not let a non-negation that merely CONTAINS a
+    negation word exempt a fabricated one ("not only introduced ISO 13485",
+    "did not stop at ISO 13485"). Rule: within the identifier's segment
+    (``;``/``,`` and "but/aber/…" boundaries), after removing the closed list of
+    non-negating phrases, a word-bounded negation cue stands within ~8 words
+    BEFORE the identifier, or a closed denial phrase follows it within ~6
+    words (German verb-final). ADR-062: a FACT — token positions in a closed
+    vocabulary. Independent of :func:`_is_pure_denial_clause` by design.
+    """
+    normalized = _normalize_punct(text)
+    pattern = re.compile(rf"(?<!\d){re.escape(digits)}(?!\d)")
+    for segment in _ID_SEGMENT_SPLIT_RE.split(normalized):
+        hit = pattern.search(segment)
+        if hit is None:
+            continue
+        cleaned = _ID_NON_NEGATION_RE.sub(lambda m: " " * len(m.group(0)), segment)
+        before_words = cleaned[: hit.start()].split()[-_ID_CUE_WINDOW_WORDS:]
+        if _ID_NEGATION_CUE_RE.search(" ".join(before_words)):
+            return True
+        if _ID_TRAILING_DENIAL_RE.search(cleaned[hit.end():].lstrip()):
+            return True
+    return False
+
+
 # Clause boundaries: a semicolon, a comma followed by a coordinating
 # conjunction/preposition that typically introduces a bolted-on second fact
 # (EN+DE), or a spaced em/en-dash. The delimiter itself is consumed — it

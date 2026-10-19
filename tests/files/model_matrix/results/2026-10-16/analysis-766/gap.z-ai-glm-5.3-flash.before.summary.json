@@ -1,0 +1,133 @@
+{
+  "seam": "gap",
+  "overall": {
+    "runs": 12,
+    "errors": 7,
+    "error_rate": 0.583,
+    "mean_elapsed_s": 185.093,
+    "mean_calls": 2.167,
+    "mean_prompt_tokens": 22692.0,
+    "mean_completion_tokens": 41003.417,
+    "mean_n_ledger": 37.2,
+    "mean_n_clusters": 6.6,
+    "mean_concepts_jaccard_vs_reference": 0.939,
+    "mean_status_agreement_vs_reference": 0.822
+  },
+  "per_cell": {
+    "controlling_emma_de.same_de": {
+      "runs": 3,
+      "errors": 3,
+      "error_rate": 1.0,
+      "mean_elapsed_s": 209.347,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 22216.0,
+      "mean_completion_tokens": 49152.0,
+      "mean_n_ledger": null,
+      "mean_n_clusters": null,
+      "mean_concepts_jaccard_vs_reference": null,
+      "mean_status_agreement_vs_reference": null
+    },
+    "it_backend_daniel.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 150.697,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 16134.0,
+      "mean_completion_tokens": 16839.333,
+      "mean_n_ledger": 43.0,
+      "mean_n_clusters": 7.333,
+      "mean_concepts_jaccard_vs_reference": 0.956,
+      "mean_status_agreement_vs_reference": 0.829
+    },
+    "nursing_priya_relocator.same_en": {
+      "runs": 3,
+      "errors": 1,
+      "error_rate": 0.333,
+      "mean_elapsed_s": 181.833,
+      "mean_calls": 2.667,
+      "mean_prompt_tokens": 24160.0,
+      "mean_completion_tokens": 48870.333,
+      "mean_n_ledger": 28.5,
+      "mean_n_clusters": 5.5,
+      "mean_concepts_jaccard_vs_reference": 0.914,
+      "mean_status_agreement_vs_reference": 0.812
+    },
+    "operations_marcus_de.same_de": {
+      "runs": 3,
+      "errors": 3,
+      "error_rate": 1.0,
+      "mean_elapsed_s": 198.497,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 28258.0,
+      "mean_completion_tokens": 49152.0,
+      "mean_n_ledger": null,
+      "mean_n_clusters": null,
+      "mean_concepts_jaccard_vs_reference": null,
+      "mean_status_agreement_vs_reference": null
+    }
+  },
+  "usage": {
+    "calls": 26,
+    "prompt_tokens": 272304,
+    "completion_tokens": 492041
+  },
+  "meta": {
+    "seam": "gap",
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.3-flash",
+    "n": 3,
+    "cells": [
+      "controlling_emma_de.same_de",
+      "it_backend_daniel.same_en",
+      "nursing_priya_relocator.same_en",
+      "operations_marcus_de.same_de"
+    ],
+    "reasoning_arm": "off",
+    "wall_s": 1134.6,
+    "settings": {
+      "llm_provider": "openrouter",
+      "mistral_model": "mistral-small-latest",
+      "openrouter_model": "z-ai/glm-5.3-flash",
+      "requesty_model": "mistral/mistral-medium-3-5",
+      "anthropic_model": "claude-sonnet-4-6",
+      "openai_model": "gpt-4o",
+      "ollama_model": "llama3.2",
+      "llm_timeout": 180,
+      "llm_max_output_tokens": 0,
+      "llm_structured_output": "auto",
+      "openrouter_disable_thinking": true,
+      "openrouter_reasoning_effort": "",
+      "requesty_disable_thinking": true,
+      "requesty_reasoning_effort": ""
+    },
+    "schema_rejected": false,
+    "prompts": {
+      "gap_analysis": {
+        "sha256": "dbf1308ef9e4e5862f7e23e7910fddaafada8ba8b79a135b92fc296b530c253d",
+        "chars": 13594
+      },
+      "gap_clustering": {
+        "sha256": "3408db03224d57bad89ed9bf93c52def90beeab623c07a19a3aaaf466acfac83",
+        "chars": 1657
+      }
+    },
+    "max_calls": 300,
+    "skipped_for_budget": 0,
+    "llm_log": {
+      "calls": 17,
+      "errors": 7,
+      "by_stage": {
+        "None": 17
+      },
+      "error_kinds": {
+        "LLMTruncatedError: Model z-ai/glm-5.3-flash hit the token budget (stop_reason='length'); output is truncated. Raise max_tokens or reduce re": 7
+      }
+    }
+  },
+  "cost": {
+    "usd_from_tokens": 0.447836,
+    "price_in": 0.01836,
+    "price_out": 0.9
+  }
+}

@@ -822,3 +822,250 @@ def test_duplicate_class_is_the_founders_definition():
     from score.score_run import D_STRUCTURES
 
     assert D_STRUCTURES == {"skill~skill", "bullet~bullet"}
+
+
+def test_stale_absolute_fixture_dir_resolves_by_its_corpus_suffix(tmp_path):
+    """The harness records ``fixture_dir`` absolute (``run.py`` ``str(fx.dir)``). The
+    10-12 baseline was generated in a worktree that no longer exists, so a re-score
+    found no vault and silently skipped S and U (Hazelnut, R-0 calibration). A stale
+    absolute path resolves by its ``tests/files/quality_bench/<case>/<cell>`` suffix
+    against the bases."""
+    repo = tmp_path / "repo"
+    cell = repo / "tests" / "files" / "quality_bench" / "case_x" / "same_de"
+    cell.mkdir(parents=True)
+    (cell / "vault.json").write_text(json.dumps({"profile": {"name": "X"}}))
+    stale = "/gone/wt-old/tests/files/quality_bench/case_x/same_de"
+    fx = inputs.load_fixture({"fixture_dir": stale}, [repo])
+    assert fx.fixture_dir == cell and fx.vault == {"profile": {"name": "X"}}
+    assert not fx.warnings
+    # an absolute path with no corpus suffix still reports not-found
+    gone = inputs.load_fixture({"fixture_dir": "/gone/elsewhere/case_x"}, [repo])
+    assert gone.fixture_dir is None and gone.warnings
+
+
+def test_judge_model_per_class_override_routes_cache_and_instrument(tmp_path, monkeypatch):
+    """R-0 / W3-1 (Hazelnut): Haiku failed calibration on L and D, so a class can be
+    routed to another judge model (``JUDGE_MODEL_<CLASS>``) without touching the
+    prompts. The request, the cache key and the instrument descriptor carry the
+    model actually used per class."""
+    monkeypatch.setenv("JUDGE_MODEL_L", "big/sonnet")
+    monkeypatch.setenv("JUDGE_MODEL_D", "big/sonnet")
+    monkeypatch.delenv("JUDGE_MODEL_S", raising=False)
+    monkeypatch.delenv("JUDGE_MODEL_U", raising=False)
+    seen = []
+
+    def handler(req):
+        seen.append(json.loads(req.content)["model"])
+        return _ok('{"issues": []}', {"prompt_tokens": 100, "completion_tokens": 10})
+
+    c = _client(handler, tmp_path, model="small/haiku")
+    for cls in ("L", "D", "S", "U"):
+        c.complete_json("sys", f"usr-{cls}", cls=cls)
+    assert seen == ["big/sonnet", "big/sonnet", "small/haiku", "small/haiku"]
+    assert c.model_for("L") == "big/sonnet" and c.model_for("S") == "small/haiku" and c.model_for("") == "small/haiku"
+    assert c.descriptor == "small/haiku; D=big/sonnet; L=big/sonnet"
+    by_model = c.stats.snapshot()["by_model"]
+    assert by_model["big/sonnet"]["calls"] == 2 and by_model["small/haiku"]["prompt_tokens"] == 200
+    # the same prompt for a class routed elsewhere never hits the other model's cache
+    monkeypatch.delenv("JUDGE_MODEL_L")
+    c2 = _client(handler, tmp_path, model="small/haiku")
+    c2.complete_json("sys", "usr-L", cls="L")
+    assert seen[-1] == "small/haiku" and len(seen) == 5 and c2.descriptor == "small/haiku; D=big/sonnet"
+
+
+def test_score_run_instrument_names_the_routed_judge(tmp_path, fixture_dir):
+    rd = make_run(tmp_path / "out", fixture=fixture_dir)
+    fj = canned_judge()
+    fj.descriptor = "small/haiku; L=big/sonnet"
+    res = score_run(rd, fj, write=False)
+    assert res["instrument"]["judge_model"] == "small/haiku; L=big/sonnet"
+
+
+# --------------------------------------------------------------------------- #
+# US368 — page length vs budget, and the v1-vs-v2 gate
+# --------------------------------------------------------------------------- #
+
+gate_mod = _load("gate")
+
+
+def _set_pages(rd: Path, cv, letter, target=None):
+    (rd / "pages.json").write_text(json.dumps({"cv": cv, "letter": letter}))
+    (rd / "reports.json").write_text(json.dumps({"cv": {"target_pages": target}} if target else {}))
+
+
+def _judged(rd: Path, issues, judge="j/sonnet"):
+    _write_score(rd, issues)
+    sc = json.loads((rd / "score.json").read_text())
+    sc["instrument"] = {"judge_model": judge}
+    (rd / "score.json").write_text(json.dumps(sc))
+
+
+def test_page_length_against_the_products_budget(tmp_path):
+    from applire.norms import DEFAULT_REGION, REGION_NORMS
+
+    norm = REGION_NORMS[DEFAULT_REGION]
+    out = tmp_path / "out"
+    shapes = [(norm.cv_standard_pages, norm.letter_pages, None),          # on budget
+              (norm.cv_standard_pages + 1, norm.letter_pages + 1, None),  # both over
+              (3, norm.letter_pages, 3),                                  # 3 pages on a 3-page target: on budget
+              (None, None, None)]                                         # no browser: unmeasured
+    for i, (cv, le, tp) in enumerate(shapes):
+        rd = make_run(out, idx=i, with_log=False)
+        _write_score(rd, [])
+        _set_pages(rd, cv, le, tp)
+    rep = report_mod.build_report([str(out)])
+    pl = rep["arms"]["baseline"]["page_length"]
+    assert pl["cv"]["measured"] == 3 and pl["cv"]["unmeasured"] == 1 and pl["cv"]["over_budget"] == 1
+    assert pl["cv"]["budgets"] == {norm.cv_standard_pages: 2, 3: 1}
+    assert pl["cv"]["pct_over"] == pytest.approx(100 / 3) and pl["cv"]["pct_lo"] <= pl["cv"]["pct_over"] <= pl["cv"]["pct_hi"]
+    assert pl["letter"]["over_budget"] == 1 and pl["letter"]["pages_histogram"] == {str(norm.letter_pages): 2, str(norm.letter_pages + 1): 1}
+    md = report_mod.render_markdown(rep)
+    assert "Page length vs template budget" in md and "33.3 [" in md
+
+
+def _gate_corpus(out: Path, *, b_issues, b_judge="j/sonnet", b_failed=0, cells=("c1", "c2", "c3", "c4"), b_pages=None):
+    for c in cells:
+        for i in range(5):
+            rd = make_run(out, arm="v1", cell=c, idx=i, with_log=False)
+            _judged(rd, [_issue("L")] * 2 + [_issue("D")] * (i % 2) + [_issue("U")] * (i % 3))
+    for c in cells:
+        for i in range(5):
+            if i < b_failed:
+                make_run(out, arm="v2", cell=c, idx=i, status="failed", with_log=False)
+                continue
+            rd = make_run(out, arm="v2", cell=c, idx=i, with_log=False)
+            _judged(rd, b_issues(c, i), b_judge)
+            if b_pages:
+                _set_pages(rd, *b_pages)
+
+
+def test_gate_paired_cells_verdicts_and_trend(tmp_path):
+    out = tmp_path / "out"
+    # v2: L gone, D doubled-and-more, U untouched
+    _gate_corpus(out, b_issues=lambda c, i: [_issue("D")] * 3 + [_issue("U")] * (i % 3))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = {(r["metric"], r["doc"]): r for r in g["rows"]}
+    assert g["cells"]["paired"] == 4
+    assert row[("L", "all")]["verdict"] == "improved" and row[("L", "all")]["a"] == pytest.approx(100.0)
+    assert row[("D", "all")]["verdict"] == "regressed" and row[("D", "all")]["decisive"]
+    assert row[("U", "all")]["decisive"] is False                     # U is a trend (E066 ruling)
+    assert row[("failed_runs", "runs")]["verdict"] == "no difference"
+    assert g["mechanical_verdict"] == "regression" and "D:all" in g["regressed"] and "L:all" not in g["regressed"]
+    assert gate_mod.build_gate([str(out / "v1")], [str(out / "v2")]) == g          # deterministic
+    md = gate_mod.render_markdown(g)
+    assert "regressed" in md and "(trend)" in md
+
+
+def test_gate_counts_failed_runs_and_page_regressions(tmp_path):
+    out = tmp_path / "out"
+    # v2 cleaner on paper because 3 of 5 runs per cell failed — the failed-run row must regress
+    _gate_corpus(out, b_issues=lambda c, i: [], b_failed=3, b_pages=(5, 3))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = {(r["metric"], r["doc"]): r for r in g["rows"]}
+    assert row[("failed_runs", "runs")]["b"] == pytest.approx(60.0) and row[("failed_runs", "runs")]["verdict"] == "regressed"
+    assert row[("over_page_budget", "cv")]["b"] == pytest.approx(100.0) and row[("over_page_budget", "cv")]["verdict"] == "regressed"
+    assert {"failed_runs:runs", "over_page_budget:cv", "over_page_budget:letter"} <= set(g["regressed"])
+
+
+def test_gate_refuses_mixed_judges_and_reads_calibration(tmp_path):
+    out = tmp_path / "out"
+    _gate_corpus(out, b_issues=lambda c, i: [_issue("L")] * 2, b_judge="j/haiku", cells=("c1", "c2"))
+    with pytest.raises(gate_mod.GateError, match="different judge models"):
+        gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    assert gate_mod.main(["--a", str(out / "v1"), "--b", str(out / "v2"), "--out", str(tmp_path / "g")]) == 2
+    (tmp_path / "cal.json").write_text(json.dumps({"classes": {"D": {"trusted": False}}}))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")], allow_mixed_judge=True, calibration=str(tmp_path / "cal.json"))
+    assert g["judge_models"]["mixed_allowed"] is True and g["trend_classes"] == ["D", "U"]
+    assert gate_mod.main(["--a", str(out / "v1"), "--b", str(out / "v2"), "--allow-mixed-judge", "--out", str(tmp_path / "g")]) == 0
+    assert (tmp_path / "g" / "gate.md").exists()
+
+
+def test_gate_reports_unpaired_cells_outside_the_comparison(tmp_path):
+    out = tmp_path / "out"
+    _gate_corpus(out, b_issues=lambda c, i: [_issue("L")] * 2, cells=("c1", "c2"))
+    rd = make_run(out, arm="v2", cell="c9", idx=0, with_log=False)
+    _judged(rd, [_issue("S")] * 9)
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = {(r["metric"], r["doc"]): r for r in g["rows"]}
+    assert g["cells"]["only_b"] == ["luna|c9"] and row[("S", "all")]["b"] == pytest.approx(0.0)
+
+
+def test_gate_pairs_by_cell_so_between_cell_spread_cancels(tmp_path):
+    """A constant per-run shift on cells that differ wildly (0 vs 10 L issues per run)
+    must read as a sure difference: resampling the SAME cells for both arms cancels
+    the between-cell spread; independent cell draws would bury it."""
+    out = tmp_path / "out"
+    base = {"c1": 0, "c2": 0, "c3": 10, "c4": 10}
+    for c, n in base.items():
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False), [_issue("L")] * n)
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False), [_issue("L")] * (n + 1))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = next(r for r in g["rows"] if (r["metric"], r["doc"]) == ("L", "all"))
+    assert row["diff"] == pytest.approx(50.0) and row["lo"] == pytest.approx(50.0) and row["hi"] == pytest.approx(50.0)
+    assert row["verdict"] == "regressed"
+
+
+def test_gate_us368_criterion_in_both_readings(tmp_path):
+    out = tmp_path / "out"
+    # v2 better on L, D and S, U unchanged: passes in the diff reading
+    for c in ("c1", "c2", "c3", "c4", "c5", "c6"):
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False),
+                    [_issue("L")] * 3 + [_issue("D")] * 2 + [_issue("S")] * (2 + i % 2) + [_issue("U")])
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False),
+                    [_issue("L")] * (i % 2) + [_issue("S")] * (i % 2) + [_issue("U")])
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    assert g["us368"]["diff_ci"]["pass"] is True and g["us368"]["literal"]["pass"] is True
+    assert {"L better", "D better", "S better", "U no worse", "page length held (cv)", "page length held (letter)",
+            "failed runs no worse", "L no worse (letter)", "S no worse (cv)"} <= set(g["us368"]["diff_ci"]["checks"])
+    assert "D no worse (letter)" in g["us368"]["diff_ci"]["checks"]           # D is 0 = 0 in the letter, still checked
+    # D unchanged -> the criterion fails although nothing regressed
+    out2 = tmp_path / "out2"
+    for c in ("c1", "c2", "c3"):
+        for i in range(5):
+            _judged(make_run(out2, arm="v1", cell=c, idx=i, with_log=False), [_issue("L")] * 3 + [_issue("D")])
+            _judged(make_run(out2, arm="v2", cell=c, idx=i, with_log=False), [_issue("D")])
+    g2 = gate_mod.build_gate([str(out2 / "v1")], [str(out2 / "v2")])
+    assert g2["mechanical_verdict"] == "no regression" and g2["us368"]["diff_ci"]["pass"] is False
+    assert g2["us368"]["diff_ci"]["checks"]["L better"] is True and g2["us368"]["diff_ci"]["checks"]["D better"] is False
+    assert "US368 criterion" in gate_mod.render_markdown(g2)
+
+
+def test_gate_literal_reading_is_stricter_than_the_difference_interval(tmp_path):
+    """A small consistent improvement on spread-out cells: the paired difference
+    excludes zero, the arms' own intervals still overlap."""
+    out = tmp_path / "out"
+    for c, n in {"c1": 0, "c2": 2, "c3": 6, "c4": 10}.items():
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False), [_issue("L")] * (n + 1))
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False), [_issue("L")] * n)
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    row = next(r for r in g["rows"] if (r["metric"], r["doc"]) == ("L", "all"))
+    assert row["verdict"] == "improved" and row["arm_cis_overlap"] is True
+    assert g["us368"]["diff_ci"]["checks"]["L better"] is True and g["us368"]["literal"]["checks"]["L better"] is False
+
+
+def test_report_refuses_an_arm_diff_across_judge_instruments(tmp_path):
+    out = tmp_path / "out"
+    for i in range(3):
+        _judged(make_run(out, arm="baseline", idx=i, with_log=False), [_issue("L")] * 3, judge="j/sonnet")
+        _judged(make_run(out, arm="v2", idx=i, with_log=False), [_issue("L")], judge="j/haiku")
+    rep = report_mod.build_report([str(out)])
+    assert rep["arm_diffs"] == [] and rep["arm_diffs_refused"][0]["judge_b"] == ["j/haiku"]
+    assert "refused" in report_mod.render_markdown(rep)
+    assert report_mod.build_report([str(out)], allow_mixed_judge=True)["arm_diffs"]
+
+
+def test_gate_criterion_fails_when_a_cv_gain_hides_a_letter_loss(tmp_path):
+    out = tmp_path / "out"
+    for c in ("c1", "c2", "c3", "c4"):
+        for i in range(5):
+            _judged(make_run(out, arm="v1", cell=c, idx=i, with_log=False),
+                    [_issue("L", "cv")] * 6 + [_issue("D")] * 2 + [_issue("S")] * 2)
+            _judged(make_run(out, arm="v2", cell=c, idx=i, with_log=False),
+                    [_issue("L", "letter")] * 2 + [_issue("S", "letter")] * (i % 2))
+    g = gate_mod.build_gate([str(out / "v1")], [str(out / "v2")])
+    checks = g["us368"]["diff_ci"]["checks"]
+    assert checks["L better"] is True and checks["L no worse (letter)"] is False
+    assert g["us368"]["diff_ci"]["pass"] is False

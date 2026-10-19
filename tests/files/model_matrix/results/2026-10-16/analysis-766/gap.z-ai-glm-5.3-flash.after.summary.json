@@ -1,0 +1,134 @@
+{
+  "seam": "gap",
+  "overall": {
+    "runs": 12,
+    "errors": 11,
+    "error_rate": 0.917,
+    "mean_elapsed_s": 235.192,
+    "mean_calls": 1.833,
+    "mean_prompt_tokens": 22945.833,
+    "mean_completion_tokens": 41213.5,
+    "mean_n_ledger": 27.0,
+    "mean_n_clusters": 8.0,
+    "mean_concepts_jaccard_vs_reference": 0.929,
+    "mean_status_agreement_vs_reference": 0.885
+  },
+  "per_cell": {
+    "controlling_emma_de.same_de": {
+      "runs": 3,
+      "errors": 3,
+      "error_rate": 1.0,
+      "mean_elapsed_s": 225.487,
+      "mean_calls": 1.667,
+      "mean_prompt_tokens": 18420.0,
+      "mean_completion_tokens": 38229.333,
+      "mean_n_ledger": null,
+      "mean_n_clusters": null,
+      "mean_concepts_jaccard_vs_reference": null,
+      "mean_status_agreement_vs_reference": null
+    },
+    "it_backend_daniel.same_en": {
+      "runs": 3,
+      "errors": 3,
+      "error_rate": 1.0,
+      "mean_elapsed_s": 244.507,
+      "mean_calls": 2.0,
+      "mean_prompt_tokens": 30768.0,
+      "mean_completion_tokens": 49152.0,
+      "mean_n_ledger": null,
+      "mean_n_clusters": null,
+      "mean_concepts_jaccard_vs_reference": null,
+      "mean_status_agreement_vs_reference": null
+    },
+    "nursing_priya_relocator.same_en": {
+      "runs": 3,
+      "errors": 2,
+      "error_rate": 0.667,
+      "mean_elapsed_s": 208.33,
+      "mean_calls": 2.333,
+      "mean_prompt_tokens": 23831.333,
+      "mean_completion_tokens": 50166.0,
+      "mean_n_ledger": 27.0,
+      "mean_n_clusters": 8.0,
+      "mean_concepts_jaccard_vs_reference": 0.929,
+      "mean_status_agreement_vs_reference": 0.885
+    },
+    "operations_marcus_de.same_de": {
+      "runs": 3,
+      "errors": 3,
+      "error_rate": 1.0,
+      "mean_elapsed_s": 262.443,
+      "mean_calls": 1.333,
+      "mean_prompt_tokens": 18764.0,
+      "mean_completion_tokens": 27306.667,
+      "mean_n_ledger": null,
+      "mean_n_clusters": null,
+      "mean_concepts_jaccard_vs_reference": null,
+      "mean_status_agreement_vs_reference": null
+    }
+  },
+  "usage": {
+    "calls": 22,
+    "prompt_tokens": 275350,
+    "completion_tokens": 494562
+  },
+  "meta": {
+    "seam": "gap",
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.3-flash",
+    "n": 3,
+    "cells": [
+      "controlling_emma_de.same_de",
+      "it_backend_daniel.same_en",
+      "nursing_priya_relocator.same_en",
+      "operations_marcus_de.same_de"
+    ],
+    "reasoning_arm": "off",
+    "wall_s": 1523.0,
+    "settings": {
+      "llm_provider": "openrouter",
+      "mistral_model": "mistral-small-latest",
+      "openrouter_model": "z-ai/glm-5.3-flash",
+      "requesty_model": "mistral/mistral-medium-3-5",
+      "anthropic_model": "claude-sonnet-4-6",
+      "openai_model": "gpt-4o",
+      "ollama_model": "llama3.2",
+      "llm_timeout": 180,
+      "llm_max_output_tokens": 0,
+      "llm_structured_output": "auto",
+      "openrouter_disable_thinking": true,
+      "openrouter_reasoning_effort": "",
+      "requesty_disable_thinking": true,
+      "requesty_reasoning_effort": ""
+    },
+    "schema_rejected": false,
+    "prompts": {
+      "gap_analysis": {
+        "sha256": "98289c86d22254b18921bc7402fef2740ee262a3f89ab211125a9d335207880c",
+        "chars": 13385
+      },
+      "gap_clustering": {
+        "sha256": "3408db03224d57bad89ed9bf93c52def90beeab623c07a19a3aaaf466acfac83",
+        "chars": 1657
+      }
+    },
+    "max_calls": 300,
+    "skipped_for_budget": 0,
+    "llm_log": {
+      "calls": 13,
+      "errors": 11,
+      "by_stage": {
+        "None": 13
+      },
+      "error_kinds": {
+        "LLMTruncatedError: Model z-ai/glm-5.3-flash hit the token budget (stop_reason='length'); output is truncated. Raise max_tokens or reduce re": 8,
+        "LLMTimeoutError: OpenRouter call timed out after 180s": 3
+      }
+    }
+  },
+  "cost": {
+    "usd_from_tokens": 0.450161,
+    "price_in": 0.01836,
+    "price_out": 0.9
+  }
+}

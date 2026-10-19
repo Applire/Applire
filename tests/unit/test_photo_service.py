@@ -15,6 +15,17 @@ from tests.support.profile_factory import make_master_profile
 # Task 1 — StorageProvider.read()
 # ---------------------------------------------------------------------------
 
+def _real_jpeg() -> bytes:
+    """#781: uploads are now checked to BE the declared image type."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 10), (200, 180, 160)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
 @pytest.mark.asyncio
 async def test_local_storage_read_returns_saved_bytes():
     """read() returns exactly the bytes that were previously saved."""
@@ -143,7 +154,7 @@ async def test_upload_photo_stores_file_and_sets_photo_url(photo_db):
             from applire.services.photo import upload_photo
             result = await upload_photo(
                 user_id=user_id,
-                file_bytes=b"fake-jpeg",
+                file_bytes=_real_jpeg(),
                 content_type="image/jpeg",
                 db=photo_db,
                 storage=storage,

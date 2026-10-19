@@ -217,6 +217,25 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   own job, the employer and skill aliases as before. With reasoning ON the old
   prompt already showed 0/15 — the thinking setting must be stated on every
   measurement of this prompt. Records: ``Documents/Runs/Strawberry/build-2/fix-e2e3/runs/``.
+* **21,328 (Hazelnut F2, 2026-10-18, ruling R-11).** Rule 9 gains "A DENIAL
+  NAMES AN ITEM, NEVER MISSING EVIDENCE" with one contrast pair. Why: the
+  delivery run persisted five ``denied_concepts`` rows for sentences that only
+  withheld more detail ("Eine konkrete Investitionssumme dazu kann ich nicht
+  nennen"), which breaks ADR-059's contract (a denial records what the person
+  disclaimed). ADR-062 rules out a code gate on that judgement. The examples
+  are held out: no captured phrase is in the prompt. *Measured* on the 5
+  captured non-elaboration calls plus 4 controls (IFS/BRC ×2, a domain, a scope
+  of responsibility), n=3, reasoning OFF. Target calls emitting a denial:
+  ``gpt-5.6-luna`` 15/15 → 3/15 on the profiles as captured (all on one shape,
+  "Weitere eigene Digitalisierungsprojekte kann ich nicht nennen") and 1/15 with
+  the run's earlier spurious rows stripped from the profile; ``ministral-8b``
+  6/15 → 9/15 as captured, most of them echoes of the carried rows, and 1/15
+  stripped. Controls kept 12/12 on luna in both arms. ``ministral-8b`` keeps
+  every control except the scope one (#54), which it already dropped 3/3 on the
+  old prompt. No stated fact lost; one luna run answered ``already_known`` for
+  facts the profile already held. An item-free first wording (v1, "declining
+  more detail denies nothing") reached only 7/15 on luna and was not shipped.
+  Records: ``Documents/Runs/Hazelnut/build-1/h/evidence-F2-replay-*.md``.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault
@@ -488,6 +507,17 @@ Operations:
    manufacturing at A, at B and now at C" denies insulin and states three
    employers' worth of facts — encode all of them. Emitting no ops is right ONLY
    when the answer states no fact at all beyond what it denies.
+   A DENIAL NAMES AN ITEM, NEVER MISSING EVIDENCE. "denials" takes only an
+   item the person disclaims having or knowing: a skill, tool, standard,
+   certification, language, industry or domain, or a scope of responsibility
+   they have not held. A sentence that only withholds MORE evidence about what
+   they did state (no further example, project, figure, sum or detail: "mehr
+   kann ich dazu nicht sagen", "weitere Referenzen kann ich nicht nennen",
+   "eine genaue Zahl habe ich nicht", "I can't give another example") denies
+   nothing: put nothing in "denials" for it, and still record every fact the
+   rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
+   → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
+   → no denial.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a

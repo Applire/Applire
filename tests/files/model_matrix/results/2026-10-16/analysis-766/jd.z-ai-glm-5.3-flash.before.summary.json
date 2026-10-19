@@ -1,0 +1,166 @@
+{
+  "seam": "jd",
+  "overall": {
+    "runs": 12,
+    "errors": 1,
+    "error_rate": 0.083,
+    "mean_elapsed_s": 170.162,
+    "mean_calls": 3.333,
+    "mean_prompt_tokens": 15318.0,
+    "mean_completion_tokens": 28578.917,
+    "review_paths": {
+      "approved": 2,
+      "call_failed": 9
+    },
+    "review_exhausted_rate": 0.0,
+    "first_round_approved_rate": 0.091,
+    "mean_review_rounds": 0.273,
+    "role_title_rate": 1.0,
+    "mean_n_required": 15.455,
+    "mean_required_jaccard_vs_reference": 0.482
+  },
+  "per_cell": {
+    "controlling_emma_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 185.59,
+      "mean_calls": 3.667,
+      "mean_prompt_tokens": 16378.0,
+      "mean_completion_tokens": 27694.333,
+      "review_paths": {
+        "approved": 1,
+        "call_failed": 2
+      },
+      "review_exhausted_rate": 0.0,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 0.667,
+      "role_title_rate": 1.0,
+      "mean_n_required": 13.0,
+      "mean_required_jaccard_vs_reference": 0.437
+    },
+    "it_backend_daniel.same_en": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 78.777,
+      "mean_calls": 3.0,
+      "mean_prompt_tokens": 14264.667,
+      "mean_completion_tokens": 15671.667,
+      "review_paths": {
+        "call_failed": 3
+      },
+      "review_exhausted_rate": 0.0,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 0.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 18.333,
+      "mean_required_jaccard_vs_reference": 0.419
+    },
+    "nursing_priya_relocator.same_en": {
+      "runs": 3,
+      "errors": 1,
+      "error_rate": 0.333,
+      "mean_elapsed_s": 201.637,
+      "mean_calls": 2.667,
+      "mean_prompt_tokens": 11660.0,
+      "mean_completion_tokens": 24956.333,
+      "review_paths": {
+        "call_failed": 2
+      },
+      "review_exhausted_rate": 0.0,
+      "first_round_approved_rate": 0.0,
+      "mean_review_rounds": 0.0,
+      "role_title_rate": 1.0,
+      "mean_n_required": 9.0,
+      "mean_required_jaccard_vs_reference": 0.382
+    },
+    "operations_marcus_de.same_de": {
+      "runs": 3,
+      "errors": 0,
+      "error_rate": 0.0,
+      "mean_elapsed_s": 214.647,
+      "mean_calls": 4.0,
+      "mean_prompt_tokens": 18969.333,
+      "mean_completion_tokens": 45993.333,
+      "review_paths": {
+        "approved": 1,
+        "call_failed": 2
+      },
+      "review_exhausted_rate": 0.0,
+      "first_round_approved_rate": 0.333,
+      "mean_review_rounds": 0.333,
+      "role_title_rate": 1.0,
+      "mean_n_required": 19.333,
+      "mean_required_jaccard_vs_reference": 0.658
+    }
+  },
+  "usage": {
+    "calls": 40,
+    "prompt_tokens": 183816,
+    "completion_tokens": 342947
+  },
+  "meta": {
+    "seam": "jd",
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.3-flash",
+    "n": 3,
+    "cells": [
+      "controlling_emma_de.same_de",
+      "it_backend_daniel.same_en",
+      "nursing_priya_relocator.same_en",
+      "operations_marcus_de.same_de"
+    ],
+    "reasoning_arm": "off",
+    "wall_s": 1066.9,
+    "settings": {
+      "llm_provider": "openrouter",
+      "mistral_model": "mistral-small-latest",
+      "openrouter_model": "z-ai/glm-5.3-flash",
+      "requesty_model": "mistral/mistral-medium-3-5",
+      "anthropic_model": "claude-sonnet-4-6",
+      "openai_model": "gpt-4o",
+      "ollama_model": "llama3.2",
+      "llm_timeout": 180,
+      "llm_max_output_tokens": 0,
+      "llm_structured_output": "auto",
+      "openrouter_disable_thinking": true,
+      "openrouter_reasoning_effort": "",
+      "requesty_disable_thinking": true,
+      "requesty_reasoning_effort": ""
+    },
+    "schema_rejected": false,
+    "prompts": {
+      "job_analysis": {
+        "sha256": "c01ca7f3a51633eb713f71fc4c3abd1ae4818c3be0978cfa716a75fa07bcd478",
+        "chars": 12765
+      },
+      "job_analysis_refinement": {
+        "sha256": "56715bb183ad7bd7eebda00e64aba0ae2075b758ce04fc9b4338476deea61315",
+        "chars": 3611
+      },
+      "job_analysis_review": {
+        "sha256": "a48eeb40730ee00b2707dc5a95b1077f6b2710ad12aba1ed2d4575651db5bd79",
+        "chars": 15338
+      }
+    },
+    "max_calls": 300,
+    "skipped_for_budget": 0,
+    "llm_log": {
+      "calls": 25,
+      "errors": 10,
+      "by_stage": {
+        "job_analysis": 25
+      },
+      "error_kinds": {
+        "LLMTruncatedError: Model z-ai/glm-5.3-flash hit the token budget (stop_reason='length'); output is truncated. Raise max_tokens or reduce re": 9,
+        "LLMTimeoutError: OpenRouter call timed out after 180s": 1
+      }
+    }
+  },
+  "cost": {
+    "usd_from_tokens": 0.312027,
+    "price_in": 0.01836,
+    "price_out": 0.9
+  }
+}

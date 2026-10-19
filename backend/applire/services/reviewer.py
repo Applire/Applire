@@ -182,13 +182,29 @@ the full design rationale (audience-correct wording, why ``location``/``check`` 
 rendered, and the byte-identical-when-nothing-blocking guarantee). No change to
 ``generator_prompt_fn``'s signature; only the VALUE of its ``feedback`` argument gains a
 section on rounds that carry a blocking finding.
+
+Deterministic CHECKS (E068 / ADR-094 draft, 2026-10-16 — "the model writes, code
+checks"): ``checks_fn`` is the one transport by which deterministic code feeds a FACT
+about a draft into this loop, shared by every chain (ADR-066). It differs from the
+#542 ``signal_issues_fn`` on purpose, in three ways: (1) a check finding is blocking by
+construction and OPENS a corrector round even when the reviewer approved or raised only
+minor issues — a fact does not need a reviewer's agreement to be true; (2) the reviewer
+is SHOWN the open findings (``render_checks_block`` appended to its prompt), so the
+model seat and the code never contradict each other about one draft (ADR-062 cl. 4);
+(3) whatever is still open when the loop settles is REPORTED once through
+``on_checks_settle`` — the caller decides ship-and-report or block; this loop never
+edits the draft for a check. Findings stay out of ``last_issues`` and both measurement
+passes (their own ``REVIEW_CHECKS`` / ``REVIEW_CHECKS_OPEN`` lines), and a raising
+``checks_fn`` loses the finding, never the round. Bounded by the same ``max_retries``.
 """
 
 import json
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
+from applire.prompts import preamble as _prompt_context
 from applire.constants import REVIEW_VERDICT_MAX_TOKENS
 from applire.exceptions import LLMTimeoutError, LLMTruncatedError
 from applire.providers.llm.base import LLMProvider
@@ -218,6 +234,7 @@ from applire.services.review_compliance import (
     aggregate_by_signal_class,
     measure_corrector_compliance,
 )
+from applire.prompts.review_severity import SEVERITY_BLOCKING
 from applire.services.review_issues import (
     ReviewIssue,
     ReviewSettle,
@@ -227,6 +244,77 @@ from applire.services.review_issues import (
 from applire.services.signal_disposition import ExhaustionDisposition, get_signal_disposition
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CheckFinding:
+    """One deterministic FACT about a draft, fed into the review loop (E068 / ADR-094).
+
+    ``check`` is a stable id (``"cv.role_budget"``, ``"letter.language"``) — it is what
+    the settle report and the ``REVIEW_CHECKS`` lines count by. ``text`` is
+    corrector-facing: the fact, plus the remedy asked for ("3 bullets for w2, budget 2:
+    swap the weakest, do not add"). A finding is a fact by contract (ADR-062 cl. 1): a
+    count, a membership, a detected language, a page measure — never a reading of what
+    prose means. That contract is the caller's, declared at the check's definition.
+    """
+
+    check: str
+    text: str
+    #: False = ADVISORY: a fact whose consequence is a judgement (a candidate
+    #: duplicate pair — whether the two are one competence is the model's call,
+    #: ADR-076 cl. 4). It is shown to the reviewer and handed to the corrector when a
+    #: round runs, but it never opens a round by itself, so a finding the model rightly
+    #: declines cannot spin the loop to exhaustion (SF-WRITE.45).
+    blocking: bool = True
+
+    def as_issue(self) -> ReviewIssue:
+        if self.blocking:
+            return ReviewIssue(text=f"[{self.check}] {self.text}", severity=SEVERITY_BLOCKING)
+        return ReviewIssue(
+            text=f"[{self.check}] (judge it: act only if it holds) {self.text}",
+            severity=SEVERITY_BLOCKING,
+        )
+
+
+@dataclass(frozen=True)
+class ChecksSettle:
+    """What the checks said about the draft that SHIPS (one report per invocation).
+
+    ``path`` mirrors ``ReviewSettle.path`` (``None`` = the review layer did not run, so
+    the findings were evaluated but never acted on). ``evaluated`` is False only when
+    ``checks_fn`` raised on the settled draft — unknown, never "clean".
+    ``rounds_with_findings`` counts the reviewed rounds whose draft carried at least
+    one finding (the per-round compliance signal: a finding that survives the round
+    it was raised in was not implemented).
+    """
+
+    path: str | None
+    evaluated: bool
+    open_findings: tuple[CheckFinding, ...]
+    rounds_with_findings: int
+
+
+ChecksFn = Callable[[dict[str, Any]], Sequence[CheckFinding]]
+
+_CHECKS_HEADER = (
+    "CODE CHECKS — facts computed deterministically from THIS draft (not opinions). "
+    "Each non-advisory one is already raised as a blocking finding; you need not repeat "
+    "it, and do not contradict it. An advisory one is a fact whose consequence is your "
+    "judgement."
+)
+
+
+def render_checks_block(findings: Sequence[CheckFinding]) -> str:
+    """The reviewer-facing block for the open findings ("" when there are none, so a
+    clean draft's reviewer prompt is byte-identical to the no-checks prompt)."""
+    if not findings:
+        return ""
+    lines = [_CHECKS_HEADER]
+    lines += [
+        f"- [{f.check}] {f.text}" if f.blocking else f"- [{f.check}] (advisory — a fact for you to judge) {f.text}"
+        for f in findings
+    ]
+    return "\n".join(lines)
 
 
 async def review_and_refine(
@@ -251,6 +339,10 @@ async def review_and_refine(
     signal_ids: Sequence[str] | None = None,
     signal_issues_fn: Callable[[dict[str, Any]], Sequence[ReviewIssue]] | None = None,
     on_settle: Callable[[ReviewSettle], None] | None = None,
+    checks_fn: ChecksFn | None = None,
+    on_checks_settle: Callable[[ChecksSettle], None] | None = None,
+    generator_json_schema: dict[str, Any] | None = None,
+    draft_shape_ok: Callable[[dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """Run a reviewer-guided retry loop over an LLM generator output.
 
@@ -403,6 +495,24 @@ async def review_and_refine(
                   a raising hook is logged and swallowed, because ADR-021's "never
                   raises" contract must extend to reporting in the direction that loses
                   the report rather than the document. Default ``None`` is a no-op.
+        checks_fn: Optional (E068 / ADR-094 draft) DETERMINISTIC check source, called
+                  with the draft each round reviews and once more with the settled
+                  draft. Its ``CheckFinding``s are FACTS: a round whose draft carries
+                  one always runs the corrector (even after an approval or a
+                  minor-only verdict), the reviewer prompt gains
+                  ``render_checks_block(findings)``, and the findings reach the
+                  corrector through ADR-083 cl. 4's transport. Never an LLM call, never
+                  an edit; bounded by ``max_retries``. A raising ``checks_fn`` is logged
+                  and treated as "no findings" (the round is never lost). Default
+                  ``None`` reproduces today's behaviour bit-for-bit.
+        on_checks_settle: Optional report hook for ``checks_fn``: invoked exactly once
+                  with a ``ChecksSettle`` describing the findings still open on the
+                  draft that ships. The caller ships-and-reports or blocks on it; the
+                  loop never does either. A raising hook is logged and swallowed.
+        generator_json_schema: Optional (#767) OpenAI-style ``json_schema`` block for
+                  the corrector calls, passed as ``aparse_json(json_schema=…)``; a host
+                  that refuses it falls back to JSON mode on its own (#756). ``None``
+                  passes nothing — the call is byte-identical to before.
 
     Returns:
         The approved draft, or the last known-good draft if retries are exhausted, the
@@ -687,6 +797,57 @@ async def review_and_refine(
                 exc_info=True,
             )
 
+    # E068 / ADR-094: per-invocation check state — rounds whose draft carried a
+    # finding (the per-round compliance signal the settle report carries).
+    checks_cell: dict[str, Any] = {"rounds_with": 0}
+
+    def _run_checks(d: dict[str, Any]) -> list[CheckFinding] | None:
+        """``checks_fn`` over one draft; ``None`` = it raised (unknown, never clean)."""
+        if checks_fn is None:
+            return []
+        try:
+            return [f for f in checks_fn(d) if isinstance(f, CheckFinding)]
+        except Exception:
+            logger.error(
+                "review_and_refine: chain=%s checks_fn raised; continuing without "
+                "deterministic check findings (fail-safe: a lost finding ships what the "
+                "loop would have shipped anyway, never a lost round).",
+                chain_id,
+                exc_info=True,
+            )
+            return None
+
+    def _report_checks(settled: dict[str, Any], path: str | None) -> None:
+        if checks_fn is None:
+            return
+        found = _run_checks(settled)
+        report = ChecksSettle(
+            path=path,
+            evaluated=found is not None,
+            open_findings=tuple(found or ()),
+            rounds_with_findings=int(checks_cell["rounds_with"]),
+        )
+        logger.info(
+            "REVIEW_CHECKS_OPEN chain=%s path=%s evaluated=%s open=%d checks=%r",
+            chain_id,
+            path,
+            report.evaluated,
+            len(report.open_findings),
+            sorted({f.check for f in report.open_findings}),
+        )
+        if on_checks_settle is None:
+            return
+        try:
+            on_checks_settle(report)
+        except Exception:
+            logger.error(
+                "review_and_refine: chain=%s on_checks_settle raised on settle path=%s; "
+                "the document ships and the report is lost — never the other way round.",
+                chain_id,
+                path,
+                exc_info=True,
+            )
+
     def _settle(final: dict[str, Any], path: str | None = None) -> dict[str, Any]:
         """Apply the optional retention predicate(s), required-fields floor, and
         (#540) signal fallbacks to a draft this function is about to return.
@@ -710,6 +871,7 @@ async def review_and_refine(
             settled = _apply_signal_fallbacks(settled, path)
         # #563 (D): last, so the report describes the draft that actually ships.
         _report_settle(settled, path)
+        _report_checks(settled, path)
         return settled
 
     if max_retries <= 0:
@@ -734,9 +896,27 @@ async def review_and_refine(
             # #703 / adv-review finding 12: a demand round counts only once the
             # reviewer answers it (terminal_review_outcome's open-round hooks).
             reviewer_round_begins()
+            # E068 / ADR-094: the deterministic facts about THIS draft, computed before
+            # the reviewer reads it so both seats see the same findings.
+            findings = _run_checks(current_draft) or []
+            # Only a BLOCKING finding opens a round; an advisory one rides along.
+            opening = [f for f in findings if f.blocking]
+            if findings:
+                checks_cell["rounds_with"] += 1
+                logger.info(
+                    "REVIEW_CHECKS chain=%s attempt=%d raised=%d checks=%r",
+                    chain_id,
+                    attempt + 1,
+                    len(findings),
+                    [f.check for f in findings],
+                )
+            reviewer_prompt = reviewer_prompt_fn(source, current_draft)
+            checks_block = render_checks_block(findings)
+            if checks_block:
+                reviewer_prompt = f"{reviewer_prompt}\n\n{checks_block}"
             try:
-                review: dict = await provider.aparse_json(
-                    reviewer_prompt_fn(source, current_draft),
+                review: dict = await _prompt_context.aparse_json(
+                    provider, _prompt_context.loop_site(chain_id, "reviewer"), reviewer_prompt,
                     system=reviewer_system,
                     temperature=0.1,
                     max_tokens=reviewer_max_tokens,
@@ -803,10 +983,10 @@ async def review_and_refine(
                 chain_id, attempt + 1, raised=len(issues), survived=len(issues) - unsound
             )
 
-            if approved:
+            if approved and not opening:
                 return _settle(current_draft, path="approved")
 
-            if issues and not blocking:
+            if issues and not blocking and not opening:
                 # ADR-021 amended 2026-07-28: the writer runs again only for a
                 # BLOCKING issue. A round that rejected the draft over nothing but
                 # minor observations ships it instead — every rewrite is a memoryless
@@ -832,7 +1012,10 @@ async def review_and_refine(
                 )
                 return _settle(current_draft, path="minor_only")
 
-            feedback = review.get("feedback", "")
+            # An approval (or a minor-only verdict) reaches this point only because a
+            # check finding is open: the corrector then works from the findings, and
+            # the reviewer's prose — which approved the draft — is not handed over.
+            feedback = review.get("feedback", "") if (blocking or not issues) and not approved else ""
             logger.debug(
                 "review_and_refine attempt %d/%d rejected. Issues: %r",
                 attempt + 1,
@@ -848,6 +1031,10 @@ async def review_and_refine(
             # `feedback` unchanged, byte-identical. This is what actually
             # reaches `generator_prompt_fn` — `feedback` itself is untouched.
             corrector_feedback = fold_issues_into_feedback(feedback, issues)
+            if findings:
+                corrector_feedback = fold_issues_into_feedback(
+                    corrector_feedback, [f.as_issue() for f in findings]
+                )
 
             # #542 (ADR-076 clause 5): deterministic SIGNAL issues join the corrector's
             # feedback through the SAME transport, and only HERE — past the `approved`
@@ -906,13 +1093,17 @@ async def review_and_refine(
             draft_reviewed_this_round = current_draft
 
             set_review_call_meta("generator", attempt + 1)
+            schema_kwargs: dict[str, Any] = (
+                {"json_schema": generator_json_schema} if generator_json_schema else {}
+            )
             try:
-                current_draft = await provider.aparse_json(
-                    retry_prompt,
+                current_draft = await _prompt_context.aparse_json(
+                    provider, _prompt_context.loop_site(chain_id, "generator"), retry_prompt,
                     system=generator_system,
                     temperature=0.1,
                     max_tokens=generator_max_tokens,
                     disable_thinking=disable_thinking,
+                    **schema_kwargs,
                 )
             except (LLMTruncatedError, LLMTimeoutError) as exc:
                 # The refiner regenerates the document and can blow a small output cap.
@@ -944,6 +1135,18 @@ async def review_and_refine(
                     last_issues,
                 )
                 return _settle(current_draft, path="review_malformed")
+            if draft_shape_ok is not None and not draft_shape_ok(current_draft):
+                # Gate re-run 2026-10-18: a letter corrector returned `body` as a list and
+                # the next consumer crashed. Same fate as malformed JSON above: the draft
+                # that was reviewed this round (last known-good) ships; nothing is rewritten.
+                log_review_call_failed(chain_id, "generator", attempt + 1, "WrongShape")
+                logger.warning(
+                    "review_and_refine: chain=%s refiner returned a draft of the wrong shape "
+                    "on attempt %d; keeping last known-good draft",
+                    chain_id,
+                    attempt + 1,
+                )
+                return _settle(draft_reviewed_this_round, path="review_malformed")
 
             # #537 (ADR-076 clause 2, the floor): did the corrector's NEW draft
             # actually IMPLEMENT this round's blocking issues, not merely make

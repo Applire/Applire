@@ -91,6 +91,11 @@ PROMPT_EXCLUDED_METADATA_KEYS: frozenset[str] = frozenset(
 #: ``services/profile/health``) take it off the RAW JSON and are unaffected.
 PROMPT_EXCLUDED_TOP_LEVEL_KEYS: frozenset[str] = frozenset({"_meta"})
 
+#: `personal_info` keys no prompt view carries (#781, ruling F-2): the photo's
+#: framing geometry. `PersonalInfo` omits it from a dump while unset, so only a
+#: candidate who framed their photo ever had it to strip.
+PROMPT_EXCLUDED_PERSONAL_INFO_KEYS: frozenset[str] = frozenset({"photo_crop"})
+
 
 #: Keys stripped from EVERY level of an INCOMING (not-yet-vault) document view
 #: (#615, ADR-078 amended 2026-08-28, second face). These are extraction-minted
@@ -230,6 +235,15 @@ def prompt_profile_view(
             # Not a dict → nothing allowlistable can be extracted, and the
             # value is bookkeeping-shaped by position. Drop it.
             del view["metadata"]
+
+    # #781 (ruling F-2) — the photo's framing geometry is presentation the
+    # photo endpoints own, not testimony; no model reads it. Copied, never
+    # mutated: the caller's profile dict stays untouched.
+    personal_info = view.get("personal_info")
+    if isinstance(personal_info, dict) and PROMPT_EXCLUDED_PERSONAL_INFO_KEYS & personal_info.keys():
+        view["personal_info"] = {
+            k: v for k, v in personal_info.items() if k not in PROMPT_EXCLUDED_PERSONAL_INFO_KEYS
+        }
 
     if derived_spans == "hedge":
         view = _hedge_derived_spans(view)

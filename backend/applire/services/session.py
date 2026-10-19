@@ -1052,7 +1052,7 @@ async def _handle_interview_confirmation_answer(
 
     profile_record = await _load_profile(state["profile_id"], db)
     try:
-        await _apply_interview_confirmation(
+        applied = await _apply_interview_confirmation(
             db, profile_record, context, chosen, session_id=str(record.id),
             option_key=resolve_option_key(pending_conf, chosen),
             keyed=bool(pending_conf.get("option_keys")),
@@ -1097,9 +1097,17 @@ async def _handle_interview_confirmation_answer(
     # #353 — the SAME turn may have owed more than one confirmation. Promote the
     # next one from the queue and ask it instead of advancing: every question the
     # reconciler raised is answered by the candidate, none is dropped in silence.
+    # #763 (adversarial pass 2026-10-17) — this door answers the confirmation
+    # deterministically and never re-runs the reconciler, so a free-text answer
+    # that picked no option and wrote nothing used to advance with no receipt.
+    receipt = _confirmation_no_write_receipt(applied, chosen, options)
+
     queue = list(state.get("pending_interview_confirmation_queue") or [])
     if queue:
-        return await _ask_queued_confirmation(record, state, db, queue, current_idx, lang)
+        return _with_receipt(
+            await _ask_queued_confirmation(record, state, db, queue, current_idx, lang),
+            receipt,
+        )
     state.pop("pending_interview_confirmation_queue", None)
 
     current_gap = state["critical_gaps"][current_idx]
@@ -1108,7 +1116,41 @@ async def _handle_interview_confirmation_answer(
     state["questions_asked"] = state.get("questions_asked", 0) + 1
     record.questions_asked = state["questions_asked"]
 
-    return await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang)
+    return _with_receipt(
+        await _ask_or_complete_at(record, state, db, provider, current_idx + 1, lang),
+        receipt,
+    )
+
+
+def _confirmation_no_write_receipt(
+    applied: bool, chosen: str, options: list[str]
+) -> str | None:
+    """#763 — the no-write receipt for an answered interview confirmation.
+
+    The SAME predicate the reconciled turn uses (`witness.compute_no_write`,
+    read-only): nothing was written, and the answer states something positive.
+    One addition this door needs: an answer that IS one of the offered options
+    is a decision the candidate made ("keep the existing skills"), not a
+    statement that went missing — it never gets a receipt. No model ran here,
+    so there is no `empty_reason`: the fail-safe `no_write` copy applies.
+    """
+    if applied:
+        return None
+    norm = chosen.strip().casefold()
+    if any(norm == (o or "").strip().casefold() for o in options):
+        return None
+    from applire.services.profile.reconcile.interview_bridge import no_write_receipt_of
+    from applire.services.profile.reconcile.witness import compute_no_write
+
+    return no_write_receipt_of(compute_no_write(chosen, None))
+
+
+def _with_receipt(
+    response: SessionMessageResponse, receipt: str | None
+) -> SessionMessageResponse:
+    if receipt is None:
+        return response
+    return response.model_copy(update={"no_write_receipt": receipt})
 
 
 async def _resolve_conflict_safely(
@@ -1268,6 +1310,7 @@ async def _ask_confirmation(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
@@ -3163,6 +3206,7 @@ async def _ask_denial_probe(
         # #380: the probe is issued ON the denial turn — the caller must see
         # that the denial landed even though the session keeps asking.
         denial_recorded=turn.denial_recorded,
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089 — the agent door's status reads it
     )
 
@@ -3582,6 +3626,7 @@ async def send_message(
             conflict_summaries=conflict_summaries or None,
             changes_applied=turn.addressed,
             denial_recorded=turn.denial_recorded,
+            no_write_receipt=turn.no_write_receipt,  # #763
             cluster_coverage=cluster_coverage,
         )
 
@@ -3730,6 +3775,7 @@ async def send_message(
                 conflict_summaries=conflict_summaries or None,
                 changes_applied=turn.addressed,
                 denial_recorded=turn.denial_recorded,
+                no_write_receipt=turn.no_write_receipt,  # #763
                 cluster_coverage=cluster_coverage,
             )
 
@@ -3776,6 +3822,7 @@ async def send_message(
             # turn's fact — False is "no denial this turn", None is reserved
             # for responses with no reconciled turn behind them.
             denial_recorded=turn.denial_recorded,
+            no_write_receipt=turn.no_write_receipt,  # #763
             # ADR-089 — the same holds for `changes_applied` now that a turn
             # may be followed by a follow-up rather than a completion: the
             # agent door's addressed/partly_covered/no_change split reads it.
@@ -3830,6 +3877,7 @@ async def send_message(
             current_gap_id=_current_gap_id(state),
             addressed_gap_ids=list(state.get("addressed_gaps", [])),
             denial_recorded=turn.denial_recorded,  # #380
+            no_write_receipt=turn.no_write_receipt,  # #763
             changes_applied=turn.addressed,  # ADR-089
             cluster_coverage=cluster_coverage,
         )
@@ -3940,6 +3988,7 @@ async def _ask_no_change_retry(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,  # #380
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,  # ADR-089
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
@@ -4039,6 +4088,7 @@ async def _ask_partial_coverage_follow_up(
         current_gap_id=_current_gap_id(state),
         addressed_gap_ids=list(state.get("addressed_gaps", [])),
         denial_recorded=turn.denial_recorded,
+        no_write_receipt=turn.no_write_receipt,  # #763
         changes_applied=turn.addressed,
         cluster_coverage=cluster_coverage,
         follow_up_concepts=remaining,
@@ -4125,6 +4175,7 @@ async def _complete_session(
     changes_applied: bool | None = None,
     denial_recorded: bool | None = None,
     cluster_coverage: ClusterCoverage | None = None,
+    no_write_receipt: str | None = None,
 ) -> SessionMessageResponse:
     record.state = state
     record.status = "complete"
@@ -4271,6 +4322,9 @@ async def _complete_session(
         changes_applied=changes_applied,
         denial_recorded=denial_recorded,
         cluster_coverage=cluster_coverage,
+        # #763 — the terminal turn's no-write receipt rides the completion too
+        # (the ceiling-hit and gaps-resolved completions are reconciled turns).
+        no_write_receipt=no_write_receipt,
     )
 
 

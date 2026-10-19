@@ -1284,6 +1284,19 @@ _register_all(
             description="The cover letter's twin of CV_TERMINAL_REENTRY_MAX.",
         ),
         SettingEntry(
+            env_var="LETTER_PIPELINE",
+            source="constants",
+            default="v2",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            description=(
+                "v2 | v1. The cover-letter generation pipeline (ADR-094 clause L: the model "
+                "writes, code checks). v2 is the default; set v1 to go back to the 0.43 "
+                "letter pipeline while it is still shipped."
+            ),
+            notes="WP-W2, Hazelnut build 1; default flipped by ruling W3-7 (US368 gate re-run 5c2f056b).",
+        ),
+        SettingEntry(
             env_var="CV_LANGUAGE_REVIEW_MAX_RETRIES",
             source="constants",
             default="2",
@@ -1294,6 +1307,35 @@ _register_all(
                 "2, not 1: the language pass is the last writer in the pipeline and "
                 "carries the coverage gate, so its own output has to be reviewable."
             ),
+        ),
+        SettingEntry(
+            env_var="PROMPT_CONTEXT",
+            source="constants",
+            default="c",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            description=(
+                "c | a | b | off. v2 pipelines only (the default; under CV_PIPELINE=v1 or "
+                "LETTER_PIPELINE=v1 every prompt is unchanged). The context every generation and review "
+                "prompt carries (E068 US370): c = the pipeline preamble plus an analysis field the model "
+                "fills first, which is removed before anything is stored or shown; a = the "
+                "preamble alone; b = the preamble plus a primer turn; off = the prompts "
+                "without it. Set off if a small local model keeps returning broken JSON."
+            ),
+            notes="Hazelnut W3, rulings W3-6 = B and R-10 (v2 only). Read at call time by prompts/preamble.site_arm().",
+        ),
+        SettingEntry(
+            env_var="CV_PIPELINE",
+            source="constants",
+            default="v2",
+            section="Advanced tuning",
+            introduced_in="0.44.0",
+            description=(
+                "v2 | v1. The CV generation pipeline (E068 / ADR-094: the model writes, "
+                "code checks). v2 is the default; set v1 to go back to the 0.43 CV "
+                "pipeline while it is still shipped."
+            ),
+            notes="Hazelnut W1; default flipped by ruling W3-7 (US368 gate re-run 5c2f056b). Read at call time by services/cv_v2.cv_pipeline().",
         ),
         SettingEntry(
             env_var="CRITIC_ENABLED",

@@ -77,6 +77,7 @@ from applire.providers.llm.debug_log import llm_log_stage
 from applire.prompts.stance_adjudication import (
     STANCE_ADJUDICATION_SYSTEM_PROMPT,
     build_stance_adjudication_prompt,
+    render_interview_turn,
 )
 from applire.schemas.profile import (
     DeniedConcept,
@@ -599,6 +600,40 @@ def _raw_grounding_text(new_info: Any, source: str) -> str | None:
     return None
 
 
+def _testimony_texts(new_info: Any, source: str) -> tuple[str, str] | None:
+    """``(answer, adjudication_turn)`` for the testimony predicate; None
+    outside the interview doors.
+
+    ADR-061 amended 2026-10-18 (ruling DEL-5 (1)): testimony is the
+    candidate's ANSWER. On the built-in interview the gap label and the
+    question are Applire's words — they may give the adjudicator CONTEXT for
+    an answer that only says yes ("Ja, täglich"), but they can no longer
+    ground a token on their own. Delivery run 2: "Bei Investitionen war ich
+    beim MES-Projekt 2023 beteiligt" became a ``confirmed`` skill
+    "Investitionsplanung" because the QUESTION named it, and reached both
+    documents as an ownership claim. The deterministic accept therefore reads
+    the answer only, the adjudicator sees the turn split
+    (``render_interview_turn``), and the citation is verified against the
+    answer alone. The agent door was already answer-only (B3) and is
+    unchanged. Denial matching and story figure grounding keep the whole-turn
+    corpus of :func:`_grounding_corpus` — out of this amendment's scope.
+    """
+    if not isinstance(new_info, dict) or source not in ("interview", "agent_interview"):
+        return None
+    answer = new_info.get("answer")
+    answer = answer if isinstance(answer, str) else ""
+    if source == "agent_interview":
+        return answer, answer
+    gap = new_info.get("gap")
+    question = new_info.get("question")
+    turn = render_interview_turn(
+        gap=gap if isinstance(gap, str) else None,
+        question=question if isinstance(question, str) else None,
+        answer=answer,
+    )
+    return answer, turn
+
+
 def _grounding_corpus(new_info: Any, source: str) -> str | None:
     """Normalised grounding text for interview turns; None otherwise.
 
@@ -831,6 +866,7 @@ async def _testimony_status(
     corpus: str,
     raw_turn: str | None,
     provider: "LLMProvider | None",
+    citation_text: str | None = None,
 ) -> tuple[str, str | None]:
     """ADR-061 clause 2: resolve whether the candidate testified to ``token``.
 
@@ -840,6 +876,10 @@ async def _testimony_status(
     only a "yes" answer whose quote passes ``_citation_verified`` is trusted —
     every other outcome (no provider available, no turn text, "no", "unclear",
     an unverifiable quote, or a failed call) is ``unconfirmed``.
+
+    ``citation_text`` (default: ``raw_turn``) is the text the quote must come
+    from — the ANSWER on the built-in interview (ADR-061 amended 2026-10-18),
+    so a "yes" that quotes Applire's own question is rejected.
     """
     if _grounded(token, corpus):
         return "confirmed", None
@@ -849,7 +889,7 @@ async def _testimony_status(
     if verdict is None:
         return "unconfirmed", None
     answer, quote = verdict
-    if answer == "yes" and _citation_verified(quote, raw_turn):
+    if answer == "yes" and _citation_verified(quote, citation_text or raw_turn):
         return "confirmed", quote
     return "unconfirmed", (quote.strip() or None)
 
@@ -862,6 +902,7 @@ async def _resolve_token(
     corpus: str | None,
     raw_turn: str | None,
     provider: "LLMProvider | None",
+    testimony: tuple[str, str] | None = None,
 ) -> str:
     """One token's full stance verdict: ``"denied"``, ``"confirmed"``, or
     ``"unconfirmed"``. Denial (ADR-040) is checked first and always wins —
@@ -873,7 +914,15 @@ async def _resolve_token(
         return "denied"
     if corpus is None:
         return "confirmed"
-    status, _quote = await _testimony_status(token, kind, corpus, raw_turn, provider)
+    if testimony is None:
+        status, _quote = await _testimony_status(token, kind, corpus, raw_turn, provider)
+        return status
+    # ADR-061 amended 2026-10-18 (DEL-5 (1)): accept on the ANSWER, adjudicate
+    # over the split turn, cite from the ANSWER.
+    answer, turn = testimony
+    status, _quote = await _testimony_status(
+        token, kind, _norm(answer), turn, provider, citation_text=answer,
+    )
     return status
 
 
@@ -910,6 +959,7 @@ async def enforce_stance(
     """
     corpus = _grounding_corpus(new_info, source)
     raw_turn = _raw_grounding_text(new_info, source)
+    testimony = _testimony_texts(new_info, source)
 
     async def keep_token(token: str, kind: str) -> bool:
         """Binary gate for free-text token lists (AddBullets.technologies):
@@ -917,7 +967,7 @@ async def enforce_stance(
         carry it on); confirmed -> kept."""
         verdict = await _resolve_token(
             token, kind, denials=denials, corpus=corpus, raw_turn=raw_turn,
-            provider=provider,
+            provider=provider, testimony=testimony,
         )
         if verdict == "denied":
             logger.warning(
@@ -942,7 +992,7 @@ async def enforce_stance(
         both kept (ADR-061 clause 3 — the guard stops deleting testimony)."""
         verdict = await _resolve_token(
             token, kind, denials=denials, corpus=corpus, raw_turn=raw_turn,
-            provider=provider,
+            provider=provider, testimony=testimony,
         )
         if verdict == "denied":
             logger.warning(

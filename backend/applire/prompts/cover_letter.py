@@ -201,38 +201,162 @@ Rules:
     testimony means the candidate's CURRENT/former employer — in a letter addressed to the
     TARGET company those words read as the target. Name the employer instead. And never
     re-state content another paragraph of the letter already covers — one fact, one paragraph.
-- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075 amended 2026-09-20): when a STATED LIMITS
-  block appears in the user message, it holds the candidate's own words about what they
-  cannot claim, and they are the ONLY limits that exist.
+- STATED LIMITS — BOTH DIRECTIONS (#532, ADR-075 amended 2026-09-20): a STATED LIMITS block
+  holds the candidate's own words about what they cannot claim; no other limits exist.
   (a) CONSTRAINT: never write a claim one of them contradicts, and never invent a limit they
   do not state. A claim contradicts a statement when it asserts the CAPABILITY denied, not
-  only when it repeats the words — including where the Ledger marks that capability claimable
-  under another label, and including inside a system the candidate merely owns or manages,
-  because a reader credits the owner with the technology named (#731). Reform such a sentence
-  into a SCOPED CLAIM: the scope they DO own, the limited part attributed to whoever did it,
-  neither claimed nor flatly denied. A concept named inside one of those statements as
-  something the candidate DOES have is a STRENGTH — an honest denial names the adjacent
-  strengths that transfer — so claim it plainly and without qualification. Everything the
-  Keyword Ledger marks claimable stays fully claimable unless a stated limit denies it, and
-  never belongs in the honest-gap/transfer-argument paragraph.
-  (b) OBLIGATION: when a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block appears, its
-  entries are the concepts THIS posting asks about that the candidate has DENIED in their own
-  words, at ANY requirement tier. Each owes ONE positioning decision on the ranked ladder of
-  the next rule; either of its two higher rungs DISCHARGES the limit and needs no negation
-  beside it. Where the gap IS named: gap first, transferring strength second, in the SAME
-  SENTENCE, as their own statement says it ("no IFS/BRC experience, but ten years of ISO-9001
-  audit practice") — never a standalone negative, least of all right after a sentence stating
-  a strength (#732). ONE honest-gap paragraph, never a litany. This reaches ONLY what the
-  candidate said themselves — a requirement nobody asked them about is not a gap you may
-  assert on their behalf.
+  only its words — also where the Ledger marks it claimable under another label, and inside
+  a system the candidate merely owns or manages, because a reader credits the owner with the
+  technology named (#731). Reform such a sentence into a SCOPED CLAIM: the scope they DO own,
+  the limited part attributed to whoever did it, neither claimed nor flatly denied. A concept
+  a statement names as something the candidate DOES have is a STRENGTH: claim it plainly.
+  Everything the Ledger marks claimable stays claimable unless a stated limit denies it, and
+  never belongs in the honest-gap paragraph. A statement that only withholds detail ("kann
+  ich nicht nennen", no figure or example) is NOT a limit: use the detail it gives, never
+  write the withholding into the letter (DEL-1).
+  (b) OBLIGATION: a REQUIRED: STATED LIMITS THIS POSTING ASKS ABOUT block lists the concepts
+  THIS posting asks about that the candidate DENIED in their own words, at ANY requirement
+  tier. Each owes ONE positioning decision on the ranked ladder of the next rule; either
+  higher rung DISCHARGES the limit with no negation beside it. Where the gap IS named: gap first, transferring
+  strength second, in the SAME SENTENCE, as their statement says it ("no IFS/BRC experience,
+  but ten years of ISO-9001 audit practice") — never a standalone negative, least of all
+  right after a sentence stating a strength (#732). ONE honest-gap paragraph, never a litany.
 - EVERY UNMET JD HARD REQUIREMENT GETS A POSITIONING DECISION, AND THE THREE ARE RANKED
-  (#270, #732): take the HIGHEST rung TRUE of the candidate, never a lower one — (1) a scoped
-  claim at exactly the rung their material reaches; (2) a transfer argument where an adjacent
-  capability carries over (the paragraph above); (3) only where NEITHER holds, the gap named
-  plainly in (b)'s fused form. Rungs (1) and (2) DISCHARGE the requirement: a letter
-  delivering one owes no negation about it. Silence is still never an option; fold the
-  decision into the SAME paragraph.
+  (#270, #732): take the HIGHEST rung TRUE of the candidate — (1) a scoped claim at exactly
+  the rung their material reaches; (2) a transfer argument where an adjacent capability
+  carries over; (3) only where NEITHER holds AND their own recorded denial names it, the gap
+  named in (b)'s fused form. Rungs (1) and (2) DISCHARGE the requirement, with no negation. A requirement
+  lacked WITHOUT a recorded denial is de-emphasised: the letter LEAVES IT OUT, never a
+  sentence about what they cannot claim, name or prove (DEL-2).
 """
+
+
+# ── Letter pipeline v2 (ADR-094 clause L, US369 / #779) ─────────────────────
+# v1 (SYSTEM_PROMPT above) is untouched and byte-identical. v2 differs in exactly
+# three places, each measured on the 10-12 E066 baseline:
+#   1. The OPENER names the document language. v1 opens "writing a professional
+#      Bewerbungsschreiben (German cover letter)" and states the LANGUAGE rule
+#      forty lines later — a self-contradiction (prompt-first step 3). On
+#      ministral-8b 17 of 18 English-target letters were German from the writer's
+#      first draft on; the condense call, which reuses this system prompt, switched
+#      the 18th.
+#   2. The SCHEMA no longer asks for the code-owned fields (sender header,
+#      signature, date, sign-off): the weak tier invented a street address in 5/32
+#      letters and misspelled the candidate's name in 9/32. Code assembles them
+#      from the vault before the first review round (services/letter_v2).
+#   3. The candidate's own names (RULING W1-2, #709/#716): a recorded name or one
+#      of its recorded alternate forms, picked for the document language — never a
+#      free translation.
+
+_V2_OPENER = (
+    "You are an expert DACH career coach writing a cover letter whose document "
+    "language is {name}. Every sentence of the letter body is written in {name} — "
+    "whatever language the job description, the candidate profile, the testimony "
+    "or these instructions are written in.\n"
+    "Output ONLY a single valid JSON object. No markdown, no explanation, no prose "
+    "outside the JSON.\n"
+)
+
+_V2_SCHEMA = """
+The JSON must match this schema exactly:
+{
+  "recipient": {
+    "name": "string or null",
+    "title": "string or null",
+    "company": "string or null",
+    "address": "string or null"
+  },
+  "body": {
+    "paragraphs": ["salutation line (Anrede) — this paragraph alone, ending with a comma", "opening paragraph", "main paragraph 1", "main paragraph 2", "closing paragraph"]
+  }
+}
+The sender's name, address, phone and email, the date and the sign-off are filled in by the
+system from the candidate's own record — do not output them.
+"""
+
+_V1_TITLES_RULE_TAIL = (
+    "  for the position it is listed under. A title is a name — copy it exactly; never\n"
+    "  translate, shorten, generalise, upgrade or downgrade it (where the profile records two,\n"
+    "  \"Fertigungsmeister / Schichtleiter\", the whole string or one of its named halves is\n"
+    "  correct)."
+)
+
+#: F1 (Hazelnut delivery run, 2026-10-18): handed the corrector's COVERAGE ALREADY
+#: ACHIEVED block ("MUST still contain every one", 17 terms) plus a word target, the v2
+#: condense moved every term into one list in the closing. Replay of the logged
+#: condense (Luna, 6 + 6): that block 4/6 closings with >= 8 terms; the same block plus
+#: a placement rule 3/6; THIS soft list 0/6, 6/6 on one page, 17-18 of 19 terms kept.
+_V2_RETAINED_TERMS_PLACEMENT = (
+    "Keep a term only where it sits inside a sentence that carries its evidence (the "
+    "employer, the action, the result). Never gather terms into a list or an enumeration, "
+    "and never move them into the closing paragraph; if a term loses its sentence while "
+    "shortening, drop the term."
+)
+
+
+def render_condense_retained_terms(concepts: list[str]) -> str:
+    """The v2 condense's view of the coverage it already has (c53686b6, reworded for
+    F1): the terms as a SOFT, code-scanned list plus the placement rule — never the
+    corrector's "must still contain every one" block. "" when there are none."""
+    concepts = [c for c in concepts if isinstance(c, str) and c.strip()]
+    if not concepts:
+        return ""
+    return (
+        "JOB-POSTING TERMS ALREADY IN THIS LETTER (code scan): " + ", ".join(concepts)
+        + ".\n" + _V2_RETAINED_TERMS_PLACEMENT
+    )
+
+
+#: F1: the closing is a call to action (writer + corrector, v2 only).
+V2_CLOSING_RULE = (
+    "The closing paragraph is a short call to action (interest in a conversation, "
+    "availability if given) — never a list of skills, tools or job-posting terms."
+)
+
+_V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
+#: Hazelnut adversarial re-run + W3-3 arm (2026-10-17): ministral wrote a recorded 99.9 %
+#: availability TARGET as achieved ("achieving 99.9 %", "sicherte eine 99,9%-Verfügbarkeit")
+#: in 5 of 9 v2 mentions (v1 letters: 0 of 5). Prompt-first; v2 only.
+_V2_TARGET_RULE = (
+    "  * A target, goal, SLO, plan or forecast the candidate data records stays a target in the\n"
+    "    letter (\"with a 99.9 % availability target\") — never write it as achieved, ensured,\n"
+    "    maintained or delivered unless the candidate data states that result.\n"
+)
+
+_V2_TITLES_RULE_TAIL = (
+    "  for the position it is listed under — or one of that position's recorded alternate\n"
+    "  forms (the RECORDED NAME FORMS block, when present), choosing the form written in the\n"
+    "  document language where one exists. A title is a name — copy the chosen form exactly;\n"
+    "  never translate, shorten, generalise, upgrade or downgrade it yourself (where the profile\n"
+    "  records two, \"Fertigungsmeister / Schichtleiter\", the whole string or one of its named\n"
+    "  halves is correct). The same holds for employer, institution and degree names."
+)
+
+
+def _v1_rules() -> str:
+    head, sep, rules = SYSTEM_PROMPT.partition("\nRules:\n")
+    assert sep, "SYSTEM_PROMPT lost its 'Rules:' header"
+    return sep.lstrip("\n") + rules
+
+
+def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
+    """The letter writer's system prompt for ``pipeline`` and the document language.
+
+    ``v1`` returns :data:`SYSTEM_PROMPT` itself, unchanged, for every language.
+    ``v2`` = the language-stating opener + the code-owned-field schema + v1's rules
+    with the titles rule widened to the recorded alternate forms (W1-2). The
+    condense calls use this same prompt (``services/cover_letter._condense_call``)."""
+    if pipeline != "v2":
+        return SYSTEM_PROMPT
+    from applire.services.letter_v2 import language_name
+
+    rules = _v1_rules()
+    assert _V1_TITLES_RULE_TAIL in rules, "the titles rule moved — re-anchor _V1_TITLES_RULE_TAIL"
+    rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
+    assert _V1_OVERSTATE_ANCHOR in rules, "the overstate rule moved — re-anchor _V1_OVERSTATE_ANCHOR"
+    rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
+    rules = rules + "\n- " + V2_CLOSING_RULE + "\n"
+    return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 
 def build_cover_letter_prompt(
@@ -253,6 +377,7 @@ def build_cover_letter_prompt(
     vault_evidence_block: str | None = None,
     scope_positioning_block: str | None = None,
     pinned_facts_block: str | None = None,
+    recorded_name_forms_block: str | None = None,
 ) -> str:
     """Build the user-turn prompt for the LLM.
 
@@ -301,8 +426,8 @@ def build_cover_letter_prompt(
     unaddressed_requirements_block: rendered UNADDRESSED HARD REQUIREMENTS text (#270(c),
         :func:`applire.services.cross_document.render_unaddressed_hard_requirements_block`,
         called with ``letter_data=None`` since no draft exists yet) — JD hard-requirement
-        honest gaps the first draft must give an explicit positioning decision to (a
-        transfer argument or a brief de-emphasis), never silence. Optional so legacy/
+        honest gaps. Since founder ruling DEL-2 (2026-10-18) de-emphasis means leaving the
+        requirement out; a lack is stated only where a recorded denial names it. Optional so legacy/
         degraded callers do not break; omitted/empty → adds nothing.
     vault_evidence_block: rendered STRONGEST VAULT EVIDENCE text (#271,
         :func:`applire.services.vault_evidence.render_vault_evidence_block`) — the
@@ -362,6 +487,12 @@ def build_cover_letter_prompt(
         "Recent experience:",
         work_snippet.strip(),
     ]
+    # ADR-094 clause L6 / RULING W1-2 + W2-3 (#709/#716 letter half): the
+    # candidate's recorded alternate names, beside the profile they belong to.
+    # Passed by the v2 pipeline only, and rendered only when the vault records an
+    # alias at all — on v1, and on a vault without aliases, the prompt is unchanged.
+    if recorded_name_forms_block:
+        lines += ["", recorded_name_forms_block]
 
     # #177 / ADR-051 §6 amended: feedforward body-word budget from REGION_NORMS —
     # the CV's guarantee shape, extended to letters. Placed before the JD block so
@@ -449,8 +580,8 @@ def build_cover_letter_prompt(
         lines += ["", required_limits_block]
 
     # #270(c): unmet JD hard requirements (claimable: false, "required") that
-    # need an explicit positioning decision (transfer argument or a brief,
-    # honest de-emphasis) — never silence. Threaded ONLY when genuinely found
+    # the writer must weigh; de-emphasis = leaving the requirement out (DEL-2,
+    # 2026-10-18), a lack is stated only for a recorded denial. Threaded ONLY when genuinely found
     # (services.cross_document.find_unaddressed_hard_requirements); absent →
     # adds nothing.
     if unaddressed_requirements_block:
@@ -582,9 +713,17 @@ LETTER_REQUIRED_CONTENT: tuple[str, ...] = (
 )
 
 
+def _language_name(language: str) -> str:
+    from applire.services.letter_v2 import language_name
+
+    return language_name(language)
+
+
 def build_condense_prompt(
     letter_data: dict[str, Any], word_budget: int, page_count: int, letter_pages: int,
     pinned_quotes: list[str] | None = None,
+    language: str | None = None,
+    retained_terms_block: str | None = None,
 ) -> str:
     """One bounded condense-regenerate (#177, ADR-051 §6 amended): same JSON shape,
     same facts, fewer words. Omission-only in spirit — nothing new is claimed.
@@ -615,7 +754,15 @@ def build_condense_prompt(
         f"The following cover letter rendered to {page_count} pages; "
         f"it must fit on {letter_pages} {page_word}.",
         f"Rewrite it to AT MOST {word_budget} words of body text.",
-        "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        *([
+            # ADR-094 clause L3 (v2 only): the language is NAMED. "The same
+            # language" let the 10-12 weak-tier condense switch an English letter
+            # to German (it ran on the German-opening writer system prompt).
+            "Keep the same JSON structure, tone, recipient and factual claims. "
+            f"Write every sentence in {_language_name(language)}."
+        ] if language else [
+            "Keep the same JSON structure, the same language, tone, recipient and factual claims.",
+        ]),
         "Shorten by cutting redundancy and secondary detail — NEVER add new facts,",
         "achievements, or claims that are not in the original letter.",
         "",
@@ -631,8 +778,21 @@ def build_condense_prompt(
             "must remain stated (verbatim in substance): "
             + "; ".join(f'"{q}"' for q in pinned_quotes)
         ] if pinned_quotes else []),
+        *([
+            # ADR-094 clause L3 (v2, adversarial probe B 2026-10-17): every fact stays
+            # with the employer it is stated under. A merged paragraph that later
+            # gained a fact "after" the second employer's name delivered a Cargonaut
+            # migration under Finleap.
+            "- Every achievement, figure and technology stays in a sentence of the "
+            "employer it is stated under now. Never move a fact to another employer's "
+            "sentence or after another employer's name."
+        ] if language else []),
         "If the budget is tight, compress each of these to its shortest honest form — "
         "do not delete any of them outright to make the count.",
+        # v2: the corrector's own coverage-retention block (#306, one implementation)
+        # — a term the condense drops is re-demanded by the review round right after,
+        # and the corrector re-inserting it is where probe B's fact changed employer.
+        *(["", retained_terms_block] if retained_terms_block else []),
         "",
         "=== CURRENT LETTER (JSON) ===",
         json.dumps(letter_data, ensure_ascii=False, indent=2),

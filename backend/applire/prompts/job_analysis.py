@@ -108,9 +108,9 @@ Schema:
   "keywords": ["ATS-relevant keywords and domain terms from the JD"],
   "seniority_level": "one of: Junior, Mid, Senior, Lead, Executive — or null when the posting grounds no tier (see SENIORITY LEVEL below)",
   "company_culture_signals": ["cultural values and work-style signals the posting ITSELF states — see COMPANY CULTURE SIGNALS below"],
-  "language_requirement": "primary language required, e.g. 'German (C1)', 'English (B2)', 'Bilingual DE/EN'",
+  "language_requirement": "the posting's own wording of its language demand, e.g. 'Sehr gutes Deutsch und gutes Englisch', 'German (C1)' — never add a CEFR level the posting does not state",
   "education_requirement": "string or null — the posting's own wording of a formal education bar (see EDUCATION REQUIREMENT below); null when it states none",
-  "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4- or 5-digit code; null if unsure",
+  "berufsbild_code": "string or null — KldB 2020 classification code (BA-Klassifikation der Berufe 2020); use the most specific matching 4-digit code, or the 3-digit code when no 4-digit one fits; null if unsure",
   "berufsbild_label": "string or null — German occupation label from KldB 2020 corresponding to berufsbild_code; null if berufsbild_code is null",
   "scope_requirements": [
     {
@@ -132,8 +132,7 @@ FIELD SHAPE — required_skills / nice_to_have_skills / keywords:
 Every entry in these three lists is a short, matchable CONCEPT TERM — a technology,
 tool, capability, or domain (typically 1-4 words). It is NEVER a full sentence, a
 bullet quotation, or a requirement phrase copied verbatim out of the posting. These
-terms are matched LITERALLY against a candidate's CV/letter text downstream (the
-keyword ledger, ADR-048) — a concept noun like "Embeddings" can match real document
+terms are matched LITERALLY against a candidate's CV/letter text downstream — a concept noun like "Embeddings" can match real document
 text, but a sentence like "Production experience with RAG, embeddings, ranking and
 retrieval pipelines" matches nothing and silently breaks that downstream matching.
 Good (concept term): "Embeddings", "RAG pipelines", "AI evaluation", "Technical leadership".
@@ -196,7 +195,7 @@ entry. Emit an empty array when the posting states no quantified scope bar.
 WHAT THE KINDS MEAN — team_size counts PEOPLE (Mitarbeitende, direct reports, FTE);
 budget is a MONETARY amount. A DURATION is never a scope bar of any kind: "mindestens
 8 Jahre Führungserfahrung" is a years requirement, not a team size — years/tenure bars
-must NOT appear in scope_requirements at all (they are handled elsewhere).
+must NOT appear in scope_requirements at all.
 
 LEADERSHIP EMPHASIS (how the posting weighs leading PEOPLE against doing the work):
 Set "leadership_emphasis" to null unless the posting itself names a people-leadership
@@ -248,15 +247,14 @@ Führung", "remote-first", "Du-Kultur"), a work-style it describes ("Mehrschicht
 "flache Hierarchien"). Do NOT infer a culture label from something else the posting
 happens to be: "Mittelstand" is not implied by a mid-sized company's address, "kurze
 Wege" is not implied by a flat org chart, "Startup-Kultur" is not implied by a young
-company. Both of those were measured being emitted and then flagged as ungrounded by the
-reviewer, which spends a whole correction round on a field nothing required. An empty
+company. An empty
 array is the correct answer for a posting that describes no culture.
 
 OUTPUT LANGUAGE: emit "required_skills", "nice_to_have_skills", "keywords" and
 "company_culture_signals" in the posting's own language, in the posting's own words —
 never translated, never two languages in one analysis. The user prompt states which
-language that is. These terms are matched LITERALLY against the candidate's documents
-(the keyword ledger, ADR-048), which follow the posting's language, so a translated term
+language that is. These terms are matched LITERALLY against the candidate's documents,
+which follow the posting's language, so a translated term
 matches nothing. The controlled vocabularies are NOT affected and stay English in every
 posting: "seniority_level", "scope_requirements[].kind"/"comparator"/"level",
 "leadership_emphasis.emphasis". "quote" fields are verbatim, so they follow by

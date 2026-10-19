@@ -1732,12 +1732,21 @@ def render_verified_coverage_block(
             "this round. Demand every term on it and no other — do not add a coverage "
             "demand for a term the list does not carry."
         )
-    lines = [head, items_note("concept terms, surface forms and evidence quotes")]
+    lines = [head, items_note("concept terms and surface forms")]
     any_owner = False
     for entry in entries:
         forms = ", ".join(entry.get("surface_forms") or [entry.get("concept", "")])
-        evidence = entry.get("evidence", "")
-        line = f"  - {entry.get('concept', '')} [forms: {forms}] — profile evidence: {evidence}"
+        # ADR-048 amended 2026-10-18 (ruling DEL-5 (2)): no evidence string here.
+        # A row's `evidence` is the gap analysis's own `reason` — the classifier's
+        # summary of the profile, not a quote — and this block calls itself
+        # "ground truth". Delivery run 2: the summary said "14 Jahre
+        # Führungserfahrung in der Produktion" for a vault that says "14 Jahren
+        # Erfahrung in der diskreten Fertigung"; the letter reviewer demanded
+        # "14 years of production leadership" and the corrector wrote it in.
+        # Replay of that reviewer call: the demand carried the figure 3/3 as
+        # captured, 4/5 with the summary labelled as a summary, 0/5 without it.
+        # The reviewer has the source; the demand needs the term and its owner.
+        line = f"  - {entry.get('concept', '')} [forms: {forms}]"
         # #525: the demand names the position that OWNS the term. Without it, a
         # corrector obeying "surface SAP MM" welded it onto the wrong employer
         # and every downstream check passed (2026-08-11). Deterministic vault
@@ -1763,8 +1772,8 @@ def render_verified_coverage_block(
         "",
         "You MUST set approved=false while any term above remains both absent and "
         "un-waived, and name the terms in your issues so the writer surfaces them from "
-        "the profile evidence given. EXCEPTION — the grounding waiver: if surfacing a "
-        "term would stretch beyond its stated evidence, WAIVE it instead (name the term "
+        "the candidate's own source. EXCEPTION — the grounding waiver: if surfacing a "
+        "term would stretch beyond what that source states, WAIVE it instead (name the term "
         "and the reason in your feedback); a waived term does not block approval. "
         "Grounding strictly outranks coverage — never ask the writer to fabricate.",
     ]

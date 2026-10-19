@@ -237,6 +237,19 @@ def settings_snapshot() -> dict[str, Any]:
 
     snap: dict[str, Any] = {k: getattr(settings, k, None) for k in _SETTINGS_SNAPSHOT}
     snap.update({k: getattr(constants, k, None) for k in _CONSTANTS_SNAPSHOT})
+    # US368: an arm is only readable with the pipeline switches it ran under
+    # (CV_PIPELINE and the letter's own switch, E068) — every *_PIPELINE value the
+    # process saw, from the environment and from the settings singleton.
+    for name, value in sorted(os.environ.items()):
+        if name.endswith("_PIPELINE") or name == "PROMPT_CONTEXT":
+            snap[name] = value
+    if os.environ.get("PROMPT_CONTEXT"):  # US370: arm B's primer texts are versioned data
+        from applire.prompts.primers import primer_metadata
+
+        snap["prompt_primer"] = primer_metadata()
+    for name in dir(settings):
+        if name.endswith("_pipeline") and not name.startswith("_"):
+            snap[f"settings.{name}"] = getattr(settings, name, None)
     return snap
 
 
@@ -384,6 +397,31 @@ async def measure_pages(cv_id, cl_id, user_id, state: _State) -> dict[str, int |
     return pages
 
 
+#: Hazelnut wave 2: every provider call's usage row, captured in memory. The product's
+#: own sink writes ``llm_usage`` rows into the run's SQLite file, and under the v2
+#: pipeline's concurrent sessions those writes hit "database is locked"; after three
+#: failures the sink disables itself for the process, and meta.json read 0 calls
+#: for whole cells (5 of 78 gate runs, 18 of 112 baseline runs).
+_USAGE_ROWS: list[dict[str, Any]] = []
+
+
+async def _capture_usage_row(row: dict[str, Any]) -> None:
+    _USAGE_ROWS.append(dict(row))
+
+
+def usage_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Token totals from captured usage rows (``estimated`` counts chars/4 fallbacks)."""
+    return {
+        "calls": len(rows),
+        "prompt_tokens": sum(int(r.get("prompt_tokens") or 0) for r in rows),
+        "completion_tokens": sum(int(r.get("completion_tokens") or 0) for r in rows),
+        "reasoning_tokens": sum(int(r.get("reasoning_tokens") or 0) for r in rows),
+        "failed_calls": sum(1 for r in rows if not r.get("ok", True)),
+        "estimated_calls": sum(1 for r in rows if r.get("estimated")),
+        "source": "captured",
+    }
+
+
 async def _usage_summary(session_factory) -> dict[str, Any] | None:
     """Token totals from the run's ``llm_usage`` rows (one row per provider call)."""
     try:
@@ -483,6 +521,10 @@ async def _pipeline(spec: RunSpec, run_dir: Path, meta: dict[str, Any], state: _
             "job_id": str(seeded.job_id), "application_id": str(seeded.application_id),
         }
         uid = seeded.user_id
+        from applire.providers.llm import usage as _usage_mod
+
+        _USAGE_ROWS.clear()
+        _usage_mod.set_sink(_capture_usage_row)
         provider = get_provider()
 
         with ownership.owner_context(uid):
@@ -544,8 +586,14 @@ async def _pipeline(spec: RunSpec, run_dir: Path, meta: dict[str, Any], state: _
             async with session_factory() as db:
                 gap = await db.get(GapAnalysis, seeded.gap_id)
                 _write_json(run_dir / "ledger_effective.json", gap.keyword_ledger if gap else None)
-            meta["usage"] = await _usage_summary(session_factory)
+            meta["usage"] = usage_from_rows(_USAGE_ROWS) if _USAGE_ROWS else await _usage_summary(session_factory)
     finally:
+        try:
+            from applire.providers.llm import usage as _usage_mod
+
+            _usage_mod.restore_sink()
+        except Exception:  # noqa: BLE001 — accounting never fails a run
+            pass
         await engine.dispose()
         if not spec.keep_db:
             shutil.rmtree(work_dir, ignore_errors=True)

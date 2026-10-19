@@ -38,7 +38,11 @@ def test_cover_letter_system_prompt_has_stated_limit_and_hard_requirement_rules(
     assert "stated limits" in lower
     assert "never invent a limit" in lower
     assert "hard requirement" in lower
-    assert "silence" in lower
+    # RULING DEL-2 (2026-10-18): "silence is never an option" is gone — a requirement
+    # lacked without a recorded denial is de-emphasised by leaving it out.
+    assert "silence" not in lower
+    assert "leaves it out" in lower
+    assert "recorded denial names it" in lower
 
 
 def test_build_cover_letter_prompt_threads_stated_limits_block():

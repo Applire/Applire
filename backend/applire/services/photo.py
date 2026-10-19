@@ -20,6 +20,11 @@
 upload_photo:  Validate, store, update personal_info.photo_url, record GDPR consent.
 delete_photo:  Remove stored file, clear photo_url and consent.
 get_photo:     Return raw bytes for the current user photo (GDPR portability).
+set_photo_crop / photo_crop_for: the photo's framing (#781, founder ruling
+               F-2) — geometry in the profile JSON, applied at render by ONE
+               helper (`services.photo_framing.frame_photo`) every CV template
+               and the DOCX export read their photo bytes through
+               (`services.cv._resolve_photo_data_uri`).
 """
 import mimetypes
 import uuid
@@ -30,7 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from applire.models.profile import MasterProfile
 from applire.models.user import User
-from applire.schemas.profile import MasterProfileData
+from applire.schemas.profile import MasterProfileData, PhotoCrop
+from applire.services.photo_framing import check_photo_image as _check_photo_image
 from applire.storage.base import StorageProvider
 
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -62,11 +68,17 @@ async def upload_photo(
     content_type: str,
     db: AsyncSession,
     storage: StorageProvider,
+    crop: PhotoCrop | None = None,
 ) -> dict[str, str]:
     """Validate, store, and record GDPR consent for a profile photo.
 
     Returns ``{"photo_url": str, "consent_at": str}`` on success.
     Raises ``ValueError`` for invalid format or size.
+
+    #781 (ruling F-2): the upload is stored unmodified. ``crop`` is the framing
+    the candidate chose in the adjuster for THIS file; a framing belongs to one
+    image, so an upload without one clears whatever framing the previous photo
+    had rather than applying it to a different picture.
     """
     if content_type not in _ALLOWED_CONTENT_TYPES:
         raise ValueError(
@@ -74,6 +86,9 @@ async def upload_photo(
         )
     if len(file_bytes) > _MAX_BYTES:
         raise ValueError("Photo exceeds the 5 MB limit. Please use a smaller file.")
+    # The bytes must BE the declared kind of image, within the pixel bound —
+    # every render decodes this file (#781 framing), so it is checked once here.
+    _check_photo_image(file_bytes, content_type)
 
     user = await _get_user(user_id, db)
     profile = await _get_profile(db, user_id)
@@ -95,7 +110,9 @@ async def upload_photo(
             pass
 
     # Persist photo_url in master profile JSONB
-    updated_pi = profile_data.personal_info.model_copy(update={"photo_url": path})
+    updated_pi = profile_data.personal_info.model_copy(
+        update={"photo_url": path, "photo_crop": crop}
+    )
     profile_data = profile_data.model_copy(update={"personal_info": updated_pi})
     profile.profile_json = profile_data.model_dump(mode="json")
 
@@ -121,7 +138,9 @@ async def delete_photo(
     profile_data = MasterProfileData.model_validate(profile.profile_json)
     if profile_data.personal_info.photo_url:
         await storage.delete(profile_data.personal_info.photo_url)
-        updated_pi = profile_data.personal_info.model_copy(update={"photo_url": None})
+        updated_pi = profile_data.personal_info.model_copy(
+            update={"photo_url": None, "photo_crop": None}
+        )
         profile.profile_json = profile_data.model_copy(
             update={"personal_info": updated_pi}
         ).model_dump(mode="json")
@@ -152,3 +171,56 @@ async def get_photo_bytes(
         raise LookupError("No profile photo on file") from exc
     content_type = mimetypes.guess_type(path)[0] or "image/jpeg"
     return raw, content_type
+
+
+# ─── #781 — framing (founder ruling F-2, 2026-10-16) ──────────────────────────
+# The pure geometry and the bounded decode live in `services/photo_framing.py`
+# (no user, no DB); the owner-scoped read and write of the geometry are here.
+
+
+async def photo_crop_for(
+    db: AsyncSession, user_id: uuid.UUID | None, photo_path: str | None
+) -> PhotoCrop | None:
+    """The owner's framing — but only for the photo it was chosen for.
+
+    A document stores the photo path it was generated with; once a newer photo
+    replaced it, that path is no longer ``personal_info.photo_url`` and the
+    current framing (chosen for the NEW image) must not be applied to it.
+    """
+    if not photo_path or user_id is None:
+        return None
+    from applire.services.profile import get_profile_for_user
+
+    profile = await get_profile_for_user(db, user_id)
+    if profile is None:
+        return None
+    pi = (profile.profile_json or {}).get("personal_info") or {}
+    if pi.get("photo_url") != photo_path or not pi.get("photo_crop"):
+        return None
+    try:
+        return PhotoCrop.model_validate(pi["photo_crop"])
+    except ValueError:
+        return None
+
+
+async def set_photo_crop(
+    *,
+    user_id: uuid.UUID,
+    crop: PhotoCrop | None,
+    db: AsyncSession,
+) -> dict:
+    """Store (or, with None, clear) the framing of the photo on file.
+
+    Raises ``LookupError`` when there is no photo to frame. Every document that
+    shows this photo picks the new framing up at its next render.
+    """
+    profile = await _get_profile(db, user_id)
+    profile_data = MasterProfileData.model_validate(profile.profile_json)
+    if not profile_data.personal_info.photo_url:
+        raise LookupError("No profile photo on file")
+    updated_pi = profile_data.personal_info.model_copy(update={"photo_crop": crop})
+    profile.profile_json = profile_data.model_copy(
+        update={"personal_info": updated_pi}
+    ).model_dump(mode="json")
+    await db.commit()
+    return {"photo_crop": crop.model_dump(mode="json") if crop else None}

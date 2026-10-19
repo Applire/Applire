@@ -323,7 +323,13 @@
     "advancingToCV": "Wird vorbereitet…",
     "viewHistory": "Gesprächsverlauf anzeigen ({count} {count, plural, one {Austausch} other {Austausche}})",
     "matchScorePercent": "{score}%",
-    "confirmHint": "Kurze Rückfrage — was trifft zu? Wir führen das nicht eigenmächtig zusammen."
+    "confirmHint": "Kurze Rückfrage — was trifft zu? Wir führen das nicht eigenmächtig zusammen.",
+    "noWriteReceipt": {
+      "label": "Deine letzte Antwort",
+      "nothingRecorded": "Von dem, was du gesagt hast, wurde nichts übernommen — sag es noch einmal in einem Satz, oder trag es im Profil ein.",
+      "alreadyKnown": "Das steht so schon in deinem Profil.",
+      "questionOnly": "Deine Frage ist angekommen — dazu wurde nichts geändert."
+    }
   },
   "cv": {
     "generating": "Lebenslauf wird erstellt…",
@@ -768,7 +774,25 @@
       "uploadError": "Upload fehlgeschlagen",
       "deleteError": "Löschen fehlgeschlagen",
       "uploadCta": "Foto hochladen",
-      "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt."
+      "successMessage": "✓ Das Foto wird in deinem Lebenslauf und den Swiss-CV-Vorlagen für DACH-Bewerbungen angezeigt.",
+      "adjustCta": "Ausschnitt anpassen",
+      "crop": {
+        "title": "Bildausschnitt wählen",
+        "hint": "Ziehe das Foto, bis dein Gesicht im Rahmen sitzt. Mit dem Regler zoomst du hinein.",
+        "stageLabel": "Fotoausschnitt — mit den Pfeiltasten verschieben, mit Plus und Minus zoomen",
+        "zoomLabel": "Vergrößerung",
+        "zoomIn": "Vergrößern",
+        "zoomOut": "Verkleinern",
+        "previewRound": "Rund",
+        "previewPortrait": "Hochformat",
+        "guide": "Runde Vorlagen zeigen den gestrichelten Kreis, die Vorlage „Lebenslauf“ das ganze Hochformat.",
+        "reset": "Zurücksetzen",
+        "cancel": "Abbrechen",
+        "confirm": "Ausschnitt übernehmen",
+        "saving": "Wird gespeichert …",
+        "loadError": "Das Foto ließ sich nicht öffnen. Versuche es mit einer JPEG-, PNG- oder WebP-Datei.",
+        "saveError": "Der Ausschnitt konnte nicht gespeichert werden."
+      }
     },
     "signature": {
       "title": "Unterschrift",
@@ -2334,5 +2358,16 @@
     "rewriteHint": "Du bekommst einen Vorschlag. Gespeichert wird erst, wenn Du ihn übernimmst.",
     "letterBodyTitle": "Anschreiben-Text",
     "suggestionTitle": "Vorschlag"
+  },
+  "profileHealth": {
+    "launderedSpan": {
+      "thread": "Dauer einer Fähigkeit",
+      "summary": "{skill}: {years} Jahre sind als deine eigene Angabe vermerkt, aber nichts, was du geschrieben oder gesagt hast, nennt diese Zahl. Aus deinen Stationen ergeben sich {recomputed} Jahre.",
+      "recompute": "Aus den Stationen neu berechnen",
+      "recomputing": "Wird neu berechnet…",
+      "done": "{skill}: neu berechnet — dein Anschreiben nennt die Dauer jetzt als ungefähre Angabe.",
+      "stale": "Diese Dauer wurde schon aktualisiert — die Liste ist neu geladen.",
+      "failed": "Das Neuberechnen hat nicht geklappt. Es wurde nichts geändert — bitte versuch es noch einmal."
+    }
   }
 }

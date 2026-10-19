@@ -31,6 +31,7 @@ import { cn, displayValue } from "@/lib/utils";
 import { describeConflict } from "@/lib/conflict-display";
 import { Archive, Contrast, Lock } from "lucide-react";
 import { TONE } from "@/components/gaps/GapClusterCard";
+import { NoWriteReceipt, NoWriteReceiptLine } from "@/components/interview/NoWriteReceipt";
 import {
   clusterView,
   type GapCluster,
@@ -122,6 +123,9 @@ interface MessageResponse {
   // ADR-089 contract item 4 — the record this turn wrote on the cluster it
   // answered (coverage, open members, remaining budget).
   cluster_coverage?: TurnClusterCoverage | null;
+  // #763 — the turn stated something and wrote nothing: the receipt's reason
+  // (the same item the profile's Health hub shows). Absent/null = no receipt.
+  no_write_receipt?: string | null;
 }
 
 /** One cluster-tracker row's state. `resolved` keeps its pre-ADR-089 meaning
@@ -169,6 +173,8 @@ function trackerStatus(
 interface Message {
   role: "assistant" | "user";
   content: string;
+  // #763 — the no-write receipt this answer got, kept under it in the history.
+  receipt?: string | null;
 }
 
 interface CompletionData {
@@ -439,6 +445,9 @@ export default function InterviewPage({
   const [pendingConflicts, setPendingConflicts] = useState<ConflictSummary[]>([]);
   const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
   const [showDoneConfirm, setShowDoneConfirm] = useState(false);
+  // #763 — the last answer and its no-write receipt, shown between that answer
+  // and the next question until the candidate answers again.
+  const [lastReceipt, setLastReceipt] = useState<{ answer: string; reason: string } | null>(null);
 
   // Split-screen state
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisData | null>(null);
@@ -576,6 +585,7 @@ export default function InterviewPage({
     setSending(true);
     setPendingConflicts([]);
     setPendingConfirmations([]);
+    setLastReceipt(null);
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
 
     try {
@@ -589,6 +599,14 @@ export default function InterviewPage({
         throw new Error(translateError(info, tErrors));
       }
       const data: MessageResponse = await res.json();
+
+      if (data.no_write_receipt) {
+        const reason = data.no_write_receipt;
+        setLastReceipt({ answer: userMsg, reason });
+        setMessages((prev) =>
+          prev.map((m, i) => (i === prev.length - 1 && m.role === "user" ? { ...m, receipt: reason } : m)),
+        );
+      }
 
       const cc = data.cluster_coverage;
       if (cc?.cluster_id) {
@@ -736,6 +754,13 @@ export default function InterviewPage({
     return (
       <div data-testid="completion-screen" className="max-w-2xl mx-auto animate-fade-in">
         <Card className="p-8 text-center">
+          {/* #763 — the final answer's receipt must survive the completion
+              screen, or the last turn reads as "nothing changed". */}
+          {lastReceipt && (
+            <div className="text-left">
+              <NoWriteReceipt answer={lastReceipt.answer} reason={lastReceipt.reason} />
+            </div>
+          )}
           <div className="mb-6">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
               {completion.reason === "gaps_resolved" ? (
@@ -863,6 +888,9 @@ export default function InterviewPage({
             <ProgressLinear value={progressPct} className="h-1.5" />
           </div>
 
+          {/* #763 — what became of the last answer, before the next question. */}
+          {lastReceipt && <NoWriteReceipt answer={lastReceipt.answer} reason={lastReceipt.reason} />}
+
           {/* Question card */}
           <Card data-testid="question-card" className="p-6 mb-4 border-l-4 border-l-primary">
             {/* Cultural sensitivity badge (19.8) */}
@@ -908,16 +936,23 @@ export default function InterviewPage({
               </summary>
               <div className="max-h-48 overflow-y-auto space-y-2 px-1 py-2">
                 {messages.slice(0, -1).map((msg, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "max-w-[85%] rounded-xl px-3 py-2 text-sm",
-                      msg.role === "user"
-                        ? "ml-auto bg-primary text-white rounded-br-sm"
-                        : "bg-gray-100 text-neutral-dark rounded-bl-sm",
+                  <div key={i}>
+                    <div
+                      className={cn(
+                        "max-w-[85%] rounded-xl px-3 py-2 text-sm",
+                        msg.role === "user"
+                          ? "ml-auto bg-primary text-white rounded-br-sm"
+                          : "bg-gray-100 text-neutral-dark rounded-bl-sm",
+                      )}
+                    >
+                      {msg.content}
+                    </div>
+                    {msg.role === "user" && msg.receipt && (
+                      <NoWriteReceiptLine
+                        reason={msg.receipt}
+                        className="ml-auto mt-1 max-w-[85%] justify-end text-right"
+                      />
                     )}
-                  >
-                    {msg.content}
                   </div>
                 ))}
               </div>

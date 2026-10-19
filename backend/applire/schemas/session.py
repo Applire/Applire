@@ -178,6 +178,16 @@ class SessionMessageResponse(BaseModel):
     # (resolve_gap) distinguish "candidate explicitly said no, recorded to
     # the vault" from a genuine no-op turn.
     denial_recorded: bool | None = None
+    # #763 (SF-LLM.7) — the turn stated something and wrote nothing: the same
+    # receipt the Health hub shows (`witness.compute_no_write`), carried to the
+    # interview so the candidate reads it under their answer. The value is the
+    # receipt's reason and selects one of three copies (the model's own
+    # `empty_reason`, ruling M5.1.4). None = no receipt (the turn wrote, or the
+    # answer only denied / asked / said nothing of substance), and on every
+    # response with no reconciled turn behind it.
+    no_write_receipt: Literal[
+        "no_write", "no_write_already_known", "no_write_question_only"
+    ] | None = None
     # Populated when ProfileUpdater detects a merge conflict (19.10)
     pending_conflicts: list[ConflictSummary] | None = None
     # Populated when the reconciler flags an ambiguity it will not guess (US185)

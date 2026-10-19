@@ -103,7 +103,10 @@ _DETAILS_MAX_CHARS = 1200
 #: also happen on the CORRECTOR call, after a verdict already raised a real blocking
 #: finding that never got acted on — the same shape `generator_call_failed` reports.
 _FAIL_PATHS = frozenset(
-    {"exhausted", "cycle_detected", "generator_call_failed", "review_malformed"}
+    {"exhausted", "cycle_detected", "generator_call_failed", "review_malformed",
+     # RULING W3-3a (letter v2): the post-condense review-only round — blocking
+     # findings open against the very draft that ships (no corrector ran).
+     "review_only"}
 )
 
 #: Settle paths where the loop ended without an outstanding blocking finding.
