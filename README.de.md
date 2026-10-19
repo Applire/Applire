@@ -734,70 +734,15 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Aktuelle Version (v0.43.0-beta)
+### ✅ Aktuelle Version (v0.44.0-beta)
 
-- [x] Mehrere Personen teilen sich eine Instanz: eingebaute Konten mit E-Mail und Passwort (die Anmeldung ist immer an), ein einmaliger Setup-Code, mit dem man eine neue oder aktualisierte Instanz übernimmt, Rollen (Admin, Nutzer) — und Vault, Bewerbungen und Dokumente jeder Person bleiben privat
-- [x] Ein Administrationsbereich: Personen per Einmal-Link einladen, Rollen ändern, sperren, Passwörter zurücksetzen, die Tokens einer Person widerrufen, Konten löschen — dazu Instanz-Gesundheit, KI-Nutzung je Person und Modell, Aufbewahrungsstatus und ein Audit-Log
-- [x] Optionales Single Sign-on mit jedem OIDC-Anbieter und optionaler Mailversand für Einladungen und Passwort-Zurücksetzungen
-- [x] Persönliche Tokens: Agenten-Tokens für den MCP-Server und API-Tokens für Skripte, gehasht gespeichert und nur einmal angezeigt; Dokument-Links für Agenten sind signiert und laufen ab
-- [x] Admins wechseln LLM-Anbieter, Modell und API-Schlüssel zur Laufzeit im Panel — der Schlüssel wird verschlüsselt gespeichert —, und jede Person wählt ein Farbschema aus denen, die der Admin anbietet
-- [x] Sicherung und Wiederherstellung werden in der CI Ende-zu-Ende auf einer Mehrbenutzer-Instanz getestet: jede Tabelle, jeder Upload, Anmeldungen, Tokens und gespeicherte Schlüssel kommen zurück
-- [x] Ein selbst hostender Betreiber sieht, ob die Instanz gesund ist und was sie kostet: `GET /api/ops/health` bündelt Datenbank-, Migrations-, Retention-, Speicherplatz-, Backup- und LLM-Provider-Prüfungen zu einem Urteil, und `scripts/backup.sh` / `restore.sh` skripten und dokumentieren Backup, Verifikation und Restore
-- [x] Jede vom Backend gelesene Umgebungsvariable ist einmal in einer Settings-Registry deklariert, `.env.example` wird daraus generiert, und ein Upgrade-Hinweis auf `GET /health` und im Dashboard nennt Einstellungen, die ein Release eingeführt hat und die deine `.env` nicht setzt
-- [x] Eine veröffentlichte Modell-Qualifikationsmatrix (`docs/llm-models.md`) misst, welche LLMs Applires Zwei-Stufen-Messlatte bestehen — korrektes Vault-Schreiben, dann ob die erzeugten Dokumente tatsächlich zur Einladung führen — über die gesamte Modelltabelle
-- [x] Lade einmal ein Signaturbild hoch, und Applire setzt es aufs Anschreiben und, wenn du es einschaltest, auf den Lebenslauf — mit einem Schalter je Dokumentart, der beim Download gelesen wird
-- [x] Master-Profil-Gesundheit erreicht den Agenten-Kanal: Ein Agent liest dieselbe Gesundheitsbewertung und dieselben gehaltenen Importe wie der Browser, macht das letzte Merge rückgängig und leitet eine Entscheidung zu einem gehaltenen Merge zurück — die Identitätsfrage bleibt immer beim Menschen
-- [x] Jeder Weg, einen Lebenslauf zu importieren — Browser-Upload, LinkedIn/XING-Export oder ein Agent über MCP — durchläuft dasselbe Integritäts-Gate, mit demselben Zurückhalten-und-Fragen und demselben aufbewahrten Quelldokument
-- [x] Die Duplikat-Bullet-Prüfung kennt jetzt deutsche wie englische Füllwörter, und ein Fund erreicht den Corrector schon in der Review-Schleife statt eine Stufe zu spät
-- [x] Die Längenuntergrenze des Anschreibens verwirft nicht mehr, was die Korrektur des Reviewers gerade hinzugefügt hat — der korrigierte Brief wird stattdessen erneut gekürzt, statt die Korrektur zu verwerfen
-- [x] Die Forderung des Anschreiben-Reviewers nach fehlenden Keywords ist gedeckelt und priorisiert, bevor das Modell sie sieht — „zwei pro Runde" ist jetzt wirklich zwei
-- [x] Kailes abschnittsweise CV-Vorschläge werden vor der Anzeige gegen dein Profil und deine eigene Antwort geprüft; ein nicht belegter Satz wird zurückgehalten statt mit Warnung gezeigt
-- [x] Die Stellenanzeigen-Analyse behält die genannte Senioritätsstufe (oder `null`, wenn die Anzeige keine nennt) und die Sprache der Anzeige, statt eine von beiden zu verlieren oder falsch zu übersetzen
-- [x] Ein vierrundiger Walk-through der Vault-Schreib- und Anreicherungs-Prompts behob einen Verneinungs-Widerspruch und eine Mehrarbeitgeber-Zuordnungslücke (gemessen an drei Modellen), gab einer folgenlosen Antwort einen genannten Grund und gab dem Anreicherungs-Interview seinen eigenen Prompt statt den für den Neuaufbau
-- [x] Ein Reviewer- oder Corrector-Aufruf, der fehlerhaftes JSON liefert, lässt die Review-Schleife jetzt wie bei Erschöpfung enden, mit vermerktem Grund, statt die ganze Generierung mit einem 500 scheitern zu lassen
-- [x] Die Herkunftsmarkierung sagt nur, was Applire belegen kann: ein für einen externen Agenten (BYOI) gerendertes Dokument trägt `compositeWithTrainedAlgorithmicMedia`, und die Markierung nennt den Modell-Provider des Betreibers nicht mehr
-- [x] Die Abdeckungsforderung der CV-Entwurfsschleife weicht jetzt dem Längenbudget, wie ADR-076 es vorsieht (das Rank-Gate las den falschen Schlüssel und griff dort nie)
-- [x] Das erzeugte Dokument bekommt den Bildschirm: ein Prüf-Panel ordnet jeden Befund nach der Frage, die man wirklich hat — im Dokument, aber nicht im Profil · fehlt, obwohl das Profil es abdeckt · fehlt und nicht abgedeckt · ist das Handwerk sauber — mit einem Urteilssatz, als Überblick oder geführt lesbar
-- [x] Jedes gerenderte PDF und .docx trägt eine maschinenlesbare KI-Herkunftsmarkierung (EU AI Act Art. 50(2)): ein XMP-Paket mit IPTC `DigitalSourceType` und einem dokumentierten Applire-Namensraum, unterhalb aller Templates und beider Türen; ein nachgelagertes Neu-Rendern entfernt sie, und die Doku sagt das
-- [x] Stellenanzeigentext ist Daten, nicht Anweisung: ein Grenz-Helfer markiert die Anzeige und jede daraus abgeleitete Zeichenkette an allen 33 Stellen, an denen sie einen Prompt erreichen; MCP-Ergebnisse kennzeichnen anzeigenabgeleiteten Text als nicht vertrauenswürdig; ein Prompt-Injection-Korpus ist die messbare Kontrolle
-- [x] Der Prüfbericht sagt, ob die Prüfung fertig wurde: ein `terminal-review`-Check trägt Ausgang und offene Befunde der Terminal-Review auf beiden Dokumenten, ein `narrative-evidence`-Check nennt belegbare Konzepte, die der Lebenslauf nur als Skill-Tag führt
-- [x] Untertreibung ist ein gebundenes Signal in der Terminal-Runde, und die Terminal-Review stellt die Ganzdokument-Fragen (Anspruchsbalance, Stimme) als benannte, nur sichtbar machende Checks
-- [x] Das Anschreiben nennt den Arbeitgeber einmal pro Absatz statt einmal pro Satz, und eine vom Kandidaten in eigenen Worten benannte Grenze ist eine Offenlegungspflicht für den Writer
-- [x] Das Keyword-Ledger wird bei jedem Generierungs-Lesen gegen den aktuellen Vault neu abgeleitet, damit ein seit der Analyse gelernter Begriff dem Writer nie verboten wird; eine Abdeckungsforderung nennt die Position, die den Beleg besitzt
-- [x] Applire lässt sich auf dem Handy installieren und nimmt geteilte Anzeigen entgegen (Manifest, Service Worker, der nichts Eigenes cacht, Android-Share-Target nur als Vorbefüllung); Profil-Hub, Meine Dokumente und Dossier funktionieren bei 390 px
-- [x] Die Dokumentsprache ist deine Entscheidung, keine Erkennung: Ein DE/EN-Schalter je Bewerbung bestimmt alle erzeugten Dokumente, jedes Dokument hält seine Sprache fest, und ein späterer Wechsel schreibt nie ein bestehendes Dokument um
-- [x] Strukturierte Profil-Editoren für Berufserfahrung, Ausbildung, Fähigkeiten, Sprachen, Zertifikate und Projekte — das JSON-Textfeld ist verschwunden, und eine Bearbeitung auf veralteter Grundlage kann abgelehnt werden, statt still zu überschreiben
-- [x] Angeheftete Fakten: Markiere einen Fakt für eine Bewerbung als gesetzt, und er behält seinen Platz im Budget des Dokuments — mit Ausweisung im Prüfbericht
-- [x] Ein Schreibpfad ins Vault: Jeder Schreiber — Interview, Import, Abschnitts-Editor, Konfliktauflösung, Rollen-Lebenszyklus — schreibt über `commit_ops` mit Belegen je Eintrag; keine Ad-hoc-Profiländerungen mehr
-- [x] Abschließende Dokumentprüfung schließt über Lebenslauf und Anschreiben **wie komponiert**, mit begrenztem Wiedereintritt und Ship-and-Report-Semantik
-- [x] Anschreiben-Prüfung behandelt Vorhandensein als mitgeteilten Fakt, nicht als eigene Frage — falsche Forderungen und Falsch-Vorhanden-Befunde nahe null
-- [x] Prosa-Hoheit im Lebenslauf: Der Writer liefert nur Prosa; Fakten werden deterministisch angefügt, und der deterministische Abschluss kann Belege nie stillschweigend löschen
-- [x] Ehrlich begrenzte Teilaussagen (unterstützt statt eigenverantwortlich, in Arbeit) sind lieferbare Daten statt verworfener Aussagen
-- [x] Ergebnis-Kritiker: Ein gespeicherter beratender Report zu jedem erzeugten Lebenslauf und Anschreiben, inklusive Abrechnung entfallener Belege
-- [x] Wahrhaftigkeits-Schutz: Eine Interview-Antwort, die Erfahrung verneint, kann nie zur Lebenslauf-Aussage werden — die Ablehnungs-Urteile des Reconcilers überstimmen deterministisch seine eigenen Änderungen
-- [x] Durchsetzung der Dokumentsprache erfasst auch Projekt-Bullets — nach dem Sprach-Durchlauf gelangt kein prosaförmiger Text mehr in einen generierten Lebenslauf
-- [x] Abdeckung belegbarer Keywords heilt sich in der Generierungs-Pipeline selbst — die deterministische Prüfung, die das Dokument bewertet, kontrolliert auch jeden Schreibschritt einschließlich des Sprach-Durchlaufs
-- [x] Wahrhaftiges Keyword-Ledger: Jedes Keyword der Stellenanzeige klassifiziert als vorhanden / belegbar / ehrliche Lücke — eine konsistente Quelle für Match-Score, ATS-Panel, Generatoren und Interview
-- [x] Profil-Reconciliation-Engine: Typisierte, deterministische Zusammenführung von Lebenslauf-Importen und Interview-Antworten mit Konfliktauflösung und Anreicherungs-Historie
-- [x] Master-Profil-Gesundheits-Hub mit Snapshots/Undo und Interviews ohne Stellenanzeige
-- [x] ATS-Parsebarkeits-Prüfungen für jedes generierte Dokument (Panel + REST + MCP)
-- [x] Einheitlicher Dokument-Arbeitsbereich für Lebenslauf + Anschreiben je Bewerbung
-- [x] Asynchrone Import-/Lücken-/Anschreiben-Jobs — lange LLM-Schritte überstehen Refresh und Proxys
-- [x] Cap-sichere segmentierte Lebenslauf-Erzeugung (keine abgeschnittenen Dokumente bei ausführlichen Modellen)
-- [x] Upload und Parsing mehrerer Lebensläufe (PDF, DOCX, Bilder via OCR)
-- [x] Master-Profil-Konsolidierung mit Konfliktauflösung
-- [x] Analyse von Stellenbeschreibungen (Text + URL-Scraping)
-- [x] Lückenerkennung und Match-Scoring
-- [x] Dialogbasierter Interview-Flow (gezielter + geführter Modus)
-- [x] Lebenslauf-Erzeugung (PDF via Playwright, mehrere Vorlagen)
-- [x] Lebenslauf-Abschnitts-Editor (Finetuner) mit Live-Vorschau und KI-gestützter Bearbeitung
-- [x] Anschreiben-Erstellung
-- [x] Foto-Verwaltung (Upload, Zuschnitt, Entfernen)
-- [x] Erkennung kultureller Anpassung (DACH-spezifisch)
-- [x] MCP-Server (stdio-Transport für KI-Agenten)
-- [x] Flow-Orchestrator (State Machine für die Nutzerreise)
-- [x] DSGVO-Retention-Worker (automatisierte TTL-Durchsetzung)
-- [x] Mehrsprachige Oberfläche (de/en via next-intl)
+- [x] Pipeline v2 ist der Standard für Lebenslauf und Anschreiben: Die KI schreibt das ganze Dokument, deterministischer Code prüft es nur. Befunde gehen zurück in eine Review-Schleife; nichts, was das Review bestanden hat, wird nach dem letzten Modellaufruf gelöscht oder umgeschrieben (`CV_PIPELINE` / `LETTER_PIPELINE=v1` schalten zurück)
+- [x] Profilinhalte — Kenntnisse, Ausbildung, Branche, Sprachniveaus, hinterlegte Namensformen — werden in der Dokumentsprache geschrieben, und das Anschreiben kennt seine Sprache und wird darauf geprüft: Auf der Dokumentqualitäts-Bench fiel der Sprachmix um etwa 55 pro 100 Dokumente beim Referenzmodell und um etwa 315 bei einem kleinen Modell
+- [x] Das Anschreiben passt auf eine Seite, indem es seine eigene Darstellung misst, endet mit einer Gesprächseinladung statt einer Keyword-Liste, macht aus einer Interview-Antwort, die nur Details zurückhält, nie ein Eingeständnis und nennt einen Mangel nur, wenn du ihn selbst angegeben hast und die Anzeige danach fragt
+- [x] Jeder Generierungs-Prompt trägt einen kurzen Pipeline-Kontext und ein Begründungsfeld, das das Modell zuerst ausfüllt und Applire vor dem Speichern entfernt (`PROMPT_CONTEXT`)
+- [x] Die Wahrheitsprüfung wertet einen Satz nicht mehr als belegt, wenn er einen Standard nennt, den dein Profil nie erwähnt, und der Gesundheits-Hub findet Kenntnis-Dauern, die als deine eigenen Worte markiert sind, die Applire aber berechnet hat
+- [x] Das Interview zeigt, wenn eine Antwort nicht übernommen wurde, speichert „dazu kann ich nichts Genaueres sagen“ nicht mehr als Verneinung und hält Mitwirkung nicht mehr als die Kenntnis fest, nach der die Frage fragte
+- [x] Lege einmal fest, wie dein Foto zugeschnitten wird — für jede Vorlage und die Word-Datei
 
 ### ⏳ Als Nächstes
 
@@ -808,7 +753,7 @@ Applire erscheint in Releases mit Dessert-Namen, jedes als öffentlicher [Milest
 - [x] **Stracciatella** — ausgeliefert mit v0.41.1-beta. Felix übernimmt das Steuer: die führende Dokumentsprache pro Bewerbung wählen (Erkennung wird zum Vorschlag statt zum Gesetz), strukturierte Master-Profil-Editoren statt Roh-JSON und Muss-Fakten ans Dokument pinnen — dazu Härtung der gelieferten Dokumente (die Ship-Gate-Befunde aus v0.39 und die Prompt-Injection-Abwehr)
 - [x] **Nougat** — ausgeliefert mit v0.42.0-beta. Der selbst hostende Operator: ein Versionssprung-Hinweis für Einstellungen, die ein Release neu einführt und deine `.env` nicht setzt (mit Upgrade-Hinweisen pro Release), eine veröffentlichte Qualifikationsmatrix, welche Modelle für Applires Prompts gut genug sind, eine Betriebs- und Health-Schicht mit Token-Tracking — dazu die Konsolidierung der Stracciatella-Befunde (die belegten Dokument-Bugs und die Review-Loop-Entscheide)
 - [x] **Strawberry** — ausgeliefert mit v0.43.0-beta. Mehrbenutzer-Fähigkeit: eingebaute Konten und optionales Single Sign-on, Rollen, ein Administrationsbereich für Personen, persönliche Tokens für Agenten und Skripte und die Privatsphäre der Daten jeder Person
-- [ ] **Hazelnut** — Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
+- [ ] **Hazelnut** — Build 1 ausgeliefert mit v0.44.0-beta, die Sorte läuft weiter. Dokumentqualität: Die KI schreibt den ganzen Lebenslauf und das Anschreiben, deterministischer Code prüft und blockiert nur noch, statt den Text nach dem letzten Modellaufruf umzuschreiben — gemessen auf einer Dokumentqualitäts-Bench (Sprachmix, Untertreibung, Dubletten, Übertreibung)
 
 Darüber hinaus, ohne Termine: **Länderpakete über DACH hinaus** als Beitragsfläche für die Community. Die gehostete Demo und die **Applire Cloud (SaaS) pausieren**, während wir uns auf den Open-Source-Kern und den Agenten-Kanal konzentrieren — die [Warteliste](https://applire.de) erfährt es zuerst, wenn sich das ändert.
 

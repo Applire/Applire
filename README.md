@@ -717,70 +717,15 @@ Applire/
 
 ## 🗺️ Roadmap
 
-### ✅ Current Release (v0.43.0-beta)
+### ✅ Current Release (v0.44.0-beta)
 
-- [x] Several people share one instance: built-in accounts with email + password (sign-in is always on), a one-time setup code that claims a fresh or upgraded instance, roles (admin, user), and every person's vault, applications and documents private to them
-- [x] An administration area: invite people by single-use link, change roles, disable, reset passwords, revoke a person's tokens, delete an account — plus instance health, AI usage per person and model, retention state and an audit log
-- [x] Optional single sign-on with any OIDC provider, and optional outgoing mail for invitations and password resets
-- [x] Personal tokens: agent tokens for the MCP server and API tokens for scripts, stored hashed and shown once; document links handed to an agent are signed and expire
-- [x] Administrators switch the LLM provider, model and API key at runtime from the panel — the key is stored encrypted — and each person picks a colour scheme from the ones the admin offers
-- [x] Backup and restore are tested end to end in CI on a multi-user instance: every table, every upload, logins, tokens and stored keys come back
-- [x] A self-hosting operator can see whether the instance is healthy and what it costs: `GET /api/ops/health` aggregates database, migration, retention, disk, backup and LLM-provider probes behind one verdict, and `scripts/backup.sh` / `restore.sh` script and document backup, verification and restore
-- [x] Every environment variable the backend reads is declared once in a settings registry, `.env.example` is generated from it, and an upgrade notice on `GET /health` and the dashboard names settings a release introduced that your `.env` does not set
-- [x] A published model-qualification matrix (`docs/llm-models.md`) measures which LLMs clear Applire's two-tier bar — correct vault writes, then whether the documents they produce actually get you invited — across the model table
-- [x] Upload a signature image once and Applire places it on the cover letter and, if you switch it on, the CV — with a per-document-kind switch read at download time
-- [x] Master Profile Health reaches the agent channel: an agent reads the same health assessment and held imports the browser sees, undoes the last merge, and relays a decision on a held merge back — identity is never the agent's call
-- [x] Every way of importing a CV — browser upload, LinkedIn/XING export, or an agent over MCP — passes the same integrity gate, with the same hold-and-ask and the same kept source document
-- [x] The duplicate-bullet check now reads German as well as English function words, and a find reaches the corrector during the review loop instead of arriving one stage too late
-- [x] A cover letter's length floor no longer discards what the reviewer's correction just added — the corrected letter is shortened again instead of the correction being thrown away
-- [x] The letter reviewer's demand for missing keywords is capped and ranked before the model sees it, so "two a round" really is two
-- [x] Kaile's per-section CV suggestions are checked against your profile and your own answer before you see them; an unsupported sentence is withheld rather than shown with a warning
-- [x] Job-description analysis keeps the posting's stated seniority tier (or `null` when it states none) and the posting's own language, instead of losing or mistranslating either
-- [x] A four-round walk-through of the vault-writing and enrichment prompts fixed a denial-handling contradiction and a multi-employer attribution gap (measured on three models), gave a no-write turn a stated reason, and gave the enrichment interview its own prompt instead of reusing the from-scratch one
-- [x] A reviewer or corrector call that returns malformed JSON now settles the review loop the way exhaustion does, with the reason recorded, instead of failing the whole generation with a 500
-- [x] The provenance mark states only what Applire can attest: a document rendered for an external agent (BYOI) is marked `compositeWithTrainedAlgorithmicMedia`, and the mark no longer names the operator's model provider
-- [x] The CV drafting loop's coverage demand now yields to the length budget as ADR-076 intends (the rank gate read the wrong key and never engaged there)
-- [x] The generated document owns the screen: one review panel orders every finding by the question you actually have — in the document but not in my profile · missing although my profile covers it · missing and not covered · is the craft sound — headed by one verdict sentence, with an overview and a guided reading mode
-- [x] Every rendered PDF and .docx carries a machine-readable AI-provenance mark (EU AI Act Art. 50(2)): an XMP packet with IPTC `DigitalSourceType` and a documented Applire namespace, applied below all templates and both doors; a downstream re-render strips it, and the docs say so
-- [x] Job-posting text is data, not instructions: one boundary helper marks the posting and every posting-derived string at all 33 points where they enter a prompt, MCP results mark posting-derived text as untrusted, and a prompt-injection corpus is the measurable control
-- [x] The review report says whether the review finished: a `terminal-review` check carries the terminal review's outcome and open findings on both documents, and a `narrative-evidence` check names claimable concepts the CV carries only as a skills tag
-- [x] Under-claiming is a bound signal on the terminal round, and the terminal review asks the whole-document questions (claim balance, voice) as named, visibility-only checks
-- [x] The cover letter names the employer once per paragraph instead of once per sentence, and a limit the candidate stated in their own words is an obligation the writer must disclose
-- [x] The keyword ledger is re-derived against the current vault at every generation read, so a term the profile has learned since the analysis is never forbidden to the writer; a coverage demand names the position that owns the evidence
-- [x] Applire installs on a phone and receives a shared posting (manifest, service worker that caches nothing you own, Android share target with prefill only); profile hub, My Documents and the dossier work at 390 px
-- [x] The document language is your decision, not a detection: a per-application DE/EN control governs every generated document, each document pins its own language, and switching later never repaints an existing one
-- [x] Structured profile editors for work experience, education, skills, languages, certifications and projects — the JSON text field is gone, and an edit made on stale data can be refused instead of silently overwriting
-- [x] Fact pins: mark a fact as required for one application and it keeps its place in the document's budget, with attribution in the review report
-- [x] One vault write path: every writer — interview, import, section editor, conflict resolution, role lifecycle — commits through `commit_ops` with per-entry receipts; no ad-hoc profile writes remain
-- [x] Terminal document review closes over the CV and cover letter **as composed**, with bounded re-entry and ship-and-report semantics
-- [x] Letter review treats presence as a fact it is told, not a question it asks — false demands and false-presence findings driven to near zero
-- [x] CV prose custody: the writer emits prose only; facts join deterministically, and the deterministic tail can never silently delete evidence
-- [x] Honestly bounded partials (assisted-not-independent, in-progress) are deliverable data instead of dropped claims
-- [x] Outcome critic: a persisted advisory report for every generated CV and cover letter, including dropped-citation accounting
-- [x] Truthfulness stance guard: an interview answer that denies experience can never become a CV claim — the reconciler's own denial verdicts deterministically outrank its edits
-- [x] Document-language enforcement covers project bullets — nothing prose-shaped enters a generated CV after the language pass
-- [x] Claimable keyword coverage self-heals inside the generation pipeline — the deterministic check that grades the document also gates every writer, including the output-language pass
-- [x] Truthful keyword ledger: every job-ad keyword classified present / claimable / honest gap — one consistent source for match score, ATS panel, generators, and interview
-- [x] Profile Reconciliation Engine: typed, deterministic merge of CV imports and interview answers with conflict resolution and enrichment history
-- [x] Master Profile Health hub with snapshots/undo and no-JD interviews
-- [x] ATS parseability checks on every generated document (panel + REST + MCP)
-- [x] Unified CV + cover-letter document workspace per application
-- [x] Async import/gap/letter jobs — long LLM steps survive refresh and proxies
-- [x] Cap-safe segmented CV generation (no truncated documents on verbose models)
-- [x] Multi-CV upload and parsing (PDF, DOCX, images via OCR)
-- [x] Master Profile consolidation with conflict resolution
-- [x] Job description analysis (text + URL scraping)
-- [x] Gap detection and match scoring
-- [x] Conversational interview flow (Targeted + Guided modes)
-- [x] CV generation (PDF via Playwright, multiple templates)
-- [x] CV Section Editor (Finetuner) with live preview and AI-assisted editing
-- [x] Cover letter generation
-- [x] Photo management (upload, crop, remove)
-- [x] Cultural adaptation detection (DACH-specific)
-- [x] MCP Server (stdio transport for AI agents)
-- [x] Flow Orchestrator (state machine for user journey)
-- [x] GDPR Retention Worker (automated TTL enforcement)
-- [x] Multilingual UI (de/en via next-intl)
+- [x] Pipeline v2 is the default for CV and cover letter: the AI writes the whole document, and deterministic code only checks it. Findings go back into one review loop; nothing that passed review is deleted or rewritten after the last model call (`CV_PIPELINE` / `LETTER_PIPELINE=v1` switch back)
+- [x] Profile content — skills, education, industry, language levels, recorded name forms — is written in the document's language, and the cover letter is told its language and checked for it: on the document-quality bench, mixed-language text fell by about 55 per 100 documents on the reference model and by about 315 on a small model
+- [x] The cover letter fits one page by measuring its own render, ends with a call to action instead of a list of keywords, never turns an interview answer that only held back detail into an admission, and names a lack only when you recorded it and the posting asks for it
+- [x] Every generation prompt carries a short pipeline context and a reasoning field the model fills first and Applire strips before storage (`PROMPT_CONTEXT`)
+- [x] The truthfulness check no longer grades a sentence as backed when it names a standard your profile never mentions, and the health hub finds skill durations marked as your own words that Applire actually calculated
+- [x] The interview shows when an answer was not recorded, no longer stores "I can't give more detail" as a denial, and no longer records taking part in something as the skill the question asked about
+- [x] Choose how your photo is framed, once, for every template and the Word file
 
 ### ⏳ Next Up
 
@@ -791,7 +736,7 @@ Applire ships in dessert-named releases, each tracked as a public [milestone](ht
 - [x] **Stracciatella** — shipped with v0.41.1-beta. Felix takes the controls: choose the leading document language per application (detection becomes a default, not a law), structured Master-Profile editors replacing the raw-JSON view, and pinning must-appear facts to a document — plus hardening of the delivered documents (the v0.39 ship-gate findings and the prompt-injection defence)
 - [x] **Nougat** — shipped with v0.42.0-beta. The self-hosting operator: a version-jump notice for settings a release introduced that your `.env` does not set (with upgrade notes per release), a published qualification matrix of which models are good enough for Applire's prompts, an ops and health layer with token tracking — plus the consolidation of the Stracciatella findings (the proven delivered-document bugs and the review-loop rulings)
 - [x] **Strawberry** — shipped with v0.43.0-beta. Multi-user capability: built-in accounts and optional single sign-on, roles, an administration area for people, personal tokens for agents and scripts, and every person's data private to them
-- [ ] **Hazelnut** — Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
+- [ ] **Hazelnut** — build 1 shipped with v0.44.0-beta, the flavour continues. Document quality: the AI writes the whole CV and cover letter, and deterministic code only checks and blocks instead of rewriting the text after the last model call, measured on a document-quality bench (language mix, underselling, duplicates, upselling)
 
 Beyond that, without dates: **country packs beyond DACH** as a community contribution surface. The hosted demo and **Applire Cloud (SaaS) are paused** while we focus on the open-source core and the agent channel — the [waitlist](https://applire.de) hears first when that changes.
 
