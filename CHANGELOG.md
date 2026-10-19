@@ -6,6 +6,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
+
+### Upgrade notes
+No action required. Three new optional settings (commented in `env.example`):
+- **`CV_PIPELINE`** — default `v2` (new). The model writes the CV and code only checks it. `v1` keeps the 0.43 pipeline.
+- **`LETTER_PIPELINE`** — default `v2` (new). The same for the cover letter. `v1` keeps the 0.43 pipeline.
+- **`PROMPT_CONTEXT`** — default `c` (new), v2 pipelines only. It adds a short pipeline context and a reasoning field to every generation and review prompt. `off` sends the prompts without it; `a` / `b` are measurement arms. Under `v1` it has no effect.
+
+
 ### Added
 - **Choose how your photo is framed (#781).** Uploading a photo now opens *Choose the framing*: drag the photo and zoom until your face sits in the frame; a dashed circle shows what the round templates show, and two small previews show the round and the portrait result. *Adjust framing* next to *Replace* re-opens it for the photo you already have. Your photo is stored as you uploaded it; only the framing is saved, and every CV template and the Word export use it, so you can re-frame at any time without uploading again. A new upload starts unframed.
 - **The interview tells you when an answer was not recorded (#763).** When an answer stated something and nothing reached your profile, the interview now shows it under your answer, before the next question: *Nothing was recorded from what you said — say it again in one sentence, or enter it in your profile*, or, when that is why, *That is already in your profile, as stated* / *Your question arrived — nothing was changed for it*. Until now only the profile's Health panel said so. The same line appears on the gap page: after *Tell the story* or a gap question, an answer that saved nothing no longer reads *Story added*. Answering a confirmation question in your own words, instead of picking an option, gets it too. Agents receive the same `no_write_receipt` from `send_message`.
