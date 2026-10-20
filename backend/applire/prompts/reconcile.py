@@ -498,13 +498,20 @@ Operations:
    when BOTH hold: (a) the incoming position's title differs from the existing
    entry's "role" (its role_aliases do not count), AND (b) the incoming
    position's own date range covers only PART of the existing entry's span.
-   Then it is a separate position: emit upsert_work with target: null and its
-   own dates and bullets — never target the existing entry, never record its
-   title as an alternate. Worked example: the profile holds "Art Director,
-   2014-03 – 2018-07"; the new information lists "Art Director, 2016-01 –
-   2018-07" and "Senior Designer, 2014-03 – 2015-12" at the same employer.
-   "Senior Designer" meets (a) and (b): target: null. "Art Director" fails (a)
-   — same title — so it IS the existing entry: target its `id` as usual.
+   Then never target the existing entry and never record the title as an
+   alternate: ASK. Emit request_confirmation (founder ruling V-6) with
+   question "Is '<incoming title>, <its span>' a separate position, or part of
+   '<existing role>, <existing span>'?" (in the profile's language), options
+   ["merge", "add_separate"], and context {"section": "work_experience",
+   "incoming": <the upsert_work op you would emit for it, target: null, with
+   its ref, dates and bullets>, "existing_ids": [<the existing entry's id>]}.
+   Worked example: the profile holds "Art Director, 2014-03 – 2018-07"; the
+   new information lists "Art Director, 2016-01 – 2018-07" and "Senior
+   Designer, 2014-03 – 2015-12" at the same employer. "Senior Designer" meets
+   (a) and (b): ask. "Art Director" fails (a) — same title — so this rule does
+   not apply to it at all, whatever its dates: it IS the existing entry, target
+   its `id` as usual (differing dates are rule 5's flag_conflict, never this
+   question).
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",

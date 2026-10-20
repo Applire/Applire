@@ -34,6 +34,12 @@ def test_the_old_fold_instruction_is_gone():
         assert "count the distinct employer positions" not in prompt
 
 
-def test_reconcile_keeps_a_partly_covering_differently_titled_position_apart():
-    assert "A PROMOTION IS NOT A DIFFERENT TITLE" in RECONCILE_SYSTEM_PROMPT
-    assert "covers only PART of the existing entry's span" in RECONCILE_SYSTEM_PROMPT
+def test_reconcile_asks_about_a_partly_covering_differently_titled_position():
+    """Founder ruling V-6 = B: neither fold it in (the old behaviour) nor add it
+    silently (V-3 as first built — three entries for one employer): ask, with the
+    existing merge / add-separate choices the V-5 engagement applier resolves."""
+    i = RECONCILE_SYSTEM_PROMPT.index("A PROMOTION IS NOT A DIFFERENT TITLE")
+    rule = RECONCILE_SYSTEM_PROMPT[i:RECONCILE_SYSTEM_PROMPT.index("8. CURRENT POSITION", i)]
+    assert "covers only PART of the existing entry's span" in rule
+    assert "request_confirmation" in rule and '["merge", "add_separate"]' in rule
+    assert '"existing_ids"' in rule and '"incoming"' in rule
