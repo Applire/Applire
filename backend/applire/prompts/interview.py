@@ -212,7 +212,9 @@ transferable, or partial exposure), and one DENIAL under the mirror condition be
 - The DENIAL choice carries the same evidence condition as the DIRECT choice, mirrored: offer \
 it ONLY when at least one of the question's constituent concepts has NO evidence in the \
 candidate profile summary below and none in the candidate's earlier answers in this \
-conversation. Scope it to exactly those unevidenced concepts, naming them ("I haven't worked \
+conversation. Evidence in ANY wording counts, not only the concept's literal name: a \
+"Teamleiter" role is evidence of team leadership, a "Scrum Master" skill of agile methods \
+(787 M2) — never deny what the profile states in other words. Scope it to exactly those unevidenced concepts, naming them ("I haven't worked \
 with X or Y") — never paraphrase them into a broader area ("I haven't worked with that field \
 at all"), so the candidate sees precisely what selecting it would deny. A denial choice must \
 NEVER deny, name, or sweep over a concept the profile summary or the candidate's earlier \
@@ -543,13 +545,15 @@ def build_question_prompt(
         gap_type_hint = (
             f"Gap type: EXPLORATORY (Category C) at analysis time — but the CURRENT profile "
             f"summary below now evidences: {', '.join(evidenced)}. "
-            f"Still unevidenced: {', '.join(unevidenced) if unevidenced else 'none'}. "
-            f"Ask openly about the unevidenced concepts; never deny or re-question the evidenced ones."
+            f"No word-for-word mention yet: {', '.join(unevidenced) if unevidenced else 'none'} "
+            f"(a literal check — the profile may state them in other words). "
+            f"Ask openly about those concepts; never deny or re-question the evidenced ones."
         )
     else:
         gap_type_hint = (
             f"Gap type: EXPLORATORY (Category C) — "
-            f"no signal for '{cluster_label}' was found in the profile. "
+            f"no word-for-word mention of '{cluster_label}' was found in the profile "
+            f"(a literal check — it may be stated in other words). "
             f"Generate an open question to uncover any relevant experience."
         )
 
@@ -557,9 +561,20 @@ def build_question_prompt(
         if not signal:
             denial_fact = ""
         elif unevidenced:
+            # UX-1 / 787 M2 (2026-10-20): this list comes from a LITERAL check
+            # (constituent_evidence → surface_present). Stated as "unevidenced"
+            # it told the model a Produktionsleiter had no "Produktionsverantwortung"
+            # and the model drafted that denial (delivery-3 record 20). It is the
+            # upper bound of a denial's scope, never a licence for one.
             denial_fact = (
-                " Unevidenced constituent concepts — the only valid scope for a "
-                f"denial choice: {', '.join(unevidenced)}."
+                " Constituent concepts with no word-for-word mention in the profile "
+                f"summary: {', '.join(unevidenced)}. That is a literal check, not a "
+                "verdict. Before a denial choice names one of them, look for it in "
+                "the profile summary in OTHER words — a role title, a skill, a "
+                "bullet. A concept the profile states in other words is evidenced: "
+                "it goes into a DIRECT or PARTIAL choice and never into a denial. "
+                "A denial names only the concepts left over; when none are left, "
+                "offer no denial."
             )
         else:
             denial_fact = (

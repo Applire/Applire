@@ -105,7 +105,7 @@ def test_seam_interview_prompt_hint_reads_covered_members():
 
     prompt = build_question_prompt(cluster, profile, [], gap_category="C")
     assert "now evidences: Terraform" in prompt
-    assert "Still unevidenced: Helm" in prompt
+    assert "No word-for-word mention yet: Helm" in prompt
 
     # Counterfactual: outcome.covered emptied — Terraform is no longer a
     # cluster member, so the CURRENT-profile signal has nothing evidenced
@@ -119,7 +119,7 @@ def test_seam_interview_prompt_hint_reads_covered_members():
     counterfactual_prompt = build_question_prompt(
         cluster_without_covered_member, profile, [], gap_category="C"
     )
-    assert "no signal for 'Cloud Infrastructure' was found" in counterfactual_prompt
+    assert "no word-for-word mention of 'Cloud Infrastructure' was found" in counterfactual_prompt
     assert "now evidences" not in counterfactual_prompt
 
 

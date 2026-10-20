@@ -302,10 +302,10 @@ def test_a_declined_member_is_never_in_the_ask_or_denial_scope():
     out = build_question_prompt(cluster, profile, [], gap_category="C")
 
     ask_line = next(line for line in out.splitlines() if line.startswith("Gap type:"))
-    assert "Still unevidenced: Helm, Pulumi." in ask_line
+    assert "No word-for-word mention yet: Helm, Pulumi " in ask_line
     assert "Terraform" not in ask_line
     assert "evidences: Kubernetes." in ask_line, "a covered member stays 'never re-question'"
-    denial_line = next(line for line in out.splitlines() if "only valid scope for a denial" in line)
+    denial_line = next(line for line in out.splitlines() if "no word-for-word mention in the profile summary" in line)
     assert "Terraform" not in denial_line
     assert "Helm, Pulumi" in denial_line
     declined_line = next(line for line in out.splitlines() if line.startswith("Already declined"))
@@ -326,7 +326,7 @@ def test_a_follow_up_focus_member_is_never_listed_as_do_not_requestion():
                                 follow_up_focus=["Grafana", "SLOs"])
     ask_line = next(line for line in out.splitlines() if line.startswith("Gap type:"))
     assert "evidences: Prometheus." in ask_line
-    assert "Grafana" not in ask_line.split("Still unevidenced")[0]
+    assert "Grafana" not in ask_line.split("No word-for-word mention yet")[0]
 
 
 # ---------------------------------------------------------------------------
