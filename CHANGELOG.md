@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **An honest limit is recognised by whole words (#790).** A sentence that only contains a limit word inside another word, a "not only … but" sentence, or a figure change ("von 8,2 auf 3,1 gesenkt") is checked against your profile instead of being skipped as a limit.
 - **A list of skills is no longer backed by a two-letter fragment (#790).** "IT" inside "scikit-learn" no longer backs "research IT teams"; articles and prepositions in a list never count against it.
 - **Plural and verb forms count as the same term (#783, #787).** The keyword and profile checks treat "Zertifizierung"/"zertifiziert", "Produktion"/"produziert", German noun plurals and English "-y/-ies" as one term.
+- **"SAP PP/MM" is understood as SAP PP and SAP MM (#797).** A slash list in your document or your profile is read part by part, so a CV that says "SAP PP/MM" is no longer flagged as "nothing in your profile backs this" when your profile names SAP PP and SAP MM. Every part must be in your profile. Several wordings in one review card are now quoted the German way in German („SAP PP“, „SAP MM“).
+- **A term your profile may state in another language is no longer called unbacked (#790).** When your profile is (partly) written in the other language, a keyword or skill with no word-for-word match is listed under "Weitere Hinweise" as not checked across languages, instead of "Nichts in deinem Profil belegt das". No AI call is made for this.
+- **Editing a CV's introduction no longer changes your profile summary (#783).** The introduction is written for one posting; saving it now changes this CV only, so text written for one job can no longer back the next document.
+- **The agent door's audit grades exactly like generation does (#790).** `audit_document` no longer runs the extra AI check that graded true claims (for example a degree the profile states verbatim) as "inflated" and gave different answers to the same input.
 
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
