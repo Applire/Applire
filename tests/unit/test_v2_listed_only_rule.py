@@ -51,6 +51,6 @@ def test_v1_prompts_carry_no_listed_only_rule():
 def test_the_rule_matches_what_the_ledger_actually_renders():
     block = render_ledger_prompt_block([{
         "concept": "SAP MM", "surface_forms": ["SAP MM"], "claimable": True,
-        "status": "direct", "narrative_backed": False, "evidence": "skills: SAP MM",
+        "status": "direct", "narrative_backed": False, "listed_only": True, "evidence": "skills: SAP MM",
     }])
     assert LISTED_ONLY_MARKER in block
