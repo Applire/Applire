@@ -269,3 +269,25 @@ async def test_audit_document_external_text_no_prior_generation():
     report = await audit_document("external", PROFILE, text=text)
     verdicts = [r.verdict.verdict for r in report.claims]
     assert verdicts == ["inflated", "grounded"]
+
+
+# ── D2-4 / D2-4b (2026-10-20, #790 L5): the arm is opt-in, off by default ────
+
+_UNDECIDED_CV = {"summary": "Owned vendor negotiations across three continents.",
+                 "work_experience": [], "skills": []}
+
+
+@pytest.mark.asyncio
+async def test_audit_document_default_never_runs_the_entailment_arm():
+    """ADR-068 cl. 7 parity: a caller that passes a provider but no
+    ``entailment`` flag grades exactly like the self-audit — the narrow arm,
+    which graded true claims "inflated" on the agent door, is never asked."""
+    provider = _EagerProvider("inflated")
+    report = await audit_document("cv", PROFILE, tailored_data=_UNDECIDED_CV, provider=provider)
+    checkers = {c.verdict.checker for c in report.claims}
+    assert "entailment" not in checkers, checkers
+    assert provider.calls == []
+    # control: the arm still exists when a caller opts in explicitly
+    on = await audit_document("cv", PROFILE, tailored_data=_UNDECIDED_CV,
+                              provider=_EagerProvider("inflated"), entailment=True)
+    assert "entailment" in {c.verdict.checker for c in on.claims}

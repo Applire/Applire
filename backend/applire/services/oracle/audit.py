@@ -1915,7 +1915,7 @@ async def audit_document(
     text: str | None = None,
     provider: Any | None = None,
     document_language: str | None = None,
-    entailment: bool = True,
+    entailment: bool = False,
     keyword_ledger: list[dict[str, Any]] | None = None,
 ) -> TruthfulnessReport:
     """Full-document audit → :class:`TruthfulnessReport` (ADR-052 §1).
@@ -1949,9 +1949,15 @@ async def audit_document(
     generation — that would reopen the "free of added latency/cost" half of
     the ADR-052 §4 guarantee ADR-068 never asked to amend, and did break
     several pre-existing tests whose mocked providers assert an exact call
-    count/sequence. The agent-door ``audit_document`` tool (the OTHER
-    caller) keeps ``entailment=True`` (the default) — entailment there was
-    always live and intentional.
+    count/sequence. **Default ``False`` since 2026-10-20 (founder rulings
+    D2-4/D2-4b, #790 line L5, ADR-068 cl. 7 parity):** the agent door was the
+    one caller that kept the arm on, and on captured door calls it graded
+    TRUE claims "inflated" (3 of 11 calls, 0 true catches) and flipped on
+    identical input at temperature 0 (2 of 8 replayed cases, n=5) — its top-3
+    evidence window can omit the claim's own deciding unit. Every production
+    caller now passes ``False`` explicitly; the default makes a new caller
+    grade like the self-audit unless it opts in. The arm itself is kept
+    (tests still exercise it with ``entailment=True``) — unused in production.
 
     ``keyword_ledger`` (blind Kaile probe, 2026-09-19) is the job's latest
     Keyword Ledger. Only its CLAIMABLE surface-form groups are read, and only

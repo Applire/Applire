@@ -296,7 +296,7 @@ async def test_SEAM_self_audit_letter():
 
 
 async def test_SEAM_agent_door_external_text_with_entailment_on():
-    """The agent door keeps ``entailment=True`` and passes a real provider; the
+    """The agent door passes a real provider (entailment off since D2-4); the
     rule must hold there too, and the provider must never be asked."""
 
     class _Refuse:
