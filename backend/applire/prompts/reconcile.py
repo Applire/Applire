@@ -313,6 +313,16 @@ Operations:
   technologies (list of str). REQUIRED: target. A bullet carries ONLY the clause about ITS OWN
   entity — never the opening span of an answer that spans several jobs
   ("15+ years in X, at A, at B, and now C" is not a fact of A).
+  NOT A SECOND TIME (783:L43): compare each bullet with the bullets the target
+  ALREADY holds. One that states the same fact in other words — no new figure,
+  scope, tool or outcome — is already there: leave it out, even when the
+  answer repeats it to anchor what follows. Worked example: the target holds
+  "Reduced quote-calculation p95 latency from 1.8 s to 240 ms through query
+  optimisation"; the answer says "I cut the quote calculation's p95 latency
+  from 1.8 seconds to 240 ms by optimising the queries" — already there, no
+  bullet.
+  Add only what is new; when nothing in the answer is new, "ops" is empty with
+  "empty_reason": "already_known".
 
 - upsert_skill — a skill. Fields: name, category, proficiency, years_experience
   (int), evidence (a LIST of existing ids or local refs of the experiences that
