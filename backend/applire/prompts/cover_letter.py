@@ -310,7 +310,21 @@ def render_condense_retained_terms(concepts: list[str]) -> str:
 #: F1: the closing is a call to action (writer + corrector, v2 only).
 V2_CLOSING_RULE = (
     "The closing paragraph is a short call to action (interest in a conversation, "
-    "availability if given) — never a list of skills, tools or job-posting terms."
+    "availability only when the inputs give it) — never a list of skills, tools or "
+    "job-posting terms."
+)
+
+#: 784:L31 (Hazelnut build 2): v1's one-line availability rule was violated in the
+#: writer's FIRST draft on 14 of 41 Ministral v2 gate letters (5c2f056b) — a notice
+#: period / start date with no input. The rule now names the forms and the only two
+#: sources. v2 only.
+_V1_AVAILABILITY_RULE = "- Include Eintrittstermin in body only if availability is provided.\n"
+_V2_AVAILABILITY_RULE = (
+    "- AVAILABILITY ONLY FROM INPUT: state when the candidate could start — availability, a\n"
+    "  notice period (Kündigungsfrist), a start date (Eintrittstermin), \"flexible\" or\n"
+    "  \"immediate\" — ONLY when the user message gives an Eintrittstermin line or an\n"
+    "  AVAILABILITY TESTIMONY block, and then only as given. Without either, the letter says\n"
+    "  nothing about it: the closing needs interest and a call to action, nothing more.\n"
 )
 
 _V1_OVERSTATE_ANCHOR = "never overstate the seniority/impact the candidate data supports.\n"
@@ -355,6 +369,8 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     rules = rules.replace(_V1_TITLES_RULE_TAIL, _V2_TITLES_RULE_TAIL)
     assert _V1_OVERSTATE_ANCHOR in rules, "the overstate rule moved — re-anchor _V1_OVERSTATE_ANCHOR"
     rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
+    assert _V1_AVAILABILITY_RULE in rules, "the availability rule moved — re-anchor _V1_AVAILABILITY_RULE"
+    rules = rules.replace(_V1_AVAILABILITY_RULE, _V2_AVAILABILITY_RULE)
     rules = rules + "\n- " + V2_CLOSING_RULE + "\n"
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
