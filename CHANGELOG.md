@@ -6,6 +6,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Upgrade notes
+- **The synchronous REST import endpoints are removed (WP-V).** `POST /api/profile/upload` and `POST /api/profile/import` now answer `410 Gone` and point to `POST /api/profile/import-jobs`. That endpoint returns 202; poll `GET /api/profile/import-jobs/{import_id}` until the import is ready or failed. A LinkedIn export uses the same endpoint: a ZIP is detected automatically; a LinkedIn profile PDF or a JSON export (sent as a `.json` file) takes `?source=linkedin`. The web app and the MCP `import_cv` tool already use the new path. Only scripts that called the old REST endpoints directly need to change.
+
+### Changed
+- **A promotion stays a promotion in your profile (#783).** A LinkedIn export that lists "Senior Designer 2014–2015" and "Art Director 2016–2018" at one employer now becomes two entries, not one "Art Director 2014–2018" with the earlier title tucked away. Your CV no longer claims the senior title for the whole time. A CV line such as "Senior Designer → Art Director, 2014–2018" keeps that wording. When your profile already holds such a line and an import brings the dated positions, Applire asks whether they are separate positions or part of the one you have.
+- **An import whose automatic check could not run is held until you confirm it (#783).** If the check of the data taken from your CV fails (for example on a provider timeout), nothing is added to your profile until you confirm. The import shows *This import wasn't checked* with *Merge anyway* and *Discard*. Every import's record also notes whether its check ran.
+- **The upload screens say what this instance can read (#789).** If no text recognition is set up, the upload areas no longer offer images. A failed image upload says why, and a file over 10 MB is refused with that reason. Uploads were already capped at 10 MB through the proxy, and the server now enforces the same limit.
+
+### Fixed
+- **Certificate dates keep the precision you gave (#783).** A certificate listed as "2010" showed as "01/2010" on the CV. It now shows "2010", and a month you did give stays. Publication dates work the same way. Entries saved before this release keep their stored date.
+- **The interview no longer offers answer starters that deny what your CV states, or that read as instructions (#787).** Some suggested answers denied experience your profile shows, for example "no experience with production responsibility" for a production manager. Others ended in an instruction ("…; please add the period and the result") or a promise ("I can describe this in more detail"), and selecting one put that text into your answer. Suggested answers are now written in your own voice. A denial is offered only for what your profile does not state in any wording. Measured on recorded interviews: instruction-shaped suggestions 20 → 0; suggestions denying a stated fact appeared in 29 of 30 calls before and 19 of 30 after. That second fix is partial.
+- **The interview records what you said, once (#783).**
+  - An answer that repeats a fact your profile already holds no longer adds the same bullet again in other words. Measured: 39 → 17 repeats on recorded interviews.
+  - A measured figure such as LTIF or OEE is no longer added to your skills; it stays in the bullet that states it.
+  - "Beyond the cosmetics packaging at A, I have no experience in the packaging industry" is now recorded with its exception, not as a flat "no packaging industry".
+- **Retrying the same answer no longer asks the same confirmation twice (#788).**
+- **A bullet the profile update could not place is now listed as not applied (#783),** instead of disappearing without a trace.
+- **A skill that only appears in your skills list is marked as listed, not narrated, for the CV and letter writers (#787).** A skill you described in a sentence is not marked.
+
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
 ### Upgrade notes
