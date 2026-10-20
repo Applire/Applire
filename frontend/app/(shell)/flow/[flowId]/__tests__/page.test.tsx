@@ -100,4 +100,67 @@ describe("FlowIndexPage", () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/flow/f1/gaps"));
     expect(gapJobPosts).toBe(1);
   });
+
+  it("never advances a job-less flow into gap_analysis — that step needs an artifact only a job can produce (#789 L23)", async () => {
+    // A flow with no job (the CV-only upload) that the backend labels "returning"
+    // offers `next: gap_analysis`. Gap analyses are per job, so there is no
+    // artifact_id to send, and the backend answers the advance 422 (artifact_id
+    // required). The client used to fire it anyway and recover on the failure by
+    // bouncing to the dashboard — a 422 on the first thing a new user does.
+    const posts: string[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f2/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            flow_id: "f2",
+            job_id: null,
+            user_type: "returning",
+            current_step: "jd_analysis",
+            available_actions: { next: "gap_analysis" },
+          }),
+        } as Response;
+      }
+      if (init?.method === "POST") {
+        posts.push(url);
+        return { ok: false, status: 422, json: async () => ({ detail: "artifact_id is required" }) } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<FlowIndexPage params={fulfilledParams("f2")} />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/"));
+    expect(posts).toEqual([]);
+  });
+
+  it("still advances a job-less NEW flow into cv_import, which records no artifact (#789 L23)", async () => {
+    const bodies: unknown[] = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/flow/f3/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            flow_id: "f3",
+            job_id: null,
+            user_type: "new",
+            current_step: "jd_analysis",
+            available_actions: { next: "cv_import" },
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/flow/f3/advance") && init?.method === "POST") {
+        bodies.push(JSON.parse(String(init.body)));
+        return { ok: true, json: async () => ({ current_step: "cv_import" }) } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<FlowIndexPage params={fulfilledParams("f3")} />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/flow/f3/import"));
+    expect(bodies).toEqual([{ step: "cv_import" }]);
+  });
 });

@@ -65,6 +65,17 @@ export default function FlowIndexPage({
           return;
         }
 
+        // #789 L23: a flow with no job has nothing to analyse — gap analyses are
+        // per job, so there is no artifact_id to record, and the backend answers
+        // an artifact-less advance into gap_analysis 422 (it requires one). The
+        // CV-only upload lands here with `next: "gap_analysis"` once the profile
+        // is complete enough to be "returning"; skip the doomed call and go
+        // where its failure used to send the user anyway (the dashboard).
+        if (nextStep === "gap_analysis" && !state.job_id) {
+          router.replace("/");
+          return;
+        }
+
         // gap_analysis requires an artifact_id (the gap analysis result).
         // Run the analysis here — before advancing — so the flow stores the
         // gap_analysis_id.  This ensures the gaps page always reads a cached
