@@ -75,6 +75,10 @@ SECTION_ORDER: tuple[str, ...] = (
 )
 
 
+#: The stability tiers (ADR-095 cl. 3). Only ``internal`` carries no promise.
+TIERS: tuple[str, ...] = ("essential", "optional", "internal")
+
+
 @dataclass(frozen=True)
 class SettingEntry:
     """One declared environment variable.
@@ -112,10 +116,19 @@ class SettingEntry:
     #: An admin may override it at runtime from the settings panel (ADR-093).
     #: Set only through ``PANEL_KEYS`` below — one list, one review.
     panel: bool = False
+    #: What the 1.x stability contract promises about it (ADR-095 cl. 3):
+    #: ``essential`` (a fresh install sets it), ``optional`` (the default) or
+    #: ``internal`` (no promise — founder ruling B2-3; may be renamed, re-meant
+    #: or removed in any 1.x minor, excluded from the contract snapshot).
+    #: Set only through ``ESSENTIAL_KEYS`` / ``INTERNAL_KEYS`` below. ``tier`` is
+    #: what is promised; ``section`` is where it is documented.
+    tier: str = "optional"
 
     def __post_init__(self) -> None:
         if self.source not in ("config", "constants", "compose", "frontend"):
             raise ValueError(f"{self.env_var}: unknown source {self.source!r}")
+        if self.tier not in TIERS:
+            raise ValueError(f"{self.env_var}: unknown tier {self.tier!r}")
         if self.section not in SECTION_ORDER:
             raise ValueError(f"{self.env_var}: unknown section {self.section!r}")
         if not self.name:
@@ -1589,3 +1602,96 @@ def panel_settings() -> list[SettingEntry]:
 from applire.services.ops.config import ops_registry_entries as _ops_registry_entries  # noqa: E402
 
 _register_all(SettingEntry(**_e) for _e in _ops_registry_entries())
+
+
+# ---- ADR-095 cl. 3: what the 1.x stability contract promises ----------------
+#: The handful of variables a fresh install sets (785:L48: "a self-hoster needs
+#: about five — provider, key, model, DB password, base URL"). Promised; named
+#: in the generated template's Quick-start paragraph.
+ESSENTIAL_KEYS: tuple[str, ...] = (
+    "LLM_PROVIDER",
+    "MISTRAL_API_KEY",
+    "MISTRAL_MODEL",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
+    "REQUESTY_API_KEY",
+    "REQUESTY_MODEL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_MODEL",
+    "POSTGRES_PASSWORD",
+    "APPLIRE_BASE_URL",
+)
+
+#: No stability promise (founder ruling B2-3; the exact set is ruling R-1).
+#: Development switches and tuning knobs no self-hoster has a reason to set: an
+#: entry here may be renamed, re-meant or removed in any 1.x minor (announced in
+#: the CHANGELOG upgrade notes) and is excluded from the contract snapshot
+#: (``tests/contract/contract.json``). Moving a name OUT of this list is an
+#: addition to the promise; moving one IN is a 2.0 change unless it was never
+#: released as promised.
+INTERNAL_KEYS: tuple[str, ...] = (
+    # B2-3 (ruled): the v1/v2 pipeline switches — US368 deletes v1 within 1.x.
+    "CV_PIPELINE",
+    "LETTER_PIPELINE",
+    "PROMPT_CONTEXT",
+    # Test fixture / set by the compose files, never by hand.
+    "AUTH_HARNESS",
+    "APPLIRE_TOPOLOGY",
+    # Cloud-shaped interview caps (founder 2026-09-27: return as plan quotas).
+    "INTERVIEW_MAX_QUESTIONS_TARGETED",
+    "INTERVIEW_MAX_QUESTIONS_GUIDED",
+    "INTERVIEW_MAX_QUESTIONS_PER_GAP",
+    # Review-loop retry and re-entry budgets.
+    "INTERVIEW_QUESTION_LANG_REVIEW_MAX_RETRIES",
+    "LLM_REVIEW_MAX_RETRIES",
+    "CV_LANGUAGE_REVIEW_MAX_RETRIES",
+    "CV_TERMINAL_REVIEW_MAX_RETRIES",
+    "CV_TERMINAL_REENTRY_MAX",
+    "LETTER_TERMINAL_REVIEW_MAX_RETRIES",
+    "LETTER_TERMINAL_REENTRY_MAX",
+    "CRITIC_MAX_ROUNDS",
+    # Document-shape and merge-gate tuning.
+    "CV_MAX_SKILLS",
+    "MERGE_DATALOSS_CRITICAL_THRESHOLD",
+    "MERGE_CONFIDENCE_REVIEW_THRESHOLD",
+    # Truthfulness Oracle call/token budgets (ADR-052/068).
+    "ORACLE_PROSE_FALLBACK_CHARS",
+    "ORACLE_SEGMENT_MAX_TOKENS",
+    "ORACLE_MAX_SEGMENT_CALLS",
+    "ORACLE_ENTAILMENT_MAX_TOKENS",
+    "ORACLE_MAX_ENTAILMENT_CALLS",
+    "ORACLE_JUDGEMENT_MAX_TOKENS",
+    "ORACLE_MAX_JUDGEMENT_CALLS",
+    "ORACLE_TRIAGE_MAX_TOKENS",
+    "ORACLE_MAX_TRIAGE_CALLS",
+    # Matching-score weights.
+    "MATCHING_SCORE_EMBEDDING_WEIGHT",
+    "MATCHING_SCORE_LLM_WEIGHT",
+)
+
+
+def _apply_tiers(essential: Iterable[str], internal: Iterable[str]) -> None:
+    """Stamp the tier lists onto the registry. A name in a list that is not
+    registered, or in both lists, is an import-time error — a silent miss would
+    promise (or exempt) the wrong variable (System-FMEA ``SF-CONTRACT.6``)."""
+    essential, internal = tuple(essential), tuple(internal)
+    both = set(essential) & set(internal)
+    if both:
+        raise ValueError(f"in both ESSENTIAL_KEYS and INTERNAL_KEYS: {sorted(both)}")
+    for tier, names in (("essential", essential), ("internal", internal)):
+        for name in names:
+            if name not in _REGISTRY:
+                raise ValueError(f"{tier} tier names unregistered variable {name!r}")
+            _REGISTRY[name] = replace(_REGISTRY[name], tier=tier)
+
+
+_apply_tiers(ESSENTIAL_KEYS, INTERNAL_KEYS)
+
+
+def promised_settings() -> list[SettingEntry]:
+    """Every entry the 1.x contract promises (tier != ``internal``)."""
+    return [e for e in all_settings() if e.tier != "internal"]
