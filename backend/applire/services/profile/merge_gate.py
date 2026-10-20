@@ -46,7 +46,7 @@ from applire.services.profile.merge import _company_tokens, company_names_match
 
 @dataclass
 class GateResult:
-    gate: str  # "none" | "not_a_cv" | "name_divergence"
+    gate: str  # "none" | "not_a_cv" | "name_divergence" | "review_not_run" (V-2 = C, set by ingest_cv)
     account_name: str | None = None
     cv_name: str | None = None
 

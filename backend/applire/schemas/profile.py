@@ -1031,6 +1031,16 @@ _REVIEW_PATH_STATUS: dict[str | None, str] = {
 }
 
 
+#: Founder ruling V-2 = C (2026-10-20): the settle paths on which the review
+#: could NOT run — the import is HELD behind the US167 staged gate. Truncation
+#: and timeout of the reviewer call settle as ``reviewer_call_failed``.
+EXTRACTION_REVIEW_HOLD_PATHS: frozenset[str] = frozenset(
+    {"reviewer_call_failed", "review_malformed", "generator_call_failed"}
+)
+#: The staged-gate value for such a hold (``UploadRecord.gate_status``).
+REVIEW_NOT_RUN_GATE = "review_not_run"
+
+
 def extraction_review_from_settle(path: str | None, rounds: int, open_blocking: int) -> ExtractionReview:
     """THE mapping settle-path → :class:`ExtractionReview` (ADR-066: one
     implementation). An unknown future path reads ``not_reviewed`` — the
@@ -1650,7 +1660,7 @@ class CVUploadResponse(BaseModel):
     name_mismatch: bool = False         # US155 / FMEA 2.4 (vs existing profile name)
     undated_positions: int = 0          # US157 / FMEA 2.7
     # Pre-merge gate (US167 / ADR-041 amended). "none" on a clean merge.
-    gate: Literal["none", "not_a_cv", "name_divergence"] = "none"
+    gate: Literal["none", "not_a_cv", "name_divergence", "review_not_run"] = "none"
     account_name: str | None = None     # existing profile's name (divergence prompt)
     cv_name: str | None = None          # uploaded CV's name (divergence prompt)
     staged_id: uuid.UUID | None = None  # parked upload row to resolve (merge/discard)

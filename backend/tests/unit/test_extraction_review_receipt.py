@@ -61,19 +61,62 @@ async def _upload(sqlite_session, tmp_path, review_fake):
         )
 
 
+@pytest.mark.parametrize("path", ["reviewer_call_failed", "review_malformed", "generator_call_failed"])
 @pytest.mark.asyncio
-async def test_a_failed_reviewer_call_is_on_the_response_and_the_receipt(sqlite_session, tmp_path):
-    response = await _upload(sqlite_session, tmp_path, _review_settling_on("reviewer_call_failed", rounds=0))
-    assert response.extraction_review is not None
-    assert response.extraction_review.status == "not_reviewed"
-    assert response.extraction_review.path == "reviewer_call_failed"
+async def test_a_review_that_could_not_run_holds_the_import(sqlite_session, tmp_path, path):
+    """Founder ruling V-2 = C: the import is HELD behind the US167 staged gate."""
+    response = await _upload(sqlite_session, tmp_path, _review_settling_on(path, rounds=0))
+    assert response.status == "GATED"
+    assert response.gate == "review_not_run"
+    assert response.staged_id is not None
+    assert response.extraction_review is not None and response.extraction_review.path == path
+
+    from applire.services.profile import _get_latest, list_open_gates
+
+    record = await _get_latest(sqlite_session, None)
+    # nothing merged: the seeded vault has no enrichment history yet
+    assert not (record.profile_json.get("metadata") or {}).get("enrichment_history")
+    open_gates = await list_open_gates(sqlite_session, user_id=None)
+    assert [g.gate_status for g in open_gates] == ["review_not_run"]
+
+
+@pytest.mark.asyncio
+async def test_an_exhausted_review_is_not_held_but_receipted(sqlite_session, tmp_path):
+    response = await _upload(
+        sqlite_session, tmp_path, _review_settling_on("exhausted", rounds=5, blocking=("x",))
+    )
+    assert response.status != "GATED"
+    assert response.extraction_review.status == "open_findings"
+    assert response.extraction_review.open_blocking == 1
 
     from applire.services.profile import _get_latest
 
     record = await _get_latest(sqlite_session, None)
     history = [EnrichmentRecord.model_validate(r) for r in record.profile_json["metadata"]["enrichment_history"]]
+    assert history[-1].extraction_review.status == "open_findings"
+
+
+@pytest.mark.asyncio
+async def test_resolving_a_held_import_merges_with_a_not_reviewed_receipt(sqlite_session, tmp_path):
+    response = await _upload(sqlite_session, tmp_path, _review_settling_on("reviewer_call_failed", rounds=0))
+    from applire.services.profile import _get_latest, resolve_staged_extraction
+
+    with patch("applire.services.profile.reconcile_import", new=AsyncMock(return_value=_partial_merge_result())):
+        await resolve_staged_extraction(
+            sqlite_session, response.staged_id, action="merge", user_id=None, provider=AsyncMock()
+        )
+    record = await _get_latest(sqlite_session, None)
+    history = [EnrichmentRecord.model_validate(r) for r in record.profile_json["metadata"]["enrichment_history"]]
     assert history[-1].extraction_review is not None
     assert history[-1].extraction_review.status == "not_reviewed"
+
+
+@pytest.mark.parametrize("lang", ["en", "de"])
+def test_the_interview_gate_question_names_the_review(lang):
+    from applire.services.interview_graph import gate_question
+
+    q = gate_question("review_not_run", "Katrin Hoffmann", "Katrin Hoffmann", lang)["question"]
+    assert ("automatic check" in q) if lang == "en" else ("automatische Prüfung" in q)
 
 
 @pytest.mark.asyncio
