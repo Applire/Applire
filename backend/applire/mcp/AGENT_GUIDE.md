@@ -14,10 +14,11 @@ renders. Applire never competes with you; you never bypass its checks.
   accounts. The person creates an *agent token* in Applire under
   **Settings → Tokens** (shown once) and puts it in your MCP client's
   environment as `APPLIRE_AGENT_TOKEN`. With Docker, the `mcpServers` entry runs
-  `docker compose -f /absolute/path/to/applire/docker-compose.yml run --rm -T
-  -e APPLIRE_AGENT_TOKEN mcp` and carries `"env": {"APPLIRE_AGENT_TOKEN":
-  "apl_…"}` — the `-e` without a value passes the client's variable into the
-  container; the compose file stays as shipped. Without a valid token the server
+  `docker compose -f /absolute/path/to/applire/docker-compose.yml exec -T
+  -e APPLIRE_AGENT_TOKEN backend python -m applire.mcp` (inside the running
+  instance's backend) and carries `"env": {"APPLIRE_AGENT_TOKEN": "apl_…"}` —
+  the `-e` without a value passes the client's variable into the container; the
+  compose file stays as shipped. Without a valid token the server
   does not start (its stderr says why). Every tool then reads and writes only
   that person's vault, applications and documents; another person's id answers
   exactly like an id that does not exist. The token is re-checked on every call:

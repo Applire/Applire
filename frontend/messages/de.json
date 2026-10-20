@@ -1921,7 +1921,7 @@
     "copied": "Kopiert",
     "done": "Fertig, ich habe ihn gespeichert",
     "agentSetupHint": "Trage ihn als APPLIRE_AGENT_TOKEN in die Konfiguration deines MCP-Clients ein, zum Beispiel:",
-    "agentSetupRestart": "Starte den Client danach neu. Ohne gültigen Token startet der Applire-Agent nicht.",
+    "agentSetupRestart": "Starte den Client danach neu. Der Agent läuft im Backend deiner Applire-Instanz, Applire muss also laufen. Ohne gültigen Token startet der Applire-Agent nicht.",
     "apiSetupHint": "Schicke ihn bei jedem Aufruf als Header mit, zum Beispiel:",
     "revokeAgentTitle": "Token „{name}“ widerrufen?",
     "revokeAgentBody": "Ein Agent mit diesem Token stoppt bei seinem nächsten Schritt. Links auf Dokumente, die er dir gegeben hat, funktionieren nicht mehr.",
