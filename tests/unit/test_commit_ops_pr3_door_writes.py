@@ -1210,17 +1210,13 @@ async def test_professional_summary_blank_slot_through_the_agent_door_clears_to_
 
 
 @pytest.mark.asyncio
-async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_not_blanks_it(
+async def test_section_editor_clearing_the_introduction_leaves_the_summary_slot(
     durable_db,
 ):
-    """The THIRD door this pure adapter transitively fixes, beyond the two
-    #595 names: `build_section_field_edit` maps a cleared CV "introduction"
-    textarea to `professional_summary.{lang}` with the raw (possibly "")
-    content (services/cv_section_editor.py) — no blank-content guard sits in
-    front of it, so this is reachable in production: clear the CV's summary
-    box and save to profile. `document_language` is pinned directly (E054
-    clause 3b — a generated CV always carries it), so the slot is deterministic
-    regardless of the fixture JD text's detected language."""
+    """Was: a cleared CV "introduction" saved to profile cleared
+    ``professional_summary.{lang}``. Founder ruling D2-2 = A (2026-10-20,
+    #783 L23): the introduction is document-only, so the candidate's summary
+    survives an edit — including an emptied box — on the durable path too."""
     from applire.services.cv_section_editor import patch_cv_section
 
     engine, factory = durable_db
@@ -1238,10 +1234,7 @@ async def test_section_editor_clearing_the_introduction_clears_the_summary_slot_
         await patch_cv_section(cv_id, "introduction", "", True, request_session)
 
     stored = await _read_back(engine, profile_id)
-    assert stored["professional_summary"]["de"] is None
-    changes = {c["field"]: c for c in _latest_changes(stored)}
-    assert changes["de"]["action"] == "removed"
-    assert changes["de"]["new_value"] is None
+    assert stored["professional_summary"]["de"] == "Deutsche Zusammenfassung."
 
 
 # ── #597 (ADR-063 amended 2026-08-28) — door-level translation of a reverted ──

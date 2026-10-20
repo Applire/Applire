@@ -23,8 +23,8 @@ import { SectionEditor, type SectionEditorHandle } from "../SectionEditor";
 import { saveScopeStorageKey } from "../SaveScopePrompt";
 
 const MOCK_SECTION = {
-  section_id: "introduction",
-  label: "Introduction",
+  section_id: "skills",
+  label: "Skills",
   content: "Original content",
   has_override: false,
   gaps: [{ id: "Python", label: "Python" }],
@@ -106,7 +106,7 @@ describe("SectionEditor", () => {
     act(() => ref.current!.injectSuggestion("Applied text", true));
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/sections/introduction"),
+        expect.stringContaining("/sections/skills"),
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ content: "Applied text", save_to_profile: false }),
@@ -120,7 +120,7 @@ describe("SectionEditor", () => {
       ok: true,
       json: async () => ({
         html: "<html>updated</html>",
-        overrides_applied: ["introduction"],
+        overrides_applied: ["skills"],
         resolved_gaps: [],
       }),
     } as Response);
@@ -134,7 +134,7 @@ describe("SectionEditor", () => {
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/sections/introduction"),
+        expect.stringContaining("/sections/skills"),
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ content: "New content", save_to_profile: false }),
@@ -182,7 +182,7 @@ describe("SectionEditor", () => {
       ok: true,
       json: async () => ({
         html: "<html>updated</html>",
-        overrides_applied: ["introduction"],
+        overrides_applied: ["skills"],
         resolved_gaps: ["Python"],
       }),
     } as Response);
@@ -205,7 +205,7 @@ describe("SectionEditor", () => {
       ok: true,
       json: async () => ({
         html: "<html/>",
-        overrides_applied: ["introduction"],
+        overrides_applied: ["skills"],
         resolved_gaps: ["Python"],
       }),
     } as Response);
@@ -221,6 +221,58 @@ describe("SectionEditor", () => {
 
     await waitFor(() => {
       expect(screen.queryAllByTestId("write-myself-btn").length).toBe(0);
+    });
+  });
+  describe("introduction (ruling D2-2 = A, #783 L23): document only", () => {
+    const INTRO = { ...MOCK_SECTION, section_id: "introduction", label: "Introduction" };
+
+    function okFetch() {
+      return vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        json: async () => ({ html: "<html/>", overrides_applied: ["introduction"], resolved_gaps: [] }),
+      } as Response);
+    }
+
+    it("Save never offers 'save to profile' and saves to this CV only", async () => {
+      const mockFetch = okFetch();
+      render(withIntl(<SectionEditor {...BASE_PROPS} section={INTRO} />));
+      fireEvent.change(screen.getByTestId("section-textarea"), { target: { value: "Tailored" } });
+      fireEvent.click(screen.getByTestId("section-save"));
+      expect(screen.queryByTestId("save-to-profile-btn")).toBeNull();
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining("/sections/introduction"),
+          expect.objectContaining({
+            body: JSON.stringify({ content: "Tailored", save_to_profile: false }),
+          })
+        );
+      });
+    });
+
+    it("a remembered 'profile' scope does not reach the introduction", async () => {
+      const mockFetch = okFetch();
+      sessionStorage.setItem(saveScopeStorageKey(), "profile");
+      const ref = createRef<SectionEditorHandle>();
+      render(withIntl(<SectionEditor {...BASE_PROPS} section={INTRO} ref={ref} />));
+      act(() => ref.current!.injectSuggestion("Applied", true));
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining("/sections/introduction"),
+          expect.objectContaining({
+            body: JSON.stringify({ content: "Applied", save_to_profile: false }),
+          })
+        );
+      });
+      fireEvent.change(screen.getByTestId("section-textarea"), { target: { value: "Again" } });
+      await act(async () => {
+        await ref.current!.saveWithDefaultScope();
+      });
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        expect.stringContaining("/sections/introduction"),
+        expect.objectContaining({
+          body: JSON.stringify({ content: "Again", save_to_profile: false }),
+        })
+      );
     });
   });
 });
