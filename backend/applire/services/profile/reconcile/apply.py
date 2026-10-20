@@ -59,6 +59,7 @@ from applire.schemas.profile import (
     VolunteerActivity,
     WorkEntry,
     _coerce_partial_date,
+    ExtractionReview,
 )
 
 from applire.services.profile.role_facts import project_profile_role_facts
@@ -257,6 +258,9 @@ class ApplyResult(BaseModel):
     # #707 — `match_existing` receipts: recognised-as-present, nothing written.
     # Kept OFF `changes` on purpose (see `schemas.profile.MatchReceipt`).
     matched: list[MatchReceipt] = []
+    # 783:L41 — the ingest's extraction review outcome; set exclusively by
+    # `ApplyImportMerge`, `None` for every other batch.
+    extraction_review: ExtractionReview | None = None
 
 
 @dataclass(frozen=True)
@@ -542,6 +546,7 @@ def apply_ops(
     denials: list[FieldChange] = []  # #480 PR 7 — see ApplyResult.denials
     reconciliation: dict[str, dict[str, int]] | None = None
     not_applied: list[ImportNotApplied] = []  # #615 — see ApplyResult.not_applied
+    extraction_review: ExtractionReview | None = None  # 783:L41
     matched: list[MatchReceipt] = []  # #707 — see ApplyResult.matched
 
     # Local ref ("w1") → the entity object created/resolved by an entity op.
@@ -742,6 +747,7 @@ def apply_ops(
             matched.extend(op.matched)  # #707 — the intake's bindings ride with it
             reconciliation = op.reconciliation
             not_applied = list(op.not_applied)
+            extraction_review = op.extraction_review
 
     # MD-30 (adv-own-1/201, 2026-10-05) — the class guard behind the per-op one
     # in `_apply_set_personal_info`: NO op in this vocabulary may change a field
@@ -822,6 +828,7 @@ def apply_ops(
         reconciliation=reconciliation,
         not_applied=not_applied,
         matched=matched,
+        extraction_review=extraction_review,
     )
 
 

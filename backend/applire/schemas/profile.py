@@ -988,6 +988,57 @@ def is_loss_reason(reason: str | None) -> bool:
     return reason in LOSS_REASONS
 
 
+#: 783:L41 (ADR-021 / ADR-063 amended 2026-10-20) — how the ingest's
+#: extraction review loop settled, as a FACT read off the loop's own
+#: ``ReviewSettle`` (``services.review_issues``), never re-derived.
+ExtractionReviewStatus = Literal["approved", "open_findings", "not_reviewed", "disabled"]
+
+
+class ExtractionReview(BaseModel):
+    """The import's extraction review outcome (783:L41, ADR-021 amended 2026-10-20).
+
+    Before this, a CV import whose ``cv_extraction`` review could not run — the
+    reviewer call failed (e.g. verdict-budget truncation on a verbose model) or
+    returned an unparseable verdict — shipped the unreviewed draft into the
+    vault and said so only in a log line ("shipping current draft
+    un-reviewed"). ``status`` is derived from the loop's settle path:
+
+    * ``approved`` — ``approved`` / ``minor_only``: the reviewer accepted it;
+    * ``open_findings`` — ``exhausted`` / ``cycle_detected`` /
+      ``generator_call_failed``: reviewed, blocking findings still open (the
+      shipped draft is a reviewed-and-rejected one);
+    * ``not_reviewed`` — ``reviewer_call_failed`` / ``review_malformed``: no
+      verdict exists for the draft that shipped;
+    * ``disabled`` — the review layer did not run (``LLM_REVIEW_MAX_RETRIES``
+      is 0: the operator's choice, ``ReviewSettle.path is None``).
+    """
+
+    status: ExtractionReviewStatus
+    path: str | None = None
+    rounds: int = 0
+    open_blocking: int = 0
+
+
+_REVIEW_PATH_STATUS: dict[str | None, str] = {
+    "approved": "approved",
+    "minor_only": "approved",
+    "exhausted": "open_findings",
+    "cycle_detected": "open_findings",
+    "generator_call_failed": "open_findings",
+    "reviewer_call_failed": "not_reviewed",
+    "review_malformed": "not_reviewed",
+    None: "disabled",
+}
+
+
+def extraction_review_from_settle(path: str | None, rounds: int, open_blocking: int) -> ExtractionReview:
+    """THE mapping settle-path → :class:`ExtractionReview` (ADR-066: one
+    implementation). An unknown future path reads ``not_reviewed`` — the
+    fail-safe direction: the user is told to look, never told it was checked."""
+    status = _REVIEW_PATH_STATUS.get(path, "not_reviewed")
+    return ExtractionReview(status=status, path=path, rounds=rounds, open_blocking=open_blocking)
+
+
 class EnrichmentRecord(BaseModel):
     # Stable id so a pre-merge snapshot (US168 / ADR-042) can key to the merge
     # this record represents, and undo can detect whether it is still the head.
@@ -1010,6 +1061,10 @@ class EnrichmentRecord(BaseModel):
     # under another surface form. Optional and default-empty for the same
     # reason `not_applied` is; NOT folded into `changes` (see `MatchReceipt`).
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the extraction review
+    #: outcome of the import this record receipts; ``None`` on every
+    #: non-import record and on records persisted before the field existed.
+    extraction_review: ExtractionReview | None = None
 
 
 # ─── Profile metadata ─────────────────────────────────────────────────────────
@@ -1539,6 +1594,9 @@ class ProfileImportResponse(MasterProfileResponse):
     #: → `EnrichmentRecord.matched` to the profile page's history and stopped
     #: there, so no import DOOR ever stated it.
     matched: list[MatchReceipt] = Field(default_factory=list)
+    #: 783:L41 (ADR-021 amended 2026-10-20) — the extraction review outcome of
+    #: this import; see :class:`ExtractionReview`.
+    extraction_review: ExtractionReview | None = None
     # #367 (2026-09-13, ruling V-2) — the same number as `completeness`, under the
     # name every import caller already reads. `ProfileImportView.tsx` posts a
     # LinkedIn/XING export to this door and then reads `data.completeness_score`
@@ -1610,6 +1668,10 @@ class CVUploadResponse(BaseModel):
     #: import job's `result` (`CVImportStatusResponse`), and a job stored
     #: before this field existed must load unchanged.
     not_applied_loss_count: int | None = None
+    #: 783:L41 (ADR-021 amended 2026-10-20) — how the extraction review of THIS
+    #: import settled (see :class:`ExtractionReview`). ``None`` on a held
+    #: (GATED) upload and on a job result stored before the field existed.
+    extraction_review: ExtractionReview | None = None
 
 
 _IMPORT_STATUS = Literal["pending", "processing", "ready", "failed", "expired"]
