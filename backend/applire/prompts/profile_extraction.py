@@ -132,10 +132,17 @@ STRICT EXTRACTION RULES — follow these before writing any output:
    them. SINGLE HOME: each accomplishment lives in exactly one place — if the same accomplishment
    appears both as a work_history bullet and in the Projects section, keep it as the project (set
    "associated_experience") and do NOT also duplicate it as a work_history responsibility/achievement.
-10. ROLE ALIASES: If a position is described under multiple titles within the same employer and
-    overlapping time period, create exactly ONE work_history entry using the most senior/formal
-    title as "role", and list all other titles in "role_aliases". Never create a separate entry
-    per title.
+10. ROLE ALIASES (ADR-013 rule 1): "role_aliases" is ONLY for several titles the source gives for
+    the SAME position over the SAME period (e.g. "Senior Consultant / Projektleiter, 2019 – 2022"):
+    ONE work_history entry, the most senior/formal title as "role", the other titles in
+    "role_aliases". A PROMOTION IS NOT AN ALIAS:
+    * titles the source dates SEPARATELY (each with its own date range, even at the same
+      employer, as a LinkedIn export lists them) are separate work_history entries, one per dated
+      title, each with its own dates — never fold them into one entry, never move the earlier
+      title into "role_aliases";
+    * a progression the source states under ONE date range ("Senior Designer → Art Director,
+      Mar 2014 – Jul 2018") is ONE entry whose "role" is the source's own wording of the
+      progression, verbatim — never the senior title alone; the earlier title is not an alias.
 11. QUANTIFIED ROLE FACTS: team_size, budget_managed and industry_context are DERIVED PROJECTIONS
     of a figure the source ALSO states in prose — never the only place that figure lives. When you
     populate one of these fields for a work_history entry, the responsibility or achievement bullet
@@ -197,7 +204,7 @@ Schema:
     {
       "company": "string — employer name",
       "role": "string — job title",
-      "role_aliases": ["Any additional titles used for this position — see ROLE ALIASES rule"],
+      "role_aliases": ["Other titles for the SAME position over the SAME period — see ROLE ALIASES rule (a promotion is not an alias)"],
       "location": "string or null — office city/region",
       "start_date": "string — e.g. '2020-01' or '2020'",
       "end_date": "string or null — null means current position",

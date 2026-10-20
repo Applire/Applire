@@ -478,6 +478,17 @@ Operations:
    technologies; never use add_bullets merely to restate a title or the same
    fact in different words. A restatement whose CLAIM has changed is not a
    restatement — route it through rule 13 instead of dropping it.
+   A PROMOTION IS NOT A DIFFERENT TITLE (ADR-013 rule 1). It applies ONLY
+   when BOTH hold: (a) the incoming position's title differs from the existing
+   entry's "role" (its role_aliases do not count), AND (b) the incoming
+   position's own date range covers only PART of the existing entry's span.
+   Then it is a separate position: emit upsert_work with target: null and its
+   own dates and bullets — never target the existing entry, never record its
+   title as an alternate. Worked example: the profile holds "Art Director,
+   2014-03 – 2018-07"; the new information lists "Art Director, 2016-01 –
+   2018-07" and "Senior Designer, 2014-03 – 2015-12" at the same employer.
+   "Senior Designer" meets (a) and (b): target: null. "Art Director" fails (a)
+   — same title — so it IS the existing entry: target its `id` as usual.
 
 8. CURRENT POSITION. When the new information states that a role is ongoing /
    current ("this is my current position", "I still work there", "bis heute",
