@@ -32,7 +32,26 @@ CREATE TABLE IF NOT EXISTS users (
     last_active_at TEXT,
     -- w4-fix-id (MD-39): the stub exception reads the credential columns
     password_hash TEXT,
-    oidc_subject TEXT
+    oidc_subject TEXT,
+    -- 785:L81 / R-4: the rule loads the row and scrubs it (erasure.tombstone_identity)
+    oidc_issuer TEXT,
+    photo_consent BOOLEAN NOT NULL DEFAULT 0,
+    photo_consent_at TEXT,
+    email_verified_at TEXT,
+    disabled_at TEXT,
+    last_login_at TEXT,
+    link_epoch INTEGER NOT NULL DEFAULT 0
+);
+-- ...and revokes the account's sessions, tokens and open links
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT, created_at TEXT,
+    last_seen_at TEXT, revoked_at TEXT
+);
+CREATE TABLE IF NOT EXISTS personal_tokens (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, scope TEXT, revoked_at TEXT
+);
+CREATE TABLE IF NOT EXISTS auth_links (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, purpose TEXT, used_at TEXT
 );
 CREATE TABLE IF NOT EXISTS master_profiles (
     id TEXT PRIMARY KEY,
@@ -430,7 +449,9 @@ async def test_tombstone_skips_already_deleted_profiles(db):
 
 
 async def _seed_user(db: AsyncSession, *, created_at: datetime, deleted_at: datetime | None = None) -> str:
-    uid = _uid()
+    # The rule loads the ORM row (785:L81), so the id is stored the way SQLAlchemy's
+    # Uuid type stores it on SQLite (32 hex chars) — a dashed TEXT id would never match.
+    uid = _uid().replace("-", "")
     await db.execute(
         text(
             "INSERT INTO users (id, email, created_at, deleted_at) "
