@@ -235,11 +235,15 @@ class TestThePositiveBranchOnRealCapturedData:
         assert "Verpackungsindustrie" not in forbidden_terms_in_draft(draft, self._RUN_LEDGER)
 
     def test_a_german_inflection_the_english_fold_cannot_see_stays_unlisted(self):
-        """The stated limit, pinned rather than hoped: `surface_present`'s verb
-        fold is English-only, so an inflected/compounded German form is NOT
-        found — which is exactly why the block keeps an unlisted term sayable
-        against a quote instead of declaring it absent."""
+        """The stated limit, pinned rather than hoped. Since #783 line L35 the
+        shared fold also carries closed German suffix pairs, so "digitalisiert"
+        now IS found for "Digitalisierung" (the pin moved with the fold). A
+        split compound is still NOT found ("verantwortete die Investitionen"
+        for "Investitionsverantwortung") — which is exactly why the block keeps
+        an unlisted term sayable against a quote instead of declaring it absent."""
         draft = {"body": {"paragraphs": ["Wir haben die Fertigung digitalisiert."]}}
+        assert forbidden_terms_in_draft(draft, self._RUN_LEDGER) == ["Digitalisierung"]
+        draft = {"body": {"paragraphs": ["Ich verantwortete die Investitionen im Werk."]}}
         assert forbidden_terms_in_draft(draft, self._RUN_LEDGER) == []
         low = render_forbidden_presence_block([]).lower()
         assert "german" in low and "quote" in low
