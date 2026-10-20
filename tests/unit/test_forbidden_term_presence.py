@@ -234,7 +234,7 @@ class TestThePositiveBranchOnRealCapturedData:
         draft = {"body": {"paragraphs": [self._CAPTURED]}}
         assert "Verpackungsindustrie" not in forbidden_terms_in_draft(draft, self._RUN_LEDGER)
 
-    def test_a_german_inflection_the_english_fold_cannot_see_stays_unlisted(self):
+    def test_the_fold_finds_a_german_participle_but_a_split_compound_stays_unlisted(self):
         """The stated limit, pinned rather than hoped. Since #783 line L35 the
         shared fold also carries closed German suffix pairs, so "digitalisiert"
         now IS found for "Digitalisierung" (the pin moved with the fold). A
