@@ -459,3 +459,51 @@ async def test_unknown_source_id_fails_open():
         PROFILE,
     )
     assert verdict.verdict == "grounded"
+
+
+# ── #790 line L6 (2026-10-20) — a sentence naming two employers in different
+# notation strengths anchors to neither; each clause anchors to its own ─────
+
+import asyncio as _asyncio  # noqa: E402
+
+from applire.services.oracle.audit import audit_document as _audit_document  # noqa: E402
+
+_L6_VAULT = {
+    "personal_info": {"name": "Daniel Probe"},
+    "work_experience": [
+        {"id": "11111111-1111-1111-1111-111111111111", "company": "Finleap Build GmbH",
+         "role": "Senior Backend Engineer", "start_date": "2022-01", "is_current": True,
+         "responsibilities": ["Built the merchant payout ledger in Python and PostgreSQL."]},
+        {"id": "22222222-2222-2222-2222-222222222222", "company": "Cargonaut Logistics GmbH",
+         "role": "Backend Engineer", "start_date": "2018-01", "end_date": "2021-12",
+         "responsibilities": ["Designed an Apache Kafka order-event pipeline publishing around 1.2 million events per day."]},
+    ],
+}
+
+
+def _l6_claims(paragraph: str):
+    rep = _asyncio.run(_audit_document(
+        "cover_letter", _L6_VAULT,
+        letter_data={"recipient": {"company": "NovaPay"}, "body": {"paragraphs": [paragraph]}},
+        provider=None, entailment=False,
+    ))
+    return rep.claims
+
+
+def test_l6_a_true_clause_naming_its_own_employer_is_not_misattributed():
+    claims = _l6_claims(
+        "At Finleap Build I built the merchant payout ledger, and at Cargonaut I designed "
+        "a Kafka order-event pipeline publishing around 1.2 million events per day."
+    )
+    cargonaut = [c for c in claims if "Cargonaut" in c.claim.text][0]
+    assert cargonaut.claim.source_experience_id == "22222222-2222-2222-2222-222222222222"
+    assert cargonaut.verdict.verdict == "grounded", cargonaut.verdict
+
+
+def test_l6_a_foreign_fact_under_one_named_employer_is_still_misattributed():
+    claims = _l6_claims(
+        "At Finleap Build I built the merchant payout ledger, and at Finleap Build I designed "
+        "a Kafka order-event pipeline publishing around 1.2 million events per day."
+    )
+    kafka = [c for c in claims if "Kafka" in c.claim.text][0]
+    assert kafka.verdict.verdict == "misattributed", kafka.verdict

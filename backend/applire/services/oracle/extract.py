@@ -904,6 +904,19 @@ def _find_employer_anchor(
         found = _match_ids(sentence, loose_candidates)
     if not found and loose_candidates:
         found = _match_ids(sentence, _distinctive_token_candidates(loose_candidates))
+    # #790 line L6 (2026-10-20): the ladder stops at the first pass with a
+    # hit, so "At Finleap Build I built X, and at Cargonaut I designed Y"
+    # found ONE employer (Finleap, via the legal-form pass) and stamped its id
+    # on the Cargonaut clause too — a false ``misattributed`` on a true fact.
+    # Ambiguity is decided with the FULL mention reach (all three passes,
+    # #697 line 16's ``sentence_mentioned_ids``): a sentence that mentions
+    # two different companies anchors to neither, and each clause gets its
+    # own chance below. Fail open — this can only remove an anchor.
+    if found and loose_candidates:
+        core_of = {i: _core_company_name(n).casefold() for n, i in loose_candidates}
+        mentioned = sentence_mentioned_ids(sentence, loose_candidates) | found
+        if len({core_of.get(i, i) for i in mentioned}) > 1:
+            return None
     if len(found) == 1:
         return next(iter(found))
     if len(found) > 1:
