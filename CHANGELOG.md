@@ -6,6 +6,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Upgrade notes
+- **A trusted-proxy range wider than `/16` (IPv4) or `/48` (IPv6) now stops the nginx container at start**, naming the entry, the same way a malformed value already did. Set `APPLIRE_TRUSTED_PROXY` to your proxy's address or a range of at most that width (Docker's `/16` bridge is fine). `0.0.0.0/0` let every client pick its own sign-in throttle identity.
+- **Deleting another person's account needs an administrator session.** `DELETE /api/admin/users/{id}` with an `api` token now answers `403 forbidden`; delete people under Administration → People. Erasure cannot be undone, so a leaked token must not be able to run it.
+- **`docker compose run mcp` waits for the backend to be healthy** (and starts it if it is not running), like the retention worker: the MCP server no longer opens a session against a database the backend has not finished migrating.
+- **Accounts retired by the 24-month inactivity rule are now scrubbed like a deleted account:** the email becomes a placeholder (the person can be invited again with it), the password hash, single-sign-on binding and sign-in dates are cleared, and their sessions and tokens are revoked. Their data is handled by the existing profile and application rules, unchanged.
+- **`.env.example` has a new last block, "Internal — no stability promise".** The variables in it (pipeline switches, review and truthfulness-check budgets, merge thresholds, score weights, the interview question caps) may change in any 1.x release; everything else in the file is covered by the 1.x promise in [docs/versioning.md](docs/versioning.md). No variable was renamed or removed.
+
+### Added
+- **The 1.x stability promise and its CI check (#793, ADR-095).** [docs/versioning.md](docs/versioning.md) states what stays stable across 1.x — upgrades, configuration, the MCP tool surface, migrations — and what does not. `tests/contract/contract.json` records the promised surface; a CI test fails on a removed or renamed tool, parameter, variable or migration, on an optional parameter made required, and on a stale snapshot (`python3 scripts/generate_contract_snapshot.py` records additions). Every settings-registry entry now has a stability tier.
+- **`:1` image tags (#785).** A non-prerelease release also moves `ghcr.io/applire/applire-{backend,frontend,nginx}:<major>`, so pinning `:1` gets every 1.x update and never a 2.0.
+- **`SECURITY.md`** names the supported versions from 1.0 on: the latest 1.x minor only.
+
+### Fixed
+- **A fresh install's ops health no longer reads degraded on day one (#785)** for a backup or a retention run that is not due yet: they show `ok` with the date the first one is due. A provider that refuses the key is still reported down.
+- **One failing retention rule no longer skips every later one (#785).** Each rule runs on its own; a failure is logged by rule name, listed in the run's `failed_rules`, and the run is reported as failed.
+- **Single-sign-on re-authentication works with Authelia (#785).** Self-deletion and unlinking no longer send `max_age=0`, on which Authelia looped forever; freshness is still checked by Applire against `auth_time`.
+- **Pre-0.43 flows show their step on the application card (#789).** Migration 0083 attaches a flow that existed before the 0.43 upgrade to the card the upgrade created for it.
+- **`/health` reports the version of the code that runs (#785)** even when a source checkout carries stale package metadata.
+
 ### Changed
 - **Install docs (README, `docs/SELF-HOSTING.md`; #785).** Prerequisites now state disk and RAM; the installation names `GET /health` as the "it is up" check, shows the three `.env` lines the provider step needs, gives the one-line setup-code command, and says what the first screens look like; the `/api/profile` example now works on a fresh instance; the MCP section says where the `mcp` compose service comes from and how to copy the shown-once agent token whole.
 
