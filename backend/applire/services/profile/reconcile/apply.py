@@ -58,7 +58,7 @@ from applire.schemas.profile import (
     VAULT_SECTIONS,
     VolunteerActivity,
     WorkEntry,
-    _coerce_partial_date,
+    normalise_partial_date,
     ExtractionReview,
 )
 
@@ -2833,8 +2833,8 @@ def _apply_upsert_certification(op, profile, changes, pending):
         # round-trip silently drops it to None.
         changed = _fill_empties(verdict.match, {
             "issuing_organization": op.issuing_organization,
-            "date_obtained": _coerce_partial_date(op.date_obtained),
-            "expiry_date": _coerce_partial_date(op.expiry_date),
+            "date_obtained": normalise_partial_date(op.date_obtained),
+            "expiry_date": normalise_partial_date(op.expiry_date),
             "credential_id": op.credential_id,
             "credential_url": op.credential_url,
         })
@@ -2992,7 +2992,7 @@ def _apply_upsert_publication(op, profile, changes, pending):
     )
     if verdict.match is not None:
         changed = _fill_empties(verdict.match, {
-            "venue": op.venue, "published_date": _coerce_partial_date(op.published_date),
+            "venue": op.venue, "published_date": normalise_partial_date(op.published_date),
             "doi": op.doi, "url": op.url, "patent_number": op.patent_number,
         })
         if changed:

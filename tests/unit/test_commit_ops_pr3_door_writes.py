@@ -854,7 +854,8 @@ async def test_a_manual_skills_edit_cannot_confirm_a_denied_skill(durable_db):
 @pytest.mark.asyncio
 async def test_certification_dates_accept_the_pickers_shapes(durable_db):
     """JF-F-H2.3: the certification editor emits `YYYY-MM` / `YYYY`; the schema
-    coerces both to a date (year-only lands on 1 January — recorded shape)."""
+    keeps both at the precision sent (ADR-013 amended 2026-10-20, 783:L65 — a
+    year-only date used to land on 1 January)."""
     from applire.routers.profile import patch_section
 
     engine, factory = durable_db
@@ -867,8 +868,8 @@ async def test_certification_dates_accept_the_pickers_shapes(durable_db):
         await patch_section("certifications", _fake_request(payload), request_session, None, None)
 
     stored = {c["name"]: c for c in (await _read_back(engine, profile_id))["certifications"]}
-    assert stored["AWS SAA"]["date_obtained"] == "2021-06-01"
-    assert stored["AWS SAA"]["expiry_date"] == "2024-01-01"
+    assert stored["AWS SAA"]["date_obtained"] == "2021-06"
+    assert stored["AWS SAA"]["expiry_date"] == "2024"
     assert stored["Undated"]["date_obtained"] is None
     assert stored["Undated"]["expiry_date"] is None
 

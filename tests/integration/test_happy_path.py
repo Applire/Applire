@@ -22,25 +22,17 @@ JD_FILE = Path(__file__).parent.parent / "files" / "jd.txt"
 CV_FILE = Path(__file__).parent.parent / "files" / "cv.pdf"
 
 
-def test_happy_path_new_user(api):
+def test_happy_path_new_user(api, import_job):
     """Complete new user journey: CV upload → JD analysis → gap detection → complete."""
-    # Step 1: Upload CV (use a sample file or fallback to this test file)
+    # Step 1: Import CV through the async import job (sample file or fallback text)
     if CV_FILE.exists():
-        with open(CV_FILE, "rb") as f:
-            r = requests.post(
-                f"{api}/api/profile/upload",
-                files={"file": ("cv.pdf", f, "application/pdf")},
-                timeout=120,
-            )
+        result = import_job.result(api, "cv.pdf", CV_FILE.read_bytes(), "application/pdf", timeout=300)
     else:
         # Fallback: create a minimal text file as CV
-        r = requests.post(
-            f"{api}/api/profile/upload",
-            files={"file": ("cv.txt", b"John Doe, Software Engineer, Python developer", "text/plain")},
-            timeout=120,
+        result = import_job.result(
+            api, "cv.txt", b"John Doe, Software Engineer, Python developer", "text/plain", timeout=300
         )
-    assert r.status_code == 200, f"CV upload failed: {r.text}"
-    profile_id = r.json()["profile_id"]
+    profile_id = result["profile_id"]
 
     # Step 2: Analyze JD
     jd_text = JD_FILE.read_text() if JD_FILE.exists() else """

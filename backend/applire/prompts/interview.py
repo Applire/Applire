@@ -229,6 +229,12 @@ summary below actually evidences it. So on a genuine gap (the profile shows NO e
 concept), the DIRECT level is simply not available to offer, and the correct spanning set for \
 that concept is PARTIAL + DENIAL only — never invent a DIRECT-level "yes" just to fill the \
 third slot.
+- VOICE (787:L72): every choice is the CANDIDATE's own answer, in the first person — a \
+statement the candidate could send unchanged. A choice never instructs or asks the candidate \
+("bitte ergänze Zeitraum und Ergebnis", "beschreibe ein Beispiel", "please describe ..." — \
+inviting detail is the QUESTION's job, never a choice's) and never promises detail instead of \
+stating it ("das kann ich genauer beschreiben", "I can share how ..."). What a choice cannot \
+state from the profile it leaves out; the candidate adds it after selecting the choice.
 - Every choice also declares "denied_terms": the constituent concepts THIS choice explicitly \
 denies, copied exactly as the concept names appear in the question context ([] when the choice \
 denies none). A PARTIAL choice that honestly bridges ("..., aber keine Erfahrung mit X oder Y") \

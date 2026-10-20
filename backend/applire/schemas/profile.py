@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
@@ -376,13 +377,62 @@ def _coerce_partial_date(v: Any) -> Any:
     return v
 
 
+_PRECISION_FORMS: tuple[tuple[str, str, str], ...] = (
+    # (regex, strptime format of the matched text, output precision)
+    (r"\d{4}", "%Y", "%Y"),
+    (r"\d{4}-\d{1,2}", "%Y-%m", "%Y-%m"),
+    (r"\d{4}/\d{1,2}", "%Y/%m", "%Y-%m"),
+    (r"\d{1,2}[./]\d{4}", None, "%Y-%m"),  # 03.2014 / 03/2014
+    (r"\d{4}-\d{1,2}-\d{1,2}", "%Y-%m-%d", "%Y-%m-%d"),
+    (r"\d{1,2}\.\d{1,2}\.\d{4}", "%d.%m.%Y", "%Y-%m-%d"),
+    (r"\d{1,2}/\d{1,2}/\d{4}", "%d/%m/%Y", "%Y-%m-%d"),
+)
+
+
+def normalise_partial_date(v: Any) -> str | None:
+    """A partial date at the precision the input STATES (ADR-013 amended
+    2026-10-20, 783:L65): ``"2010"`` stays ``"2010"``, ``"03.2014"`` becomes
+    ``"2014-03"``, a full date stays a full ISO date; unparseable → ``None``
+    (as ``_coerce_partial_date`` did). Never pads a month or a day the source
+    did not give — the padded ``2010-01-01`` rendered as "01/2010" on a CV
+    whose source said "2010" (delivery-3 record 5). For comparisons that need
+    a ``date`` (dedupe, span arithmetic) use ``_coerce_partial_date``."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T.*", s):  # an ISO datetime string
+        s = s[:10]
+    for pattern, fmt, out in _PRECISION_FORMS:
+        if not re.fullmatch(pattern, s):
+            continue
+        if fmt is None:  # MM.YYYY / MM/YYYY
+            month, year = re.split(r"[./]", s)
+            s, fmt = f"{year}-{month}", "%Y-%m"
+        try:
+            return datetime.strptime(s, fmt).strftime(out)
+        except ValueError:
+            return None
+    return None
+
+
 class Certification(BaseModel):
     # ADR-077 clause 1 — persisted id (see Skill.id)
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     issuing_organization: str | None = None
-    date_obtained: date | None = None
-    expiry_date: date | None = None  # None means doesn't expire
+    # ADR-013 amended 2026-10-20 (783:L65): a partial date string at the
+    # precision the source states ("2010", "2014-03", "2014-03-15") — was a
+    # ``date`` that padded "2010" to 2010-01-01 (rendered "01/2010").
+    date_obtained: str | None = None
+    expiry_date: str | None = None  # None means doesn't expire
     credential_id: str | None = None
     credential_url: str | None = None
     # ADR-061 clause 3 — "confirmed" (literal/aliased grounding, or a
@@ -398,7 +448,7 @@ class Certification(BaseModel):
     @field_validator("date_obtained", "expiry_date", mode="before")
     @classmethod
     def _coerce_cert_dates(cls, v: Any) -> Any:
-        return _coerce_partial_date(v)
+        return normalise_partial_date(v)
 
 
 _PROFICIENCY_ALIASES: dict[str, str] = {
@@ -681,7 +731,7 @@ class Publication(BaseModel):
     type: Literal["publication", "patent"] = "publication"
     co_authors: list[str] = Field(default_factory=list)
     venue: str | None = None  # journal, conference, or patent office
-    published_date: date | None = None
+    published_date: str | None = None  # partial date, source precision (783:L65)
     doi: str | None = None
     url: str | None = None
     patent_number: str | None = None
@@ -689,7 +739,7 @@ class Publication(BaseModel):
     @field_validator("published_date", mode="before")
     @classmethod
     def _coerce_partial_pub_date(cls, v: Any) -> Any:
-        return _coerce_partial_date(v)
+        return normalise_partial_date(v)
 
 
 class VolunteerActivity(ExperienceBase):
@@ -1574,7 +1624,9 @@ ImportMergeStatus = Literal["applied", "partial"]
 
 
 class ProfileImportResponse(MasterProfileResponse):
-    """`POST /api/profile/import` (LinkedIn/XING/text) response — #615.
+    """LinkedIn/XING/text import read model — #615 (returned by the import service;
+    the async job maps it onto ``CVUploadResponse``; the sync ``POST /api/profile/import``
+    that served it is retired, ruling V-4 = A).
 
     A SEPARATE subclass, not a field added to :class:`MasterProfileResponse`
     itself: that class is also `GET /api/profile` (a plain read, no merge in
@@ -1641,7 +1693,8 @@ class ConflictSummary(BaseModel):
 
 
 class CVUploadResponse(BaseModel):
-    """Response for POST /api/profile/upload (ADR 014).
+    """Result of an import job (``GET /api/profile/import-jobs/{id}`` → ``result``;
+    the retired sync ``POST /api/profile/upload`` returned it directly) (ADR 014).
 
     Distinct from MasterProfileResponse — provides upload-specific feedback:
     transient DRAFT/COMPLETE status, GDPR expiry, and traceability back to

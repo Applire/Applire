@@ -15,17 +15,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-import mimetypes
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile, status
 
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,12 +36,6 @@ from applire.auth.deps import require_user
 from applire.constants import MAX_CV_UPLOAD_BYTES
 from applire.models.user import User
 from applire.db.session import get_db
-from applire.exceptions import (
-    LLMRateLimitError,
-    LLMTimeoutError,
-    LLMTruncatedError,
-    OCRUnavailableError,
-)
 from applire.ocr import get_ocr_extractor, image_import_available
 from applire.ocr.base import CVImageExtractor
 from applire.providers import get_provider
@@ -56,12 +48,10 @@ from applire.schemas.profile import (
     CVImportStatusResponse,
     CVUploadResponse,
     EnrichmentRecord,
-    LinkedInImportRequest,
     MasterProfileResponse,
     PhotoCrop,
     ProfileChangesResponse,
     ProfileHealthResponse,
-    ProfileImportResponse,
     SeparateMatchRequest,
     StagedResolveRequest,
     StagedResolveResponse,
@@ -83,10 +73,6 @@ from applire.services.profile import (
     get_profile_changes,
     get_profile_health,
     get_profile,
-    import_from_linkedin,
-    import_from_linkedin_pdf,
-    import_from_linkedin_zip,
-    import_from_pdf,
     patch_profile_section,
     profile_exists,
     resolve_conflict,
@@ -95,7 +81,6 @@ from applire.services.profile import (
     separate_match,
     StagedExtractionAlreadyResolved,
     StagedExtractionNotFound,
-    upload_cv,
 )
 from applire.storage import get_storage
 from applire.storage.base import StorageProvider
@@ -170,127 +155,32 @@ async def _read_capped(file: UploadFile) -> bytes:
     return data
 
 
-def _is_zip(file: UploadFile) -> bool:
-    if file.filename and file.filename.lower().endswith(".zip"):
-        return True
-    if file.content_type in ("application/zip", "application/x-zip-compressed"):
-        return True
-    return False
+#: Ruling V-4 = A (Hazelnut build 2, 783:L68 / 789:L31): the synchronous REST
+#: import doors are retired before 1.0. They stay registered (a caller gets 410
+#: and a pointer, not a 404/405) and keep their auth dependency (the route
+#: inventory requires one); the work runs on the async import job only.
+_RETIRED_IMPORT_DOOR = {
+    "error": "endpoint_retired",
+    "message": (
+        "This synchronous import door was removed before 1.0. Use POST "
+        "/api/profile/import-jobs (202, then poll GET /api/profile/import-jobs/"
+        "{import_id}); a LinkedIn export (ZIP, or PDF/JSON with ?source=linkedin) "
+        "uses the same door."
+    ),
+    "use": "/api/profile/import-jobs",
+}
 
 
-def _is_pdf(file: UploadFile) -> bool:
-    if file.filename and file.filename.lower().endswith(".pdf"):
-        return True
-    if file.content_type == "application/pdf":
-        return True
-    return False
+@router.post("/upload", status_code=status.HTTP_410_GONE)
+async def upload_cv_endpoint(current_user: User = Depends(require_user)) -> JSONResponse:
+    """RETIRED (ruling V-4 = A) — 410 Gone with a pointer to ``POST /import-jobs``.
 
-
-@router.post("/upload", response_model=CVUploadResponse, status_code=status.HTTP_200_OK)
-async def upload_cv_endpoint(
-    file: UploadFile,
-    request: Request,
-    job_id: uuid.UUID | None = Query(default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"),
-    db: AsyncSession = Depends(get_db),
-    provider: LLMProvider = Depends(_get_provider),
-    storage: StorageProvider = Depends(_get_storage),
-    ocr: CVImageExtractor = Depends(_get_ocr),
-    current_user: User = Depends(require_user),
-) -> CVUploadResponse:
-    """Upload a CV in any supported format and merge it into the Master Profile.
-
-    Supported formats: PDF (text + OCR fallback for scanned), DOCX, JPEG/PNG, plain text.
-    *job_id* is accepted for API compatibility only; it no longer changes extraction (M5.1.3).
-
-    Returns a CVUploadResponse with completeness score, status (DRAFT/COMPLETE),
-    any detected conflicts, and the GDPR expiry date for the stored file.
-
-    **Synchronous — prefer ``POST /api/profile/import-jobs`` for anything large or
-    slow.** This request blocks for the whole ingest (extraction, review, enrichment,
-    merge — several sequential LLM calls), and a reverse proxy cuts it at its read
-    timeout (the shipped nginx config: 300 s) while the ingest keeps running and can
-    still write the vault minutes after the client was told it failed (#674, measured
-    on a self-hosted instance 2026-09-17). The async door returns a handle at once and
-    is what the browser UI uses. Retirement of this door is scheduled separately.
+    The synchronous door blocked for the whole ingest; a reverse proxy cut it at its
+    read timeout (300 s in the shipped nginx config) while the ingest kept running and
+    wrote the vault minutes later, outside the per-user import lock (#674, measured on
+    a self-hosted instance 2026-09-17).
     """
-    user = current_user
-    filename = file.filename or "upload"
-    content_type = file.content_type or "application/octet-stream"
-
-    try:
-        file_bytes = await _read_capped(file)
-        return await upload_cv(
-            file_bytes=file_bytes,
-            filename=filename,
-            content_type=content_type,
-            db=db,
-            provider=provider,
-            storage=storage,
-            ocr_extractor=ocr,
-            job_id=job_id,
-            user_id=user.id,
-        )
-    except HTTPException:
-        raise
-    except OCRUnavailableError:
-        # #789 L12 — name the cause by a stable code; the operator-facing detail
-        # (which setting is missing) stays in the log, never in the response.
-        logger.warning("upload_cv: OCR backend unavailable; refusing this image/scan cleanly")
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"error": "ocr_unavailable", "message": _OCR_UNAVAILABLE_USER_MESSAGE},
-        )
-    except LLMTimeoutError:
-        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
-        )
-    except LLMRateLimitError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
-    except LLMTruncatedError:
-        # A reconcile/extraction that ran out of token budget — surface a clean,
-        # retryable signal and NEVER the raw provider text (no half-merge persisted).
-        logger.warning("upload_cv: LLM output truncated; failing this file cleanly")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=_TRUNCATION_USER_MESSAGE,
-        )
-    except VaultWriteRevertedError as exc:
-        # ADR-063 amended 2026-08-28 (#597) — a defence-in-depth reload gate
-        # caught a schema-rejecting profile after the ops were already
-        # applied; nothing was persisted (same "fail this file cleanly, no
-        # half-merge" guarantee LLMTruncatedError gives above, one layer
-        # deeper — the write itself, not the LLM call, is what reverted).
-        logger.error("upload_cv: vault write reverted (%s); failing this file cleanly", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
-        )
-    except json.JSONDecodeError:
-        # Must come before ValueError — JSONDecodeError is a ValueError subclass
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned invalid JSON",
-        )
-    except ValidationError as exc:
-        # Must come before ValueError — ValidationError is a ValueError subclass
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="We couldn't read some details from your document (for example an unrecognised date). Please check the file and try again.",
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        )
-    except Exception:
-        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
-        # name (an owner-guard refusal) or provider payload. Logged in full here.
-        logger.exception("profile route failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_INTERNAL_ERROR_MESSAGE,
-        )
+    return JSONResponse(status_code=status.HTTP_410_GONE, content=_RETIRED_IMPORT_DOOR)
 
 
 @router.post(
@@ -517,130 +407,15 @@ async def separate_match_endpoint(
         raise HTTPException(status_code=409, detail=exc.code)
 
 
-@router.post(
-    "/import",
-    response_model=ProfileImportResponse | CVUploadResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def import_profile(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    provider: LLMProvider = Depends(_get_provider),
-    storage: StorageProvider = Depends(_get_storage),
-    current_user: User = Depends(require_user),
-    file: Annotated[UploadFile | None, File(description="LinkedIn export ZIP")] = None,
-    linkedin_json: Annotated[str | None, Form(description="LinkedIn export JSON string")] = None,
-) -> ProfileImportResponse | CVUploadResponse:
-    """Structured data ingestor for LinkedIn/XING exports (ZIP, PDF or JSON).
+@router.post("/import", status_code=status.HTTP_410_GONE)
+async def import_profile(current_user: User = Depends(require_user)) -> JSONResponse:
+    """RETIRED (ruling V-4 = A) — 410 Gone with a pointer to ``POST /import-jobs``.
 
-    For CV file uploads (PDF, DOCX, images), use ``POST /api/profile/import-jobs``
-    (async, poll ``GET /api/profile/import-jobs/{id}``) — not the synchronous
-    ``/upload``, which a reverse proxy cuts at its read timeout while the ingest keeps
-    writing (#674). Note that this door is synchronous too and, since #367, runs the
-    same full ingest chain.
-
-    Since #367 (2026-09-13, ruling V-2) this is the third adapter over the one
-    ingest function, so the US167/ADR-041 pre-merge integrity gate fires here too:
-    an export whose name has no token overlap with the account holder's, or one
-    that extracts to nothing, is **held** and answered with the same GATED
-    ``CVUploadResponse`` the browser upload door returns — `status="GATED"` plus
-    `gate` / `staged_id`, resolved through ``POST /staged/{id}/resolve``.
+    The LinkedIn/XING export door ran the full ingest synchronously since #367 and was
+    exposed to the same proxy cut as ``/upload``. A ZIP is detected by the async job; a
+    LinkedIn PDF or JSON export takes ``?source=linkedin`` there.
     """
-    if file is None and linkedin_json is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Provide either a LinkedIn export ZIP or linkedin_json",
-        )
-    if file is not None and linkedin_json is not None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Provide either a file or linkedin_json, not both",
-        )
-
-    user = current_user
-    try:
-        if file is not None:
-            file_bytes = await _read_capped(file)
-            upload_name = file.filename or "linkedin-export"
-            if _is_zip(file):
-                coro = import_from_linkedin_zip(
-                    file_bytes, db, provider, storage=storage,
-                    filename=upload_name, user_id=user.id,
-                )
-            elif _is_pdf(file):
-                coro = import_from_linkedin_pdf(
-                    file_bytes, db, provider, storage=storage,
-                    filename=upload_name, user_id=user.id,
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Only LinkedIn export ZIP or PDF files are accepted here.",
-                )
-        else:
-            try:
-                parsed = json.loads(linkedin_json)
-            except json.JSONDecodeError:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="linkedin_json is not valid JSON",
-                )
-            coro = import_from_linkedin(
-                parsed, db, provider, storage=storage, user_id=user.id
-            )
-
-        return await coro
-
-    except HTTPException:
-        raise
-    except LLMTimeoutError:
-        logger.warning("profile import/upload: LLM timed out; failing this file cleanly")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=_TIMEOUT_USER_MESSAGE
-        )
-    except LLMRateLimitError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
-    except LLMTruncatedError:
-        # See upload_cv_endpoint — a truncated reconcile/extraction fails this
-        # import cleanly (no half-merge), with no raw provider/internal text.
-        logger.warning("import_profile: LLM output truncated; failing this import cleanly")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=_TRUNCATION_USER_MESSAGE,
-        )
-    except VaultWriteRevertedError as exc:
-        # See upload_cv_endpoint — same translation, one layer deeper (the
-        # write itself reverted, not the LLM call).
-        logger.error("import_profile: vault write reverted (%s); failing this import cleanly", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "vault_write_reverted", "message": _TRUNCATION_USER_MESSAGE},
-        )
-    except json.JSONDecodeError:
-        # Must come before ValueError — JSONDecodeError is a ValueError subclass
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned invalid JSON",
-        )
-    except ValidationError as exc:
-        # Must come before ValueError — ValidationError is a ValueError subclass
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="We couldn't read some details from your document (for example an unrecognised date). Please check the file and try again.",
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        )
-    except Exception:
-        # Collector (MD-24 (6)): never echo str(exc) — it can carry SQL, a table
-        # name (an owner-guard refusal) or provider payload. Logged in full here.
-        logger.exception("profile route failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_INTERNAL_ERROR_MESSAGE,
-        )
+    return JSONResponse(status_code=status.HTTP_410_GONE, content=_RETIRED_IMPORT_DOOR)
 
 
 # ---------------------------------------------------------------------------

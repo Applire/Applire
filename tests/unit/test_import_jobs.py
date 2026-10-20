@@ -392,6 +392,35 @@ async def test_get_import_jobs_active_endpoint(factory, client):
     assert items[0]["filename"] == "a.pdf"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw, code",
+    [
+        ("Model google/gemini-3.5-flash hit the token budget (stop_reason='length')", "llm_truncated"),
+        ("OpenRouter call timed out after 120s", "llm_timeout"),
+    ],
+)
+async def test_the_poll_names_a_failure_by_code_never_by_raw_provider_text(factory, client, raw, code):
+    """Moved from the retired sync doors' router test (ruling V-4 = A): a reconcile
+    that hits the token budget or times out surfaces as a stable ``error_code``;
+    the raw provider sentence stays internal (ADR-047 §4)."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="cv.pdf", user_id=UID)
+    exc = LLMTruncatedError(raw) if code == "llm_truncated" else LLMTimeoutError(raw)
+    with patch("applire.services.profile.import_jobs.get_provider"), patch(
+        "applire.services.profile.import_jobs.get_storage"
+    ), patch("applire.services.profile.import_jobs.get_ocr_extractor"), patch(
+        "applire.services.profile.upload_cv", new=AsyncMock(side_effect=exc)
+    ):
+        await run_import_job_background(
+            job.id, b"%PDF-1.4", "cv.pdf", "application/pdf", user_id=UID, session_factory=factory
+        )
+    r = await client.get(f"/api/profile/import-jobs/{job.id}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "failed" and r.json()["error_code"] == code
+    assert raw not in r.text and "stop_reason" not in r.text and "120s" not in r.text
+
+
 # ---------------------------------------------------------------------------
 # #789 L31 — the LinkedIn ZIP / PDF export is an async import job too
 # ---------------------------------------------------------------------------
@@ -525,6 +554,38 @@ async def test_pdf_job_needs_the_explicit_linkedin_source(factory):
     assert upload.await_count == 1
     async with factory() as db:
         assert (await get_import_job(db, j2.id, user_id=UID)).status == CVImportStatus.ready.value
+
+
+@pytest.mark.asyncio
+async def test_json_job_with_the_linkedin_source_runs_the_json_import(factory):
+    """Ruling V-4 = A: the retired ``POST /import`` took a LinkedIn JSON export as a
+    ``linkedin_json`` form field; the job takes it as a ``.json`` file with
+    ``source="linkedin"`` and hands the parsed object to ``import_from_linkedin``."""
+    async with factory() as db:
+        job = await create_import_job(db, filename="export.json", user_id=UID)
+        bad = await create_import_job(db, filename="broken.json", user_id=UID)
+    json_fn = AsyncMock(return_value=_linkedin_merged_response())
+    upload = AsyncMock(return_value=_fake_response())
+    ps = _linkedin_patches(upload=upload)
+    with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], patch(
+        "applire.services.profile.import_from_linkedin", new=json_fn
+    ):
+        await run_import_job_background(
+            job.id, b'{"profile": {"firstName": "Anna"}}', "export.json", "application/json",
+            user_id=UID, source="linkedin", session_factory=factory,
+        )
+        await run_import_job_background(
+            bad.id, b"{not json", "broken.json", "application/json",
+            user_id=UID, source="linkedin", session_factory=factory,
+        )
+    json_fn.assert_awaited_once()
+    assert json_fn.await_args.args[0] == {"profile": {"firstName": "Anna"}}
+    upload.assert_not_awaited()
+    async with factory() as db:
+        assert (await get_import_job(db, job.id, user_id=UID)).status == CVImportStatus.ready.value
+        failed = await get_import_job(db, bad.id, user_id=UID)
+    assert failed.status == CVImportStatus.failed.value
+    assert failed.error_code == "invalid_document"
 
 
 @pytest.mark.asyncio

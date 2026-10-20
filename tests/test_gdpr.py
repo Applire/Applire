@@ -29,16 +29,9 @@ CV_FILE = Path(__file__).parent / "files" / "Profile.pdf"
 # ---------------------------------------------------------------------------
 
 
-def _upload_cv(api: str) -> dict:
-    """Upload CV and return the response JSON. Asserts 200."""
-    with open(CV_FILE, "rb") as f:
-        r = requests.post(
-            f"{api}/api/profile/upload",
-            files={"file": ("Profile.pdf", f, "application/pdf")},
-            timeout=60,
-        )
-    assert r.status_code == 200, f"Profile upload failed: {r.text}"
-    return r.json()
+def _upload_cv(api: str, import_job) -> dict:
+    """Import the CV through the async import job and return the ready result."""
+    return import_job.result(api, "Profile.pdf", CV_FILE.read_bytes(), "application/pdf")
 
 
 def _analyze_jd(api: str) -> str:
@@ -67,9 +60,9 @@ def _create_application(api: str, job_id: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def seeded_profile(api):
+def seeded_profile(api, import_job):
     """Import a CV once for the whole module (non-destructive tests only)."""
-    return _upload_cv(api)
+    return _upload_cv(api, import_job)
 
 
 @pytest.fixture(scope="module")
@@ -117,9 +110,9 @@ def test_export_profile_has_content_disposition(api, seeded_profile):
 # ---------------------------------------------------------------------------
 
 
-def test_delete_profile_returns_202(api):
+def test_delete_profile_returns_202(api, import_job):
     """DELETE /api/profile returns 202 Accepted."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
 
     r = requests.delete(f"{api}/api/profile")
     assert r.status_code == 202, f"Unexpected {r.status_code}: {r.text}"
@@ -128,9 +121,9 @@ def test_delete_profile_returns_202(api):
     assert "records_deleted" in body or "message" in body
 
 
-def test_delete_profile_erases_profile(api):
+def test_delete_profile_erases_profile(api, import_job):
     """After DELETE, GET /api/profile returns 404."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
 
     r = requests.delete(f"{api}/api/profile")
     assert r.status_code == 202
@@ -139,9 +132,9 @@ def test_delete_profile_erases_profile(api):
     assert r.status_code == 404
 
 
-def test_delete_profile_erases_applications(api):
+def test_delete_profile_erases_applications(api, import_job):
     """After DELETE, GET /api/applications returns empty list."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
     job_id = _analyze_jd(api)
     _create_application(api, job_id)
 
@@ -158,9 +151,9 @@ def test_delete_profile_erases_applications(api):
     assert r.json()["total"] == 0, f"Expected 0 applications after delete, got {r.json()['total']}"
 
 
-def test_delete_profile_erases_uploads(api):
+def test_delete_profile_erases_uploads(api, import_job):
     """After DELETE, uploaded files are removed from storage."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
 
     r = requests.delete(f"{api}/api/profile")
     assert r.status_code == 202
@@ -170,9 +163,9 @@ def test_delete_profile_erases_uploads(api):
     assert r.status_code == 404
 
 
-def test_delete_profile_cascade_flow_sessions(api):
+def test_delete_profile_cascade_flow_sessions(api, import_job):
     """After DELETE, flow_sessions attached to applications are also deleted."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
     job_id = _analyze_jd(api)
     app_id = _create_application(api, job_id)
 
@@ -193,9 +186,9 @@ def test_delete_profile_cascade_flow_sessions(api):
 # ---------------------------------------------------------------------------
 
 
-def test_profile_exists_returns_false_after_delete(api):
+def test_profile_exists_returns_false_after_delete(api, import_job):
     """After DELETE, GET /api/profile/exists returns exists: false."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
 
     r = requests.get(f"{api}/api/profile/exists")
     assert r.status_code == 200
@@ -241,9 +234,9 @@ def _generate_cv_ready(api: str, job_id: str) -> str:
     raise AssertionError("CV generation did not become ready within 120s")
 
 
-def test_delete_profile_erases_pinned_submitted_cv(api):
+def test_delete_profile_erases_pinned_submitted_cv(api, import_job):
     """Erasure hard-deletes even artifacts pinned as submitted (Art. 17 beats the pin)."""
-    _upload_cv(api)
+    _upload_cv(api, import_job)
     job_id = _analyze_jd(api)
     app_id = _create_application(api, job_id)
     cv_id = _generate_cv_ready(api, job_id)

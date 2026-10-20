@@ -13,7 +13,6 @@ Validates:
 Run (requires Docker stack):
     pytest tests/integration/test_session_sprint6.py -v
 """
-import json
 import time
 from pathlib import Path
 
@@ -52,13 +51,8 @@ _LINKEDIN = {
 
 
 @pytest.fixture(scope="module", autouse=True)
-def ensure_profile(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_LINKEDIN)},
-        timeout=90,
-    )
-    assert r.status_code == 200, f"Profile import failed: {r.text}"
+def ensure_profile(api, import_job):
+    import_job.linkedin_json(api, _LINKEDIN)
 
 
 def _wait_for_ready(api: str, cv_id: str, timeout: int = 120) -> dict:

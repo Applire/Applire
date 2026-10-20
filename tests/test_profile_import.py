@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 
+import pytest
 import requests
 
 _REAL_CV_PDF = Path(__file__).parent / "files" / "Profile.pdf"
@@ -135,19 +136,26 @@ _LINKEDIN_JSON = {
 }
 
 
-def _import_pdf(api: str) -> requests.Response:
-    return requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("cv.pdf", _CV_PDF, "application/pdf")},
-        timeout=90,
-    )
+def _ready(poll: requests.Response) -> dict:
+    """The CVUploadResponse of a settled import job; fails the test if the job failed."""
+    body = poll.json()
+    assert body["status"] == "ready", f"import job failed: {body.get('error_code')} {body}"
+    return body["result"]
 
 
-def _import_linkedin(api: str) -> requests.Response:
-    return requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": json.dumps(_LINKEDIN_JSON)},
-        timeout=90,
+def _import_pdf(api: str, import_job) -> requests.Response:
+    """Import the synthetic CV PDF through the async job; returns the final poll."""
+    return import_job.run(api, "cv.pdf", _CV_PDF, "application/pdf")
+
+
+def _import_linkedin(api: str, import_job) -> requests.Response:
+    """Import the LinkedIn JSON export (a .json file, ?source=linkedin); returns the final poll."""
+    return import_job.run(
+        api,
+        "linkedin-export.json",
+        json.dumps(_LINKEDIN_JSON).encode("utf-8"),
+        "application/json",
+        source="linkedin",
     )
 
 
@@ -160,13 +168,14 @@ def _get_profile(api: str) -> requests.Response:
 # ---------------------------------------------------------------------------
 
 
-def test_import_pdf_returns_200(api):
-    r = _import_pdf(api)
+def test_import_pdf_returns_200(api, import_job):
+    r = _import_pdf(api, import_job)
     assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ready", r.text
 
 
-def test_import_pdf_response_structure(api):
-    body = _import_pdf(api).json()
+def test_import_pdf_response_structure(api, import_job):
+    body = _ready(_import_pdf(api, import_job))
 
     assert isinstance(body.get("profile_id"), str) and len(body["profile_id"]) == 36
     assert isinstance(body.get("completeness_score"), float)
@@ -176,8 +185,8 @@ def test_import_pdf_response_structure(api):
     assert isinstance(body.get("enrichment_record_id"), str)
 
 
-def test_import_pdf_extracts_major_sections(api):
-    _import_pdf(api)
+def test_import_pdf_extracts_major_sections(api, import_job):
+    _import_pdf(api, import_job)
     profile = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]
 
     assert profile["work_experience"], "Expected at least one work entry"
@@ -201,16 +210,17 @@ def test_import_pdf_extracts_major_sections(api):
 # ---------------------------------------------------------------------------
 
 
-def test_import_linkedin_returns_200(api):
-    r = _import_linkedin(api)
+def test_import_linkedin_returns_200(api, import_job):
+    r = _import_linkedin(api, import_job)
     assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ready", r.text
 
 
-def test_import_linkedin_response_structure(api):
-    body = _import_linkedin(api).json()
-
-    assert isinstance(body.get("id"), str) and len(body["id"]) == 36
-    profile = body["profile"]
+def test_import_linkedin_response_structure(api, import_job):
+    body = _ready(_import_linkedin(api, import_job))
+    assert isinstance(body.get("profile_id"), str) and len(body["profile_id"]) == 36
+    # The job result is a CVUploadResponse (not the profile): read the profile itself.
+    profile = _get_profile(api).json()["profile"]
     assert isinstance(profile.get("work_experience"), list)
     assert isinstance(profile.get("skills"), list)
     assert isinstance(profile.get("education"), list)
@@ -218,8 +228,9 @@ def test_import_linkedin_response_structure(api):
     assert isinstance(profile.get("personal_info"), dict)
 
 
-def test_import_linkedin_extracts_positions(api):
-    profile = _import_linkedin(api).json()["profile"]
+def test_import_linkedin_extracts_positions(api, import_job):
+    _ready(_import_linkedin(api, import_job))
+    profile = _get_profile(api).json()["profile"]
 
     assert len(profile["work_experience"]) >= 2, "Expected both LinkedIn positions"
     for entry in profile["work_experience"]:
@@ -232,14 +243,14 @@ def test_import_linkedin_extracts_positions(api):
 # ---------------------------------------------------------------------------
 
 
-def test_get_profile_returns_200(api):
-    _import_pdf(api)  # ensure a profile exists
+def test_get_profile_returns_200(api, import_job):
+    _import_pdf(api, import_job)  # ensure a profile exists
     r = _get_profile(api)
     assert r.status_code == 200, r.text
 
 
-def test_get_profile_structure(api):
-    _import_pdf(api)
+def test_get_profile_structure(api, import_job):
+    _import_pdf(api, import_job)
     body = _get_profile(api).json()
 
     assert isinstance(body.get("id"), str)
@@ -248,8 +259,8 @@ def test_get_profile_structure(api):
     assert 0.0 <= body["completeness"] <= 1.0
 
 
-def test_get_profile_completeness_reflects_content(api):
-    _import_pdf(api)
+def test_get_profile_completeness_reflects_content(api, import_job):
+    _import_pdf(api, import_job)
     body = _get_profile(api).json()
     # A CV with work experience, skills, education, languages and personal_info
     # should score at least 0.6 (3 of 5 sections).
@@ -261,8 +272,8 @@ def test_get_profile_completeness_reflects_content(api):
 # ---------------------------------------------------------------------------
 
 
-def test_patch_skills_returns_200(api):
-    _import_pdf(api)
+def test_patch_skills_returns_200(api, import_job):
+    _import_pdf(api, import_job)
     r = requests.patch(
         f"{api}/api/profile/skills",
         json=["Python", "FastAPI", "PostgreSQL", "Patched via test"],
@@ -271,8 +282,8 @@ def test_patch_skills_returns_200(api):
     assert r.status_code == 200, r.text
 
 
-def test_patch_skills_updates_value(api):
-    _import_pdf(api)
+def test_patch_skills_updates_value(api, import_job):
+    _import_pdf(api, import_job)
     new_skills = ["TestSkill-Alpha", "TestSkill-Beta"]
     r = requests.patch(
         f"{api}/api/profile/skills",
@@ -286,8 +297,8 @@ def test_patch_skills_updates_value(api):
     assert updated_names == new_skills
 
 
-def test_patch_contact_returns_200(api):
-    _import_pdf(api)
+def test_patch_contact_returns_200(api, import_job):
+    _import_pdf(api, import_job)
     r = requests.patch(
         f"{api}/api/profile/personal_info",
         json={"name": "Anna Bauer", "email": "patched@example.de", "location": "Berlin"},
@@ -298,8 +309,8 @@ def test_patch_contact_returns_200(api):
     assert personal_info["email"] == "patched@example.de"
 
 
-def test_patch_work_history_returns_200(api):
-    _import_pdf(api)
+def test_patch_work_history_returns_200(api, import_job):
+    _import_pdf(api, import_job)
     new_entry = {
         "company": "Test Corp",
         "role": "Test Engineer",
@@ -323,37 +334,33 @@ def test_patch_work_history_returns_200(api):
 # ---------------------------------------------------------------------------
 
 
-def test_import_rejects_no_input(api):
-    r = requests.post(f"{api}/api/profile/import", timeout=10)
+@pytest.mark.parametrize("path", ["/api/profile/import", "/api/profile/upload"])
+def test_retired_sync_import_doors_answer_410(api, path):
+    """The sync doors were retired (V-4 = A): 410 Gone, pointing at the job door."""
+    r = requests.post(f"{api}{path}", timeout=10)
+    assert r.status_code == 410
+    assert r.json()["use"] == "/api/profile/import-jobs"
+
+
+def test_import_job_rejects_no_input(api):
+    r = requests.post(f"{api}/api/profile/import-jobs", timeout=10)
     assert r.status_code == 422
 
 
-def test_import_rejects_both_inputs(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("cv.pdf", _CV_PDF, "application/pdf")},
-        data={"linkedin_json": json.dumps(_LINKEDIN_JSON)},
-        timeout=10,
-    )
-    assert r.status_code == 422
+def test_import_job_rejects_non_pdf_file(api, import_job):
+    """A plain-text file is not a CV: the job settles ``failed`` with a stable code."""
+    body = import_job.run(api, "cv.txt", b"not a pdf", "text/plain").json()
+    assert body["status"] == "failed", body
+    assert body["error_code"], body
 
 
-def test_import_rejects_non_pdf_file(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        files={"file": ("cv.txt", b"not a pdf", "text/plain")},
-        timeout=10,
-    )
-    assert r.status_code == 422
-
-
-def test_import_rejects_invalid_linkedin_json(api):
-    r = requests.post(
-        f"{api}/api/profile/import",
-        data={"linkedin_json": "this is not json {{{"},
-        timeout=10,
-    )
-    assert r.status_code == 422
+def test_import_job_rejects_invalid_linkedin_json(api, import_job):
+    """A LinkedIn JSON export that is not JSON settles ``failed`` (invalid_document)."""
+    body = import_job.run(
+        api, "linkedin-export.json", b"this is not json {{{", "application/json", source="linkedin"
+    ).json()
+    assert body["status"] == "failed", body
+    assert body["error_code"] == "invalid_document", body
 
 
 def test_patch_invalid_section_returns_422(api):
@@ -370,22 +377,19 @@ def test_patch_invalid_section_returns_422(api):
 # ---------------------------------------------------------------------------
 
 
-def _import_real_pdf(api: str) -> requests.Response:
+def _import_real_pdf(api: str, import_job) -> requests.Response:
     pdf_bytes = _REAL_CV_PDF.read_bytes()
-    return requests.post(
-        f"{api}/api/profile/upload",
-        files={"file": ("Profile.pdf", pdf_bytes, "application/pdf")},
-        timeout=90,
-    )
+    return import_job.run(api, "Profile.pdf", pdf_bytes, "application/pdf")
 
 
-def test_real_pdf_import_returns_200(api):
-    r = _import_real_pdf(api)
+def test_real_pdf_import_returns_200(api, import_job):
+    r = _import_real_pdf(api, import_job)
     assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ready", r.text
 
 
-def test_real_pdf_response_structure(api):
-    body = _import_real_pdf(api).json()
+def test_real_pdf_response_structure(api, import_job):
+    body = _ready(_import_real_pdf(api, import_job))
 
     assert isinstance(body.get("profile_id"), str) and len(body["profile_id"]) == 36
     assert isinstance(body.get("completeness_score"), float)
@@ -394,8 +398,8 @@ def test_real_pdf_response_structure(api):
     assert body["status"] in ("DRAFT", "COMPLETE")
 
 
-def test_real_pdf_extracts_work_history(api):
-    _import_real_pdf(api)
+def test_real_pdf_extracts_work_history(api, import_job):
+    _import_real_pdf(api, import_job)
     profile = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]
 
     assert profile["work_experience"], "Expected at least one work entry from real CV"
@@ -405,15 +409,15 @@ def test_real_pdf_extracts_work_history(api):
     assert isinstance(entry.get("start_date"), str) and entry["start_date"]
 
 
-def test_real_pdf_extracts_skills(api):
-    _import_real_pdf(api)
+def test_real_pdf_extracts_skills(api, import_job):
+    _import_real_pdf(api, import_job)
     profile = requests.get(f"{api}/api/profile", timeout=10).json()["profile"]
     assert profile["skills"], "Expected skills extracted from real CV"
     assert all(isinstance(s, dict) and "name" in s for s in profile["skills"])
 
 
-def test_real_pdf_completeness_high(api):
-    body = _import_real_pdf(api).json()
+def test_real_pdf_completeness_high(api, import_job):
+    body = _import_real_pdf(api, import_job).json()
     # A complete LinkedIn PDF should populate most sections → ≥ 0.70
     assert body["completeness_score"] >= 0.70, (
         f"Completeness {body['completeness_score']} is lower than expected for a full LinkedIn profile"

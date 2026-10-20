@@ -113,25 +113,3 @@ async def test_import_jobs_door_accepts_a_file_of_exactly_the_limit(factory, cli
         )
     assert r.status_code == 202
     assert await _job_count(factory) == 1
-
-
-@pytest.mark.asyncio
-async def test_upload_door_refuses_a_file_over_the_limit_with_413(client):
-    with patch("applire.routers.profile.upload_cv", new=AsyncMock()) as up:
-        r = await client.post(
-            "/api/profile/upload", files={"file": ("big.pdf", OVER, "application/pdf")}
-        )
-    assert r.status_code == 413
-    assert r.json()["detail"]["error"] == "file_too_large"
-    up.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_import_door_refuses_a_zip_over_the_limit_with_413(client):
-    with patch("applire.routers.profile.import_from_linkedin_zip", new=AsyncMock()) as z:
-        r = await client.post(
-            "/api/profile/import", files={"file": ("export.zip", OVER, "application/zip")}
-        )
-    assert r.status_code == 413
-    assert r.json()["detail"]["error"] == "file_too_large"
-    z.assert_not_called()
