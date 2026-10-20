@@ -235,6 +235,7 @@ APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp
 ### Prerequisites
 
 - **Docker & Docker Compose**
+- **About 8 GB of free disk space and 2 GB of RAM** (allow 4 GB of RAM if several people share the instance). The four images take about 5.2 GB once pulled: the backend alone is about 4 GB because it carries the Chromium that renders your PDFs, plus about 0.6 GB for PostgreSQL, 0.4 GB for the frontend and 0.1 GB for nginx. An update keeps the old images until you prune them ([docs/SELF-HOSTING.md](docs/SELF-HOSTING.md#9-disk-and-pruning)). The stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that. Running a local model with Ollama needs more of both.
 - **An LLM provider of your choice** (bring your own key): Mistral, Requesty, OpenRouter, Anthropic, OpenAI (or any OpenAI-compatible endpoint), or Ollama (local/free, no key needed)
 
 ### Self-hosting (no clone required)
@@ -253,7 +254,7 @@ curl -L -o .env.example https://github.com/Applire/Applire/releases/latest/downl
 
 # 2. Configure your environment
 cp .env.example .env
-# Edit .env: set LLM_PROVIDER and the matching API key (see Configuration below)
+# Edit .env: set LLM_PROVIDER and the matching API key (see below and Configuration)
 
 # 3. Fetch the images, then start all services.
 #    The explicit `pull` matters: `up -d` on its own reuses an older `:latest`
@@ -264,13 +265,34 @@ docker compose pull && docker compose up -d
 
 Every service — including the reverse proxy, whose config is baked into the `applire-nginx` image — is a pre-built image, so `docker compose pull` fetches a complete, working stack with no config files to place on the host.
 
+**The provider step in three lines.** In the `.env` you just copied, these are the only lines you have to set. Any provider from the Configuration list below works; Mistral is shown as an example, not a recommendation:
+
+```env
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=your-key-here
+MISTRAL_MODEL=mistral-small-latest
+```
+
+For another provider, change the prefix: `LLM_PROVIDER=openrouter` goes with `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`, and so on for `requesty`, `anthropic` and `openai`; `ollama` needs no key (`OLLAMA_MODEL` only). The model line is optional — every provider has a default — and [docs/llm-models.md](docs/llm-models.md) helps you choose. You do not need to read the rest of `.env.example` to start.
+
 Access the application at **http://localhost** — the bundled nginx reverse proxy serves the frontend and routes `/api/*` to the backend. Port 80 is the only one you need to publish; the backend and frontend containers stay internal. For the full entry-point and port topology, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Check that it is up.** `docker compose up -d` returns before the backend has finished starting (the database migrations run first; give the first start about a minute). Then ask the backend through nginx:
+
+```bash
+curl -s http://localhost/health
+# {"status":"ok","edition":"community","version":"…"}
+```
+
+`"status":"ok"` means the backend is serving. `version` is the release you installed, in Python's normalised spelling: `0.44.0-beta` reads `0.44.0b0`, and `1.0.0` reads `1.0.0`. The endpoint is open and returns only these three fields; the compose healthcheck uses the same one.
 
 > **First start: claim your instance.** Applire always asks for a sign-in. A new install opens a setup screen that asks for a one-time code, which the backend prints in its log:
 > ```bash
-> docker compose logs backend | grep "SETUP REQUIRED"
+> docker compose logs backend | grep -o "enter: [A-Z2-7-]*" | tail -n 1
 > ```
-> Enter the code with your email and a password (12+ characters) — you are the administrator. (Or skip the screen: `docker compose exec backend python -m applire.admin create-admin --email you@example.org`.) Add the other people who should use this instance under **Administration → People**; there is no open sign-up. **Upgrading from 0.42 or earlier?** The same screen appears once, and your existing data becomes the administrator's account — read the [upgrade notes](CHANGELOG.md) first. Several people can share one instance, each with their own private vault; details, single sign-on and mail in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+> It prints one line, `enter: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; the code is the part after `enter:`. Every start prints a new code and only the newest works, which is why the command keeps the last line. Enter the code with your email and a password (12+ characters) — you are the administrator. (Or skip the screen: `docker compose exec backend python -m applire.admin create-admin --email you@example.org`.) Add the other people who should use this instance under **Administration → People**; there is no open sign-up. **Upgrading from 0.42 or earlier?** The same screen appears once, and your existing data becomes the administrator's account — read the [upgrade notes](CHANGELOG.md) first. Several people can share one instance, each with their own private vault; details, single sign-on and mail in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+>
+> **What you will see.** The screens follow your browser's language: German if your browser prefers German, English otherwise. Switch under **Settings → Language**. When you generate your first CV, a photo step comes before the template choice if your profile has no photo yet (you can skip it).
 >
 > **Behind your own proxy or over https?** Forward the `Host` header unchanged (or set `APPLIRE_BASE_URL`), and set `COOKIE_SECURE=true` once people reach Applire over https.
 
@@ -284,6 +306,8 @@ To update to the latest release:
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+What a version number promises, and what may change between releases: [Versioning and stability promise](docs/versioning.md).
 
 > **Never `docker compose down -v`.** The `-v` flag deletes the named volumes — `postgres_data` (the vault) and `applire_uploads` (every uploaded CV and profile photo) — and there is no undo. `docker compose down` on its own is safe and keeps both. To update, `pull` and `up -d` as above; you never need to take the stack down first. Back up before you upgrade: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
@@ -454,11 +478,14 @@ In the Docker stack the REST API is reached through nginx at `http://localhost/a
 
 #### Authentication
 
-Every route except `GET /health` and the sign-in/setup pages needs a sign-in. A browser uses the session cookie; a **script** uses a personal API token (create it under Settings → Tokens) instead of a cookie jar:
+Every route except `GET /health` and the sign-in/setup pages needs a sign-in. A browser uses the session cookie; a **script** uses a personal **API token** (create it under Settings → Tokens; an *agent* token is for MCP only and the REST API refuses it) instead of a cookie jar:
 
 ```bash
-curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile/exists
+# {"exists":false,"completeness_score":0.0}   (true and a score once a CV is imported)
 ```
+
+`GET /api/profile` returns the whole profile and answers 404 ("No profile found") until the first CV is imported; write the path without a trailing slash, because `/api/profile/` is redirected (307).
 
 `GET /health` is open and returns `status`, `edition` and `version` only. Instance health and the detail fields are at `GET /api/ops/health` (administrator or monitoring token). `/docs` needs a sign-in.
 
@@ -527,10 +554,21 @@ running Applire, over stdio:
 ```
 
 **The server needs your personal agent token.** Create one in Applire under
-**Settings → Tokens** (it is shown once), put it in the `env` entry, and the
-agent works on *your* data only. Without a valid token `python -m applire.mcp`
+**Settings → Tokens** (it is shown once: use the **Copy** button in the dialog and
+paste it straight into the `env` entry — the list afterwards shows only the first
+characters), and the agent works on *your* data only. A complete token has the form
+`apl_<8 characters>_<43 characters>`, 56 characters in all (the 8 are lowercase
+letters or digits); a shorter one was cut off and must be replaced — a token cannot
+be shown again, so revoke it and create a new one. Without a valid token `python -m applire.mcp`
 refuses to start and says where to create one. A source checkout takes the same
 variable: `APPLIRE_AGENT_TOKEN=apl_… python -m applire.mcp`.
+
+The `mcp` service in that command is defined in the `docker-compose.yml` of the
+release, under `profiles: [mcp]`, so a plain `docker compose up -d` never starts it.
+A compose file that predates it, or one you copied and trimmed by hand, lacks it:
+download the current one from the release assets
+(`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`,
+the same command as in the installation above; it replaces your file, so copy over any edits of your own) and keep your `.env`.
 
 `-T` matters: it gives the server a plain pipe instead of a terminal, which is
 what the stdio transport needs. Start Applire first (`docker compose up -d`);

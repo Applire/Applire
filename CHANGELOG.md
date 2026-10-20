@@ -6,6 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Install docs (README, `docs/SELF-HOSTING.md`; #785).** Prerequisites now state disk and RAM; the installation names `GET /health` as the "it is up" check, shows the three `.env` lines the provider step needs, gives the one-line setup-code command, and says what the first screens look like; the `/api/profile` example now works on a fresh instance; the MCP section says where the `mcp` compose service comes from and how to copy the shown-once agent token whole.
+
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
 ### Upgrade notes
