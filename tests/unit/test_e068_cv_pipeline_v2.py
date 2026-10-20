@@ -1121,6 +1121,12 @@ def test_budget_line_is_model_written_only_when_every_figure_survives():
     tailored, notes = _compose(prose, vault)
     assert tailored.work_history[0].budget_managed == "ca. 6 Mio. €"
     assert any("budget_managed" in n[0] for n in notes.names_not_recorded)
+    # 786:L127 (SF-WRITE.44): the same digits under another magnitude word is a
+    # changed figure — "6 Mio." is not "6 billion".
+    prose["work"][0]["budget_managed"] = "approx. €6 billion"
+    tailored, notes = _compose(prose, vault)
+    assert tailored.work_history[0].budget_managed == "ca. 6 Mio. €"
+    assert any("budget_managed" in n[0] for n in notes.names_not_recorded)
 
 
 # =============================================================================
