@@ -9,6 +9,11 @@ We provide security fixes for the latest released version only.
 | Latest  | ✅        |
 | < 1.0   | ❌ (beta — no SLA) |
 
+**From 1.0.0 on**, security fixes go to the **latest 1.x minor release only**: once
+1.3.0 is out, a fix ships as 1.3.x, not as 1.2.x. The 0.x betas are not supported
+once 1.0.0 is released. Updating within 1.x is `docker compose pull && docker compose up -d`;
+the [1.x stability promise](docs/versioning.md) is what makes that update safe to take.
+
 ## Reporting a Vulnerability
 
 **Do not report security vulnerabilities through public GitHub issues.**
