@@ -88,6 +88,26 @@ class LeadershipEmphasis(BaseModel):
     quote: str
 
 
+class JobAnalysisReview(BaseModel):
+    """787:L28 — how this analysis' own review loop settled (ADR-021 / ADR-039 vocabulary).
+
+    Every later step (gaps, interview, both writers) reads the analysis as ground
+    truth about what the posting asked for; a reviewer that hit its verdict budget
+    used to ship the draft un-reviewed with no trace outside the log. ``status``
+    is the ``terminal-review`` check's vocabulary, projected by the SAME function
+    (``terminal_review_outcome.settle_to_outcome``): ``pass`` = the reviewer
+    settled clean, ``fail`` = findings were still open when it stopped,
+    ``not_applicable`` = unknown — no verdict was obtained (e.g. the reviewer call
+    failed) or the draft changed after the last verdict. Never "clean".
+    Counts only: no finding text, so no posting text rides this object.
+    """
+
+    status: Literal["pass", "fail", "not_applicable"]
+    settle_path: Optional[str] = None
+    rounds: int = 0
+    open_findings: int = 0
+
+
 class JobAnalysisResponse(BaseModel):
     id: uuid.UUID
     role_title: str
@@ -126,6 +146,10 @@ class JobAnalysisResponse(BaseModel):
     # by the caller (router / MCP tool), not by analyze_jd itself: the service
     # stays user-agnostic like the job_analyses table it manages.
     duplicate_of: Optional[DuplicateOfHint] = None
+    # 787:L28: set on the response of the call that RAN the analysis; ``None``
+    # on a cache hit and on every later read — "not recorded for this call",
+    # never "reviewed clean" (the shared posting row stores no review state).
+    review: Optional[JobAnalysisReview] = None
 
     model_config = {"from_attributes": True}
 

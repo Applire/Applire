@@ -546,9 +546,13 @@ async def _analyze_jd_once(
     # here poisons all of them. No deterministic grounding guard exists for this output
     # today (only the KldB code lookup and the "something JD-like is present" garbage
     # check below), so it gets the standard author/reviewer loop.
+    # 787:L28 — the loop's own settle report (`on_settle`, a report, never a
+    # lever) becomes the response's `review` object below.
+    settles: list = []
     data = await review_and_refine(
         source=text,
         draft=data,
+        on_settle=settles.append,
         generator_prompt_fn=build_job_analysis_retry_prompt,
         generator_system=JOB_ANALYSIS_REFINEMENT_PROMPT,
         reviewer_prompt_fn=build_job_analysis_review_prompt,
@@ -673,7 +677,30 @@ async def _analyze_jd_once(
         if record is None:
             raise
     return await _link_and_respond(
-        db, record, uid, text, source_url, role_title_override, company_name_override
+        db, record, uid, text, source_url, role_title_override, company_name_override,
+        review=_review_summary(settles[-1] if settles else None),
+    )
+
+
+def _review_summary(settle) -> "JobAnalysisReview":
+    """787:L28 — project the JD review loop's settle onto the response object.
+
+    The one projection the document chains use (``settle_to_outcome`` →
+    ``TerminalReviewOutcome.status``, ADR-066), so a JD analysis and a CV say
+    "fail" / "unknown" for the same settle paths. No settle report at all (the
+    loop never called back) is unknown, never clean.
+    """
+    from applire.schemas.job import JobAnalysisReview
+    from applire.services.terminal_review_outcome import settle_to_outcome
+
+    if settle is None:
+        return JobAnalysisReview(status="not_applicable")
+    outcome = settle_to_outcome(settle, chain_id="job_analysis", structured_output=True)
+    return JobAnalysisReview(
+        status=outcome.status,
+        settle_path=settle.path,
+        rounds=settle.rounds,
+        open_findings=len(settle.blocking_issues),
     )
 
 
@@ -685,6 +712,8 @@ async def _link_and_respond(
     source_url: str | None,
     role_title_override: str | None,
     company_name_override: str | None,
+    *,
+    review=None,
 ) -> JobAnalysisResponse:
     """Repost hint (before the link), link, commit, answer with the caller's labels."""
     from applire.services.application import find_duplicate_application
@@ -720,4 +749,5 @@ async def _link_and_respond(
 
     response = posting_response(job, app)
     response.duplicate_of = duplicate_of
+    response.review = review
     return response
