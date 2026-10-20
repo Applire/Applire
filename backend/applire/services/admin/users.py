@@ -288,13 +288,8 @@ async def delete_account(
     # Step 3 — tombstone (idempotent if erase already did it) + audit.
     user = await db.get(User, user_id, populate_existing=True)
     if user is not None:
-        user.email = f"deleted+{user.id}@invalid"
-        user.password_hash = None
-        user.oidc_issuer = None
-        user.oidc_subject = None
-        user.link_epoch = (user.link_epoch or 0) + 1
-        if user.deleted_at is None:
-            user.deleted_at = _now()
+        # The one tombstone implementation, shared with the retention worker (R-4).
+        erasure.tombstone_identity(user, now=_now())
     erased_rows = sum(int(v) for v in (counts or {}).values())
     await audit.record(db, actor_id=actor.id, action="user.deleted", target_type="user",
                        target_id=user_id, details={"by": by, "erased_rows": erased_rows})

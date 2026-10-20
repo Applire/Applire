@@ -428,3 +428,42 @@ async def erase(
         },
     )
     return counts
+
+
+# ---------------------------------------------------------------------------
+# The tombstone — what an erased or retired account row keeps (ADR-091 cl. 25
+# as amended 2026-10-20, founder ruling R-4; 785:L81)
+# ---------------------------------------------------------------------------
+
+#: The columns a tombstone keeps. Everything else that names or identifies the
+#: person is cleared; audit rows keep pointing at the opaque id.
+TOMBSTONE_KEEPS: frozenset[str] = frozenset(
+    {"id", "role", "created_at", "disabled_at", "deleted_at", "link_epoch"}
+)
+
+
+def tombstone_identity(user, *, now: datetime | None = None) -> None:
+    """Scrub ``user`` to a tombstone, in place (the caller commits).
+
+    ONE implementation for both paths that retire an account: the explicit
+    deletion (self or admin, after :func:`erase`) and the retention worker's
+    24-month inactivity rule. Before R-4 only the deletion scrubbed; a retention
+    tombstone set ``deleted_at`` alone and kept the email (``UNIQUE`` — the
+    person could never be re-invited with it), the password hash and the
+    ``(issuer, subject)`` binding (SSO refused forever), with no end date.
+    Revoking the account's sessions, tokens and links is the caller's step
+    (it needs the session); this function touches only the row.
+    """
+    stamp = now or datetime.now(timezone.utc)
+    user.email = f"deleted+{user.id}@invalid"
+    user.password_hash = None
+    user.oidc_issuer = None
+    user.oidc_subject = None
+    user.last_login_at = None
+    user.last_active_at = None
+    user.email_verified_at = None
+    user.photo_consent = False
+    user.photo_consent_at = None
+    user.link_epoch = (user.link_epoch or 0) + 1
+    if user.deleted_at is None:
+        user.deleted_at = stamp

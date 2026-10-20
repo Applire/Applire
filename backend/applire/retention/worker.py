@@ -383,7 +383,7 @@ async def _tombstone_inactive_profiles(db: AsyncSession) -> int:
 
 
 async def _tombstone_inactive_users(db: AsyncSession) -> int:
-    """Soft-delete accounts INACTIVE for ≥ 24 months (D-4, ADR-092 cl. 12a).
+    """Retire accounts INACTIVE for ≥ 24 months (D-4, ADR-092 cl. 12a).
 
     Inactivity = ``coalesce(last_active_at, created_at)`` — the last sign-in /
     authenticated write, falling back to sign-up for an account that never
@@ -391,34 +391,52 @@ async def _tombstone_inactive_users(db: AsyncSession) -> int:
     have tombstoned every real account 24 months after it was created, however
     active. An **admin is never tombstoned** (last-admin protection, ADR-091
     cl. 7): an instance whose only admin went quiet must stay claimable by them.
+
+    The tombstone is the SAME scrub as an account deletion (ADR-091 cl. 25 as
+    amended 2026-10-20, ruling R-4; 785:L81): ``erasure.tombstone_identity``
+    clears the email, credentials, SSO binding and login timestamps, and the
+    account's sessions, tokens and open links are revoked. Before, this rule set
+    ``deleted_at`` only and kept all of them indefinitely. The owned data is not
+    erased here — profiles and applications run their own inactivity rules.
     """
+    from applire.auth.sessions import revoke_user_sessions
+    from applire.auth.tokens import revoke_all_for_user
+    from applire.services.admin.links import revoke_open_links
+    from applire.services.erasure import tombstone_identity
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=_INACTIVITY_TTL_DAYS)
     now = datetime.now(timezone.utc)
     try:
-        result = await db.execute(
-            update(User)
-            .where(
-                func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
-                < cutoff
-            )
-            .where(User.role != ROLE_ADMIN)
-            .where(User.deleted_at.is_(None))
-            # The unclaimed setup stub owns an upgraded vault and is what /setup
-            # converts into the admin; a tombstoned stub can never be claimed
-            # (claim_stub refuses deleted rows), so it is never retired here
-            # while it holds no credential (w4-fix-id, MD-39).
-            .where(
-                or_(
-                    User.id != STUB_USER_ID,
-                    User.password_hash.is_not(None),
-                    User.oidc_subject.is_not(None),
+        users = (
+            await db.execute(
+                select(User)
+                .where(
+                    func.coalesce(User.last_active_at, User.created_at, type_=User.created_at.type)
+                    < cutoff
+                )
+                .where(User.role != ROLE_ADMIN)
+                .where(User.deleted_at.is_(None))
+                # The unclaimed setup stub owns an upgraded vault and is what /setup
+                # converts into the admin; a tombstoned stub can never be claimed
+                # (claim_stub refuses deleted rows), so it is never retired here
+                # while it holds no credential (w4-fix-id, MD-39).
+                .where(
+                    or_(
+                        User.id != STUB_USER_ID,
+                        User.password_hash.is_not(None),
+                        User.oidc_subject.is_not(None),
+                    )
                 )
             )
-            .values(deleted_at=now)
-            .execution_options(synchronize_session=False)
-        )
+        ).scalars().all()
+        for user in users:
+            await revoke_user_sessions(db, user.id)
+            await revoke_all_for_user(db, user.id)
+            await revoke_open_links(db, user.id)
+            await db.refresh(user)  # revoke_all_for_user bumped link_epoch in SQL
+            tombstone_identity(user, now=now)
         await db.commit()
-        return result.rowcount  # type: ignore[return-value]
+        return len(users)
     except (ProgrammingError, OperationalError) as exc:
         logger.warning("_tombstone_inactive_users skipped: %s", exc)
         await db.rollback()
