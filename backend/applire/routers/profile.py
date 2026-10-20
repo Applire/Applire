@@ -19,7 +19,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 import mimetypes
@@ -263,6 +263,14 @@ async def start_cv_import_endpoint(
     job_id: uuid.UUID | None = Query(
         default=None, description="Accepted for API compatibility; no longer changes extraction (M5.1.3)"
     ),
+    source: Literal["linkedin"] | None = Query(
+        default=None,
+        description=(
+            "Set to ``linkedin`` to import a LinkedIn profile-PDF export through the "
+            "LinkedIn adapter instead of the CV one. A ZIP needs no hint: it is always "
+            "a LinkedIn export (#789 L31)."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_user),
 ) -> CVImportJobResponse:
@@ -274,6 +282,11 @@ async def start_cv_import_endpoint(
     is ``ready`` (``result`` holds the CVUploadResponse) or ``failed``. This is the
     recommended door for every REST caller; the sync ``/upload`` remains only for
     compatibility and is cut by a proxy read timeout on a slow route (#674).
+
+    The LinkedIn export rides the same job (#789 L31): a ``.zip`` runs the LinkedIn ZIP
+    adapter, a PDF with ``?source=linkedin`` the LinkedIn PDF adapter; the result is the
+    same ``CVUploadResponse`` shape (including the GATED hold), so the poll and the
+    pre-merge gate are unchanged.
     """
     user = current_user
     filename = file.filename or "upload"
@@ -289,6 +302,7 @@ async def start_cv_import_endpoint(
         content_type,
         job_id,
         user.id,
+        source=source,
     )
     return CVImportJobResponse(import_id=job.id, status=CVImportStatus(job.status))
 

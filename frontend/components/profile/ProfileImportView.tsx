@@ -160,18 +160,26 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
     setLoading(true);
     const isZip = file.name.toLowerCase().endsWith(".zip");
     try {
-      // The ZIP endpoint answers the same shape as the async CV import job.
+      // Both branches resolve to the async import job's CVUploadResponse.
       let data: CVUploadResult;
 
       if (isZip) {
-        // LinkedIn archive import stays synchronous (fast, no heavy LLM pass) —
-        // one honest "importing" phase with a heartbeat.
+        // #789 L31: the LinkedIn archive runs the same full ingest chain as a CV
+        // (#367), so it goes through the async import job too — the synchronous
+        // POST /api/profile/import is cut by the proxy's 300 s read timeout. Same
+        // start → poll as the CV branch; the poll phase keeps its own honest label
+        // ("Importing LinkedIn archive…").
+        setPhase("uploading");
+        const importId = await startCvImport(file, {
+          apiBase: API_BASE,
+          source: "linkedin",
+          signal: abortRef.current?.signal,
+        });
         setPhase("importing");
-        const form = new FormData();
-        form.append("file", file);
-        const res = await fetch(`${API_BASE}/api/profile/import`, { method: "POST", body: form });
-        if (!res.ok) throw new Error(await readApiError(res));
-        data = await res.json();
+        data = await pollCvImport(importId, {
+          apiBase: API_BASE,
+          signal: abortRef.current?.signal,
+        });
       } else {
         // #114 / US177 (and the E036 follow-up TODO): the CV path runs through the
         // async import job like the onboarding overlay — the POST returns fast (the
@@ -435,7 +443,10 @@ export function ProfileImportView({ flowId, hideTopbar, onImported }: ProfileImp
               <ProgressWidget
                 steps={
                   phase === "importing"
-                    ? ([{ label: t("stepImporting"), status: "active" }] as ProgressStep[])
+                    ? ([
+                        { label: t("stepUploading"), status: "done" },
+                        { label: t("stepImporting"), status: "active" },
+                      ] as ProgressStep[])
                     : ([
                         {
                           label: t("stepUploading"),

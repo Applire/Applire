@@ -56,6 +56,22 @@ describe("uploadCvAsync", () => {
     expect(postUrl).toContain("job_id=job-9");
   });
 
+  it("forwards the LinkedIn source hint as a query param (#789 L31)", async () => {
+    let postUrl = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = typeof input === "string" ? input : input.toString();
+      if (u.includes("/import-jobs/")) return res({ status: "ready", result: { status: "DRAFT" } });
+      postUrl = u;
+      return res({ import_id: "imp-1", status: "pending" }, true, 202);
+    });
+    await uploadCvAsync(new File(["x"], "export.zip"), { source: "linkedin", jobId: "job-9", pollMs: 1 });
+    expect(postUrl).toContain("source=linkedin");
+    expect(postUrl).toContain("job_id=job-9");
+    postUrl = "";
+    await uploadCvAsync(new File(["x"], "cv.pdf"), { pollMs: 1 });
+    expect(postUrl).not.toContain("source=");
+  });
+
   it("rejects with CVImportError carrying the error_code on a failed import", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const u = typeof input === "string" ? input : input.toString();
