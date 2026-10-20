@@ -585,11 +585,33 @@ visibility itself is the last in-pipeline signal, not a preview of a later fix.
 
 """
 
+#: Founder ruling D1-2 = A (Hazelnut build 2, 783:L12): the candidate's interview answer
+#: is evidence on BOTH documents (DEL-1 / DEL-5). v1's SKILLS-LIST SCOPE boundary says
+#: denial text "NEVER grounds anything", while the CV writer's own STATED LIMITS block
+#: (``cross_document.render_stated_limits_block``) and the letter call a capability named
+#: INSIDE a statement as something the candidate DOES have a strength — the reviewer was
+#: the one voice flagging the candidate's own true answer. v2 keeps the half that matters
+#: (a denial never affirms what it denies) and drops the contradiction. v1 stays
+#: byte-identical (R-3 / R-10 precedent).
+_V1_DENIAL_BOUNDARY = (
+    "text inside STATED LIMITS or any denial record\n"
+    "NEVER grounds anything — a concept is never affirmed by its own denial —"
+)
+_V2_DENIAL_BOUNDARY = (
+    "a denial never grounds the concept it\n"
+    "denies, nor anything its statement says the candidate lacks or cannot claim — a concept is\n"
+    "never affirmed by its own denial; but a capability the candidate's own statement names as\n"
+    "something they DO have or did (\"no PSD2 licence work, but I set up least-privilege IAM on\n"
+    "AWS\") is the candidate's own answer and grounds that capability like any profile statement —"
+)
+assert _CHECKS.count(_V1_DENIAL_BOUNDARY) == 1, "the SKILLS-LIST SCOPE boundary moved — re-anchor"
+_V2_CHECKS = _CHECKS.replace(_V1_DENIAL_BOUNDARY, _V2_DENIAL_BOUNDARY)
+
 V2_REVIEW_SYSTEM_PROMPT = (
     _AUDITOR_INTRO
     + _V2_SHAPE_NOTE_PROSE
     + _V2_BUDGET_RULE
-    + _CHECKS
+    + _V2_CHECKS
     + "\n"
     + _MANDATE_PROSE
     + _schema_and_closer(structural_fields=False)
@@ -599,7 +621,7 @@ V2_TERMINAL_REVIEW_SYSTEM_PROMPT = (
     _AUDITOR_INTRO
     + _V2_SHAPE_NOTE_TERMINAL
     + _V2_BUDGET_RULE
-    + _CHECKS
+    + _V2_CHECKS
     + "\n"
     + _TERMINAL_CHECKS
     + _TERMINAL_BLOCKING_CHECKS
