@@ -235,6 +235,8 @@ Two ways to get the setting wrong without any message:
 
 ## 9. Disk and pruning
 
+**How much disk and RAM to plan.** Plan on about 8 GB of free disk and 2 GB of RAM (4 GB of RAM if several people share the instance). The four images take about 5.2 GB once pulled: the backend about 4 GB (it carries the Chromium that renders PDFs; the `retention` service reuses the same image), PostgreSQL about 0.6 GB, the frontend about 0.4 GB, nginx about 0.1 GB. An update pulls new images and leaves the old ones until you prune them (below). The running stack idles near 0.5 GB of RAM; every PDF render starts a headless Chromium on top of that. A local model with Ollama needs more of both.
+
 Three named volumes hold everything durable: `postgres_data`, `ollama_data` (only used with `docker compose --profile ollama up`), and `applire_uploads`.
 
 Container logs are already bounded — `docker-compose.yml` sets the `json-file` driver to `max-size: 10m`, `max-file: 3` for every service, so log growth alone won't fill your disk.
@@ -446,15 +448,16 @@ next to the figure.
 SETUP REQUIRED — open /setup on the address where you normally open Applire … and enter: <code> — or run: docker compose exec backend python -m applire.admin create-admin --email you@example.org. A new code is printed at every start until setup is done.
 ```
 
-```bash
-docker compose logs backend | grep "SETUP REQUIRED"
-```
-
-**Only the code from the latest start works.** Every start replaces the code, so after a few restarts the log holds several codes and only the last one is valid. The code is the six groups of four letters and digits after `enter:` (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; case and dashes do not matter). To print only the newest:
+To print only the code, as one line:
 
 ```bash
-docker compose logs backend | grep "SETUP REQUIRED" | tail -1
+docker compose logs backend | grep -o "enter: [A-Z2-7-]*" | tail -n 1
+# enter: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
 ```
+
+(`docker compose logs backend | grep "SETUP REQUIRED"` prints the whole block's long line instead.)
+
+**Only the code from the latest start works.** Every start replaces the code, so after a few restarts the log holds several codes and only the last one is valid, which is why the command ends in `tail -n 1`. The code is the six groups of four letters and digits after `enter:` (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`; case and dashes do not matter).
 
 Open `/setup`, enter the code, your email and a password (12–256 characters, typed twice), and the instance is yours. Only a person with access to the server can read the code, which is the point: a stranger who finds the URL cannot claim your instance. On an **upgraded** install, the existing vault becomes the administrator's account — same data, now behind a login. The `create-admin` command does the same from the shell and refuses once the instance is claimed. It asks for the password twice, or reads it from standard input with `--password-stdin` (for scripts).
 
@@ -524,11 +527,14 @@ printf '%s' "$APPLIRE_AGENT_TOKEN" | grep -Eq '^apl_[a-z0-9]{8}_[A-Za-z0-9_-]{43
 
 A token you lost or truncated cannot be shown again: revoke it in the list and create a new one.
 
-A **script** needs no cookie jar:
+A **script** needs no cookie jar, only an **api** token:
 
 ```bash
-curl -H "Authorization: Bearer apl_…" http://localhost/api/profile
+curl -H "Authorization: Bearer apl_…" http://localhost/api/profile/exists
+# {"exists":false,"completeness_score":0.0}   (true and a score once a CV is imported)
 ```
+
+`GET /api/profile` returns the whole profile and answers 404 ("No profile found") until the first CV is imported. Write it without a trailing slash: `/api/profile/` is redirected (307).
 
 An **MCP client** configuration gains the token (the Docker form passes it through):
 
@@ -547,7 +553,7 @@ An **MCP client** configuration gains the token (the Docker form passes it throu
 }
 ```
 
-The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file you wrote or trimmed yourself may lack it. Then copy the service from the release's file, or start the server inside your running backend container instead:
+The `mcp` service is part of the shipped `docker-compose.yml` under the profile `mcp`, and has been since the first public release. A compose file that predates it, or one you wrote or trimmed yourself, may lack it. Then fetch the current file from the release assets (`curl -LO https://github.com/Applire/Applire/releases/latest/download/docker-compose.yml`; it replaces your file, so copy over any edits of your own) or copy just the `mcp` service from it, or start the server inside your running backend container instead:
 
 ```json
 "args": ["compose", "-f", "/absolute/path/to/applire/docker-compose.yml",
