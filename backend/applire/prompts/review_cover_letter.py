@@ -621,6 +621,10 @@ _V2_CORRECTOR_RULES = (
     "  (Eintrittstermin), \"flexible\" timing — unless the CANDIDATE SOURCE gives one (a\n"
     "  ``positioning_requested.availability`` entry or the candidate's stated availability).\n"
     "  When a review asks for one without such input, write the closing without it.\n"
+    "- LISTED-ONLY TERMS (ruling V-1): a KEYWORD LEDGER row marked\n"
+    "  [listed only — no role bullet or story states it] may be named in a list of tools or\n"
+    "  methods, never narrated as a responsibility, ownership or outcome — also when a review\n"
+    "  asks for coverage of it.\n"
 )
 
 

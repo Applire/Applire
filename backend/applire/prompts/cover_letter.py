@@ -318,6 +318,15 @@ V2_CLOSING_RULE = (
 #: writer's FIRST draft on 14 of 41 Ministral v2 gate letters (5c2f056b) — a notice
 #: period / start date with no input. The rule now names the forms and the only two
 #: sources. v2 only.
+#: Founder ruling V-1 = B (787:L11): the KEYWORD LEDGER's listed-only marker is the
+#: fact (keyword_ledger.LISTED_ONLY_MARKER); this is the letter's rule. v2 only.
+V2_LISTED_ONLY_RULE = (
+    "LISTED-ONLY TERMS: a KEYWORD LEDGER row marked [listed only — no role bullet or story "
+    "states it] is a term the candidate lists without saying what they did with it. You may "
+    "NAME it inside a list of tools or methods; never narrate it as a responsibility, an "
+    "ownership or an outcome (\"verantwortete X\", \"I led X\", \"X reduced …\")."
+)
+
 _V1_AVAILABILITY_RULE = "- Include Eintrittstermin in body only if availability is provided.\n"
 _V2_AVAILABILITY_RULE = (
     "- AVAILABILITY ONLY FROM INPUT: state when the candidate could start — availability, a\n"
@@ -371,7 +380,7 @@ def build_system_prompt(language: str | None, *, pipeline: str = "v1") -> str:
     rules = rules.replace(_V1_OVERSTATE_ANCHOR, _V1_OVERSTATE_ANCHOR + _V2_TARGET_RULE)
     assert _V1_AVAILABILITY_RULE in rules, "the availability rule moved — re-anchor _V1_AVAILABILITY_RULE"
     rules = rules.replace(_V1_AVAILABILITY_RULE, _V2_AVAILABILITY_RULE)
-    rules = rules + "\n- " + V2_CLOSING_RULE + "\n"
+    rules = rules + "\n- " + V2_CLOSING_RULE + "\n- " + V2_LISTED_ONLY_RULE + "\n"
     return _V2_OPENER.format(name=language_name(language)) + _V2_SCHEMA + "\n" + rules
 
 

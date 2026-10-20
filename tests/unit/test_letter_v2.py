@@ -189,10 +189,10 @@ def test_v2_titles_rule_allows_recorded_alternate_forms_only():
     v2 = build_system_prompt("en", pipeline="v2")
     assert "recorded alternate" in v2
     assert "never translate, shorten, generalise, upgrade or downgrade it yourself" in v2
-    # v1's rules are carried otherwise unchanged; v2 adds exactly ONE top-level rule,
-    # the F1 closing rule (2026-10-18)
+    # v1's rules are carried otherwise unchanged; v2 adds exactly TWO top-level rules,
+    # the F1 closing rule (2026-10-18) and the listed-only rule (ruling V-1, build 2)
     assert v2.count("- GROUNDING CONTRACT") == 1
-    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 1 == v2.split("Rules:")[1].count("\n- ")
+    assert SYSTEM_PROMPT.split("Rules:")[1].count("\n- ") + 2 == v2.split("Rules:")[1].count("\n- ")
 
 
 def test_condense_prompt_names_the_language_on_v2_only():
