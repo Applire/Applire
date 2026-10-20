@@ -2529,6 +2529,7 @@ def reevaluate_gap_ledger_against_vault(
     # entire reason it exists.
     release_corpus = denial_release_corpus(profile_json)
     list_labels = _list_entry_labels(exclude_unconfirmed(profile_json) or {})
+    lifted: set[str] = set()
 
     # ADR-064 — reuse the same dict-or-str normaliser _enforce_denial_stance
     # uses, so this caller's extraction can never quietly diverge from that
@@ -2590,6 +2591,7 @@ def reevaluate_gap_ledger_against_vault(
         ledger, did_change = upgrade_ledger_for_concepts(ledger, [concept], evidence)
         changed = changed or did_change
         if did_change:
+            lifted.add(_norm(concept))
             # Ruling V-1 = B, narrowed by V-1b (787:L11): THIS seam knows the one
             # vault text node it lifted on. When that node is a bare LIST label
             # (a skill, certification, degree or language name) the row is
@@ -2618,8 +2620,16 @@ def reevaluate_gap_ledger_against_vault(
     # builder and the gap-analysis merge run (ADR-066: one implementation).
     # The writers read it as the "listed only" marker
     # (`render_ledger_prompt_block`).
+    # Re-stamped only where it can be stale: on the rows this call LIFTED, and
+    # on rows that already carry the key. A row neither lifted nor stamped keeps
+    # its shape (the persisted contract of an untouched row does not change).
     if profile_json is not None:
-        ledger = _annotate_narrative_backed(ledger, profile_json)
+        restamp = [
+            e for e in ledger
+            if _norm(e.get("concept", "")) in lifted or "narrative_backed" in e
+        ]
+        fresh = {id(e): f for e, f in zip(restamp, _annotate_narrative_backed(restamp, profile_json))}
+        ledger = [fresh.get(id(e), e) for e in ledger]
         # A listed-only row whose term a narrative entry has since come to state
         # is no longer listed-only.
         ledger = [

@@ -236,6 +236,21 @@ wrong-slot per shape; "qualified" is RULING O3-1's threshold set.
   facts the profile already held. An item-free first wording (v1, "declining
   more detail denies nothing") reached only 7/15 on luna and was not shipped.
   Records: ``Documents/Runs/Hazelnut/build-1/h/evidence-F2-replay-*.md``.
+* **24,157 (Hazelnut build 2 WP-V, 2026-10-20, rulings V-3 / V-6).** Four
+  amendments, each replayed on persisted input (``gpt-5.6-luna``, Requesty,
+  reasoning OFF, n=5 per arm; records under
+  ``Documents/Runs/Hazelnut/build-2/v/*-replay/``). (1) Rule 7 "A PROMOTION IS
+  NOT A DIFFERENT TITLE" (783:L88, founder V-3 = A then V-6 = B): an incoming
+  dated position whose title differs and whose span covers only part of the
+  existing entry is ASKED about (request_confirmation, merge / add_separate,
+  the V-5 engagement context). Partly covering Senior Designer folded in 5/5 →
+  asked 4-5/5; a same-title dated position is asked too (5/5, not targeted).
+  (2) ``upsert_skill``: a figure's name is not a skill (783:L100), 8/15 → 0/15,
+  figure kept 15/15. (3) ``add_bullets`` NOT A SECOND TIME (783:L43), restated
+  bullets 39 → 17 with a held-out example, other bullets 40 → 37. (4) Rule 9 "A
+  DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION" (783:L101), bare-field denial
+  10/10 → 0/10, plain-denial controls 15/15. +2,829 chars; the attention cost
+  above applies.
 
 Adding a rule here costs the model attention on every turn. Before you add one,
 read ``o3/prompt-health.md`` §1 (this prompt's rules already outweigh the vault

@@ -600,7 +600,7 @@ async def _import_from_text(
         not_applied=outcome.merge.not_applied,
         not_applied_loss_count=outcome.merge.not_applied_loss_count,
         matched=outcome.merge.matched,
-        extraction_review=outcome.extraction_review,
+        extraction_review=getattr(outcome, "extraction_review", None),
     )
 
 
