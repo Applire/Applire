@@ -27,55 +27,19 @@ _DOCKER_ENV = {
     ),
 }
 
-# Kept as a strict-equality guard (see test_mcp_tools_list_returns_all_tools) —
-# every new tool must be added here deliberately. This drifted silently for a
+# A strict-equality guard (see test_mcp_tools_list_returns_all_tools). History:
+# the old hand-kept set drifted silently for a
 # while (18 registered vs. 9 listed) because this file is a CI orphan; it's
 # now wired into the integration-and-e2e-tests job (see .github/workflows/test.yml)
 # and mirrored by a hermetic cross-check in tests/unit/test_mcp_tools.py.
-_EXPECTED_TOOLS = {
-    "analyze_jd",
-    "get_profile",
-    "update_profile",
-    "analyze_gaps",
-    "run_interview",
-    "send_message",
-    # Agent-door per-gap resolution (ADR-054 amended 2026-07-22)
-    "resolve_gap",
-    "generate_cv",
-    "get_cv_status",
-    "get_cv_ats_report",
-    # Cover letters (#170)
-    "generate_cover_letter",
-    "get_cover_letter_status",
-    "get_cover_letter_ats_report",
-    # Truthfulness Oracle (E043/US248, ADR-052/ADR-054)
-    "audit_document",
-    # BYOI agent-door rendering (E044/US251, ADR-054)
-    "render_document",
-    # BYOI agent-door claims (E045/US255, ADR-054 — surface complete, 24 tools)
-    "submit_claims",
-    # Free-text testimony intake (#258) — the agent-door twin of the UI paste box
-    "submit_testimony",
-    # Agent-usage guide + honesty contract (E047/US262, ADR-056 — meta tool,
-    # not part of the ADR-054 application surface)
-    "get_guide",
-    # Flow orchestrator (US109)
-    "start_flow",
-    "advance_flow",
-    "get_flow_state",
-    # Profile ingestion / roles
-    "import_cv",
-    "add_role",
-    # Applications (sprint 7, Task 21.14, and later)
-    "create_application",
-    "update_application",
-    "list_applications",
-    "get_application",
-    # Master Profile Health on the agent door (#58, ADR-054 amended 2026-09-11)
-    "get_profile_health",
-    "undo_last_merge",
-    "resolve_held_merge",
-}
+# ADR-095 cl. 5 (US372): the tool-name pin is FOLDED into the 1.x contract
+# snapshot — one committed list, not two hand-kept ones. A new tool costs one
+# regeneration (`python3 scripts/generate_contract_snapshot.py`), which this
+# stdio test and the hermetic mirror in tests/unit/test_mcp_tools.py then both
+# compare against. Strict equality stays: a tool the snapshot does not name is a
+# tool the contract does not protect.
+_CONTRACT_SNAPSHOT = Path(__file__).resolve().parent / "contract" / "contract.json"
+_EXPECTED_TOOLS = set(json.loads(_CONTRACT_SNAPSHOT.read_text(encoding="utf-8"))["mcp_tools"])
 
 _EXPECTED_STATIC_RESOURCE_URIS = {
     "profile://current",
