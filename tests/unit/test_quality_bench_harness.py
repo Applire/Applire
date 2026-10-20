@@ -501,7 +501,10 @@ def test_a_raising_door_is_recorded_with_its_traceback(tmp_path, stub_doors, sta
 
 def test_a_hung_stage_times_out_and_is_recorded(tmp_path, stub_doors):
     stub_doors["cv"] = "hang"
-    meta = _run(_spec(tmp_path, timeout=0.5))
+    # The budget is the whole run's (seed included), so it must outlast a real seed on a
+    # loaded box: at 0.5 s the seed itself timed out under a parallel gate (failed_stage
+    # "seed", B2 D1). 5 s is ~10x the loaded seed; the hang stub sleeps 30 s.
+    meta = _run(_spec(tmp_path, timeout=5.0))
     assert meta["status"] == "failed" and meta["failed_stage"] == "cv"
     assert "timeout" in meta["error"]
     rd = tmp_path / "armX" / "mock" / "_smoke.same_de" / "3"
