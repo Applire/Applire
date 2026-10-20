@@ -135,6 +135,12 @@ class ATSKeywordCoverage(BaseModel):
     # report predates the field (never measured) — a reader treats a missing
     # key as "could not be marked", never as "no match".
     present_unsupported_matches: Optional[dict[str, list[KeywordMatch]]] = None
+    # #790 line L10 (founder ruling D2-1 = A): a keyword that would have been
+    # `present_unsupported`, on a pair whose vault may state its evidence in
+    # another language (`oracle.matchers.vault.holds_other_language`). Not a
+    # group-1 finding: the review surface shows the `keyword-other-language`
+    # not_applicable check row instead. Additive, `[]` = none / legacy.
+    present_other_language: list[str] = []
     present_denied_matches: Optional[dict[str, list[KeywordMatch]]] = None
 
 

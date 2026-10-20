@@ -1452,6 +1452,8 @@ def _keyword_coverage(
     vault_text_norm: str | None = None,
     vault_index: Any = None,
     non_claim: NonClaimNames | None = None,
+    *,
+    document_language: str | None = None,
 ) -> ATSKeywordCoverage:
     seen: set[str] = set()
     unique: list[str] = []
@@ -1548,6 +1550,23 @@ def _keyword_coverage(
             k for k in present_unsupported
             if not _grounded_through_matched_forms(claim_matches[k], vault_index)
         ]
+    # #790 line L10 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20): every
+    # test above is literal, so on a pair whose vault may state the evidence in
+    # ANOTHER language ("Stripe payouts" on an EN CV, "Stripe-Auszahlungen …" in
+    # a DE-first vault) "nothing in your profile backs this" is an
+    # absence-based accusation the instrument cannot make. Such a term leaves
+    # the group-1 population for a neutral "not checked across languages" row
+    # (``present_other_language``, rendered by ``_other_language_check``). The
+    # pair fact is the Oracle's own (``holds_other_language``, ADR-066: one
+    # predicate for both halves). No vault index or no document language →
+    # unchanged (fail open to today's behaviour).
+    present_other_language: list[str] = []
+    if vault_index is not None and present_unsupported:
+        from applire.services.oracle.matchers.vault import holds_other_language
+
+        if holds_other_language(vault_index, document_language):
+            present_other_language = list(present_unsupported)
+            present_unsupported = []
     # F-8: a PRESENT keyword whose owning ledger row the candidate DENIED. The
     # ownership rule is `keyword_present`'s own (`_entry_norms`, ADR-048 §8/#122), so
     # the two can never disagree about which row a keyword belongs to; the fact read
@@ -1578,8 +1597,31 @@ def _keyword_coverage(
         claimable_concepts=claimable_concepts,
         keyword_liability_concepts=keyword_liability_concepts,
         present_unsupported_matches={k: claim_matches[k] for k in present_unsupported},
+        present_other_language=present_other_language,
         present_denied_matches={k: matches_by_kw[k] for k in present_denied},
     )
+
+
+def _other_language_check(checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> None:
+    """#790 line L10 (D2-1 = A) — the neutral row for ``present_other_language``.
+
+    ``not_applicable``: the keyword check did not run across languages for these
+    terms, so it neither passes nor fails them (ADR-079 cl. 4 bucket) and the
+    review surface shows them under "Weitere Hinweise", outside group 1's count.
+    Emitted only when there is something to say."""
+    terms = coverage.present_other_language
+    if not terms:
+        return
+    checks.append(ATSCheck(
+        id="keyword-other-language",
+        status="not_applicable",
+        details=(
+            "not verified — your profile states it in another language: "
+            + ", ".join(terms[:8]) + (f" (+{len(terms) - 8} more)" if len(terms) > 8 else "")
+        ),
+        details_key="keyword-other-language",
+        details_params={"count": len(terms), "terms": ", ".join(terms[:8])},
+    ))
 
 
 def _finish(document: Literal["cv", "cover_letter"], checks: list[ATSCheck], coverage: ATSKeywordCoverage) -> ATSReport:
@@ -1973,7 +2015,12 @@ def _audit_cv_text(
     checks.append(_terminal_review_check(terminal_review, previous_report))
     checks.append(_narrative_evidence_check(tailored, ledger))
 
-    report = _finish("cv", checks, _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim))
+    coverage = _keyword_coverage(
+        t, keywords, ledger, vault_text_norm, vault_index, non_claim,
+        document_language=document_language,
+    )
+    _other_language_check(checks, coverage)
+    report = _finish("cv", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report
@@ -2258,10 +2305,12 @@ def _audit_letter_text(
     # nothing keeps the pre-amendment full-text decision exactly).
     if non_claim is not None:
         non_claim = non_claim.plus_employers(recipient.get("company")).with_employer_clause()
-    report = _finish(
-        "cover_letter", checks,
-        _keyword_coverage(t, keywords, ledger, vault_text_norm, vault_index, non_claim),
+    coverage = _keyword_coverage(
+        t, keywords, ledger, vault_text_norm, vault_index, non_claim,
+        document_language=document_language,
     )
+    _other_language_check(checks, coverage)
+    report = _finish("cover_letter", checks, coverage)
     if pin_entries is not None:
         report.pinned_facts = pin_entries
     return report

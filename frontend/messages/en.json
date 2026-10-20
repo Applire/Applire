@@ -1376,7 +1376,8 @@
       "skills-weak-vault-tie": "Skills with only a weak profile link",
       "terminal-review": "Final document review",
       "narrative-evidence": "Evidence in the work history, not only as a skill",
-      "document-language": "Document written in a single language"
+      "document-language": "Document written in a single language",
+      "keyword-other-language": "Terms your profile states in another language"
     },
     "checkDetails": {
       "page-length-target": "{pages} pages — meets your chosen target of {target}; the {region} norm is {standard} pages",
@@ -1388,6 +1389,7 @@
       "page-length-not-applicable": "Not applicable — this document has no fixed pagination until a word processor lays it out",
       "document-language-not-applicable": "Not applicable — no language was stated for this document",
       "document-language-mixed": "{count, plural, one {# place is} other {# places are}} not written in {language, select, de {German} en {English} other {{language}}}: {examples}",
+      "keyword-other-language": "Not verified — your profile states {count, plural, one {this term} other {these terms}} in another language: {terms}",
       "skills-weak-vault-tie": "{count, plural, one {# skill is} other {# skills are}} tied to your profile only by a single shared word — worth a second look before sending: {skills}"
     },
     "pinnedFacts": {

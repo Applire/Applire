@@ -109,6 +109,7 @@ from applire.services.oracle.matchers import (
     ground_text_claim,
     ground_via_role_union,
     ground_via_skill_union,
+    holds_other_language,
     match_figures,
     skills_near_duration,
 )
@@ -1596,7 +1597,25 @@ async def _verify_claim_unchecked(
         seam = _cross_language_candidate(
             claim.text, idx, document_language, skill_candidates, deny, judgement_sink
         )
-        return seam if seam is not None else deny
+        if seam is not None:
+            return seam
+        # #790 line L12 (founder ruling D2-1 = A, ADR-068 amended 2026-10-20):
+        # seam A's trigger reads only the vault's DOMINANT language, so a
+        # same-language pair over a mixed-language vault ("Markenidentität" on
+        # a German CV, "own brand identity" in the vault) fell through to an
+        # absence-based accusation. A literal miss there is "not checked
+        # across languages": unverifiable, no model call.
+        if holds_other_language(idx, document_language):
+            return ClaimVerdict(
+                verdict="unverifiable",
+                checker="grounding",
+                detail=(
+                    f'Skill "{claim.text}" has no literal match, and part of the '
+                    "vault is written in another language — not checked across "
+                    "languages, so this is left open rather than accused."
+                ),
+            )
+        return deny
 
     # ── 1a. tenure ceiling (deterministic red flag, #469) ───────────────────
     # Runs FIRST of the numeric passes, deliberately: every branch below can
