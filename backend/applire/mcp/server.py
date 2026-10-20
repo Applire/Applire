@@ -1498,6 +1498,10 @@ async def audit_document(
                 report = await oracle_svc.audit_document(
                     "external", profile.profile_json or {},
                     text=document_text, provider=get_provider(),
+                    # Founder ruling D2-4b: the narrow entailment arm is off on
+                    # the whole tool — it graded TRUE claims "inflated", caught
+                    # nothing true and flipped on identical input.
+                    entailment=False,
                 )
             except ownership.OwnedNotFound:
                 raise  # foreign = missing: the wrapper answers not_found (S-10)

@@ -326,9 +326,10 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   position. The attached truthfulness report is the deterministic
   self-audit; `audit_document(document_id=...)` returns that persisted
   report as-is (and when none is stored, runs exactly the audit generation
-  runs — one document, one report, whichever channel asks). For a fresh audit that can also use the narrow entailment
-  tier, pass the text via `audit_document(document_text=...)` — raw text
-  carries no position anchors, so misattribution checks are skipped there.
+  runs — one document, one report, whichever channel asks). To audit text
+  Applire did not generate, pass it via `audit_document(document_text=...)` —
+  the same audit; raw text carries no position anchors, so
+  misattribution checks are skipped there.
   **`format='docx'` (US298, ADR-079)** additionally reaches the editable
   Word export — the SAME writer `GET /api/{cv|cover-letter}/{id}/docx`
   serves (ADR-066: one writer, both doors), never a parallel one. It adds

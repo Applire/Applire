@@ -346,3 +346,32 @@ async def test_the_door_grades_a_stored_document_like_the_self_audit(db):
     summary = [v for t, v in _verdicts(door) if "interplanetary" in t]
     assert summary == ["unverifiable"], _verdicts(door)
     assert door["counts"] == selfaudit["counts"]
+
+
+@pytest.mark.asyncio
+async def test_raw_text_is_audited_without_the_entailment_arm_too(seeded):
+    """Founder ruling D2-4b: the whole tool, not only the stored-document path —
+    the arm graded TRUE claims "inflated" and flipped on identical input. On raw
+    text an undecidable claim stays `unverifiable` even with a provider that
+    would answer every entailment call with "inflated"."""
+    import json as _json
+
+    from applire.mcp.server import mcp
+
+    provider = _EntailmentEager()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=seeded["db"])
+    cm.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider", return_value=provider),
+    ):
+        out = await mcp.call_tool(
+            "audit_document",
+            {"document_text": "Pioneered interplanetary freight routing for orbital stations."},
+        )
+    blocks = out[0] if isinstance(out, tuple) else out
+    report = _json.loads(blocks[0].text)
+    verdicts = _verdicts(report)
+    assert verdicts and all(v != "inflated" for _, v in verdicts), verdicts
+    assert [v for t, v in verdicts if "interplanetary" in t] == ["unverifiable"]
