@@ -18,17 +18,20 @@ the limits stated here.
    its [CHANGELOG](../CHANGELOG.md) entry says so under **Upgrade notes**, and
    after the update the administrator dashboard shows a version notice naming
    any new setting you have not set and any setting whose meaning changed.
-2. **Your configuration keeps working.** An environment variable in
-   `.env.example` is not renamed or removed within 1.x — except the variables in
-   the file's last block, *Internal — no stability promise* (see below). Every new
+2. **Your configuration keeps working.** An environment variable Applire reads is
+   not renamed or removed within 1.x — every variable in `.env.example` and the
+   few documented elsewhere (such as `APPLIRE_AGENT_TOKEN` for the MCP server) —
+   except the variables in the file's last block, *Internal — no stability
+   promise* (see below). Every new
    variable has a default, so an `.env` that worked on 1.x keeps working on 1.y
    without edits. If a variable's *meaning* has to change, the release says so in
    its upgrade notes and in the version notice.
 3. **Your agent integration keeps working.** The MCP server's tools are not
    removed or renamed. A tool's parameters are not removed or renamed, an optional
-   parameter does not become required, and the JSON types and enum values a
-   parameter accepts do not narrow. New tools and new *optional* parameters may
-   appear in any minor release.
+   parameter does not become required, and what a parameter accepts does not
+   narrow (its JSON types, its enum values, a length or range bound, whether an
+   object accepts extra fields). New tools and new *optional* parameters may
+   appear in any minor release, and a required parameter may become optional.
 4. **The database moves forward only.** Migrations are append-only: a migration
    that shipped is never removed or renumbered, and every new one builds on the
    previous head. There is no supported downgrade; back up before you upgrade
@@ -58,7 +61,9 @@ spelling (`1.2.0`; a beta such as `0.44.0-beta` read `0.44.0b0`).
   but they are not part of the checked contract.
 - **Values inside a free-form text parameter.** Where a parameter is a plain
   string whose allowed values the tool checks itself, the checked contract sees
-  "a string", not the list of values.
+  "a string", not the list of values. Likewise, the CI check reads length and
+  range bounds only on parameters with a single type; bounds inside a union of
+  types are not checked.
 - **Log lines, UI wording and the admin pages' layout.**
 - **Internal settings** — next section.
 
@@ -86,7 +91,7 @@ if something does, that is a bug — please
 The container images carry a major tag: `ghcr.io/applire/applire-backend:1`
 (likewise `applire-frontend`, `applire-nginx`) always points at the newest 1.x
 release, so pinning `:1` gets you every 1.x update and never a 2.0. `:latest`
-follows the newest release of any major version.
+moves with every regular (non-pre-release) release, whatever its major version.
 
 ## Supported versions
 

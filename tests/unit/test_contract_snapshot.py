@@ -272,3 +272,72 @@ def test_relaxing_a_required_parameter_to_optional_is_allowed(snapshot, live):
     breaks, _ = gen.compare(snapshot, new)
     assert breaks == []
     assert new != snapshot  # the snapshot must still be regenerated
+
+
+# --------------------------------------------------------------------------
+# Shapes found by the adversarial pass (2026-10-20) — each was a silent miss,
+# a crash or a false positive before the comparator handled it
+# --------------------------------------------------------------------------
+
+
+def test_an_enum_narrowed_inside_one_union_branch_is_breaking():
+    old = _surface(_schema({"a": {"anyOf": [{"enum": ["a", "b"]}, {"type": "integer"}]}}))
+    new = _surface(_schema({"a": {"anyOf": [{"enum": ["a"]}, {"type": "integer"}]}}))
+    assert any("enum values removed" in b for b in gen.compare(old, new)[0])
+    assert gen.compare(new, old)[0] == []  # adding the value back widens
+
+
+def test_fields_behind_allof_are_part_of_the_contract():
+    base = {"type": "object", "properties": {"x": _STR}, "required": ["x"]}
+    old = _surface(_schema({"c": {"allOf": [base]}}, ["c"]))
+    renamed = {"type": "object", "properties": {"y": _STR}, "required": ["y"]}
+    new = _surface(_schema({"c": {"allOf": [renamed]}}, ["c"]))
+    assert gen.flatten_schema(_schema({"c": {"allOf": [base]}}))["c.x"]["required"] is True
+    assert "MCP parameter removed or renamed: t.c.x" in gen.compare(old, new)[0]
+
+
+def test_tuple_items_are_paths():
+    flat = gen.flatten_schema(_schema({"p": {"type": "array", "prefixItems": [_STR, {"type": "integer"}]}}))
+    assert flat["p[0]"]["types"] == ["string"] and flat["p[1]"]["types"] == ["integer"]
+
+
+@pytest.mark.parametrize(
+    "old_c, new_c, breaking",
+    [
+        ({}, {"maxLength": 5}, True),
+        ({"maxLength": 10}, {"maxLength": 5}, True),
+        ({"maxLength": 5}, {"maxLength": 10}, False),
+        ({"maxLength": 5}, {}, False),
+        ({}, {"minimum": 10}, True),
+        ({"minimum": 10}, {"minimum": 1}, False),
+        ({}, {"pattern": "^a"}, True),
+        ({}, {"minItems": 2}, True),
+    ],
+)
+def test_value_constraints_may_loosen_never_tighten(old_c, new_c, breaking):
+    old = _surface(_schema({"a": {"type": "string", **old_c}}))
+    new = _surface(_schema({"a": {"type": "string", **new_c}}))
+    assert bool(gen.compare(old, new)[0]) is breaking
+
+
+def test_an_object_that_starts_refusing_unknown_fields_is_breaking():
+    old = _surface(_schema({"o": {"type": "object", "additionalProperties": True}}))
+    new = _surface(_schema({"o": {"type": "object", "additionalProperties": False}}))
+    assert gen.compare(old, new)[0] == ["MCP parameter now refuses unknown fields: t.o"]
+
+
+def test_a_recursive_model_does_not_crash_the_flattener():
+    schema = {
+        "type": "object",
+        "properties": {"n": {"$ref": "#/$defs/N"}},
+        "$defs": {"N": {"type": "object", "properties": {"child": {"$ref": "#/$defs/N"}, "v": _STR}}},
+    }
+    flat = gen.flatten_schema(schema)
+    assert flat["n"]["types"] == ["object"] and "n.v" in flat and "n.child" in flat
+
+
+def test_const_to_string_is_a_widening():
+    old = _surface(_schema({"k": {"const": "a"}}))
+    new = _surface(_schema({"k": _STR}))
+    assert gen.compare(old, new)[0] == []
+    assert any("gained an enum" in b for b in gen.compare(new, old)[0])

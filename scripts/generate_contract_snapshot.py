@@ -58,17 +58,43 @@ _JSON_TYPE = {str: "string", bool: "boolean", int: "integer", float: "number", t
 # --------------------------------------------------------------------------
 
 
+def _ref_name(node: dict) -> str | None:
+    ref = node.get("$ref") if isinstance(node, dict) else None
+    return ref.rsplit("/", 1)[-1] if isinstance(ref, str) else None
+
+
 def _resolve(node: dict, defs: dict) -> dict:
-    seen = 0
-    while isinstance(node, dict) and "$ref" in node and seen < 32:
-        name = node["$ref"].rsplit("/", 1)[-1]
+    seen: set[str] = set()
+    while isinstance(node, dict) and "$ref" in node:
+        name = _ref_name(node)
+        if name in seen:  # a reference cycle: stop here (the walk will not descend)
+            return {}
+        seen.add(name)
         node = defs.get(name, {})
-        seen += 1
     return node if isinstance(node, dict) else {}
 
 
+def _merge_all_of(node: dict, defs: dict) -> dict:
+    """`allOf` = every member applies: merge members into one schema."""
+    members = node.get("allOf")
+    if not members:
+        return node
+    merged: dict = {k: v for k, v in node.items() if k != "allOf"}
+    for member in members:
+        m = _merge_all_of(_resolve(member, defs), defs)
+        merged.setdefault("properties", {})
+        merged["properties"] = {**m.get("properties", {}), **merged["properties"]}
+        merged["required"] = sorted(set(merged.get("required", [])) | set(m.get("required", [])))
+        for key, value in m.items():
+            if key not in ("properties", "required"):
+                merged.setdefault(key, value)
+    if not merged.get("properties"):
+        merged.pop("properties", None)
+    return merged
+
+
 def _branches(node: dict, defs: dict) -> list[dict]:
-    node = _resolve(node, defs)
+    node = _merge_all_of(_resolve(node, defs), defs)
     alts = node.get("anyOf") or node.get("oneOf")
     if alts:
         out: list[dict] = []
@@ -84,9 +110,11 @@ def _types_of(node: dict, defs: dict) -> set[str]:
         t = branch.get("type")
         if t is None and "enum" in branch:
             types.update(_JSON_TYPE.get(type(v), _ANY) for v in branch["enum"])
+        elif t is None and "const" in branch:
+            types.add(_JSON_TYPE.get(type(branch["const"]), _ANY))
         elif t is None:
             # No constraint: accepts anything (an `items: {}` or a bare `{}`).
-            types.add("const" if "const" in branch else _ANY)
+            types.add(_ANY)
         elif isinstance(t, list):
             types.update(t)
         else:
@@ -94,7 +122,10 @@ def _types_of(node: dict, defs: dict) -> set[str]:
     return types
 
 
-def _enum_of(node: dict, defs: dict) -> list | None:
+def _enum_of(node: dict, defs: dict) -> tuple[list | None, list | None]:
+    """``(enum, enum_partial)``: the value set when EVERY branch is a value set;
+    otherwise the value set of the branches that are (a union like
+    ``Literal["a","b"] | int``), so narrowing it is still visible."""
     values: list = []
     constrained = True
     for branch in _branches(node, defs):
@@ -106,39 +137,76 @@ def _enum_of(node: dict, defs: dict) -> list | None:
             values.append(None)
         else:
             constrained = False
-    if not constrained or not values:
-        return None
-    return sorted({json.dumps(v, sort_keys=True) for v in values})
+    if not values or all(v is None for v in values):
+        return None, None
+    encoded = sorted({json.dumps(v, sort_keys=True) for v in values})
+    return (encoded, None) if constrained else (None, encoded)
+
+
+#: Value constraints a client can violate; recorded when the path has ONE
+#: non-null branch (a union's per-branch bounds are a named limit, ADR-095 cl. 6).
+_MAX_KEYS = ("maxLength", "maximum", "exclusiveMaximum", "maxItems", "maxProperties")
+_MIN_KEYS = ("minLength", "minimum", "exclusiveMinimum", "minItems", "minProperties")
+_EXACT_KEYS = ("pattern", "multipleOf", "format")
+
+
+def _constraints_of(node: dict, defs: dict) -> dict:
+    real = [b for b in _branches(node, defs) if b.get("type") != "null"]
+    if len(real) != 1:
+        return {}
+    b = real[0]
+    out = {k: b[k] for k in (*_MAX_KEYS, *_MIN_KEYS, *_EXACT_KEYS) if k in b}
+    if b.get("additionalProperties") is False:
+        out["closed"] = True
+    return out
 
 
 def flatten_schema(schema: dict) -> dict[str, dict]:
-    """``inputSchema`` -> ``{path: {"types", "required", ["enum"]}}``."""
+    """``inputSchema`` -> ``{path: {"types", "required", ["enum"|"enum_partial"], ["constraints"]}}``."""
     defs = {**schema.get("$defs", {}), **schema.get("definitions", {})}
     out: dict[str, dict] = {}
 
-    def walk(node: dict, prefix: str) -> None:
+    def walk(node: dict, prefix: str, refs: frozenset[str]) -> None:
+        name = _ref_name(node)
+        if name is not None:
+            if name in refs:
+                return  # recursive model: the first level is recorded, the cycle is not followed
+            refs = refs | {name}
         for branch in _branches(node, defs):
             props = branch.get("properties") or {}
             required = set(branch.get("required") or [])
-            for name, sub in props.items():
-                path = f"{prefix}.{name}" if prefix else name
-                _add(path, sub, name in required)
-                walk(sub, path)
+            for key, sub in props.items():
+                path = f"{prefix}.{key}" if prefix else key
+                _add(path, sub, key in required)
+                walk(sub, path, refs)
+            if not prefix:
+                continue
+            tuple_items = branch.get("prefixItems")
             items = branch.get("items")
-            if isinstance(items, dict) and prefix:
-                path = f"{prefix}[]"
-                _add(path, items, False)
-                walk(items, path)
+            if isinstance(items, list):
+                tuple_items = items
+            if isinstance(tuple_items, list):
+                for i, sub in enumerate(tuple_items):
+                    _add(f"{prefix}[{i}]", sub, False)
+                    walk(sub, f"{prefix}[{i}]", refs)
+            if isinstance(items, dict):
+                _add(f"{prefix}[]", items, False)
+                walk(items, f"{prefix}[]", refs)
 
     def _add(path: str, sub: dict, required: bool) -> None:
         entry = out.setdefault(path, {"types": set(), "required": False})
         entry["types"] |= _types_of(sub, defs)
         entry["required"] = entry["required"] or required
-        enum = _enum_of(sub, defs)
+        enum, partial = _enum_of(sub, defs)
         if enum is not None:
             entry["enum"] = sorted(set(entry.get("enum", [])) | set(enum))
+        if partial is not None:
+            entry["enum_partial"] = sorted(set(entry.get("enum_partial", [])) | set(partial))
+        constraints = _constraints_of(sub, defs)
+        if constraints:
+            entry["constraints"] = constraints
 
-    walk(schema, "")
+    walk(schema, "", frozenset())
     return {
         path: {k: (sorted(v) if k == "types" else v) for k, v in sorted(e.items())}
         for path, e in sorted(out.items())
@@ -196,6 +264,23 @@ def _parent(path: str) -> str:
     return path.rsplit(".", 1)[0] if "." in path else ""
 
 
+def _constraint_breaks(where: str, old: dict, new: dict) -> list[str]:
+    """A bound that appears or tightens rejects calls that used to pass."""
+    out: list[str] = []
+    for k in _MAX_KEYS:
+        if k in new and (k not in old or new[k] < old[k]):
+            out.append(f"MCP parameter constraint tightened: {where} {k} {old.get(k)} -> {new[k]}")
+    for k in _MIN_KEYS:
+        if k in new and (k not in old or new[k] > old[k]):
+            out.append(f"MCP parameter constraint tightened: {where} {k} {old.get(k)} -> {new[k]}")
+    for k in _EXACT_KEYS:
+        if k in new and new.get(k) != old.get(k):
+            out.append(f"MCP parameter constraint changed: {where} {k} {old.get(k)!r} -> {new[k]!r}")
+    if new.get("closed") and not old.get("closed"):
+        out.append(f"MCP parameter now refuses unknown fields: {where}")
+    return out
+
+
 def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
     """``(breaks, additions)`` from the committed snapshot to the live surface."""
     breaks: list[str] = []
@@ -225,6 +310,12 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
                 elif not set(op["enum"]) <= set(np_["enum"]):
                     gone = sorted(set(op["enum"]) - set(np_["enum"]))
                     breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
+            if "enum_partial" in op:
+                kept = set(np_.get("enum_partial", [])) | set(np_.get("enum", []))
+                if ("enum_partial" in np_ or "enum" in np_) and not set(op["enum_partial"]) <= kept:
+                    gone = sorted(set(op["enum_partial"]) - kept)
+                    breaks.append(f"MCP parameter enum values removed: {tool}.{path} {gone}")
+            breaks += _constraint_breaks(f"{tool}.{path}", op.get("constraints", {}), np_.get("constraints", {}))
         for path in sorted(set(n) - set(o)):
             parent = _parent(path)
             if n[path].get("required") and (parent == "" or parent in o):
