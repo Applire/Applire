@@ -31,6 +31,11 @@ Usage::
         --fixture tests/files/quality_bench/<case>/<cell> --runs 5 --arm baseline \\
         --provider openrouter --model openai/gpt-5.6-luna --out <dir> --concurrency 3
 
+    # Requesty (Hazelnut build 2, B2-6) — same contract, REQUESTY_* env vars:
+    REQUESTY_API_KEY=... PYTHONPATH=backend python3 scripts/quality_bench/run.py \\
+        --fixture tests/files/quality_bench/<case>/<cell> --runs 5 --arm baseline \\
+        --provider requesty --model openai/gpt-5.6-luna --out <dir> --concurrency 2
+
 Run-output contract (the seam to the scorers — do not change unilaterally)::
 
     <out>/<arm>/<model_slug>/<cell_id>/<run_idx>/
@@ -111,6 +116,9 @@ _SETTINGS_SNAPSHOT = (
     "openrouter_model",
     "openrouter_disable_thinking",
     "openrouter_reasoning_effort",
+    "requesty_model",
+    "requesty_disable_thinking",
+    "requesty_reasoning_effort",
     "llm_timeout",
 )
 _CONSTANTS_SNAPSHOT = (
@@ -171,13 +179,34 @@ def _read_json(path: Path) -> Any:
 # --------------------------------------------------------------------------- #
 # environment / provider selection
 # --------------------------------------------------------------------------- #
+#: Real providers this harness can drive (Hazelnut build 2, B2-6: Requesty is the
+#: build's provider; OpenRouter stays for the weak tier). Per provider: the API-key,
+#: model and reasoning-toggle env vars, and the settings fields they mirror onto.
+REAL_PROVIDERS: dict[str, dict[str, str]] = {
+    "openrouter": {
+        "key": "OPENROUTER_API_KEY",
+        "model": "OPENROUTER_MODEL",
+        "thinking": "OPENROUTER_DISABLE_THINKING",
+    },
+    "requesty": {
+        "key": "REQUESTY_API_KEY",
+        "model": "REQUESTY_MODEL",
+        "thinking": "REQUESTY_DISABLE_THINKING",
+    },
+}
+PROVIDERS = ("mock", *REAL_PROVIDERS)
+
+
 def resolve_model(provider: str, model: str | None) -> str:
-    """The model id this run records. Mock is always ``"mock"``; openrouter needs one."""
+    """The model id this run records. Mock is always ``"mock"``; a real provider needs one."""
     if provider == "mock":
         return "mock"
-    resolved = model or os.environ.get("OPENROUTER_MODEL") or ""
+    if provider not in REAL_PROVIDERS:
+        raise ConfigError(f"unknown provider {provider!r} (choose one of {', '.join(PROVIDERS)})")
+    model_env = REAL_PROVIDERS[provider]["model"]
+    resolved = model or os.environ.get(model_env) or ""
     if not resolved:
-        raise ConfigError("provider=openrouter needs --model or OPENROUTER_MODEL in the process environment")
+        raise ConfigError(f"provider={provider} needs --model or {model_env} in the process environment")
     return resolved
 
 
@@ -201,26 +230,26 @@ def configure_environment(provider: str, model: str | None) -> str:
             del os.environ[name]
         overrides["llm_provider"] = "mock"
     else:
+        env = REAL_PROVIDERS[provider]
         existing = os.environ.get("LLM_PROVIDER")
-        if existing and existing.lower() != "openrouter":
+        if existing and existing.lower() != provider:
             raise ConfigError(
-                f"--provider openrouter conflicts with LLM_PROVIDER={existing!r} in the environment"
+                f"--provider {provider} conflicts with LLM_PROVIDER={existing!r} in the environment"
             )
-        if not os.environ.get("OPENROUTER_API_KEY"):
+        if not os.environ.get(env["key"]):
             raise ConfigError(
-                "provider=openrouter but OPENROUTER_API_KEY is not set in the process environment "
+                f"provider={provider} but {env['key']} is not set in the process environment "
                 "(this harness never reads .env — export it yourself)"
             )
-        os.environ["LLM_PROVIDER"] = "openrouter"
-        os.environ["OPENROUTER_MODEL"] = resolved
+        os.environ["LLM_PROVIDER"] = provider
+        os.environ[env["model"]] = resolved
         # Reasoning OFF is the shipped default (ADR-009 amended); an explicit env value wins.
-        os.environ.setdefault("OPENROUTER_DISABLE_THINKING", "true")
-        overrides.update(
-            llm_provider="openrouter",
-            openrouter_model=resolved,
-            openrouter_disable_thinking=os.environ["OPENROUTER_DISABLE_THINKING"].lower()
-            in ("1", "true", "yes", "on"),
-        )
+        os.environ.setdefault(env["thinking"], "true")
+        overrides.update({
+            "llm_provider": provider,
+            env["model"].lower(): resolved,
+            env["thinking"].lower(): os.environ[env["thinking"]].lower() in ("1", "true", "yes", "on"),
+        })
 
     if "applire.config" in sys.modules:  # settings is already instantiated: mirror
         from applire.config import settings
@@ -645,9 +674,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--runs", type=int, default=1, help="runs per fixture (default 1)")
     p.add_argument("--start-idx", type=int, default=0, help="first run index (default 0; use to add runs to an arm)")
     p.add_argument("--arm", required=True, help="arm name, e.g. baseline | A | B | C")
-    p.add_argument("--provider", choices=["mock", "openrouter"], default="mock")
+    p.add_argument("--provider", choices=list(PROVIDERS), default="mock")
     p.add_argument("--model", default=None,
-                   help="OpenRouter model id (sets OPENROUTER_MODEL for the run; recorded in meta.json)")
+                   help="model id on the chosen provider (sets OPENROUTER_MODEL / REQUESTY_MODEL "
+                        "for the run; recorded in meta.json)")
     p.add_argument("--out", required=True, help="output root directory")
     p.add_argument("--concurrency", type=int, default=1, help="parallel runs (process mode only; default 1)")
     p.add_argument("--timeout", type=float, default=1800.0, help="per-run timeout in seconds (default 1800)")
@@ -703,7 +733,7 @@ async def _run_subprocess(spec: RunSpec, sem: asyncio.Semaphore) -> dict[str, An
             "--arm", spec.arm, "--provider", spec.provider, "--out", str(spec.out_root),
             "--timeout", str(spec.timeout), "--in-process", "--overwrite",
         ]
-        if spec.provider == "openrouter":
+        if spec.provider in REAL_PROVIDERS:
             cmd += ["--model", spec.model]
         if not spec.measure_pages:
             cmd.append("--no-pages")

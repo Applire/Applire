@@ -54,7 +54,7 @@ def restore_process_state(monkeypatch):
     from applire.config import settings
 
     for name in ("llm_provider", "llm_debug_log", "llm_debug_log_dir", "openrouter_model",
-                 "openrouter_disable_thinking"):
+                 "openrouter_disable_thinking", "requesty_model", "requesty_disable_thinking"):
         monkeypatch.setattr(settings, name, getattr(settings, name))
     monkeypatch.setattr(os, "environ", os.environ.copy())
     import applire.db.session as db_session
@@ -208,6 +208,58 @@ def test_openrouter_sets_model_and_reasoning_off_by_default(monkeypatch, restore
     monkeypatch.setenv("OPENROUTER_DISABLE_THINKING", "false")
     run_mod.configure_environment("openrouter", "openai/gpt-5.6-luna")
     assert settings.openrouter_disable_thinking is False
+
+
+def test_requesty_fails_loudly_without_its_own_key(monkeypatch, restore_process_state):
+    # B2-6: an OpenRouter key must not satisfy a Requesty run (and vice versa).
+    monkeypatch.delenv("REQUESTY_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    with pytest.raises(run_mod.ConfigError, match="REQUESTY_API_KEY"):
+        run_mod.configure_environment("requesty", "openai/gpt-5.6-luna")
+
+
+def test_requesty_fails_loudly_without_a_model(monkeypatch, restore_process_state):
+    monkeypatch.setenv("REQUESTY_API_KEY", "k")
+    monkeypatch.delenv("REQUESTY_MODEL", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    with pytest.raises(run_mod.ConfigError, match="--model or REQUESTY_MODEL"):
+        run_mod.configure_environment("requesty", None)
+
+
+def test_requesty_accepts_the_stack_env_shape(monkeypatch, restore_process_state):
+    """The COMMON-BRIEF §7 export carries LLM_PROVIDER=requesty + REQUESTY_MODEL: no conflict,
+    the model comes from the env, reasoning stays as exported, settings are mirrored."""
+    monkeypatch.setenv("REQUESTY_API_KEY", "k")
+    monkeypatch.setenv("LLM_PROVIDER", "requesty")
+    monkeypatch.setenv("REQUESTY_MODEL", "openai/gpt-5.6-luna")
+    monkeypatch.setenv("REQUESTY_DISABLE_THINKING", "true")
+    assert run_mod.configure_environment("requesty", None) == "openai/gpt-5.6-luna"
+    from applire.config import settings
+
+    assert os.environ["LLM_PROVIDER"] == "requesty"
+    assert settings.llm_provider == "requesty"
+    assert settings.requesty_model == "openai/gpt-5.6-luna"
+    assert settings.requesty_disable_thinking is True
+    # an explicit --model wins over the env model; an explicit thinking value wins over the default
+    monkeypatch.setenv("REQUESTY_DISABLE_THINKING", "false")
+    assert run_mod.configure_environment("requesty", "a/b") == "a/b"
+    assert os.environ["REQUESTY_MODEL"] == "a/b" and settings.requesty_model == "a/b"
+    assert settings.requesty_disable_thinking is False
+
+
+def test_requesty_refuses_a_conflicting_llm_provider(monkeypatch, restore_process_state):
+    monkeypatch.setenv("REQUESTY_API_KEY", "k")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    with pytest.raises(run_mod.ConfigError, match="conflicts"):
+        run_mod.configure_environment("requesty", "a/b")
+
+
+def test_cli_offers_requesty_and_threads_the_model_to_the_child():
+    args = run_mod._parse_args(["--fixture", "x", "--arm", "a", "--out", "o", "--provider", "requesty"])
+    assert args.provider == "requesty"
+    assert "requesty" in run_mod.PROVIDERS and "requesty_model" in run_mod._SETTINGS_SNAPSHOT
+    assert "requesty_disable_thinking" in run_mod._SETTINGS_SNAPSHOT
 
 
 def test_plan_refuses_to_mix_into_an_existing_run_dir(tmp_path):

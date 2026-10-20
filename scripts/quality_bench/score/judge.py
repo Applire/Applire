@@ -19,6 +19,12 @@ Configuration is **process environment only** and fails loudly:
   (``"<default>; D=<model>; L=<model>"``), so the gate's one-judge guard
   compares the whole instrument, not the default model alone.
 * ``OPENROUTER_API_KEY`` — read from ``os.environ`` only, never from a file.
+* ``JUDGE_PROVIDER`` (optional, ``openrouter`` | ``requesty``, default
+  ``openrouter``) — Hazelnut build 2 (B2-6) judges on Requesty
+  (``anthropic/claude-haiku-5-5``): the key is then ``REQUESTY_API_KEY`` and the
+  endpoint ``REQUESTY_BASE_URL`` or the EU router. The model ids differ per
+  gateway (``claude-haiku-5.5`` on OpenRouter, ``claude-haiku-5-5`` on Requesty),
+  so the cache key — which covers the model id — never mixes the two.
 * ``QB_JUDGE_CACHE`` (optional) — cache directory, default
   ``./.quality-bench-judge-cache``.
 
@@ -46,6 +52,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+#: Judge gateways: (API-key env var, default base URL, base-URL override env var).
+JUDGE_PROVIDERS: dict[str, tuple[str, str, str]] = {
+    "openrouter": ("OPENROUTER_API_KEY", DEFAULT_BASE_URL, ""),
+    "requesty": ("REQUESTY_API_KEY", "https://router.eu.requesty.ai/v1", "REQUESTY_BASE_URL"),
+}
 DEFAULT_CACHE_DIR = ".quality-bench-judge-cache"
 DEFAULT_MAX_TOKENS = 8000
 JUDGE_CLASSES = ("L", "U", "D", "S")
@@ -123,7 +134,7 @@ class _Stats:
 
 
 class JudgeClient:
-    """OpenRouter judge. ``complete_json(system, user, cls=...)`` -> dict."""
+    """Judge over an OpenAI-compatible gateway (OpenRouter or Requesty). ``complete_json(system, user, cls=...)`` -> dict."""
 
     def __init__(
         self,
@@ -131,7 +142,8 @@ class JudgeClient:
         api_key: str | None = None,
         *,
         cache_dir: str | Path | None = None,
-        base_url: str = DEFAULT_BASE_URL,
+        base_url: str | None = None,
+        provider: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         timeout: float = 180.0,
         http: Any | None = None,
@@ -140,10 +152,16 @@ class JudgeClient:
         self.model = model or os.environ.get("JUDGE_MODEL", "")
         if not self.model:
             raise JudgeError("JUDGE_MODEL is not set (OpenRouter model id of the judge; no default by design)")
-        self.api_key = api_key if api_key is not None else os.environ.get("OPENROUTER_API_KEY", "")
+        self.provider = (provider or os.environ.get("JUDGE_PROVIDER") or "openrouter").strip().lower()
+        if self.provider not in JUDGE_PROVIDERS:
+            raise JudgeError(
+                f"JUDGE_PROVIDER={self.provider!r} is not supported (choose one of {', '.join(JUDGE_PROVIDERS)})"
+            )
+        key_env, default_url, url_env = JUDGE_PROVIDERS[self.provider]
+        self.api_key = api_key if api_key is not None else os.environ.get(key_env, "")
         if not self.api_key and http is None:
-            raise JudgeError("OPENROUTER_API_KEY is not set in the process environment")
-        self.base_url = base_url.rstrip("/")
+            raise JudgeError(f"{key_env} is not set in the process environment")
+        self.base_url = (base_url or (os.environ.get(url_env) if url_env else "") or default_url).rstrip("/")
         self.max_tokens = max_tokens
         self.timeout = timeout
         self._http = http
