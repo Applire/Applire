@@ -254,3 +254,95 @@ async def test_unknown_document_id_raises_not_found(seeded):
         with pytest.raises(McpError) as exc_info:
             await audit_document(document_id=str(uuid.uuid4()))
     assert exc_info.value.error.code == -32001
+
+
+# ---------------------------------------------------------------------------
+# Founder ruling D2-4 (Hazelnut build 2, ADR-068 cl. 7 parity): one document,
+# one report — the agent door grades a stored document exactly like the
+# generation-time self-audit, without the narrow LLM entailment arm.
+# ---------------------------------------------------------------------------
+
+
+class _EntailmentEager:
+    """A provider that answers EVERY call with an entailment verdict of
+    "inflated". If the narrow arm runs, the undecidable claim below comes back
+    `inflated`; without it, it stays the deterministic `unverifiable`."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def aparse_json(self, *args, **kwargs):
+        self.calls += 1
+        return {"verdict": "inflated"}
+
+    async def acomplete(self, *args, **kwargs):  # pragma: no cover - not reached
+        self.calls += 1
+        return ""
+
+
+def _verdicts(report: dict) -> list[tuple[str, str]]:
+    return [(c["claim"]["text"], c["verdict"]["verdict"]) for c in report["claims"]]
+
+
+@pytest.mark.asyncio
+async def test_the_door_grades_a_stored_document_like_the_self_audit(db):
+    """Seam test through `mcp.call_tool`: the fresh-audit branch of
+    `_audit_stored_document` must produce the self-audit's verdicts on the
+    same row, the same vault and the same provider."""
+    import json as _json
+
+    from applire.mcp.server import mcp
+    from applire.models.cv import GeneratedCV
+    from applire.models.job import JobAnalysis
+    from applire.services.oracle.selfaudit import build_self_audit_report
+    from tests.support.profile_factory import make_master_profile
+
+    job_id, profile_id, cv_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    tailored = {
+        "contact": {"name": "Anna Bauer"},
+        "summary": "Pioneered interplanetary freight routing for orbital stations.",
+        "work_history": [],
+        "skills": ["Python"],
+    }
+    db.add_all([
+        JobAnalysis(
+            id=job_id, raw_text_hash="mcp-parity", raw_text="Head of IT job",
+            role_title="Head of IT", required_skills=["Python"], nice_to_have_skills=[],
+            keywords=["Python"], seniority_level="senior", company_culture_signals=[],
+            language_requirement="en",
+        ),
+        make_master_profile(
+            id=profile_id, profile_json=PROFILE_JSON,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        GeneratedCV(
+            id=cv_id, job_analysis_id=job_id, profile_id=profile_id,
+            tailored_data=tailored, template="classic_german", status="ready",
+            truthfulness_report=None,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            expires_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        ),
+    ])
+    await db.commit()
+
+    door_provider = _EntailmentEager()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch("applire.mcp.server.get_db", return_value=cm),
+        patch("applire.mcp.server.get_provider", return_value=door_provider),
+    ):
+        out = await mcp.call_tool("audit_document", {"document_id": str(cv_id)})
+    blocks = out[0] if isinstance(out, tuple) else out
+    door = _json.loads(blocks[0].text)
+
+    selfaudit = await build_self_audit_report(
+        PROFILE_JSON, tailored_data=tailored, provider=_EntailmentEager()
+    )
+
+    assert _verdicts(door) == _verdicts(selfaudit)
+    summary = [v for t, v in _verdicts(door) if "interplanetary" in t]
+    assert summary == ["unverifiable"], _verdicts(door)
+    assert door["counts"] == selfaudit["counts"]

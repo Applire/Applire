@@ -325,7 +325,8 @@ never advance for it; `get_flow_state` reports it as `cover_letter_summary`.
   is checked against THAT company — and reported as belonging to a different
   position. The attached truthfulness report is the deterministic
   self-audit; `audit_document(document_id=...)` returns that persisted
-  report as-is. For a fresh audit that can also use the narrow entailment
+  report as-is (and when none is stored, runs exactly the audit generation
+  runs — one document, one report, whichever channel asks). For a fresh audit that can also use the narrow entailment
   tier, pass the text via `audit_document(document_text=...)` — raw text
   carries no position anchors, so misattribution checks are skipped there.
   **`format='docx'` (US298, ADR-079)** additionally reaches the editable

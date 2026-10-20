@@ -1418,9 +1418,12 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
     and the generation-time self-audit does. Same input, same vault, two
     doors, two verdicts.
 
-    ``entailment`` is NOT mirrored, deliberately: ``audit_document``'s own
-    docstring records that the agent door keeps ``entailment=True`` while
-    ``build_self_audit_report`` passes ``False`` (ADR-068 clause 7 scoping).
+    ``entailment`` IS mirrored since founder ruling D2-4 (Hazelnut build 2,
+    ADR-068 cl. 7 parity): the door used to keep the narrow LLM entailment arm
+    on (``audit_document``'s default) while ``build_self_audit_report`` passes
+    ``False``, so one document could carry two different reports depending on
+    the channel that asked. Both now grade deterministically plus the two
+    bounded judgement seams only.
     ``document_language`` is not mirrored here either — that seam's parity is
     a separate question with its own cost profile, and nothing in this
     defect's evidence touches it.
@@ -1452,11 +1455,13 @@ async def _audit_stored_document(record, kind: str, db) -> dict:
                 "cv", profile_json, tailored_data=record.tailored_data or {},
                 provider=get_provider(),
                 keyword_ledger=keyword_ledger,
+                entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
         else:
             report = await oracle_svc.audit_document(
                 "cover_letter", profile_json, letter_data=record.letter_data or {},
                 provider=get_provider(),
+                entailment=False,  # D2-4: the self-audit's setting (selfaudit.py)
             )
     except ownership.OwnedNotFound:
         raise  # foreign = missing: the wrapper answers not_found (S-10)
