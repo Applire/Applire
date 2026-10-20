@@ -387,3 +387,80 @@ async def test_a_true_tenure_claim_never_attributes_to_a_headcount():
         profile,
     )
     assert verdict.verdict not in ("unbacked", "misattributed")
+
+
+# ── #790 line L15 (2026-10-20) — the parser shapes that blinded the checks ──
+
+
+@pytest.mark.parametrize(
+    "text,years,floor",
+    [
+        ("twenty-two years of experience", 22.0, 22.0),  # read as 2 before
+        ("22 J. Erfahrung in der Fertigung", 22.0, 22.0),  # missed before
+        ("6-8 Jahre Führungserfahrung", 8.0, 6.0),  # read 8 before; floor is 6
+        ("6–8 years of leadership", 8.0, 6.0),
+        ("7 Jahre und 6 Monate Projektleitung", 7.5, 7.5),  # read 7 before
+        ("11-jährige Führungserfahrung", 11.0, 11.0),  # unchanged shapes
+        ("12+ years", 12.0, 12.0),
+    ],
+)
+def test_l15_tenure_shapes(text, years, floor):
+    (claim,) = extract_tenure_claims(text)
+    assert (claim.years, claim.floor) == (years, floor)
+
+
+def test_l15_a_range_lower_bound_is_no_figure():
+    from applire.services.oracle.matchers.figures import extract_figures
+
+    assert extract_figures("6-8 Jahre Führungserfahrung") == []
+
+
+def test_l15_start_years_are_opt_in_and_never_a_duration():
+    assert extract_tenure_claims("seit 2004 in der Produktion") == []
+    (claim,) = extract_tenure_claims("seit 2004 in der Produktion", include_since=True)
+    assert claim.since_year == 2004 and claim.raw == "seit 2004"
+    assert extract_tenure_claims("Seit Jahren", include_since=True) == []
+
+
+@pytest.mark.asyncio
+async def test_l15_range_reads_its_lower_bound_at_the_ceiling():
+    profile = _profile_started(_THIS_YEAR - 6)  # ~6.x years: allowed < 8, floor 6 fits
+    v = await verify_claim(Claim(text="6-8 Jahre Führungserfahrung im Dreischichtbetrieb.", location="s[0]"), profile)
+    assert v.verdict != "unbacked" or "exceeds" not in (v.detail or ""), v
+    v = await verify_claim(Claim(text="10-12 Jahre Führungserfahrung im Dreischichtbetrieb.", location="s[0]"), profile)
+    assert v.verdict == "unbacked" and "exceeds" in v.detail, v
+
+
+@pytest.mark.asyncio
+async def test_l15_compound_overclaim_is_caught():
+    profile = _profile_started(_THIS_YEAR - 5)
+    v = await verify_claim(Claim(text="twenty-two years leading production teams.", location="s[0]"), profile)
+    assert v.verdict == "unbacked" and "twenty-two years" in v.detail, v
+
+
+@pytest.mark.asyncio
+async def test_l15_start_year_before_every_dated_span_is_unbacked():
+    profile = _profile_started(2012)
+    v = await verify_claim(Claim(text="Seit 2004 in der Kunststofffertigung tätig.", location="s[0]"), profile)
+    assert v.verdict == "unbacked" and v.detail.startswith('Claimed start "Seit 2004"'), v
+
+
+@pytest.mark.asyncio
+async def test_l15_start_year_of_an_ended_role_is_never_a_duration_accusation():
+    # "since 2019" for a role that ENDED 2023: a start fact, true — not
+    # "seven years until today" against a 4-year envelope.
+    profile = {
+        "personal_info": {"name": "A"},
+        "work_experience": [
+            {"id": "w1", "company": "Acme GmbH", "role": "Head of IT",
+             "start_date": "2019-03", "end_date": "2023-05",
+             "responsibilities": ["Leitung der IT."]},
+        ],
+    }
+    v = await verify_claim(Claim(text="Head of IT at Acme GmbH since 2019", location="s[0]"), profile)
+    assert "Claimed" not in (v.detail or ""), v
+    # within the one-year tolerance of the recorded 03/2019 start
+    v = await verify_claim(Claim(text="Head of IT at Acme GmbH since 2018", location="s[0]"), profile)
+    assert "Claimed" not in (v.detail or ""), v
+    v = await verify_claim(Claim(text="Head of IT at Acme GmbH since 2017", location="s[0]"), profile)
+    assert v.verdict == "unbacked" and "lies before the earliest dated span" in v.detail, v

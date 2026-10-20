@@ -95,6 +95,8 @@ class VaultIndex:
     # error, and that stays removed — this is a different predicate against a
     # different corpus, checked in ``audit._tenure_ceiling_flag``.
     derivable_tenure_years: float | None = None
+    # #790 line L15 — the envelope's earliest dated start (``None`` = undated).
+    earliest_dated_start: date | None = None
     # #747 (ADR-052 amended 2026-10-07) — per-skill evidenced span: skill name
     # -> (fractional years of the dated experiences whose OWN text names it,
     # their org labels). The shared instrument
@@ -214,6 +216,22 @@ def derive_tenure_ceiling_years(
     return max(0.0, (max(ends) - min(starts)).days / _DAYS_PER_YEAR)
 
 
+def derive_earliest_dated_start(profile: MasterProfileData | dict[str, Any]) -> date | None:
+    """The earliest dated start of the #469 envelope (same entries, same parse).
+
+    #790 line L15: a start-year statement ("seit 2004 in der Branche") is
+    checked against THIS, not as a duration to today. ADR-062: FACT (date
+    fields only). ``None`` when nothing is dated — the check fails open.
+    """
+    p = _coerce_profile(profile)
+    starts = [
+        d
+        for entry in [*p.all_experiences, *p.education]
+        if isinstance(d := _coerce_partial_date(getattr(entry, "start_date", None)), date)
+    ]
+    return min(starts) if starts else None
+
+
 def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) -> VaultIndex:
     """A NEW index carrying ``entries`` as additional evidence beside the vault's own.
 
@@ -284,6 +302,7 @@ def extend_vault_index(index: VaultIndex, entries: Sequence[tuple[str, str]]) ->
         denial_units=list(index.denial_units),
         dominant_language=index.dominant_language,
         derivable_tenure_years=index.derivable_tenure_years,
+        earliest_dated_start=index.earliest_dated_start,
         skill_spans=dict(index.skill_spans),
         transcribed_skill_years=dict(index.transcribed_skill_years),
         stated_skill_tenures=dict(index.stated_skill_tenures),
@@ -549,6 +568,7 @@ def build_vault_index(profile: MasterProfileData | dict[str, Any]) -> VaultIndex
         dominant_language=detect_language(all_text_norm),
         # #469 — once per audit, from the typed profile's date fields.
         derivable_tenure_years=derive_tenure_ceiling_years(p),
+        earliest_dated_start=derive_earliest_dated_start(p),
         **_skill_duration_facts(p, units),
     )
 

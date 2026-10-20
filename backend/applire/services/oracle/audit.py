@@ -694,8 +694,30 @@ def _tenure_ceiling_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
     if ceiling is None:
         return None
     allowed = ceiling + _TENURE_TOLERANCE_YEARS
-    for tenure in extract_tenure_claims(text):
-        if tenure.years <= allowed:
+    for tenure in extract_tenure_claims(text, include_since=True):
+        if tenure.since_year is not None:
+            # #790 line L15: "seit 2004" states a START. Read it as the latest
+            # start the year allows (December) and flag only when it still lies
+            # more than the tolerance before every dated start in the vault.
+            earliest = index.earliest_dated_start
+            if earliest is None:
+                continue
+            claimed = tenure.since_year + 11 / 12
+            recorded = earliest.year + (earliest.month - 1) / 12
+            if recorded - claimed <= _TENURE_TOLERANCE_YEARS:
+                continue
+            return ClaimVerdict(
+                verdict="unbacked",
+                checker="numbers",
+                figures=[tenure.raw.strip()],
+                detail=(
+                    f'Claimed start "{tenure.raw.strip()}" lies before the earliest '
+                    f"dated span in the vault ({earliest:%m/%Y})."
+                ),
+            )
+        # #790 line L15: the lowest duration the claim commits to (a range's
+        # lower bound) — never a false accusation.
+        if tenure.floor <= allowed:
             continue
         return ClaimVerdict(
             verdict="unbacked",
@@ -823,9 +845,9 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
         # Escapes — the candidate's own words win, for THIS subject only
         # (adversarial finding 4a: a career total stated anywhere in the
         # vault is not a statement about SAP CO).
-        if index.stated_skill_tenures.get(best, -1.0) >= tenure.years:
+        if index.stated_skill_tenures.get(best, -1.0) >= tenure.floor:
             continue
-        if index.transcribed_skill_years.get(best, -1) >= tenure.years:
+        if index.transcribed_skill_years.get(best, -1) >= tenure.floor:
             continue
         # …or the claim RESTATES a sentence of the candidate's own that states
         # the same duration (same N, ≥ RESTATEMENT_MIN_SHARED content words in
@@ -840,7 +862,7 @@ def _subject_tenure_flag(text: str, index: VaultIndex) -> ClaimVerdict | None:
             for years, words in index.stated_tenure_windows
         ):
             continue
-        required = _required_span(text, raw, tenure.years)
+        required = _required_span(text, raw, tenure.floor)
         span, orgs = index.skill_spans[best]
         if span + _SUBJECT_TENURE_TOLERANCE_YEARS >= required:
             continue

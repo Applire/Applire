@@ -32,6 +32,21 @@ class TenureClaim:
 
     years: float
     raw: str  # verbatim substring for report details
+    #: #790 line L15 — the LOWEST duration the text commits to, when it is
+    #: below ``years``: the lower bound of a range ("6-8 Jahre" → 6, years 8),
+    #: or a "seit 2004" reading that assumes the latest start within the year.
+    #: Claim-side over-direction checks (#469 ceiling, #747 subject span) read
+    #: :attr:`floor` — silence over a false accusation; vault-side readers keep
+    #: ``years`` (the most the candidate's own words state).
+    low: float | None = None
+    #: #790 line L15 — set for a start-year statement ("seit 2004"): it is
+    #: checked as a START against the vault's earliest dated start, never as a
+    #: duration to today (a role that ended is not "since 2019 until now").
+    since_year: int | None = None
+
+    @property
+    def floor(self) -> float:
+        return self.years if self.low is None else self.low
 
 
 # Multiplier suffixes folded into the canonical value (DE + EN).
@@ -201,10 +216,23 @@ _PLUS_QUANTIFIER_RE = re.compile(r"\b([1-9])\+")
 # judgement about the surrounding claim. Group 1 is the number itself; the
 # unit is only the evidence that the number is a duration.
 _TENURE_UNIT = r"(?:jahr(?:e|en|es)?|jährig\w*|jaehrig\w*|years?|yrs?)"
+# #790 line L15 (2026-10-20): the number may be a RANGE ("6-8 Jahre", "6–8
+# years" — group 1 is the whole range, so its lower bound is tenure-exempt
+# from figure matching too, #214) or a hyphenated EN compound ("twenty-two
+# years", which read as 2); "J." is the German abbreviation ("22 J.").
 _TENURE_RE = re.compile(
-    r"\b(\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß]+)\+?\s*[-–]?\s*" + _TENURE_UNIT + r"\b",
+    r"\b(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)?)"
+    r"\+?\s*[-–]?\s*(?:" + _TENURE_UNIT + r"\b|j\.(?!\w))",
     re.IGNORECASE,
 )
+# #790 line L15 — "7 Jahre und 6 Monate": a months tail directly after a tenure.
+_TENURE_MONTHS_TAIL_RE = re.compile(
+    r"\s*(?:,|und|and)?\s*(\d{1,2})\s*(?:monate[n]?|monat|months?|mon\.)(?!\w)",
+    re.IGNORECASE,
+)
+# #790 line L15 — "seit 2004" / "since 2018": a duration stated as a start year.
+_TENURE_SINCE_RE = re.compile(r"\b(?:seit|since)\s+((?:19|20)\d{2})(?![\d.,])", re.IGNORECASE)
+_TENURE_RANGE_SPLIT_RE = re.compile(r"\s*[-–]\s*")
 
 # ── #220 — a date fragment is not a quantified figure ──────────────────────
 #
@@ -671,13 +699,17 @@ def _spelled_small_number(token: str) -> int | None:
     small = _SMALL_WORDS.get(token)
     if small is not None:
         return small
+    # #790 line L15: the hyphenated EN compound ("twenty-two").
+    tens, sep, unit = token.partition("-")
+    if sep and tens in _EN_TENS and unit in _EN_UNITS:
+        return _EN_TENS[tens] + _EN_UNITS[unit]
     de = _DE_UND_RE.match(token)
     if de:
         return _DE_COMPOUND_UNITS[de.group(1)] + _DE_TENS[de.group(2)]
     return None
 
 
-def extract_tenure_claims(text: str) -> list[TenureClaim]:
+def extract_tenure_claims(text: str, *, include_since: bool = False) -> list[TenureClaim]:
     """Every stated duration in years, as a NUMBER OF YEARS (#469).
 
     Reuses ``_TENURE_RE`` — the very regex whose #214 exemption removed
@@ -701,15 +733,32 @@ def extract_tenure_claims(text: str) -> list[TenureClaim]:
     claims: list[TenureClaim] = []
     for m in _TENURE_RE.finditer(text):
         token = m.group(1)
+        raw = m.group(0)
+        months = _TENURE_MONTHS_TAIL_RE.match(text, m.end())
+        extra = 0.0
+        if months is not None and 0 < int(months.group(1)) < 12:
+            extra = int(months.group(1)) / 12
+            raw = text[m.start():months.end()]
         if token[0].isdigit():
+            parts = _TENURE_RANGE_SPLIT_RE.split(token)
             try:
-                claims.append(TenureClaim(float(_canonical_number(token)), m.group(0)))
+                values = [float(_canonical_number(x)) for x in parts if x]
             except ValueError:  # pragma: no cover - _TENURE_RE cannot produce it
                 continue
+            high, low = max(values) + extra, min(values) + extra
+            claims.append(TenureClaim(high, raw, low if low < high else None))
             continue
         value = _spelled_small_number(token.lower())
         if value is not None:
-            claims.append(TenureClaim(float(value), m.group(0)))
+            claims.append(TenureClaim(float(value) + extra, raw))
+    if include_since:
+        # Opt-in: only the #469 envelope check reads start years (as a START,
+        # see ``TenureClaim.since_year``). The vault-side readers (#747's
+        # stated-tenure escapes, the #764 laundering detector) keep their
+        # duration-only population unchanged.
+        for m in _TENURE_SINCE_RE.finditer(text):
+            year = int(m.group(1))
+            claims.append(TenureClaim(0.0, m.group(0), since_year=year))
     return claims
 
 
