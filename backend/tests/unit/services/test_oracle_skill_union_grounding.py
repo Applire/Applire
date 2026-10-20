@@ -268,8 +268,7 @@ _L7_PROFILE = {
             "responsibilities": ["Analyse-Pipelines für Genomdaten mit Nextflow entwickelt."],
         }
     ],
-    "skills": [{"name": "scikit-learn"}, {"name": "Leitung kleiner Entwicklerteams"},
-               {"name": "Research Software Engineering"}],
+    "skills": [{"name": "scikit-learn"}, {"name": "Leitung kleiner Entwicklerteams"}],
 }
 
 
@@ -318,3 +317,17 @@ def test_l7_narrative_coverage_keeps_substring_reach():
 
     r = ground_text_claim("Led KI rollout", build_vault_index(_SEAM_PROFILE))
     assert r.best_coverage == 1.0, r  # pinned: unchanged by #790 line L7
+
+
+def test_l7_function_words_never_count_against_an_honest_enumeration():
+    profile = {
+        "personal_info": {"name": "Emma Probe"},
+        "work_experience": [],
+        "skills": [{"name": "HGB-Abschlüsse"}, {"name": "Kostenrechnung"}, {"name": "Budgetierung"},
+                   {"name": "Forecasts"}, {"name": "Konsolidierung"}],
+    }
+    r = ground_via_skill_union(
+        "Die Kostenrechnung für die Konsolidierung",
+        build_vault_index(profile),
+    )
+    assert r is not None and r.best_coverage >= GROUNDED_MIN_COVERAGE, r

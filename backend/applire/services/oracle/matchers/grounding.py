@@ -196,6 +196,18 @@ _UNION_SCAFFOLD_WORDS_RAW = (
     "implementiert", "implementierte",
     "gearbeitet", "arbeite", "arbeitete",
     "mit", "und", "sowie", "verwendet", "genutzt", "nutzung",
+    # #790 line L7 (2026-10-20): German articles/prepositions/conjunctions.
+    # Under the substring predicate they were free hits ("die" inside any
+    # word); once a short token must match whole (``claim_token_present``)
+    # they would instead count AGAINST an honest enumeration. They are
+    # function words, never content, so they leave the denominator — the
+    # same argument as ``_NARRATIVE_STOPWORDS``.
+    "der", "die", "das", "den", "dem", "des",
+    "ein", "eine", "einen", "einem", "einer", "eines",
+    "oder", "für", "fuer", "im", "in", "am", "an", "auf", "bei", "zu", "zum", "zur",
+    "von", "vom", "aus", "als", "nach", "über", "ueber", "ich", "er", "sie",
+    # EN articles/prepositions the scaffold list did not carry yet
+    "the", "a", "an", "of", "in", "on", "at", "to", "for", "with", "and", "or",
 )
 _UNION_SCAFFOLD_STOPWORDS = frozenset(skill_tokens(" ".join(_UNION_SCAFFOLD_WORDS_RAW)))
 
