@@ -409,7 +409,9 @@ ever writes is flying blind.
 - `resolve_held_merge(staged_id, decision)` — Applire holds an import before it
   commits when the document does not look like a CV (`gate: "not_a_cv"`) or when
   the name on it shares no token with the account holder's
-  (`"name_divergence"`). **This includes the imports you make.** Since #367 the
+  (`"name_divergence"`), or when the automatic check of the extracted data could
+  not run (`"review_not_run"` — ask the person to confirm before merging).
+  **This includes the imports you make.** Since #367 the
   gate is part of the ingest itself, so it runs identically whichever door the
   document came through — the browser's upload, a LinkedIn/XING export, and
   `import_cv` on this channel.
@@ -417,8 +419,8 @@ ever writes is flying blind.
   **What you will see, and what to do about it.** `import_cv` always tells you
   the outcome: a normal import answers `merged: true, gated: false` plus the
   usual summary; a held one answers `merged: false, gated: true` with a
-  `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence`) and **no
-  profile facts, because nothing was merged**. Do not read a held import as a
+  `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence` /
+  `review_not_run`) and **no profile facts, because nothing was merged**. Do not read a held import as a
   success. The two names behind the question are deliberately not in that reply
   — this tool's black-box rule does not bend for a hold — so call
   `get_profile_health` and read `held_merges[]`, which carries `account_name`
@@ -655,7 +657,9 @@ apply it.
     pre-merge integrity gate is part of the ingest, so it runs on this tool
     exactly as it does on the browser's upload. Every reply carries `merged`
     and `gated`: on a hold you get `merged: false, gated: true` with a
-    `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence`) — and no
+    `staged_id` and a `hold_reason` (`not_a_cv` / `name_divergence` /
+    `review_not_run` — the automatic check of the extracted data could not run;
+    ask the person to confirm before merging) — and no
     `profile_id`, no counts, because nothing was merged. **Treat that as a
     question, not a failure and not a success.** Read `held_merges[]` from
     `get_profile_health` for the two names, put the choice to the candidate,
