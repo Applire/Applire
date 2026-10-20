@@ -334,6 +334,66 @@ _DENIAL_MARKERS: tuple[str, ...] = (
     "gehört nicht zu meiner", "gehört nicht zu meinen",
     "gehoert nicht zu meiner", "gehoert nicht zu meinen",
     "not part of my",
+    # #790 line L19 (2026-10-20): the markers are matched WORD-bounded now
+    # (``_DENIAL_MARKER_RES`` below). These two forms were reached only through
+    # the old substring match ("keine erfahrung" inside "keine erfahrungen",
+    # "handled by a" inside "handled by an …") — named explicitly so the switch
+    # keeps that recall; nothing else in the list relied on a substring.
+    "keine erfahrungen",
+    "handled by an",
+)
+
+#: #790 line L19 — each marker as a word-bounded pattern. A substring match let
+#: a marker fire inside a longer word ("wurde durch" in "wurde durchgeführt",
+#: "had not" in "had nothing"), and a false ``not_applicable`` exempts a claim
+#: from verification — a hole in the Oracle.
+_DENIAL_MARKER_RES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(r"(?<!\w)" + re.escape(m) + r"(?!\w)") for m in _DENIAL_MARKERS
+)
+
+
+def _has_denial_marker(normalized: str) -> bool:
+    """Word-bounded marker test on lower-cased, punctuation-normalised text."""
+    return any(r.search(normalized) for r in _DENIAL_MARKER_RES)
+
+
+#: #790 line L19 — "wurde von 8,2 auf 3,1 gesenkt" is a figure change, not a
+#: delegation: a delegation marker whose "recipient" is a number names no
+#: second party (captured: a letter's LTIF sentence exempted from grading).
+_FIGURE_NOT_DELEGATION_RE = re.compile(
+    r"\b(?:wurden?|was|were)\s+(?:von|durch|by)\s+(?:ca\.\s*|rund\s+|etwa\s+|über\s+|ueber\s+)?[\d~]",
+    re.IGNORECASE,
+)
+
+#: #790 line L19 — a marker-free segment that OPENS with a contrastive pivot is
+#: the positive half of "not X, but Y" ("…, jedoch Sondermaschinen-Erfahrung",
+#: "…, aber bei Weberit vorbereitet"); "dafür"/"stattdessen"/"instead" mark the
+#: same counter-claim anywhere in the segment ("…, bringe dafür
+#: Investitionsrechnung mit"). Only ever makes the predicate return False.
+_DENIAL_COUNTERCLAIM_RE = re.compile(
+    r"^\s*(?:but|however|yet|instead|aber|jedoch|sondern|dennoch|allerdings)\b"
+    r"|\b(?:dafür|dafuer|stattdessen|instead)\b",
+    re.IGNORECASE,
+)
+
+#: #790 line L19 — EN " but " is a clause boundary inside one comma segment
+#: ("I have supported ECMO patient care but have not managed a circuit"). The
+#: German pivots are NOT split on: mid-sentence they are adverbs ("Mit US-GAAP
+#: habe ich jedoch keine Erfahrung"), and a split there would break a true
+#: denial. The pivot word stays at the head of the following segment.
+_DENIAL_BUT_SPLIT_RE = re.compile(r"\s+(?=but\s)", re.IGNORECASE)
+
+#: #790 line L19 — a negation that follows a CONSEQUENCE connector negates the
+#: outcome of a positive claim, not the candidate ("… bookkeeping so event
+#: replays did not double-bill", "… ensured that replays did not cause …").
+#: When the text before the first such connector carries no marker, the clause
+#: is a positive claim.
+_DENIAL_CONSEQUENCE_RE = re.compile(
+    r"\b(?:so that|sodass|so dass|damit|wodurch|ensuring|ensured|ensures)\b"
+    # bare "so" only when an EN auxiliary negation follows it — German "so" is
+    # an everyday adverb ("so etwas habe ich noch nie gemacht").
+    r"|\bso\b(?=[^.;]*\b(?:did|does|do|has|had|have|was|were) not\b)",
+    re.IGNORECASE,
 )
 
 # A clause/comma-segment that STARTS with (an optional pivot word, then) a
@@ -392,17 +452,32 @@ def _is_pure_denial_clause(text: str) -> bool:
     gradeable) — a false ``not_applicable`` is a hole in the Oracle; a false
     ``unverifiable`` is merely noise.
     """
-    normalized = _normalize_punct(text).lower()
-    if not any(marker in normalized for marker in _DENIAL_MARKERS):
+    # #790 line L19: phrases that contain a negation word but negate nothing
+    # ("not only introduced ISO 13485", "nicht nur …") are removed first — the
+    # same closed list the #701 identifier-scope predicate uses (one list).
+    normalized = _ID_NON_NEGATION_RE.sub(" ", _normalize_punct(text).lower())
+    if not _has_denial_marker(normalized):
         return False
     if _SELF_DELEGATION_RE.search(normalized):
         return False
-    for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized):
+    if _FIGURE_NOT_DELEGATION_RE.search(normalized):
+        return False
+    consequence = _DENIAL_CONSEQUENCE_RE.search(normalized)
+    if consequence and not _has_denial_marker(normalized[: consequence.start()]):
+        return False
+    segments = [
+        part
+        for segment in _DENIAL_SEGMENT_SPLIT_RE.split(normalized)
+        for part in _DENIAL_BUT_SPLIT_RE.split(segment)
+    ]
+    for segment in segments:
         segment = segment.strip()
         if not segment:
             continue
-        if any(marker in segment for marker in _DENIAL_MARKERS):
+        if _has_denial_marker(segment):
             continue
+        if _DENIAL_COUNTERCLAIM_RE.search(segment):
+            return False
         if _DENIAL_PIVOT_THEN_PRONOUN_RE.match(segment):
             return False
         # #697 lines 15 + 20 (2026-09-18): German main clauses are verb-second,
