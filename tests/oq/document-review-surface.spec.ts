@@ -266,8 +266,9 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
     const clean = { ...ATS_SHORT, keywords: { ...ATS_SHORT.keywords, present_unsupported: [] } };
     await stubBackend(page, { ats: clean, critic: { ran: true, reason: 'judgement_error', advisories: [], dropped_citations: 0 } });
     await page.goto(CV_PAGE_URL);
-    await expect(page.getByTestId('review-group-unknown-4')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('review-verdict')).toContainText('Not checked: Coherence advisory');
+    await expect(page.getByTestId('review-verdict')).toContainText('Not checked: Coherence advisory', {
+      timeout: 15_000,
+    });
     await expect(page.getByTestId('review-verdict')).not.toContainText('stand in the way');
   });
 

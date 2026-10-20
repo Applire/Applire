@@ -1654,7 +1654,7 @@
     "verdictFindings": "{count, plural, one {# Stelle im Dokument ist nicht durch Dein Profil gedeckt.} other {# Stellen im Dokument sind nicht durch Dein Profil gedeckt.}}",
     "verdictClear": "Jede Aussage im Dokument ist durch Dein Profil gedeckt.",
     "verdictClearWithOthers": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. {count, plural, =0 {Weiter unten stehen Befunde, die dem Versand nicht im Weg stehen.} one {Weiter unten steht # weiterer Befund — er steht dem Versand nicht im Weg.} other {Weiter unten stehen # weitere Befunde — sie stehen dem Versand nicht im Weg.}}",
-    "verdictClearUnchecked": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Nicht geprüft: {producers} — {count, plural, =0 {sieh Dir diesen Teil selbst an, bevor Du sendest.} one {weiter unten steht außerdem # Befund.} other {weiter unten stehen außerdem # Befunde.}}",
+    "verdictClearUnchecked": "Jede Aussage im Dokument ist durch Dein Profil gedeckt. Nicht geprüft: {producers}{count, plural, =0 { — sieh Dir diesen Teil selbst an, bevor Du sendest.} one {. Weiter unten steht # weiterer Befund.} other {. Weiter unten stehen # weitere Befunde.}}",
     "verdictClearWithSendCheck": "Jede Aussage im Dokument ist durch Dein Profil gedeckt — aber {count, plural, one {# Befund solltest Du} other {# Befunde solltest Du}} vor dem Versand ansehen.",
     "verdictUnknown": "Ob jede Aussage gedeckt ist, wurde für dieses Dokument nicht geprüft.",
     "group1Title": "Im Dokument, aber nicht in Deinem Profil",

@@ -164,8 +164,20 @@ describe("#789 line L60 — an unanswered CV critic never reads as findings belo
     render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGap, criticReport: notRun })} />, "en"));
     const verdict = screen.getByTestId("review-verdict");
     expect(verdict).toHaveTextContent("Coherence advisory");
-    expect(verdict).toHaveTextContent("Not checked: Coherence advisory — there is also 1 further finding below.");
+    expect(verdict).toHaveTextContent("Not checked: Coherence advisory. There is 1 further finding below.");
     expect(verdict).not.toHaveTextContent("stand in the way");
+  });
+
+  it("names the count in the ruled DE wording when findings sit below (D2-3)", () => {
+    const base = clean()!;
+    const withGaps: ATSReport = {
+      ...base,
+      keywords: { ...base.keywords, missing_honest_gap: ["Terraform", "Ansible"], missing: ["Terraform", "Ansible"] },
+    };
+    render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGaps, criticReport: errored })} />, "de"));
+    expect(screen.getByTestId("review-verdict")).toHaveTextContent(
+      /^Jede Aussage im Dokument ist durch Dein Profil gedeckt\. Nicht geprüft: Kohärenz-Hinweis\. Weiter unten stehen 2 weitere Befunde\.$/,
+    );
   });
 
   it("a CV critic that ran and found nothing keeps the plain all-clear", () => {
