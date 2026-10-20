@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **A cover letter no longer invents when you could start (#784).** Letters stated a notice period or a start date ("Meine Kündigungsfrist ermöglicht einen reibungslosen Übergang", "available to start immediately") although you never gave one — on the small model in 34 of 41 letters. The letter now mentions availability only when you typed it when generating the letter, or your profile records it from an interview answer; otherwise a check sends any such sentence back to the review loop, and the reviewer no longer asks for it. v2 pipeline (the default).
+- **A typo in a standard number is caught before delivery (#786).** When the CV or letter names a standard or regulation number your profile never states — for example "ISO 4501" for your "ISO 45001" — the review loop is told which number your profile does state and fixes it; if it cannot, the open finding is shown before download. v2 pipeline.
+- **A budget line keeps its magnitude when it is translated (#786).** The check that a translated budget line kept its figures now also compares the magnitude word, so "€2M" can no longer become "2 Mrd."; the stored line is shown instead.
+- **The CV states calculated skill durations the way the letter already does (#786).** A skill duration Applire calculated from your role dates reaches the CV writer as an approximate figure ("over 7 years"), never as a flat count it could round up. Your own stated durations are unchanged. v2 pipeline.
+- **A skill you only list is named, not narrated (#787, ruling V-1).** A job requirement backed only by your skills list may appear in the CV's skills line or a list of tools, never as a responsibility or result you did not describe. v2 pipeline.
+
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
 ### Upgrade notes
