@@ -150,14 +150,14 @@ the 8 characters after `apl_`.
 
 ### 3.6 Admin (metadata only — never content)
 
-`require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
+`require_admin_session` (MD-34/MD-38) = `require_admin` + session only: an `api` bearer gets 403 `forbidden` on every route that creates or resets a credential (invite, reset link, role change, token revoke, probe tokens) and on account deletion (Hazelnut build 2, R-3). The route walk in `backend/tests/unit/test_w4_fix_identity.py` pins which admin routes are which.
 
 | Method · path | Dep | Request | Response | Errors | Owner |
 |---|---|---|---|---|---|
 | `GET /api/admin/users` | `require_admin` | — | `admin.AdminUserListResponse` `{users: [AdminUserItem]}` (tombstoned accounts not listed) | 401, 403 | 1b |
 | `POST /api/admin/users` | `require_admin_session` | `admin.AdminUserCreateRequest` `{email, role=user, send_mail=true}` — `send_mail` only decides about the mail (sent iff SMTP is configured AND true); the link is always returned (MD-28) | **201** `admin.AdminUserCreatedResponse` `{user, link: IssuedLink}` — a pending account + its invite link | 409 `email_taken` | 1b |
 | `PATCH /api/admin/users/{user_id}` | `require_admin_session` | `admin.AdminUserPatchRequest` `{role?, disabled?}` | `admin.AdminUserItem` | 404, 409 `last_admin`, 422 (empty body) | 1b |
-| `DELETE /api/admin/users/{user_id}` | `require_admin` | — | 204 (erasure + tombstone) | 404, 409 `last_admin` | 1b |
+| `DELETE /api/admin/users/{user_id}` | `require_admin_session` (since Hazelnut build 2, R-3: erasure is irreversible) | — | 204 (erasure + tombstone) | 403 `forbidden` for an `api` bearer, 404, 409 `last_admin` | 1b |
 | `POST /api/admin/users/{user_id}/reinvite` | `require_admin_session` | — | `admin.IssuedLink` (purpose `invite`) | 404, 409 `user_not_pending` | 1b |
 | `POST /api/admin/users/{user_id}/reset-link` | `require_admin_session` | — | `admin.IssuedLink` (purpose `reset`) | 404, 409 `user_not_active` | 1b |
 | `POST /api/admin/users/{user_id}/revoke-tokens` | `require_admin_session` | — | `admin.RevokeTokensResponse` `{revoked}`; bumps `link_epoch` | 404 | 1b |
