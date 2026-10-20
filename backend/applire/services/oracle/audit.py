@@ -121,7 +121,7 @@ from applire.services.oracle.matchers.figures import (
     _identifier_spans,
     identifier_matches,
 )
-from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
+from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE, claim_token_present
 from applire.services.oracle.stance import classify_stance
 
 logger = logging.getLogger(__name__)
@@ -946,7 +946,7 @@ def _owner_scoped_coverage(
     owned_units = [u for u in index.units if u.owner_ids & owners]
     best = 0
     for u in owned_units:
-        hits = sum(1 for t in tokens if surface_present(t, u.text_norm))
+        hits = sum(1 for t in tokens if claim_token_present(t, u.text_norm))
         best = max(best, hits)
     return best / len(tokens)
 

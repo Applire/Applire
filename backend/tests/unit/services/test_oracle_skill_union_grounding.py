@@ -249,3 +249,88 @@ async def test_unanchored_claim_still_grounds_via_union():
     )
     assert verdict.verdict == "grounded"
     assert verdict.checker == "grounding"
+
+
+# ── #790 line L7 (2026-10-20) — a short token is matched as a whole token ────
+#
+# Captured (Strawberry build-1 w4-e2e, the agent door's BYOI letter, synthetic
+# persona): "I am used to working with research IT teams." graded `grounded`
+# on the skills "scikit-learn" + "Leitung kleiner Entwicklerteams" — "it" was
+# present inside "scikit" — while the keyword check called "Research IT"
+# present_unsupported. Synthetic twin below.
+
+_L7_PROFILE = {
+    "personal_info": {"name": "Jan Probe"},
+    "work_experience": [
+        {
+            "id": "w1", "company": "Genlab GmbH", "role": "Research Software Engineer",
+            "start_date": "2015-01",
+            "responsibilities": ["Analyse-Pipelines für Genomdaten mit Nextflow entwickelt."],
+        }
+    ],
+    "skills": [{"name": "scikit-learn"}, {"name": "Leitung kleiner Entwicklerteams"},
+               {"name": "Research Software Engineering"}],
+}
+
+
+@pytest.mark.asyncio
+async def test_l7_short_token_inside_a_longer_word_grounds_nothing():
+    v = await verify_claim(Claim(text="I am used to working with research IT teams.", location="x"), _L7_PROFILE)
+    assert v.verdict != "grounded", v
+
+
+@pytest.mark.asyncio
+async def test_l7_a_short_token_the_vault_names_whole_still_counts():
+    profile = {**_L7_PROFILE, "skills": [*_L7_PROFILE["skills"], {"name": "IT-Service-Management"}]}
+    v = await verify_claim(Claim(text="Research IT teams and scikit-learn", location="x"), profile)
+    assert v.verdict == "grounded", v
+
+
+def test_l7_claim_token_presence_rule():
+    from applire.services.oracle.matchers.grounding import claim_token_present
+
+    assert claim_token_present("it", "scikit learn") is False
+    assert claim_token_present("it", "research it support") is True
+    assert claim_token_present("teams", "leitung kleiner entwicklerteams") is True  # substring kept
+
+
+# One seam test per call site of ``claim_token_present`` (grounding.py x4 —
+# ground_text_claim's overall + per-unit counts, the skill union, the role
+# union — and audit._owner_scoped_coverage): "ki" sits inside "kiosk".
+
+_SEAM_PROFILE = {
+    "personal_info": {"name": "Seam Probe"},
+    "work_experience": [
+        {"id": "w1", "company": "Fishhaus GmbH", "role": "Lead",
+         "start_date": "2018-01",
+         "responsibilities": ["Led the kiosk rollout across all stores."]},
+    ],
+    "skills": [{"name": "kiosk rollout"}, {"name": "store leadership"}],
+}
+_SEAM_TEXT = "Led KI rollout"
+
+
+def test_l7_seam_ground_text_claim():
+    from applire.services.oracle.matchers import ground_text_claim
+
+    r = ground_text_claim(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE))
+    assert r.best_coverage < 1.0 and r.overall_coverage < 1.0, r
+
+
+def test_l7_seam_skill_union():
+    r = ground_via_skill_union("KI rollout", build_vault_index(_SEAM_PROFILE))
+    assert r is None or r.best_coverage < 1.0, r
+
+
+def test_l7_seam_role_union():
+    from applire.services.oracle.matchers import ground_via_role_union
+
+    r = ground_via_role_union(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE), "w1")
+    assert r is None or r.best_coverage < 1.0, r
+
+
+def test_l7_seam_owner_scoped_coverage():
+    from applire.services.oracle.audit import _owner_scoped_coverage
+
+    cov = _owner_scoped_coverage(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE), {"w1"})
+    assert cov < 1.0, cov

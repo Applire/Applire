@@ -25,6 +25,22 @@ from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
 # content tokens is present in a single vault evidence unit.
 GROUNDED_MIN_COVERAGE = 0.6
 
+#: #790 line L7 (2026-10-20): a claim token this short ("it", "am", "ki", "qa",
+#: "sap") is matched as a WHOLE token. Under the substring predicate "IT" was
+#: present in "scikit-learn", "mit", "with" — a free coverage hit in every
+#: vault: "I am used to working with research IT teams" grounded on the skills
+#: "scikit-learn" + "Leitung kleiner Entwicklerteams" while the keyword check
+#: (correctly) called "Research IT" unsupported. Longer tokens keep the
+#: substring reach ADR-048 pins (German compounds: "teams" in "Entwicklerteams").
+_SHORT_TOKEN_MAX = 3
+
+
+def claim_token_present(token: str, text_norm: str) -> bool:
+    """Presence of one claim content token in a normalised evidence text."""
+    if len(token) <= _SHORT_TOKEN_MAX:
+        return surface_present_whole_token(token, text_norm)
+    return surface_present(token, text_norm)
+
 # #237 (run-4 residual): ``skill_tokens`` was built for SHORT SKILL NAMES — its
 # stopword list is deliberately minimal (bare conjunctions/articles), because
 # a skill name almost never carries a pronoun or an auxiliary verb. Full
@@ -114,10 +130,10 @@ def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
     if not tokens:
         return GroundingResult(0.0, None, 0.0, 0)
 
-    overall_hits = sum(1 for t in tokens if surface_present(t, index.all_text_norm))
+    overall_hits = sum(1 for t in tokens if claim_token_present(t, index.all_text_norm))
     scored: list[tuple[int, int, EvidenceUnit]] = []
     for order, unit in enumerate(index.units):
-        hits = sum(1 for t in tokens if surface_present(t, unit.text_norm))
+        hits = sum(1 for t in tokens if claim_token_present(t, unit.text_norm))
         if hits > 0:
             scored.append((-hits, order, unit))
     scored.sort()
@@ -203,7 +219,7 @@ def ground_via_skill_union(text: str, index: VaultIndex) -> GroundingResult | No
     hits = 0
     for t in tokens:
         for unit in union_units:
-            if surface_present(t, unit.text_norm):
+            if claim_token_present(t, unit.text_norm):
                 hits += 1
                 if unit not in matched_units:
                     matched_units.append(unit)
@@ -281,7 +297,7 @@ def ground_via_role_union(
     hits = 0
     for t in tokens:
         for unit in role_units:
-            if surface_present(t, unit.text_norm):
+            if claim_token_present(t, unit.text_norm):
                 hits += 1
                 if unit not in matched_units:
                     matched_units.append(unit)
