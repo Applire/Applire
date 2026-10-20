@@ -122,7 +122,10 @@ async def _publish_upgrade_notice() -> None:
     message about a silent change must not itself be visible for one boot only.
     """
     from applire.routers.health import set_upgrade_notice
+    from datetime import datetime, timezone
+
     from applire.services.instance_state import (
+        KEY_INSTANCE_FIRST_STARTED_AT,
         KEY_LAST_SEEN_VERSION,
         KEY_UPGRADE_NOTICE_DISMISSED_FOR,
         read_state,
@@ -147,6 +150,11 @@ async def _publish_upgrade_notice() -> None:
                 # setting introduced since 0.31.0 to someone installing today would
                 # be noise, and there is no upgrade to describe.
                 await write_state(db, KEY_LAST_SEEN_VERSION, __version__)
+                # ADR-087 amended 2026-10-20 (R-2): the ops first-run grace is keyed
+                # on this; an upgraded instance never gets it (it has been running).
+                await write_state(
+                    db, KEY_INSTANCE_FIRST_STARTED_AT, datetime.now(timezone.utc).isoformat()
+                )
                 await db.commit()
                 set_upgrade_notice(None)
                 return

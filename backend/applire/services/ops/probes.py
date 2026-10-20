@@ -205,6 +205,19 @@ async def probe_retention(db: AsyncSession) -> ProbeResult:
         .all()
     )
     if not rows:
+        # First-run grace (R-2, 785:L126): the worker's first pass is not overdue
+        # until two intervals after the first start.
+        due = _grace_until(
+            await _first_started_at(db),
+            timedelta(seconds=2 * ops_config.OPS_RETENTION_INTERVAL_SECONDS),
+        )
+        if due is not None:
+            return ProbeResult(
+                "retention",
+                OK,
+                "first run pending",
+                {"last_run_at": None, "age_seconds": None, "first_due_by": due.isoformat()},
+            )
         return ProbeResult(
             "retention",
             UNKNOWN,
@@ -303,6 +316,33 @@ _INSTANCE_STATE = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 LAST_BACKUP_KEY = "last_backup_at"
+FIRST_STARTED_KEY = "instance.first_started_at"
+
+
+async def _first_started_at(db: AsyncSession) -> datetime | None:
+    """When this installation first started (ADR-087 amended 2026-10-20, R-2).
+
+    Written once on a FRESH install; absent on every upgraded instance, which
+    therefore gets no first-run grace. A missing table or key = None.
+    """
+    try:
+        raw = (
+            await db.execute(
+                select(_INSTANCE_STATE.c.value).where(_INSTANCE_STATE.c.key == FIRST_STARTED_KEY)
+            )
+        ).scalar_one_or_none()
+    except Exception:
+        await db.rollback()
+        return None
+    return _parse_backup_stamp(raw)
+
+
+def _grace_until(first_started: datetime | None, window: timedelta) -> datetime | None:
+    """The end of the first-run grace window, if we are still inside it."""
+    if first_started is None:
+        return None
+    due = first_started + window
+    return due if datetime.now(timezone.utc) < due else None
 
 
 async def probe_backup(db: AsyncSession) -> ProbeResult:
@@ -327,6 +367,20 @@ async def probe_backup(db: AsyncSession) -> ProbeResult:
 
     stamp = _parse_backup_stamp(raw)
     if stamp is None:
+        # First-run grace (R-2, 785:L126): on a fresh install no backup is due
+        # yet — `ok` with the due date, so day one does not read "degraded".
+        due = _grace_until(
+            await _first_started_at(db), timedelta(days=ops_config.OPS_BACKUP_WARN_DAYS)
+        )
+        if due is not None:
+            return ProbeResult(
+                "backup",
+                OK,
+                f"no backup yet — first one due by {due.date().isoformat()}",
+                {"last_backup_at": None, "age_days": None,
+                 "warn_after_days": ops_config.OPS_BACKUP_WARN_DAYS,
+                 "first_due_by": due.isoformat()},
+            )
         return ProbeResult(
             "backup",
             DEGRADED,
