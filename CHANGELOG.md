@@ -6,6 +6,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The review headline names a check that did not answer (#789).** When a CV's or letter's cross-document check failed or did not run, the headline used to read "findings below don't stand in the way" — even with nothing below. It now says which check is missing and asks you to look at that part yourself before sending.
+- **Fewer false "not backed" verdicts on standards (#790).** "ISO 9001/45001", "ISO 9001:2015", "IATF 16949", "VDA 6.3", "ISO/TS 16949" and lower-case "iso 9001" are read as standards, so their digits are no longer flagged as unbacked numbers, and a standard the profile never names is caught in these spellings too.
+- **A sentence naming two employers is checked clause by clause (#790).** "At A I built X, and at B I designed Y" no longer flags the B half as belonging to the wrong employer.
+- **Stated durations are read in more forms (#790).** "twenty-two years", "6-8 Jahre", "7 Jahre und 6 Monate" and "J." are understood; "seit 2004" is checked as a start year against your earliest dated role, never as a duration to today.
+- **An honest limit is recognised by whole words (#790).** A sentence that only contains a limit word inside another word, a "not only … but" sentence, or a figure change ("von 8,2 auf 3,1 gesenkt") is checked against your profile instead of being skipped as a limit.
+- **A list of skills is no longer backed by a two-letter fragment (#790).** "IT" inside "scikit-learn" no longer backs "research IT teams"; articles and prepositions in a list never count against it.
+- **Plural and verb forms count as the same term (#783, #787).** The keyword and profile checks treat "Zertifizierung"/"zertifiziert", "Produktion"/"produziert", German noun plurals and English "-y/-ies" as one term.
+
 ## [0.44.0-beta] – 2026-10-19 (Hazelnut build 1)
 
 ### Upgrade notes
