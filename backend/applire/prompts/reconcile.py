@@ -545,6 +545,12 @@ Operations:
    rest of the answer states. Contrast: "mit SAP MM habe ich nicht gearbeitet"
    → "denials": ["SAP MM"]; "konkrete Zahlen zum Projekt kann ich nicht nennen"
    → no denial.
+   A DENIAL WITH AN EXCEPTION KEEPS THE EXCEPTION (783:L101). "Beyond X I
+   have no experience in Y" / "no other Y than X" affirms X, which is part of
+   Y: name the denied item WITH the exception, never bare Y — bare Y would deny
+   what the same sentence affirms. "Außer der Hydraulikwartung bei A habe ich
+   keine Erfahrung in der Fluidtechnik" → "denials": ["Fluidtechnik außer
+   Hydraulikwartung"], never ["Fluidtechnik"]; record X as the fact it is.
 
 10. CERTIFICATIONS. Every certification, licence or named qualification in the NEW
     INFORMATION (a `certifications` entry, or an item the source lists under a
