@@ -635,7 +635,7 @@ def apply_ops(
                 conflicts, user_confirmed_engagement, matched=matched,
             )
         elif isinstance(op, AddBullets):
-            _apply_add_bullets(op, resolve, changes, pending)
+            _apply_add_bullets(op, resolve, changes, pending, not_applied)
         elif isinstance(op, UpsertSkill):
             # #480 PR 7 — the bypass is keyed to the skill the candidate
             # actually answered about, so an answered confirmation can never
@@ -667,7 +667,7 @@ def apply_ops(
         elif isinstance(op, UpsertStory):
             _apply_upsert_story(op, new_profile, resolve, source, changes)
         elif isinstance(op, SetField):
-            _apply_set_field(op, resolve_any, changes)
+            _apply_set_field(op, resolve_any, changes, not_applied)
         elif isinstance(op, SetPersonalInfo):
             _apply_set_personal_info(op, new_profile, source, changes, conflicts)
         elif isinstance(op, SetSummary):
@@ -2452,7 +2452,21 @@ def _apply_upsert_volunteer(
     )
 
 
-def _apply_add_bullets(op, resolve, changes, pending):
+#: 783:L7/L60 (ADR-063 amended 2026-10-20) — the label budget of a
+#: ``target_unresolved`` receipt; the same bound ``no_write`` uses.
+_UNRESOLVED_LABEL_CHARS = 120
+
+
+def _target_unresolved(op_type: str, text: str) -> ImportNotApplied:
+    """The ``target_unresolved`` receipt: an op named a handle no entity
+    carries, so its content was written nowhere (ADR-063 amended 2026-10-20).
+    ``section`` is unknown by construction; ``label`` names the op and the
+    first incoming text so the loss is diagnosable from the receipt alone."""
+    label = f"{op_type}: {text}".strip()[:_UNRESOLVED_LABEL_CHARS]
+    return ImportNotApplied(section=None, label=label, reason="target_unresolved")
+
+
+def _apply_add_bullets(op, resolve, changes, pending, not_applied=None):
     entity = resolve(op.target)
     if entity is None:
         # #177 review: an AMBIGUOUS upsert in this same batch never populates
@@ -2463,21 +2477,13 @@ def _apply_add_bullets(op, resolve, changes, pending):
         # Merge (extend), never overwrite: multiple AddBullets ops in one batch
         # may target the same still-unresolved ref.
         #
-        # **The comment here used to end "so the resolution turn can apply them
-        # instead of losing them silently". THE RESOLUTION TURN DOES NOT EXIST**
-        # (found 2026-09-08, Nougat build 1; reproduced in
-        # `test_confirmation_carried_bullets_are_lost.py`). `pending_bullets` has
-        # exactly one writer — this line — and zero production readers:
-        # `_apply_resolve_confirmation` is bookkeeping by design and never touches
-        # `context`, and `session._apply_interview_confirmation` returns early for
-        # anything that is not a SKILL confirmation ("entity-merge resolution is
-        # out of #187's scope"). So on the interview path the ambiguous ENTITY is
-        # never created or merged either, whichever option the candidate picks —
-        # the loss is wider than these bullets.
-        #
-        # Until that resolution turn is built, the honest thing this line can do
-        # is make the loss diagnosable from the log alone (ADR-061 clause 8)
-        # rather than let the carrier read as a rescue.
+        # Founder ruling V-5 (2026-09-09) built the reader this carrier was
+        # waiting for: `session._apply_engagement_confirmation` rebuilds the
+        # parked entity op and re-emits these bullets as an `AddBullets`
+        # against the same local ref, so on the interview door they land on
+        # whichever entity the candidate's answer produces
+        # (`test_confirmation_carried_bullets_are_lost.py` is now the
+        # regression). Parked is therefore not lost, and no receipt is written.
         for conf in pending:
             if conf.context.get("incoming", {}).get("ref") == op.target:
                 carried = conf.context.setdefault("pending_bullets", {})
@@ -2490,21 +2496,30 @@ def _apply_add_bullets(op, resolve, changes, pending):
                         carried.setdefault(field, [])
                         carried[field].extend(incoming)
                 if carried:
-                    logger.warning(
+                    logger.info(
                         "reconcile: %d bullet field(s) parked on an ambiguous "
-                        "%s confirmation and NOT applied — nothing reads "
-                        "context['pending_bullets'] today, so answering the "
-                        "question does not recover them (see "
-                        "test_confirmation_carried_bullets_are_lost.py): %r",
+                        "%s confirmation; the resolution turn re-emits them "
+                        "(ruling V-5): %r",
                         len(carried), conf.context.get("section", "entity"), carried,
                     )
                 return
+        # 783:L7/L60 (ADR-063 amended 2026-10-20): no entity and no carrier —
+        # the bullets are written nowhere. Receipt the loss on `not_applied`
+        # (a LOSS reason: `merge_status` reads `partial`, the V-6 Health thread
+        # shows it) instead of a log line only.
+        first = next(
+            (t for t in (*op.responsibilities, *op.achievements, *op.technologies) if t),
+            "",
+        )
         logger.warning(
             "reconcile: add_bullets targeted an unresolvable ref %r with no "
-            "matching confirmation — the bullets are dropped",
+            "matching confirmation — the bullets are not written; receipted "
+            "as not_applied/target_unresolved",
             op.target,
         )
-        return  # no matching confirmation either — defensive: unknown ref, skip
+        if not_applied is not None:
+            not_applied.append(_target_unresolved("add_bullets", first))
+        return
     section = _section_for(entity)
     for field, incoming in (
         ("responsibilities", op.responsibilities),
@@ -3251,9 +3266,17 @@ def _apply_separate_match(op, profile: MasterProfileData, changes: list[FieldCha
         r.undone_at = now
 
 
-def _apply_set_field(op, resolve, changes):
+def _apply_set_field(op, resolve, changes, not_applied=None):
     entity = resolve(op.target)
     if entity is None:
+        # 783:L7 (ADR-063 amended 2026-10-20): the value is written nowhere —
+        # receipted, never silent.
+        logger.warning(
+            "reconcile: set_field targeted an unresolvable ref %r (field %r) — "
+            "receipted as not_applied/target_unresolved", op.target, op.field,
+        )
+        if not_applied is not None:
+            not_applied.append(_target_unresolved("set_field", f"{op.field} = {op.value}"))
         return
     if not hasattr(entity, op.field):
         return

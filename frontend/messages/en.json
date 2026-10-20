@@ -1062,7 +1062,8 @@
       "confirmation_discarded": "you chose to discard it",
       "confirmation_held": "it is waiting on one more question — which of your roles at that employer it belongs to",
       "confirmation_unresolvable": "the entry it named is no longer there, so it was not written",
-      "confirmation_already_present": "that entry already said it"
+      "confirmation_already_present": "that entry already said it",
+      "target_unresolved": "it was aimed at an entry your profile does not hold, so it was not written — add it to the right entry"
     },
     "notAppliedNoSection": "Not tied to a section",
     "notAppliedGroupHeading": "{section} ({count})",

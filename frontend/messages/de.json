@@ -1062,7 +1062,8 @@
       "confirmation_discarded": "du hast es verworfen",
       "confirmation_held": "es wartet auf eine weitere Frage — zu welcher deiner Positionen bei diesem Arbeitgeber es gehört",
       "confirmation_unresolvable": "der genannte Eintrag existiert nicht mehr, deshalb wurde nichts geschrieben",
-      "confirmation_already_present": "dieser Eintrag enthielt es bereits"
+      "confirmation_already_present": "dieser Eintrag enthielt es bereits",
+      "target_unresolved": "es war einem Eintrag zugeordnet, den dein Profil nicht enthält, deshalb wurde es nicht geschrieben — trag es beim richtigen Eintrag ein"
     },
     "notAppliedNoSection": "Ohne festen Abschnitt",
     "notAppliedGroupHeading": "{section} ({count})",
