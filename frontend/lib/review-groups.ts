@@ -540,6 +540,14 @@ export type VerdictState =
    */
   | { kind: "clear_with_others"; others: number }
   /**
+   * #789 line L60 (ADR-081 cl. 9 at the headline): group 1 is clean, but at
+   * least one producer of the surface did not answer (`unchecked`, de-duplicated,
+   * in group order). The sentence names the blind check instead of claiming
+   * that "findings below do not stand in the way" — with `others = 0` there are
+   * none, and with `others > 0` the blind spot would be swallowed.
+   */
+  | { kind: "clear_unchecked"; others: number; unchecked: ReviewProducer[] }
+  /**
    * #759 — group 1 is clean, but a send-blocking check failed (`buildSendChecks`).
    * The sentence names it instead of calling the rest harmless.
    */
@@ -561,8 +569,10 @@ export function verdictState(
   // only a wholly-dead group — disqualifies an unqualified all-clear. A group
   // whose ATS half ran and whose critic half did not has a real count AND a
   // real blind spot, and the sentence must not swallow the blind spot.
-  const anyUnknownProducer = groups.some((g) => g.unknownProducers.length > 0);
-  if (others > 0 || anyUnknownProducer) return { kind: "clear_with_others", others };
+  const unchecked: ReviewProducer[] = [];
+  for (const g of groups) for (const p of g.unknownProducers) if (!unchecked.includes(p)) unchecked.push(p);
+  if (unchecked.length > 0) return { kind: "clear_unchecked", others, unchecked };
+  if (others > 0) return { kind: "clear_with_others", others };
   return { kind: "clear" };
 }
 

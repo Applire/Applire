@@ -260,6 +260,17 @@ test.describe('E058 — clause 9, a producer that did not run', () => {
     await expect(page.getByTestId('review-group-unknown-4')).toBeVisible();
   });
 
+  test('#789 line L60: an unanswered CV critic is named in the headline, never "findings below"', async ({
+    page,
+  }) => {
+    const clean = { ...ATS_SHORT, keywords: { ...ATS_SHORT.keywords, present_unsupported: [] } };
+    await stubBackend(page, { ats: clean, critic: { ran: true, reason: 'judgement_error', advisories: [], dropped_citations: 0 } });
+    await page.goto(CV_PAGE_URL);
+    await expect(page.getByTestId('review-group-unknown-4')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('review-verdict')).toContainText('Not checked: Coherence advisory');
+    await expect(page.getByTestId('review-verdict')).not.toContainText('stand in the way');
+  });
+
   test('with no reports at all the surface says so instead of heading itself with an all-clear', async ({
     page,
   }) => {

@@ -294,7 +294,15 @@ describe("verdictState — ADR-081 clause 4 and JF-F-K.1", () => {
 
   it("qualifies the all-clear when another group is UNKNOWN, even with nothing else found", () => {
     const groups = buildReviewGroups(inputs({ criticReport: null }));
-    expect(verdictState(groups, 0)).toEqual({ kind: "clear_with_others", others: 0 });
+    // #789 line L60: names the blind producer — never "findings below" with none below.
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 0, unchecked: ["critic"] });
+  });
+
+  it("keeps the real count next to a blind producer, each producer named once", () => {
+    const groups = buildReviewGroups(
+      inputs({ criticReport: null, gapClusters: null, atsReport: ats({ missing_honest_gap: ["Terraform"] }) }),
+    );
+    expect(verdictState(groups, 0)).toEqual({ kind: "clear_unchecked", others: 1, unchecked: ["clusters", "critic"] });
   });
 
   it("renders a plain all-clear only when every group ran and every group is empty", () => {

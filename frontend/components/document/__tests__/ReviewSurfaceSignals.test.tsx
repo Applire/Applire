@@ -137,3 +137,39 @@ describe("adv-review finding 10 — a critic that did not answer leaves the cros
     expect(screen.getByTestId("review-verdict")).not.toHaveTextContent("zusammenpassen");
   });
 });
+
+describe("#789 line L60 — an unanswered CV critic never reads as findings below", () => {
+  const clean = (): ATSReport => ({ ...ats(), checks: [], keywords: { ...ats()!.keywords, missing_claimable: [] } });
+  const errored: OutcomeCriticReport = {
+    ran: true, reason: "judgement_error", mount: "cv", dropped_citations: 0, advisories: [],
+  };
+  const notRun: OutcomeCriticReport = { ran: false, mount: "cv", dropped_citations: 0, advisories: [] };
+  const cvProps = (over: Partial<ReviewSurfaceProps>) =>
+    props({ documentKind: "cv", gapClusters: [], hasClusterProducer: true, ...over });
+
+  for (const [name, report] of [["judgement_error", errored], ["ran:false", notRun]] as const) {
+    it(`names the unchecked advisory instead of promising findings below (${name}, DE)`, () => {
+      render(withIntl(<ReviewSurface {...cvProps({ atsReport: clean(), criticReport: report })} />, "de"));
+      const verdict = screen.getByTestId("review-verdict");
+      expect(verdict).not.toHaveTextContent("Weiter unten stehen Befunde");
+      expect(verdict).not.toHaveTextContent("nicht im Weg");
+      expect(verdict).toHaveTextContent("Kohärenz-Hinweis");
+      expect(verdict).toHaveTextContent("Nicht geprüft: Kohärenz-Hinweis — sieh Dir diesen Teil selbst an");
+    });
+  }
+
+  it("keeps the real finding count next to the unchecked producer (EN)", () => {
+    const base = clean()!;
+    const withGap: ATSReport = { ...base, keywords: { ...base.keywords, missing_honest_gap: ["Terraform"], missing: ["Terraform"] } };
+    render(withIntl(<ReviewSurface {...cvProps({ atsReport: withGap, criticReport: notRun })} />, "en"));
+    const verdict = screen.getByTestId("review-verdict");
+    expect(verdict).toHaveTextContent("Coherence advisory");
+    expect(verdict).toHaveTextContent("Not checked: Coherence advisory — there is also 1 further finding below.");
+    expect(verdict).not.toHaveTextContent("stand in the way");
+  });
+
+  it("a CV critic that ran and found nothing keeps the plain all-clear", () => {
+    render(withIntl(<ReviewSurface {...cvProps({ atsReport: clean(), criticReport: { ...errored, reason: null } })} />, "de"));
+    expect(screen.getByTestId("review-verdict")).toHaveTextContent(/^Jede Aussage im Dokument ist durch Dein Profil gedeckt\.$/);
+  });
+});

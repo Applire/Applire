@@ -1654,6 +1654,7 @@
     "verdictFindings": "{count, plural, one {# place in the document is not covered by your profile.} other {# places in the document are not covered by your profile.}}",
     "verdictClear": "Every statement in the document is covered by your profile.",
     "verdictClearWithOthers": "Every statement in the document is covered by your profile. {count, plural, =0 {There are findings below that do not stand in the way of sending it.} one {There is # further finding below — it does not stand in the way of sending it.} other {There are # further findings below — they do not stand in the way of sending it.}}",
+    "verdictClearUnchecked": "Every statement in the document is covered by your profile. Not checked: {producers} — {count, plural, =0 {look over that part yourself before you send it.} one {there is also # further finding below.} other {there are also # further findings below.}}",
     "verdictClearWithSendCheck": "Every statement in the document is covered by your profile — but {count, plural, one {# finding needs} other {# findings need}} a look before you send it.",
     "verdictUnknown": "Whether every statement is covered was not checked for this document.",
     "group1Title": "In the document, but not in your profile",

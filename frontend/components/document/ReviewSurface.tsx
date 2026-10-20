@@ -489,6 +489,8 @@ export function ReviewSurface({
   // Adv-review finding 10: on the letter, a critic that did not answer leaves the
   // cross-read UNDECIDED — the all-clear may not call the rest harmless either.
   const crossReadUnknown = documentKind === "cover-letter" && crossRead.unknown;
+  const groupOneClear =
+    verdict.kind === "clear" || verdict.kind === "clear_with_others" || verdict.kind === "clear_unchecked";
   const tSignals = useTranslations("reviewSignals");
   const group1Blind = group1.unknownProducers.length > 0;
   const present = atsReport?.keywords.present.length ?? 0;
@@ -898,17 +900,20 @@ export function ReviewSurface({
           }`}
         >
           {verdict.kind === "findings" && t("verdictFindings", { count: verdict.count })}
-          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && openCrossRead > 0
-            ? tSignals("verdictClearCrossRead", { open: openCrossRead })
-            : null}
-          {(verdict.kind === "clear" || verdict.kind === "clear_with_others") && crossReadUnknown
-            ? tSignals("verdictClearCrossReadUnknown")
-            : null}
+          {groupOneClear && openCrossRead > 0 ? tSignals("verdictClearCrossRead", { open: openCrossRead }) : null}
+          {groupOneClear && crossReadUnknown ? tSignals("verdictClearCrossReadUnknown") : null}
           {verdict.kind === "clear" && openCrossRead === 0 && !crossReadUnknown && t("verdictClear")}
           {verdict.kind === "clear_with_others" &&
             openCrossRead === 0 &&
             !crossReadUnknown &&
             t("verdictClearWithOthers", { count: verdict.others })}
+          {verdict.kind === "clear_unchecked" &&
+            openCrossRead === 0 &&
+            !crossReadUnknown &&
+            t("verdictClearUnchecked", {
+              count: verdict.others,
+              producers: verdict.unchecked.map((p) => t(PRODUCER_LABEL_KEY[p])).join(", "),
+            })}
           {verdict.kind === "clear_with_send_checks" && t("verdictClearWithSendCheck", { count: verdict.count })}
           {verdict.kind === "unknown" && t("verdictUnknown")}
         </p>
