@@ -4386,24 +4386,14 @@ async def _render_cv_background(
                 # the Keyword Ledger read `metadata` on purpose.
                 from applire.services.prompt_view import prompt_profile_view
 
+                prompt_profile = prompt_profile_view(profile_json)
+
                 # E068 / ADR-094 (CV_PIPELINE=v2 only; v1 is byte-identical, R-3): the
                 # model sees short ids (US367), the writer returns the vault-sourced
                 # language fields by id (US364), and the compose tail loses its pen.
                 from applire.services.cv_v2 import PIPELINE_V2, cv_pipeline
 
                 pipeline = cv_pipeline()
-                # 786:L113 / L135 (Hazelnut build 2): under v2 the CV writer — and the
-                # reviewer + corrector, which re-read `source_material` built from this
-                # view — get the letter's #747 hedged rendering of a DERIVED skill span
-                # (ADR-078 cl. 4 narrowing, ruling T-1): a `computed` span becomes
-                # `years_experience_derived` (floor / "knapp" ceiling, the only wording
-                # the Oracle accepts), an `llm_estimated` span is dropped. Before, only
-                # the letter had it, so the CV summary stated "6 years of Apache Kafka"
-                # on a 5.6-year span and the letter copied it. v1 unchanged.
-                prompt_profile = prompt_profile_view(
-                    profile_json,
-                    **({"derived_spans": "hedge"} if pipeline == PIPELINE_V2 else {}),
-                )
                 v2_fields_block: str | None = None
                 if pipeline == PIPELINE_V2:
                     from applire.services.cv_v2 import build_v2_fields_block_for
