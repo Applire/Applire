@@ -15,6 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
+# Prompt version: v7 (UX audit M6 / ruling UX-1, 2026-10-20): check 2c names whose number
+#   a scope bar is — the role's own — and the look-alikes (the employer's headcount, a
+#   product's users, a count of teams, the offered salary) that the writer's v11 rule
+#   now excludes; "team_size counts PEOPLE" admitted all of them.
+#
 # Prompt version: v6 (#617, 2026-09-11 — Nougat build 2, axis (b)): check 5 gains
 # the THREE grounds that establish a seniority tier (the role title's own rank word
 # first — the captured auditor explicitly refused to read one: *"the role title is
@@ -186,9 +191,10 @@ Check for these defects:
    its "value"/"value_max"/"comparator" must be consistent with that quote's own wording.
    An entry whose quote is absent from the posting, or whose number contradicts its own
    quote, is fabricated. A posting figure that is NOT a team-size or budget bar must NOT
-   appear here — team_size counts PEOPLE and budget is MONEY, so a duration emitted as a
-   scope entry ("mindestens 8 Jahre" as kind team_size) is fabricated-in-kind: instruct
-   its removal — but never flag the ABSENCE of a scope entry for a vague magnitude with
+   appear here — team_size counts the people THIS ROLE leads and budget is money THIS ROLE
+   manages, so a duration ("mindestens 8 Jahre" as kind team_size), the employer's
+   headcount, a product's users or customers, a count of teams, or the offered salary
+   emitted as a scope entry is fabricated-in-kind: instruct its removal — but never flag the ABSENCE of a scope entry for a vague magnitude with
    no stated number ("im dreistelligen Bereich"): omission is the correct handling there.
 2d. LEADERSHIP EMPHASIS GROUNDING (leadership_emphasis only): when this field is
    not null, its "quote" must appear in the source posting (allowing whitespace/
