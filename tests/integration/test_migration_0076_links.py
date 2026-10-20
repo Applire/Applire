@@ -84,6 +84,8 @@ def test_chain_to_head_creates_the_links_on_postgres():
     ids, more = asyncio.run(_run(seed))
     log = _alembic("upgrade", "head")
     assert "0076: created 3 application link(s)" in log, log[-2000:]
+    # 0083 (#789 L59): the flow-only posting's link gets its flow and step
+    assert "0083: re-linked 1 pre-0076 flow(s)" in log, log[-2000:]
 
     def check(conn):
         rows = FixtureDB(conn).rows(
@@ -93,8 +95,16 @@ def test_chain_to_head_creates_the_links_on_postgres():
         assert set(by_job) == {
             ids["j_scraped"], ids["j_pasted"], more["j_flow"], more["j_carded"], more["j_removed"]
         }
-        for job in (ids["j_scraped"], ids["j_pasted"], more["j_flow"]):
+        for job in (ids["j_scraped"], ids["j_pasted"]):
             assert by_job[job][0] == STUB and by_job[job][2:] == ("tracking", "none", None)
+        # 0083: jd_analysis -> analyzing, both directions of the link set
+        assert by_job[more["j_flow"]][0] == STUB
+        assert by_job[more["j_flow"]][2:] == ("tracking", "analyzing", None)
+        linked = conn.execute(sa.text(
+            "SELECT count(*) FROM applications a JOIN flow_sessions f "
+            "ON f.id = a.flow_session_id AND f.application_id = a.id"
+        )).scalar_one()
+        assert linked == 1
         assert by_job[more["j_removed"]][4] is not None, "a removed card stays removed"
         # FK + unique enforced by PostgreSQL held for every inserted row
         n = conn.execute(sa.text(
@@ -109,4 +119,5 @@ def test_chain_to_head_creates_the_links_on_postgres():
     _alembic("downgrade", "0075")
     log2 = _alembic("upgrade", "head")
     assert "nothing to create" in log2
+    assert "0083: no detached pre-0076 flow to re-link" in log2
     asyncio.run(_run(check))
