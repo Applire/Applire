@@ -43,6 +43,7 @@ from applire.prompts.reconcile import (
 )
 from applire.providers.llm.base import LLMProvider
 from applire.providers.llm.debug_log import llm_log_stage
+from applire.services.model_ids import ShortIdMap, ShortIdProvider
 from applire.schemas.profile import MasterProfileData
 from applire.services.profile.reconcile.attribution import enforce_attribution
 from applire.services.profile.reconcile.ops import (
@@ -96,9 +97,22 @@ async def reconcile(
       (unchanged intent): an additive merge that produced no ops is safe — the
       existing profile is untouched — so transient LLM noise never 500s the upload.
     """
+    # 783:L79 (ADR-078 amended 2026-10-20, the ADR-094 cl. 6 instrument): the
+    # model addresses existing entities by short handles (`id_w1`, `id_s3`)
+    # instead of copying 36-character UUIDs; every exact-string handle in the
+    # response is mapped back before `_parse_ops`, so nothing downstream sees
+    # one. The `id_` namespace keeps them apart from the reconciler's own local
+    # refs (`w1`, `p1` — prompt rule 3). Replay of the E2E-3 capture
+    # (Strawberry build 2, Luna, thinking off): a mistyped UUID handle in 2/10
+    # runs as captured, 0/10 with short handles. A handle the model invents
+    # stays unmapped and is receipted `target_unresolved` by the applier.
+    llm = ShortIdProvider(
+        provider,
+        ShortIdMap.from_profile(profile.model_dump(mode="json"), namespace="id_"),
+    )
     try:
         with llm_log_stage("reconcile"):
-            data = await provider.aparse_json(
+            data = await llm.aparse_json(
                 build_reconcile_prompt(profile, new_info, source),
                 system=RECONCILE_SYSTEM_PROMPT,
                 temperature=0.1,

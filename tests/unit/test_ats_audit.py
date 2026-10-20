@@ -1576,3 +1576,55 @@ def test_249_related_and_260_liability_are_orthogonal_for_one_concept():
     assert "Strategic Planning" in report.keywords.keyword_liability_concepts
     # Neither list contradicts the other -- both are true statements about
     # the same underlying ledger entry, read off two different fields.
+
+
+# ---------------------------------------------------------------------------
+# #783 line L35 / #787 line L43 (2026-10-20) — closed suffix-pair folds.
+# Offline corpus (1,219 pairs; vault skills + denied concepts vs document and
+# vault text, 53,636 presence checks): 10 flips False -> True, 5 distinct, all
+# the same concept ("Kunststoffverpackungen" in "Kunststoffverpackungsfertigung",
+# the denial "Lebensmittelkunden Produktion" in "für Lebensmittelkunden
+# produziert"); 0 false hits.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "form,text",
+    [
+        ("methodologies", "agile methodology coach"),
+        ("methodology", "two agile methodologies"),
+        ("Technologies", "cloud technology stack"),
+        ("Zertifizierungen", "die zertifizierung nach iso 9001 begleitet"),
+        ("Zertifizierung", "das werk wurde zertifiziert"),
+        ("Produktion", "für lebensmittelkunden produziert"),
+        ("Optimierungen", "rüstzeiten optimiert"),
+        ("Qualitäten", "qualität gesichert"),
+        ("Schulungen", "schulung der mitarbeitenden"),
+    ],
+)
+def test_l35_suffix_pair_folds_reach_the_other_form(form, text):
+    assert surface_present(form, _norm(text)) is True
+
+
+@pytest.mark.parametrize(
+    "form,text",
+    [
+        # an "-ier" word is no verb stem of a noun ("Papier" never meets "papst")
+        ("Kurier", "kurs"),
+        ("Papier", "papst"),
+        # short stems never fold
+        ("Key", "kies"),
+        ("Aktion", "azier"),
+        # different words stay different
+        ("Planung", "plante"),
+    ],
+)
+def test_l35_suffix_pair_folds_stay_closed(form, text):
+    assert surface_present(form, _norm(text)) is False
+
+
+def test_l35_dedupe_instruments_do_not_gain_the_suffix_pairs():
+    from applire.services.ats_audit import skills_near_dupe
+
+    assert skills_near_dupe("Zertifizierung", "Zertifizierungen") is False
+    assert skills_near_dupe("Methodology", "Methodologies") is False

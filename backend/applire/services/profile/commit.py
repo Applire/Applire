@@ -74,6 +74,7 @@ integration test asserting the write survives the request.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -487,6 +488,28 @@ def _refloor_persisted_denied_status(
     return receipts
 
 
+def _parked_identity(value: object) -> str:
+    """A stable, hashable identity string for an arbitrary parked-item value.
+
+    Conflict values are `Any` (str, dict, list), so they cannot go straight into
+    a set. JSON with sorted keys is order-insensitive for dicts and cheap."""
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _confirmation_key(confirmation: PendingConfirmation) -> tuple:
+    return (confirmation.question.strip().casefold(), tuple(confirmation.options))
+
+
+def _conflict_key(conflict: Conflict) -> tuple:
+    return (
+        conflict.section,
+        conflict.field,
+        _parked_identity(conflict.existing_value),
+        _parked_identity(conflict.incoming_value),
+    )
+
+
+
 async def commit_ops(
     db: AsyncSession,
     ops: Sequence[CommitOp],
@@ -650,9 +673,36 @@ async def commit_ops(
     # `ResolveConfirmation` is that clear, and the interview's in-session path
     # now goes through it — so park and clear are one lifecycle again, and an
     # ask outliving the session that raised it is the POINT rather than a bug.
-    profile.metadata.pending_confirmations.extend(confirmations)
+    # 788:L29 (A-4, Hazelnut build 2) — a RETRY of the same turn (an agent
+    # re-sending `submit_claims`/`submit_testimony`/`resolve_gap`, an interview
+    # answer re-posted after a timeout) parked the same question a second time:
+    # this used to extend unconditionally, while the import doors already
+    # dedupe through `_surviving_parked_items`. Same key, same rule: an incoming
+    # item equal to an UNRESOLVED parked one is the same open question and is
+    # not parked twice. A resolved one does not block a fresh ask. A
+    # paraphrased re-ask has another key and is still parked (a judgement,
+    # ADR-062 — collector line).
+    open_confirmations = {
+        _confirmation_key(c)
+        for c in profile.metadata.pending_confirmations
+        if not getattr(c, "resolved", False)
+    }
+    for c in confirmations:
+        key = _confirmation_key(c)
+        if key in open_confirmations:
+            continue
+        open_confirmations.add(key)
+        profile.metadata.pending_confirmations.append(c)
     # Disputes park the same way; `ResolveField` closes them.
-    profile.metadata.pending_conflicts.extend(applied.conflicts)
+    open_conflicts = {
+        _conflict_key(c) for c in profile.metadata.pending_conflicts if not c.resolved
+    }
+    for c in applied.conflicts:
+        key = _conflict_key(c)
+        if key in open_conflicts:
+            continue
+        open_conflicts.add(key)
+        profile.metadata.pending_conflicts.append(c)
 
     # ADR-059 — the reconciler's own denial verdict is persisted whether or not
     # the turn also applied real ops. A denial-only turn must not go unrecorded.
@@ -712,6 +762,9 @@ async def commit_ops(
         # bindings of the same batch; a receipt for something that did NOT
         # write, kept off `changes` on purpose (see `MatchReceipt`).
         matched=applied.matched,
+        # 783:L41 (ADR-021/ADR-063 amended 2026-10-20) — the import's
+        # extraction review outcome; `None` for every non-import batch.
+        extraction_review=applied.extraction_review,
     )
     profile.metadata.enrichment_history.append(enrichment_record)
 

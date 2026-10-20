@@ -123,19 +123,66 @@ def _find(needle: str, haystack_norm: str) -> int:
 _FOLD_MIN_STEM = 4
 
 
+#: #783 line L35 / #787 line L43 (2026-10-20) — closed suffix pairs of the
+#: final token, each a FACT about the token's own letters (ADR-062 cl. 1).
+#: Applied in both directions; the stem left in front of the suffix must keep
+#: ≥ ``_FOLD_MIN_STEM`` chars. Every pair produces a SUBSTRING needle, so the
+#: shorter side of a pair also reaches the inflected forms after it
+#: ("zertifizier" in "zertifizierte", "produzier" in "produzierten").
+#:
+#: * EN ``-y`` ↔ ``-ies`` ("methodology" ↔ "methodologies");
+#: * DE noun plurals ``-ung``/``-ion``/``-tät``/``-heit``/``-keit``/``-schaft``
+#:   + ``en`` ("Zertifizierung" ↔ "Zertifizierungen");
+#: * DE ``-ierung`` ↔ the verb stem ``-ier`` ("Zertifizierung" ↔ "zertifiziert",
+#:   "Optimierung" ↔ "optimieren") and ``-ktion`` ↔ ``-zier``
+#:   ("Produktion" ↔ "produziert", "Reduktion" ↔ "reduzieren").
+#: Deliberately absent: any bare "-e"/"-n"/"-er" fold — too short to be a fact
+#: about the word rather than a coincidence of letters.
+_FOLD_SUFFIX_PAIRS: tuple[tuple[str, str], ...] = (
+    ("y", "ies"),
+    ("ungen", "ung"),
+    ("ionen", "ion"),
+    ("täten", "tät"),
+    ("heiten", "heit"),
+    ("keiten", "keit"),
+    ("schaften", "schaft"),
+    ("ierungen", "ier"),
+    ("ierung", "ier"),
+    ("ktionen", "zier"),
+    ("ktion", "zier"),
+)
+
+
+def _suffix_pair_variants(last: str) -> list[str]:
+    """The final token's counterparts under ``_FOLD_SUFFIX_PAIRS`` (both ways)."""
+    out: list[str] = []
+    for a, b in _FOLD_SUFFIX_PAIRS:
+        for src, dst in ((a, b), (b, a)):
+            if last.endswith(src) and len(last) - len(src) >= _FOLD_MIN_STEM:
+                out.append(last[: -len(src)] + dst)
+    return out
+
+
 def _fold_variants(needle_norm: str) -> list[str]:
     """Deterministic singular/plural variants of a normalised phrase (final token only).
 
     US212 (#122, ADR-048 amended 2026-07-04): generosity lives in the matching
     layer — "Code reviews" must match a document that says "code review standards".
-    Purely morphological, guarded, no LLM.
+    Purely morphological, guarded, no LLM. #783 line L35 / #787 line L43: plus
+    the closed suffix pairs of ``_FOLD_SUFFIX_PAIRS`` (EN y↔ies, DE plurals and
+    noun↔verb-stem forms).
     """
     variants = [needle_norm]
-    last = needle_norm.rsplit(" ", 1)[-1]
+    head, _, last = needle_norm.rpartition(" ")
     if last.endswith("s") and len(last) - 1 >= _FOLD_MIN_STEM:
         variants.append(needle_norm[:-1])
     elif not last.endswith("s") and len(last) >= _FOLD_MIN_STEM and last[-1].isalpha():
         variants.append(needle_norm + "s")
+    prefix = head + " " if head else ""
+    for v in _suffix_pair_variants(last):
+        candidate = prefix + v
+        if candidate not in variants:
+            variants.append(candidate)
     return variants
 
 

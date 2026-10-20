@@ -16,7 +16,13 @@
 // along with Applire. If not, see <https://www.gnu.org/licenses/>.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { uploadCvAsync, startCvImport, pollCvImport, CVImportError } from "@/lib/import-cv";
+import {
+  uploadCvAsync,
+  startCvImport,
+  pollCvImport,
+  CVImportError,
+  importErrorMessageKey,
+} from "@/lib/import-cv";
 
 function res(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: () => Promise.resolve(body) } as Response;
@@ -165,5 +171,37 @@ describe("startCvImport / pollCvImport (split start-vs-poll)", () => {
       name: "CVImportError",
       errorCode: "llm_timeout",
     });
+  });
+});
+
+
+describe("size limit and OCR error codes (#789 L12/L13)", () => {
+  it("maps a 413 (the REST cap or nginx) to the file_too_large code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      res({ detail: { error: "file_too_large", max_bytes: 10485760 } }, false, 413),
+    );
+    await expect(startCvImport(new File(["x"], "big.pdf"))).rejects.toMatchObject({
+      name: "CVImportError",
+      errorCode: "file_too_large",
+    });
+  });
+
+  it("still reports any other failed start as import_failed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(res({}, false, 500));
+    await expect(startCvImport(new File(["x"], "cv.pdf"))).rejects.toMatchObject({
+      errorCode: "import_failed",
+    });
+  });
+
+  it.each([
+    ["file_too_large", "uploadTooLarge"],
+    ["ocr_unavailable", "uploadNoOcr"],
+    ["llm_truncated", "uploadTryAgain"],
+    ["llm_timeout", "uploadTryAgain"],
+    ["invalid_document", "uploadFailed"],
+    ["import_failed", "uploadFailed"],
+    [null, "uploadFailed"],
+  ])("importErrorMessageKey(%s) -> %s", (code, key) => {
+    expect(importErrorMessageKey(code)).toBe(key);
   });
 });

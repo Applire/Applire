@@ -222,6 +222,55 @@ describe("ProfileImportView", () => {
     });
   });
 
+  describe("OCR capability and size-limit honesty (#789 L12 / L13)", () => {
+    it("keeps inviting images while the instance has not said it cannot read them", async () => {
+      global.fetch = importJobsMock(READY({}));
+      render(<ProfileImportView />);
+      expect(screen.getByTestId("main-file-input").getAttribute("accept")).toContain(".jpg");
+      expect(screen.getByText("formats")).toBeInTheDocument();
+      expect(screen.getByText("subtitle")).toBeInTheDocument();
+    });
+
+    it("drops the image extensions and the image promise when image_import is false", async () => {
+      global.fetch = importJobsMock(READY({}), (u) =>
+        u.includes("/api/profile/import-capabilities")
+          ? { ok: true, body: { image_import: false } }
+          : null,
+      );
+      render(<ProfileImportView />);
+      await waitFor(() => expect(screen.getByText("formatsNoImage")).toBeInTheDocument());
+      const accept = (screen.getByTestId("main-file-input").getAttribute("accept") ?? "").split(",");
+      expect(accept).not.toContain(".jpg");
+      expect(accept).not.toContain(".png");
+      expect(accept).toEqual(expect.arrayContaining([".pdf", ".docx", ".zip"]));
+      expect(screen.getByText("subtitleNoImage")).toBeInTheDocument();
+      expect(screen.queryByText("formats")).toBeNull();
+    });
+
+    it("names the missing OCR when a dropped image fails with ocr_unavailable", async () => {
+      global.fetch = importJobsMock({ status: "failed", error_code: "ocr_unavailable", result: null });
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["x"], "scan.png", { type: "image/png" })] },
+      });
+      await waitFor(() => expect(screen.getByText("uploadNoOcr")).toBeInTheDocument());
+      expect(screen.queryByText("uploadFailed")).toBeNull();
+    });
+
+    it("names the size limit when the import door answers 413", async () => {
+      global.fetch = importJobsMock(READY({}), (u) =>
+        /\/api\/profile\/import-jobs$/.test(u)
+          ? { ok: false, status: 413, body: { detail: { error: "file_too_large" } } }
+          : null,
+      );
+      render(<ProfileImportView />);
+      fireEvent.change(screen.getByTestId("main-file-input"), {
+        target: { files: [new File(["x"], "huge.pdf", { type: "application/pdf" })] },
+      });
+      await waitFor(() => expect(screen.getByText("uploadTooLarge")).toBeInTheDocument());
+    });
+  });
+
   // F3 (#72): a standalone update no longer silently bounces the user. It shows a
   // success strip with an explicit "Review what changed" CTA into the merge review.
   it("shows a review CTA after standalone upload success and does not auto-redirect", async () => {
