@@ -322,6 +322,12 @@ Operations:
   target: the `id` of the profile's skill when the new information names THAT
   skill differently (translation, synonym, abbreviation) — never a second
   skill under the new name; omit it for a new skill.
+  A skill is a capability the person HAS — a tool, method, field, standard or
+  language they work with. The NAME of a measured figure on its own (LTIF,
+  OEE, Ausschussquote, Termintreue, a KPI) is not a skill (783:L100): the
+  figure belongs in the bullet that states it; record a skill only for the
+  capability the new information says the person has ("OEE-Analyse",
+  "Arbeitssicherheitsmanagement").
   REQUIRED: name.
   category MUST be one of: "technical", "soft", "language", "domain".
   proficiency MUST be one of: "basic", "intermediate", "advanced", "expert".
