@@ -311,12 +311,37 @@ def _percent_range_bare_spans(text: str) -> list[tuple[str, tuple[int, int]]]:
 # claim extractor and ``build_vault_index`` call this one shared function;
 # the guard lives here, not in either caller, so both directions are fixed
 # by construction.
-_IDENTIFIER_PREFIX = r"(?:ISO|IEC|EN|DIN|CFR|GAMP|ASTM|ANSI|RFC|IEEE|VDE|VDI)"
-# The common shape: prefix immediately followed (one space/"/"/"-") by the
-# identifier's digits — "ISO 15189", "DIN EN 9100", "ISO/IEC 27001".
-_IDENTIFIER_AFTER_RE = re.compile(
-    rf"\b{_IDENTIFIER_PREFIX}(?:\s*/\s*{_IDENTIFIER_PREFIX})?[ /-]\s*(\d+)"
+#
+# #790 line L16 (2026-10-20): the notation variants the narrow list missed —
+# * prefixes IATF ("IATF 16949") and VDA ("VDA 6.3", dotted digits), and the
+#   "ISO/TS" / "ISO-TS" second part ("ISO/TS 16949");
+# * a separator-less form ("ISO9001", "IATF16949");
+# * lower/mixed case for the prefixes that are no ordinary word ("iso 9001",
+#   "Iso 45001") — EN, DIN and CFR stay uppercase-only ("en" is German prose);
+# * a list continuation ("ISO 9001/45001", "ISO 9001, 14001 und 45001"):
+#   a "/"-joined run of 4–5 digits, or a 5-digit number after ","/und/and/
+#   sowie/& — the standard-number shapes; a 4-digit number after "und" stays a
+#   figure ("ISO 9001 und 1200 Mitarbeitende" names a headcount).
+# #790 line L17: the edition year ("ISO 9001:2015") belongs to the identifier
+# and is not a year figure — excluded from figure extraction, but NOT an
+# identifier digit of its own (the #701 presence rule checks "9001", never
+# "2015").
+_IDENTIFIER_PREFIX = (
+    r"(?:EN|DIN|CFR|(?i:ISO|IEC|IATF|VDA|GAMP|ASTM|ANSI|RFC|IEEE|VDE|VDI))"
 )
+_IDENTIFIER_SECOND = rf"(?:{_IDENTIFIER_PREFIX}|(?i:TS))"
+_IDENTIFIER_DIGITS = r"\d+(?:\.\d+)?(?!\d)"
+# The common shape: prefix followed (directly, or by one space/"/"/"-") by the
+# identifier's digits — "ISO 15189", "DIN EN 9100", "ISO/IEC 27001", "ISO9001".
+_IDENTIFIER_AFTER_RE = re.compile(
+    rf"\b{_IDENTIFIER_PREFIX}(?:\s*[/-]\s*{_IDENTIFIER_SECOND})?[ /-]?\s*({_IDENTIFIER_DIGITS})"
+)
+# A list continuation right after an identifier match (applied repeatedly).
+_IDENTIFIER_CONTINUATION_RE = re.compile(
+    r"\s*/\s*(\d{4,5})(?![\d.,])"
+    r"|\s*(?:,|&|\bund\b|\band\b|\bsowie\b)\s*(\d{5})(?![\d.,])"
+)
+_IDENTIFIER_EDITION_RE = re.compile(r":\s?((?:19|20)\d{2})(?!\d)")
 # "21 CFR" — the CFR shape uniquely puts the identifying number BEFORE the
 # prefix (the US federal register title number), unlike every other prefix
 # in the list, so this is scoped to CFR only, not generalized.
@@ -326,12 +351,51 @@ _IDENTIFIER_BEFORE_CFR_RE = re.compile(r"\b(\d+)\s+CFR\b")
 _CFR_PART_RE = re.compile(r"\bCFR\b(?:\s+\S+){0,3}?\s+[Pp]art\s+(\d+)")
 
 
+def identifier_matches(text: str) -> list[tuple[tuple[int, int], str]]:
+    """(digit span, label as written) of every standard/regulation identifier.
+
+    A list continuation is labelled with its chain's prefix ("ISO 9001/45001"
+    yields "ISO 9001" and "ISO 45001") so a report names the standard, not a
+    bare number. The edition year of "ISO 9001:2015" is NOT an identifier
+    digit (see :func:`_identifier_excluded_spans`).
+    """
+    out: list[tuple[tuple[int, int], str]] = []
+    for m in _IDENTIFIER_AFTER_RE.finditer(text):
+        out.append((m.span(1), text[m.start():m.end(1)]))
+        prefix = text[m.start():m.start(1)].rstrip(" /-") or text[m.start():m.start(1)]
+        pos = m.end(1)
+        edition = _IDENTIFIER_EDITION_RE.match(text, pos)
+        if edition:
+            pos = edition.end()
+        while True:
+            c = _IDENTIFIER_CONTINUATION_RE.match(text, pos)
+            if c is None:
+                break
+            g = 1 if c.group(1) is not None else 2
+            out.append((c.span(g), f"{prefix} {c.group(g)}"))
+            pos = c.end()
+            edition = _IDENTIFIER_EDITION_RE.match(text, pos)
+            if edition:
+                pos = edition.end()
+    for pattern in (_IDENTIFIER_BEFORE_CFR_RE, _CFR_PART_RE):
+        for m in pattern.finditer(text):
+            out.append((m.span(1), ""))
+    return out
+
+
 def _identifier_spans(text: str) -> list[tuple[int, int]]:
     """Digit spans immediately owned by a standard/regulation identifier."""
-    spans: list[tuple[int, int]] = []
-    for pattern in (_IDENTIFIER_AFTER_RE, _IDENTIFIER_BEFORE_CFR_RE, _CFR_PART_RE):
-        for m in pattern.finditer(text):
-            spans.append(m.span(1))
+    return [span for span, _ in identifier_matches(text)]
+
+
+def _identifier_excluded_spans(text: str) -> list[tuple[int, int]]:
+    """Every span figure extraction must skip: the identifier digits plus an
+    edition year directly attached to one ("ISO 9001:2015", #790 line L17)."""
+    spans = _identifier_spans(text)
+    for a, b in list(spans):
+        edition = _IDENTIFIER_EDITION_RE.match(text, b)
+        if edition:
+            spans.append(edition.span(1))
     return spans
 
 
@@ -420,7 +484,7 @@ def extract_figures(text: str) -> list[Figure]:
     # #374: computed once — percent/currency extraction is deliberately NOT
     # guarded (a standard body never prefixes a percentage or a currency
     # amount), only the year- and number-kind matches consult it.
-    identifier_spans = _identifier_spans(text)
+    identifier_spans = _identifier_excluded_spans(text)
     # #214/#220: durations in years and date fragments are not quantified
     # figures. Computed once here and consulted only by the number-kind
     # passes — a percent or a currency symbol next to the number already

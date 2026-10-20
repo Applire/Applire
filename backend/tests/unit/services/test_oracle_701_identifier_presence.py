@@ -391,3 +391,83 @@ async def test_not_only_shape_is_unbacked_when_it_would_otherwise_be_grounded():
         assert v.verdict == "unbacked" and "ISO 13485" in v.detail
     else:
         assert v.verdict == base.verdict
+
+
+# ── #790 lines L16 + L17 (2026-10-20) — notation variants and edition years ─
+#
+# The #374 pattern covered a subset of how standards are written; #701 checks
+# exactly the spans it returns, so every variant it missed was neither a
+# figure-exclusion nor an identifier check. Pure-matcher tests first, then the
+# delivered verdict through ``verify_claim``, each asserting its baseline.
+
+from applire.services.oracle.matchers.figures import (  # noqa: E402
+    extract_figures,
+    identifier_matches,
+)
+
+
+@pytest.mark.parametrize(
+    "text,labels",
+    [
+        ("ISO 9001/45001", ["ISO 9001", "ISO 45001"]),
+        ("ISO 9001, 14001 und 45001", ["ISO 9001", "ISO 14001", "ISO 45001"]),
+        ("ISO 9001 and 14001", ["ISO 9001", "ISO 14001"]),
+        ("iso 9001", ["iso 9001"]),
+        ("Iso 45001", ["Iso 45001"]),
+        ("ISO9001 eingeführt", ["ISO9001"]),
+        ("IATF 16949", ["IATF 16949"]),
+        ("IATF16949", ["IATF16949"]),
+        ("VDA 6.3 Auditor", ["VDA 6.3"]),
+        ("ISO/TS 16949", ["ISO/TS 16949"]),
+        ("ISO-TS 16949", ["ISO-TS 16949"]),
+        ("ISO 9001:2015 zertifiziert", ["ISO 9001"]),
+        ("ISO 9001:2015/14001:2015", ["ISO 9001", "ISO 14001"]),
+    ],
+)
+async def test_l16_notation_variants_are_identifiers_and_never_figures(text, labels):
+    assert [label for _, label in identifier_matches(text)] == labels
+    assert extract_figures(text) == []  # L17: the edition year is no year figure
+
+
+@pytest.mark.parametrize(
+    "text,kind,value",
+    [
+        # a 4-digit number after "und" is a headcount, not a continuation
+        ("ISO 9001 und 1200 Mitarbeitende", "number", "1200"),
+        # a year that is not attached by ":" stays a year
+        ("ISO 9001 seit 2015", "year", "2015"),
+        # "en" is German prose — EN stays uppercase-only
+        ("kennen 9100 Teile", "number", "9100"),
+        ("en 9100", "number", "9100"),
+    ],
+)
+async def test_l16_the_widening_keeps_real_figures(text, kind, value):
+    assert [(f.kind, f.value) for f in extract_figures(text)] == [(kind, value)]
+
+
+async def test_l17_edition_year_does_not_unback_a_true_certification():
+    text = "Zwei Fertigungsbereiche mit 38 Mitarbeitenden nach ISO 9001:2015 gefuehrt"
+    v = await verify_claim(text, PROFILE)
+    assert v.verdict == "grounded", v
+    assert "2015" not in (v.detail or "")
+
+
+@pytest.mark.parametrize(
+    "text,named",
+    [
+        ("Zwei Fertigungsbereiche mit 38 Mitarbeitenden nach ISO 9001/45001 gefuehrt", "ISO 45001"),
+        ("Zwei Fertigungsbereiche mit 38 Mitarbeitenden nach iso 45001 gefuehrt", "iso 45001"),
+        ("Zwei Fertigungsbereiche mit 38 Mitarbeitenden nach IATF16949 gefuehrt", "IATF16949"),
+    ],
+)
+async def test_l16_an_unmentioned_variant_is_unbacked(text, named):
+    v = await verify_claim(text, PROFILE)
+    assert v.verdict == "unbacked" == IDENTIFIER_ABSENT_VERDICT, v
+    assert v.detail.startswith(f"Names {named} —"), v.detail
+
+
+async def test_l16_a_continuation_the_vault_holds_is_grounded():
+    profile = {**PROFILE, "certifications": [{"name": "ISO 45001", "issuing_organization": "TÜV"}]}
+    text = "Zwei Fertigungsbereiche mit 38 Mitarbeitenden nach ISO 9001/45001 gefuehrt"
+    v = await verify_claim(text, profile)
+    assert v.verdict == "grounded", v

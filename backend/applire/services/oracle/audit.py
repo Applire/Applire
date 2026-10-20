@@ -116,7 +116,11 @@ from applire.services.oracle.matchers.vault import (
     RESTATEMENT_MIN_SHARED,
     duration_window_tokens,
 )
-from applire.services.oracle.matchers.figures import _IDENTIFIER_PREFIX, _identifier_spans
+from applire.services.oracle.matchers.figures import (
+    _IDENTIFIER_PREFIX,
+    _identifier_spans,
+    identifier_matches,
+)
 from applire.services.oracle.matchers.grounding import GROUNDED_MIN_COVERAGE
 from applire.services.oracle.stance import classify_stance
 
@@ -1346,8 +1350,8 @@ def _unmentioned_identifiers(text: str, index: VaultIndex) -> list[str]:
     (:func:`extract.named_in_denial_segment`). ADR-062: FACTS only. Returns
     the identifiers as written, in order, de-duplicated.
     """
-    spans = _identifier_spans(text or "")
-    if not spans:
+    matches = identifier_matches(text or "")
+    if not matches:
         return []
     mentioned: set[str] = set()
     for unit in list(index.units) + list(index.denial_units):
@@ -1356,11 +1360,14 @@ def _unmentioned_identifiers(text: str, index: VaultIndex) -> list[str]:
             mentioned.add(unit_text[a:b])
         mentioned.update(_BARE_NUMBER_RE.findall(unit_text))
     out: list[str] = []
-    for a, b in spans:
+    for (a, b), written in matches:
         digits = text[a:b]
         if digits in mentioned or named_in_denial_segment(text, digits):
             continue
-        label = _identifier_label(text, a, b)
+        # #790 line L16: a list continuation carries its chain's prefix
+        # ("ISO 45001" for the "45001" of "ISO 9001/45001"); CFR keeps the
+        # positional label.
+        label = written or _identifier_label(text, a, b)
         if label not in out:
             out.append(label)
     return out
