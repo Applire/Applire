@@ -10,9 +10,13 @@
 # Empty/unset -> an empty file (trust nobody). An invalid entry stops the
 # container (exit 1): silently trusting nobody would hide a typo, and anything
 # but an address must never reach the nginx config.
+# A range wider than /16 (IPv4) or /48 (IPv6) is refused the same way (founder
+# ruling 2026-10-10, JF-O-K2.5 / SF-IAM.6): `0.0.0.0/0` would let every client
+# choose its own throttle identity. Docker's /16 bridge stays allowed.
+# $1 = output directory (tests only; the image runs this without arguments).
 set -eu
 
-out_dir=/etc/nginx/applire
+out_dir="${1:-/etc/nginx/applire}"
 out="$out_dir/trusted-proxy.conf"
 mkdir -p "$out_dir"
 : > "$out"
@@ -31,10 +35,22 @@ for entry in $(printf '%s' "$value" | tr ',' ' '); do
                 exit 1
             fi
         done
-    elif ! printf '%s' "$entry" | grep -Eq "$ipv6"; then
+        min_prefix=16
+    elif printf '%s' "$entry" | grep -Eq "$ipv6"; then
+        min_prefix=48
+    else
         echo "applire: APPLIRE_TRUSTED_PROXY entry '$entry' is not an IP address or CIDR range" >&2
         exit 1
     fi
+    case "$entry" in
+        */*)
+            prefix="${entry##*/}"
+            if [ "$prefix" -lt "$min_prefix" ]; then
+                echo "applire: APPLIRE_TRUSTED_PROXY entry '$entry' is wider than /$min_prefix — name your proxy's address or a range of at most /$min_prefix (every address in a wider range could pick its own sign-in throttle identity)" >&2
+                exit 1
+            fi
+            ;;
+    esac
     printf 'set_real_ip_from %s;\n' "$entry" >> "$out"
 done
 echo "applire: trusting X-Forwarded-For from: $value"
