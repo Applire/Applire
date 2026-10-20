@@ -46,7 +46,12 @@ spelling (`1.2.0`; a beta such as `0.44.0-beta` read `0.44.0b0`).
 - **The REST API's shape.** The REST API is the web frontend's API. It is
   documented and usable from scripts, but apart from `GET /health` its routes and
   fields may change in a minor release. Automate through MCP if you need a
-  stable surface.
+  stable surface. One change already landed before 1.0: the synchronous REST
+  import doors `POST /api/profile/upload` and `POST /api/profile/import` were
+  removed; they answer `410 Gone` with a pointer to the asynchronous door
+  `POST /api/profile/import-jobs` (`202`, then poll
+  `GET /api/profile/import-jobs/{import_id}`), which also takes LinkedIn
+  ZIP/PDF/JSON exports.
 - **What a tool returns.** The promise covers what an MCP tool *accepts*. New
   fields may appear in a tool's result in any minor release; agents should ignore
   fields they do not know. Existing result fields are kept as far as possible,
