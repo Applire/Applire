@@ -384,13 +384,22 @@ def _confirmation_entry(state: InterviewState, cluster_id: str) -> dict | None:
 
 
 async def _resolve_confirmation_safely(
-    db: AsyncSession, confirmation_id: str, chosen_option: str
+    db: AsyncSession,
+    confirmation_id: str,
+    chosen_option: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
-    """Record the user's confirmation choice, tolerating an already-resolved one."""
+    """Record the user's confirmation choice, tolerating an already-resolved one.
+
+    ``user_id`` is the session row's owner (MD-24 (2)): the agent door's
+    profile review (ruling A-1) reached this with no explicit owner and fell
+    back to the implicit one, which the door ratchet refuses.
+    """
     from applire.services.profile import resolve_confirmation  # lazy: avoid cycle
 
     try:
-        await resolve_confirmation(confirmation_id, chosen_option, db)
+        await resolve_confirmation(confirmation_id, chosen_option, db, user_id=user_id)
     except LookupError:
         # Idempotent on resume: the confirmation is already gone from pending, so
         # advancing past it is correct.
@@ -486,7 +495,9 @@ async def _handle_confirmation_answer(
     ),
         )
 
-    await _resolve_confirmation_safely(db, confirmation_entry["confirmation_id"], chosen)
+    await _resolve_confirmation_safely(
+        db, confirmation_entry["confirmation_id"], chosen, user_id=record.user_id
+    )
 
     current_gap = state["critical_gaps"][current_idx]
     state["addressed_gaps"] = state.get("addressed_gaps", []) + [current_gap]
@@ -1088,7 +1099,7 @@ async def _handle_interview_confirmation_answer(
     # ANSWERED, so the ask is spent either way.
     confirmation_id = pending_conf.get("confirmation_id")
     if confirmation_id:
-        await _resolve_confirmation_safely(db, confirmation_id, chosen)
+        await _resolve_confirmation_safely(db, confirmation_id, chosen, user_id=record.user_id)
 
     # Consume the pending confirmation AND the one-shot flag — the loop is closed.
     state.pop("pending_interview_confirmation", None)
