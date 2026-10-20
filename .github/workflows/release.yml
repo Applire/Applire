@@ -26,7 +26,9 @@ name: Release — build and publish images
 # Tag strategy, driven by the GitHub "pre-release" checkbox:
 #   prereleased (box ticked)   → :{{version}} + :sha only        — does NOT move :latest
 #   released    (box unticked, or a full release published)
-#                              → :{{version}} + :{{major}}.{{minor}} + :latest + :sha
+#                              → :{{version}} + :{{major}}.{{minor}} + :{{major}} + :latest + :sha
+#                                (:{{major}} = e.g. :1, "the newest 1.x" — ADR-095 cl. 7; metadata-action
+#                                 emits no :0 for a 0.x version, so the betas never move it)
 #   workflow_dispatch (manual) → :sha only                       — never moves :latest/semver
 #
 # This enables release promotion: publish a pre-release, qualify THAT image (IQ/OQ/PQ),
@@ -263,6 +265,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=semver,pattern={{major}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=sha
 
@@ -396,6 +399,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=semver,pattern={{major}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=sha
 
@@ -457,6 +461,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
+            type=semver,pattern={{major}},enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' && github.event.release.prerelease == false }}
             type=sha
 
