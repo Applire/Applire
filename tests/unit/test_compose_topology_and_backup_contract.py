@@ -258,6 +258,14 @@ def test_retention_waits_for_the_migrated_backend(compose):
     assert "healthcheck" in compose["services"]["backend"]
 
 
+def test_mcp_waits_for_the_migrated_backend(compose):
+    """785:L46 — same start-order rule as `retention`: the stdio MCP process
+    must not open a session against a schema the backend has not migrated yet."""
+    deps = compose["services"]["mcp"]["depends_on"]
+    assert deps["backend"]["condition"] == "service_healthy"
+    assert deps["postgres"]["condition"] == "service_healthy"
+
+
 # --------------------------------------------------------------------------
 # 4. The copy-paste MCP client config (Agent #676, JF-O-8.2)
 # --------------------------------------------------------------------------
