@@ -342,7 +342,7 @@ async def test_reauth_then_account_delete_consumes_the_grant_once(env):
     assert (await _delete_account(client)).json()["detail"]["error_code"] == "reauth_required"
     url = await _reauth_url(client, me)
     q = dict(__import__("urllib.parse").parse.parse_qsl(url.split("?", 1)[1]))
-    assert q["prompt"] == "login" and q["max_age"] == "0"
+    assert q["prompt"] == "login" and "max_age" not in q  # 785:L148 (Authelia loop)
     r = await _callback(client, *fake.code_for(url, auth_time=int(time.time()) + 1))
     assert r.headers["location"] == "/settings?reauth=account.delete"
     (grant,) = (await db.execute(select(ReauthGrant))).scalars()

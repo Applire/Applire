@@ -133,7 +133,7 @@ async def test_authorize_url_carries_pkce_s256_nonce_and_reauth_prompt(fake):
     url, flow = await oidc.begin("reauth", uid=None)
     q = httpx.URL(url).params
     assert q["code_challenge_method"] == "S256" and q["nonce"] == flow.nonce
-    assert q["prompt"] == "login" and q["max_age"] == "0"
+    assert q["prompt"] == "login" and "max_age" not in q  # 785:L148 (Authelia loop on max_age=0)
     assert q["redirect_uri"] == "http://applire.test/api/auth/oidc/callback"
     url2, _ = await oidc.begin("login")
     assert "prompt" not in httpx.URL(url2).params
