@@ -294,9 +294,8 @@ def test_l7_claim_token_presence_rule():
     assert claim_token_present("teams", "leitung kleiner entwicklerteams") is True  # substring kept
 
 
-# One seam test per call site of ``claim_token_present`` (grounding.py x4 —
-# ground_text_claim's overall + per-unit counts, the skill union, the role
-# union — and audit._owner_scoped_coverage): "ki" sits inside "kiosk".
+# The one call site of ``claim_token_present`` — the skill union. "ki" sits
+# inside "kiosk"; the narrative coverage paths keep the substring reach.
 
 _SEAM_PROFILE = {
     "personal_info": {"name": "Seam Probe"},
@@ -307,14 +306,6 @@ _SEAM_PROFILE = {
     ],
     "skills": [{"name": "kiosk rollout"}, {"name": "store leadership"}],
 }
-_SEAM_TEXT = "Led KI rollout"
-
-
-def test_l7_seam_ground_text_claim():
-    from applire.services.oracle.matchers import ground_text_claim
-
-    r = ground_text_claim(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE))
-    assert r.best_coverage < 1.0 and r.overall_coverage < 1.0, r
 
 
 def test_l7_seam_skill_union():
@@ -322,15 +313,8 @@ def test_l7_seam_skill_union():
     assert r is None or r.best_coverage < 1.0, r
 
 
-def test_l7_seam_role_union():
-    from applire.services.oracle.matchers import ground_via_role_union
+def test_l7_narrative_coverage_keeps_substring_reach():
+    from applire.services.oracle.matchers import ground_text_claim
 
-    r = ground_via_role_union(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE), "w1")
-    assert r is None or r.best_coverage < 1.0, r
-
-
-def test_l7_seam_owner_scoped_coverage():
-    from applire.services.oracle.audit import _owner_scoped_coverage
-
-    cov = _owner_scoped_coverage(_SEAM_TEXT, build_vault_index(_SEAM_PROFILE), {"w1"})
-    assert cov < 1.0, cov
+    r = ground_text_claim("Led KI rollout", build_vault_index(_SEAM_PROFILE))
+    assert r.best_coverage == 1.0, r  # pinned: unchanged by #790 line L7

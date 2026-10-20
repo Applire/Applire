@@ -25,13 +25,19 @@ from applire.services.oracle.matchers.vault import EvidenceUnit, VaultIndex
 # content tokens is present in a single vault evidence unit.
 GROUNDED_MIN_COVERAGE = 0.6
 
-#: #790 line L7 (2026-10-20): a claim token this short ("it", "am", "ki", "qa",
-#: "sap") is matched as a WHOLE token. Under the substring predicate "IT" was
-#: present in "scikit-learn", "mit", "with" — a free coverage hit in every
-#: vault: "I am used to working with research IT teams" grounded on the skills
-#: "scikit-learn" + "Leitung kleiner Entwicklerteams" while the keyword check
-#: (correctly) called "Research IT" unsupported. Longer tokens keep the
-#: substring reach ADR-048 pins (German compounds: "teams" in "Entwicklerteams").
+#: #790 line L7 (2026-10-20): in the SKILL-UNION fallback a claim token this
+#: short ("it", "ki", "qa") is matched as a WHOLE token — the union is asked
+#: "does the vault name this competence", the question the whole-token sibling
+#: was built for (ground_skill_claim). Under the substring predicate "IT" was
+#: present in "scikit-learn": "I am used to working with research IT teams"
+#: grounded on the skills "scikit-learn" + "Leitung kleiner Entwicklerteams"
+#: while the keyword check (correctly) called "Research IT" unsupported.
+#: Longer tokens keep the ADR-048 substring reach ("teams" in
+#: "Entwicklerteams"). Scoped to the union on purpose: applied to the four
+#: narrative coverage sites as well, the offline corpus (1,219 pairs) moved
+#: 143 claims grounded -> unverifiable and flipped 12 documents to
+#: unverifiable-dominated — short function tokens ("am", "st") carry genuine
+#: paraphrase coverage there today; that is a collector line, not this fix.
 _SHORT_TOKEN_MAX = 3
 
 
@@ -130,10 +136,10 @@ def ground_text_claim(text: str, index: VaultIndex) -> GroundingResult:
     if not tokens:
         return GroundingResult(0.0, None, 0.0, 0)
 
-    overall_hits = sum(1 for t in tokens if claim_token_present(t, index.all_text_norm))
+    overall_hits = sum(1 for t in tokens if surface_present(t, index.all_text_norm))
     scored: list[tuple[int, int, EvidenceUnit]] = []
     for order, unit in enumerate(index.units):
-        hits = sum(1 for t in tokens if claim_token_present(t, unit.text_norm))
+        hits = sum(1 for t in tokens if surface_present(t, unit.text_norm))
         if hits > 0:
             scored.append((-hits, order, unit))
     scored.sort()
@@ -297,7 +303,7 @@ def ground_via_role_union(
     hits = 0
     for t in tokens:
         for unit in role_units:
-            if claim_token_present(t, unit.text_norm):
+            if surface_present(t, unit.text_norm):
                 hits += 1
                 if unit not in matched_units:
                     matched_units.append(unit)
